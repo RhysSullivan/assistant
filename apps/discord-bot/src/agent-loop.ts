@@ -179,6 +179,8 @@ function buildAgentPrompt(userPrompt: string, now: Date): string {
   return [
     "run_code expects JavaScript function-body code executed as new AsyncFunction('tools', code).",
     "Inside code, call available tools directly like: await tools.calendar.update({ title, startsAt, notes }).",
+    "Prefer a single run_code call that completes the full request end-to-end.",
+    "Only issue another run_code call when the prior run failed or was denied and you are retrying with a fix.",
     "For multiple events, produce multiple tool calls in the same code block.",
     "Never claim an action succeeded unless run_code returned ok=true.",
     `Current timestamp: ${now.toISOString()}`,

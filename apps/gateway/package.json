@@ -9,7 +9,7 @@
   "scripts": {
     "with-env": "bun run --env-file=../../.env --",
     "with-env:prod": "bun run --env-file=../../.env.production --",
-    "dev": "bun with-env bun run src/index.ts",
+    "dev": "bun with-env bun run --hot src/index.ts",
     "start": "bun with-env bun run src/index.ts",
     "start:prod": "bun with-env:prod bun run src/index.ts",
     "typecheck": "tsgo --noEmit --incremental false -p tsconfig.json",

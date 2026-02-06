@@ -183,7 +183,11 @@ export function AgentSessionView(params: {
     <ApprovalRequestView
       toolPath={state.approval.toolPath}
       callId={state.approval.callId}
+      title={state.approval.title}
+      details={state.approval.details}
+      link={state.approval.link}
       inputPreview={state.approval.inputPreview}
+      codeSnippet={state.approval.codeSnippet}
       requesterId={requesterId}
       resolved={state.resolved}
       onApprove={async (interaction) => {

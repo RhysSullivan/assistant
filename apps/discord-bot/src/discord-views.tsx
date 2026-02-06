@@ -45,7 +45,11 @@ export function AssistantReplyView(params: { message: string; footer?: string | 
 export function ApprovalRequestView(params: {
   toolPath: string;
   callId: string;
+  title?: string | undefined;
+  details?: string | undefined;
+  link?: string | undefined;
   inputPreview?: string | undefined;
+  codeSnippet?: string | undefined;
   requesterId: string;
   resolved?: { decision: ApprovalDecision; actorId?: string | undefined } | undefined;
   onApprove: (interaction: ButtonInteraction) => void | Promise<void>;
@@ -61,7 +65,16 @@ export function ApprovalRequestView(params: {
 
   return (
     <Container accentColor={accent}>
-      <TextDisplay>Approval requested for `{params.toolPath}`.</TextDisplay>
+      {params.codeSnippet ? (
+        <>
+          <TextDisplay>Generated code</TextDisplay>
+          <TextDisplay>{formatCodeBlock(params.codeSnippet)}</TextDisplay>
+          <Separator spacing="small" divider />
+        </>
+      ) : null}
+      <TextDisplay>{params.title ?? `Approval requested for \`${params.toolPath}\`.`}</TextDisplay>
+      {params.details ? <TextDisplay>{params.details}</TextDisplay> : null}
+      {params.link ? <TextDisplay>{`Link: ${params.link}`}</TextDisplay> : null}
       {params.inputPreview ? <TextDisplay>Input: `{params.inputPreview}`</TextDisplay> : null}
       <TextDisplay>{`Requested by <@${params.requesterId}>.`}</TextDisplay>
       {decisionText ? <TextDisplay>{decisionText}</TextDisplay> : null}
@@ -81,4 +94,8 @@ function splitParagraphs(value: string): string[] {
     .split(/\n{2,}/)
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0);
+}
+
+function formatCodeBlock(code: string): string {
+  return `\`\`\`ts\n${code}\n\`\`\``;
 }

@@ -32,6 +32,7 @@ interface RunCodeToolOutput {
 interface RunWithClaudeInput {
   prompt: string;
   now: Date;
+  toolPromptGuidance?: string;
   executeCode: (input: RunCodeToolInput) => Promise<RunCodeToolOutput>;
 }
 
@@ -43,6 +44,8 @@ interface RunWithClaudeOutput {
 
 interface AgentLoopOptions {
   now?: Date;
+  toolPromptGuidance?: string;
+  toolTypeDeclarations?: string;
   runWithClaude?: (input: RunWithClaudeInput) => Promise<RunWithClaudeOutput>;
 }
 
@@ -67,7 +70,8 @@ export async function runAgentLoop(
   const runs: AgentCodeRun[] = [];
 
   const executeCode = async (input: RunCodeToolInput): Promise<RunCodeToolOutput> => {
-    const typecheck = typecheckCodeSnippet(input.code);
+    console.log("executeCode", input.code);
+    const typecheck = typecheckCodeSnippet(input.code, options.toolTypeDeclarations);
     if (!typecheck.ok) {
       const failed: CodeModeRunResult = {
         ok: false,
@@ -112,6 +116,7 @@ export async function runAgentLoop(
     const generated = await (options.runWithClaude ?? runWithClaude)({
       prompt,
       now,
+      ...(options.toolPromptGuidance ? { toolPromptGuidance: options.toolPromptGuidance } : {}),
       executeCode,
     });
 
@@ -141,7 +146,7 @@ async function runWithClaude(input: RunWithClaudeInput): Promise<RunWithClaudeOu
       model,
       temperature: 0,
       stopWhen: stepCountIs(CLAUDE_MAX_STEPS),
-      prompt: buildAgentPrompt(input.prompt, input.now),
+      prompt: buildAgentPrompt(input.prompt, input.now, input.toolPromptGuidance),
       system: buildSystemPrompt(authMode),
       tools: {
         run_code: tool({
@@ -175,15 +180,21 @@ function buildSystemPrompt(authMode: "api" | "oauth"): string {
   ].join("\n");
 }
 
-function buildAgentPrompt(userPrompt: string, now: Date): string {
+function buildAgentPrompt(userPrompt: string, now: Date, toolPromptGuidance?: string): string {
   return [
     "run_code expects JavaScript function-body code executed as new AsyncFunction('tools', code).",
-    "Inside code, call available tools directly like: await tools.calendar.update({ title, startsAt, notes }).",
-    "For multiple events, produce multiple tool calls in the same code block.",
+    "Inside code, call available tools directly using dot notation.",
+    "Use exactly one run_code call per user request whenever possible.",
+    "For workflows that read then mutate (for example list-then-close), do both in the same run_code block.",
+    "Only issue another run_code call when the prior run failed or was denied and you are retrying with a fix.",
+    "For bulk changes, use read operations first, then write operations one-by-one.",
     "Never claim an action succeeded unless run_code returned ok=true.",
+    toolPromptGuidance ? `Available tools:\n${toolPromptGuidance}` : null,
     `Current timestamp: ${now.toISOString()}`,
     `User request: ${userPrompt}`,
-  ].join("\n");
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 }
 
 function describeUnknown(error: unknown): string {

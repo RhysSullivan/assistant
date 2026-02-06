@@ -103,6 +103,19 @@ export function createCodeModeRunner(options: CodeModeRunnerOptions): {
         try: async () => {
           const execute = new AsyncFunctionCtor("tools", `"use strict";\n${params.code}`);
           const value = await execute(tools);
+
+          const deniedCalls = receipts.filter((receipt) => receipt.status === "denied");
+          if (deniedCalls.length > 0) {
+            return {
+              ok: false as const,
+              error:
+                deniedCalls.length === 1
+                  ? `Tool call was denied: ${deniedCalls[0]!.toolPath}`
+                  : `${deniedCalls.length} tool calls were denied`,
+              receipts: [...receipts],
+            };
+          }
+
           return {
             ok: true as const,
             value,
@@ -219,7 +232,8 @@ function createToolInvoker(params: {
           timestamp,
           ...(inputPreview !== undefined ? { inputPreview } : {}),
         });
-        throw new Error(`Tool call denied: ${params.toolPath}`);
+        // Return undefined so caller code can continue with remaining work.
+        return undefined;
       }
     }
 

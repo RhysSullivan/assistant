@@ -132,4 +132,53 @@ return [first.title, second.title, third.title];
       }
     }),
   );
+
+  it.effect("continues after one denied write and still requests approval for subsequent writes", () =>
+    Effect.gen(function* () {
+      let ranMutations = 0;
+      const approvalDecisions: Array<"approved" | "denied"> = ["denied", "approved"];
+      const approvalCalls: Array<{ toolPath: string }> = [];
+
+      const runner = createCodeModeRunner({
+        tools: {
+          calendar: {
+            update: defineTool({
+              kind: "write",
+              approval: "required",
+              run: (input: { id: string; title: string }) =>
+                Effect.sync(() => {
+                  ranMutations += 1;
+                  return { id: input.id, title: input.title };
+                }),
+            }),
+          },
+        },
+        requestApproval: (request) =>
+          Effect.sync(() => {
+            approvalCalls.push({ toolPath: request.toolPath });
+            return approvalDecisions.shift() ?? "approved";
+          }),
+      });
+
+      const result = yield* runner.run({
+        code: `
+const first = await tools.calendar.update({ id: 'evt_10', title: 'Denied first' });
+const second = await tools.calendar.update({ id: 'evt_11', title: 'Approved second' });
+return { first, second };
+`,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain("denied");
+      }
+      expect(approvalCalls).toHaveLength(2);
+      expect(ranMutations).toBe(1);
+      expect(result.receipts).toHaveLength(2);
+      expect(result.receipts[0]?.status).toBe("denied");
+      expect(result.receipts[1]?.status).toBe("succeeded");
+      expect(result.receipts[0]?.decision).toBe("denied");
+      expect(result.receipts[1]?.decision).toBe("approved");
+    }),
+  );
 });

@@ -1,24 +1,20 @@
 import ts from "typescript";
 
 const VIRTUAL_FILE = "/__openassistant__/codemode-check.ts";
-
-const TOOL_DECLARATIONS = [
-  "type CalendarUpdateInput = { title: string; startsAt: string; notes?: string };",
-  "declare const tools: {",
-  "  calendar: {",
-  "    update(input: CalendarUpdateInput): Promise<unknown>;",
-  "    list(): Promise<unknown>;",
-  "  };",
-  "};",
+const DEFAULT_TOOL_DECLARATIONS = [
+  "declare const tools: Record<string, unknown>;",
 ].join("\n");
 
 export type CodeTypecheckResult =
   | { ok: true }
   | { ok: false; error: string };
 
-export function typecheckCodeSnippet(code: string): CodeTypecheckResult {
+export function typecheckCodeSnippet(
+  code: string,
+  toolDeclarations: string = DEFAULT_TOOL_DECLARATIONS,
+): CodeTypecheckResult {
   const source = [
-    TOOL_DECLARATIONS,
+    toolDeclarations,
     "async function __openassistant_check() {",
     code,
     "}",

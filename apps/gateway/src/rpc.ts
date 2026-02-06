@@ -26,7 +26,11 @@ export class ResolveApprovalOutput extends Schema.Class<ResolveApprovalOutput>("
 export class ApprovalPrompt extends Schema.Class<ApprovalPrompt>("ApprovalPrompt")({
   callId: Schema.String,
   toolPath: Schema.String,
+  title: Schema.optional(Schema.String),
+  details: Schema.optional(Schema.String),
+  link: Schema.optional(Schema.String),
   inputPreview: Schema.optional(Schema.String),
+  codeSnippet: Schema.optional(Schema.String),
 }) {}
 
 export const TurnResultSchema = Schema.Struct({
