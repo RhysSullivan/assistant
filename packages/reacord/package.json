@@ -1,0 +1,24 @@
+{
+  "name": "@openassistant/reacord",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit --incremental false -p tsconfig.json",
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; for (const p of ['dist','node_modules','.turbo','coverage','.tsbuildinfo']) rmSync(p,{recursive:true,force:true});\""
+  },
+  "dependencies": {
+    "@effect-atom/atom": "^0.4.11",
+    "@effect-atom/atom-react": "^0.4.4",
+    "discord.js": "^14.17.3",
+    "effect": "latest",
+    "react": "^19.0.0",
+    "react-reconciler": "^0.31.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-reconciler": "^0.31.0"
+  }
+}

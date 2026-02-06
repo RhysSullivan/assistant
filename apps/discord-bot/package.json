@@ -5,18 +5,23 @@
   "scripts": {
     "with-env": "bun run --env-file=../../.env --",
     "with-env:prod": "bun run --env-file=../../.env.production --",
-    "dev": "bun with-env bun run --hot src/index.ts",
-    "start": "bun with-env bun run src/index.ts",
-    "start:prod": "bun with-env:prod bun run src/index.ts",
+    "dev": "bun with-env bun run --hot src/index.tsx",
+    "start": "bun with-env bun run src/index.tsx",
+    "start:prod": "bun with-env:prod bun run src/index.tsx",
     "typecheck": "tsgo --noEmit --incremental false -p tsconfig.json",
     "clean": "bun -e \"import { rmSync } from 'node:fs'; for (const p of ['dist','node_modules','.turbo','coverage','.tsbuildinfo']) rmSync(p,{recursive:true,force:true});\""
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
     "@openassistant/core": "workspace:*",
+    "@openassistant/reacord": "workspace:*",
     "ai": "^6.0.73",
     "discord.js": "^14.17.3",
     "effect": "latest",
+    "react": "^19.0.0",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
   }
 }

@@ -49,7 +49,7 @@ interface AgentLoopOptions {
 const DEFAULT_ANTHROPIC_MODEL =
   readEnv("OPENASSISTANT_ANTHROPIC_MODEL")?.trim() ??
   readEnv("OPENASSISTANT_CLAUDE_MODEL")?.trim() ??
-  "claude-3-7-sonnet-latest";
+  "claude-opus-4-5-20251101";
 const CLAUDE_TIMEOUT_MS = Number(readEnv("OPENASSISTANT_CLAUDE_TIMEOUT_MS") ?? 60_000);
 const CLAUDE_MAX_STEPS = Number(readEnv("OPENASSISTANT_AGENT_MAX_STEPS") ?? 8);
 
