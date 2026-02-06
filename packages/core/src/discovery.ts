@@ -48,13 +48,19 @@ export function buildToolIndex(tree: ToolTree): ToolIndexEntry[] {
       const path = prefix ? `${prefix}.${key}` : key;
       if (isToolDefinition(value)) {
         const tool = value as ToolDefinition;
+        const returnsType = getReturnsTypeString(tool);
+        // Detect paginated endpoints from return type
+        const isPaginated = /\bpagination\b|\bnext_cursor\b|\bhas_more\b|\bnextPage\b/.test(returnsType);
+        const description = isPaginated
+          ? `${tool.description} (⚠️ paginated — loop until pagination.next is null to get all results)`
+          : tool.description;
         entries.push({
           path,
-          description: tool.description,
+          description,
           approval: tool.approval,
           argsType: getArgsTypeString(tool),
-          returnsType: getReturnsTypeString(tool),
-          searchText: `${path} ${tool.description}`.toLowerCase(),
+          returnsType,
+          searchText: `${path} ${description}`.toLowerCase(),
         });
       } else {
         walk(value as ToolTree, path);

@@ -79,6 +79,12 @@ export interface AgentOptions {
    * Defaults to 50.
    */
   readonly discoveryThreshold?: number | undefined;
+  /**
+   * Additional context to include in the system prompt.
+   * Use this to provide environment-specific info like project IDs,
+   * usernames, organization names, etc. that the agent may need.
+   */
+  readonly context?: string | undefined;
 }
 
 export interface AgentResult {
@@ -181,7 +187,7 @@ function prepareToolsForAgent(
 // System prompt
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(guidance: string, discoveryMode: boolean): string {
+function buildSystemPrompt(guidance: string, discoveryMode: boolean, context?: string): string {
   const discoveryInstructions = discoveryMode
     ? `
 ## Tool Discovery
@@ -225,10 +231,18 @@ return { closed: results.length, issues: results };
 `
     : "";
 
+  const contextSection = context
+    ? `
+## Context
+
+${context}
+`
+    : "";
+
   return `You are an AI assistant that executes tasks by generating TypeScript code.
 
 You have access to a set of tools via the \`tools\` object. When the user asks you to do something, generate TypeScript code that calls these tools to accomplish the task.
-
+${contextSection}
 ## Available Tools
 
 ${guidance}
@@ -241,6 +255,17 @@ ${discoveryInstructions}
 - No \`fetch\`, \`process\`, \`require\`, or \`import\` — use tools for all external interactions
 - Write clean, straightforward TypeScript — use for loops, map, filter, Promise.all as needed
 - Handle errors gracefully with try/catch — if a tool call fails or is denied, continue with remaining work
+- **Pagination:** If a list endpoint's return type has \`pagination\`, \`next\`, \`cursor\`, or similar fields, the results may be paginated. Check \`pagination.next\` (or equivalent) in the response — if it's not null, there are more pages. Paginate when the user needs complete results. Example pattern:
+  \`\`\`ts
+  let allItems = [];
+  let cursor = undefined;
+  while (true) {
+    const resp = await tools.api.list({ limit: 100, since: cursor });
+    allItems.push(...resp.items);
+    if (!resp.pagination?.next) break;
+    cursor = resp.pagination.next;
+  }
+  \`\`\`
 - Return a structured result from your script, then summarize what happened
 - Be concise and accurate — base your response on actual tool results, not assumptions`;
 }
@@ -261,6 +286,7 @@ export function createAgent(options: AgentOptions): {
     maxCodeRuns = 100,
     timeoutMs = 30_000,
     discoveryThreshold = DISCOVERY_THRESHOLD,
+    context,
   } = options;
 
   const { sandboxTools, promptGuidance, toolDeclarations, discoveryMode } =
@@ -278,7 +304,7 @@ export function createAgent(options: AgentOptions): {
 
   return {
     async run(prompt: string): Promise<AgentResult> {
-      const systemPrompt = buildSystemPrompt(promptGuidance, discoveryMode);
+      const systemPrompt = buildSystemPrompt(promptGuidance, discoveryMode, context);
       const runs: CodeRun[] = [];
       const allReceipts: ToolCallReceipt[] = [];
 

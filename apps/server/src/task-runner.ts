@@ -17,6 +17,8 @@ import {
 export interface TaskRunnerOptions {
   readonly tools: ToolTree;
   readonly model: LanguageModel;
+  /** Additional context for the system prompt (project IDs, org info, etc.) */
+  readonly context?: string | undefined;
 }
 
 /**
@@ -36,6 +38,7 @@ export async function runTask(
   const agent = createAgent({
     tools: options.tools,
     model: options.model,
+    context: options.context,
     requestApproval: (request: ApprovalRequest): Promise<ApprovalDecision> => {
       // Emit the approval_request event so SSE subscribers see it
       emitTaskEvent(taskId, {

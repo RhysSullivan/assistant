@@ -189,7 +189,20 @@ console.log("Loading tools...");
 const tools = await loadTools();
 const model = createPiAiModel({ apiKey });
 
-const app = createApp({ tools, model });
+// Build context for the system prompt
+const contextLines: string[] = [];
+if (POSTHOG_PROJECT_ID) {
+  contextLines.push(`- PostHog project ID: ${POSTHOG_PROJECT_ID} (use this for PostHog API calls that require a project_id)`);
+}
+if (GITHUB_TOKEN) {
+  contextLines.push(`- GitHub: authenticated via personal access token`);
+}
+if (VERCEL_TOKEN) {
+  contextLines.push(`- Vercel: authenticated via personal token`);
+}
+const context = contextLines.length > 0 ? contextLines.join("\n") : undefined;
+
+const app = createApp({ tools, model, context });
 
 app.listen(PORT);
 
