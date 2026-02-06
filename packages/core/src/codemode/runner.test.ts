@@ -79,9 +79,10 @@ describe("codemode runner", () => {
     }),
   );
 
-  it.effect("runs writes when approved and records success receipt", () =>
+  it.effect("runs three writes with three approval requests and three success receipts", () =>
     Effect.gen(function* () {
-      let ranMutation = false;
+      let ranMutations = 0;
+      const approvalCalls: Array<{ toolPath: string }> = [];
       const runner = createCodeModeRunner({
         tools: {
           calendar: {
@@ -90,28 +91,45 @@ describe("codemode runner", () => {
               approval: "required",
               run: (input: { id: string; title: string }) =>
                 Effect.sync(() => {
-                  ranMutation = true;
+                  ranMutations += 1;
                   return { id: input.id, title: input.title };
                 }),
             }),
           },
         },
-        requestApproval: () => Effect.succeed("approved" as const),
+        requestApproval: (request) =>
+          Effect.sync(() => {
+            approvalCalls.push({ toolPath: request.toolPath });
+            return "approved" as const;
+          }),
       });
 
       const result = yield* runner.run({
-        code: "const out = await tools.calendar.update({ id: 'evt_3', title: 'Dinner' }); return out.title;",
+        code: `
+const first = await tools.calendar.update({ id: 'evt_3', title: 'Dinner' });
+const second = await tools.calendar.update({ id: 'evt_4', title: 'Lunch' });
+const third = await tools.calendar.update({ id: 'evt_5', title: 'Breakfast' });
+return [first.title, second.title, third.title];
+`,
       });
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value).toBe("Dinner");
+        expect(result.value).toEqual(["Dinner", "Lunch", "Breakfast"]);
       }
-      expect(ranMutation).toBe(true);
-      expect(result.receipts).toHaveLength(1);
-      expect(result.receipts[0]?.decision).toBe("approved");
-      expect(result.receipts[0]?.status).toBe("succeeded");
-      expect(result.receipts[0]?.toolPath).toBe("calendar.update");
+      expect(ranMutations).toBe(3);
+      expect(approvalCalls).toHaveLength(3);
+      expect(approvalCalls.map((call) => call.toolPath)).toEqual([
+        "calendar.update",
+        "calendar.update",
+        "calendar.update",
+      ]);
+      expect(result.receipts).toHaveLength(3);
+      for (const receipt of result.receipts) {
+        expect(receipt.decision).toBe("approved");
+        expect(receipt.status).toBe("succeeded");
+        expect(receipt.toolPath).toBe("calendar.update");
+      }
     }),
   );
 });

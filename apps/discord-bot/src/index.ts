@@ -10,8 +10,8 @@ import {
 } from "discord.js";
 import { Effect } from "effect";
 import { DiscordApprovalBridge } from "./approval-bridge.js";
+import { runAgentLoop } from "./agent-loop.js";
 import { InMemoryCalendarStore } from "./calendar-store.js";
-import { generateCodeFromPrompt } from "./codegen.js";
 import { formatDiscordResponse } from "./format-response.js";
 import { createToolTree } from "./tools.js";
 
@@ -73,8 +73,6 @@ async function handleMessage(message: Message): Promise<void> {
     return;
   }
 
-  const generated = await generateCodeFromPrompt(message.content);
-
   const runner = createCodeModeRunner({
     tools,
     requestApproval: (request) =>
@@ -89,13 +87,15 @@ async function handleMessage(message: Message): Promise<void> {
       }),
   });
 
-  const result = await Effect.runPromise(runner.run({ code: generated.code }));
+  const generated = await runAgentLoop(message.content, (code) =>
+    Effect.runPromise(runner.run({ code })),
+  );
   const response = formatDiscordResponse({
     prompt: message.content,
-    generatedCode: generated.code,
-    rationale: generated.rationale,
+    text: generated.text,
+    planner: generated.planner,
     provider: generated.provider,
-    result,
+    runs: generated.runs,
   });
 
   await ack.edit(response);
