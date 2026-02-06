@@ -1,73 +1,68 @@
 import type { CodeModeRunResult, ToolCallReceipt } from "@openassistant/core";
 import { generateText, stepCountIs, tool } from "ai";
+import { Effect } from "effect";
 import { getAnthropicModel } from "./anthropic-provider.js";
 import { typecheckCodeSnippet } from "./code-typecheck.js";
 import { z } from "zod";
 
-export interface AgentCodeRun {
+const RUN_CODE_TOOL_SCHEMA = z.object({
+  code: z.string().min(1),
+});
+
+const DEFAULT_ANTHROPIC_MODEL =
+  Bun.env.OPENASSISTANT_ANTHROPIC_MODEL?.trim() ??
+  Bun.env.OPENASSISTANT_CLAUDE_MODEL?.trim() ??
+  "claude-opus-4-5-20251101";
+const CLAUDE_TIMEOUT_MS = Number(Bun.env.OPENASSISTANT_CLAUDE_TIMEOUT_MS ?? 60_000);
+const CLAUDE_MAX_STEPS = Number(Bun.env.OPENASSISTANT_AGENT_MAX_STEPS ?? 8);
+
+export type AgentCodeRun = {
   code: string;
   result: CodeModeRunResult;
-  reason?: string | undefined;
-}
+};
 
-export interface AgentLoopResult {
-  provider: "claude";
+export type AgentLoopResult = {
   planner: string;
   text: string;
   runs: AgentCodeRun[];
-}
+};
 
-interface RunCodeToolInput {
-  code: string;
-  reason?: string | undefined;
-}
+type RunCodeToolInput = z.infer<typeof RUN_CODE_TOOL_SCHEMA>;
 
-interface RunCodeToolOutput {
+type RunCodeToolOutput = {
   ok: boolean;
   receipts: ToolCallReceipt[];
   value?: unknown;
   error?: string;
-}
+};
 
-interface RunWithClaudeInput {
+type PlannerInput = {
   prompt: string;
   now: Date;
-  executeCode: (input: RunCodeToolInput) => Promise<RunCodeToolOutput>;
-}
+  executeCode: (input: RunCodeToolInput) => Effect.Effect<RunCodeToolOutput>;
+};
 
-interface RunWithClaudeOutput {
+type PlannerOutput = {
+  plannerName: string;
   text: string;
   modelID: string;
   authSource: string;
-}
+};
 
-interface AgentLoopOptions {
-  now?: Date;
-  runWithClaude?: (input: RunWithClaudeInput) => Promise<RunWithClaudeOutput>;
-}
+type RunPlanner = (input: PlannerInput) => Effect.Effect<PlannerOutput, unknown>;
 
-const DEFAULT_ANTHROPIC_MODEL =
-  readEnv("OPENASSISTANT_ANTHROPIC_MODEL")?.trim() ??
-  readEnv("OPENASSISTANT_CLAUDE_MODEL")?.trim() ??
-  "claude-opus-4-5-20251101";
-const CLAUDE_TIMEOUT_MS = Number(readEnv("OPENASSISTANT_CLAUDE_TIMEOUT_MS") ?? 60_000);
-const CLAUDE_MAX_STEPS = Number(readEnv("OPENASSISTANT_AGENT_MAX_STEPS") ?? 8);
+export type RunAgentLoopInput = {
+  prompt: string;
+  runCode: (code: string) => Effect.Effect<CodeModeRunResult>;
+  now: Date;
+  runPlanner: RunPlanner;
+};
 
-const RUN_CODE_TOOL_SCHEMA = z.object({
-  code: z.string().min(1),
-  reason: z.string().min(1).optional(),
-});
-
-export async function runAgentLoop(
-  prompt: string,
-  runCode: (code: string) => Promise<CodeModeRunResult>,
-  options: AgentLoopOptions = {},
-): Promise<AgentLoopResult> {
-  const now = options.now ?? new Date();
+export const runAgentLoop = Effect.fn("AgentLoop.run")(function* (input: RunAgentLoopInput) {
   const runs: AgentCodeRun[] = [];
 
-  const executeCode = async (input: RunCodeToolInput): Promise<RunCodeToolOutput> => {
-    const typecheck = typecheckCodeSnippet(input.code);
+  const executeCode = Effect.fn("AgentLoop.executeCode")(function* (toolInput: RunCodeToolInput) {
+    const typecheck = typecheckCodeSnippet(toolInput.code);
     if (!typecheck.ok) {
       const failed: CodeModeRunResult = {
         ok: false,
@@ -75,100 +70,81 @@ export async function runAgentLoop(
         receipts: [],
       };
       runs.push({
-        code: input.code,
+        code: toolInput.code,
         result: failed,
-        ...(input.reason ? { reason: input.reason } : {}),
       });
-      return {
-        ok: false,
-        error: failed.error,
-        receipts: [],
-      };
+      return toRunCodeToolOutput(failed);
     }
 
-    const result = await runCode(input.code);
+    const result = yield* input.runCode(toolInput.code);
     runs.push({
-      code: input.code,
+      code: toolInput.code,
       result,
-      ...(input.reason ? { reason: input.reason } : {}),
     });
+    return toRunCodeToolOutput(result);
+  });
 
-    if (result.ok) {
-      return {
-        ok: true,
-        value: result.value,
-        receipts: result.receipts,
-      };
-    }
-
-    return {
-      ok: false,
-      error: result.error,
-      receipts: result.receipts,
-    };
+  const generated = yield* input.runPlanner({
+    prompt: input.prompt,
+    now: input.now,
+    executeCode,
+  });
+  return {
+    planner: `${generated.plannerName} tool-loop (${runs.length} code runs, model=${generated.modelID}, auth=${generated.authSource}).`,
+    text: generated.text,
+    runs,
   };
+});
 
-  try {
-    const generated = await (options.runWithClaude ?? runWithClaude)({
-      prompt,
-      now,
-      executeCode,
-    });
+export type RunAgentLoopWithAnthropicInput = Omit<RunAgentLoopInput, "runPlanner">;
 
-    return {
-      provider: "claude",
-      planner: `Claude tool-loop (${runs.length} code run${runs.length === 1 ? "" : "s"}, model=${generated.modelID}, auth=${generated.authSource}).`,
-      text: generated.text,
-      runs,
-    };
-  } catch (error) {
-    return {
-      provider: "claude",
-      planner: `Claude tool-loop failed before completion (model=${DEFAULT_ANTHROPIC_MODEL}).`,
-      text: `Agent loop failed: ${describeUnknown(error)}. No actions were executed.`,
-      runs,
-    };
-  }
-}
+export const runAgentLoopWithAnthropic = Effect.fn("AgentLoop.runWithAnthropic")(function* (
+  input: RunAgentLoopWithAnthropicInput,
+) {
+  return yield* runAgentLoop({
+    ...input,
+    runPlanner: runAnthropicPlanner,
+  });
+});
 
-async function runWithClaude(input: RunWithClaudeInput): Promise<RunWithClaudeOutput> {
+const runAnthropicPlanner = Effect.fn("AgentLoop.runAnthropicPlanner")(function* (input: PlannerInput) {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), CLAUDE_TIMEOUT_MS);
 
-  try {
-    const { model, authSource, authMode } = await getAnthropicModel(DEFAULT_ANTHROPIC_MODEL);
-    const result = await generateText({
-      model,
-      temperature: 0,
-      stopWhen: stepCountIs(CLAUDE_MAX_STEPS),
-      prompt: buildAgentPrompt(input.prompt, input.now),
-      system: buildSystemPrompt(authMode),
-      tools: {
-        run_code: tool({
-          description:
-            "Execute Bun TypeScript function body in codemode runtime. Use this for every action that requires tools.* calls.",
-          inputSchema: RUN_CODE_TOOL_SCHEMA,
-          execute: (args) => input.executeCode(args),
-        }),
-      },
-      abortSignal: abortController.signal,
-    });
+  const generated = yield* Effect.tryPromise({
+    try: async () => {
+      const { model, authSource } = await getAnthropicModel(DEFAULT_ANTHROPIC_MODEL);
+      const result = await generateText({
+        model,
+        temperature: 0,
+        stopWhen: stepCountIs(CLAUDE_MAX_STEPS),
+        prompt: buildAgentPrompt(input.prompt, input.now),
+        system: buildSystemPrompt(),
+        tools: {
+          run_code: tool({
+            description:
+              "Execute Bun TypeScript function body in codemode runtime. Use this for every action that requires tools.* calls.",
+            inputSchema: RUN_CODE_TOOL_SCHEMA,
+            execute: (args) => Effect.runPromise(input.executeCode(args)),
+          }),
+        },
+        abortSignal: abortController.signal,
+      });
 
-    return {
-      text: result.text.trim() || "Done.",
-      modelID: DEFAULT_ANTHROPIC_MODEL,
-      authSource,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+      return {
+        plannerName: "Anthropic Claude",
+        text: result.text.trim() || "Done.",
+        modelID: DEFAULT_ANTHROPIC_MODEL,
+        authSource,
+      } as PlannerOutput;
+    },
+    catch: (error) => error,
+  }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timeout))));
 
-function buildSystemPrompt(authMode: "api" | "oauth"): string {
-  if (authMode === "oauth") {
-    return "You are Claude Code, Anthropic's official CLI for Claude.";
-  }
+  return generated;
+});
 
+function buildSystemPrompt(): string {
   return [
     "You are OpenAssistant. Execute work via the run_code tool and then report what happened.",
     "In your final response, summarize relevant tool activity and mention failures/denials clearly.",
@@ -188,14 +164,18 @@ function buildAgentPrompt(userPrompt: string, now: Date): string {
   ].join("\n");
 }
 
-function describeUnknown(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
+function toRunCodeToolOutput(result: CodeModeRunResult): RunCodeToolOutput {
+  if (result.ok) {
+    return {
+      ok: true,
+      value: result.value,
+      receipts: result.receipts,
+    };
   }
-  return String(error);
-}
 
-function readEnv(key: string): string | undefined {
-  const bun = (globalThis as { Bun?: { env?: Record<string, string | undefined> } }).Bun;
-  return bun?.env?.[key] ?? process.env[key];
+  return {
+    ok: false,
+    error: result.error,
+    receipts: result.receipts,
+  };
 }

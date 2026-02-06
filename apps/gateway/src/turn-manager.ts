@@ -5,7 +5,7 @@ import {
   type ToolTree,
 } from "@openassistant/core";
 import type { AgentLoopResult } from "./agent-loop.js";
-import { runAgentLoop } from "./agent-loop.js";
+import { runAgentLoopWithAnthropic } from "./agent-loop.js";
 import type { ApprovalPresentation } from "./plugins/plugin-system.js";
 import { type TurnResult } from "./rpc.js";
 import { Context, Deferred, Effect, Layer, Ref } from "effect";
@@ -31,14 +31,21 @@ type TurnSession = {
   completed: boolean;
 };
 
+type TurnManagerParams = {
+  tools: ToolTree;
+  toolPromptGuidance: string;
+  toolTypeDeclarations: string;
+  formatApproval: (request: ApprovalRequest) => ApprovalPresentation;
+};
+
 export type ResolveApprovalStatus = "resolved" | "not_found" | "unauthorized";
 
-type WaitForNextState =
-  | { _tag: "missing" }
-  | { _tag: "event"; event: TurnEvent }
-  | { _tag: "await"; deferred: Deferred.Deferred<TurnEvent> };
+type WaitForNextResult =
+  | { kind: "missing" }
+  | { kind: "event"; event: TurnEvent }
+  | { kind: "wait"; deferred: Deferred.Deferred<TurnEvent> };
 
-type ResolveApprovalState =
+type ResolveApprovalResult =
   | { status: "not_found" }
   | { status: "unauthorized" }
   | {
@@ -47,42 +54,18 @@ type ResolveApprovalState =
       nextWaiter: Deferred.Deferred<void> | null;
     };
 
+type TurnManagerService = Effect.Effect.Success<ReturnType<typeof makeTurnManager>>;
+
 export class TurnManager extends Context.Tag("@openassistant/gateway/TurnManager")<
   TurnManager,
-  {
-    readonly start: (params: {
-      prompt: string;
-      requesterId: string;
-      channelId: string;
-      now: Date;
-    }) => Effect.Effect<string>;
-    readonly waitForNext: (turnId: string) => Effect.Effect<TurnEvent | null>;
-    readonly resolveApproval: (params: {
-      turnId: string;
-      callId: string;
-      actorId: string;
-      decision: ApprovalDecision;
-    }) => Effect.Effect<ResolveApprovalStatus>;
-  }
+  TurnManagerService
 >() {
-  static layer(params: {
-    tools: ToolTree;
-    verboseFooter: boolean;
-    toolPromptGuidance: string;
-    toolTypeDeclarations: string;
-    formatApproval: (request: ApprovalRequest) => ApprovalPresentation;
-  }): Layer.Layer<TurnManager> {
+  static layer(params: TurnManagerParams): Layer.Layer<TurnManager> {
     return Layer.effect(TurnManager, makeTurnManager(params));
   }
 }
 
-function makeTurnManager(params: {
-  tools: ToolTree;
-  verboseFooter: boolean;
-  toolPromptGuidance: string;
-  toolTypeDeclarations: string;
-  formatApproval: (request: ApprovalRequest) => ApprovalPresentation;
-}) {
+function makeTurnManager(params: TurnManagerParams) {
   return Effect.gen(function* () {
     const sessionsRef = yield* Ref.make(new Map<string, TurnSession>());
 
@@ -165,21 +148,19 @@ function makeTurnManager(params: {
 
       const formatted = params.formatApproval(request);
 
-      yield* emitEvent(turnId, {
-        status: "awaiting_approval",
-        turnId,
-        approval: {
-          callId: request.callId,
-          toolPath: request.toolPath,
-          ...(formatted.title ? { title: formatted.title } : {}),
-          ...(formatted.details ? { details: formatted.details } : {}),
-          ...(formatted.link ? { link: formatted.link } : {}),
-          ...(formatted.inputPreview ? { inputPreview: formatted.inputPreview } : {}),
-          ...(state.currentCode ? { codeSnippet: truncateCode(state.currentCode) } : {}),
-        },
-      });
+      yield* emitEvent(turnId, toApprovalEvent(turnId, request, formatted, state.currentCode));
 
       return yield* Deferred.await(decision);
+    });
+
+    const setCurrentCode = Effect.fn("TurnManager.setCurrentCode")(function* (turnId: string, code: string | null) {
+      yield* Ref.update(sessionsRef, (sessions) => {
+        const session = sessions.get(turnId);
+        if (session) {
+          session.currentCode = code;
+        }
+        return sessions;
+      });
     });
 
     const runSession = Effect.fn("TurnManager.runSession")(function* (turnId: string, prompt: string, now: Date) {
@@ -188,48 +169,22 @@ function makeTurnManager(params: {
         requestApproval: (request) => requestApproval(turnId, request),
       });
 
-      yield* Effect.tryPromise({
-        try: () =>
-          runAgentLoop(
-            prompt,
-            async (code) => {
-              await Effect.runPromise(
-                Ref.update(sessionsRef, (sessions) => {
-                  const session = sessions.get(turnId);
-                  if (session) {
-                    session.currentCode = code;
-                  }
-                  return sessions;
-                }),
-              );
-              const result = await Effect.runPromise(runner.run({ code }));
-              await Effect.runPromise(
-                Ref.update(sessionsRef, (sessions) => {
-                  const session = sessions.get(turnId);
-                  if (session) {
-                    session.currentCode = null;
-                  }
-                  return sessions;
-                }),
-              );
-              return result;
-            },
-            {
-              now,
-              toolPromptGuidance: params.toolPromptGuidance,
-              toolTypeDeclarations: params.toolTypeDeclarations,
-            },
-          ),
-        catch: describeUnknown,
+      const runCode = Effect.fn("TurnManager.runCode")(function* (code: string) {
+        yield* setCurrentCode(turnId, code);
+        return yield* runner.run({ code }).pipe(Effect.ensuring(setCurrentCode(turnId, null)));
+      });
+
+      yield* runAgentLoopWithAnthropic({
+        prompt,
+        now,
+        toolPromptGuidance: params.toolPromptGuidance,
+        toolTypeDeclarations: params.toolTypeDeclarations,
+        runCode,
       }).pipe(
-        Effect.flatMap((generated) => emitEvent(turnId, toCompletedEvent(turnId, generated, params.verboseFooter))),
-        Effect.catchAll((error) =>
-          emitEvent(turnId, {
-            status: "failed",
-            turnId,
-            error,
-          }),
-        ),
+        Effect.matchEffect({
+          onSuccess: (generated) => emitEvent(turnId, toCompletedEvent(turnId, generated)),
+          onFailure: (error) => emitEvent(turnId, toFailedEvent(turnId, describeUnknown(error))),
+        }),
       );
     });
 
@@ -268,31 +223,34 @@ function makeTurnManager(params: {
     const waitForNext = Effect.fn("TurnManager.waitForNext")(function* (turnId: string) {
       const deferred = yield* Deferred.make<TurnEvent>();
 
-      const state = yield* Ref.modify(sessionsRef, (sessions): readonly [WaitForNextState, Map<string, TurnSession>] => {
-        const session = sessions.get(turnId);
-        if (!session) {
-          return [{ _tag: "missing" }, sessions];
-        }
-        if (session.queue.length > 0) {
-          const event = session.queue.shift()!;
-          cleanupIfTerminal(sessions, session, event);
-          return [{ _tag: "event", event }, sessions];
-        }
-        if (session.waitingEvent) {
-          return [{ _tag: "await", deferred: session.waitingEvent }, sessions];
-        }
-        session.waitingEvent = deferred;
-        return [{ _tag: "await", deferred }, sessions];
-      });
+      const next = yield* Ref.modify(
+        sessionsRef,
+        (sessions): readonly [WaitForNextResult, Map<string, TurnSession>] => {
+          const session = sessions.get(turnId);
+          if (!session) {
+            return [{ kind: "missing" }, sessions];
+          }
+          if (session.queue.length > 0) {
+            const event = session.queue.shift()!;
+            cleanupIfTerminal(sessions, session, event);
+            return [{ kind: "event", event }, sessions];
+          }
+          if (session.waitingEvent) {
+            return [{ kind: "wait", deferred: session.waitingEvent }, sessions];
+          }
+          session.waitingEvent = deferred;
+          return [{ kind: "wait", deferred }, sessions];
+        },
+      );
 
-      if (state._tag === "missing") {
+      if (next.kind === "missing") {
         return null;
       }
-      if (state._tag === "event") {
-        return state.event;
+      if (next.kind === "event") {
+        return next.event;
       }
 
-      const event = yield* Deferred.await(state.deferred);
+      const event = yield* Deferred.await(next.deferred);
       yield* Ref.update(sessionsRef, (sessions) => {
         const session = sessions.get(turnId);
         if (session) {
@@ -312,7 +270,7 @@ function makeTurnManager(params: {
     }) {
       const result = yield* Ref.modify(
         sessionsRef,
-        (sessions): readonly [ResolveApprovalState, Map<string, TurnSession>] => {
+        (sessions): readonly [ResolveApprovalResult, Map<string, TurnSession>] => {
           const session = sessions.get(input.turnId);
           if (!session) {
             return [{ status: "not_found" }, sessions];
@@ -343,30 +301,56 @@ function makeTurnManager(params: {
       return "resolved" as const;
     });
 
-    return TurnManager.of({
+    return {
       start,
       waitForNext,
       resolveApproval,
-    });
+    };
   });
 }
 
-function toCompletedEvent(turnId: string, generated: AgentLoopResult, includeFooter: boolean): TurnResult {
+function toCompletedEvent(turnId: string, generated: AgentLoopResult): TurnResult {
   return {
     status: "completed",
     turnId,
     message: generated.text,
     planner: generated.planner,
     codeRuns: generated.runs.length,
-    ...(includeFooter ? { footer: generated.planner } : {}),
+    footer: generated.planner,
+  };
+}
+
+function toApprovalEvent(
+  turnId: string,
+  request: ApprovalRequest,
+  formatted: ApprovalPresentation,
+  currentCode: string | null,
+): TurnResult {
+  return {
+    status: "awaiting_approval",
+    turnId,
+    approval: {
+      callId: request.callId,
+      toolPath: request.toolPath,
+      title: formatted.title,
+      details: formatted.details,
+      link: formatted.link,
+      inputPreview: formatted.inputPreview,
+      codeSnippet: currentCode ? truncateCode(currentCode) : undefined,
+    },
+  };
+}
+
+function toFailedEvent(turnId: string, error: string): TurnResult {
+  return {
+    status: "failed",
+    turnId,
+    error,
   };
 }
 
 function newTurnId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return crypto.randomUUID();
 }
 
 function describeUnknown(error: unknown): string {
