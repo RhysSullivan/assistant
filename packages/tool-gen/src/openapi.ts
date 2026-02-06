@@ -30,6 +30,8 @@ export interface OpenApiToolSource {
   readonly defaultReadApproval?: ApprovalMode | undefined;
   /** Default approval mode for write operations (POST/PUT/DELETE/PATCH). Defaults to "required". */
   readonly defaultWriteApproval?: ApprovalMode | undefined;
+  /** Override the base URL from the spec. Useful when the spec has no `servers` or you're targeting a different environment. */
+  readonly baseUrl?: string | undefined;
 }
 
 export type OpenApiAuth =
@@ -237,9 +239,9 @@ export async function generateOpenApiTools(
   // Parse and dereference the spec
   const api = await SwaggerParser.dereference(source.spec as string) as Record<string, unknown>;
 
-  // Get base URL
+  // Get base URL (config override > spec servers > empty)
   const servers = (api["servers"] as Array<{ url: string }> | undefined) ?? [];
-  const baseUrl = servers[0]?.url ?? "";
+  const baseUrl = source.baseUrl ?? servers[0]?.url ?? "";
 
   const operations = parseOperations(api);
   const authHeaders = buildAuthHeaders(source.auth);
@@ -302,11 +304,26 @@ export async function generateOpenApiTools(
         required: inputRequired.length > 0 ? inputRequired : undefined,
       };
 
-      const argsZod = jsonSchemaToZod(combinedInputSchema);
-      const argsTypeString = jsonSchemaToTypeString(combinedInputSchema);
-      const returnsTypeString = op.responseSchema
-        ? jsonSchemaToTypeString(op.responseSchema)
-        : "any";
+      let argsZod: z.ZodType;
+      let argsTypeString: string;
+      let returnsTypeString: string;
+
+      try {
+        argsZod = jsonSchemaToZod(combinedInputSchema);
+        argsTypeString = jsonSchemaToTypeString(combinedInputSchema);
+      } catch {
+        // Recursive/circular schemas — fall back to z.any()
+        argsZod = z.any();
+        argsTypeString = "any";
+      }
+
+      try {
+        returnsTypeString = op.responseSchema
+          ? jsonSchemaToTypeString(op.responseSchema)
+          : "any";
+      } catch {
+        returnsTypeString = "any";
+      }
 
       const description = op.summary || op.description || `${op.method.toUpperCase()} ${op.path}`;
 

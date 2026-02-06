@@ -8,7 +8,8 @@
     "./runner": "./src/runner.ts",
     "./typechecker": "./src/typechecker.ts",
     "./agent": "./src/agent.ts",
-    "./events": "./src/events.ts"
+    "./events": "./src/events.ts",
+    "./discovery": "./src/discovery.ts"
   },
   "scripts": {
     "test": "bun test",

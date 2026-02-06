@@ -9,12 +9,17 @@
  * 6. Execute in sandbox
  * 7. Collect receipts, feed back to Claude
  * 8. Claude may call run_code again or produce final text
+ *
+ * When the tool count exceeds DISCOVERY_THRESHOLD, the agent injects
+ * a `tools.discover()` meta-tool so the LLM can search for relevant
+ * tools by keyword instead of having all tools described in the prompt.
  */
 
 import type { ToolTree, ApprovalDecision, ApprovalRequest, ToolCallReceipt } from "./tools.js";
 import type { RunResult } from "./runner.js";
 import { createRunner } from "./runner.js";
 import { generateToolDeclarations, generatePromptGuidance, typecheckCode } from "./typechecker.js";
+import { countTools, createDiscoverTool } from "./discovery.js";
 import type { TaskEvent } from "./events.js";
 
 // ---------------------------------------------------------------------------
@@ -67,6 +72,13 @@ export interface AgentOptions {
   readonly maxCodeRuns?: number | undefined;
   /** Execution timeout per code run in ms. Defaults to 30_000. */
   readonly timeoutMs?: number | undefined;
+  /**
+   * Tool count threshold for enabling discovery mode.
+   * When total tools exceed this, inject `tools.discover()` and
+   * only describe small tool sources in the system prompt.
+   * Defaults to 50.
+   */
+  readonly discoveryThreshold?: number | undefined;
 }
 
 export interface AgentResult {
@@ -82,11 +94,116 @@ export interface CodeRun {
 }
 
 // ---------------------------------------------------------------------------
+// Discovery mode
+// ---------------------------------------------------------------------------
+
+const DISCOVERY_THRESHOLD = 50;
+
+/**
+ * When discovery mode is active, separate tools into:
+ * - "small" tools that fit in the prompt (under the threshold)
+ * - "large" tools that are only available via discover()
+ *
+ * The discover tool searches ALL tools. Small tools are described
+ * in the prompt AND available via discover.
+ */
+function prepareToolsForAgent(
+  tools: ToolTree,
+  threshold: number,
+): {
+  /** Tools actually wired in the sandbox (always all of them + discover if needed) */
+  sandboxTools: ToolTree;
+  /** Prompt guidance (subset or all) */
+  promptGuidance: string;
+  /** Tool declarations for typechecker (subset or all) */
+  toolDeclarations: string;
+  /** Whether discovery mode is active */
+  discoveryMode: boolean;
+} {
+  const totalCount = countTools(tools);
+
+  if (totalCount <= threshold) {
+    // Small enough — describe everything in the prompt
+    return {
+      sandboxTools: tools,
+      promptGuidance: generatePromptGuidance(tools),
+      toolDeclarations: generateToolDeclarations(tools),
+      discoveryMode: false,
+    };
+  }
+
+  // Discovery mode: inject discover tool, only describe small namespaces in prompt
+  const discoverTool = createDiscoverTool(tools);
+
+  // Separate namespaces into small (described) and large (discover-only)
+  const described: Record<string, ToolTree | import("./tools.js").ToolDefinition> = { discover: discoverTool };
+  const largeNamespaces: string[] = [];
+
+  for (const [key, value] of Object.entries(tools)) {
+    const nsCount = countTools({ [key]: value });
+    if (nsCount <= threshold) {
+      described[key] = value;
+    } else {
+      largeNamespaces.push(`${key} (${nsCount} tools)`);
+    }
+  }
+
+  const describedTree = described as ToolTree;
+
+  // Sandbox gets ALL tools + discover
+  const sandboxTools = { ...tools, discover: discoverTool } as ToolTree;
+
+  // Prompt only describes the small namespaces + discover
+  const promptGuidance = generatePromptGuidance(describedTree);
+
+  // Typechecker: small namespaces are fully typed, large namespaces
+  // are declared as `Record<string, any>` so the LLM can call
+  // discovered tools without typecheck errors.
+  const largeNsDeclarations = Object.entries(tools)
+    .filter(([key]) => !described[key])
+    .map(([key]) => `  ${key}: Record<string, Record<string, (...args: any[]) => Promise<any>>>;`)
+    .join("\n");
+
+  const toolDeclarations = generateToolDeclarations(describedTree).replace(
+    /\};$/,
+    largeNsDeclarations ? `${largeNsDeclarations}\n};` : "};",
+  );
+
+  return {
+    sandboxTools,
+    promptGuidance,
+    toolDeclarations,
+    discoveryMode: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(tools: ToolTree): string {
-  const guidance = generatePromptGuidance(tools);
+function buildSystemPrompt(guidance: string, discoveryMode: boolean): string {
+  const discoveryInstructions = discoveryMode
+    ? `
+## Tool Discovery
+
+Some tool namespaces are too large to list here. Use \`tools.discover({ query: "..." })\` to search for tools by keyword.
+The discover tool returns an array of matching tools with their paths, descriptions, and TypeScript signatures.
+
+**Workflow for large APIs:**
+1. Call \`tools.discover({ query: "relevant keywords" })\` to find relevant tools
+2. Read the returned signatures to understand the input/output types
+3. Call the discovered tools using the path from the results, e.g. \`tools.posthog.feature_flags.feature_flags_list({ project_id: "123" })\`
+4. You can call discover multiple times with different queries
+
+Example:
+\`\`\`ts
+const found = await tools.discover({ query: "feature flags" });
+// found.results = [{ path: "posthog.feature_flags.feature_flags_list", signature: "...", ... }]
+const flags = await tools.posthog.feature_flags.feature_flags_list({ project_id: "123" });
+\`\`\`
+`
+    : "";
+
   return `You are an AI assistant that executes tasks by generating TypeScript code.
 
 You have access to a set of tools via the \`tools\` object. When the user asks you to do something, generate TypeScript code that calls these tools to accomplish the task.
@@ -94,7 +211,7 @@ You have access to a set of tools via the \`tools\` object. When the user asks y
 ## Available Tools
 
 ${guidance}
-
+${discoveryInstructions}
 ## Instructions
 
 - Use the \`run_code\` tool to execute TypeScript code
@@ -121,12 +238,14 @@ export function createAgent(options: AgentOptions): {
     maxTypecheckRetries = 3,
     maxCodeRuns = 10,
     timeoutMs = 30_000,
+    discoveryThreshold = DISCOVERY_THRESHOLD,
   } = options;
 
-  const toolDeclarations = generateToolDeclarations(tools);
+  const { sandboxTools, promptGuidance, toolDeclarations, discoveryMode } =
+    prepareToolsForAgent(tools, discoveryThreshold);
 
   const runner = createRunner({
-    tools,
+    tools: sandboxTools,
     requestApproval,
     timeoutMs,
   });
@@ -137,7 +256,7 @@ export function createAgent(options: AgentOptions): {
 
   return {
     async run(prompt: string): Promise<AgentResult> {
-      const systemPrompt = buildSystemPrompt(tools);
+      const systemPrompt = buildSystemPrompt(promptGuidance, discoveryMode);
       const runs: CodeRun[] = [];
       const allReceipts: ToolCallReceipt[] = [];
 
@@ -194,6 +313,7 @@ export function createAgent(options: AgentOptions): {
               typecheckOk = true;
               break;
             }
+
             typecheckErrors = check.errors;
 
             if (attempt < maxTypecheckRetries) {
@@ -270,7 +390,7 @@ export function createAgent(options: AgentOptions): {
       }
 
       // Hit max code runs
-      const text = "Reached maximum number of code executions.";
+      const text = "I've reached the maximum number of code executions for this task.";
       emit({ type: "agent_message", text });
       emit({ type: "completed", receipts: allReceipts });
       return { text, runs, allReceipts };

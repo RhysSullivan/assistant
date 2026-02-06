@@ -51,6 +51,15 @@ export {
   type PiAiModelOptions,
 } from "./pi-ai-adapter.js";
 
+// Discovery
+export {
+  buildToolIndex,
+  createDiscoverTool,
+  countTools,
+  type ToolIndexEntry,
+  type DiscoverToolOptions,
+} from "./discovery.js";
+
 // Events
 export type {
   TaskEvent,

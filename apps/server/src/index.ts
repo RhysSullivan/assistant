@@ -11,6 +11,8 @@ import { createPiAiModel } from "@openassistant/core";
 import { defineTool, mergeToolTrees, type ToolTree } from "@openassistant/core/tools";
 import { generateMcpTools } from "@openassistant/tool-gen/mcp";
 import type { McpToolSource } from "@openassistant/tool-gen/mcp";
+import { generateOpenApiTools } from "@openassistant/tool-gen/openapi";
+import type { OpenApiToolSource } from "@openassistant/tool-gen/openapi";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -52,6 +54,28 @@ const mcpSources: McpToolSource[] = [
     url: "https://www.answeroverflow.com/mcp",
     defaultApproval: "auto",
   },
+];
+
+const POSTHOG_API_KEY = process.env["POSTHOG_PERSONAL_API_KEY"];
+const POSTHOG_PROJECT_ID = process.env["POSTHOG_PROJECT_ID"];
+const GITHUB_TOKEN = process.env["OPENASSISTANT_GITHUB_TOKEN"];
+
+const openApiSources: OpenApiToolSource[] = [
+  ...(POSTHOG_API_KEY ? [{
+    name: "posthog",
+    spec: "https://app.posthog.com/api/schema/?format=json",
+    baseUrl: "https://app.posthog.com",
+    auth: { type: "bearer" as const, token: POSTHOG_API_KEY },
+    defaultReadApproval: "auto" as const,
+    defaultWriteApproval: "required" as const,
+  }] : []),
+  ...(GITHUB_TOKEN ? [{
+    name: "github",
+    spec: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
+    auth: { type: "bearer" as const, token: GITHUB_TOKEN },
+    defaultReadApproval: "auto" as const,
+    defaultWriteApproval: "required" as const,
+  }] : []),
 ];
 
 // ---------------------------------------------------------------------------
@@ -111,12 +135,29 @@ const builtinTools: ToolTree = {
 async function loadTools(): Promise<ToolTree> {
   const trees: ToolTree[] = [builtinTools];
 
+  // Load MCP tools
   for (const source of mcpSources) {
     try {
       console.log(`Loading MCP tools from ${source.name} (${source.url})...`);
       const result = await generateMcpTools(source);
       trees.push(result.tools);
       console.log(`  Loaded ${Object.keys(result.tools[source.name] ?? {}).length} tools from ${source.name}`);
+    } catch (error) {
+      console.error(`  Failed to load ${source.name}:`, error instanceof Error ? error.message : error);
+    }
+  }
+
+  // Load OpenAPI tools
+  for (const source of openApiSources) {
+    try {
+      console.log(`Loading OpenAPI tools from ${source.name}...`);
+      const result = await generateOpenApiTools(source);
+      trees.push(result.tools);
+      const nsTools = result.tools[source.name];
+      const count = nsTools ? Object.values(nsTools).reduce((sum, tag) => {
+        return sum + (typeof tag === "object" && tag !== null ? Object.keys(tag).length : 1);
+      }, 0) : 0;
+      console.log(`  Loaded ~${count} tools from ${source.name}`);
     } catch (error) {
       console.error(`  Failed to load ${source.name}:`, error instanceof Error ? error.message : error);
     }
