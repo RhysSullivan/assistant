@@ -37,14 +37,30 @@ export async function runTask(
     tools: options.tools,
     model: options.model,
     requestApproval: (request: ApprovalRequest): Promise<ApprovalDecision> => {
+      // Emit the approval_request event so SSE subscribers see it
+      emitTaskEvent(taskId, {
+        type: "approval_request",
+        id: request.callId,
+        toolPath: request.toolPath,
+        input: request.input,
+        preview: request.preview,
+      });
+
       return new Promise<ApprovalDecision>((resolve) => {
-        // Register the pending approval so REST API can resolve it
         registerApproval({
           callId: request.callId,
           taskId,
           toolPath: request.toolPath,
           input: request.input,
-          resolve,
+          resolve: (decision: ApprovalDecision) => {
+            // Emit resolved event before unblocking the runner
+            emitTaskEvent(taskId, {
+              type: "approval_resolved",
+              id: request.callId,
+              decision,
+            });
+            resolve(decision);
+          },
         });
       });
     },

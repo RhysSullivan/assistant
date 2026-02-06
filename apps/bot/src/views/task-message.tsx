@@ -1,84 +1,69 @@
 /**
- * TaskMessage — the live-updating Discord message for a running task.
+ * TaskMessage — self-contained live-updating Discord message for a task.
  *
- * Shows:
- * - Current status (thinking, generating code, running, etc.)
- * - Code blocks when code is generated
- * - Tool call results
- * - Approval buttons when approval is required
- * - Final agent response when complete
+ * Subscribes to the server's SSE stream via Eden Treaty on mount,
+ * reduces TaskEvents into local state, and re-renders reactively.
+ *
+ * The command handler just mounts this component and walks away:
+ *   <TaskMessage taskId={id} prompt={prompt} api={api} />
  */
 
+import { useState, useEffect } from "react";
 import {
   Container,
   TextDisplay,
   Separator,
-  Section,
   ActionRow,
   Button,
   Loading,
   useInstance,
 } from "@openassistant/reacord";
-import type { ButtonInteraction } from "discord.js";
+import type { Client as ApiClient } from "@openassistant/server/client";
+import { unwrap } from "@openassistant/server/client";
 import type { TaskEvent } from "@openassistant/core/events";
 
 // ---------------------------------------------------------------------------
-// Types
+// State
 // ---------------------------------------------------------------------------
 
-export interface PendingApproval {
+interface PendingApproval {
   readonly id: string;
   readonly toolPath: string;
   readonly preview: { title: string; details?: string };
 }
 
-export interface TaskState {
+interface TaskState {
   readonly status: "running" | "completed" | "failed" | "cancelled";
   readonly statusMessage: string;
-  readonly codeBlocks: string[];
   readonly toolResults: string[];
   readonly pendingApprovals: PendingApproval[];
   readonly agentMessage: string | null;
   readonly error: string | null;
 }
 
-export function initialTaskState(): TaskState {
-  return {
-    status: "running",
-    statusMessage: "Thinking...",
-    codeBlocks: [],
-    toolResults: [],
-    pendingApprovals: [],
-    agentMessage: null,
-    error: null,
-  };
-}
+const INITIAL_STATE: TaskState = {
+  status: "running",
+  statusMessage: "Thinking...",
+  toolResults: [],
+  pendingApprovals: [],
+  agentMessage: null,
+  error: null,
+};
 
-/**
- * Reduce a TaskEvent into the current TaskState.
- */
-export function reduceTaskEvent(state: TaskState, event: TaskEvent): TaskState {
+function reduceEvent(state: TaskState, event: TaskEvent): TaskState {
   switch (event.type) {
     case "status":
       return { ...state, statusMessage: event.message };
 
     case "code_generated":
-      return {
-        ...state,
-        codeBlocks: [...state.codeBlocks, event.code],
-        statusMessage: "Running code...",
-      };
+      return { ...state, statusMessage: "Running code..." };
 
     case "approval_request":
       return {
         ...state,
         pendingApprovals: [
           ...state.pendingApprovals,
-          {
-            id: event.id,
-            toolPath: event.toolPath,
-            preview: event.preview,
-          },
+          { id: event.id, toolPath: event.toolPath, preview: event.preview },
         ],
         statusMessage: "Waiting for approval...",
       };
@@ -87,17 +72,14 @@ export function reduceTaskEvent(state: TaskState, event: TaskEvent): TaskState {
       return {
         ...state,
         pendingApprovals: state.pendingApprovals.filter((a) => a.id !== event.id),
-        statusMessage: event.decision === "approved" ? "Approved, continuing..." : "Denied, continuing...",
+        statusMessage: event.decision === "approved" ? "Approved, continuing..." : "Denied.",
       };
 
     case "tool_result": {
       const r = event.receipt;
-      const status = r.status === "succeeded" ? "\u2705" : r.status === "denied" ? "\u26d4" : "\u274c";
-      const line = `${status} \`${r.toolPath}\`${r.outputPreview ? ` \u2192 ${r.outputPreview.slice(0, 100)}` : ""}`;
-      return {
-        ...state,
-        toolResults: [...state.toolResults, line],
-      };
+      const icon = r.status === "succeeded" ? "\u2705" : r.status === "denied" ? "\u26d4" : "\u274c";
+      const line = `${icon} \`${r.toolPath}\`${r.outputPreview ? ` \u2192 ${r.outputPreview.slice(0, 100)}` : ""}`;
+      return { ...state, toolResults: [...state.toolResults, line] };
     }
 
     case "agent_message":
@@ -112,62 +94,86 @@ export function reduceTaskEvent(state: TaskState, event: TaskEvent): TaskState {
 }
 
 // ---------------------------------------------------------------------------
-// Status indicator
-// ---------------------------------------------------------------------------
-
-function statusEmoji(status: TaskState["status"]): string {
-  switch (status) {
-    case "running": return "\u23f3";
-    case "completed": return "\u2705";
-    case "failed": return "\u274c";
-    case "cancelled": return "\u26d4";
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export interface TaskMessageProps {
+  readonly taskId: string;
   readonly prompt: string;
-  readonly state: TaskState;
-  readonly onApprove?: (callId: string, interaction: ButtonInteraction) => void;
-  readonly onDeny?: (callId: string, interaction: ButtonInteraction) => void;
+  readonly api: ApiClient;
 }
 
-export function TaskMessage({ prompt, state, onApprove, onDeny }: TaskMessageProps) {
+export function TaskMessage({ taskId, prompt, api }: TaskMessageProps) {
   const instance = useInstance();
+  const [state, setState] = useState<TaskState>(INITIAL_STATE);
 
-  // Deactivate interactive components when task is done
+  // Subscribe to SSE stream on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    const subscribe = async () => {
+      try {
+        const { data: stream, error } = await api.api.tasks({ id: taskId }).events.get();
+
+        if (error || !stream) {
+          if (!cancelled) {
+            setState((s) => ({ ...s, status: "failed", error: "Failed to connect to event stream", statusMessage: "Failed" }));
+          }
+          return;
+        }
+
+        for await (const sse of stream as AsyncIterable<{ event: string; data: TaskEvent }>) {
+          if (cancelled) break;
+          setState((s) => reduceEvent(s, sse.data));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            status: "failed",
+            error: err instanceof Error ? err.message : String(err),
+            statusMessage: "Failed",
+          }));
+        }
+      }
+    };
+
+    subscribe();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  // Deactivate buttons once done
+  useEffect(() => {
+    if (state.status !== "running") {
+      const timer = setTimeout(() => instance.deactivate(), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [state.status]);
+
   const isDone = state.status !== "running";
+  const accentColor = isDone
+    ? state.status === "completed" ? 0x57f287 : 0xed4245
+    : 0x5865f2;
 
   return (
-    <Container accentColor={isDone ? (state.status === "completed" ? 0x57f287 : 0xed4245) : 0x5865f2}>
-      {/* Header */}
+    <Container accentColor={accentColor}>
       <TextDisplay>{`${statusEmoji(state.status)} **${state.statusMessage}**`}</TextDisplay>
       <TextDisplay>{`> ${prompt.length > 200 ? prompt.slice(0, 200) + "..." : prompt}`}</TextDisplay>
 
-      {/* Tool results */}
       {state.toolResults.length > 0 && (
         <>
           <Separator />
-          <TextDisplay>
-            {state.toolResults.slice(-10).join("\n")}
-          </TextDisplay>
+          <TextDisplay>{state.toolResults.slice(-10).join("\n")}</TextDisplay>
         </>
       )}
 
-      {/* Pending approvals */}
       {state.pendingApprovals.map((approval) => (
-        <ApprovalSection
-          key={approval.id}
-          approval={approval}
-          onApprove={onApprove}
-          onDeny={onDeny}
-        />
+        <ApprovalButtons key={approval.id} approval={approval} api={api} />
       ))}
 
-      {/* Error */}
       {state.error && (
         <>
           <Separator />
@@ -175,7 +181,6 @@ export function TaskMessage({ prompt, state, onApprove, onDeny }: TaskMessagePro
         </>
       )}
 
-      {/* Final response */}
       {state.agentMessage && (
         <>
           <Separator />
@@ -187,8 +192,7 @@ export function TaskMessage({ prompt, state, onApprove, onDeny }: TaskMessagePro
         </>
       )}
 
-      {/* Loading indicator while running */}
-      {state.status === "running" && !state.pendingApprovals.length && (
+      {state.status === "running" && state.pendingApprovals.length === 0 && (
         <Loading />
       )}
     </Container>
@@ -196,36 +200,46 @@ export function TaskMessage({ prompt, state, onApprove, onDeny }: TaskMessagePro
 }
 
 // ---------------------------------------------------------------------------
-// Approval sub-component
+// Approval buttons
 // ---------------------------------------------------------------------------
 
-interface ApprovalSectionProps {
-  readonly approval: PendingApproval;
-  readonly onApprove?: (callId: string, interaction: ButtonInteraction) => void;
-  readonly onDeny?: (callId: string, interaction: ButtonInteraction) => void;
-}
+function ApprovalButtons({ approval, api }: { approval: PendingApproval; api: ApiClient }) {
+  const [resolved, setResolved] = useState(false);
 
-function ApprovalSection({ approval, onApprove, onDeny }: ApprovalSectionProps) {
+  const handle = async (decision: "approved" | "denied") => {
+    setResolved(true);
+    try {
+      await unwrap(api.api.approvals({ callId: approval.id }).post({ decision }));
+    } catch (err) {
+      console.error(`[approval ${approval.id}]`, err);
+    }
+  };
+
   return (
     <>
       <Separator />
       <TextDisplay>
         {`\u{1f6e1}\ufe0f **Approval required:** ${approval.preview.title}${approval.preview.details ? `\n${approval.preview.details}` : ""}`}
       </TextDisplay>
-      <ActionRow>
-        <Button
-          label="Approve"
-          style="success"
-          emoji="\u2705"
-          onClick={(interaction) => onApprove?.(approval.id, interaction)}
-        />
-        <Button
-          label="Deny"
-          style="danger"
-          emoji="\u274c"
-          onClick={(interaction) => onDeny?.(approval.id, interaction)}
-        />
-      </ActionRow>
+      {!resolved && (
+        <ActionRow>
+          <Button label="Approve" style="success" onClick={() => handle("approved")} />
+          <Button label="Deny" style="danger" onClick={() => handle("denied")} />
+        </ActionRow>
+      )}
     </>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function statusEmoji(status: TaskState["status"]): string {
+  switch (status) {
+    case "running": return "\u23f3";
+    case "completed": return "\u2705";
+    case "failed": return "\u274c";
+    case "cancelled": return "\u26d4";
+  }
 }

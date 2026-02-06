@@ -8,9 +8,10 @@
 import { readFileSync } from "node:fs";
 import { createApp } from "./routes.js";
 import { createPiAiModel } from "@openassistant/core";
-import { mergeToolTrees, type ToolTree } from "@openassistant/core/tools";
+import { defineTool, mergeToolTrees, type ToolTree } from "@openassistant/core/tools";
 import { generateMcpTools } from "@openassistant/tool-gen/mcp";
 import type { McpToolSource } from "@openassistant/tool-gen/mcp";
+import { z } from "zod";
 
 // ---------------------------------------------------------------------------
 // API key resolution
@@ -54,11 +55,61 @@ const mcpSources: McpToolSource[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Hand-written tools (approval testing)
+// ---------------------------------------------------------------------------
+
+const builtinTools: ToolTree = {
+  admin: {
+    /** Requires approval — lets you test the approval UI flow. */
+    send_announcement: defineTool({
+      description: "Send an announcement message to a channel. Requires approval because it posts publicly.",
+      approval: "required",
+      args: z.object({
+        channel: z.string().describe("Channel name to post in"),
+        message: z.string().describe("The announcement text"),
+      }),
+      returns: z.object({ sent: z.boolean(), channel: z.string(), message: z.string() }),
+      run: async (input) => ({ sent: true, channel: input.channel, message: input.message }),
+      formatApproval: (input) => ({
+        title: `Post to #${input.channel}`,
+        details: `Message: "${input.message}"`,
+      }),
+    }),
+
+    /** Requires approval — destructive action. */
+    delete_data: defineTool({
+      description: "Delete stored data by key. Requires approval because it's destructive.",
+      approval: "required",
+      args: z.object({
+        key: z.string().describe("The data key to delete"),
+      }),
+      returns: z.object({ deleted: z.boolean(), key: z.string() }),
+      run: async (input) => ({ deleted: true, key: input.key }),
+      formatApproval: (input) => ({
+        title: `Delete "${input.key}"`,
+        details: "This action cannot be undone.",
+      }),
+    }),
+  },
+
+  utils: {
+    /** Auto-approved — safe read-only tool. */
+    get_time: defineTool({
+      description: "Get the current date and time.",
+      approval: "auto",
+      args: z.object({}),
+      returns: z.object({ iso: z.string(), unix: z.number() }),
+      run: async () => ({ iso: new Date().toISOString(), unix: Date.now() }),
+    }),
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Tool loading
 // ---------------------------------------------------------------------------
 
 async function loadTools(): Promise<ToolTree> {
-  const trees: ToolTree[] = [];
+  const trees: ToolTree[] = [builtinTools];
 
   for (const source of mcpSources) {
     try {
