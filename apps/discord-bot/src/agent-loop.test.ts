@@ -34,6 +34,42 @@ describe("runAgentLoop", () => {
     expect(result.planner).toContain("3 code runs");
   });
 
+  it("rejects invalid generated tool code via typecheck before execution", async () => {
+    let runCount = 0;
+
+    const result = await runAgentLoop(
+      "add dinner event",
+      async (_code) => {
+        runCount += 1;
+        return succeededRun(runCount);
+      },
+      {
+        runWithClaude: async ({ executeCode }) => {
+          await executeCode({
+            code: "await tools.calendar.create({ title: 'Dinner', startsAt: '2026-02-07T17:00:00.000Z' });",
+          });
+          await executeCode({
+            code: "await tools.calendar.update({ title: 'Dinner', startsAt: '2026-02-07T17:00:00.000Z' });",
+          });
+          return {
+            text: "done",
+            modelID: "claude-3-7-sonnet-latest",
+            authSource: "test",
+          };
+        },
+      },
+    );
+
+    expect(runCount).toBe(1);
+    expect(result.runs).toHaveLength(2);
+    expect(result.runs[0]?.result.ok).toBe(false);
+    if (result.runs[0] && !result.runs[0].result.ok) {
+      expect(result.runs[0].result.error).toContain("Typecheck failed");
+      expect(result.runs[0].result.error).toContain("Property 'create' does not exist");
+    }
+    expect(result.runs[1]?.result.ok).toBe(true);
+  });
+
   it("returns a failure response when claude generation fails", async () => {
     const codeRuns: string[] = [];
 

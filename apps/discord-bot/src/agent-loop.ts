@@ -1,6 +1,7 @@
 import type { CodeModeRunResult, ToolCallReceipt } from "@openassistant/core";
 import { generateText, stepCountIs, tool } from "ai";
 import { getAnthropicModel } from "./anthropic-provider.js";
+import { typecheckCodeSnippet } from "./code-typecheck.js";
 import { z } from "zod";
 
 export interface AgentCodeRun {
@@ -66,6 +67,25 @@ export async function runAgentLoop(
   const runs: AgentCodeRun[] = [];
 
   const executeCode = async (input: RunCodeToolInput): Promise<RunCodeToolOutput> => {
+    const typecheck = typecheckCodeSnippet(input.code);
+    if (!typecheck.ok) {
+      const failed: CodeModeRunResult = {
+        ok: false,
+        error: `Typecheck failed: ${typecheck.error}`,
+        receipts: [],
+      };
+      runs.push({
+        code: input.code,
+        result: failed,
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
+      return {
+        ok: false,
+        error: failed.error,
+        receipts: [],
+      };
+    }
+
     const result = await runCode(input.code);
     runs.push({
       code: input.code,
