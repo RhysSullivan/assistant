@@ -397,6 +397,35 @@ function createSandboxContext(tools: Record<string, unknown>): object {
 }
 
 // ---------------------------------------------------------------------------
+// TypeScript → JavaScript transpilation
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip TypeScript syntax (type annotations, `as` casts, interfaces, etc.)
+ * from LLM-generated code so it can run in the `node:vm` sandbox which
+ * only executes JavaScript.
+ *
+ * Uses Bun's built-in transpiler. Falls back to the original code if
+ * transpilation fails (the code might already be valid JS).
+ */
+function transpileToJS(code: string): string {
+  try {
+    const transpiler = new Bun.Transpiler({ loader: "ts", target: "browser" });
+    // Wrap in an async function so `return` and `await` are valid syntax
+    const wrapped = `async function __run(tools: any) {\n${code}\n}`;
+    const jsWrapped = transpiler.transformSync(wrapped);
+    // Extract the function body
+    const bodyStart = jsWrapped.indexOf("{");
+    const bodyEnd = jsWrapped.lastIndexOf("}");
+    if (bodyStart === -1 || bodyEnd === -1) return code;
+    return jsWrapped.slice(bodyStart + 1, bodyEnd).trim();
+  } catch {
+    // If transpilation fails, return original code — it may already be JS
+    return code;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
 
@@ -424,7 +453,9 @@ export function createRunner(options: RunnerOptions): Runner {
       const sandbox = createSandboxContext(materializedTools);
 
       try {
-        const wrappedCode = `(async (tools) => {\n"use strict";\n${code}\n})(tools)`;
+        // Transpile TS → JS (strips type annotations, `as` casts, interfaces, etc.)
+        const jsCode = transpileToJS(code);
+        const wrappedCode = `(async (tools) => {\n"use strict";\n${jsCode}\n})(tools)`;
         const resultPromise = runInContext(wrappedCode, sandbox, {
           timeout: timeoutMs,
         });

@@ -163,17 +163,9 @@ export interface DiscoverToolOptions {
  * Create a `discover` tool that searches the tool index.
  *
  * Usage in LLM-generated code:
- *   // Step 1: find tools (cheap — no return types)
+ *   // Find tools — returns top 5 with input args + return types
  *   const results = await tools.discover({ query: "feature flags" });
- *
- *   // Step 2: get full types for the tools you'll use
- *   const details = await tools.discover({
- *     query: "feature flags list",
- *     depth: 1
- *   });
- *
- *   // Step 3: call the tool
- *   await tools.posthog.feature_flags.list({ ... })
+ *   // Then call: await tools.posthog.feature_flags.list({ ... })
  */
 export function createDiscoverTool(
   tree: ToolTree,
@@ -183,16 +175,19 @@ export function createDiscoverTool(
   const maxResults = options?.maxResults ?? 20;
 
   return defineTool({
-    description: `Search for available tools by keyword. Returns matching tool paths, descriptions, and type signatures. There are ${index.length} tools available.
+    description: `Search for available tools by keyword. Returns matching tool paths, descriptions, and type signatures (including return types). There are ${index.length} tools available.
 
 depth controls how much type detail to return:
-- depth 0 (default): input args only, return type hidden. Fast, cheap in tokens. Use for browsing.
-- depth 1: input args + return types (comments stripped). Use when you need to know response shapes.
-- depth 2: full signatures with JSDoc comments and examples. Use when you need exact details.`,
+- depth 0: input args only, return type hidden. Use to browse many results cheaply.
+- depth 1 (default): input args + return types. Shows response shapes so you can handle pagination, nested fields, etc.
+- depth 2: full signatures with JSDoc comments and examples. Use when you need exact details.
+
+limit controls how many results to return (default: 5, max: ${maxResults}). Use higher limits with depth 0 for broad browsing.`,
     approval: "auto" as const,
     args: z.object({
       query: z.string().describe("Search keywords (e.g. 'feature flags', 'create user', 'list issues')"),
-      depth: z.number().optional().describe("Type detail level: 0 (default) = args only, 1 = + return types, 2 = + JSDoc comments"),
+      depth: z.number().optional().describe("Type detail level: 0 = args only, 1 (default) = + return types, 2 = + JSDoc comments"),
+      limit: z.number().optional().describe("Max results to return (default: 5)"),
     }),
     returns: z.object({
       results: z.array(z.object({
@@ -204,8 +199,9 @@ depth controls how much type detail to return:
       total: z.number(),
     }),
     run: async (input) => {
-      const depth = input.depth ?? 0;
-      const results = searchIndex(index, input.query, maxResults);
+      const depth = input.depth ?? 1;
+      const limit = Math.min(input.limit ?? 5, maxResults);
+      const results = searchIndex(index, input.query, limit);
       return {
         results: results.map((e) => ({
           path: e.path,

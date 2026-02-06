@@ -186,31 +186,27 @@ function buildSystemPrompt(guidance: string, discoveryMode: boolean): string {
     ? `
 ## Tool Discovery
 
-Some tool namespaces are too large to list here. Use \`tools.discover({ query, depth? })\` to search for tools by keyword.
+Some tool namespaces are too large to list here. Use \`tools.discover({ query })\` to search for tools by keyword.
 
-The \`depth\` parameter controls how much type detail you get:
-- **depth 0** (default): tool paths, descriptions, and input arg types only. Fast, use for browsing.
-- **depth 1**: adds return types (comments stripped). Use when you need to know response shapes before writing code.
-- **depth 2**: full signatures with JSDoc comments and examples. Use when you need exact details.
+By default, discover returns the top 5 matches with **full type signatures** (input args + return types). Check the return type to understand response structure — look for pagination fields (\`next\`, \`cursor\`, \`page\`), wrapper objects, etc.
+
+Options:
+- \`depth: 0\` — hide return types, just show input args. Use with \`limit: 20\` to browse broadly.
+- \`depth: 2\` — include JSDoc comments and examples. Use for exact details.
+- \`limit: N\` — control how many results (default 5, max 20).
 
 **Workflow:**
-1. Discover tools at depth 0 to find what's available
-2. If you need to know response shapes, re-discover at depth 1 for the specific tools you'll use
-3. Write a SINGLE self-contained script that does the entire task
+1. Discover tools to find what's available and see their types
+2. Write a SINGLE self-contained script that does the entire task. If the return type has pagination, loop until all pages are fetched.
 
 Example — "close all open issues on acme/myapp":
 
-Call 1 (find tools):
+Call 1 (discover tools — returns types by default):
 \`\`\`ts
 return await tools.discover({ query: "issues list update repo" });
 \`\`\`
 
-Call 2 (get return types for the tools you'll use):
-\`\`\`ts
-return await tools.discover({ query: "issues list_for_repo update", depth: 1 });
-\`\`\`
-
-Call 3 (do the work — everything in one script):
+Call 2 (do the work — everything in one script):
 \`\`\`ts
 const issues = await tools.github.issues.issues_list_for_repo({
   owner: "acme", repo: "myapp", state: "open", per_page: 100
