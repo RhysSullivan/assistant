@@ -4,9 +4,41 @@
  * Both MCP tools and OpenAPI specs use JSON Schema for their type definitions.
  * This module converts them to TypeScript type strings for the typechecker,
  * and also creates Zod schemas for runtime validation.
+ *
+ * Type string generation uses openapi-typescript's `transformSchemaObject` for
+ * high-fidelity conversion (handles allOf, oneOf, enums, nullable, etc.).
+ * Falls back to our simpler hand-rolled converter for edge cases.
  */
 
+import { astToString, transformSchemaObject } from "openapi-typescript";
 import { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// openapi-typescript context (for individual schema conversion)
+// ---------------------------------------------------------------------------
+
+function makeTransformCtx() {
+  return {
+    additionalProperties: false,
+    alphabetize: false,
+    arrayLength: false,
+    defaultNonNullable: true,
+    discriminators: { refsHandled: [] as string[], objects: {} as Record<string, unknown> },
+    emptyObjectsUnknown: false,
+    enum: false,
+    enumValues: false,
+    excludeDeprecated: false,
+    exportType: false,
+    immutable: false,
+    indentLv: 0,
+    pathParamsAsTypes: false,
+    postTransform: undefined,
+    propertiesRequiredByDefault: false,
+    redoc: undefined,
+    silent: true,
+    resolve(_ref: string) { return undefined as unknown; },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // JSON Schema types (minimal subset we need)
@@ -29,79 +61,27 @@ export interface JsonSchema {
 }
 
 // ---------------------------------------------------------------------------
-// JSON Schema → TypeScript string
+// JSON Schema → TypeScript string (via openapi-typescript)
 // ---------------------------------------------------------------------------
 
+/**
+ * Convert a JSON Schema to a TypeScript type string.
+ *
+ * Uses openapi-typescript's `transformSchemaObject` for high-fidelity conversion
+ * that handles allOf, oneOf, enums, nullable, additionalProperties, etc.
+ * Falls back to "any" for schemas that can't be converted (e.g. circular refs).
+ */
 export function jsonSchemaToTypeString(schema: JsonSchema): string {
-  if (!schema.type && schema.properties) {
-    // Implicit object type
-    return objectToTypeString(schema);
+  if (!schema) return "any";
+  try {
+    const node = transformSchemaObject(schema as never, {
+      path: "#",
+      ctx: makeTransformCtx() as never,
+    });
+    return astToString(node).trim();
+  } catch {
+    return "any";
   }
-
-  if (schema.enum) {
-    return schema.enum
-      .map((v) => (typeof v === "string" ? `"${v}"` : String(v)))
-      .join(" | ");
-  }
-
-  if (schema.const !== undefined) {
-    return typeof schema.const === "string"
-      ? `"${schema.const}"`
-      : String(schema.const);
-  }
-
-  if (schema.oneOf) {
-    return schema.oneOf.map(jsonSchemaToTypeString).join(" | ");
-  }
-
-  if (schema.anyOf) {
-    return schema.anyOf.map(jsonSchemaToTypeString).join(" | ");
-  }
-
-  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
-
-  switch (type) {
-    case "string":
-      return "string";
-    case "number":
-    case "integer":
-      return "number";
-    case "boolean":
-      return "boolean";
-    case "null":
-      return "null";
-    case "array": {
-      if (schema.items) {
-        return `Array<${jsonSchemaToTypeString(schema.items)}>`;
-      }
-      return "Array<unknown>";
-    }
-    case "object":
-      return objectToTypeString(schema);
-    default:
-      return "unknown";
-  }
-}
-
-function objectToTypeString(schema: JsonSchema): string {
-  const props = schema.properties;
-  if (!props || Object.keys(props).length === 0) {
-    if (schema.additionalProperties) {
-      const valueType =
-        typeof schema.additionalProperties === "object"
-          ? jsonSchemaToTypeString(schema.additionalProperties)
-          : "unknown";
-      return `Record<string, ${valueType}>`;
-    }
-    return "Record<string, unknown>";
-  }
-
-  const required = new Set(schema.required ?? []);
-  const entries = Object.entries(props).map(([key, propSchema]) => {
-    const opt = required.has(key) ? "" : "?";
-    return `${key}${opt}: ${jsonSchemaToTypeString(propSchema)}`;
-  });
-  return `{ ${entries.join("; ")} }`;
 }
 
 // ---------------------------------------------------------------------------

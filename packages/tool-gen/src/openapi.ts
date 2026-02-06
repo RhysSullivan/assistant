@@ -82,6 +82,7 @@ interface ParsedParameter {
 
 const READ_METHODS = new Set(["get", "head", "options"]);
 
+
 function buildAuthHeaders(auth: OpenApiAuth | undefined): Record<string, string> {
   if (!auth) return {};
   switch (auth.type) {
@@ -305,25 +306,19 @@ export async function generateOpenApiTools(
       };
 
       let argsZod: z.ZodType;
-      let argsTypeString: string;
-      let returnsTypeString: string;
 
       try {
         argsZod = jsonSchemaToZod(combinedInputSchema);
-        argsTypeString = jsonSchemaToTypeString(combinedInputSchema);
       } catch {
         // Recursive/circular schemas — fall back to z.any()
         argsZod = z.any();
-        argsTypeString = "any";
       }
 
-      try {
-        returnsTypeString = op.responseSchema
-          ? jsonSchemaToTypeString(op.responseSchema)
-          : "any";
-      } catch {
-        returnsTypeString = "any";
-      }
+      // Use openapi-typescript for type strings (handles allOf, oneOf, enums, etc.)
+      const argsTypeString = jsonSchemaToTypeString(combinedInputSchema);
+      const returnsTypeString = op.responseSchema
+        ? jsonSchemaToTypeString(op.responseSchema)
+        : "any";
 
       const description = op.summary || op.description || `${op.method.toUpperCase()} ${op.path}`;
 
@@ -332,6 +327,10 @@ export async function generateOpenApiTools(
         approval,
         args: argsZod,
         returns: z.any(), // OpenAPI responses are complex; use any for runtime
+        metadata: {
+          argsType: argsTypeString,
+          returnsType: returnsTypeString,
+        },
         run: async (input: unknown) => {
           const { url, remainingInput } = buildUrl(
             baseUrl,
@@ -358,7 +357,7 @@ export async function generateOpenApiTools(
 
           if (!response.ok) {
             const text = await response.text().catch(() => "");
-            throw new Error(`${response.status} ${response.statusText}: ${text.slice(0, 500)}`);
+            throw new Error(`HTTP ${response.status} ${response.statusText} (${op.method.toUpperCase()} ${url}): ${text.slice(0, 500)}`);
           }
 
           const contentType = response.headers.get("content-type") ?? "";

@@ -62,6 +62,12 @@ export interface ApprovalRequest {
  *    - TypeScript declaration generation for the typechecker
  *    - LLM prompt guidance generation
  *
+ * - `metadata.argsType` and `metadata.returnsType` are optional pre-computed
+ *   TypeScript type strings. When present, the typechecker and discovery index
+ *   use these instead of deriving types from Zod schemas. This is critical for
+ *   OpenAPI tools where `returns` is `z.any()` but the spec defines a rich
+ *   response schema.
+ *
  * - `run` is a plain async function (Effect is an internal detail)
  *
  * - `formatApproval` provides rich presentation for approval UIs
@@ -79,6 +85,13 @@ export interface ToolDefinition<
   readonly formatApproval?: ((
     input: z.output<TArgs>,
   ) => ApprovalPresentation) | undefined;
+  /** Pre-computed type metadata. Preferred over Zod-derived types when present. */
+  readonly metadata?: {
+    /** TypeScript type string for the input args (e.g. "{ owner: string; repo: string }") */
+    readonly argsType?: string | undefined;
+    /** TypeScript type string for the return value (e.g. "{ id: number; title: string }") */
+    readonly returnsType?: string | undefined;
+  } | undefined;
 }
 
 /**
@@ -102,6 +115,11 @@ export interface DefineToolInput<
   returns: TReturns;
   run: (input: z.output<TArgs>) => Promise<z.output<TReturns>>;
   formatApproval?: (input: z.output<TArgs>) => ApprovalPresentation;
+  /** Pre-computed type metadata. Preferred over Zod-derived types when present. */
+  metadata?: {
+    argsType?: string;
+    returnsType?: string;
+  };
 }
 
 /**
@@ -131,6 +149,7 @@ export function defineTool<
     returns: input.returns,
     run: input.run,
     formatApproval: input.formatApproval,
+    metadata: input.metadata,
   };
 }
 

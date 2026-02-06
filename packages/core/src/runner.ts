@@ -66,10 +66,26 @@ function preview(value: unknown): string {
 }
 
 function describeError(error: unknown): string {
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) {
+    // Include cause if present (e.g. nested API errors)
+    const msg = error.message;
+    if (error.cause) {
+      return `${msg} (cause: ${describeError(error.cause)})`;
+    }
+    return msg;
+  }
   if (typeof error === "string") return error;
+  if (error === null || error === undefined) return String(error);
+  // Try to get a meaningful representation
   try {
-    return JSON.stringify(error);
+    const json = JSON.stringify(error, null, 0);
+    // If it's just "{}", try to find something useful
+    if (json === "{}" || json === "[]") {
+      const proto = Object.getPrototypeOf(error);
+      const name = proto?.constructor?.name;
+      return name && name !== "Object" ? `[${name}]` : String(error);
+    }
+    return json;
   } catch {
     return String(error);
   }

@@ -12,7 +12,7 @@
  */
 
 import { defineTool, isToolDefinition, type ToolDefinition, type ToolTree } from "./tools.js";
-import { zodToTypeString } from "./typechecker.js";
+import { getArgsTypeString, getReturnsTypeString } from "./typechecker.js";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -44,8 +44,8 @@ export function buildToolIndex(tree: ToolTree): ToolIndexEntry[] {
       const path = prefix ? `${prefix}.${key}` : key;
       if (isToolDefinition(value)) {
         const tool = value as ToolDefinition;
-        const argsType = zodToTypeString(tool.args);
-        const returnsType = zodToTypeString(tool.returns);
+        const argsType = getArgsTypeString(tool);
+        const returnsType = getReturnsTypeString(tool);
         entries.push({
           path,
           description: tool.description,
@@ -68,8 +68,10 @@ export function buildToolIndex(tree: ToolTree): ToolIndexEntry[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Simple keyword search. Matches entries where ALL query terms
- * appear somewhere in the path + description.
+ * Keyword search with fuzzy matching. Scores entries by how many
+ * query terms match, with bonuses for path matches. An entry only
+ * needs to match at least half the terms (rounded up) to be included,
+ * so "github issues list update" finds tools matching any 2+ of those words.
  */
 function searchIndex(
   index: ToolIndexEntry[],
@@ -79,17 +81,31 @@ function searchIndex(
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return index.slice(0, limit);
 
+  // Minimum terms that must match: at least 1, or half rounded up for 3+ terms
+  const minMatches = terms.length <= 2 ? 1 : Math.ceil(terms.length / 2);
+
   const scored = index
     .map((entry) => {
       let score = 0;
+      let matched = 0;
+
       for (const term of terms) {
-        if (!entry.searchText.includes(term)) return { entry, score: -1 };
+        const inText = entry.searchText.includes(term);
+        const inPath = entry.path.toLowerCase().includes(term);
+
+        if (!inText && !inPath) continue;
+
+        matched++;
+        score += 1;
         // Bonus for path match (more specific)
-        if (entry.path.toLowerCase().includes(term)) score += 2;
+        if (inPath) score += 2;
         // Bonus for exact word boundary match
         if (entry.searchText.includes(` ${term}`) || entry.searchText.startsWith(term)) score += 1;
-        score += 1;
       }
+
+      if (matched < minMatches) return { entry, score: -1 };
+      // Bonus for matching more terms
+      score += matched * 2;
       return { entry, score };
     })
     .filter((s) => s.score > 0)

@@ -126,6 +126,26 @@ export function zodToTypeString(schema: z.ZodType): string {
 }
 
 // ---------------------------------------------------------------------------
+// Type string resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Get the TypeScript type string for a tool's args.
+ * Prefers metadata.argsType when available, falls back to Zod-derived type.
+ */
+export function getArgsTypeString(tool: ToolDefinition): string {
+  return tool.metadata?.argsType ?? zodToTypeString(tool.args);
+}
+
+/**
+ * Get the TypeScript type string for a tool's return value.
+ * Prefers metadata.returnsType when available, falls back to Zod-derived type.
+ */
+export function getReturnsTypeString(tool: ToolDefinition): string {
+  return tool.metadata?.returnsType ?? zodToTypeString(tool.returns);
+}
+
+// ---------------------------------------------------------------------------
 // ToolTree → TypeScript declaration
 // ---------------------------------------------------------------------------
 
@@ -144,8 +164,8 @@ function generateTreeType(tree: ToolTree, indent: number): string {
   for (const [key, value] of Object.entries(tree)) {
     if (isToolDefinition(value)) {
       const tool = value as ToolDefinition;
-      const argsType = zodToTypeString(tool.args);
-      const returnsType = zodToTypeString(tool.returns);
+      const argsType = getArgsTypeString(tool);
+      const returnsType = getReturnsTypeString(tool);
       lines.push(`${pad}${key}(input: ${argsType}): Promise<${returnsType}>;`);
     } else {
       lines.push(`${pad}${key}: {`);
@@ -173,8 +193,8 @@ export function generatePromptGuidance(tree: ToolTree): string {
       const path = prefix ? `${prefix}.${key}` : key;
       if (isToolDefinition(value)) {
         const tool = value as ToolDefinition;
-        const argsType = zodToTypeString(tool.args);
-        const returnsType = zodToTypeString(tool.returns);
+        const argsType = getArgsTypeString(tool);
+        const returnsType = getReturnsTypeString(tool);
         const approvalNote =
           tool.approval === "required" ? " (approval required)" : " (auto-approved)";
         lines.push(

@@ -59,6 +59,7 @@ const mcpSources: McpToolSource[] = [
 const POSTHOG_API_KEY = process.env["POSTHOG_PERSONAL_API_KEY"];
 const POSTHOG_PROJECT_ID = process.env["POSTHOG_PROJECT_ID"];
 const GITHUB_TOKEN = process.env["OPENASSISTANT_GITHUB_TOKEN"];
+const VERCEL_TOKEN = process.env["VERCEL_TOKEN"];
 
 const openApiSources: OpenApiToolSource[] = [
   ...(POSTHOG_API_KEY ? [{
@@ -73,6 +74,13 @@ const openApiSources: OpenApiToolSource[] = [
     name: "github",
     spec: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
     auth: { type: "bearer" as const, token: GITHUB_TOKEN },
+    defaultReadApproval: "auto" as const,
+    defaultWriteApproval: "required" as const,
+  }] : []),
+  ...(VERCEL_TOKEN ? [{
+    name: "vercel",
+    spec: "https://openapi.vercel.sh/",
+    auth: { type: "bearer" as const, token: VERCEL_TOKEN },
     defaultReadApproval: "auto" as const,
     defaultWriteApproval: "required" as const,
   }] : []),

@@ -116,7 +116,7 @@ export async function generateMcpTools(
     // Generate Zod schema from JSON Schema
     const argsZod = jsonSchemaToZod(inputSchema);
 
-    // Generate TypeScript type string for declarations
+    // Generate TypeScript type string using openapi-typescript
     const argsTypeString = jsonSchemaToTypeString(inputSchema);
 
     // Create the tool definition
@@ -125,6 +125,10 @@ export async function generateMcpTools(
       approval,
       args: argsZod,
       returns: z.any(), // MCP tools return opaque content
+      metadata: {
+        argsType: argsTypeString,
+        // MCP tools don't declare output schemas, so no returnsType
+      },
       run: async (input: unknown) => {
         const result = await client.callTool({
           name: toolName,

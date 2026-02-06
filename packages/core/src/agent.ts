@@ -187,19 +187,32 @@ function buildSystemPrompt(guidance: string, discoveryMode: boolean): string {
 ## Tool Discovery
 
 Some tool namespaces are too large to list here. Use \`tools.discover({ query: "..." })\` to search for tools by keyword.
-The discover tool returns an array of matching tools with their paths, descriptions, and TypeScript signatures.
+It returns matching tool paths, descriptions, and TypeScript signatures.
 
-**Workflow for large APIs:**
-1. Call \`tools.discover({ query: "relevant keywords" })\` to find relevant tools
-2. Read the returned signatures to understand the input/output types
-3. Call the discovered tools using the path from the results, e.g. \`tools.posthog.feature_flags.feature_flags_list({ project_id: "123" })\`
-4. You can call discover multiple times with different queries
+**Workflow:** First call discover to learn what tools are available. Then write a SINGLE self-contained script that does the entire task — fetching data, looping, transforming, and writing back. Don't split the actual work across multiple run_code calls.
 
-Example:
+Example — "close all open issues on acme/myapp":
+
+Call 1 (discovery):
 \`\`\`ts
-const found = await tools.discover({ query: "feature flags" });
-// found.results = [{ path: "posthog.feature_flags.feature_flags_list", signature: "...", ... }]
-const flags = await tools.posthog.feature_flags.feature_flags_list({ project_id: "123" });
+return await tools.discover({ query: "issues list update repo" });
+\`\`\`
+
+Call 2 (do the work — everything in one script):
+\`\`\`ts
+const issues = await tools.github.issues.issues_list_for_repo({
+  owner: "acme", repo: "myapp", state: "open", per_page: 100
+});
+
+const results = [];
+for (const issue of issues) {
+  const closed = await tools.github.issues.issues_update({
+    owner: "acme", repo: "myapp", issue_number: issue.number, state: "closed"
+  });
+  results.push({ number: issue.number, title: issue.title, state: closed.state });
+}
+
+return { closed: results.length, issues: results };
 \`\`\`
 `
     : "";
@@ -215,11 +228,12 @@ ${discoveryInstructions}
 ## Instructions
 
 - Use the \`run_code\` tool to execute TypeScript code
+- **Write complete, self-contained scripts.** Once you know what tools are available, do all the work in a single run_code call — fetch data, loop, transform, write back, and return results. Don't do reads in one call and writes in another.
 - The code runs in a sandboxed environment — only \`tools.*\` calls are available
 - No \`fetch\`, \`process\`, \`require\`, or \`import\` — use tools for all external interactions
-- Write clean, straightforward TypeScript
-- Handle errors gracefully — if a tool call is denied, continue with remaining work
-- After execution, summarize what happened based on the tool call receipts
+- Write clean, straightforward TypeScript — use for loops, map, filter, Promise.all as needed
+- Handle errors gracefully with try/catch — if a tool call fails or is denied, continue with remaining work
+- Return a structured result from your script, then summarize what happened
 - Be concise and accurate — base your response on actual tool results, not assumptions`;
 }
 
@@ -236,7 +250,7 @@ export function createAgent(options: AgentOptions): {
     requestApproval,
     onEvent,
     maxTypecheckRetries = 3,
-    maxCodeRuns = 10,
+    maxCodeRuns = 100,
     timeoutMs = 30_000,
     discoveryThreshold = DISCOVERY_THRESHOLD,
   } = options;

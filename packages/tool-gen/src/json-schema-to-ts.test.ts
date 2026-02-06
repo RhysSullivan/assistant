@@ -26,7 +26,8 @@ describe("jsonSchemaToTypeString", () => {
 
   test("object with no properties", () => {
     const result = jsonSchemaToTypeString({ type: "object" });
-    expect(result).toBe("Record<string, unknown>");
+    // openapi-typescript produces Record<string, never> for empty objects
+    expect(result).toBe("Record<string, never>");
   });
 
   test("array", () => {
@@ -34,7 +35,8 @@ describe("jsonSchemaToTypeString", () => {
       type: "array",
       items: { type: "string" },
     };
-    expect(jsonSchemaToTypeString(schema)).toBe("Array<string>");
+    // openapi-typescript uses T[] syntax instead of Array<T>
+    expect(jsonSchemaToTypeString(schema)).toBe("string[]");
   });
 
   test("enum", () => {
