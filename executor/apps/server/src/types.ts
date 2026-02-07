@@ -109,10 +109,17 @@ export interface SandboxRuntime {
 
 export type ToolApprovalMode = "auto" | "required";
 
+export interface ToolTypeMetadata {
+  argsType?: string;
+  returnsType?: string;
+}
+
 export interface ToolDefinition {
   path: string;
   description: string;
   approval: ToolApprovalMode;
+  source?: string;
+  metadata?: ToolTypeMetadata;
   run(input: unknown): Promise<unknown>;
 }
 
@@ -120,4 +127,7 @@ export interface ToolDescriptor {
   path: string;
   description: string;
   approval: ToolApprovalMode;
+  source?: string;
+  argsType?: string;
+  returnsType?: string;
 }

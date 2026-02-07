@@ -94,6 +94,9 @@ export class ExecutorService {
       path: tool.path,
       description: tool.description,
       approval: tool.approval,
+      source: tool.source,
+      argsType: tool.metadata?.argsType,
+      returnsType: tool.metadata?.returnsType,
     }));
   }
 

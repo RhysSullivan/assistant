@@ -24,9 +24,39 @@ Prototype executor control plane for running AI-generated code with tool-call ap
 - Current default uses an in-process adapter; an HTTP adapter is also included for process/network boundaries.
 - Tools can be marked `auto` or `required` approval.
 - Required tools create approval records per function call (`toolPath` + `input`).
+- A built-in `tools.discover({ query, depth?, limit? })` helper is available so agents can search available tools at runtime.
 - Task execution pauses on required tool calls until that specific call is approved or denied.
 - Runtime targets are swappable by ID (`runtimeId`) so sandbox backends can change later.
 - SQLite is used as a prototype event/history store.
+
+## External Tool Sources (MCP + OpenAPI)
+
+You can load callable tools automatically from MCP servers and OpenAPI specs via env config:
+
+`EXECUTOR_TOOL_SOURCES` accepts a JSON array of source definitions.
+
+Example:
+
+```json
+[
+  {
+    "type": "mcp",
+    "name": "answeroverflow",
+    "url": "https://www.answeroverflow.com/mcp",
+    "defaultApproval": "auto"
+  },
+  {
+    "type": "openapi",
+    "name": "billing",
+    "spec": "https://example.com/openapi.json",
+    "baseUrl": "https://api.example.com",
+    "defaultReadApproval": "auto",
+    "defaultWriteApproval": "required"
+  }
+]
+```
+
+OpenAPI tools are generated as namespaced callables (`tools.<name>.<tag>.<operation>`), and MCP tools are generated as (`tools.<name>.<tool>`).
 
 ## Vercel Sandbox Runtime
 

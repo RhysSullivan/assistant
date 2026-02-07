@@ -5,6 +5,8 @@ import { LocalBunRuntime } from "./runtimes/local-bun-runtime";
 import { VercelSandboxRuntime } from "./runtimes/vercel-sandbox-runtime";
 import { ExecutorService, getTaskTerminalState } from "./service";
 import { ensureTailscaleFunnel } from "./tailscale-funnel";
+import { createDiscoverTool } from "./tool-discovery";
+import { loadExternalTools, parseToolSourcesFromEnv } from "./tool-sources";
 import { DEFAULT_TOOLS } from "./tools";
 import type {
   ApprovalStatus,
@@ -35,6 +37,20 @@ if (!explicitInternalBaseUrl && autoFunnelEnabled) {
   }
 }
 
+const toolSourceConfigs = (() => {
+  try {
+    return parseToolSourcesFromEnv(Bun.env.EXECUTOR_TOOL_SOURCES);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[executor] invalid EXECUTOR_TOOL_SOURCES: ${message}`);
+    return [];
+  }
+})();
+
+const externalTools = await loadExternalTools(toolSourceConfigs);
+const baseTools = [...DEFAULT_TOOLS, ...externalTools];
+const tools = [...baseTools, createDiscoverTool(baseTools)];
+
 const service = new ExecutorService(new ExecutorDatabase(), new TaskEventHub(), [
   new LocalBunRuntime(),
   new VercelSandboxRuntime({
@@ -42,7 +58,7 @@ const service = new ExecutorService(new ExecutorDatabase(), new TaskEventHub(), 
     internalToken,
     runtime: Bun.env.EXECUTOR_VERCEL_SANDBOX_RUNTIME as "node24" | "node22" | undefined,
   }),
-], DEFAULT_TOOLS);
+], tools);
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -313,3 +329,4 @@ const server = Bun.serve({
 console.log(`executor server listening on http://localhost:${server.port}`);
 console.log(`[executor] internal callback base: ${internalBaseUrl} (${internalBaseSource})`);
 console.log(`[executor] internal callback auth token enabled: yes`);
+console.log(`[executor] tools loaded: ${tools.length} (${externalTools.length} external)`);

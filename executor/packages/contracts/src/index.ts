@@ -70,6 +70,9 @@ export interface ToolDescriptor {
   path: string;
   description: string;
   approval: "auto" | "required";
+  source?: string;
+  argsType?: string;
+  returnsType?: string;
 }
 
 export interface TaskEventRecord {
