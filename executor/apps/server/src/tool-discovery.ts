@@ -72,7 +72,7 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
       returnsType:
         "{ results: Array<{ path: string; source: string; approval: 'auto' | 'required'; description: string; signature: string }>; total: number }",
     },
-    run: async (input: unknown) => {
+    run: async (input: unknown, context) => {
       const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
       const query = String(payload.query ?? "").trim().toLowerCase();
       const depth = Math.max(0, Math.min(2, Number(payload.depth ?? 1)));
@@ -80,6 +80,7 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
       const terms = query.length > 0 ? query.split(/\s+/).filter(Boolean) : [];
 
       const ranked = index
+        .filter((entry) => context.isToolAllowed(entry.path))
         .map((entry) => ({ entry, score: scoreEntry(entry, terms) }))
         .filter((item) => item.score > 0 || terms.length === 0)
         .sort((a, b) => b.score - a.score)

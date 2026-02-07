@@ -74,20 +74,22 @@ test("tool-level approval gates individual function call", async () => {
   const created = service.createTask({
     code: "unused",
     runtimeId: "inline",
+    workspaceId: "ws_test",
+    actorId: "actor_test",
   });
 
   await new Promise((resolve) => setTimeout(resolve, 5));
-  const approvals = service.listPendingApprovals();
+  const approvals = service.listPendingApprovals("ws_test");
 
   expect(approvals.length).toBe(1);
   expect(approvals[0]?.toolPath).toBe("admin.delete_data");
 
-  const resolved = service.resolveApproval(approvals[0]!.id, "approved", "test-user");
+  const resolved = service.resolveApproval("ws_test", approvals[0]!.id, "approved", "test-user");
   expect(resolved).toBeTruthy();
 
   await new Promise((resolve) => setTimeout(resolve, 20));
   const task = service.getTask(created.task.id);
 
   expect(task?.status).toBe("completed");
-  expect(service.listApprovals("approved").length).toBe(1);
+  expect(service.listApprovals("ws_test", "approved").length).toBe(1);
 });

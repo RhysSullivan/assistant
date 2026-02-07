@@ -2,20 +2,31 @@ import { ExecutorDatabase } from "./database";
 import { TaskEventHub, type LiveTaskEvent } from "./events";
 import { InProcessExecutionAdapter } from "./adapters/in-process-execution-adapter";
 import { APPROVAL_DENIED_PREFIX } from "./execution-constants";
+import { createDiscoverTool } from "./tool-discovery";
+import type { ExternalToolSourceConfig } from "./tool-sources";
+import { loadExternalTools } from "./tool-sources";
 import type {
+  AccessPolicyRecord,
+  AnonymousContext,
   ApprovalRecord,
   ApprovalStatus,
+  CredentialScope,
   CreateTaskInput,
   PendingApprovalRecord,
   SandboxRuntime,
   TaskEventRecord,
   TaskRecord,
   TaskStatus,
+  ToolCredentialSpec,
   ToolCallResult,
   ToolCallRequest,
   ToolDefinition,
   ToolDescriptor,
   RuntimeOutputEvent,
+  PolicyDecision,
+  ResolvedToolCredential,
+  CredentialRecord,
+  ToolRunContext,
 } from "./types";
 
 interface ApprovalWaiter {
@@ -41,11 +52,63 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function matchesToolPath(pattern: string, toolPath: string): boolean {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  const regex = new RegExp(`^${escaped}$`);
+  return regex.test(toolPath);
+}
+
+function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientId?: string): number {
+  let score = 0;
+  if (policy.actorId && actorId && policy.actorId === actorId) score += 4;
+  if (policy.clientId && clientId && policy.clientId === clientId) score += 2;
+  score += Math.max(1, policy.toolPathPattern.replace(/\*/g, "").length);
+  score += policy.priority;
+  return score;
+}
+
+function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
+  const parts = sources
+    .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
+    .sort();
+  return `${workspaceId}|${parts.join(",")}`;
+}
+
+function normalizeExternalToolSource(raw: {
+  type: "mcp" | "openapi";
+  name: string;
+  config: Record<string, unknown>;
+}): ExternalToolSourceConfig {
+  const merged = {
+    type: raw.type,
+    name: raw.name,
+    ...raw.config,
+  } as Record<string, unknown>;
+
+  if (raw.type === "mcp") {
+    if (typeof merged.url !== "string" || merged.url.trim().length === 0) {
+      throw new Error(`MCP source '${raw.name}' missing url`);
+    }
+    return merged as unknown as ExternalToolSourceConfig;
+  }
+
+  const spec = merged.spec;
+  if (typeof spec !== "string" && typeof spec !== "object") {
+    throw new Error(`OpenAPI source '${raw.name}' missing spec`);
+  }
+
+  return merged as unknown as ExternalToolSourceConfig;
+}
+
 export class ExecutorService {
   private readonly db: ExecutorDatabase;
   private readonly hub: TaskEventHub;
   private readonly runtimes = new Map<string, SandboxRuntime>();
-  private readonly tools = new Map<string, ToolDefinition>();
+  private readonly baseTools = new Map<string, ToolDefinition>();
+  private readonly workspaceToolCache = new Map<
+    string,
+    { signature: string; loadedAt: number; tools: Map<string, ToolDefinition> }
+  >();
   private readonly inFlightTaskIds = new Set<string>();
   private readonly approvalWaiters = new Map<string, ApprovalWaiter>();
 
@@ -61,15 +124,18 @@ export class ExecutorService {
       this.runtimes.set(runtime.id, runtime);
     }
     for (const tool of tools) {
-      this.tools.set(tool.path, tool);
+      this.baseTools.set(tool.path, tool);
     }
   }
 
-  listTasks(): TaskRecord[] {
-    return this.db.listTasks();
+  listTasks(workspaceId: string): TaskRecord[] {
+    return this.db.listTasks(workspaceId);
   }
 
-  getTask(taskId: string): TaskRecord | null {
+  getTask(taskId: string, workspaceId?: string): TaskRecord | null {
+    if (workspaceId) {
+      return this.db.getTaskInWorkspace(taskId, workspaceId);
+    }
     return this.db.getTask(taskId);
   }
 
@@ -81,23 +147,140 @@ export class ExecutorService {
     return this.hub.subscribe(taskId, listener);
   }
 
-  listApprovals(status?: ApprovalStatus): ApprovalRecord[] {
-    return this.db.listApprovals(status);
+  listApprovals(workspaceId: string, status?: ApprovalStatus): ApprovalRecord[] {
+    return this.db.listApprovals(workspaceId, status);
   }
 
-  listPendingApprovals(): PendingApprovalRecord[] {
-    return this.db.listPendingApprovals();
+  upsertAccessPolicy(input: {
+    id?: string;
+    workspaceId: string;
+    actorId?: string;
+    clientId?: string;
+    toolPathPattern: string;
+    decision: PolicyDecision;
+    priority?: number;
+  }): AccessPolicyRecord {
+    return this.db.upsertAccessPolicy(input);
   }
 
-  listTools(): ToolDescriptor[] {
-    return [...this.tools.values()].map((tool) => ({
-      path: tool.path,
-      description: tool.description,
-      approval: tool.approval,
-      source: tool.source,
-      argsType: tool.metadata?.argsType,
-      returnsType: tool.metadata?.returnsType,
+  listAccessPolicies(workspaceId: string): AccessPolicyRecord[] {
+    return this.db.listAccessPolicies(workspaceId);
+  }
+
+  upsertCredential(input: {
+    id?: string;
+    workspaceId: string;
+    sourceKey: string;
+    scope: CredentialScope;
+    actorId?: string;
+    secretJson: Record<string, unknown>;
+  }): CredentialRecord {
+    return this.db.upsertCredential(input);
+  }
+
+  listCredentials(workspaceId: string): Array<Omit<CredentialRecord, "secretJson"> & { hasSecret: boolean }> {
+    return this.db.listCredentials(workspaceId).map((credential) => ({
+      id: credential.id,
+      workspaceId: credential.workspaceId,
+      sourceKey: credential.sourceKey,
+      scope: credential.scope,
+      actorId: credential.actorId,
+      createdAt: credential.createdAt,
+      updatedAt: credential.updatedAt,
+      hasSecret: Object.keys(credential.secretJson).length > 0,
     }));
+  }
+
+  listToolSources(workspaceId: string): Array<{
+    id: string;
+    workspaceId: string;
+    name: string;
+    type: "mcp" | "openapi";
+    enabled: boolean;
+    config: Record<string, unknown>;
+    createdAt: number;
+    updatedAt: number;
+  }> {
+    return this.db.listToolSources(workspaceId);
+  }
+
+  async upsertToolSource(input: {
+    id?: string;
+    workspaceId: string;
+    name: string;
+    type: "mcp" | "openapi";
+    config: Record<string, unknown>;
+    enabled?: boolean;
+  }): Promise<{
+    id: string;
+    workspaceId: string;
+    name: string;
+    type: "mcp" | "openapi";
+    enabled: boolean;
+    config: Record<string, unknown>;
+    createdAt: number;
+    updatedAt: number;
+  }> {
+    const source = this.db.upsertToolSource(input);
+    this.workspaceToolCache.delete(source.workspaceId);
+    await this.getWorkspaceTools(source.workspaceId);
+    return source;
+  }
+
+  async deleteToolSource(workspaceId: string, sourceId: string): Promise<boolean> {
+    const deleted = this.db.deleteToolSource(workspaceId, sourceId);
+    if (deleted) {
+      this.workspaceToolCache.delete(workspaceId);
+      await this.getWorkspaceTools(workspaceId);
+    }
+    return deleted;
+  }
+
+  listPendingApprovals(workspaceId: string): PendingApprovalRecord[] {
+    return this.db.listPendingApprovals(workspaceId);
+  }
+
+  bootstrapAnonymousContext(sessionId?: string): AnonymousContext {
+    return this.db.bootstrapAnonymousSession(sessionId);
+  }
+
+  async listTools(context?: {
+    workspaceId: string;
+    actorId?: string;
+    clientId?: string;
+  }): Promise<ToolDescriptor[]> {
+    const all = context
+      ? [...(await this.getWorkspaceTools(context.workspaceId)).values()]
+      : [...this.baseTools.values()];
+
+    if (!context) {
+      return all.map((tool) => ({
+        path: tool.path,
+        description: tool.description,
+        approval: tool.approval,
+        source: tool.source,
+        argsType: tool.metadata?.argsType,
+        returnsType: tool.metadata?.returnsType,
+      }));
+    }
+
+    const policies = this.db.listAccessPolicies(context.workspaceId);
+    return all
+      .filter((tool) => {
+        const decision = this.getDecisionForContext(tool, context, policies);
+        return decision !== "deny";
+      })
+      .map((tool) => {
+        const decision = this.getDecisionForContext(tool, context, policies);
+        return {
+          path: tool.path,
+          description: tool.description,
+          approval: decision === "require_approval" ? "required" : "auto",
+          source: tool.source,
+          argsType: tool.metadata?.argsType,
+          returnsType: tool.metadata?.returnsType,
+        };
+      });
   }
 
   listRuntimes(): Array<{ id: string; label: string; description: string }> {
@@ -108,9 +291,21 @@ export class ExecutorService {
     }));
   }
 
+  getBaseToolCount(): number {
+    return [...this.baseTools.keys()].filter((path) => path !== "discover").length + 1;
+  }
+
   createTask(input: CreateTaskInput): { task: TaskRecord } {
     if (!input.code || input.code.trim().length === 0) {
       throw new Error("Task code is required");
+    }
+
+    if (!input.workspaceId || input.workspaceId.trim().length === 0) {
+      throw new Error("workspaceId is required");
+    }
+
+    if (!input.actorId || input.actorId.trim().length === 0) {
+      throw new Error("actorId is required");
     }
 
     const runtimeId = input.runtimeId ?? "local-bun";
@@ -124,6 +319,9 @@ export class ExecutorService {
       runtimeId,
       timeoutMs: input.timeoutMs,
       metadata: input.metadata,
+      workspaceId: input.workspaceId,
+      actorId: input.actorId,
+      clientId: input.clientId,
     });
 
     this.publish(task.id, "task", "task.created", {
@@ -131,6 +329,9 @@ export class ExecutorService {
       status: task.status,
       runtimeId: task.runtimeId,
       timeoutMs: task.timeoutMs,
+      workspaceId: task.workspaceId,
+      actorId: task.actorId,
+      clientId: task.clientId,
       createdAt: task.createdAt,
     });
 
@@ -144,11 +345,17 @@ export class ExecutorService {
   }
 
   resolveApproval(
+    workspaceId: string,
     approvalId: string,
     decision: "approved" | "denied",
     reviewerId?: string,
     reason?: string,
   ): { approval: ApprovalRecord; task: TaskRecord } | null {
+    const scopedApproval = this.db.getApprovalInWorkspace(approvalId, workspaceId);
+    if (!scopedApproval || scopedApproval.status !== "pending") {
+      return null;
+    }
+
     const approval = this.db.resolveApproval({
       approvalId,
       decision,
@@ -256,22 +463,173 @@ export class ExecutorService {
     });
   }
 
+  private async getWorkspaceTools(workspaceId: string): Promise<Map<string, ToolDefinition>> {
+    const sources = this.db.listToolSources(workspaceId).filter((source) => source.enabled);
+    const signature = sourceSignature(workspaceId, sources);
+    const cached = this.workspaceToolCache.get(workspaceId);
+    if (cached && cached.signature === signature) {
+      return cached.tools;
+    }
+
+    const configs: ExternalToolSourceConfig[] = [];
+    for (const source of sources) {
+      try {
+        configs.push(normalizeExternalToolSource(source));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[executor] skipping invalid source ${source.id}: ${message}`);
+      }
+    }
+
+    const externalTools = await loadExternalTools(configs);
+
+    const merged = new Map<string, ToolDefinition>();
+    for (const tool of this.baseTools.values()) {
+      if (tool.path === "discover") continue;
+      merged.set(tool.path, tool);
+    }
+    for (const tool of externalTools) {
+      merged.set(tool.path, tool);
+    }
+
+    const discover = createDiscoverTool([...merged.values()]);
+    merged.set(discover.path, discover);
+
+    this.workspaceToolCache.set(workspaceId, {
+      signature,
+      loadedAt: Date.now(),
+      tools: merged,
+    });
+    return merged;
+  }
+
+  private getToolDecision(task: TaskRecord, tool: ToolDefinition): PolicyDecision {
+    return this.getDecisionForContext(
+      tool,
+      {
+        workspaceId: task.workspaceId,
+        actorId: task.actorId,
+        clientId: task.clientId,
+      },
+      this.db.listAccessPolicies(task.workspaceId),
+    );
+  }
+
+  private getDecisionForContext(
+    tool: ToolDefinition,
+    context: { workspaceId: string; actorId?: string; clientId?: string },
+    policies?: AccessPolicyRecord[],
+  ): PolicyDecision {
+    const defaultDecision: PolicyDecision = tool.approval === "required" ? "require_approval" : "allow";
+    const scopedPolicies = policies ?? this.db.listAccessPolicies(context.workspaceId);
+    const candidates = scopedPolicies
+      .filter((policy) => {
+        if (policy.actorId && policy.actorId !== context.actorId) return false;
+        if (policy.clientId && policy.clientId !== context.clientId) return false;
+        return matchesToolPath(policy.toolPathPattern, tool.path);
+      })
+      .sort(
+        (a, b) =>
+          policySpecificity(b, context.actorId, context.clientId) -
+          policySpecificity(a, context.actorId, context.clientId),
+      );
+
+    return candidates[0]?.decision ?? defaultDecision;
+  }
+
+  private isToolAllowedForTask(
+    task: TaskRecord,
+    toolPath: string,
+    workspaceTools: Map<string, ToolDefinition>,
+  ): boolean {
+    const tool = workspaceTools.get(toolPath);
+    if (!tool) return false;
+    return this.getToolDecision(task, tool) !== "deny";
+  }
+
+  private resolveCredentialHeaders(
+    spec: ToolCredentialSpec,
+    task: TaskRecord,
+  ): ResolvedToolCredential | null {
+    const record = this.db.resolveCredential({
+      workspaceId: task.workspaceId,
+      sourceKey: spec.sourceKey,
+      scope: spec.mode,
+      actorId: task.actorId,
+    });
+
+    const source = record?.secretJson ?? spec.staticSecretJson ?? null;
+    if (!source) {
+      return null;
+    }
+
+    const headers: Record<string, string> = {};
+    if (spec.authType === "bearer") {
+      const token = String((source as Record<string, unknown>).token ?? "").trim();
+      if (token) headers.authorization = `Bearer ${token}`;
+    } else if (spec.authType === "apiKey") {
+      const headerName = spec.headerName ?? String((source as Record<string, unknown>).headerName ?? "x-api-key");
+      const value = String((source as Record<string, unknown>).value ?? (source as Record<string, unknown>).token ?? "").trim();
+      if (value) headers[headerName] = value;
+    } else if (spec.authType === "basic") {
+      const username = String((source as Record<string, unknown>).username ?? "");
+      const password = String((source as Record<string, unknown>).password ?? "");
+      if (username || password) {
+        const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
+        headers.authorization = `Basic ${encoded}`;
+      }
+    }
+
+    if (Object.keys(headers).length === 0) {
+      return null;
+    }
+
+    return {
+      sourceKey: spec.sourceKey,
+      mode: spec.mode,
+      headers,
+    };
+  }
+
   private async invokeTool(task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
     const { toolPath, input, callId } = call;
-    const tool = this.tools.get(toolPath);
+    const workspaceTools = await this.getWorkspaceTools(task.workspaceId);
+    const tool = workspaceTools.get(toolPath);
     if (!tool) {
       throw new Error(`Unknown tool: ${toolPath}`);
+    }
+
+    const decision = this.getToolDecision(task, tool);
+    if (decision === "deny") {
+      this.publish(task.id, "task", "tool.call.denied", {
+        taskId: task.id,
+        callId,
+        toolPath,
+        reason: "policy_deny",
+      });
+      throw new Error(`${APPROVAL_DENIED_PREFIX}${toolPath} (policy denied)`);
+    }
+
+    let credential: ResolvedToolCredential | undefined;
+    if (tool.credential) {
+      const resolved = this.resolveCredentialHeaders(tool.credential, task);
+      if (!resolved) {
+        throw new Error(
+          `Missing credential for source '${tool.credential.sourceKey}' (${tool.credential.mode} scope)`,
+        );
+      }
+      credential = resolved;
     }
 
     this.publish(task.id, "task", "tool.call.started", {
       taskId: task.id,
       callId,
       toolPath,
-      approval: tool.approval,
+      approval: decision === "require_approval" ? "required" : "auto",
       input: asPayload(input),
     });
 
-    if (tool.approval === "required") {
+    if (decision === "require_approval") {
       const approval = this.db.createApproval({
         id: createApprovalId(),
         taskId: task.id,
@@ -301,7 +659,15 @@ export class ExecutorService {
     }
 
     try {
-      const value = await tool.run(input);
+      const context: ToolRunContext = {
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        actorId: task.actorId,
+        clientId: task.clientId,
+        credential,
+        isToolAllowed: (path) => this.isToolAllowedForTask(task, path, workspaceTools),
+      };
+      const value = await tool.run(input, context);
       this.publish(task.id, "task", "tool.call.completed", {
         taskId: task.id,
         callId,

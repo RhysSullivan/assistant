@@ -9,6 +9,7 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     path: "utils.get_time",
     description: "Return current server time.",
     approval: "auto",
+    source: "local",
     run: async () => ({
       iso: new Date().toISOString(),
       unix: Date.now(),
@@ -18,6 +19,7 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     path: "math.add",
     description: "Add two numbers.",
     approval: "auto",
+    source: "local",
     run: async (input) => {
       const payload = asObject(input);
       const a = Number(payload.a ?? 0);
@@ -32,6 +34,7 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     path: "admin.send_announcement",
     description: "Mock announcement sender that requires approval.",
     approval: "required",
+    source: "local",
     run: async (input) => {
       const payload = asObject(input);
       const channel = String(payload.channel ?? "general");
@@ -50,6 +53,7 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     path: "admin.delete_data",
     description: "Mock destructive operation that requires approval.",
     approval: "required",
+    source: "local",
     run: async (input) => {
       const payload = asObject(input);
       const key = String(payload.key ?? "");

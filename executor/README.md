@@ -29,6 +29,25 @@ Prototype executor control plane for running AI-generated code with tool-call ap
 - Runtime targets are swappable by ID (`runtimeId`) so sandbox backends can change later.
 - SQLite is used as a prototype event/history store.
 
+Auth/tenancy design draft: `docs/auth-and-tenancy-model.md`
+
+## Anonymous Web Context (No Sign-In)
+
+The web client now bootstraps an anonymous session context before any task calls:
+
+- `POST /api/auth/anonymous/bootstrap`
+
+Response includes:
+
+- `sessionId`
+- `workspaceId`
+- `actorId`
+- `clientId`
+
+The browser persists `sessionId` and reuses it to maintain the same anonymous workspace/actor context.
+
+Legacy unscoped task/approval reads are disabled. Requests must include workspace context.
+
 ## External Tool Sources (MCP + OpenAPI)
 
 You can load callable tools automatically from MCP servers and OpenAPI specs via env config:
@@ -57,6 +76,22 @@ Example:
 ```
 
 OpenAPI tools are generated as namespaced callables (`tools.<name>.<tag>.<operation>`), and MCP tools are generated as (`tools.<name>.<tool>`).
+
+OpenAPI auth modes in source config:
+
+- `mode: "static"` (token in source config)
+- `mode: "workspace"` (shared credential per workspace)
+- `mode: "actor"` (bring-your-own credential per actor)
+
+Credential and policy management endpoints:
+
+- `POST /api/policies` and `GET /api/policies?workspaceId=...`
+- `POST /api/credentials` and `GET /api/credentials?workspaceId=...`
+- `POST /api/tool-sources`, `GET /api/tool-sources?workspaceId=...`, and `DELETE /api/tool-sources/:sourceId?workspaceId=...`
+
+Tasks should include `workspaceId`, `actorId`, and optional `clientId` so policy and credential resolution can be applied per caller.
+
+The web UI supports adding MCP/OpenAPI sources per workspace and viewing discovered workspace tool inventory.
 
 ## Vercel Sandbox Runtime
 

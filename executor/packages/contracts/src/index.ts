@@ -14,6 +14,9 @@ export interface CreateTaskRequest {
   runtimeId?: string;
   timeoutMs?: number;
   metadata?: Record<string, unknown>;
+  workspaceId: string;
+  actorId: string;
+  clientId?: string;
 }
 
 export interface CreateTaskResponse {
@@ -27,6 +30,9 @@ export interface TaskRecord {
   runtimeId: string;
   timeoutMs: number;
   metadata: Record<string, unknown>;
+  workspaceId: string;
+  actorId?: string;
+  clientId?: string;
   status: TaskStatus;
   createdAt: number;
   updatedAt: number;
@@ -55,9 +61,19 @@ export interface PendingApprovalRecord extends ApprovalRecord {
 }
 
 export interface ResolveApprovalRequest {
+  workspaceId: string;
   decision: ApprovalDecision;
   reviewerId?: string;
   reason?: string;
+}
+
+export interface AnonymousContext {
+  sessionId: string;
+  workspaceId: string;
+  actorId: string;
+  clientId: string;
+  createdAt: number;
+  lastSeenAt: number;
 }
 
 export interface RuntimeTargetDescriptor {
@@ -73,6 +89,42 @@ export interface ToolDescriptor {
   source?: string;
   argsType?: string;
   returnsType?: string;
+}
+
+export type PolicyDecision = "allow" | "require_approval" | "deny";
+
+export interface AccessPolicyRecord {
+  id: string;
+  workspaceId: string;
+  actorId?: string;
+  clientId?: string;
+  toolPathPattern: string;
+  decision: PolicyDecision;
+  priority: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type CredentialScope = "workspace" | "actor";
+
+export interface CredentialDescriptor {
+  id: string;
+  workspaceId: string;
+  sourceKey: string;
+  scope: CredentialScope;
+  actorId?: string;
+  hasSecret: boolean;
+}
+
+export interface ToolSourceRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
+  type: "mcp" | "openapi";
+  config: Record<string, unknown>;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface TaskEventRecord {

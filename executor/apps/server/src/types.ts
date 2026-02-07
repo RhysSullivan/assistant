@@ -15,6 +15,9 @@ export interface TaskRecord {
   status: TaskStatus;
   timeoutMs: number;
   metadata: Record<string, unknown>;
+  workspaceId: string;
+  actorId?: string;
+  clientId?: string;
   createdAt: number;
   updatedAt: number;
   startedAt?: number;
@@ -55,6 +58,18 @@ export interface CreateTaskInput {
   timeoutMs?: number;
   runtimeId?: string;
   metadata?: Record<string, unknown>;
+  workspaceId: string;
+  actorId: string;
+  clientId?: string;
+}
+
+export interface AnonymousContext {
+  sessionId: string;
+  workspaceId: string;
+  actorId: string;
+  clientId: string;
+  createdAt: number;
+  lastSeenAt: number;
 }
 
 export interface SandboxExecutionRequest {
@@ -109,6 +124,58 @@ export interface SandboxRuntime {
 
 export type ToolApprovalMode = "auto" | "required";
 
+export type PolicyDecision = "allow" | "require_approval" | "deny";
+
+export interface AccessPolicyRecord {
+  id: string;
+  workspaceId: string;
+  actorId?: string;
+  clientId?: string;
+  toolPathPattern: string;
+  decision: PolicyDecision;
+  priority: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type CredentialScope = "workspace" | "actor";
+
+export interface CredentialRecord {
+  id: string;
+  workspaceId: string;
+  sourceKey: string;
+  scope: CredentialScope;
+  actorId?: string;
+  secretJson: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ToolCredentialAuthType = "bearer" | "apiKey" | "basic";
+
+export interface ToolCredentialSpec {
+  sourceKey: string;
+  mode: CredentialScope;
+  authType: ToolCredentialAuthType;
+  headerName?: string;
+  staticSecretJson?: Record<string, unknown>;
+}
+
+export interface ResolvedToolCredential {
+  sourceKey: string;
+  mode: CredentialScope;
+  headers: Record<string, string>;
+}
+
+export interface ToolRunContext {
+  taskId: string;
+  workspaceId: string;
+  actorId?: string;
+  clientId?: string;
+  credential?: ResolvedToolCredential;
+  isToolAllowed: (toolPath: string) => boolean;
+}
+
 export interface ToolTypeMetadata {
   argsType?: string;
   returnsType?: string;
@@ -120,7 +187,8 @@ export interface ToolDefinition {
   approval: ToolApprovalMode;
   source?: string;
   metadata?: ToolTypeMetadata;
-  run(input: unknown): Promise<unknown>;
+  credential?: ToolCredentialSpec;
+  run(input: unknown, context: ToolRunContext): Promise<unknown>;
 }
 
 export interface ToolDescriptor {
@@ -130,4 +198,15 @@ export interface ToolDescriptor {
   source?: string;
   argsType?: string;
   returnsType?: string;
+}
+
+export interface ToolSourceRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
+  type: "mcp" | "openapi";
+  config: Record<string, unknown>;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
 }

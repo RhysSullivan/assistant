@@ -112,6 +112,39 @@ body {
   max-width: 74ch;
 }
 
+.context-strip {
+  margin-top: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.55rem 0.58rem;
+  background: rgba(255, 255, 255, 0.78);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.context-item {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.context-item span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.context-item strong {
+  font-family: "IBM Plex Mono", "Fira Code", monospace;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .hero-metrics {
   margin-top: 0.95rem;
   display: grid;
@@ -146,6 +179,11 @@ body {
   grid-column: 1 / -1;
 }
 
+#sources-panel,
+#inventory-panel {
+  min-height: 100%;
+}
+
 .section-title {
   display: flex;
   justify-content: space-between;
@@ -171,6 +209,16 @@ form {
   margin-top: 0.7rem;
   display: grid;
   gap: 0.78rem;
+}
+
+.source-form {
+  margin-top: 0.6rem;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.62rem;
 }
 
 .form-top-grid {
@@ -229,6 +277,53 @@ textarea {
 .composer-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.source-list,
+.inventory-list {
+  margin-top: 0.7rem;
+  display: grid;
+  gap: 0.56rem;
+}
+
+.source-card,
+.inventory-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.62rem;
+  background: rgba(255, 255, 255, 0.82);
+  display: grid;
+  gap: 0.4rem;
+}
+
+.source-card header,
+.inventory-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.source-meta,
+.inventory-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.source-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.tag {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.71rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.68);
 }
 
 button {
@@ -441,6 +536,14 @@ code {
   .detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .source-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .context-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
@@ -466,6 +569,15 @@ code {
 
   .hero-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .context-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .context-item strong {
+    white-space: normal;
+    word-break: break-word;
   }
 
   .metric-card strong {

@@ -2,7 +2,7 @@ import SwaggerParser from "@apidevtools/swagger-parser";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { ToolApprovalMode, ToolDefinition } from "./types";
+import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition } from "./types";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -16,9 +16,10 @@ export interface McpToolSourceConfig {
 }
 
 export type OpenApiAuth =
-  | { type: "basic"; username: string; password: string }
-  | { type: "bearer"; token: string }
-  | { type: "apiKey"; header: string; value: string };
+  | { type: "none" }
+  | { type: "basic"; mode?: "static" | "workspace" | "actor"; username?: string; password?: string }
+  | { type: "bearer"; mode?: "static" | "workspace" | "actor"; token?: string }
+  | { type: "apiKey"; mode?: "static" | "workspace" | "actor"; header: string; value?: string };
 
 export interface OpenApiToolSourceConfig {
   type: "openapi";
@@ -186,16 +187,52 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
   });
 }
 
-function buildAuthHeaders(auth?: OpenApiAuth): Record<string, string> {
-  if (!auth) return {};
+function buildStaticAuthHeaders(auth?: OpenApiAuth): Record<string, string> {
+  if (!auth || auth.type === "none") return {};
+  const mode = auth.mode ?? "static";
+  if (mode !== "static") return {};
+
   if (auth.type === "basic") {
-    const encoded = Buffer.from(`${auth.username}:${auth.password}`, "utf8").toString("base64");
+    const username = auth.username ?? "";
+    const password = auth.password ?? "";
+    if (!username && !password) return {};
+    const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
     return { authorization: `Basic ${encoded}` };
   }
   if (auth.type === "bearer") {
+    if (!auth.token) return {};
     return { authorization: `Bearer ${auth.token}` };
   }
+  if (!auth.value) return {};
   return { [auth.header]: auth.value };
+}
+
+function buildCredentialSpec(sourceKey: string, auth?: OpenApiAuth): ToolCredentialSpec | undefined {
+  if (!auth || auth.type === "none") return undefined;
+  const mode = auth.mode ?? "static";
+  if (mode === "static") return undefined;
+
+  if (auth.type === "bearer") {
+    return {
+      sourceKey,
+      mode,
+      authType: "bearer",
+    };
+  }
+  if (auth.type === "basic") {
+    return {
+      sourceKey,
+      mode,
+      authType: "basic",
+    };
+  }
+
+  return {
+    sourceKey,
+    mode,
+    authType: "apiKey",
+    headerName: auth.header,
+  };
 }
 
 function buildOpenApiUrl(
@@ -245,7 +282,9 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
     throw new Error(`OpenAPI source ${config.name} has no base URL (set baseUrl)`);
   }
 
-  const authHeaders = buildAuthHeaders(config.auth);
+  const authHeaders = buildStaticAuthHeaders(config.auth);
+  const sourceKey = `openapi:${config.name}`;
+  const credentialSpec = buildCredentialSpec(sourceKey, config.auth);
   const paths = toObject(api.paths);
   const tools: ToolDefinition[] = [];
 
@@ -318,14 +357,15 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
 
       tools.push({
         path: `${sanitizeSegment(config.name)}.${tag}.${operationId}`,
-        source: `openapi:${config.name}`,
+        source: sourceKey,
         approval,
         description: String(operation.summary ?? operation.description ?? `${method.toUpperCase()} ${pathTemplate}`),
         metadata: {
           argsType: jsonSchemaTypeHint(combinedSchema),
           returnsType: jsonSchemaTypeHint(responseSchema),
         },
-        run: async (input: unknown) => {
+        credential: credentialSpec,
+        run: async (input: unknown, context) => {
           const payload = toObject(input);
           const { url, bodyInput } = buildOpenApiUrl(baseUrl, pathTemplate, parameters, payload);
           const hasBody = !readMethods.has(method) && Object.keys(bodyInput).length > 0;
@@ -334,6 +374,7 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
             method: method.toUpperCase(),
             headers: {
               ...authHeaders,
+              ...(context.credential?.headers ?? {}),
               ...(hasBody ? { "content-type": "application/json" } : {}),
             },
             body: hasBody ? JSON.stringify(bodyInput) : undefined,
