@@ -19,10 +19,21 @@ export {
 // Runner (sandbox execution)
 export {
   createRunner,
+  ToolDeniedError,
   type Runner,
   type RunnerOptions,
   type RunResult,
 } from "./runner.js";
+
+// Remote runner (executor HTTP transport)
+export {
+  createRemoteRunner,
+  type RemoteRunnerOptions,
+  type ExecutorRunRequest,
+  type ExecutorInvokeRequest,
+  type ExecutorInvokeResponse,
+  type ExecutorToolManifestEntry,
+} from "./remote-runner.js";
 
 // Typechecker
 export {

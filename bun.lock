@@ -34,6 +34,16 @@
         "@types/react": "^19.0.0",
       },
     },
+    "apps/executor": {
+      "name": "@openassistant/executor",
+      "dependencies": {
+        "@openassistant/core": "workspace:*",
+        "zod": "^4.3.6",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "apps/server": {
       "name": "@openassistant/server",
       "dependencies": {
@@ -297,6 +307,8 @@
     "@openassistant/bot": ["@openassistant/bot@workspace:apps/bot"],
 
     "@openassistant/core": ["@openassistant/core@workspace:packages/core"],
+
+    "@openassistant/executor": ["@openassistant/executor@workspace:apps/executor"],
 
     "@openassistant/reacord": ["@openassistant/reacord@workspace:packages/reacord"],
 

@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/tool-gen" },
-    { "path": "./apps/server" }
+    { "path": "./apps/server" },
+    { "path": "./apps/executor" }
   ]
 }

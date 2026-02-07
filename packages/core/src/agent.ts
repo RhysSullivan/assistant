@@ -16,7 +16,7 @@
  */
 
 import type { ToolTree, ApprovalDecision, ApprovalRequest, ToolCallReceipt } from "./tools.js";
-import type { RunResult } from "./runner.js";
+import type { RunResult, Runner } from "./runner.js";
 import { createRunner } from "./runner.js";
 import { generateToolDeclarations, generatePromptGuidance, typecheckCode } from "./typechecker.js";
 import { countTools, createDiscoverTool } from "./discovery.js";
@@ -62,8 +62,10 @@ export interface AgentOptions {
   readonly tools: ToolTree;
   /** The language model to use. */
   readonly model: LanguageModel;
-  /** Called when a tool needs approval. */
-  readonly requestApproval: (request: ApprovalRequest) => Promise<ApprovalDecision>;
+  /** Called when a tool needs approval (required when `runner` is not provided). */
+  readonly requestApproval?: ((request: ApprovalRequest) => Promise<ApprovalDecision>) | undefined;
+  /** Optional custom runner (e.g. remote executor transport). */
+  readonly runner?: Runner | undefined;
   /** Called for each task event. */
   readonly onEvent?: ((event: TaskEvent) => void) | undefined;
   /** Maximum typecheck retries per run_code call. Defaults to 3. */
@@ -281,6 +283,7 @@ export function createAgent(options: AgentOptions): {
     tools,
     model,
     requestApproval,
+    runner: providedRunner,
     onEvent,
     maxTypecheckRetries = 3,
     maxCodeRuns = 100,
@@ -292,11 +295,16 @@ export function createAgent(options: AgentOptions): {
   const { sandboxTools, promptGuidance, toolDeclarations, discoveryMode } =
     prepareToolsForAgent(tools, discoveryThreshold);
 
-  const runner = createRunner({
-    tools: sandboxTools,
-    requestApproval,
-    timeoutMs,
-  });
+  const runner = providedRunner ?? (() => {
+    if (!requestApproval) {
+      throw new Error("createAgent requires requestApproval when runner is not provided");
+    }
+    return createRunner({
+      tools: sandboxTools,
+      requestApproval,
+      timeoutMs,
+    });
+  })();
 
   function emit(event: TaskEvent): void {
     onEvent?.(event);

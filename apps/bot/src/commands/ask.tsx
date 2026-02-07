@@ -40,11 +40,13 @@ export async function handleAskCommand(
 
   // Create task on the server
   let taskId: string;
+  let executionMode: "local" | "remote" = "local";
   try {
     const data = await unwrap(
       deps.api.api.tasks.post({ prompt, requesterId }),
     );
     taskId = data.taskId;
+    executionMode = data.executionMode;
   } catch (error) {
     await interaction.editReply({
       content: `\u274c Failed to create task: ${error instanceof Error ? error.message : String(error)}`,
@@ -56,7 +58,7 @@ export async function handleAskCommand(
   await Runtime.runPromise(Runtime.defaultRuntime)(
     deps.reacord.reply(
       interaction,
-      <TaskMessage taskId={taskId} prompt={prompt} api={deps.api} />,
+      <TaskMessage taskId={taskId} prompt={prompt} api={deps.api} executionMode={executionMode} />,
     ),
   );
 }

@@ -48,6 +48,13 @@ export interface Runner {
   run(code: string): Promise<RunResult>;
 }
 
+export class ToolDeniedError extends Error {
+  constructor(message = "Tool call denied") {
+    super(message);
+    this.name = "ToolDeniedError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -213,10 +220,10 @@ function buildDefaultApprovalPresentation(
       ? `${details.slice(0, MAX_APPROVAL_DETAILS)}...`
       : details,
     action,
-    resourceType,
-    resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
-    count,
     isDestructive,
+    ...(resourceType ? { resourceType } : {}),
+    ...(resourceIds.length > 0 ? { resourceIds } : {}),
+    ...(count !== undefined ? { count } : {}),
   };
 }
 
@@ -399,6 +406,19 @@ function createToolInvoker(
       });
       return output;
     } catch (error) {
+      if (error instanceof ToolDeniedError) {
+        ctx.receipts.push({
+          callId,
+          toolPath,
+          approval: "auto",
+          decision: "denied",
+          status: "denied",
+          timestamp,
+          inputPreview,
+          error: error.message,
+        });
+        return undefined;
+      }
       const errorMsg = describeError(error);
       ctx.receipts.push({
         callId,

@@ -13,12 +13,14 @@ import type { ApprovalDecision } from "@openassistant/core/tools";
 // ---------------------------------------------------------------------------
 
 export type TaskStatus = "running" | "completed" | "failed" | "cancelled";
+export type TaskExecutionMode = "local" | "remote";
 
 export interface Task {
   readonly id: string;
   readonly prompt: string;
   readonly requesterId: string;
   readonly channelId?: string | undefined;
+  readonly executionMode: TaskExecutionMode;
   readonly createdAt: number;
   status: TaskStatus;
   events: TaskEvent[];
@@ -50,6 +52,22 @@ export interface ApprovalRule {
   readonly decision: ApprovalDecision;
 }
 
+export interface RemoteRunInvokeResult {
+  readonly ok: boolean;
+  readonly value?: unknown;
+  readonly error?: string;
+  readonly denied?: boolean;
+}
+
+export interface RemoteRunSession {
+  readonly runId: string;
+  readonly token: string;
+  readonly invokeTool: (
+    toolPath: string,
+    input: unknown,
+  ) => Promise<RemoteRunInvokeResult>;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -57,6 +75,7 @@ export interface ApprovalRule {
 const tasks = new Map<string, Task>();
 const pendingApprovals = new Map<string, PendingApproval>();
 const approvalRules = new Map<string, ApprovalRule[]>(); // taskId → rules
+const remoteRunSessions = new Map<string, RemoteRunSession>();
 
 let taskCounter = 0;
 
@@ -71,12 +90,14 @@ export function createTask(opts: {
   prompt: string;
   requesterId: string;
   channelId?: string | undefined;
+  executionMode: TaskExecutionMode;
 }): Task {
   const task: Task = {
     id: opts.id,
     prompt: opts.prompt,
     requesterId: opts.requesterId,
     channelId: opts.channelId,
+    executionMode: opts.executionMode,
     createdAt: Date.now(),
     status: "running",
     events: [],
@@ -238,4 +259,18 @@ export function addApprovalRule(rule: ApprovalRule): number {
 
 export function listApprovalRules(taskId: string): ApprovalRule[] {
   return approvalRules.get(taskId) ?? [];
+}
+
+// -- Remote Runner Sessions --
+
+export function registerRemoteRunSession(session: RemoteRunSession): void {
+  remoteRunSessions.set(session.runId, session);
+}
+
+export function getRemoteRunSession(runId: string): RemoteRunSession | undefined {
+  return remoteRunSessions.get(runId);
+}
+
+export function removeRemoteRunSession(runId: string): void {
+  remoteRunSessions.delete(runId);
 }

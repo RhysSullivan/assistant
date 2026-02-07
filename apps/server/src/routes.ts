@@ -19,6 +19,7 @@ import {
   getTask,
   listTasks,
   listPendingApprovals,
+  getRemoteRunSession,
   resolveApproval,
   subscribeToTask,
   type RuleOperator,
@@ -52,6 +53,11 @@ const ApprovalRuleBody = t.Object({
   decision: t.Union([t.Literal("approved"), t.Literal("denied")]),
 });
 
+const RemoteInvokeBody = t.Object({
+  toolPath: t.String({ minLength: 1 }),
+  input: t.Any(),
+});
+
 // ---------------------------------------------------------------------------
 // Task serialization (strip internal fields)
 // ---------------------------------------------------------------------------
@@ -66,6 +72,7 @@ function serializeTask(task: NonNullable<ReturnType<typeof getTask>>) {
     prompt: task.prompt,
     requesterId: task.requesterId,
     channelId: task.channelId,
+    executionMode: task.executionMode,
     createdAt: task.createdAt,
     status: task.status,
     resultText: task.resultText,
@@ -91,11 +98,13 @@ export function createApp(runnerOptions: TaskRunnerOptions) {
       "/api/tasks",
       async ({ body }) => {
         const taskId = generateTaskId();
+        const executionMode = runnerOptions.executor ? "remote" as const : "local" as const;
         const task = createTask({
           id: taskId,
           prompt: body.prompt,
           requesterId: body.requesterId,
           channelId: body.channelId,
+          executionMode,
         });
 
         // Fire-and-forget: run the agent in the background
@@ -103,7 +112,7 @@ export function createApp(runnerOptions: TaskRunnerOptions) {
           console.error(`[task ${taskId}] unhandled error:`, err);
         });
 
-        return { taskId: task.id, status: task.status };
+        return { taskId: task.id, status: task.status, executionMode };
       },
       { body: CreateTaskBody },
     )
@@ -146,23 +155,20 @@ export function createApp(runnerOptions: TaskRunnerOptions) {
           return;
         }
 
-        // First, replay all existing events
-        for (const event of task.events) {
-          yield sse({ event: event.type, data: event });
-        }
-
-        // If task is already done, close the stream
-        if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
-          return;
-        }
-
-        // Subscribe to new events via an async queue
+        // Subscribe FIRST to avoid race between replay and live events.
+        // Track how many events we've replayed so the subscriber can skip
+        // events that were already sent during replay.
         type TaskEvent = (typeof task.events)[number];
         const queue: TaskEvent[] = [];
         let resolveWait: (() => void) | null = null;
         let done = false;
+        let replayedCount = 0;
 
         const unsubscribe = subscribeToTask(params.id, (event) => {
+          // During replay, events that are ALSO live will arrive here.
+          // We track replay count and only queue events beyond what was replayed.
+          // Since events are append-only, the subscriber index == task.events.length
+          // at the time of the call. We skip anything <= replayedCount.
           queue.push(event);
           if (resolveWait) {
             resolveWait();
@@ -173,8 +179,28 @@ export function createApp(runnerOptions: TaskRunnerOptions) {
           }
         });
 
-        if (!unsubscribe) return;
+        if (!unsubscribe) {
+          return;
+        }
 
+        // Replay existing events. Snapshot the current count to avoid
+        // replaying events that arrive during iteration.
+        const eventsSnapshot = task.events.length;
+        for (let i = 0; i < eventsSnapshot; i++) {
+          yield sse({ event: task.events[i]!.type, data: task.events[i] });
+        }
+        replayedCount = eventsSnapshot;
+
+        // If task is already done, close the stream
+        if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+          unsubscribe();
+          return;
+        }
+
+        // Now drain the queue. Any events that arrived between subscribe
+        // and replay-end with index < replayedCount are skipped (they were
+        // already yielded in the replay loop above). We detect this by
+        // checking if the event is the same reference as one in task.events.
         try {
           while (!done) {
             if (queue.length === 0) {
@@ -185,6 +211,12 @@ export function createApp(runnerOptions: TaskRunnerOptions) {
 
             while (queue.length > 0) {
               const event = queue.shift()!;
+              // Skip events that were already replayed. The subscriber fires
+              // for ALL events (including ones emitted during replay). Check
+              // by finding this event's index in task.events — if it's within
+              // the replayed range, skip it.
+              const idx = task.events.indexOf(event);
+              if (idx !== -1 && idx < replayedCount) continue;
               yield sse({ event: event.type, data: event });
             }
           }
@@ -249,6 +281,30 @@ export function createApp(runnerOptions: TaskRunnerOptions) {
         return { ruleId, resolved, toolPath: body.toolPath, field: body.field, operator: body.operator, value: body.value, decision: body.decision };
       },
       { body: ApprovalRuleBody },
+    )
+
+    // -----------------------------------------------------------------------
+    // POST /internal/runs/:runId/invoke — executor callback for tools.* calls
+    // -----------------------------------------------------------------------
+    .post(
+      "/internal/runs/:runId/invoke",
+      async ({ params, body, headers, status }) => {
+        const session = getRemoteRunSession(params.runId);
+        if (!session) {
+          return status(404, { ok: false as const, error: "Run session not found" });
+        }
+
+        const authHeader = headers["authorization"];
+        const bearer = typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+          ? authHeader.slice("Bearer ".length)
+          : undefined;
+        if (!bearer || bearer !== session.token) {
+          return status(401, { ok: false as const, error: "Unauthorized" });
+        }
+
+        return await session.invokeTool(body.toolPath, body.input);
+      },
+      { body: RemoteInvokeBody },
     );
 
   return app;

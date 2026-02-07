@@ -6,6 +6,7 @@
     ".": "./src/index.ts",
     "./tools": "./src/tools.ts",
     "./runner": "./src/runner.ts",
+    "./remote-runner": "./src/remote-runner.ts",
     "./typechecker": "./src/typechecker.ts",
     "./agent": "./src/agent.ts",
     "./events": "./src/events.ts",

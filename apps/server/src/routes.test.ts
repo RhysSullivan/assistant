@@ -8,6 +8,7 @@
 import { test, expect, describe } from "bun:test";
 import { treaty } from "@elysiajs/eden";
 import { createApp } from "./routes.js";
+import { registerRemoteRunSession, removeRemoteRunSession } from "./state.js";
 import { defineTool } from "@openassistant/core/tools";
 import type { ToolTree } from "@openassistant/core/tools";
 import type { LanguageModel, GenerateResult, Message } from "@openassistant/core/agent";
@@ -138,6 +139,7 @@ describe("POST /api/tasks", () => {
     expect(data).toBeDefined();
     expect(data!.taskId).toMatch(/^task_/);
     expect(data!.status).toBe("running");
+    expect(data!.executionMode).toBe("local");
   });
 
   test("rejects empty prompt", async () => {
@@ -191,6 +193,7 @@ describe("GET /api/tasks/:id", () => {
     expect(data).toBeDefined();
     expect(data!.id).toBe(created!.taskId);
     expect(data!.prompt).toBe("Detail test");
+    expect(data!.executionMode).toBe("local");
   });
 
   test("returns 404 for unknown task", async () => {
@@ -331,5 +334,75 @@ describe("POST /api/tasks/:id/cancel", () => {
 
     expect(error).toBeDefined();
     expect(error!.status).toBe(404);
+  });
+});
+
+describe("POST /internal/runs/:runId/invoke", () => {
+  test("invokes registered remote run callback", async () => {
+    const app = createTestApp();
+    const runId = "run_test_invoke";
+
+    registerRemoteRunSession({
+      runId,
+      token: "secret_token",
+      invokeTool: async (toolPath, input) => ({
+        ok: true,
+        value: { toolPath, input },
+      }),
+    });
+
+    try {
+      const response = await app.handle(new Request(`http://localhost/internal/runs/${runId}/invoke`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer secret_token",
+        },
+        body: JSON.stringify({
+          toolPath: "echo",
+          input: { message: "hello" },
+        }),
+      }));
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as {
+        ok: boolean;
+        value: { toolPath: string; input: { message: string } };
+      };
+      expect(body.ok).toBe(true);
+      expect(body.value.toolPath).toBe("echo");
+      expect(body.value.input.message).toBe("hello");
+    } finally {
+      removeRemoteRunSession(runId);
+    }
+  });
+
+  test("rejects invalid callback token", async () => {
+    const app = createTestApp();
+    const runId = "run_test_unauthorized";
+
+    registerRemoteRunSession({
+      runId,
+      token: "expected_token",
+      invokeTool: async () => ({ ok: true }),
+    });
+
+    try {
+      const response = await app.handle(new Request(`http://localhost/internal/runs/${runId}/invoke`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer wrong_token",
+        },
+        body: JSON.stringify({
+          toolPath: "echo",
+          input: { message: "hello" },
+        }),
+      }));
+
+      expect(response.status).toBe(401);
+    } finally {
+      removeRemoteRunSession(runId);
+    }
   });
 });

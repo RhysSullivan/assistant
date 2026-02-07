@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { z } from "zod";
 import { defineTool, type ToolTree, type ApprovalDecision } from "./tools.js";
-import { createRunner } from "./runner.js";
+import { createRunner, ToolDeniedError } from "./runner.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -375,6 +375,32 @@ describe("runner — approval flow", () => {
 });
 
 describe("runner — error handling", () => {
+  test("tool denied error is recorded as denied receipt", async () => {
+    const tools: ToolTree = {
+      gated: defineTool({
+        description: "Denied by policy",
+        approval: "auto",
+        args: z.object({}),
+        returns: z.void(),
+        run: async () => {
+          throw new ToolDeniedError("Denied by broker");
+        },
+      }),
+    };
+
+    const runner = createRunner({
+      tools,
+      requestApproval: alwaysApprove(),
+      newCallId: testCallId,
+    });
+
+    const result = await runner.run("await tools.gated({})");
+    expect(result.ok).toBe(false);
+    expect(result.receipts).toHaveLength(1);
+    expect(result.receipts[0]!.status).toBe("denied");
+    expect(result.receipts[0]!.decision).toBe("denied");
+  });
+
   test("tool run error is caught and recorded", async () => {
     const tools: ToolTree = {
       broken: defineTool({

@@ -179,6 +179,9 @@ async function loadTools(): Promise<ToolTree> {
 // ---------------------------------------------------------------------------
 
 const PORT = Number(process.env["PORT"] ?? 3000);
+const EXECUTOR_URL = process.env["OPENASSISTANT_EXECUTOR_URL"];
+const CALLBACK_BASE_URL = process.env["OPENASSISTANT_CALLBACK_BASE_URL"]
+  ?? `http://localhost:${PORT}`;
 
 const apiKey = getAnthropicApiKey();
 if (!apiKey) {
@@ -202,7 +205,21 @@ if (VERCEL_TOKEN) {
 }
 const context = contextLines.length > 0 ? contextLines.join("\n") : undefined;
 
-const app = createApp({ tools, model, context });
+if (EXECUTOR_URL) {
+  console.log(`Using remote executor at ${EXECUTOR_URL}`);
+}
+
+const app = createApp({
+  tools,
+  model,
+  context,
+  executor: EXECUTOR_URL
+    ? {
+      url: EXECUTOR_URL,
+      callbackBaseUrl: CALLBACK_BASE_URL,
+    }
+    : undefined,
+});
 
 app.listen(PORT);
 

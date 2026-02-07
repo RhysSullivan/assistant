@@ -24,6 +24,7 @@ import {
 import type { Client as ApiClient } from "@openassistant/server/client";
 import { unwrap } from "@openassistant/server/client";
 import type { TaskEvent } from "@openassistant/core/events";
+import type { ApprovalPresentation } from "@openassistant/core/tools";
 
 // ---------------------------------------------------------------------------
 // State
@@ -33,7 +34,7 @@ interface PendingApproval {
   readonly id: string;
   readonly toolPath: string;
   readonly input: unknown;
-  readonly preview: { title: string; details?: string; link?: string };
+  readonly preview: ApprovalPresentation;
 }
 
 interface TaskState {
@@ -68,6 +69,8 @@ function reduceEvent(state: TaskState, event: TaskEvent): TaskState {
       return { ...state, lastCode: event.code, statusMessage: "Running code..." };
 
     case "approval_request":
+      // Deduplicate — if we already have this approval (e.g. from SSE replay), skip it
+      if (state.pendingApprovals.some((a) => a.id === event.id)) return state;
       return {
         ...state,
         pendingApprovals: [
@@ -112,9 +115,10 @@ export interface TaskMessageProps {
   readonly taskId: string;
   readonly prompt: string;
   readonly api: ApiClient;
+  readonly executionMode: "local" | "remote";
 }
 
-export function TaskMessage({ taskId, prompt, api }: TaskMessageProps) {
+export function TaskMessage({ taskId, prompt, api, executionMode }: TaskMessageProps) {
   const instance = useInstance();
   const [state, setState] = useState<TaskState>(INITIAL_STATE);
 
@@ -172,6 +176,7 @@ export function TaskMessage({ taskId, prompt, api }: TaskMessageProps) {
   return (
     <Container accentColor={accentColor}>
       <TextDisplay>{`${statusEmoji(state.status)} **${state.statusMessage}**`}</TextDisplay>
+      <TextDisplay>{`Runner: ${executionMode === "remote" ? "cloud executor" : "in-process local"}`}</TextDisplay>
       <TextDisplay>{`> ${prompt.length > 200 ? prompt.slice(0, 200) + "..." : prompt}`}</TextDisplay>
 
       {state.lastCode && (
@@ -242,7 +247,6 @@ function ApprovalButtons({
   onRuleCreated: () => void;
 }) {
   const [resolved, setResolved] = useState(false);
-  const argsPreview = formatApprovalInput(approval.input);
 
   const handle = async (decision: "approved" | "denied") => {
     setResolved(true);
@@ -333,7 +337,7 @@ function ApprovalButtons({
     <>
       <Separator />
       <TextDisplay>
-        {`\u{1f6e1}\ufe0f **Approval required:** ${approval.preview.title}${approval.preview.details ? `\n${approval.preview.details}` : ""}${approval.preview.link ? `\n${approval.preview.link}` : ""}`}
+        {formatApprovalDisplay(approval)}
       </TextDisplay>
       {!resolved && (
         <ActionRow>
@@ -464,14 +468,55 @@ function collapseToolResults(results: string[], maxLines: number): string[] {
   return collapsed.slice(-maxLines);
 }
 
-function formatApprovalInput(input: unknown): string {
-  if (input === undefined) return "undefined";
-  if (input === null) return "null";
-  try {
-    const serialized = JSON.stringify(input, null, 2);
-    if (!serialized) return String(input);
-    return serialized.length > 1000 ? `${serialized.slice(0, 1000)}...` : serialized;
-  } catch {
-    return String(input);
+/**
+ * Format an approval request for Discord display.
+ * Uses structured preview fields for a clean, scannable layout.
+ *
+ * Example output:
+ *   🛡️ **DELETE** `removeProjectDomain`
+ *   > **Target:** personal-site
+ *   > **domain:** something-123-domain.vercel.app
+ */
+function formatApprovalDisplay(approval: PendingApproval): string {
+  const { preview, input } = approval;
+
+  // Action verb from structured data, falling back to title
+  const actionLabel = preview.action
+    ? preview.action.toUpperCase()
+    : preview.title;
+
+  // Short operation name
+  const opName = formatToolName(approval.toolPath);
+
+  const lines: string[] = [];
+
+  // Header: 🛡️ **DELETE** `removeProjectDomain`
+  const destructiveWarning = preview.isDestructive ? " ⚠️" : "";
+  lines.push(`\u{1f6e1}\ufe0f **${actionLabel}**${destructiveWarning} ${opName}`);
+
+  // Target (resource IDs)
+  if (preview.resourceIds && preview.resourceIds.length > 0) {
+    lines.push(`> **Target:** ${preview.resourceIds.join(", ")}`);
   }
+
+  // Key fields from input (excluding IDs already shown in Target)
+  const shownIds = new Set(preview.resourceIds ?? []);
+  if (input && typeof input === "object") {
+    const idKeys = new Set(["id", "ids", "name", "slug", "key", "idOrName", "projectId"]);
+    for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+      // Skip ID fields already shown as Target
+      if (idKeys.has(key) && typeof value === "string" && shownIds.has(value)) continue;
+      if (value === undefined || value === null) continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        lines.push(`> **${key}:** ${String(value)}`);
+      }
+    }
+  }
+
+  // Link if present
+  if (preview.link) {
+    lines.push(`> ${preview.link}`);
+  }
+
+  return lines.join("\n");
 }
