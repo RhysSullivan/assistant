@@ -1,0 +1,5 @@
+{
+  "name": "@executor/web",
+  "private": true,
+  "type": "module"
+}

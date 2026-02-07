@@ -1,0 +1,11 @@
+{
+  "name": "@executor/client",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@executor/contracts": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Executor Control Plane</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div class="background-glow glow-one"></div>
+    <div class="background-glow glow-two"></div>
+    <div class="grain-overlay"></div>
+    <main class="layout">
+      <header class="hero">
+        <p class="eyebrow">Executor / Control Room</p>
+        <h1>Approval-First Runtime Console</h1>
+        <p>Run generated code, intercept sensitive tool calls, and approve each action with full traceability.</p>
+        <div class="hero-metrics">
+          <article class="metric-card">
+            <span>Pending approvals</span>
+            <strong id="metric-pending">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Total tasks</span>
+            <strong id="metric-total-tasks">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Active runs</span>
+            <strong id="metric-running">0</strong>
+          </article>
+        </div>
+      </header>
+
+      <section class="panel composer-panel" id="new-task-panel">
+        <div class="section-title">
+          <h2>Queue task</h2>
+          <p class="section-note">Generated JavaScript can call <code>tools.*</code>. Required tools pause for approval.</p>
+        </div>
+        <form id="new-task-form">
+          <div class="form-top-grid">
+            <label>
+              Runtime target
+              <select id="runtime-id"></select>
+            </label>
+            <label>
+              Timeout (ms)
+              <input id="timeout-ms" type="number" min="100" value="15000" />
+            </label>
+          </div>
+          <label>
+            Code payload
+            <textarea
+              id="task-code"
+              spellcheck="false"
+              rows="10"
+            >const now = await tools.utils.get_time({});
+console.log("time", now.iso);
+
+await tools.admin.send_announcement({
+  channel: "ops",
+  message: "Deploy candidate ready for review"
+});
+
+const sum = await tools.math.add({ a: 2, b: 5 });
+console.log("sum", sum.result);</textarea>
+          </label>
+          <div class="composer-actions">
+            <button type="submit">Create task</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel" id="approvals-panel" aria-live="polite">
+        <div class="section-title">
+          <h2>Pending tool approvals</h2>
+          <span id="approval-count" class="pill">0</span>
+        </div>
+        <div id="approvals-list" class="approval-list"></div>
+      </section>
+
+      <section class="panel" id="tasks-panel">
+        <div class="section-title">
+          <h2>Task history</h2>
+          <button id="refresh-button" class="secondary">Refresh</button>
+        </div>
+        <div id="tasks-list" class="task-list"></div>
+      </section>
+
+      <section class="panel" id="task-detail-panel">
+        <h2>Task details</h2>
+        <div id="task-detail" class="task-detail empty">Select a task to inspect logs.</div>
+      </section>
+    </main>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

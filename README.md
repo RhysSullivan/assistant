@@ -1,35 +1,22 @@
-# OpenAssistant
+# Prototype Monorepo
 
-## Install
+This repository is now split into two nested monorepos:
 
-```bash
-bun install
-```
+- `assistant/`: assistant-side code and integrations.
+- `executor/`: executor infrastructure (sandbox runtime, approvals API, task history, web UI).
 
-## Local MVP (remote executor mode)
+## Focus Area
 
-Start the executor (private code runner):
+The active prototype work is in `executor/`.
 
-```bash
-bun run --filter '@openassistant/executor' dev
-```
-
-Start the server (agent + approvals + tool broker):
+## Quick Start
 
 ```bash
-OPENASSISTANT_EXECUTOR_URL=http://localhost:3001 \
-OPENASSISTANT_CALLBACK_BASE_URL=http://localhost:3000 \
-bun run --filter '@openassistant/server' dev
+bun install --cwd executor
+bun run --cwd executor dev
 ```
 
-Or run all services together:
+This starts:
 
-```bash
-bun run dev
-```
-
-## Notes
-
-- Untrusted generated code executes in the executor service.
-- Tool calls are proxied back to the server via `/internal/runs/:runId/invoke`.
-- Approval flow and secret-backed tool execution stay on the server side.
+- Executor API server (task execution, approvals, SQLite storage)
+- Executor web UI (pending approvals + task history)

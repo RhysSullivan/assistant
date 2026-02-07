@@ -1,0 +1,315 @@
+import webApp from "../../web/index.html";
+import { ExecutorDatabase } from "./database";
+import { TaskEventHub } from "./events";
+import { LocalBunRuntime } from "./runtimes/local-bun-runtime";
+import { VercelSandboxRuntime } from "./runtimes/vercel-sandbox-runtime";
+import { ExecutorService, getTaskTerminalState } from "./service";
+import { ensureTailscaleFunnel } from "./tailscale-funnel";
+import { DEFAULT_TOOLS } from "./tools";
+import type {
+  ApprovalStatus,
+  CreateTaskInput,
+  PendingApprovalRecord,
+  TaskStatus,
+  ToolCallRequest,
+  RuntimeOutputEvent,
+} from "./types";
+
+const port = Number(Bun.env.PORT ?? "4001");
+const autoFunnelEnabled = Bun.env.EXECUTOR_AUTO_TAILSCALE_FUNNEL !== "0";
+const explicitInternalBaseUrl = Bun.env.EXECUTOR_INTERNAL_BASE_URL ?? Bun.env.EXECUTOR_PUBLIC_BASE_URL;
+const generatedInternalToken = Bun.env.EXECUTOR_INTERNAL_TOKEN ?? `executor_internal_${crypto.randomUUID()}`;
+const internalToken = generatedInternalToken;
+
+let internalBaseUrl = explicitInternalBaseUrl ?? `http://127.0.0.1:${port}`;
+let internalBaseSource = explicitInternalBaseUrl ? "env" : "localhost-default";
+
+if (!explicitInternalBaseUrl && autoFunnelEnabled) {
+  try {
+    const funnel = ensureTailscaleFunnel(port);
+    internalBaseUrl = funnel.url;
+    internalBaseSource = funnel.created ? "tailscale-funnel-created" : "tailscale-funnel-existing";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[executor] tailscale funnel unavailable, using localhost callbacks: ${message}`);
+  }
+}
+
+const service = new ExecutorService(new ExecutorDatabase(), new TaskEventHub(), [
+  new LocalBunRuntime(),
+  new VercelSandboxRuntime({
+    controlPlaneBaseUrl: internalBaseUrl,
+    internalToken,
+    runtime: Bun.env.EXECUTOR_VERCEL_SANDBOX_RUNTIME as "node24" | "node22" | undefined,
+  }),
+], DEFAULT_TOOLS);
+
+const jsonHeaders = {
+  "content-type": "application/json; charset=utf-8",
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: jsonHeaders,
+  });
+}
+
+function error(status: number, message: string): Response {
+  return json({ error: message }, status);
+}
+
+function isInternalAuthorized(request: Request): boolean {
+  if (!internalToken) {
+    return true;
+  }
+
+  const header = request.headers.get("authorization");
+  if (!header || !header.startsWith("Bearer ")) {
+    return false;
+  }
+
+  return header.slice("Bearer ".length) === internalToken;
+}
+
+async function parseBody<T>(request: Request): Promise<T | null> {
+  try {
+    return (await request.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+function createTaskEventsResponse(taskId: string): Response {
+  const task = service.getTask(taskId);
+  if (!task) {
+    return error(404, "Task not found");
+  }
+
+  const encoder = new TextEncoder();
+  let unsubscribe: (() => void) | undefined;
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const replay = service.listTaskEvents(taskId);
+      for (const event of replay) {
+        const frame = `event: ${event.eventName}\ndata: ${JSON.stringify(event)}\n\n`;
+        controller.enqueue(encoder.encode(frame));
+      }
+
+      if (getTaskTerminalState(task.status)) {
+        controller.close();
+        return;
+      }
+
+      unsubscribe = service.subscribe(taskId, (event) => {
+        try {
+          const frame = `event: ${event.eventName}\ndata: ${JSON.stringify(event)}\n\n`;
+          controller.enqueue(encoder.encode(frame));
+
+          if (
+            event.eventName === "task" &&
+            typeof event.payload === "object" &&
+            event.payload !== null &&
+            "status" in event.payload
+          ) {
+            const status = String((event.payload as { status?: unknown }).status ?? "") as TaskStatus;
+            if (getTaskTerminalState(status)) {
+              if (keepalive) clearInterval(keepalive);
+              if (unsubscribe) unsubscribe();
+              controller.close();
+            }
+          }
+        } catch {
+          if (keepalive) clearInterval(keepalive);
+          if (unsubscribe) unsubscribe();
+          controller.close();
+        }
+      });
+
+      keepalive = setInterval(() => {
+        controller.enqueue(encoder.encode(": keepalive\n\n"));
+      }, 15_000);
+    },
+    cancel() {
+      if (keepalive) clearInterval(keepalive);
+      if (unsubscribe) unsubscribe();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "access-control-allow-origin": "*",
+    },
+  });
+}
+
+const server = Bun.serve({
+  port,
+  routes: {
+    "/": webApp,
+    "/api/health": {
+      GET: () => json({ ok: true, tools: service.listTools().length }),
+    },
+    "/api/runtime-targets": {
+      GET: () => json(service.listRuntimes()),
+    },
+    "/api/tools": {
+      GET: () => json(service.listTools()),
+    },
+    "/api/tasks": {
+      GET: () => json(service.listTasks()),
+      POST: async (request) => {
+        const body = await parseBody<CreateTaskInput>(request);
+        if (!body) {
+          return error(400, "Invalid JSON body");
+        }
+
+        try {
+          const created = service.createTask(body);
+          return json({ taskId: created.task.id, status: created.task.status }, 201);
+        } catch (cause) {
+          return error(400, cause instanceof Error ? cause.message : String(cause));
+        }
+      },
+    },
+    "/api/tasks/:taskId": {
+      GET: (request) => {
+        const task = service.getTask(request.params.taskId);
+        if (!task) {
+          return error(404, "Task not found");
+        }
+        return json(task);
+      },
+    },
+    "/api/tasks/:taskId/events": {
+      GET: (request) => createTaskEventsResponse(request.params.taskId),
+    },
+    "/api/approvals": {
+      GET: (request) => {
+        const query = new URL(request.url).searchParams;
+        const status = query.get("status") as ApprovalStatus | null;
+
+        if (status === "pending") {
+          return json(service.listPendingApprovals() satisfies PendingApprovalRecord[]);
+        }
+
+        if (status && status !== "approved" && status !== "denied") {
+          return error(400, "Invalid approval status");
+        }
+
+        return json(service.listApprovals(status ?? undefined));
+      },
+    },
+    "/api/approvals/:approvalId": {
+      POST: async (request) => {
+        const body = await parseBody<{
+          decision?: "approved" | "denied";
+          reviewerId?: string;
+          reason?: string;
+        }>(request);
+
+        if (!body || (body.decision !== "approved" && body.decision !== "denied")) {
+          return error(400, "decision must be 'approved' or 'denied'");
+        }
+
+        const resolved = service.resolveApproval(
+          request.params.approvalId,
+          body.decision,
+          body.reviewerId,
+          body.reason,
+        );
+
+        if (!resolved) {
+          return error(404, "Approval not found or already resolved");
+        }
+
+        return json(resolved);
+      },
+    },
+    "/internal/runs/:runId/tool-call": {
+      POST: async (request) => {
+        if (!isInternalAuthorized(request)) {
+          return error(401, "Unauthorized internal call");
+        }
+
+        const body = await parseBody<{
+          callId?: string;
+          toolPath?: string;
+          input?: unknown;
+        }>(request);
+
+        if (!body || !body.callId || !body.toolPath) {
+          return error(400, "callId and toolPath are required");
+        }
+
+        const call: ToolCallRequest = {
+          runId: request.params.runId,
+          callId: body.callId,
+          toolPath: body.toolPath,
+          input: body.input,
+        };
+
+        return json(await service.handleExternalToolCall(call));
+      },
+    },
+    "/internal/runs/:runId/output": {
+      POST: async (request) => {
+        if (!isInternalAuthorized(request)) {
+          return error(401, "Unauthorized internal call");
+        }
+
+        const body = await parseBody<{
+          stream?: "stdout" | "stderr";
+          line?: string;
+          timestamp?: number;
+        }>(request);
+
+        if (!body || (body.stream !== "stdout" && body.stream !== "stderr") || typeof body.line !== "string") {
+          return error(400, "stream and line are required");
+        }
+
+        const event: RuntimeOutputEvent = {
+          runId: request.params.runId,
+          stream: body.stream,
+          line: body.line,
+          timestamp: typeof body.timestamp === "number" ? body.timestamp : Date.now(),
+        };
+
+        const task = service.getTask(event.runId);
+        if (!task) {
+          return error(404, `Run not found: ${event.runId}`);
+        }
+
+        service.appendRuntimeOutput(event);
+        return json({ ok: true });
+      },
+    },
+  },
+  fetch(request) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: jsonHeaders });
+    }
+    return new Response("Not found", { status: 404 });
+  },
+  error(cause) {
+    console.error("executor server error", cause);
+    return error(500, "Internal server error");
+  },
+  development: {
+    hmr: true,
+    console: true,
+  },
+});
+
+console.log(`executor server listening on http://localhost:${server.port}`);
+console.log(`[executor] internal callback base: ${internalBaseUrl} (${internalBaseSource})`);
+console.log(`[executor] internal callback auth token enabled: yes`);

@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+.vercel
+.env*.local
