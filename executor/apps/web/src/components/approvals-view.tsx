@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -17,13 +18,7 @@ import { convexApi } from "@/lib/convex-api";
 import { useMutation, useQuery } from "convex/react";
 import type { PendingApprovalRecord } from "@/lib/types";
 import { toast } from "sonner";
-
-function formatTimeAgo(ts: number) {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  return `${Math.floor(diff / 3_600_000)}h ago`;
-}
+import { formatTimeAgo } from "@/lib/format";
 
 function ApprovalCard({
   approval,

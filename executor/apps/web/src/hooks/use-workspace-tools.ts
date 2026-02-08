@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { useQuery } from "convex/react";
 import { convexApi } from "../lib/convex-api";
 
@@ -22,13 +21,8 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
       : "skip",
   );
 
-  const refresh = useCallback(async () => {
-    // Convex queries are live; manual refresh is not required.
-  }, []);
-
   return {
     tools,
     loading: !!context && tools === undefined,
-    refresh,
   };
 }

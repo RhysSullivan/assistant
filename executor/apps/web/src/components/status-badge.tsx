@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { TaskStatus, ApprovalStatus } from "@/lib/types";
+import type { TaskStatus } from "@/lib/types";
 
 const TASK_STATUS_CONFIG: Record<
   TaskStatus,
@@ -36,26 +36,6 @@ const TASK_STATUS_CONFIG: Record<
   },
 };
 
-const APPROVAL_STATUS_CONFIG: Record<
-  ApprovalStatus,
-  { label: string; className: string }
-> = {
-  pending: {
-    label: "Pending",
-    className:
-      "bg-terminal-amber/10 text-terminal-amber border-terminal-amber/30",
-  },
-  approved: {
-    label: "Approved",
-    className:
-      "bg-terminal-green/10 text-terminal-green border-terminal-green/30",
-  },
-  denied: {
-    label: "Denied",
-    className: "bg-terminal-red/10 text-terminal-red border-terminal-red/30",
-  },
-};
-
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   const config = TASK_STATUS_CONFIG[status];
   return (
@@ -64,21 +44,6 @@ export function TaskStatusBadge({ status }: { status: TaskStatus }) {
       className={cn("text-[10px] font-mono uppercase tracking-wider", config.className)}
     >
       {status === "running" && (
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-current mr-1.5 pulse-dot" />
-      )}
-      {config.label}
-    </Badge>
-  );
-}
-
-export function ApprovalStatusBadge({ status }: { status: ApprovalStatus }) {
-  const config = APPROVAL_STATUS_CONFIG[status];
-  return (
-    <Badge
-      variant="outline"
-      className={cn("text-[10px] font-mono uppercase tracking-wider", config.className)}
-    >
-      {status === "pending" && (
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-current mr-1.5 pulse-dot" />
       )}
       {config.label}

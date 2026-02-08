@@ -251,10 +251,8 @@ function inferNameFromUrl(url: string): string {
 }
 
 function AddSourceDialog({
-  onAdded,
   existingSourceNames,
 }: {
-  onAdded: () => void;
   existingSourceNames: Set<string>;
 }) {
   const { context } = useSession();
@@ -306,6 +304,7 @@ function AddSourceDialog({
     config: Record<string, unknown>,
   ) => {
     if (!context) return;
+    // Write the tool source to the database
     await upsertToolSource({
       workspaceId: context.workspaceId,
       name: sourceName,
@@ -313,6 +312,23 @@ function AddSourceDialog({
       config,
     });
     toast.success(`Source "${sourceName}" added`);
+
+    // Trigger a server-side tool refresh so the workspace tools inventory
+    // is updated immediately (instead of waiting for the worker poll).
+    try {
+      await fetch(`/api/tool-sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: context.workspaceId,
+          name: sourceName,
+          type: sourceType,
+          config,
+        }),
+      });
+    } catch {
+      // Server-side refresh is best-effort; the worker will eventually sync.
+    }
   };
 
   const handlePresetAdd = async (preset: ApiPreset) => {
@@ -331,7 +347,6 @@ function AddSourceDialog({
       if (preset.authNote) {
         toast.info(preset.authNote, { duration: 6000 });
       }
-      onAdded();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add source");
     } finally {
@@ -358,7 +373,6 @@ function AddSourceDialog({
       await addSource(name.trim(), type, config);
       resetForm();
       setOpen(false);
-      onAdded();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add source");
     } finally {
@@ -579,10 +593,8 @@ function AddSourceDialog({
 
 function SourceCard({
   source,
-  onDeleted,
 }: {
   source: ToolSourceRecord;
-  onDeleted: () => void;
 }) {
   const { context } = useSession();
   const deleteToolSource = useMutation(convexApi.database.deleteToolSource);
@@ -594,7 +606,6 @@ function SourceCard({
     try {
       await deleteToolSource({ workspaceId: context.workspaceId, sourceId: source.id });
       toast.success(`Removed "${source.name}"`);
-      onDeleted();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete");
     } finally {
@@ -729,7 +740,7 @@ export function ToolsView() {
   );
   const sourcesLoading = !!context && sources === undefined;
 
-  const { tools, loading: toolsLoading, refresh: refreshInventory } = useWorkspaceTools(context ?? null);
+  const { tools, loading: toolsLoading } = useWorkspaceTools(context ?? null);
 
   if (sessionLoading) {
     return (
@@ -775,7 +786,7 @@ export function ToolsView() {
                   <Server className="h-4 w-4 text-muted-foreground" />
                   Tool Sources
                 </CardTitle>
-                <AddSourceDialog onAdded={() => void refreshInventory()} existingSourceNames={new Set((sources ?? []).map(s => s.name))} />
+                <AddSourceDialog existingSourceNames={new Set((sources ?? []).map(s => s.name))} />
               </div>
             </CardHeader>
             <CardContent className="pt-0">
@@ -800,7 +811,7 @@ export function ToolsView() {
               ) : (
                 <div className="space-y-2">
                   {sources.map((s) => (
-                    <SourceCard key={s.id} source={s} onDeleted={() => void refreshInventory()} />
+                    <SourceCard key={s.id} source={s} />
                   ))}
                 </div>
               )}

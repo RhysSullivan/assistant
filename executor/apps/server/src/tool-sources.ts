@@ -4,6 +4,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { astToString, transformSchemaObject } from "openapi-typescript";
 import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition } from "./types";
+import { asRecord } from "./utils";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -50,12 +51,6 @@ export type ExternalToolSourceConfig =
   | McpToolSourceConfig
   | OpenApiToolSourceConfig
   | GraphqlToolSourceConfig;
-
-function toObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
 
 function sanitizeSegment(value: string): string {
   const cleaned = value
@@ -139,7 +134,7 @@ function jsonSchemaTypeHintFallback(schema: unknown, depth = 0): string {
     return `${jsonSchemaTypeHintFallback(shape.items, depth + 1)}[]`;
   }
 
-  const props = toObject(shape.properties);
+  const props = asRecord(shape.properties);
   const requiredRaw = Array.isArray(shape.required) ? shape.required : [];
   const required = new Set(requiredRaw.filter((item): item is string => typeof item === "string"));
   const propEntries = Object.entries(props);
@@ -229,7 +224,7 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
 
   return tools.map((tool) => {
     const toolName = String(tool.name ?? "tool");
-    const inputSchema = toObject(tool.inputSchema);
+    const inputSchema = asRecord(tool.inputSchema);
     return {
       path: `${sanitizeSegment(config.name)}.${sanitizeSegment(toolName)}`,
       source: `mcp:${config.name}`,
@@ -240,7 +235,7 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
         returnsType: "unknown",
       },
       run: async (input: unknown) => {
-        const payload = toObject(input);
+        const payload = asRecord(input);
         const result = await callToolWithReconnect(toolName, payload);
         if (!result || typeof result !== "object") return result;
 
@@ -359,20 +354,20 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
   const authHeaders = buildStaticAuthHeaders(config.auth);
   const sourceKey = `openapi:${config.name}`;
   const credentialSpec = buildCredentialSpec(sourceKey, config.auth);
-  const paths = toObject(api.paths);
+  const paths = asRecord(api.paths);
   const tools: ToolDefinition[] = [];
 
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
   const readMethods = new Set(["get", "head", "options"]);
 
   for (const [pathTemplate, pathValue] of Object.entries(paths)) {
-    const pathObject = toObject(pathValue);
+    const pathObject = asRecord(pathValue);
     const sharedParameters = Array.isArray(pathObject.parameters)
       ? (pathObject.parameters as Array<Record<string, unknown>>)
       : [];
 
     for (const method of methods) {
-      const operation = toObject(pathObject[method]);
+      const operation = asRecord(pathObject[method]);
       if (Object.keys(operation).length === 0) continue;
 
       const tags = Array.isArray(operation.tags) ? (operation.tags as unknown[]) : [];
@@ -388,24 +383,24 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
         name: String(entry.name ?? ""),
         in: String(entry.in ?? "query"),
         required: Boolean(entry.required),
-        schema: toObject(entry.schema),
+        schema: asRecord(entry.schema),
       }));
 
-      const requestBody = toObject(operation.requestBody);
-      const requestBodyContent = toObject(requestBody.content);
-      const requestBodySchema = toObject(
-        toObject(requestBodyContent["application/json"])["schema"] ??
-        toObject(requestBodyContent["*/*"])["schema"],
+      const requestBody = asRecord(operation.requestBody);
+      const requestBodyContent = asRecord(requestBody.content);
+      const requestBodySchema = asRecord(
+        asRecord(requestBodyContent["application/json"])["schema"] ??
+        asRecord(requestBodyContent["*/*"])["schema"],
       );
 
-      const responses = toObject(operation.responses);
+      const responses = asRecord(operation.responses);
       let responseSchema: Record<string, unknown> = {};
       for (const [status, responseValue] of Object.entries(responses)) {
         if (!status.startsWith("2")) continue;
-        const responseContent = toObject(toObject(responseValue).content);
-        responseSchema = toObject(
-          toObject(responseContent["application/json"])["schema"] ??
-          toObject(responseContent["*/*"])["schema"],
+        const responseContent = asRecord(asRecord(responseValue).content);
+        responseSchema = asRecord(
+          asRecord(responseContent["application/json"])["schema"] ??
+          asRecord(responseContent["*/*"])["schema"],
         );
         if (Object.keys(responseSchema).length > 0) break;
       }
@@ -414,7 +409,7 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
         type: "object",
         properties: {
           ...Object.fromEntries(parameters.map((param) => [param.name, param.schema])),
-          ...toObject(requestBodySchema.properties),
+          ...asRecord(requestBodySchema.properties),
         },
         required: [
           ...parameters.filter((param) => param.required).map((param) => param.name),
@@ -440,7 +435,7 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
         },
         credential: credentialSpec,
         run: async (input: unknown, context) => {
-          const payload = toObject(input);
+          const payload = asRecord(input);
           const { url, bodyInput } = buildOpenApiUrl(baseUrl, pathTemplate, parameters, payload);
           const hasBody = !readMethods.has(method) && Object.keys(bodyInput).length > 0;
 
@@ -627,10 +622,6 @@ function gqlFieldArgsTypeHint(args: GqlField["args"], typeMap?: Map<string, GqlT
   return `{ ${entries.join("; ")} }`;
 }
 
-function isRequired(ref: GqlTypeRef): boolean {
-  return ref.kind === "NON_NULL";
-}
-
 /** Build a minimal GraphQL document for a single root field with its arguments */
 function buildFieldQuery(
   operationType: "query" | "mutation",
@@ -767,7 +758,7 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
     // Tag as graphql source so invokeTool knows to do dynamic path extraction
     _graphqlSource: config.name,
     run: async (input: unknown, context) => {
-      const payload = toObject(input);
+      const payload = asRecord(input);
       const query = String(payload.query ?? "");
       const variables = payload.variables ?? undefined;
 
@@ -840,7 +831,7 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
         _pseudoTool: true,
         run: async (input: unknown, context) => {
           // If someone calls this directly, delegate to the main graphql tool
-          const payload = toObject(input);
+          const payload = asRecord(input);
           if (!payload.query) {
             // Auto-build the query from the variables
             payload.query = buildFieldQuery(operationType, field.name, field.args);

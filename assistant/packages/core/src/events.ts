@@ -25,9 +25,7 @@ export interface TaskCodeResultEvent {
   readonly type: "code_result";
   readonly taskId: string;
   readonly status: string;
-  readonly exitCode?: number;
   readonly stdout?: string;
-  readonly stderr?: string;
   readonly error?: string;
 }
 
