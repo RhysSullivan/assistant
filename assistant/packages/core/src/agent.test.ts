@@ -3,14 +3,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { createAgent } from "./agent";
-import type { Message, GenerateResult, ToolDef } from "./model";
 
 /**
- * Create a mock MCP server that exposes run_code.
- * Returns the Bun HTTP server so we can get the port.
+ * Mock MCP server that exposes run_code.
+ * Actually executes nothing — just returns a canned stdout.
  */
 function createMockMcpServer() {
-  const server = Bun.serve({
+  return Bun.serve({
     port: 0,
     async fetch(request) {
       const transport = new WebStandardStreamableHTTPServerTransport({
@@ -26,16 +25,18 @@ function createMockMcpServer() {
       mcp.registerTool(
         "run_code",
         {
-          description: "Execute TypeScript code in a sandbox.\n\nAvailable tools in the sandbox:\n  - tools.utils.get_time({}): { iso: string; unix: number } — Get the current time",
-          inputSchema: {
-            code: z.string(),
-          },
+          description:
+            'Execute TypeScript code in a sandbox.\n\nAvailable tools in the sandbox:\n  - tools.utils.get_time({}): { iso: string; unix: number } — Get the current server time',
+          inputSchema: { code: z.string() },
         },
-        async (input) => {
-          return {
-            content: [{ type: "text" as const, text: `taskId: task_123\nstatus: completed\nruntimeId: local-bun\n\n\`\`\`text\nresult: {"iso":"2026-02-07T00:00:00Z","unix":1770422400000}\n\`\`\`` }],
-          };
-        },
+        async () => ({
+          content: [
+            {
+              type: "text" as const,
+              text: 'taskId: task_123\nstatus: completed\nexitCode: 0\n\n```text\n{"iso":"2026-02-07T12:00:00.000Z","unix":1770465600000}\n```',
+            },
+          ],
+        }),
       );
 
       try {
@@ -47,53 +48,25 @@ function createMockMcpServer() {
       }
     },
   });
-
-  return server;
 }
 
-test("agent connects via MCP, calls run_code, returns result", async () => {
+test("agent calls Claude, runs code via MCP, returns result", async () => {
   const server = createMockMcpServer();
-  const port = server.port;
-
-  let callCount = 0;
   const events: string[] = [];
 
-  const mockGenerate = async (messages: Message[], tools?: ToolDef[]): Promise<GenerateResult> => {
-    callCount++;
-
-    // First call: verify tools were passed from MCP
-    if (callCount === 1) {
-      expect(tools).toBeDefined();
-      expect(tools!.length).toBeGreaterThan(0);
-      expect(tools![0].name).toBe("run_code");
-
-      return {
-        toolCalls: [{
-          id: "call_1",
-          name: "run_code",
-          args: { code: "return await tools.utils.get_time({})" },
-        }],
-      };
-    }
-
-    // Second call: return final text
-    return { text: "The current time is 2026-02-07." };
-  };
-
   const agent = createAgent({
-    executorUrl: `http://127.0.0.1:${port}`,
-    generate: mockGenerate,
+    executorUrl: `http://127.0.0.1:${server.port}`,
     workspaceId: "ws_test",
     actorId: "actor_test",
   });
 
-  const result = await agent.run("What time is it?", (event) => {
+  const result = await agent.run("What is the current server time?", (event) => {
     events.push(event.type);
+    console.log(`  [event] ${event.type}`, "text" in event ? event.text?.slice(0, 80) : "");
   });
 
-  expect(result.text).toBe("The current time is 2026-02-07.");
-  expect(result.toolCalls).toBe(1);
-  expect(callCount).toBe(2);
+  expect(result.text.length).toBeGreaterThan(0);
+  expect(result.toolCalls).toBeGreaterThanOrEqual(1);
   expect(events).toContain("status");
   expect(events).toContain("code_generated");
   expect(events).toContain("code_result");
@@ -101,29 +74,21 @@ test("agent connects via MCP, calls run_code, returns result", async () => {
   expect(events).toContain("completed");
 
   server.stop(true);
-});
+}, 30_000);
 
-test("agent handles model returning text immediately (no tool calls)", async () => {
+test("agent responds without tool calls for simple questions", async () => {
   const server = createMockMcpServer();
-  const port = server.port;
-
-  const mockGenerate = async (_messages: Message[], tools?: ToolDef[]): Promise<GenerateResult> => {
-    // Tools should still be available even if we don't use them
-    expect(tools).toBeDefined();
-    return { text: "I don't need to run any code for that. Hello!" };
-  };
 
   const agent = createAgent({
-    executorUrl: `http://127.0.0.1:${port}`,
-    generate: mockGenerate,
+    executorUrl: `http://127.0.0.1:${server.port}`,
     workspaceId: "ws_test",
     actorId: "actor_test",
   });
 
-  const result = await agent.run("Say hello");
+  const result = await agent.run("Say hello. Do not run any code.");
 
-  expect(result.text).toBe("I don't need to run any code for that. Hello!");
+  expect(result.text.length).toBeGreaterThan(0);
   expect(result.toolCalls).toBe(0);
 
   server.stop(true);
-});
+}, 30_000);

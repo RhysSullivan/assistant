@@ -7,7 +7,7 @@
 
 import { Elysia, t } from "elysia";
 import { createAgent } from "@assistant/core";
-import type { GenerateResult, Message, ToolDef, TaskEvent } from "@assistant/core";
+import type { TaskEvent } from "@assistant/core";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@executor/convex/_generated/api";
 
@@ -17,7 +17,6 @@ import { api } from "@executor/convex/_generated/api";
 
 export interface ServerOptions {
   readonly executorUrl: string;
-  readonly generate: (messages: Message[], tools?: ToolDef[]) => Promise<GenerateResult>;
   readonly workspaceId: string;
   readonly actorId: string;
   readonly clientId?: string;
@@ -32,7 +31,6 @@ export interface ServerOptions {
 export function createApp(options: ServerOptions) {
   const agent = createAgent({
     executorUrl: options.executorUrl,
-    generate: options.generate,
     workspaceId: options.workspaceId,
     actorId: options.actorId,
     clientId: options.clientId,
@@ -47,7 +45,6 @@ export function createApp(options: ServerOptions) {
   }
 
   const app = new Elysia()
-    // Expose executor context so the bot can query Convex
     .get("/api/context", () => ({
       workspaceId: options.workspaceId,
       actorId: options.actorId,
@@ -57,7 +54,6 @@ export function createApp(options: ServerOptions) {
     .post("/api/tasks", async ({ body }) => {
       const agentTaskId = generateAgentTaskId();
 
-      // Create agent task in Convex
       await convex.mutation(api.database.createAgentTask, {
         id: agentTaskId,
         prompt: body.prompt,
@@ -66,20 +62,17 @@ export function createApp(options: ServerOptions) {
         actorId: options.actorId,
       });
 
-      // Fire and forget — agent runs, writes results to Convex
       let toolCalls = 0;
 
       agent.run(body.prompt, (event: TaskEvent) => {
-        if (event.type === "code_result") {
-          toolCalls++;
-        }
+        if (event.type === "code_result") toolCalls++;
 
         if (event.type === "agent_message") {
           convex.mutation(api.database.updateAgentTask, {
             agentTaskId,
             resultText: event.text,
             codeRuns: toolCalls,
-          }).catch((err) => console.error(`[agent task ${agentTaskId}] convex write error:`, err));
+          }).catch((err) => console.error(`[${agentTaskId}]`, err));
         }
 
         if (event.type === "completed") {
@@ -87,7 +80,7 @@ export function createApp(options: ServerOptions) {
             agentTaskId,
             status: "completed",
             codeRuns: toolCalls,
-          }).catch((err) => console.error(`[agent task ${agentTaskId}] convex write error:`, err));
+          }).catch((err) => console.error(`[${agentTaskId}]`, err));
         }
 
         if (event.type === "error") {
@@ -96,16 +89,16 @@ export function createApp(options: ServerOptions) {
             status: "failed",
             error: event.error,
             codeRuns: toolCalls,
-          }).catch((err) => console.error(`[agent task ${agentTaskId}] convex write error:`, err));
+          }).catch((err) => console.error(`[${agentTaskId}]`, err));
         }
       }).catch((err) => {
-        console.error(`[agent task ${agentTaskId}] agent error:`, err);
+        console.error(`[${agentTaskId}] agent error:`, err);
         convex.mutation(api.database.updateAgentTask, {
           agentTaskId,
           status: "failed",
           error: err instanceof Error ? err.message : String(err),
           codeRuns: toolCalls,
-        }).catch((err2) => console.error(`[agent task ${agentTaskId}] convex write error:`, err2));
+        }).catch(() => {});
       });
 
       return { agentTaskId, workspaceId: options.workspaceId };

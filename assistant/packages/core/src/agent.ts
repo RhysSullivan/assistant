@@ -1,24 +1,57 @@
 /**
- * Agent loop — orchestrates Claude + executor via MCP.
- *
- * 1. Connect to executor MCP server
- * 2. List tools (gets run_code with sandbox tool inventory in description)
- * 3. Call Claude → get run_code({ code }) tool call
- * 4. Forward to executor via MCP tools/call (blocks until done)
- * 5. Feed result back to Claude
- * 6. Loop until Claude responds with text
+ * Agent — connects to executor via MCP, calls Claude, runs code.
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  completeSimple,
+  getModel,
+  type Context as PiContext,
+  type Message as PiMessage,
+  type UserMessage,
+  type AssistantMessage as PiAssistantMessage,
+  type ToolResultMessage,
+  type Tool as PiTool,
+  type SimpleStreamOptions,
+  type TextContent,
+  type ToolCall as PiToolCall,
+} from "@mariozechner/pi-ai";
+import { readFileSync } from "node:fs";
 import type { TaskEvent } from "./events";
-import type { Message, GenerateResult, ToolCall, ToolDef } from "./model";
+
+// ---------------------------------------------------------------------------
+// API key resolution
+// ---------------------------------------------------------------------------
+
+function resolveApiKey(explicit?: string): string | undefined {
+  if (explicit) return explicit;
+  if (typeof process !== "undefined") {
+    if (process.env.ANTHROPIC_OAUTH_TOKEN) return process.env.ANTHROPIC_OAUTH_TOKEN;
+    if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  }
+  try {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+    const text = readFileSync(`${home}/.claude/.credentials.json`, "utf-8");
+    const creds = JSON.parse(text);
+    const token = (creds as Record<string, Record<string, unknown>>)?.["claudeAiOauth"]?.["accessToken"];
+    if (typeof token === "string" && token.startsWith("sk-ant-")) return token;
+  } catch {}
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface McpTool {
+interface Message {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  toolCalls?: { id: string; name: string; args: Record<string, unknown> }[];
+  toolCallId?: string;
+}
+
+interface McpTool {
   name: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
@@ -26,10 +59,11 @@ export interface McpTool {
 
 export interface AgentOptions {
   readonly executorUrl: string;
-  readonly generate: (messages: Message[], tools?: ToolDef[]) => Promise<GenerateResult>;
   readonly workspaceId: string;
   readonly actorId: string;
   readonly clientId?: string;
+  readonly apiKey?: string;
+  readonly modelId?: string;
   readonly context?: string;
   readonly maxToolCalls?: number;
 }
@@ -40,18 +74,143 @@ export interface AgentResult {
 }
 
 // ---------------------------------------------------------------------------
-// System prompt
+// pi-ai conversions (inline, no separate module)
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(tools: McpTool[], context?: string): string {
-  const toolSection = tools
-    .map((t) => `### ${t.name}\n${t.description ?? "No description."}`)
-    .join("\n\n");
+const EMPTY_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 
-  const contextSection = context ? `\n## Context\n\n${context}\n` : "";
+function toPiMessages(messages: Message[]): { systemPrompt?: string; piMessages: PiMessage[] } {
+  let systemPrompt: string | undefined;
+  const piMessages: PiMessage[] = [];
 
-  return `You are an AI assistant that executes tasks by writing TypeScript code.
-${contextSection}
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      systemPrompt = msg.content;
+    } else if (msg.role === "user") {
+      piMessages.push({ role: "user", content: msg.content, timestamp: Date.now() } satisfies UserMessage);
+    } else if (msg.role === "assistant") {
+      if (msg.toolCalls?.length) {
+        const content: (TextContent | PiToolCall)[] = [];
+        if (msg.content) content.push({ type: "text", text: msg.content });
+        for (const tc of msg.toolCalls) {
+          content.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: tc.args });
+        }
+        piMessages.push({ role: "assistant", content, api: "anthropic-messages", provider: "anthropic", model: "", usage: EMPTY_USAGE, stopReason: "toolUse", timestamp: Date.now() } satisfies PiAssistantMessage);
+      } else {
+        piMessages.push({ role: "assistant", content: [{ type: "text", text: msg.content }], api: "anthropic-messages", provider: "anthropic", model: "", usage: EMPTY_USAGE, stopReason: "stop", timestamp: Date.now() } satisfies PiAssistantMessage);
+      }
+    } else if (msg.role === "tool") {
+      piMessages.push({ role: "toolResult", toolCallId: msg.toolCallId!, toolName: "run_code", content: [{ type: "text", text: msg.content }], isError: false, timestamp: Date.now() } satisfies ToolResultMessage);
+    }
+  }
+
+  return { systemPrompt, piMessages };
+}
+
+function fromPiResponse(response: PiAssistantMessage): { text?: string; toolCalls?: { id: string; name: string; args: Record<string, unknown> }[] } {
+  const toolCalls: { id: string; name: string; args: Record<string, unknown> }[] = [];
+  const textParts: string[] = [];
+
+  for (const block of response.content) {
+    if (block.type === "text") textParts.push((block as TextContent).text);
+    else if (block.type === "toolCall") {
+      const tc = block as PiToolCall;
+      toolCalls.push({ id: tc.id, name: tc.name, args: tc.arguments });
+    }
+  }
+
+  return {
+    text: textParts.join("") || undefined,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Agent
+// ---------------------------------------------------------------------------
+
+export function createAgent(options: AgentOptions) {
+  const {
+    executorUrl,
+    workspaceId,
+    actorId,
+    clientId,
+    apiKey,
+    modelId = "claude-sonnet-4-5",
+    context,
+    maxToolCalls = 20,
+  } = options;
+
+  const resolvedApiKey = resolveApiKey(apiKey);
+  const model = getModel("anthropic", modelId as never);
+
+  async function generate(messages: Message[], tools: McpTool[]) {
+    const { systemPrompt, piMessages } = toPiMessages(messages);
+    const piTools: PiTool[] = tools.map((t) => ({
+      name: t.name,
+      description: t.description ?? "",
+      parameters: (t.inputSchema ?? { type: "object", properties: {} }) as PiTool["parameters"],
+    }));
+
+    const ctx: PiContext = { messages: piMessages, tools: piTools };
+    if (systemPrompt) ctx.systemPrompt = systemPrompt;
+
+    const opts: SimpleStreamOptions = { maxTokens: 8192 };
+    if (resolvedApiKey) opts.apiKey = resolvedApiKey;
+
+    return fromPiResponse(await completeSimple(model, ctx, opts));
+  }
+
+  return {
+    async run(prompt: string, onEvent?: (event: TaskEvent) => void): Promise<AgentResult> {
+      function emit(event: TaskEvent) { onEvent?.(event); }
+
+      // Connect to executor MCP
+      emit({ type: "status", message: "Connecting..." });
+      const mcpUrl = new URL(`${executorUrl}/mcp`);
+      mcpUrl.searchParams.set("workspaceId", workspaceId);
+      mcpUrl.searchParams.set("actorId", actorId);
+      if (clientId) mcpUrl.searchParams.set("clientId", clientId);
+
+      const transport = new StreamableHTTPClientTransport(mcpUrl);
+      const mcp = new Client({ name: "assistant-agent", version: "0.1.0" });
+
+      let mcpConnected = false;
+      try {
+        await mcp.connect(transport);
+        mcpConnected = true;
+      } catch (err) {
+        const msg = `Failed to connect to executor MCP: ${err instanceof Error ? err.message : String(err)}`;
+        emit({ type: "error", error: msg });
+        emit({ type: "completed" });
+        return { text: msg, toolCalls: 0 };
+      }
+
+      try {
+        // List tools
+        emit({ type: "status", message: "Loading tools..." });
+        const { tools: rawTools } = await mcp.listTools();
+        const tools: McpTool[] = rawTools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema as Record<string, unknown> | undefined,
+        }));
+
+        if (tools.length === 0) {
+          emit({ type: "error", error: "No tools available" });
+          emit({ type: "completed" });
+          return { text: "No tools available", toolCalls: 0 };
+        }
+
+        // Build system prompt
+        const toolSection = tools
+          .map((t) => `### ${t.name}\n${t.description ?? "No description."}`)
+          .join("\n\n");
+
+        const contextBlock = context ? `\n## Context\n\n${context}\n` : "";
+
+        const systemPrompt = `You are an AI assistant that executes tasks by writing TypeScript code.
+${contextBlock}
 ## Available Tools
 
 ${toolSection}
@@ -64,148 +223,52 @@ ${toolSection}
 - Handle errors with try/catch
 - Return a structured result, then summarize what happened
 - Be concise and accurate — base your response on actual tool results`;
-}
 
-// ---------------------------------------------------------------------------
-// MCP client helpers
-// ---------------------------------------------------------------------------
-
-async function connectMcp(executorUrl: string, workspaceId: string, actorId: string, clientId?: string): Promise<Client> {
-  const url = new URL(`${executorUrl}/mcp`);
-  url.searchParams.set("workspaceId", workspaceId);
-  url.searchParams.set("actorId", actorId);
-  if (clientId) url.searchParams.set("clientId", clientId);
-
-  const transport = new StreamableHTTPClientTransport(url);
-  const client = new Client({ name: "assistant-agent", version: "0.1.0" });
-  await client.connect(transport);
-  return client;
-}
-
-async function listMcpTools(client: Client): Promise<McpTool[]> {
-  const result = await client.listTools();
-  return result.tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: t.inputSchema as Record<string, unknown> | undefined,
-  }));
-}
-
-async function callMcpTool(client: Client, name: string, args: Record<string, unknown>): Promise<{
-  content: string;
-  isError: boolean;
-}> {
-  const result = await client.callTool({ name, arguments: args });
-  const text = (result.content as Array<{ type: string; text?: string }>)
-    .filter((c) => c.type === "text" && c.text)
-    .map((c) => c.text!)
-    .join("\n");
-  return { content: text, isError: result.isError === true };
-}
-
-// ---------------------------------------------------------------------------
-// Agent
-// ---------------------------------------------------------------------------
-
-export function createAgent(options: AgentOptions) {
-  return {
-    async run(prompt: string, onEvent?: (event: TaskEvent) => void): Promise<AgentResult> {
-      const {
-        executorUrl,
-        generate,
-        workspaceId,
-        actorId,
-        clientId,
-        context,
-        maxToolCalls = 20,
-      } = options;
-
-      function emit(event: TaskEvent): void {
-        onEvent?.(event);
-      }
-
-      // 1. Connect to executor MCP
-      emit({ type: "status", message: "Connecting..." });
-      let mcp: Client;
-      try {
-        mcp = await connectMcp(executorUrl, workspaceId, actorId, clientId);
-      } catch (err) {
-        const msg = `Failed to connect to executor MCP: ${err instanceof Error ? err.message : String(err)}`;
-        emit({ type: "error", error: msg });
-        emit({ type: "completed" });
-        return { text: msg, toolCalls: 0 };
-      }
-
-      try {
-        // 2. List tools (run_code description includes sandbox tool inventory)
-        emit({ type: "status", message: "Loading tools..." });
-        const tools = await listMcpTools(mcp);
-
-        if (tools.length === 0) {
-          const msg = "No tools available from executor";
-          emit({ type: "error", error: msg });
-          emit({ type: "completed" });
-          return { text: msg, toolCalls: 0 };
-        }
-
-        // 3. Build system prompt + messages
-        const systemPrompt = buildSystemPrompt(tools, context);
         const messages: Message[] = [
           { role: "system", content: systemPrompt },
           { role: "user", content: prompt },
         ];
 
-        // Convert MCP tools to model tool defs
-        const toolDefs: ToolDef[] = tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.inputSchema,
-        }));
-
         emit({ type: "status", message: "Thinking..." });
 
         let toolCallCount = 0;
 
-        // 4. Agent loop
+        // Agent loop
         while (toolCallCount < maxToolCalls) {
-          const response = await generate(messages, toolDefs);
+          const response = await generate(messages, tools);
 
-          // No tool calls → done
-          if (!response.toolCalls || response.toolCalls.length === 0) {
+          if (!response.toolCalls?.length) {
             const text = response.text ?? "";
             emit({ type: "agent_message", text });
             emit({ type: "completed" });
             return { text, toolCalls: toolCallCount };
           }
 
-          for (const toolCall of response.toolCalls) {
+          for (const tc of response.toolCalls) {
             toolCallCount++;
 
-            // Emit events
-            if (toolCall.name === "run_code" && toolCall.args["code"]) {
-              emit({ type: "code_generated", code: String(toolCall.args["code"]) });
+            if (tc.name === "run_code" && tc.args["code"]) {
+              emit({ type: "code_generated", code: String(tc.args["code"]) });
             }
-            emit({ type: "status", message: `Running ${toolCall.name}...` });
+            emit({ type: "status", message: `Running ${tc.name}...` });
 
-            // 5. Forward to executor via MCP
-            const result = await callMcpTool(mcp, toolCall.name, toolCall.args);
+            // Call tool via MCP
+            const result = await mcp.callTool({ name: tc.name, arguments: tc.args });
+            const text = (result.content as Array<{ type: string; text?: string }>)
+              .filter((c) => c.type === "text" && c.text)
+              .map((c) => c.text!)
+              .join("\n");
 
-            // Emit result
             emit({
               type: "code_result",
               taskId: "",
               status: result.isError ? "failed" : "completed",
-              stdout: result.isError ? undefined : result.content,
-              error: result.isError ? result.content : undefined,
+              stdout: result.isError ? undefined : text,
+              error: result.isError ? text : undefined,
             });
 
-            // 6. Feed result back to model
-            messages.push({ role: "assistant", content: "", toolCalls: [toolCall] });
-            messages.push({
-              role: "tool",
-              toolCallId: toolCall.id,
-              content: result.content,
-            });
+            messages.push({ role: "assistant", content: "", toolCalls: [tc] });
+            messages.push({ role: "tool", toolCallId: tc.id, content: text });
           }
         }
 
@@ -214,7 +277,7 @@ export function createAgent(options: AgentOptions) {
         emit({ type: "completed" });
         return { text, toolCalls: toolCallCount };
       } finally {
-        await mcp.close().catch(() => {});
+        if (mcpConnected) await mcp.close().catch(() => {});
       }
     },
   };
