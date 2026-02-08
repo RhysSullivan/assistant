@@ -77,7 +77,6 @@ export const create = authedMutation({
       organizationId,
       slug: "default",
       name: "Default Workspace",
-      visibility: "organization",
       plan: "free",
       createdByAccountId: account._id,
       createdAt: now,

@@ -24,7 +24,6 @@ export default defineSchema({
     slug: v.string(),
     name: v.string(),
     iconStorageId: v.optional(v.id("_storage")),
-    visibility: v.optional(v.string()),
     plan: v.string(),
     createdByAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),

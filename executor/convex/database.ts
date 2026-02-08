@@ -218,7 +218,6 @@ async function ensureAnonymousIdentity(
       organizationId,
       slug: `guest-${crypto.randomUUID().slice(0, 8)}`,
       name: "Guest Workspace",
-      visibility: "private",
       plan: "free",
       createdByAccountId: account._id,
       createdAt: now,
