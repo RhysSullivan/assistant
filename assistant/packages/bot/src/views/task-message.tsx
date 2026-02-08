@@ -18,6 +18,7 @@ import {
 } from "@openassistant/reacord";
 import { useQuery } from "convex/react";
 import { api } from "@executor/convex/_generated/api";
+import type { ExecutorClient } from "@assistant/server/executor-client";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -27,7 +28,7 @@ export interface TaskMessageProps {
   readonly agentTaskId: string;
   readonly prompt: string;
   readonly workspaceId: string;
-  readonly executor: ReturnType<typeof import("@elysiajs/eden").treaty>;
+  readonly executor: ExecutorClient;
 }
 
 export function TaskMessage({ agentTaskId, prompt, workspaceId, executor }: TaskMessageProps) {

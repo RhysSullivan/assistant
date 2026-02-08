@@ -1,8 +1,5 @@
 import type { ToolDefinition } from "./types";
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
+import { asRecord } from "./utils";
 
 export const DEFAULT_TOOLS: ToolDefinition[] = [
   {
@@ -21,7 +18,7 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     approval: "auto",
     source: "local",
     run: async (input) => {
-      const payload = asObject(input);
+      const payload = asRecord(input);
       const a = Number(payload.a ?? 0);
       const b = Number(payload.b ?? 0);
       if (!Number.isFinite(a) || !Number.isFinite(b)) {
@@ -36,7 +33,7 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     approval: "required",
     source: "local",
     run: async (input) => {
-      const payload = asObject(input);
+      const payload = asRecord(input);
       const channel = String(payload.channel ?? "general");
       const message = String(payload.message ?? "");
       if (!message.trim()) {
@@ -55,7 +52,7 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     approval: "required",
     source: "local",
     run: async (input) => {
-      const payload = asObject(input);
+      const payload = asRecord(input);
       const key = String(payload.key ?? "");
       if (!key.trim()) {
         throw new Error("admin.delete_data requires key");

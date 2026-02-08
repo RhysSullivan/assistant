@@ -5,15 +5,12 @@ import type {
   ToolCallRequest,
   ToolCallResult,
 } from "../types";
+import { describeError } from "../utils";
 
 interface InProcessExecutionAdapterOptions {
   runId: string;
   invokeTool: (call: ToolCallRequest) => Promise<unknown>;
   emitOutput: (event: RuntimeOutputEvent) => void;
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export class InProcessExecutionAdapter implements ExecutionAdapter {

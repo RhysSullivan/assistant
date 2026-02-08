@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -18,6 +20,8 @@ function optionalFromNormalized(value?: string): string | undefined {
   return value;
 }
 
+// NOTE: Canonical version lives in apps/server/src/utils.ts.
+// Convex can't import from the server, so this is a local copy.
 function asRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -25,7 +29,7 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
-function mapTask(doc: any) {
+function mapTask(doc: Doc<"tasks">) {
   return {
     id: doc.taskId,
     code: doc.code,
@@ -47,7 +51,7 @@ function mapTask(doc: any) {
   };
 }
 
-function mapApproval(doc: any) {
+function mapApproval(doc: Doc<"approvals">) {
   return {
     id: doc.approvalId,
     taskId: doc.taskId,
@@ -61,7 +65,7 @@ function mapApproval(doc: any) {
   };
 }
 
-function mapPolicy(doc: any) {
+function mapPolicy(doc: Doc<"accessPolicies">) {
   return {
     id: doc.policyId,
     workspaceId: doc.workspaceId,
@@ -75,7 +79,7 @@ function mapPolicy(doc: any) {
   };
 }
 
-function mapCredential(doc: any) {
+function mapCredential(doc: Doc<"sourceCredentials">) {
   return {
     id: doc.credentialId,
     workspaceId: doc.workspaceId,
@@ -88,7 +92,7 @@ function mapCredential(doc: any) {
   };
 }
 
-function mapSource(doc: any) {
+function mapSource(doc: Doc<"toolSources">) {
   return {
     id: doc.sourceId,
     workspaceId: doc.workspaceId,
@@ -101,7 +105,7 @@ function mapSource(doc: any) {
   };
 }
 
-function mapAnonymousContext(doc: any) {
+function mapAnonymousContext(doc: Doc<"anonymousSessions">) {
   return {
     sessionId: doc.sessionId,
     workspaceId: doc.workspaceId,
@@ -112,7 +116,7 @@ function mapAnonymousContext(doc: any) {
   };
 }
 
-function mapTaskEvent(doc: any) {
+function mapTaskEvent(doc: Doc<"taskEvents">) {
   return {
     id: doc.sequence,
     taskId: doc.taskId,
@@ -123,7 +127,7 @@ function mapTaskEvent(doc: any) {
   };
 }
 
-function mapWorkspaceTool(doc: any) {
+function mapWorkspaceTool(doc: Doc<"workspaceTools">) {
   return {
     path: doc.path,
     description: doc.description,
@@ -134,13 +138,20 @@ function mapWorkspaceTool(doc: any) {
   };
 }
 
+// NOTE: Duplicated in apps/server/src/service.ts — these must be kept in sync.
+// They can't share code because Convex functions run in a separate environment.
 function matchesToolPath(pattern: string, toolPath: string): boolean {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
   const regex = new RegExp(`^${escaped}$`);
   return regex.test(toolPath);
 }
 
-function policySpecificity(policy: any, actorId?: string, clientId?: string): number {
+// NOTE: Duplicated in apps/server/src/service.ts — these must be kept in sync.
+function policySpecificity(
+  policy: Pick<Doc<"accessPolicies">, "actorId" | "clientId" | "toolPathPattern" | "priority">,
+  actorId?: string,
+  clientId?: string,
+): number {
   let score = 0;
   if (policy.actorId && actorId && policy.actorId === actorId) score += 4;
   if (policy.clientId && clientId && policy.clientId === clientId) score += 2;
@@ -149,14 +160,14 @@ function policySpecificity(policy: any, actorId?: string, clientId?: string): nu
   return score;
 }
 
-async function getTaskDoc(ctx: any, taskId: string) {
-  return await ctx.db.query("tasks").withIndex("by_task_id", (q: any) => q.eq("taskId", taskId)).unique();
+async function getTaskDoc(ctx: { db: QueryCtx["db"] }, taskId: string) {
+  return await ctx.db.query("tasks").withIndex("by_task_id", (q) => q.eq("taskId", taskId)).unique();
 }
 
-async function getApprovalDoc(ctx: any, approvalId: string) {
+async function getApprovalDoc(ctx: { db: QueryCtx["db"] }, approvalId: string) {
   return await ctx.db
     .query("approvals")
-    .withIndex("by_approval_id", (q: any) => q.eq("approvalId", approvalId))
+    .withIndex("by_approval_id", (q) => q.eq("approvalId", approvalId))
     .unique();
 }
 
@@ -213,7 +224,7 @@ export const listTasks = query({
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("tasks")
-      .withIndex("by_workspace_created", (q: any) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", args.workspaceId))
       .order("desc")
       .take(500);
     return docs.map(mapTask);
@@ -225,11 +236,11 @@ export const listQueuedTaskIds = query({
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("tasks")
-      .withIndex("by_status_created", (q: any) => q.eq("status", "queued"))
+      .withIndex("by_status_created", (q) => q.eq("status", "queued"))
       .order("asc")
       .take(args.limit ?? 20);
 
-    return docs.map((doc: any) => doc.taskId);
+    return docs.map((doc) => doc.taskId);
   },
 });
 
@@ -365,10 +376,11 @@ export const listApprovals = query({
   },
   handler: async (ctx, args) => {
     if (args.status) {
+      const status = args.status;
       const docs = await ctx.db
         .query("approvals")
-        .withIndex("by_workspace_status_created", (q: any) =>
-          q.eq("workspaceId", args.workspaceId).eq("status", args.status),
+        .withIndex("by_workspace_status_created", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("status", status),
         )
         .order("desc")
         .collect();
@@ -377,7 +389,7 @@ export const listApprovals = query({
 
     const docs = await ctx.db
       .query("approvals")
-      .withIndex("by_workspace_created", (q: any) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", args.workspaceId))
       .order("desc")
       .take(500);
     return docs.map(mapApproval);
@@ -389,13 +401,17 @@ export const listPendingApprovals = query({
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("approvals")
-      .withIndex("by_workspace_status_created", (q: any) =>
+      .withIndex("by_workspace_status_created", (q) =>
         q.eq("workspaceId", args.workspaceId).eq("status", "pending"),
       )
       .order("asc")
       .collect();
 
-    const results: Array<any> = [];
+    const results: Array<
+      ReturnType<typeof mapApproval> & {
+        task: { id: string; status: string; runtimeId: string; timeoutMs: number; createdAt: number };
+      }
+    > = [];
     for (const approval of docs) {
       const task = await getTaskDoc(ctx, approval.taskId);
       if (!task) {
@@ -457,7 +473,7 @@ export const getApprovalInWorkspace = query({
 
 // ── Agent Tasks ──
 
-function mapAgentTask(doc: any) {
+function mapAgentTask(doc: Doc<"agentTasks">) {
   return {
     id: doc.agentTaskId,
     prompt: doc.prompt,
@@ -473,10 +489,10 @@ function mapAgentTask(doc: any) {
   };
 }
 
-async function getAgentTaskDoc(ctx: any, agentTaskId: string) {
+async function getAgentTaskDoc(ctx: { db: QueryCtx["db"] }, agentTaskId: string) {
   return await ctx.db
     .query("agentTasks")
-    .withIndex("by_agent_task_id", (q: any) => q.eq("agentTaskId", agentTaskId))
+    .withIndex("by_agent_task_id", (q) => q.eq("agentTaskId", agentTaskId))
     .unique();
 }
 
@@ -545,21 +561,52 @@ export const updateAgentTask = mutation({
   },
 });
 
+// Default tools seeded into every new workspace so the editor has
+// IntelliSense immediately (before the worker syncs external sources).
+const DEFAULT_WORKSPACE_TOOLS = [
+  { path: "utils.get_time", description: "Return current server time.", approval: "auto", source: "local" },
+  { path: "math.add", description: "Add two numbers.", approval: "auto", source: "local" },
+  { path: "admin.send_announcement", description: "Mock announcement sender that requires approval.", approval: "required", source: "local" },
+  { path: "admin.delete_data", description: "Mock destructive operation that requires approval.", approval: "required", source: "local" },
+  { path: "discover", description: "List all available tools and their descriptions.", approval: "auto", source: "local" },
+];
+
 export const bootstrapAnonymousSession = mutation({
   args: { sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const now = Date.now();
 
     if (args.sessionId) {
+      const sessionId = args.sessionId;
       const existing = await ctx.db
         .query("anonymousSessions")
-        .withIndex("by_session_id", (q: any) => q.eq("sessionId", args.sessionId))
+        .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
         .unique();
       if (existing) {
         await ctx.db.patch(existing._id, { lastSeenAt: now });
+
+        // Ensure the workspace has at least the default tools seeded.
+        // This handles existing sessions created before seeding was added.
+        const existingTools = await ctx.db
+          .query("workspaceTools")
+          .withIndex("by_workspace_path", (q: any) => q.eq("workspaceId", existing.workspaceId))
+          .first();
+        if (!existingTools) {
+          for (const tool of DEFAULT_WORKSPACE_TOOLS) {
+            await ctx.db.insert("workspaceTools", {
+              workspaceId: existing.workspaceId,
+              path: tool.path,
+              description: tool.description,
+              approval: tool.approval,
+              source: tool.source,
+              updatedAt: now,
+            });
+          }
+        }
+
         const refreshed = await ctx.db
           .query("anonymousSessions")
-          .withIndex("by_session_id", (q: any) => q.eq("sessionId", args.sessionId))
+          .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
           .unique();
         if (!refreshed) {
           throw new Error("Failed to refresh anonymous session");
@@ -582,9 +629,23 @@ export const bootstrapAnonymousSession = mutation({
       lastSeenAt: now,
     });
 
+    // Seed the workspace with default tools so the editor has IntelliSense
+    // immediately. The worker will overwrite these when it syncs external
+    // tool sources (if any are added later).
+    for (const tool of DEFAULT_WORKSPACE_TOOLS) {
+      await ctx.db.insert("workspaceTools", {
+        workspaceId,
+        path: tool.path,
+        description: tool.description,
+        approval: tool.approval,
+        source: tool.source,
+        updatedAt: now,
+      });
+    }
+
     const created = await ctx.db
       .query("anonymousSessions")
-      .withIndex("by_session_id", (q: any) => q.eq("sessionId", sessionId))
+      .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
       .unique();
     if (!created) {
       throw new Error("Failed to create anonymous session");
@@ -609,7 +670,7 @@ export const upsertAccessPolicy = mutation({
     const policyId = args.id ?? `policy_${crypto.randomUUID()}`;
     const existing = await ctx.db
       .query("accessPolicies")
-      .withIndex("by_policy_id", (q: any) => q.eq("policyId", policyId))
+      .withIndex("by_policy_id", (q) => q.eq("policyId", policyId))
       .unique();
 
     if (existing) {
@@ -638,7 +699,7 @@ export const upsertAccessPolicy = mutation({
 
     const updated = await ctx.db
       .query("accessPolicies")
-      .withIndex("by_policy_id", (q: any) => q.eq("policyId", policyId))
+      .withIndex("by_policy_id", (q) => q.eq("policyId", policyId))
       .unique();
     if (!updated) {
       throw new Error(`Failed to read policy ${policyId}`);
@@ -652,11 +713,11 @@ export const listAccessPolicies = query({
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("accessPolicies")
-      .withIndex("by_workspace_created", (q: any) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
 
     return docs
-      .sort((a: any, b: any) => {
+      .sort((a, b) => {
         if (a.priority !== b.priority) {
           return b.priority - a.priority;
         }
@@ -681,7 +742,7 @@ export const upsertCredential = mutation({
 
     const existing = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_actor", (q: any) =>
+      .withIndex("by_workspace_source_scope_actor", (q) =>
         q
           .eq("workspaceId", args.workspaceId)
           .eq("sourceKey", args.sourceKey)
@@ -710,7 +771,7 @@ export const upsertCredential = mutation({
 
     const updated = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_actor", (q: any) =>
+      .withIndex("by_workspace_source_scope_actor", (q) =>
         q
           .eq("workspaceId", args.workspaceId)
           .eq("sourceKey", args.sourceKey)
@@ -732,7 +793,7 @@ export const listCredentials = query({
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_created", (q: any) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", args.workspaceId))
       .order("desc")
       .collect();
     return docs.map(mapCredential);
@@ -755,7 +816,7 @@ export const resolveCredential = query({
 
       const actorDoc = await ctx.db
         .query("sourceCredentials")
-        .withIndex("by_workspace_source_scope_actor", (q: any) =>
+        .withIndex("by_workspace_source_scope_actor", (q) =>
           q
             .eq("workspaceId", args.workspaceId)
             .eq("sourceKey", args.sourceKey)
@@ -769,7 +830,7 @@ export const resolveCredential = query({
 
     const workspaceDoc = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_actor", (q: any) =>
+      .withIndex("by_workspace_source_scope_actor", (q) =>
         q
           .eq("workspaceId", args.workspaceId)
           .eq("sourceKey", args.sourceKey)
@@ -796,12 +857,12 @@ export const upsertToolSource = mutation({
     const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
     const existing = await ctx.db
       .query("toolSources")
-      .withIndex("by_source_id", (q: any) => q.eq("sourceId", sourceId))
+      .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
       .unique();
 
     const conflict = await ctx.db
       .query("toolSources")
-      .withIndex("by_workspace_name", (q: any) => q.eq("workspaceId", args.workspaceId).eq("name", args.name))
+      .withIndex("by_workspace_name", (q) => q.eq("workspaceId", args.workspaceId).eq("name", args.name))
       .unique();
 
     if (conflict && conflict.sourceId !== sourceId) {
@@ -832,7 +893,7 @@ export const upsertToolSource = mutation({
 
     const updated = await ctx.db
       .query("toolSources")
-      .withIndex("by_source_id", (q: any) => q.eq("sourceId", sourceId))
+      .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
       .unique();
     if (!updated) {
       throw new Error(`Failed to read tool source ${sourceId}`);
@@ -846,7 +907,7 @@ export const listToolSources = query({
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("toolSources")
-      .withIndex("by_workspace_updated", (q: any) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", args.workspaceId))
       .order("desc")
       .collect();
     return docs.map(mapSource);
@@ -889,7 +950,7 @@ export const syncWorkspaceTools = mutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("workspaceTools")
-      .withIndex("by_workspace_updated", (q: any) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
 
     for (const doc of existing) {
@@ -924,26 +985,26 @@ export const listWorkspaceToolsForContext = query({
     const [tools, policies] = await Promise.all([
       ctx.db
         .query("workspaceTools")
-        .withIndex("by_workspace_path", (q: any) => q.eq("workspaceId", args.workspaceId))
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId))
         .collect(),
       ctx.db
         .query("accessPolicies")
-        .withIndex("by_workspace_created", (q: any) => q.eq("workspaceId", args.workspaceId))
+        .withIndex("by_workspace_created", (q) => q.eq("workspaceId", args.workspaceId))
         .collect(),
     ]);
 
     return tools
-      .map((toolDoc: any) => {
+      .map((toolDoc) => {
         const baseDecision = toolDoc.approval === "required" ? "require_approval" : "allow";
         const candidates = policies
-          .filter((policy: any) => {
+          .filter((policy) => {
             const policyActorId = optionalFromNormalized(policy.actorId);
             const policyClientId = optionalFromNormalized(policy.clientId);
             if (policyActorId && policyActorId !== args.actorId) return false;
             if (policyClientId && policyClientId !== args.clientId) return false;
             return matchesToolPath(policy.toolPathPattern, toolDoc.path);
           })
-          .sort((a: any, b: any) => {
+          .sort((a, b) => {
             const bScore = policySpecificity(b, args.actorId, args.clientId);
             const aScore = policySpecificity(a, args.actorId, args.clientId);
             return bScore - aScore;
@@ -960,8 +1021,8 @@ export const listWorkspaceToolsForContext = query({
           approval: decision === "require_approval" ? "required" : "auto",
         };
       })
-      .filter((tool: any) => tool !== null)
-      .sort((a: any, b: any) => a.path.localeCompare(b.path));
+      .filter((tool): tool is NonNullable<typeof tool> => tool !== null)
+      .sort((a, b) => a.path.localeCompare(b.path));
   },
 });
 
@@ -970,7 +1031,7 @@ export const deleteToolSource = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db
       .query("toolSources")
-      .withIndex("by_source_id", (q: any) => q.eq("sourceId", args.sourceId))
+      .withIndex("by_source_id", (q) => q.eq("sourceId", args.sourceId))
       .unique();
 
     if (!doc || doc.workspaceId !== args.workspaceId) {
@@ -997,7 +1058,7 @@ export const createTaskEvent = mutation({
 
     const latest = await ctx.db
       .query("taskEvents")
-      .withIndex("by_task_sequence", (q: any) => q.eq("taskId", args.taskId))
+      .withIndex("by_task_sequence", (q) => q.eq("taskId", args.taskId))
       .order("desc")
       .first();
 
@@ -1015,7 +1076,7 @@ export const createTaskEvent = mutation({
 
     const created = await ctx.db
       .query("taskEvents")
-      .withIndex("by_task_sequence", (q: any) => q.eq("taskId", args.taskId).eq("sequence", sequence))
+      .withIndex("by_task_sequence", (q) => q.eq("taskId", args.taskId).eq("sequence", sequence))
       .unique();
 
     if (!created) {
@@ -1031,7 +1092,7 @@ export const listTaskEvents = query({
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("taskEvents")
-      .withIndex("by_task_sequence", (q: any) => q.eq("taskId", args.taskId))
+      .withIndex("by_task_sequence", (q) => q.eq("taskId", args.taskId))
       .order("asc")
       .collect();
 

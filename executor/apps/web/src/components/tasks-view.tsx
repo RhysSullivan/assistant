@@ -33,6 +33,7 @@ import type {
 } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { formatTime } from "@/lib/format";
 
 const DEFAULT_CODE = `// Example: call some tools
 const time = await tools.utils.get_time();
@@ -46,14 +47,6 @@ await tools.admin.send_announcement({
   channel: "general",
   message: "Hello from executor!"
 });`;
-
-function formatTime(ts: number) {
-  return new Date(ts).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString([], {
@@ -139,12 +132,12 @@ function TaskComposer() {
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Code</Label>
-          <div className="rounded-md border border-border overflow-hidden">
+          <div className="rounded-md border border-border">
             <CodeEditor
               value={code}
               onChange={setCode}
               tools={tools ?? []}
-              height="240px"
+              height="400px"
             />
           </div>
         </div>

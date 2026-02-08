@@ -14,7 +14,7 @@ import {
 } from "discord.js";
 import { makeReacord } from "@openassistant/reacord";
 import { createClient } from "@assistant/server/client";
-import { treaty } from "@elysiajs/eden";
+import { createExecutorClient } from "@assistant/server/executor-client";
 import { ConvexReactClient } from "convex/react";
 import { handleAskCommand } from "./commands/ask";
 
@@ -44,7 +44,7 @@ const client = new Client({
 
 const reacord = makeReacord(client, { maxInstances: 50 });
 const api = createClient(SERVER_URL);
-const executor = treaty(EXECUTOR_URL);
+const executor = createExecutorClient(EXECUTOR_URL);
 const convex = new ConvexReactClient(CONVEX_URL, {
   unsavedChangesWarning: false,
 });

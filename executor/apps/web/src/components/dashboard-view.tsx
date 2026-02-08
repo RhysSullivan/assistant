@@ -20,21 +20,7 @@ import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type { TaskRecord, PendingApprovalRecord } from "@/lib/types";
-
-function formatTime(ts: number) {
-  return new Date(ts).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatTimeAgo(ts: number) {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  return `${Math.floor(diff / 3_600_000)}h ago`;
-}
+import { formatTime, formatTimeAgo } from "@/lib/format";
 
 function StatCard({
   label,

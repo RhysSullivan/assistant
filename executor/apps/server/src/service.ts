@@ -29,6 +29,7 @@ import type {
   CredentialRecord,
   ToolRunContext,
 } from "./types";
+import { asPayload, describeError } from "./utils";
 
 function createTaskId(): string {
   return `task_${crypto.randomUUID()}`;
@@ -38,23 +39,15 @@ function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
 }
 
-function asPayload(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object") {
-    return value as Record<string, unknown>;
-  }
-  return { value };
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
+// NOTE: Duplicated in convex/database.ts — these must be kept in sync.
+// They can't share code because Convex functions run in a separate environment.
 function matchesToolPath(pattern: string, toolPath: string): boolean {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
   const regex = new RegExp(`^${escaped}$`);
   return regex.test(toolPath);
 }
 
+// NOTE: Duplicated in convex/database.ts — these must be kept in sync.
 function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientId?: string): number {
   let score = 0;
   if (policy.actorId && actorId && policy.actorId === actorId) score += 4;
@@ -326,7 +319,7 @@ export class ExecutorService {
   }
 
   getBaseToolCount(): number {
-    return [...this.baseTools.keys()].filter((path) => path !== "discover").length + 1;
+    return this.baseTools.size;
   }
 
   async createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }> {
