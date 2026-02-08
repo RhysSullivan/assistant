@@ -46,12 +46,16 @@ export const create = organizationMutation({
     expiresInDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    if (!workosEnabled) {
+      throw new Error("Invites require WorkOS auth to be enabled");
+    }
+
     const now = Date.now();
     const expiresAt = now + (args.expiresInDays ?? 7) * 24 * 60 * 60 * 1000;
 
     const token = `invite_${crypto.randomUUID()}`;
     const tokenHash = await sha256Hex(token);
-    const provider = workosEnabled ? "workos" : "local";
+    const provider = "workos";
 
     const inviteId = await ctx.db.insert("invites", {
       organizationId: ctx.organizationId,
