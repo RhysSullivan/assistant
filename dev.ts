@@ -4,21 +4,15 @@
  * Usage: bun dev
  *
  * Starts:
- *   1. Convex local backend (port 3210)
- *   2. Convex function push (once)
+ *   1. Convex cloud dev function push (once)
+ *   2. Convex cloud dev function watcher
  *   3. Executor server (port 4001)
  *   4. Executor web UI (port 3002)
  *   5. Assistant server (port 3000)
  *   6. Discord bot
- *   7. Convex function watcher (watches for schema/function changes)
  *
  * All processes are killed when this script exits (Ctrl+C).
  */
-
-import { existsSync } from "node:fs";
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
 
 const colors = {
   convex: "\x1b[36m",   // cyan
@@ -36,6 +30,33 @@ function prefix(name: ServiceName, line: string): string {
 }
 
 const procs: Bun.Subprocess[] = [];
+
+async function resolveExecutorConvexUrl(): Promise<string> {
+  if (Bun.env.CONVEX_URL) {
+    return Bun.env.CONVEX_URL;
+  }
+
+  const envFile = Bun.file("./executor/.env.local");
+  if (!(await envFile.exists())) {
+    throw new Error("Missing executor/.env.local with CONVEX_URL");
+  }
+
+  const content = await envFile.text();
+  const line = content
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith("CONVEX_URL="));
+
+  if (!line) {
+    throw new Error("CONVEX_URL not found in executor/.env.local");
+  }
+
+  const url = line.slice("CONVEX_URL=".length).trim();
+  if (!url) {
+    throw new Error("CONVEX_URL is empty in executor/.env.local");
+  }
+  return url;
+}
 
 function spawnService(name: ServiceName, cmd: string[], opts: {
   cwd?: string;
@@ -77,101 +98,19 @@ function spawnService(name: ServiceName, cmd: string[], opts: {
   return proc;
 }
 
-// ── Convex local backend ──
+// ── Convex cloud deployment ──
 
-async function findBackendBinary(): Promise<string> {
-  const binDir = join(homedir(), ".cache", "convex", "binaries");
-  if (!existsSync(binDir)) {
-    throw new Error(`No convex-local-backend found. Run: bun executor/apps/server/src/cli.ts start`);
-  }
-  const entries = await readdir(binDir);
-  for (const entry of entries) {
-    const path = join(binDir, entry, "convex-local-backend");
-    if (existsSync(path)) return path;
-  }
-  throw new Error(`No convex-local-backend binary found in ${binDir}`);
-}
-
-async function waitForBackend(url: string, timeoutMs = 15_000): Promise<string> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const resp = await fetch(`${url}/instance_name`);
-      if (resp.ok) return await resp.text();
-    } catch { /* not ready */ }
-    await Bun.sleep(200);
-  }
-  throw new Error(`Convex backend did not start within ${timeoutMs}ms`);
-}
-
-interface BackendConfig {
-  adminKey: string;
-  instanceSecret: string;
-  ports: { cloud: number; site: number };
-}
-
-async function readBackendConfig(instanceName: string): Promise<BackendConfig> {
-  for (const base of [
-    join(homedir(), ".convex", "convex-backend-state"),
-    join(homedir(), ".convex", "anonymous-convex-backend-state"),
-  ]) {
-    const configPath = join(base, instanceName, "config.json");
-    if (existsSync(configPath)) {
-      return await Bun.file(configPath).json();
-    }
-  }
-  throw new Error(`No config found for instance: ${instanceName}`);
-}
-
-const CONVEX_INSTANCE = "local-rhys_sullivan-executor";
-
-async function startConvexBackend(): Promise<{ url: string; adminKey: string }> {
-  const CONVEX_PORT = 3210;
-  const url = `http://127.0.0.1:${CONVEX_PORT}`;
-
-  // Check if already running
-  try {
-    const instanceName = await waitForBackend(url, 1000);
-    console.log(prefix("convex", `Backend already running: ${instanceName}`));
-    const config = await readBackendConfig(instanceName);
-    return { url, adminKey: config.adminKey };
-  } catch { /* not running, start it */ }
-
-  const binary = await findBackendBinary();
-  const config = await readBackendConfig(CONVEX_INSTANCE);
-  spawnService("convex", [
-    binary,
-    "--port", String(CONVEX_PORT),
-    "--instance-name", CONVEX_INSTANCE,
-    "--instance-secret", config.instanceSecret,
-  ]);
-
-  const instanceName = await waitForBackend(url);
-  console.log(prefix("convex", `Backend ready: ${instanceName}`));
-  return { url, adminKey: config.adminKey };
-}
-
-async function pushConvexFunctions(backendUrl: string, adminKey: string): Promise<void> {
+async function pushConvexFunctions(): Promise<void> {
   console.log(prefix("convex", "Pushing functions..."));
-
-  const envFile = join(import.meta.dir, "executor", ".env.executor-push");
-  await Bun.write(envFile, [
-    `CONVEX_SELF_HOSTED_URL=${backendUrl}`,
-    `CONVEX_SELF_HOSTED_ADMIN_KEY=${adminKey}`,
-  ].join("\n"));
-
-  const cleanEnv = { ...Bun.env };
-  delete cleanEnv.CONVEX_DEPLOYMENT;
 
   const proc = Bun.spawn([
     "bunx", "convex", "dev", "--once",
     "--typecheck", "disable",
-    "--env-file", envFile,
   ], {
     cwd: "./executor",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...cleanEnv, FORCE_COLOR: "1" },
+    env: { ...Bun.env, FORCE_COLOR: "1" },
   });
 
   const stdout = await Bun.readableStreamToText(proc.stdout);
@@ -205,26 +144,28 @@ if (!Bun.env.DISCORD_BOT_TOKEN) {
   console.log(`${colors.bot}[bot]${colors.reset} Skipped — no DISCORD_BOT_TOKEN set\n`);
 }
 
-// 1. Convex backend (must be ready before anything else)
-const convex = await startConvexBackend();
+// 1. Push functions (must complete before executor starts)
+await pushConvexFunctions();
 
-// 2. Push functions (must complete before executor starts)
-await pushConvexFunctions(convex.url, convex.adminKey);
+const executorConvexUrl = await resolveExecutorConvexUrl();
+console.log(prefix("convex", `Using deployment URL: ${executorConvexUrl}`));
 
-// 3. Start Convex file watcher (repushes on changes, no backend management)
+// 2. Start Convex file watcher (repushes on changes)
 spawnService("convex", [
   "bunx", "convex", "dev",
   "--typecheck", "disable",
-  "--env-file", join(import.meta.dir, "executor", ".env.executor-push"),
 ], {
   cwd: "./executor",
-  env: (() => { const e = { ...Bun.env }; delete e.CONVEX_DEPLOYMENT; return e; })(),
 });
 
-// 4. Everything else in parallel
+// 3. Everything else in parallel
 spawnService("executor", ["bun", "--hot", "apps/server/src/index.ts"], {
   cwd: "./executor",
-  env: { EXECUTOR_SERVER_AUTO_EXECUTE: "1" },
+  env: {
+    EXECUTOR_SERVER_AUTO_EXECUTE: "1",
+    CONVEX_URL: executorConvexUrl,
+    EXECUTOR_CONVEX_URL: executorConvexUrl,
+  },
 });
 
 spawnService("web", ["bun", "run", "dev", "--", "-p", "3002"], {
@@ -236,12 +177,18 @@ await Bun.sleep(2000);
 
 spawnService("assistant", ["bun", "run", "--cwd", "packages/server", "dev"], {
   cwd: "./assistant",
+  env: {
+    CONVEX_URL: executorConvexUrl,
+  },
 });
 
 if (Bun.env.DISCORD_BOT_TOKEN) {
   await Bun.sleep(1000);
   spawnService("bot", ["bun", "run", "--cwd", "packages/bot", "dev"], {
     cwd: "./assistant",
+    env: {
+      CONVEX_URL: executorConvexUrl,
+    },
   });
 }
 

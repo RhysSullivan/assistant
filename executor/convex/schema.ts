@@ -2,6 +2,71 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  accounts: defineTable({
+    provider: v.string(),
+    providerAccountId: v.string(),
+    email: v.string(),
+    name: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+    status: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastLoginAt: v.optional(v.number()),
+  })
+    .index("by_provider", ["provider", "providerAccountId"])
+    .index("by_email", ["email"]),
+
+  workspaces: defineTable({
+    workosOrgId: v.optional(v.string()),
+    legacyWorkspaceId: v.optional(v.string()),
+    slug: v.string(),
+    name: v.string(),
+    iconStorageId: v.optional(v.id("_storage")),
+    kind: v.string(),
+    plan: v.string(),
+    createdByAccountId: v.optional(v.id("accounts")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workos_org_id", ["workosOrgId"])
+    .index("by_legacy_workspace_id", ["legacyWorkspaceId"])
+    .index("by_slug", ["slug"]),
+
+  users: defineTable({
+    workspaceId: v.id("workspaces"),
+    accountId: v.id("accounts"),
+    workosOrgMembershipId: v.optional(v.string()),
+    role: v.string(),
+    status: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace_account", ["workspaceId", "accountId"])
+    .index("by_account", ["accountId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workos_membership_id", ["workosOrgMembershipId"]),
+
+  accountSessions: defineTable({
+    accountId: v.id("accounts"),
+    sessionId: v.optional(v.string()),
+    providerSessionId: v.optional(v.string()),
+    tokenHash: v.optional(v.string()),
+    tokenCiphertext: v.optional(v.string()),
+    issuedAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    userAgent: v.optional(v.string()),
+    ip: v.optional(v.string()),
+    createdAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index("by_account_created", ["accountId", "createdAt"])
+    .index("by_session_id", ["sessionId"])
+    .index("by_provider_session_id", ["providerSessionId"])
+    .index("by_token_hash", ["tokenHash"]),
+
   tasks: defineTable({
     taskId: v.string(),
     code: v.string(),
@@ -118,22 +183,13 @@ export default defineSchema({
     workspaceId: v.string(),
     actorId: v.string(),
     clientId: v.string(),
+    accountId: v.optional(v.id("accounts")),
+    workspaceDocId: v.optional(v.id("workspaces")),
+    userId: v.optional(v.id("users")),
     createdAt: v.number(),
     lastSeenAt: v.number(),
   })
     .index("by_session_id", ["sessionId"])
-    .index("by_workspace_actor", ["workspaceId", "actorId"]),
-
-  workspaceTools: defineTable({
-    workspaceId: v.string(),
-    path: v.string(),
-    description: v.string(),
-    approval: v.string(),
-    source: v.optional(v.string()),
-    argsType: v.optional(v.string()),
-    returnsType: v.optional(v.string()),
-    updatedAt: v.number(),
-  })
-    .index("by_workspace_updated", ["workspaceId", "updatedAt"])
-    .index("by_workspace_path", ["workspaceId", "path"]),
+    .index("by_workspace_actor", ["workspaceId", "actorId"])
+    .index("by_account", ["accountId"]),
 });

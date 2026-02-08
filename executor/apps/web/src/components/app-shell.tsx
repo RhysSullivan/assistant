@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -10,13 +10,31 @@ import {
   Wrench,
   Menu,
   X,
-  Terminal,
-  RotateCcw,
+  ChevronsUpDown,
+  Plus,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/session-context";
+import { workosEnabled } from "@/lib/auth-capabilities";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -57,40 +75,236 @@ function NavLinks({ onClick }: { onClick?: () => void }) {
   );
 }
 
-function SessionInfo() {
-  const { context, loading, resetWorkspace } = useSession();
+function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
+  const { context, mode, workspaces, switchWorkspace, creatingWorkspace, createWorkspace } = useSession();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [newWorkspaceIcon, setNewWorkspaceIcon] = useState<File | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  if (loading || !context) return null;
+  const activeWorkspace = context
+    ? workspaces.find((workspace) => workspace.id === context.workspaceId)
+    : null;
+  const activeWorkspaceLabel = activeWorkspace?.name ?? (mode === "guest" ? "Guest Workspace" : "Select workspace");
+  const activeWorkspaceInitial = (activeWorkspaceLabel[0] ?? "W").toUpperCase();
+
+  const openCreateWorkspace = () => {
+    setCreateError(null);
+    setNewWorkspaceName("");
+    setNewWorkspaceIcon(null);
+    setCreateOpen(true);
+  };
+
+  const handleCreateWorkspace = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+
+    const trimmed = newWorkspaceName.trim();
+    if (trimmed.length < 2) {
+      setCreateError("Workspace name must be at least 2 characters.");
+      return;
+    }
+
+    try {
+      await createWorkspace(trimmed, newWorkspaceIcon);
+      setCreateError(null);
+      setNewWorkspaceName("");
+      setNewWorkspaceIcon(null);
+      setCreateOpen(false);
+    } catch (cause) {
+      setCreateError(cause instanceof Error ? cause.message : "Failed to create workspace");
+    }
+  };
+
+  const triggerClassName = inHeader
+    ? "h-full w-full justify-between rounded-none border-0 bg-transparent px-3 text-[12px] font-medium shadow-none hover:bg-accent/40"
+    : "h-8 w-full justify-between text-[11px]";
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant={inHeader ? "ghost" : "outline"}
+            size="sm"
+            className={triggerClassName}
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              {activeWorkspace?.iconUrl ? (
+                <img
+                  src={activeWorkspace.iconUrl}
+                  alt={activeWorkspaceLabel}
+                  className="h-4 w-4 rounded-sm border border-border object-cover"
+                />
+              ) : (
+                <span className="h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
+                  {activeWorkspaceInitial}
+                </span>
+              )}
+              <span className="truncate">{activeWorkspaceLabel}</span>
+            </span>
+            <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-72">
+          {mode === "workos"
+            ? workspaces.map((workspace) => {
+                const isActive = workspace.id === context?.workspaceId;
+                return (
+                  <DropdownMenuItem
+                    key={workspace.id}
+                    onSelect={() => switchWorkspace(workspace.id)}
+                    className="text-xs"
+                  >
+                    <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
+                    {workspace.iconUrl ? (
+                      <img
+                        src={workspace.iconUrl}
+                        alt={workspace.name}
+                        className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
+                      />
+                    ) : (
+                      <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
+                        {(workspace.name[0] ?? "W").toUpperCase()}
+                      </span>
+                    )}
+                    <span className="truncate">{workspace.name}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {workspace.kind === "organization" ? "Org" : "Hobby"}
+                    </span>
+                  </DropdownMenuItem>
+                );
+              })
+            : (
+              <DropdownMenuItem disabled className="text-xs">
+                Guest workspace
+              </DropdownMenuItem>
+            )}
+          {mode === "workos" ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={openCreateWorkspace} className="text-xs">
+                <Plus className="mr-2 h-3.5 w-3.5" />
+                New workspace
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <form className="space-y-4" onSubmit={handleCreateWorkspace}>
+            <DialogHeader>
+              <DialogTitle>Create workspace</DialogTitle>
+              <DialogDescription>
+                Create a new hobby workspace for your account.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Input
+                value={newWorkspaceName}
+                onChange={(event) => {
+                  setCreateError(null);
+                  setNewWorkspaceName(event.target.value);
+                }}
+                placeholder="Acme Labs"
+                maxLength={64}
+              />
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  setCreateError(null);
+                  setNewWorkspaceIcon(event.target.files?.[0] ?? null);
+                }}
+              />
+              {newWorkspaceIcon ? (
+                <p className="text-[11px] text-muted-foreground truncate">
+                  Icon: {newWorkspaceIcon.name}
+                </p>
+              ) : null}
+              {createError ? (
+                <p className="text-xs text-destructive">{createError}</p>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateOpen(false)}
+                disabled={creatingWorkspace}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={creatingWorkspace}>
+                {creatingWorkspace ? "Creating..." : "Create workspace"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function SessionInfo() {
+  const { loading, isSignedInToWorkos, workosProfile } = useSession();
+  const avatarUrl = workosProfile?.avatarUrl ?? null;
+  const avatarLabel = workosProfile?.name || workosProfile?.email || "User";
+  const avatarInitial = (avatarLabel[0] ?? "U").toUpperCase();
+
+  if (loading) {
+    return (
+      <div className="px-3 space-y-3">
+        <Separator />
+        <span className="text-[11px] font-mono text-muted-foreground">Loading session...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="px-3 space-y-3">
       <Separator />
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            Session
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5 text-muted-foreground hover:text-foreground"
-            onClick={resetWorkspace}
-            title="Reset workspace"
-          >
-            <RotateCcw className="h-3 w-3" />
-          </Button>
-        </div>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <div className="h-1.5 w-1.5 rounded-full bg-terminal-green pulse-dot" />
-            <span className="text-[11px] font-mono text-muted-foreground truncate">
-              {context.workspaceId}
-            </span>
+      <div className="space-y-2 rounded-md border border-border/70 bg-card/30 p-2.5">
+        {isSignedInToWorkos ? (
+          <div className="flex items-center gap-2 rounded-md bg-background/60 px-2 py-1.5">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={avatarLabel}
+                className="h-6 w-6 rounded-full border border-border object-cover"
+              />
+            ) : (
+              <div className="h-6 w-6 rounded-full border border-border bg-muted text-[10px] font-mono text-muted-foreground flex items-center justify-center">
+                {avatarInitial}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium truncate">{avatarLabel}</p>
+              {workosProfile?.email ? (
+                <p className="text-[10px] text-muted-foreground truncate">{workosProfile.email}</p>
+              ) : null}
+            </div>
           </div>
-          <span className="text-[11px] font-mono text-muted-foreground/60 block pl-3.5 truncate">
-            {context.actorId}
-          </span>
-        </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground px-1">Guest mode</p>
+        )}
+
+        {!isSignedInToWorkos && workosEnabled ? (
+          <Link href="/sign-in" className="inline-flex">
+            <Button variant="outline" size="sm" className="h-7 text-[11px]">
+              Sign in
+            </Button>
+          </Link>
+        ) : null}
+
+        {isSignedInToWorkos ? (
+          <Link href="/sign-out" className="inline-flex">
+            <Button variant="ghost" size="sm" className="h-7 text-[11px] text-muted-foreground hover:text-foreground">
+              Sign out
+            </Button>
+          </Link>
+        ) : null}
       </div>
     </div>
   );
@@ -99,11 +313,8 @@ function SessionInfo() {
 function Sidebar() {
   return (
     <aside className="hidden md:flex md:w-56 lg:w-60 flex-col border-r border-border bg-sidebar h-screen sticky top-0">
-      <div className="flex items-center gap-2.5 px-4 h-14 border-b border-border shrink-0">
-        <div className="flex items-center justify-center h-7 w-7 rounded bg-primary/15 text-primary">
-          <Terminal className="h-4 w-4" />
-        </div>
-        <span className="font-semibold text-sm tracking-tight">Executor</span>
+      <div className="h-14 border-b border-border shrink-0">
+        <WorkspaceSelector inHeader />
       </div>
       <div className="flex-1 overflow-y-auto py-4 px-2">
         <NavLinks />
@@ -119,12 +330,9 @@ function MobileHeader() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="md:hidden flex items-center justify-between h-14 px-4 border-b border-border bg-sidebar sticky top-0 z-50">
-      <div className="flex items-center gap-2.5">
-        <div className="flex items-center justify-center h-7 w-7 rounded bg-primary/15 text-primary">
-          <Terminal className="h-4 w-4" />
-        </div>
-        <span className="font-semibold text-sm tracking-tight">Executor</span>
+    <header className="md:hidden flex items-center justify-between h-14 pr-2 border-b border-border bg-sidebar sticky top-0 z-50">
+      <div className="flex-1 min-w-0 h-full">
+        <WorkspaceSelector inHeader />
       </div>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
@@ -134,13 +342,8 @@ function MobileHeader() {
         </SheetTrigger>
         <SheetContent side="left" className="w-64 bg-sidebar p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <div className="flex items-center gap-2.5 px-4 h-14 border-b border-border">
-            <div className="flex items-center justify-center h-7 w-7 rounded bg-primary/15 text-primary">
-              <Terminal className="h-4 w-4" />
-            </div>
-            <span className="font-semibold text-sm tracking-tight">
-              Executor
-            </span>
+          <div className="h-14 border-b border-border">
+            <WorkspaceSelector inHeader />
           </div>
           <div className="py-4 px-2">
             <NavLinks onClick={() => setOpen(false)} />

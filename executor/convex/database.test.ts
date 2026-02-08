@@ -82,57 +82,24 @@ test("approval lifecycle tracks pending and resolution", async () => {
   expect(pendingAfter).toEqual([]);
 });
 
-test("workspace tool inventory applies policy decisions by context", async () => {
+test("anonymous bootstrap links guest account membership", async () => {
   const t = setup();
 
-  await t.mutation(api.database.syncWorkspaceTools, {
-    workspaceId: "ws_tools",
-    tools: [
-      {
-        path: "utils.get_time",
-        description: "Read current time",
-        approval: "auto",
-      },
-      {
-        path: "admin.delete_data",
-        description: "Delete data",
-        approval: "required",
-      },
-    ],
+  const first = await t.mutation(api.database.bootstrapAnonymousSession, {});
+  expect(first.sessionId).toContain("anon_session_");
+  expect(first.workspaceId).toContain("ws_");
+  expect(first.actorId).toContain("anon_");
+  expect(first.accountId).toBeDefined();
+  expect(first.workspaceDocId).toBeDefined();
+  expect(first.userId).toBeDefined();
+
+  const again = await t.mutation(api.database.bootstrapAnonymousSession, {
+    sessionId: first.sessionId,
   });
 
-  await t.mutation(api.database.upsertAccessPolicy, {
-    workspaceId: "ws_tools",
-    toolPathPattern: "admin.*",
-    decision: "deny",
-    priority: 100,
-  });
-
-  await t.mutation(api.database.upsertAccessPolicy, {
-    workspaceId: "ws_tools",
-    actorId: "actor_allow",
-    toolPathPattern: "admin.delete_data",
-    decision: "require_approval",
-    priority: 200,
-  });
-
-  const actorAllowTools = await t.query(api.database.listWorkspaceToolsForContext, {
-    workspaceId: "ws_tools",
-    actorId: "actor_allow",
-    clientId: "web",
-  });
-
-  const actorDenyTools = await t.query(api.database.listWorkspaceToolsForContext, {
-    workspaceId: "ws_tools",
-    actorId: "actor_other",
-    clientId: "web",
-  });
-
-  const actorAllow = actorAllowTools.filter((tool): tool is NonNullable<typeof tool> => tool !== null);
-  const actorDeny = actorDenyTools.filter((tool): tool is NonNullable<typeof tool> => tool !== null);
-
-  expect(actorAllow.map((tool) => tool.path)).toEqual(["admin.delete_data", "utils.get_time"]);
-  expect(actorAllow.find((tool) => tool.path === "admin.delete_data")?.approval).toBe("required");
-
-  expect(actorDeny.map((tool) => tool.path)).toEqual(["utils.get_time"]);
+  expect(again.sessionId).toBe(first.sessionId);
+  expect(again.accountId).toBe(first.accountId);
+  expect(again.workspaceDocId).toBe(first.workspaceDocId);
+  expect(again.userId).toBe(first.userId);
 });
+

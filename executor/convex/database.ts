@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -105,12 +105,116 @@ function mapSource(doc: Doc<"toolSources">) {
   };
 }
 
+async function ensureAnonymousIdentity(
+  ctx: MutationCtx,
+  params: { sessionId: string; workspaceId: string; actorId: string; timestamp: number },
+) {
+  const now = params.timestamp;
+
+  let account = await ctx.db
+    .query("accounts")
+    .withIndex("by_provider", (q) => q.eq("provider", "anonymous").eq("providerAccountId", params.actorId))
+    .unique();
+
+  if (!account) {
+    const accountId = await ctx.db.insert("accounts", {
+      provider: "anonymous",
+      providerAccountId: params.actorId,
+      email: `${params.actorId}@guest.executor.local`,
+      name: "Guest User",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+      lastLoginAt: now,
+    });
+    account = await ctx.db.get(accountId);
+    if (!account) {
+      throw new Error("Failed to create anonymous account");
+    }
+  } else {
+    await ctx.db.patch(account._id, { updatedAt: now, lastLoginAt: now });
+  }
+
+  let workspace = await ctx.db
+    .query("workspaces")
+    .withIndex("by_legacy_workspace_id", (q) => q.eq("legacyWorkspaceId", params.workspaceId))
+    .unique();
+
+  if (!workspace) {
+    const workspaceId = await ctx.db.insert("workspaces", {
+      legacyWorkspaceId: params.workspaceId,
+      slug: `guest-${params.workspaceId.slice(-8)}`,
+      name: "Guest Workspace",
+      kind: "personal",
+      plan: "free",
+      createdByAccountId: account._id,
+      createdAt: now,
+      updatedAt: now,
+    });
+    workspace = await ctx.db.get(workspaceId);
+    if (!workspace) {
+      throw new Error("Failed to create anonymous workspace");
+    }
+  }
+
+  let user = await ctx.db
+    .query("users")
+    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
+    .unique();
+
+  if (!user) {
+    const userId = await ctx.db.insert("users", {
+      workspaceId: workspace._id,
+      accountId: account._id,
+      role: "owner",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    user = await ctx.db.get(userId);
+    if (!user) {
+      throw new Error("Failed to create anonymous user membership");
+    }
+  } else {
+    await ctx.db.patch(user._id, { updatedAt: now });
+  }
+
+  const existingSession = await ctx.db
+    .query("accountSessions")
+    .withIndex("by_session_id", (q) => q.eq("sessionId", params.sessionId))
+    .unique();
+
+  if (existingSession) {
+    await ctx.db.patch(existingSession._id, {
+      accountId: account._id,
+      lastSeenAt: now,
+      revokedAt: undefined,
+    });
+  } else {
+    await ctx.db.insert("accountSessions", {
+      accountId: account._id,
+      sessionId: params.sessionId,
+      createdAt: now,
+      lastSeenAt: now,
+    });
+  }
+
+  return {
+    accountId: account._id,
+    workspaceDocId: workspace._id,
+    userId: user._id,
+  };
+}
+
 function mapAnonymousContext(doc: Doc<"anonymousSessions">) {
   return {
     sessionId: doc.sessionId,
     workspaceId: doc.workspaceId,
     actorId: doc.actorId,
     clientId: doc.clientId,
+    accountId: doc.accountId,
+    workspaceDocId: doc.workspaceDocId,
+    userId: doc.userId,
     createdAt: doc.createdAt,
     lastSeenAt: doc.lastSeenAt,
   };
@@ -125,39 +229,6 @@ function mapTaskEvent(doc: Doc<"taskEvents">) {
     payload: doc.payload,
     createdAt: doc.createdAt,
   };
-}
-
-function mapWorkspaceTool(doc: Doc<"workspaceTools">) {
-  return {
-    path: doc.path,
-    description: doc.description,
-    approval: doc.approval,
-    source: doc.source,
-    argsType: doc.argsType,
-    returnsType: doc.returnsType,
-  };
-}
-
-// NOTE: Duplicated in apps/server/src/service.ts — these must be kept in sync.
-// They can't share code because Convex functions run in a separate environment.
-function matchesToolPath(pattern: string, toolPath: string): boolean {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-  const regex = new RegExp(`^${escaped}$`);
-  return regex.test(toolPath);
-}
-
-// NOTE: Duplicated in apps/server/src/service.ts — these must be kept in sync.
-function policySpecificity(
-  policy: Pick<Doc<"accessPolicies">, "actorId" | "clientId" | "toolPathPattern" | "priority">,
-  actorId?: string,
-  clientId?: string,
-): number {
-  let score = 0;
-  if (policy.actorId && actorId && policy.actorId === actorId) score += 4;
-  if (policy.clientId && clientId && policy.clientId === clientId) score += 2;
-  score += Math.max(1, String(policy.toolPathPattern ?? "").replace(/\*/g, "").length);
-  score += Number(policy.priority ?? 0);
-  return score;
 }
 
 async function getTaskDoc(ctx: { db: QueryCtx["db"] }, taskId: string) {
@@ -561,16 +632,6 @@ export const updateAgentTask = mutation({
   },
 });
 
-// Default tools seeded into every new workspace so the editor has
-// IntelliSense immediately (before the worker syncs external sources).
-const DEFAULT_WORKSPACE_TOOLS = [
-  { path: "utils.get_time", description: "Return current server time.", approval: "auto", source: "local" },
-  { path: "math.add", description: "Add two numbers.", approval: "auto", source: "local" },
-  { path: "admin.send_announcement", description: "Mock announcement sender that requires approval.", approval: "required", source: "local" },
-  { path: "admin.delete_data", description: "Mock destructive operation that requires approval.", approval: "required", source: "local" },
-  { path: "discover", description: "List all available tools and their descriptions.", approval: "auto", source: "local" },
-];
-
 export const bootstrapAnonymousSession = mutation({
   args: { sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -583,26 +644,19 @@ export const bootstrapAnonymousSession = mutation({
         .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
         .unique();
       if (existing) {
-        await ctx.db.patch(existing._id, { lastSeenAt: now });
+        const identity = await ensureAnonymousIdentity(ctx, {
+          sessionId,
+          workspaceId: existing.workspaceId,
+          actorId: existing.actorId,
+          timestamp: now,
+        });
 
-        // Ensure the workspace has at least the default tools seeded.
-        // This handles existing sessions created before seeding was added.
-        const existingTools = await ctx.db
-          .query("workspaceTools")
-          .withIndex("by_workspace_path", (q: any) => q.eq("workspaceId", existing.workspaceId))
-          .first();
-        if (!existingTools) {
-          for (const tool of DEFAULT_WORKSPACE_TOOLS) {
-            await ctx.db.insert("workspaceTools", {
-              workspaceId: existing.workspaceId,
-              path: tool.path,
-              description: tool.description,
-              approval: tool.approval,
-              source: tool.source,
-              updatedAt: now,
-            });
-          }
-        }
+        await ctx.db.patch(existing._id, {
+          accountId: identity.accountId,
+          workspaceDocId: identity.workspaceDocId,
+          userId: identity.userId,
+          lastSeenAt: now,
+        });
 
         const refreshed = await ctx.db
           .query("anonymousSessions")
@@ -620,28 +674,24 @@ export const bootstrapAnonymousSession = mutation({
     const actorId = `anon_${crypto.randomUUID()}`;
     const clientId = "web";
 
+    const identity = await ensureAnonymousIdentity(ctx, {
+      sessionId,
+      workspaceId,
+      actorId,
+      timestamp: now,
+    });
+
     await ctx.db.insert("anonymousSessions", {
       sessionId,
       workspaceId,
       actorId,
       clientId,
+      accountId: identity.accountId,
+      workspaceDocId: identity.workspaceDocId,
+      userId: identity.userId,
       createdAt: now,
       lastSeenAt: now,
     });
-
-    // Seed the workspace with default tools so the editor has IntelliSense
-    // immediately. The worker will overwrite these when it syncs external
-    // tool sources (if any are added later).
-    for (const tool of DEFAULT_WORKSPACE_TOOLS) {
-      await ctx.db.insert("workspaceTools", {
-        workspaceId,
-        path: tool.path,
-        description: tool.description,
-        approval: tool.approval,
-        source: tool.source,
-        updatedAt: now,
-      });
-    }
 
     const created = await ctx.db
       .query("anonymousSessions")
@@ -911,118 +961,6 @@ export const listToolSources = query({
       .order("desc")
       .collect();
     return docs.map(mapSource);
-  },
-});
-
-export const listToolSourceWorkspaceUpdates = query({
-  args: {},
-  handler: async (ctx) => {
-    const docs = await ctx.db.query("toolSources").collect();
-    const byWorkspace = new Map<string, number>();
-
-    for (const doc of docs) {
-      const existing = byWorkspace.get(doc.workspaceId) ?? 0;
-      if (doc.updatedAt > existing) {
-        byWorkspace.set(doc.workspaceId, doc.updatedAt);
-      }
-    }
-
-    return [...byWorkspace.entries()]
-      .map(([workspaceId, updatedAt]) => ({ workspaceId, updatedAt }))
-      .sort((a, b) => a.workspaceId.localeCompare(b.workspaceId));
-  },
-});
-
-export const syncWorkspaceTools = mutation({
-  args: {
-    workspaceId: v.string(),
-    tools: v.array(
-      v.object({
-        path: v.string(),
-        description: v.string(),
-        approval: v.string(),
-        source: v.optional(v.string()),
-        argsType: v.optional(v.string()),
-        returnsType: v.optional(v.string()),
-      }),
-    ),
-  },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("workspaceTools")
-      .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-
-    for (const doc of existing) {
-      await ctx.db.delete(doc._id);
-    }
-
-    const now = Date.now();
-    for (const tool of args.tools) {
-      await ctx.db.insert("workspaceTools", {
-        workspaceId: args.workspaceId,
-        path: tool.path,
-        description: tool.description,
-        approval: tool.approval,
-        source: tool.source,
-        argsType: tool.argsType,
-        returnsType: tool.returnsType,
-        updatedAt: now,
-      });
-    }
-
-    return true;
-  },
-});
-
-export const listWorkspaceToolsForContext = query({
-  args: {
-    workspaceId: v.string(),
-    actorId: v.optional(v.string()),
-    clientId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const [tools, policies] = await Promise.all([
-      ctx.db
-        .query("workspaceTools")
-        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId))
-        .collect(),
-      ctx.db
-        .query("accessPolicies")
-        .withIndex("by_workspace_created", (q) => q.eq("workspaceId", args.workspaceId))
-        .collect(),
-    ]);
-
-    return tools
-      .map((toolDoc) => {
-        const baseDecision = toolDoc.approval === "required" ? "require_approval" : "allow";
-        const candidates = policies
-          .filter((policy) => {
-            const policyActorId = optionalFromNormalized(policy.actorId);
-            const policyClientId = optionalFromNormalized(policy.clientId);
-            if (policyActorId && policyActorId !== args.actorId) return false;
-            if (policyClientId && policyClientId !== args.clientId) return false;
-            return matchesToolPath(policy.toolPathPattern, toolDoc.path);
-          })
-          .sort((a, b) => {
-            const bScore = policySpecificity(b, args.actorId, args.clientId);
-            const aScore = policySpecificity(a, args.actorId, args.clientId);
-            return bScore - aScore;
-          });
-
-        const decision = candidates[0]?.decision ?? baseDecision;
-        if (decision === "deny") {
-          return null;
-        }
-
-        const tool = mapWorkspaceTool(toolDoc);
-        return {
-          ...tool,
-          approval: decision === "require_approval" ? "required" : "auto",
-        };
-      })
-      .filter((tool): tool is NonNullable<typeof tool> => tool !== null)
-      .sort((a, b) => a.path.localeCompare(b.path));
   },
 });
 

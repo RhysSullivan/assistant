@@ -115,6 +115,9 @@ export interface AnonymousContext {
   workspaceId: string;
   actorId: string;
   clientId: string;
+  accountId?: string;
+  workspaceDocId?: string;
+  userId?: string;
   createdAt: number;
   lastSeenAt: number;
 }
