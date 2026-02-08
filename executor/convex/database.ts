@@ -20,7 +20,78 @@ function optionalFromNormalized(value?: string): string | undefined {
   return value;
 }
 
-// NOTE: Canonical version lives in apps/server/src/utils.ts.
+function slugify(input: string): string {
+  const slug = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : "workspace";
+}
+
+async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
+  const baseSlug = slugify(baseName);
+  const existing = await ctx.db
+    .query("organizations")
+    .withIndex("by_slug", (q) => q.eq("slug", baseSlug))
+    .unique();
+  if (!existing) {
+    return baseSlug;
+  }
+
+  for (let i = 0; i < 20; i += 1) {
+    const candidate = `${baseSlug}-${crypto.randomUUID().slice(0, 6)}`;
+    const collision = await ctx.db
+      .query("organizations")
+      .withIndex("by_slug", (q) => q.eq("slug", candidate))
+      .unique();
+    if (!collision) {
+      return candidate;
+    }
+  }
+
+  return `${baseSlug}-${Date.now()}`;
+}
+
+async function upsertOrganizationMembership(
+  ctx: Pick<MutationCtx, "db">,
+  args: {
+    organizationId: Doc<"organizations">["_id"];
+    accountId: Doc<"accounts">["_id"];
+    role: string;
+    status: string;
+    billable: boolean;
+    now: number;
+  },
+) {
+  const existing = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
+    .unique();
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      role: args.role,
+      status: args.status,
+      billable: args.billable,
+      joinedAt: args.status === "active" ? (existing.joinedAt ?? args.now) : existing.joinedAt,
+      updatedAt: args.now,
+    });
+    return;
+  }
+
+  await ctx.db.insert("organizationMembers", {
+    organizationId: args.organizationId,
+    accountId: args.accountId,
+    role: args.role,
+    status: args.status,
+    billable: args.billable,
+    joinedAt: args.status === "active" ? args.now : undefined,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+}
+
+// NOTE: Canonical version lives in convex/lib/utils.ts.
 // Convex can't import from the server, so this is a local copy.
 function asRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -140,12 +211,29 @@ async function ensureAnonymousIdentity(
     .withIndex("by_legacy_workspace_id", (q) => q.eq("legacyWorkspaceId", params.workspaceId))
     .unique();
 
+  let organizationId = workspace?.organizationId;
+
+  if (!organizationId) {
+    const organizationName = workspace?.name ?? "Guest Workspace";
+    const organizationSlug = await ensureUniqueOrganizationSlug(ctx, organizationName);
+    organizationId = await ctx.db.insert("organizations", {
+      slug: organizationSlug,
+      name: organizationName,
+      status: "active",
+      createdByAccountId: account._id,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
   if (!workspace) {
     const workspaceId = await ctx.db.insert("workspaces", {
+      organizationId,
       legacyWorkspaceId: params.workspaceId,
       slug: `guest-${params.workspaceId.slice(-8)}`,
       name: "Guest Workspace",
       kind: "personal",
+      visibility: "private",
       plan: "free",
       createdByAccountId: account._id,
       createdAt: now,
@@ -155,7 +243,29 @@ async function ensureAnonymousIdentity(
     if (!workspace) {
       throw new Error("Failed to create anonymous workspace");
     }
+  } else if (!workspace.organizationId) {
+    await ctx.db.patch(workspace._id, {
+      organizationId,
+      updatedAt: now,
+    });
+    workspace = await ctx.db.get(workspace._id);
+    if (!workspace) {
+      throw new Error("Failed to update anonymous workspace organization");
+    }
   }
+
+  if (!organizationId) {
+    throw new Error("Failed to resolve workspace organization");
+  }
+
+  await upsertOrganizationMembership(ctx, {
+    organizationId,
+    accountId: account._id,
+    role: "owner",
+    status: "active",
+    billable: true,
+    now,
+  });
 
   let user = await ctx.db
     .query("users")
@@ -634,9 +744,10 @@ export const bootstrapAnonymousSession = mutation({
   args: { sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const requestedSessionId = normalizeOptional(args.sessionId);
 
-    if (args.sessionId) {
-      const sessionId = args.sessionId;
+    if (requestedSessionId) {
+      const sessionId = requestedSessionId;
       const existing = await ctx.db
         .query("anonymousSessions")
         .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
@@ -667,7 +778,7 @@ export const bootstrapAnonymousSession = mutation({
       }
     }
 
-    const sessionId = `anon_session_${crypto.randomUUID()}`;
+    const sessionId = requestedSessionId || `anon_session_${crypto.randomUUID()}`;
     const workspaceId = `ws_${crypto.randomUUID()}`;
     const actorId = `anon_${crypto.randomUUID()}`;
     const clientId = "web";

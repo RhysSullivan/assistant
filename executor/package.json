@@ -7,12 +7,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run --cwd apps/server dev",
-    "dev:worker": "bun run --cwd apps/server worker",
+    "dev": "bun run dev:convex",
     "dev:convex": "bunx convex dev",
     "dev:web": "bun run --cwd apps/web dev",
-    "dev:all": "bun run dev:convex & bun run dev & bun run dev:worker & bun run dev:web",
-    "start": "bun run --cwd apps/server start",
+    "dev:all": "bun run dev:convex & bun run dev:web",
+    "start": "bun run dev:convex",
     "convex:codegen": "bunx convex codegen",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"

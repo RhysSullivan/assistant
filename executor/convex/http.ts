@@ -3,8 +3,8 @@ import { httpRouter } from "convex/server";
 import { api, components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
-import { handleMcpRequest, type McpWorkspaceContext } from "../apps/server/src/mcp-server";
-import type { AnonymousContext, TaskRecord, ToolDescriptor } from "../apps/server/src/types";
+import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp-server";
+import type { AnonymousContext, TaskRecord, ToolDescriptor } from "./lib/types";
 
 const http = httpRouter();
 const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? "executor_internal_local_dev_token";

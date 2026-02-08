@@ -3,16 +3,16 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { action, internalAction } from "./_generated/server";
-import { InProcessExecutionAdapter } from "../apps/server/src/adapters/in-process-execution-adapter";
-import { APPROVAL_DENIED_PREFIX } from "../apps/server/src/execution-constants";
-import { runCodeWithAdapter } from "../apps/server/src/runtimes/runtime-core";
-import { createDiscoverTool } from "../apps/server/src/tool-discovery";
+import { InProcessExecutionAdapter } from "./lib/adapters/in-process-execution-adapter";
+import { APPROVAL_DENIED_PREFIX } from "./lib/execution-constants";
+import { runCodeWithAdapter } from "./lib/runtimes/runtime-core";
+import { createDiscoverTool } from "./lib/tool-discovery";
 import {
   loadExternalTools,
   parseGraphqlOperationPaths,
   type ExternalToolSourceConfig,
-} from "../apps/server/src/tool-sources";
-import { DEFAULT_TOOLS } from "../apps/server/src/tools";
+} from "./lib/tool-sources";
+import { DEFAULT_TOOLS } from "./lib/tools";
 import type {
   AccessPolicyRecord,
   CredentialScope,
@@ -26,8 +26,8 @@ import type {
   ToolDescriptor,
   ToolSourceRecord,
   ToolRunContext,
-} from "../apps/server/src/types";
-import { asPayload, describeError } from "../apps/server/src/utils";
+} from "./lib/types";
+import { asPayload, describeError } from "./lib/utils";
 
 function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;

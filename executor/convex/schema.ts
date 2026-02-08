@@ -40,6 +40,7 @@ export default defineSchema({
     .index("by_slug", ["slug"]),
 
   organizations: defineTable({
+    workosOrgId: v.optional(v.string()),
     slug: v.string(),
     name: v.string(),
     status: v.string(),
@@ -47,6 +48,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_workos_org_id", ["workosOrgId"])
     .index("by_slug", ["slug"])
     .index("by_status_created", ["status", "createdAt"]),
 

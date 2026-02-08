@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation, mutation } from "./_generated/server";
-import type { ApprovalRecord, TaskRecord } from "../apps/server/src/types";
+import type { ApprovalRecord, TaskRecord } from "./lib/types";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -76,7 +76,7 @@ export const createTask = mutation({
       },
     });
 
-    await ctx.scheduler.runAfter(0, internal.executorNode.runTask, {
+    await ctx.scheduler.runAfter(1, internal.executorNode.runTask, {
       taskId,
     });
 

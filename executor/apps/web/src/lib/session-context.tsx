@@ -4,12 +4,12 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery as useConvexQuery } from "convex/react";
+import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { workosEnabled } from "@/lib/auth-capabilities";
 import { convexApi } from "@/lib/convex-api";
 import type { AnonymousContext } from "./types";
@@ -36,8 +36,6 @@ interface SessionState {
     status: string;
     role: string;
   }>;
-  selectedOrganizationId: string | null;
-  switchOrganization: (organizationId: string | null) => void;
   workspaces: Array<{
     id: string;
     docId: Id<"workspaces"> | null;
@@ -65,8 +63,6 @@ const SessionContext = createContext<SessionState>({
   clientConfig: null,
   mode: "guest",
   organizations: [],
-  selectedOrganizationId: null,
-  switchOrganization: () => {},
   workspaces: [],
   switchWorkspace: () => {},
   creatingWorkspace: false,
@@ -78,7 +74,6 @@ const SessionContext = createContext<SessionState>({
 
 const SESSION_KEY = "executor_session_id";
 const ACTIVE_WORKSPACE_KEY = "executor_active_workspace_id";
-const ACTIVE_ORGANIZATION_KEY = "executor_active_organization_id";
 const ACTIVE_WORKSPACE_BY_ACCOUNT_KEY = "executor_active_workspace_by_account";
 
 function readWorkspaceByAccount() {
@@ -98,202 +93,97 @@ function writeWorkspaceByAccount(value: Record<string, string>) {
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const bootstrapAnonymousSession = useMutation(convexApi.database.bootstrapAnonymousSession);
-  const [guestContext, setGuestContext] = useState<AnonymousContext | null>(null);
-  const [storedSessionId, setStoredSessionId] = useState<string | null>(null);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [storedSessionId, setStoredSessionId] = useState<string | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    return localStorage.getItem(SESSION_KEY);
+  });
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    return localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+  });
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
-  const clientConfig = useQuery(convexApi.app.getClientConfig, {});
+  const clientConfig = useConvexQuery(convexApi.app.getClientConfig, {});
 
   const authApi = convexApi.auth;
   const bootstrapCurrentWorkosAccount = useMutation(authApi.bootstrapCurrentWorkosAccount);
   const createWorkspaceMutation = useMutation(authApi.createWorkspace);
   const generateWorkspaceIconUploadUrl = useMutation(authApi.generateWorkspaceIconUploadUrl);
-  const [bootstrappingWorkos, setBootstrappingWorkos] = useState(false);
-  const [workosBootstrapAttempted, setWorkosBootstrapAttempted] = useState(false);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
 
-  const account = useQuery(
+  const bootstrapSessionQuery = useTanstackQuery({
+    queryKey: ["session-bootstrap", storedSessionId ?? "new"],
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: async () => {
+      const context = await bootstrapAnonymousSession({ sessionId: storedSessionId ?? undefined });
+      localStorage.setItem(SESSION_KEY, context.sessionId);
+      if (context.sessionId !== storedSessionId) {
+        setStoredSessionId(context.sessionId);
+      }
+      return context;
+    },
+  });
+
+  const guestContext: AnonymousContext | null = bootstrapSessionQuery.data ?? null;
+
+  const account = useConvexQuery(
     authApi.getCurrentAccount,
     workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
   );
-  const workspaces = useQuery(
+  const workspaces = useConvexQuery(
     authApi.getMyWorkspaces,
     workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
   );
-  const organizations = useQuery(
+  const organizations = useConvexQuery(
     convexApi.organizations.listMine,
     workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
   );
 
-  const bootstrap = useCallback(async (sessionId?: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const context = await bootstrapAnonymousSession({ sessionId });
-      localStorage.setItem(SESSION_KEY, context.sessionId);
-      setStoredSessionId(context.sessionId);
-      setGuestContext(context);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to bootstrap session");
-    } finally {
-      setLoading(false);
-    }
-  }, [bootstrapAnonymousSession]);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(SESSION_KEY);
-    const activeWorkspace = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
-    const activeOrganization = localStorage.getItem(ACTIVE_ORGANIZATION_KEY);
-    if (activeWorkspace) {
-      setActiveWorkspaceId(activeWorkspace);
-    }
-    if (activeOrganization) {
-      setSelectedOrganizationId(activeOrganization);
-    }
-    void bootstrap(stored ?? undefined);
-  }, [bootstrap]);
-
-  useEffect(() => {
+  const resolvedActiveWorkspaceId = useMemo(() => {
     if (!workspaces || workspaces.length === 0) {
-      return;
+      return activeWorkspaceId;
+    }
+
+    if (activeWorkspaceId && workspaces.some((workspace) => workspace.runtimeWorkspaceId === activeWorkspaceId)) {
+      return activeWorkspaceId;
     }
 
     const accountId = account?.provider === "workos" ? String(account._id) : null;
-    const byAccount = accountId ? readWorkspaceByAccount() : null;
-    const accountStoredWorkspace = accountId ? byAccount?.[accountId] : null;
-    const currentCandidate = activeWorkspaceId ?? accountStoredWorkspace;
-
-    if (currentCandidate && workspaces.some((workspace) => workspace.runtimeWorkspaceId === currentCandidate)) {
-      if (activeWorkspaceId !== currentCandidate) {
-        setActiveWorkspaceId(currentCandidate);
-      }
-      return;
+    const accountStoredWorkspace = accountId ? readWorkspaceByAccount()[accountId] : null;
+    if (accountStoredWorkspace && workspaces.some((workspace) => workspace.runtimeWorkspaceId === accountStoredWorkspace)) {
+      return accountStoredWorkspace;
     }
 
     const organizationWorkspace = workspaces.find(
       (workspace) => workspace.kind === "organization" || workspace.kind === "org",
     );
-    const nextWorkspace = organizationWorkspace?.runtimeWorkspaceId ?? workspaces[0]?.runtimeWorkspaceId;
-    if (!nextWorkspace) {
-      return;
-    }
-
-    setActiveWorkspaceId(nextWorkspace);
-    if (accountId) {
-      writeWorkspaceByAccount({
-        ...(byAccount ?? {}),
-        [accountId]: nextWorkspace,
-      });
-    }
-    localStorage.setItem(ACTIVE_WORKSPACE_KEY, nextWorkspace);
+    return organizationWorkspace?.runtimeWorkspaceId ?? workspaces[0]?.runtimeWorkspaceId ?? null;
   }, [workspaces, activeWorkspaceId, account]);
 
-  useEffect(() => {
-    if (!organizations || organizations.length === 0) {
-      if (selectedOrganizationId !== null) {
-        setSelectedOrganizationId(null);
-        localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
-      }
-      return;
-    }
-
-    if (selectedOrganizationId && organizations.some((organization) => organization.id === selectedOrganizationId)) {
-      return;
-    }
-
-    const nextOrganizationId = organizations[0]?.id ?? null;
-    setSelectedOrganizationId(nextOrganizationId);
-    if (nextOrganizationId) {
-      localStorage.setItem(ACTIVE_ORGANIZATION_KEY, nextOrganizationId);
-    }
-  }, [organizations, selectedOrganizationId]);
-
-  useEffect(() => {
-    if (!workspaces || workspaces.length === 0 || !activeWorkspaceId) {
-      return;
-    }
-
-    const activeWorkspace = workspaces.find((workspace) => workspace.runtimeWorkspaceId === activeWorkspaceId);
-    if (!activeWorkspace) {
-      return;
-    }
-
-    const workspaceOrganizationId = activeWorkspace.organizationId ? String(activeWorkspace.organizationId) : null;
-    if (workspaceOrganizationId === selectedOrganizationId) {
-      return;
-    }
-
-    setSelectedOrganizationId(workspaceOrganizationId);
-    if (workspaceOrganizationId) {
-      localStorage.setItem(ACTIVE_ORGANIZATION_KEY, workspaceOrganizationId);
-    } else {
-      localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
-    }
-  }, [workspaces, activeWorkspaceId, selectedOrganizationId]);
-
-  useEffect(() => {
-    if (
-      !workosEnabled
-      || account === undefined
-      || bootstrappingWorkos
-      || workosBootstrapAttempted
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        setWorkosBootstrapAttempted(true);
-        setBootstrappingWorkos(true);
-        await bootstrapCurrentWorkosAccount({});
-      } catch (cause) {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Failed to bootstrap WorkOS account");
-        }
-      } finally {
-        if (!cancelled) {
-          setBootstrappingWorkos(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [account, bootstrapCurrentWorkosAccount, bootstrappingWorkos, workosBootstrapAttempted]);
-
-  useEffect(() => {
-    if (account === undefined) {
-      setWorkosBootstrapAttempted(false);
-    }
-  }, [account]);
+  const bootstrapWorkosAccountQuery = useTanstackQuery({
+    queryKey: ["workos-account-bootstrap", storedSessionId ?? "none"],
+    enabled: workosEnabled && account !== undefined,
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: async () => bootstrapCurrentWorkosAccount({}),
+  });
 
   const resetWorkspace = useCallback(async () => {
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
-    localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
     setStoredSessionId(null);
     setActiveWorkspaceId(null);
-    setSelectedOrganizationId(null);
-    await bootstrap();
-  }, [bootstrap]);
+    setRuntimeError(null);
+  }, []);
 
   const switchWorkspace = useCallback((workspaceId: string) => {
     setActiveWorkspaceId(workspaceId);
     localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
-
-    const selectedWorkspace = workspaces?.find((workspace) => workspace.runtimeWorkspaceId === workspaceId) ?? null;
-    const nextOrganizationId = selectedWorkspace?.organizationId ? String(selectedWorkspace.organizationId) : null;
-    setSelectedOrganizationId(nextOrganizationId);
-    if (nextOrganizationId) {
-      localStorage.setItem(ACTIVE_ORGANIZATION_KEY, nextOrganizationId);
-    } else {
-      localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
-    }
 
     if (account?.provider === "workos") {
       const accountId = String(account._id);
@@ -303,36 +193,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         [accountId]: workspaceId,
       });
     }
-  }, [account, workspaces]);
-
-  const switchOrganization = useCallback((organizationId: string | null) => {
-    setSelectedOrganizationId(organizationId);
-    if (organizationId) {
-      localStorage.setItem(ACTIVE_ORGANIZATION_KEY, organizationId);
-    } else {
-      localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
-    }
-
-    if (!workspaces || workspaces.length === 0) {
-      return;
-    }
-
-    const firstWorkspaceForOrg = workspaces.find((workspace) => {
-      const workspaceOrgId = workspace.organizationId ? String(workspace.organizationId) : null;
-      if (organizationId === null) {
-        return workspaceOrgId === null;
-      }
-      return workspaceOrgId === organizationId;
-    });
-
-    if (firstWorkspaceForOrg?.runtimeWorkspaceId) {
-      switchWorkspace(firstWorkspaceForOrg.runtimeWorkspaceId);
-    }
-  }, [switchWorkspace, workspaces]);
+  }, [account]);
 
   const createWorkspace = useCallback(async (name: string, iconFile?: File | null) => {
     setCreatingWorkspace(true);
-    setError(null);
+    setRuntimeError(null);
     try {
       let iconStorageId: Id<"_storage"> | undefined;
 
@@ -371,7 +236,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Failed to create workspace";
-      setError(message);
+      setRuntimeError(message);
       throw cause;
     } finally {
       setCreatingWorkspace(false);
@@ -389,7 +254,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     const activeWorkspace =
-      workspaces.find((workspace) => workspace.runtimeWorkspaceId === activeWorkspaceId)
+      workspaces.find((workspace) => workspace.runtimeWorkspaceId === resolvedActiveWorkspaceId)
       ?? workspaces[0]
       ?? null;
     if (!activeWorkspace) {
@@ -407,20 +272,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       createdAt: Date.now(),
       lastSeenAt: Date.now(),
     };
-  }, [account, activeWorkspaceId, workspaces]);
+  }, [account, resolvedActiveWorkspaceId, workspaces]);
 
   const mode: "guest" | "workos" = workosContext ? "workos" : "guest";
   const context = workosContext ?? guestContext;
+
+  const bootstrapSessionError =
+    bootstrapSessionQuery.error instanceof Error
+      ? bootstrapSessionQuery.error.message
+      : bootstrapSessionQuery.error
+        ? "Failed to bootstrap session"
+        : null;
+  const bootstrapWorkosError =
+    bootstrapWorkosAccountQuery.error instanceof Error
+      ? bootstrapWorkosAccountQuery.error.message
+      : bootstrapWorkosAccountQuery.error
+        ? "Failed to bootstrap WorkOS account"
+        : null;
+  const error = runtimeError ?? bootstrapSessionError ?? bootstrapWorkosError;
+
   const waitingForWorkosAccount = Boolean(
     workosEnabled
     && account === undefined
     && !guestContext
-    && !bootstrappingWorkos,
+    && !bootstrapWorkosAccountQuery.isFetching,
   );
   const effectiveLoading = !context && !error && (
-    loading
+    bootstrapSessionQuery.isLoading
     || waitingForWorkosAccount
-    || bootstrappingWorkos
+    || bootstrapWorkosAccountQuery.isFetching
   );
   const workspaceOptions = useMemo(() => {
     if (mode === "workos" && workspaces) {
@@ -463,8 +343,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         clientConfig: clientConfig ?? null,
         mode,
         organizations: organizations ?? [],
-        selectedOrganizationId,
-        switchOrganization,
         workspaces: workspaceOptions,
         switchWorkspace,
         creatingWorkspace,
