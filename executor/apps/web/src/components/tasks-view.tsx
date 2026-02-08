@@ -26,7 +26,7 @@ import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type {
   TaskRecord,
@@ -65,7 +65,6 @@ function TaskComposer() {
   const [runtimeId, setRuntimeId] = useState("local-bun");
   const [timeoutMs, setTimeoutMs] = useState("15000");
   const [submitting, setSubmitting] = useState(false);
-  const createTask = useMutation(convexApi.database.createTask);
 
   const runtimes = useQuery(convexApi.database.listRuntimeTargets, {});
   const { tools } = useWorkspaceTools(context ?? null);
@@ -74,16 +73,23 @@ function TaskComposer() {
     if (!context || !code.trim()) return;
     setSubmitting(true);
     try {
-      const task = await createTask({
-        id: `task_${crypto.randomUUID()}`,
-        code,
-        runtimeId,
-        timeoutMs: parseInt(timeoutMs) || 15000,
-        workspaceId: context.workspaceId,
-        actorId: context.actorId,
-        clientId: context.clientId,
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code,
+          runtimeId,
+          timeoutMs: parseInt(timeoutMs) || 15000,
+          workspaceId: context.workspaceId,
+          actorId: context.actorId,
+          clientId: context.clientId,
+        }),
       });
-      toast.success(`Task created: ${task.id}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to create task");
+      }
+      toast.success(`Task created: ${data.taskId}`);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to create task",
