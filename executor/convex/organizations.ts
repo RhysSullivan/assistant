@@ -1,13 +1,12 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation } from "./_generated/server";
-import { optionalAccountQuery } from "./lib/functionBuilders";
-import { getOrganizationMembership, requireAccountForRequest, slugify } from "./lib/identity";
+import { optionalAccountQuery, authedMutation } from "./lib/functionBuilders";
+import { getOrganizationMembership, slugify } from "./lib/identity";
 
 type WorkspaceSummary = {
-  id: string;
-  organizationId: string | null;
+  id: Id<"workspaces">;
+  organizationId: Id<"organizations"> | null;
   name: string;
   slug: string;
   kind: string;
@@ -45,23 +44,22 @@ async function mapWorkspaceWithIcon(
 ): Promise<WorkspaceSummary> {
   const iconUrl = workspace.iconStorageId ? await ctx.storage.getUrl(workspace.iconStorageId) : null;
   return {
-    id: String(workspace._id),
-    organizationId: workspace.organizationId ? String(workspace.organizationId) : null,
+    id: workspace._id,
+    organizationId: workspace.organizationId ?? null,
     name: workspace.name,
     slug: workspace.slug,
     kind: workspace.kind,
     iconUrl,
-    runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${String(workspace._id)}`,
+    runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
   };
 }
 
-export const create = mutation({
+export const create = authedMutation({
   args: {
     name: v.string(),
-    sessionId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
+    const account = ctx.account;
     const name = args.name.trim();
     if (name.length < 2) {
       throw new Error("Organization name must be at least 2 characters");
@@ -110,7 +108,7 @@ export const create = mutation({
 
     return {
       organization: {
-        id: String(organization._id),
+        id: organization._id,
         slug: organization.slug,
         name: organization.name,
         status: organization.status,
@@ -144,7 +142,7 @@ export const listMine = optionalAccountQuery({
           }
 
           return {
-            id: String(org._id),
+            id: org._id,
             name: org.name,
             slug: org.slug,
             status: org.status,
@@ -161,7 +159,7 @@ export const getNavigationState = optionalAccountQuery({
   args: {},
   handler: async (ctx) => {
     const account = ctx.account;
-    const organizations: Array<{ id: string; name: string; slug: string; status: string; role: string }> = [];
+    const organizations: Array<{ id: Id<"organizations">; name: string; slug: string; status: string; role: string }> = [];
     const workspaces: WorkspaceSummary[] = [];
 
     if (!account) {
@@ -201,7 +199,7 @@ export const getNavigationState = optionalAccountQuery({
       }
 
       organizations.push({
-        id: String(org._id),
+        id: org._id,
         name: org.name,
         slug: org.slug,
         status: org.status,
@@ -257,7 +255,7 @@ export const getOrganizationAccess = optionalAccountQuery({
     }
 
     return {
-      accountId: String(account._id),
+      accountId: account._id,
       role: membership.role,
       status: membership.status,
       billable: membership.billable,

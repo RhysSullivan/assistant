@@ -5,8 +5,8 @@ import { optionalAccountQuery, authedMutation } from "./lib/functionBuilders";
 import { getOrganizationMembership, slugify } from "./lib/identity";
 
 type WorkspaceResult = {
-  id: string;
-  organizationId: string | null;
+  id: Id<"workspaces">;
+  organizationId: Id<"organizations"> | null;
   name: string;
   slug: string;
   kind: string;
@@ -49,13 +49,13 @@ async function toWorkspaceResult(
 ): Promise<WorkspaceResult> {
   const iconUrl = workspace.iconStorageId ? await ctx.storage.getUrl(workspace.iconStorageId) : null;
   return {
-    id: String(workspace._id),
-    organizationId: workspace.organizationId ? String(workspace.organizationId) : null,
+    id: workspace._id,
+    organizationId: workspace.organizationId ?? null,
     name: workspace.name,
     slug: workspace.slug,
     kind: workspace.kind,
     iconUrl,
-    runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${String(workspace._id)}`,
+    runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
     createdAt: workspace.createdAt,
   };
 }

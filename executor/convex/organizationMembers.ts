@@ -15,7 +15,7 @@ export const list = organizationQuery({
       members.map(async (member) => {
         const profile = await ctx.db.get(member.accountId);
         return {
-          id: String(member._id),
+          id: member._id,
           organizationId: member.organizationId,
           accountId: member.accountId,
           email: profile?.email ?? null,

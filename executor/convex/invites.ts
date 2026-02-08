@@ -88,7 +88,7 @@ export const list = organizationQuery({
     return {
       items: invites.map((invite) => ({
         id: invite._id,
-        organizationId: String(invite.organizationId),
+        organizationId: invite.organizationId,
         email: invite.email,
         role: invite.role,
         status: invite.status,
@@ -167,8 +167,8 @@ export const create = organizationMutation({
 
     return {
       invite: {
-        id: String(invite._id),
-        organizationId: String(invite.organizationId),
+        id: invite._id,
+        organizationId: invite.organizationId,
         email: invite.email,
         role: invite.role,
         status: invite.status,
@@ -449,7 +449,7 @@ export const accept = authedMutation({
 
     return {
       ok: true,
-      organizationId: String(invite.organizationId),
+      organizationId: invite.organizationId,
     };
   },
 });
