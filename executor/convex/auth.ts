@@ -2,8 +2,12 @@ import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { ensureUniqueSlug } from "./lib/slug";
+
+type DbCtx = Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">;
+type RunQueryCtx = Pick<MutationCtx, "runQuery"> | Pick<QueryCtx, "runQuery">;
 
 const workosEnabled = Boolean(
   process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_WEBHOOK_SECRET,
@@ -41,40 +45,40 @@ function slugify(input: string): string {
   return slug.length > 0 ? slug : "workspace";
 }
 
-async function getAccountByWorkosId(ctx: { db: any }, workosUserId: string) {
+async function getAccountByWorkosId(ctx: DbCtx, workosUserId: string) {
   return await ctx.db
     .query("accounts")
-    .withIndex("by_provider", (q: any) => q.eq("provider", "workos").eq("providerAccountId", workosUserId))
+    .withIndex("by_provider", (q) => q.eq("provider", "workos").eq("providerAccountId", workosUserId))
     .unique();
 }
 
-async function getWorkspaceByWorkosOrgId(ctx: { db: any }, workosOrgId: string) {
+async function getWorkspaceByWorkosOrgId(ctx: DbCtx, workosOrgId: string) {
   return await ctx.db
     .query("workspaces")
-    .withIndex("by_workos_org_id", (q: any) => q.eq("workosOrgId", workosOrgId))
+    .withIndex("by_workos_org_id", (q) => q.eq("workosOrgId", workosOrgId))
     .unique();
 }
 
-async function getOrganizationByWorkosOrgId(ctx: { db: any }, workosOrgId: string) {
+async function getOrganizationByWorkosOrgId(ctx: DbCtx, workosOrgId: string) {
   return await ctx.db
     .query("organizations")
-    .withIndex("by_workos_org_id", (q: any) => q.eq("workosOrgId", workosOrgId))
+    .withIndex("by_workos_org_id", (q) => q.eq("workosOrgId", workosOrgId))
     .unique();
 }
 
-async function ensureUniqueOrganizationSlug(ctx: { db: any }, baseName: string): Promise<string> {
+async function ensureUniqueOrganizationSlug(ctx: DbCtx, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName);
   return await ensureUniqueSlug(baseSlug, async (candidate) => {
     const collision = await ctx.db
       .query("organizations")
-      .withIndex("by_slug", (q: any) => q.eq("slug", candidate))
+      .withIndex("by_slug", (q) => q.eq("slug", candidate))
       .unique();
     return collision !== null;
   });
 }
 
 async function upsertOrganizationMembership(
-  ctx: { db: any },
+  ctx: DbCtx,
   args: {
     organizationId: Id<"organizations">;
     accountId: Id<"accounts">;
@@ -87,7 +91,7 @@ async function upsertOrganizationMembership(
 ) {
   const existing = await ctx.db
     .query("organizationMembers")
-    .withIndex("by_org_account", (q: any) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
+    .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
     .unique();
 
   if (existing) {
@@ -116,7 +120,7 @@ async function upsertOrganizationMembership(
 }
 
 async function ensureOrganizationForWorkspace(
-  ctx: { db: any },
+  ctx: DbCtx,
   args: {
     workspace: Doc<"workspaces">;
     accountId?: Id<"accounts">;
@@ -159,7 +163,7 @@ async function ensureOrganizationForWorkspace(
 }
 
 async function markPendingInvitesAcceptedByEmail(
-  ctx: { db: any },
+  ctx: DbCtx,
   args: {
     organizationId: Id<"organizations">;
     email?: string;
@@ -173,7 +177,7 @@ async function markPendingInvitesAcceptedByEmail(
   const normalizedEmail = args.email.toLowerCase();
   const pendingInvites = await ctx.db
     .query("invites")
-    .withIndex("by_org_email_status", (q: any) =>
+    .withIndex("by_org_email_status", (q) =>
       q.eq("organizationId", args.organizationId).eq("email", normalizedEmail).eq("status", "pending"),
     )
     .collect();
@@ -188,13 +192,13 @@ async function markPendingInvitesAcceptedByEmail(
 }
 
 async function ensurePersonalWorkspace(
-  ctx: { db: any },
+  ctx: DbCtx,
   accountId: Id<"accounts">,
   opts: { email: string; firstName?: string; workosUserId: string; now: number; workspaceName?: string },
 ) {
   const memberships = await ctx.db
     .query("users")
-    .withIndex("by_account", (q: any) => q.eq("accountId", accountId))
+    .withIndex("by_account", (q) => q.eq("accountId", accountId))
     .collect();
 
   for (const membership of memberships) {
@@ -278,7 +282,7 @@ function getIdentityString(identity: Record<string, unknown>, keys: string[]): s
   return undefined;
 }
 
-async function getAuthKitUserProfile(ctx: { runQuery: any }, workosUserId: string) {
+async function getAuthKitUserProfile(ctx: RunQueryCtx, workosUserId: string) {
   try {
     return await ctx.runQuery((components as any).workOSAuthKit.lib.getAuthUser, {
       id: workosUserId,
@@ -355,7 +359,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
 
     const memberships = await ctx.db
       .query("users")
-      .withIndex("by_account", (q: any) => q.eq("accountId", account._id))
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .collect();
     for (const membership of memberships) {
       await ctx.db.delete(membership._id);
@@ -363,7 +367,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
 
     const sessions = await ctx.db
       .query("accountSessions")
-      .withIndex("by_account_created", (q: any) => q.eq("accountId", account._id))
+      .withIndex("by_account_created", (q) => q.eq("accountId", account._id))
       .collect();
     for (const session of sessions) {
       await ctx.db.delete(session._id);
@@ -455,7 +459,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
 
     const members = await ctx.db
       .query("users")
-      .withIndex("by_workspace", (q: any) => q.eq("workspaceId", workspace._id))
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
       .collect();
     for (const member of members) {
       await ctx.db.delete(member._id);
@@ -494,7 +498,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
 
     const existing = await ctx.db
       .query("users")
-      .withIndex("by_workspace_account", (q: any) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
+      .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
       .unique();
 
     const workosRole = data.role?.slug ?? "member";
@@ -553,7 +557,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
 
     let membership = await ctx.db
       .query("users")
-      .withIndex("by_workos_membership_id", (q: any) => q.eq("workosOrgMembershipId", data.id))
+      .withIndex("by_workos_membership_id", (q) => q.eq("workosOrgMembershipId", data.id))
       .unique();
 
     let account: Doc<"accounts"> | null = null;
@@ -572,7 +576,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
       const accountId = account._id;
       membership = await ctx.db
         .query("users")
-        .withIndex("by_workspace_account", (q: any) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
+        .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
         .unique();
       if (!membership) return;
     } else {
@@ -623,7 +627,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
     const now = Date.now();
     const membership = await ctx.db
       .query("users")
-      .withIndex("by_workos_membership_id", (q: any) => q.eq("workosOrgMembershipId", event.data.id))
+      .withIndex("by_workos_membership_id", (q) => q.eq("workosOrgMembershipId", event.data.id))
       .unique();
     if (!membership) return;
 
@@ -659,7 +663,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
 
     const existing = await ctx.db
       .query("accountSessions")
-      .withIndex("by_provider_session_id", (q: any) => q.eq("providerSessionId", data.id))
+      .withIndex("by_provider_session_id", (q) => q.eq("providerSessionId", data.id))
       .unique();
 
     const expiresAtRaw = data.expires_at ?? data.expiresAt;
@@ -691,7 +695,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
 
     const existing = await ctx.db
       .query("accountSessions")
-      .withIndex("by_provider_session_id", (q: any) => q.eq("providerSessionId", data.id))
+      .withIndex("by_provider_session_id", (q) => q.eq("providerSessionId", data.id))
       .unique();
     if (!existing) return;
 
@@ -935,14 +939,14 @@ async function resolveAccountForRequest(ctx: { auth: any; db: any }, sessionId?:
   if (identity) {
     return await ctx.db
       .query("accounts")
-      .withIndex("by_provider", (q: any) => q.eq("provider", "workos").eq("providerAccountId", identity.subject))
+      .withIndex("by_provider", (q) => q.eq("provider", "workos").eq("providerAccountId", identity.subject))
       .unique();
   }
 
   if (!sessionId) return null;
   const anon = await ctx.db
     .query("anonymousSessions")
-    .withIndex("by_session_id", (q: any) => q.eq("sessionId", sessionId))
+    .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
     .unique();
   if (!anon?.accountId) return null;
   return await ctx.db.get(anon.accountId);
