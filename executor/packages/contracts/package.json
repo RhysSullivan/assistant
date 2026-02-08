@@ -1,8 +1,0 @@
-{
-  "name": "@executor/contracts",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  }
-}

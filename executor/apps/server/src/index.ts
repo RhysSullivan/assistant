@@ -1,3 +1,4 @@
+import { Elysia, t } from "elysia";
 import { ExecutorDatabase } from "./database";
 import { TaskEventHub } from "./events";
 import { handleMcpRequest } from "./mcp-server";
@@ -9,14 +10,12 @@ import { loadExternalTools, parseToolSourcesFromEnv } from "./tool-sources";
 import { DEFAULT_TOOLS } from "./tools";
 import type {
   ApprovalStatus,
-  CredentialScope,
-  CreateTaskInput,
-  PendingApprovalRecord,
-  PolicyDecision,
   TaskStatus,
   ToolCallRequest,
   RuntimeOutputEvent,
 } from "./types";
+
+// ── Bootstrap ──
 
 const port = Number(Bun.env.PORT ?? "4001");
 const autoFunnelEnabled = Bun.env.EXECUTOR_AUTO_TAILSCALE_FUNNEL !== "0";
@@ -65,51 +64,9 @@ const service = new ExecutorService(new ExecutorDatabase(), new TaskEventHub(), 
   autoExecuteTasks: Bun.env.EXECUTOR_SERVER_AUTO_EXECUTE === "1",
 });
 
-const jsonHeaders = {
-  "content-type": "application/json; charset=utf-8",
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-  "access-control-allow-headers": "content-type",
-};
+// ── SSE helper ──
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: jsonHeaders,
-  });
-}
-
-function error(status: number, message: string): Response {
-  return json({ error: message }, status);
-}
-
-function isInternalAuthorized(request: Request): boolean {
-  if (!internalToken) {
-    return true;
-  }
-
-  const header = request.headers.get("authorization");
-  if (!header || !header.startsWith("Bearer ")) {
-    return false;
-  }
-
-  return header.slice("Bearer ".length) === internalToken;
-}
-
-async function parseBody<T>(request: Request): Promise<T | null> {
-  try {
-    return (await request.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
-async function createTaskEventsResponse(taskId: string): Promise<Response> {
-  const task = await service.getTask(taskId);
-  if (!task) {
-    return error(404, "Task not found");
-  }
-
+function createTaskEventsResponse(taskId: string): Response | Promise<Response> {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
   let keepalive: ReturnType<typeof setInterval> | undefined;
@@ -117,6 +74,12 @@ async function createTaskEventsResponse(taskId: string): Promise<Response> {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       void (async () => {
+        const task = await service.getTask(taskId);
+        if (!task) {
+          controller.close();
+          return;
+        }
+
         const replay = await service.listTaskEvents(taskId);
         for (const event of replay) {
           const frame = `event: ${event.eventName}\ndata: ${JSON.stringify(event)}\n\n`;
@@ -179,359 +142,392 @@ async function createTaskEventsResponse(taskId: string): Promise<Response> {
   });
 }
 
-const server = Bun.serve({
-  port,
-  routes: {
-    "/mcp": {
-      POST: async (request) => await handleMcpRequest(service, request),
-      GET: async (request) => await handleMcpRequest(service, request),
-      DELETE: async (request) => await handleMcpRequest(service, request),
-    },
-    "/api/health": {
-      GET: () => json({ ok: true, tools: service.getBaseToolCount() }),
-    },
-    "/api/auth/anonymous/bootstrap": {
-      POST: async (request) => {
-        const body = await parseBody<{ sessionId?: string }>(request);
-        const context = await service.bootstrapAnonymousContext(body?.sessionId);
-        return json(context, 201);
-      },
-    },
-    "/api/runtime-targets": {
-      GET: () => json(service.listRuntimes()),
-    },
-    "/api/tools": {
-      GET: async (request) => {
-        const query = new URL(request.url).searchParams;
-        const workspaceId = query.get("workspaceId");
-        const actorId = query.get("actorId") ?? undefined;
-        const clientId = query.get("clientId") ?? undefined;
+// ── Internal auth guard ──
 
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
+function isInternalAuthorized(request: Request): boolean {
+  if (!internalToken) return true;
+  const header = request.headers.get("authorization");
+  if (!header || !header.startsWith("Bearer ")) return false;
+  return header.slice("Bearer ".length) === internalToken;
+}
 
-        return json(await service.listTools({ workspaceId, actorId, clientId }));
-      },
-    },
-    "/api/tool-sources": {
-      GET: async (request) => {
-        const workspaceId = new URL(request.url).searchParams.get("workspaceId");
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
-        return json(await service.listToolSources(workspaceId));
-      },
-      POST: async (request) => {
-        const body = await parseBody<{
-          id?: string;
-          workspaceId?: string;
-          name?: string;
-          type?: "mcp" | "openapi" | "graphql";
-          config?: Record<string, unknown>;
-          enabled?: boolean;
-        }>(request);
+// ── Elysia app ──
 
-        if (!body || !body.workspaceId || !body.name || !body.type || !body.config) {
-          return error(400, "workspaceId, name, type, and config are required");
-        }
+const app = new Elysia()
+  // CORS
+  .onRequest(({ set }) => {
+    set.headers["access-control-allow-origin"] = "*";
+    set.headers["access-control-allow-methods"] = "GET,POST,DELETE,OPTIONS";
+    set.headers["access-control-allow-headers"] = "content-type,authorization";
+  })
+  .options("/*", () => new Response(null, { status: 204 }))
 
-        if (body.type !== "mcp" && body.type !== "openapi" && body.type !== "graphql") {
-          return error(400, "type must be 'mcp', 'openapi', or 'graphql'");
-        }
+  // ── MCP (raw protocol passthrough) ──
+  .post("/mcp", async ({ request }) => await handleMcpRequest(service, request))
+  .get("/mcp", async ({ request }) => await handleMcpRequest(service, request))
+  .delete("/mcp", async ({ request }) => await handleMcpRequest(service, request))
 
-        try {
-          const source = await service.upsertToolSource({
-            id: body.id,
-            workspaceId: body.workspaceId,
-            name: body.name,
-            type: body.type,
-            config: body.config,
-            enabled: body.enabled,
-          });
-          return json(source, body.id ? 200 : 201);
-        } catch (cause) {
-          return error(400, cause instanceof Error ? cause.message : String(cause));
-        }
-      },
-    },
-    "/api/tool-sources/:sourceId": {
-      DELETE: async (request) => {
-        const workspaceId = new URL(request.url).searchParams.get("workspaceId");
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
+  // ── Health ──
+  .get("/api/health", () => ({
+    ok: true as const,
+    tools: service.getBaseToolCount(),
+  }))
 
-        const deleted = await service.deleteToolSource(workspaceId, request.params.sourceId);
-        if (!deleted) {
-          return error(404, "Tool source not found");
-        }
-        return json({ ok: true });
-      },
-    },
-    "/api/tasks": {
-      GET: async (request) => {
-        const workspaceId = new URL(request.url).searchParams.get("workspaceId");
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
-        return json(await service.listTasks(workspaceId));
-      },
-      POST: async (request) => {
-        const body = await parseBody<CreateTaskInput>(request);
-        if (!body) {
-          return error(400, "Invalid JSON body");
-        }
+  // ── Auth ──
+  .post("/api/auth/anonymous/bootstrap", async ({ body }) => {
+    return await service.bootstrapAnonymousContext(body.sessionId);
+  }, {
+    body: t.Object({
+      sessionId: t.Optional(t.String()),
+    }),
+  })
 
-        try {
-          const created = await service.createTask(body);
-          return json({ taskId: created.task.id, status: created.task.status }, 201);
-        } catch (cause) {
-          return error(400, cause instanceof Error ? cause.message : String(cause));
-        }
-      },
-    },
-    "/api/tasks/:taskId": {
-      GET: async (request) => {
-        const workspaceId = new URL(request.url).searchParams.get("workspaceId");
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
+  // ── Runtime Targets ──
+  .get("/api/runtime-targets", () => service.listRuntimes())
 
-        const task = await service.getTask(request.params.taskId, workspaceId);
-        if (!task) {
-          return error(404, "Task not found");
-        }
-        return json(task);
-      },
-    },
-    "/api/tasks/:taskId/events": {
-      GET: async (request) => {
-        const workspaceId = new URL(request.url).searchParams.get("workspaceId");
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
-
-        const task = await service.getTask(request.params.taskId, workspaceId);
-        if (!task) {
-          return error(404, "Task not found");
-        }
-        return await createTaskEventsResponse(request.params.taskId);
-      },
-    },
-    "/api/approvals": {
-      GET: async (request) => {
-        const query = new URL(request.url).searchParams;
-        const workspaceId = query.get("workspaceId");
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
-        const status = query.get("status") as ApprovalStatus | null;
-
-        if (status === "pending") {
-          return json((await service.listPendingApprovals(workspaceId)) satisfies PendingApprovalRecord[]);
-        }
-
-        if (status && status !== "approved" && status !== "denied") {
-          return error(400, "Invalid approval status");
-        }
-
-        return json(await service.listApprovals(workspaceId, status ?? undefined));
-      },
-    },
-    "/api/approvals/:approvalId": {
-      POST: async (request) => {
-        const body = await parseBody<{
-          workspaceId?: string;
-          decision?: "approved" | "denied";
-          reviewerId?: string;
-          reason?: string;
-        }>(request);
-
-        if (!body || !body.workspaceId || (body.decision !== "approved" && body.decision !== "denied")) {
-          return error(400, "workspaceId and decision are required");
-        }
-
-        const resolved = await service.resolveApproval(
-          body.workspaceId,
-          request.params.approvalId,
-          body.decision,
-          body.reviewerId,
-          body.reason,
-        );
-
-        if (!resolved) {
-          return error(404, "Approval not found or already resolved");
-        }
-
-        return json(resolved);
-      },
-    },
-    "/api/policies": {
-      GET: async (request) => {
-        const query = new URL(request.url).searchParams;
-        const workspaceId = query.get("workspaceId");
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
-        return json(await service.listAccessPolicies(workspaceId));
-      },
-      POST: async (request) => {
-        const body = await parseBody<{
-          id?: string;
-          workspaceId?: string;
-          actorId?: string;
-          clientId?: string;
-          toolPathPattern?: string;
-          decision?: PolicyDecision;
-          priority?: number;
-        }>(request);
-
-        if (!body || !body.workspaceId || !body.toolPathPattern || !body.decision) {
-          return error(400, "workspaceId, toolPathPattern, and decision are required");
-        }
-
-        if (body.decision !== "allow" && body.decision !== "require_approval" && body.decision !== "deny") {
-          return error(400, "Invalid decision");
-        }
-
-        return json(await service.upsertAccessPolicy({
-          id: body.id,
-          workspaceId: body.workspaceId,
-          actorId: body.actorId,
-          clientId: body.clientId,
-          toolPathPattern: body.toolPathPattern,
-          decision: body.decision,
-          priority: body.priority,
-        }), body.id ? 200 : 201);
-      },
-    },
-    "/api/credentials": {
-      GET: async (request) => {
-        const query = new URL(request.url).searchParams;
-        const workspaceId = query.get("workspaceId");
-        if (!workspaceId) {
-          return error(400, "workspaceId is required");
-        }
-        return json(await service.listCredentials(workspaceId));
-      },
-      POST: async (request) => {
-        const body = await parseBody<{
-          id?: string;
-          workspaceId?: string;
-          sourceKey?: string;
-          scope?: CredentialScope;
-          actorId?: string;
-          secretJson?: Record<string, unknown>;
-        }>(request);
-
-        if (!body || !body.workspaceId || !body.sourceKey || !body.scope || !body.secretJson) {
-          return error(400, "workspaceId, sourceKey, scope, and secretJson are required");
-        }
-
-        if (body.scope !== "workspace" && body.scope !== "actor") {
-          return error(400, "scope must be 'workspace' or 'actor'");
-        }
-
-        if (body.scope === "actor" && (!body.actorId || body.actorId.trim().length === 0)) {
-          return error(400, "actorId is required for actor-scoped credential");
-        }
-
-        const credential = await service.upsertCredential({
-          id: body.id,
-          workspaceId: body.workspaceId,
-          sourceKey: body.sourceKey,
-          scope: body.scope,
-          actorId: body.actorId,
-          secretJson: body.secretJson,
-        });
-
-        return json({
-          id: credential.id,
-          workspaceId: credential.workspaceId,
-          sourceKey: credential.sourceKey,
-          scope: credential.scope,
-          actorId: credential.actorId,
-          hasSecret: true,
-        }, body.id ? 200 : 201);
-      },
-    },
-    "/internal/runs/:runId/tool-call": {
-      POST: async (request) => {
-        if (!isInternalAuthorized(request)) {
-          return error(401, "Unauthorized internal call");
-        }
-
-        const body = await parseBody<{
-          callId?: string;
-          toolPath?: string;
-          input?: unknown;
-        }>(request);
-
-        if (!body || !body.callId || !body.toolPath) {
-          return error(400, "callId and toolPath are required");
-        }
-
-        const call: ToolCallRequest = {
-          runId: request.params.runId,
-          callId: body.callId,
-          toolPath: body.toolPath,
-          input: body.input,
-        };
-
-        return json(await service.handleExternalToolCall(call));
-      },
-    },
-    "/internal/runs/:runId/output": {
-      POST: async (request) => {
-        if (!isInternalAuthorized(request)) {
-          return error(401, "Unauthorized internal call");
-        }
-
-        const body = await parseBody<{
-          stream?: "stdout" | "stderr";
-          line?: string;
-          timestamp?: number;
-        }>(request);
-
-        if (!body || (body.stream !== "stdout" && body.stream !== "stderr") || typeof body.line !== "string") {
-          return error(400, "stream and line are required");
-        }
-
-        const event: RuntimeOutputEvent = {
-          runId: request.params.runId,
-          stream: body.stream,
-          line: body.line,
-          timestamp: typeof body.timestamp === "number" ? body.timestamp : Date.now(),
-        };
-
-        const task = await service.getTask(event.runId);
-        if (!task) {
-          return error(404, `Run not found: ${event.runId}`);
-        }
-
-        await service.appendRuntimeOutput(event);
-        return json({ ok: true });
-      },
-    },
-  },
-  fetch(request) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: jsonHeaders });
+  // ── Tools ──
+  .get("/api/tools", async ({ query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
     }
-    return new Response("Not found", { status: 404 });
-  },
-  error(cause) {
-    console.error("executor server error", cause);
-    return error(500, "Internal server error");
-  },
-  development: {
-    hmr: true,
-    console: true,
-  },
-});
+    return await service.listTools({
+      workspaceId: query.workspaceId,
+      actorId: query.actorId,
+      clientId: query.clientId,
+    });
+  }, {
+    query: t.Object({
+      workspaceId: t.String(),
+      actorId: t.Optional(t.String()),
+      clientId: t.Optional(t.String()),
+    }),
+  })
 
-console.log(`executor server listening on http://localhost:${server.port}`);
+  // ── Tool Sources ──
+  .get("/api/tool-sources", async ({ query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
+    }
+    return await service.listToolSources(query.workspaceId);
+  }, {
+    query: t.Object({
+      workspaceId: t.String(),
+    }),
+  })
+
+  .post("/api/tool-sources", async ({ body, set }) => {
+    if (!body.workspaceId || !body.name || !body.type || !body.config) {
+      set.status = 400;
+      return { error: "workspaceId, name, type, and config are required" };
+    }
+    try {
+      return await service.upsertToolSource({
+        id: body.id,
+        workspaceId: body.workspaceId,
+        name: body.name,
+        type: body.type,
+        config: body.config,
+        enabled: body.enabled,
+      });
+    } catch (cause) {
+      set.status = 400;
+      return { error: cause instanceof Error ? cause.message : String(cause) };
+    }
+  }, {
+    body: t.Object({
+      id: t.Optional(t.String()),
+      workspaceId: t.String(),
+      name: t.String(),
+      type: t.Union([t.Literal("mcp"), t.Literal("openapi"), t.Literal("graphql")]),
+      config: t.Record(t.String(), t.Unknown()),
+      enabled: t.Optional(t.Boolean()),
+    }),
+  })
+
+  .delete("/api/tool-sources/:sourceId", async ({ params, query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
+    }
+    const deleted = await service.deleteToolSource(query.workspaceId, params.sourceId);
+    if (!deleted) {
+      set.status = 404;
+      return { error: "Tool source not found" };
+    }
+    return { ok: true as const };
+  }, {
+    params: t.Object({ sourceId: t.String() }),
+    query: t.Object({ workspaceId: t.String() }),
+  })
+
+  // ── Tasks ──
+  .get("/api/tasks", async ({ query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
+    }
+    return await service.listTasks(query.workspaceId);
+  }, {
+    query: t.Object({ workspaceId: t.String() }),
+  })
+
+  .post("/api/tasks", async ({ body, set }) => {
+    try {
+      const created = await service.createTask(body);
+      return { taskId: created.task.id, status: created.task.status };
+    } catch (cause) {
+      set.status = 400;
+      return { error: cause instanceof Error ? cause.message : String(cause) };
+    }
+  }, {
+    body: t.Object({
+      code: t.String(),
+      timeoutMs: t.Optional(t.Number()),
+      runtimeId: t.Optional(t.String()),
+      metadata: t.Optional(t.Record(t.String(), t.Unknown())),
+      workspaceId: t.String(),
+      actorId: t.String(),
+      clientId: t.Optional(t.String()),
+    }),
+  })
+
+  .get("/api/tasks/:taskId", async ({ params, query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
+    }
+    const task = await service.getTask(params.taskId, query.workspaceId);
+    if (!task) {
+      set.status = 404;
+      return { error: "Task not found" };
+    }
+    return task;
+  }, {
+    params: t.Object({ taskId: t.String() }),
+    query: t.Object({ workspaceId: t.String() }),
+  })
+
+  .get("/api/tasks/:taskId/events", async ({ params, query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
+    }
+    const task = await service.getTask(params.taskId, query.workspaceId);
+    if (!task) {
+      set.status = 404;
+      return { error: "Task not found" };
+    }
+    return createTaskEventsResponse(params.taskId);
+  }, {
+    params: t.Object({ taskId: t.String() }),
+    query: t.Object({ workspaceId: t.String() }),
+  })
+
+  // ── Approvals ──
+  .get("/api/approvals", async ({ query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
+    }
+    const status = query.status as ApprovalStatus | undefined;
+
+    if (status === "pending") {
+      return await service.listPendingApprovals(query.workspaceId);
+    }
+
+    if (status && status !== "approved" && status !== "denied") {
+      set.status = 400;
+      return { error: "Invalid approval status" };
+    }
+
+    return await service.listApprovals(query.workspaceId, status ?? undefined);
+  }, {
+    query: t.Object({
+      workspaceId: t.String(),
+      status: t.Optional(t.String()),
+    }),
+  })
+
+  .post("/api/approvals/:approvalId", async ({ params, body, set }) => {
+    if (!body.workspaceId || (body.decision !== "approved" && body.decision !== "denied")) {
+      set.status = 400;
+      return { error: "workspaceId and decision are required" };
+    }
+
+    const resolved = await service.resolveApproval(
+      body.workspaceId,
+      params.approvalId,
+      body.decision,
+      body.reviewerId,
+      body.reason,
+    );
+
+    if (!resolved) {
+      set.status = 404;
+      return { error: "Approval not found or already resolved" };
+    }
+    return resolved;
+  }, {
+    params: t.Object({ approvalId: t.String() }),
+    body: t.Object({
+      workspaceId: t.String(),
+      decision: t.Union([t.Literal("approved"), t.Literal("denied")]),
+      reviewerId: t.Optional(t.String()),
+      reason: t.Optional(t.String()),
+    }),
+  })
+
+  // ── Policies ──
+  .get("/api/policies", async ({ query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
+    }
+    return await service.listAccessPolicies(query.workspaceId);
+  }, {
+    query: t.Object({ workspaceId: t.String() }),
+  })
+
+  .post("/api/policies", async ({ body, set }) => {
+    if (!body.workspaceId || !body.toolPathPattern || !body.decision) {
+      set.status = 400;
+      return { error: "workspaceId, toolPathPattern, and decision are required" };
+    }
+    return await service.upsertAccessPolicy({
+      id: body.id,
+      workspaceId: body.workspaceId,
+      actorId: body.actorId,
+      clientId: body.clientId,
+      toolPathPattern: body.toolPathPattern,
+      decision: body.decision,
+      priority: body.priority,
+    });
+  }, {
+    body: t.Object({
+      id: t.Optional(t.String()),
+      workspaceId: t.String(),
+      actorId: t.Optional(t.String()),
+      clientId: t.Optional(t.String()),
+      toolPathPattern: t.String(),
+      decision: t.Union([t.Literal("allow"), t.Literal("require_approval"), t.Literal("deny")]),
+      priority: t.Optional(t.Number()),
+    }),
+  })
+
+  // ── Credentials ──
+  .get("/api/credentials", async ({ query, set }) => {
+    if (!query.workspaceId) {
+      set.status = 400;
+      return { error: "workspaceId is required" };
+    }
+    return await service.listCredentials(query.workspaceId);
+  }, {
+    query: t.Object({ workspaceId: t.String() }),
+  })
+
+  .post("/api/credentials", async ({ body, set }) => {
+    if (!body.workspaceId || !body.sourceKey || !body.scope || !body.secretJson) {
+      set.status = 400;
+      return { error: "workspaceId, sourceKey, scope, and secretJson are required" };
+    }
+    if (body.scope === "actor" && (!body.actorId || body.actorId.trim().length === 0)) {
+      set.status = 400;
+      return { error: "actorId is required for actor-scoped credential" };
+    }
+
+    const credential = await service.upsertCredential({
+      id: body.id,
+      workspaceId: body.workspaceId,
+      sourceKey: body.sourceKey,
+      scope: body.scope,
+      actorId: body.actorId,
+      secretJson: body.secretJson,
+    });
+
+    return {
+      id: credential.id,
+      workspaceId: credential.workspaceId,
+      sourceKey: credential.sourceKey,
+      scope: credential.scope,
+      actorId: credential.actorId,
+      hasSecret: true as const,
+    };
+  }, {
+    body: t.Object({
+      id: t.Optional(t.String()),
+      workspaceId: t.String(),
+      sourceKey: t.String(),
+      scope: t.Union([t.Literal("workspace"), t.Literal("actor")]),
+      actorId: t.Optional(t.String()),
+      secretJson: t.Record(t.String(), t.Unknown()),
+    }),
+  })
+
+  // ── Internal endpoints (bearer auth protected) ──
+  .post("/internal/runs/:runId/tool-call", async ({ params, body, request, set }) => {
+    if (!isInternalAuthorized(request)) {
+      set.status = 401;
+      return { error: "Unauthorized internal call" };
+    }
+    if (!body.callId || !body.toolPath) {
+      set.status = 400;
+      return { error: "callId and toolPath are required" };
+    }
+
+    const call: ToolCallRequest = {
+      runId: params.runId,
+      callId: body.callId,
+      toolPath: body.toolPath,
+      input: body.input,
+    };
+
+    return await service.handleExternalToolCall(call);
+  }, {
+    params: t.Object({ runId: t.String() }),
+    body: t.Object({
+      callId: t.String(),
+      toolPath: t.String(),
+      input: t.Optional(t.Unknown()),
+    }),
+  })
+
+  .post("/internal/runs/:runId/output", async ({ params, body, request, set }) => {
+    if (!isInternalAuthorized(request)) {
+      set.status = 401;
+      return { error: "Unauthorized internal call" };
+    }
+
+    const event: RuntimeOutputEvent = {
+      runId: params.runId,
+      stream: body.stream,
+      line: body.line,
+      timestamp: typeof body.timestamp === "number" ? body.timestamp : Date.now(),
+    };
+
+    const task = await service.getTask(event.runId);
+    if (!task) {
+      set.status = 404;
+      return { error: `Run not found: ${event.runId}` };
+    }
+
+    await service.appendRuntimeOutput(event);
+    return { ok: true as const };
+  }, {
+    params: t.Object({ runId: t.String() }),
+    body: t.Object({
+      stream: t.Union([t.Literal("stdout"), t.Literal("stderr")]),
+      line: t.String(),
+      timestamp: t.Optional(t.Number()),
+    }),
+  })
+
+  .listen(port);
+
+export type App = typeof app;
+
+console.log(`executor server listening on http://localhost:${app.server!.port}`);
 console.log(`[executor] internal callback base: ${internalBaseUrl} (${internalBaseSource})`);
 console.log(`[executor] internal callback auth token enabled: yes`);
 console.log(`[executor] tools loaded: ${tools.length} (${externalTools.length} external)`);

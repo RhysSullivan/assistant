@@ -8,6 +8,10 @@
   "scripts": {
     "test": "bun test src/"
   },
+  "dependencies": {
+    "@elysiajs/eden": "^1.4.6",
+    "elysia": "^1.4.22"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   }

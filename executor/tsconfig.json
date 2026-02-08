@@ -13,15 +13,7 @@
       "ESNext",
       "DOM"
     ],
-    "baseUrl": ".",
-    "paths": {
-      "@executor/contracts": [
-        "packages/contracts/src/index.ts"
-      ],
-      "@executor/client": [
-        "packages/client/src/index.ts"
-      ]
-    }
+    "baseUrl": "."
   },
   "include": [
     "apps/**/*.ts",
