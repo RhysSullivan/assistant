@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { getOneFrom } from "convex-helpers/server/relationships";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -20,10 +21,7 @@ async function getSeatState(
   ctx: DbCtx,
   organizationId: Id<"organizations">,
 ): Promise<Doc<"billingSeatState"> | null> {
-  return await ctx.db
-    .query("billingSeatState")
-    .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-    .unique();
+  return await getOneFrom(ctx.db, "billingSeatState", "by_org", organizationId, "organizationId");
 }
 
 export const getBillingAccessForRequest = internalOrganizationQuery({
@@ -35,10 +33,7 @@ export const getBillingAccessForRequest = internalOrganizationQuery({
     }
 
     const billableMembers = await getBillableSeatCount(ctx, ctx.organizationId);
-    const customer = await ctx.db
-      .query("billingCustomers")
-      .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
-      .unique();
+    const customer = await getOneFrom(ctx.db, "billingCustomers", "by_org", ctx.organizationId, "organizationId");
 
     return {
       role: ctx.actorMembership.role,
@@ -79,10 +74,7 @@ export const upsertCustomerLink = internalMutation({
     stripeCustomerId: v.string(),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("billingCustomers")
-      .withIndex("by_org", (q) => q.eq("organizationId", args.organizationId))
-      .unique();
+    const existing = await getOneFrom(ctx.db, "billingCustomers", "by_org", args.organizationId, "organizationId");
     const now = Date.now();
 
     if (existing) {

@@ -44,7 +44,13 @@ import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useMutation, useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
-import type { ToolSourceRecord, ToolDescriptor } from "@/lib/types";
+import type {
+  GraphqlToolSourceConfig,
+  McpToolSourceConfig,
+  OpenApiToolSourceConfig,
+  ToolDescriptor,
+  ToolSourceRecord,
+} from "@/lib/types";
 import { parse as parseDomain } from "tldts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -192,6 +198,8 @@ const API_PRESETS: ApiPreset[] = [
   },
 ];
 
+type ToolSourceConfigInput = McpToolSourceConfig | OpenApiToolSourceConfig | GraphqlToolSourceConfig;
+
 /** Derive a favicon URL from any URL string via Google's favicon service. */
 function faviconForUrl(url: string | undefined | null): string | null {
   if (!url) return null;
@@ -208,13 +216,25 @@ function getFaviconUrl(preset: ApiPreset): string | null {
 }
 
 function getSourceFavicon(source: ToolSourceRecord): string | null {
-  const url =
-    source.type === "mcp"
-      ? (source.config.url as string)
-      : source.type === "graphql"
-        ? (source.config.endpoint as string)
-        : (source.config.baseUrl as string) ?? (source.config.spec as string);
+  const url = source.type === "mcp"
+    ? source.config.url
+    : source.type === "graphql"
+      ? source.config.endpoint
+      : source.config.baseUrl ?? (typeof source.config.spec === "string" ? source.config.spec : null);
   return faviconForUrl(url);
+}
+
+function getSourceLocation(source: ToolSourceRecord): string {
+  if (source.type === "mcp") {
+    return source.config.url;
+  }
+  if (source.type === "graphql") {
+    return source.config.endpoint;
+  }
+  if (source.config.baseUrl) {
+    return source.config.baseUrl;
+  }
+  return typeof source.config.spec === "string" ? source.config.spec : "inline spec";
 }
 
 // ── Add Source Dialog ──
@@ -301,7 +321,7 @@ function AddSourceDialog({
   const addSource = async (
     sourceName: string,
     sourceType: "mcp" | "openapi" | "graphql",
-    config: Record<string, unknown>,
+    config: ToolSourceConfigInput,
   ) => {
     if (!context) return;
     await upsertToolSource({
@@ -316,7 +336,7 @@ function AddSourceDialog({
   const handlePresetAdd = async (preset: ApiPreset) => {
     setAddingPreset(preset.name);
     try {
-      const config: Record<string, unknown> =
+      const config: ToolSourceConfigInput =
         preset.type === "mcp"
           ? { url: preset.url }
           : preset.type === "graphql"
@@ -340,7 +360,7 @@ function AddSourceDialog({
     if (!context || !name.trim() || !endpoint.trim()) return;
     setSubmitting(true);
     try {
-      const config: Record<string, unknown> =
+      const config: ToolSourceConfigInput =
         type === "mcp"
           ? {
               url: endpoint,
@@ -615,11 +635,7 @@ function SourceCard({
           )}
         </div>
         <span className="text-[11px] text-muted-foreground font-mono truncate block">
-          {source.type === "mcp"
-            ? (source.config.url as string)
-            : source.type === "graphql"
-              ? (source.config.endpoint as string)
-              : (source.config.spec as string)}
+          {getSourceLocation(source)}
         </span>
       </div>
       <Button

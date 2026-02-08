@@ -6,8 +6,7 @@ const accountStatus = v.union(v.literal("active"), v.literal("deleted"));
 const organizationStatus = v.union(v.literal("active"), v.literal("deleted"));
 const orgRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"), v.literal("billing_admin"));
 const orgMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
-const workspaceMemberRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"));
-const workspaceMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
+const runtimeTarget = v.literal("local-bun");
 const billingSubscriptionStatus = v.union(
   v.literal("incomplete"),
   v.literal("incomplete_expired"),
@@ -25,7 +24,6 @@ const inviteStatus = v.union(
   v.literal("revoked"),
   v.literal("failed"),
 );
-const inviteProvider = v.literal("workos");
 const taskStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -37,8 +35,76 @@ const taskStatus = v.union(
 const approvalStatus = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
 const policyDecision = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScope = v.union(v.literal("workspace"), v.literal("actor"));
+const toolCredentialMode = v.union(v.literal("static"), credentialScope);
 const toolSourceType = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
+const toolApprovalMode = v.union(v.literal("auto"), v.literal("required"));
+const toolSourceApprovalOverride = v.object({
+  approval: v.optional(toolApprovalMode),
+});
+const toolSourceAuth = v.union(
+  v.object({
+    type: v.literal("none"),
+  }),
+  v.object({
+    type: v.literal("basic"),
+    mode: v.optional(toolCredentialMode),
+    username: v.optional(v.string()),
+    password: v.optional(v.string()),
+  }),
+  v.object({
+    type: v.literal("bearer"),
+    mode: v.optional(toolCredentialMode),
+    token: v.optional(v.string()),
+  }),
+  v.object({
+    type: v.literal("apiKey"),
+    mode: v.optional(toolCredentialMode),
+    header: v.string(),
+    value: v.optional(v.string()),
+  }),
+);
+const mcpSourceConfig = v.object({
+  url: v.string(),
+  transport: v.optional(v.union(v.literal("sse"), v.literal("streamable-http"))),
+  queryParams: v.optional(v.record(v.string(), v.string())),
+  defaultApproval: v.optional(toolApprovalMode),
+  overrides: v.optional(v.record(v.string(), toolSourceApprovalOverride)),
+});
+const openApiSourceConfig = v.object({
+  spec: v.union(v.string(), v.record(v.string(), v.any())),
+  baseUrl: v.optional(v.string()),
+  auth: v.optional(toolSourceAuth),
+  defaultReadApproval: v.optional(toolApprovalMode),
+  defaultWriteApproval: v.optional(toolApprovalMode),
+  overrides: v.optional(v.record(v.string(), toolSourceApprovalOverride)),
+});
+const graphqlSourceConfig = v.object({
+  endpoint: v.string(),
+  schema: v.optional(v.record(v.string(), v.any())),
+  auth: v.optional(toolSourceAuth),
+  defaultQueryApproval: v.optional(toolApprovalMode),
+  defaultMutationApproval: v.optional(toolApprovalMode),
+  overrides: v.optional(v.record(v.string(), toolSourceApprovalOverride)),
+});
+const toolSourceConfig = v.union(mcpSourceConfig, openApiSourceConfig, graphqlSourceConfig);
 const agentTaskStatus = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
+const taskEventType = v.union(
+  v.literal("task.created"),
+  v.literal("task.queued"),
+  v.literal("task.running"),
+  v.literal("task.completed"),
+  v.literal("task.failed"),
+  v.literal("task.timed_out"),
+  v.literal("task.denied"),
+  v.literal("task.stdout"),
+  v.literal("task.stderr"),
+  v.literal("tool.call.started"),
+  v.literal("tool.call.completed"),
+  v.literal("tool.call.failed"),
+  v.literal("tool.call.denied"),
+  v.literal("approval.requested"),
+  v.literal("approval.resolved"),
+);
 
 export default defineSchema({
   accounts: defineTable({
@@ -58,17 +124,14 @@ export default defineSchema({
     .index("by_email", ["email"]),
 
   workspaces: defineTable({
-    workosOrgId: v.optional(v.string()),
     organizationId: v.id("organizations"),
     slug: v.string(),
     name: v.string(),
     iconStorageId: v.optional(v.id("_storage")),
-    plan: v.string(),
     createdByAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_workos_org_id", ["workosOrgId"])
     .index("by_organization_created", ["organizationId", "createdAt"])
     .index("by_organization_slug", ["organizationId", "slug"])
     .index("by_creator_created", ["createdByAccountId", "createdAt"])
@@ -90,6 +153,7 @@ export default defineSchema({
   organizationMembers: defineTable({
     organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
+    workosOrgMembershipId: v.optional(v.string()),
     role: orgRole,
     status: orgMemberStatus,
     billable: v.boolean(),
@@ -100,32 +164,16 @@ export default defineSchema({
   })
     .index("by_org", ["organizationId"])
     .index("by_org_account", ["organizationId", "accountId"])
+    .index("by_workos_membership_id", ["workosOrgMembershipId"])
     .index("by_account", ["accountId"])
     .index("by_org_status", ["organizationId", "status"])
     .index("by_org_billable_status", ["organizationId", "billable", "status"]),
 
-  workspaceMembers: defineTable({
-    workspaceId: v.id("workspaces"),
-    accountId: v.id("accounts"),
-    workosOrgMembershipId: v.optional(v.string()),
-    role: workspaceMemberRole,
-    status: workspaceMemberStatus,
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_workspace", ["workspaceId"])
-    .index("by_workspace_account", ["workspaceId", "accountId"])
-    .index("by_account", ["accountId"])
-    .index("by_workspace_status", ["workspaceId", "status"])
-    .index("by_workos_membership_id", ["workosOrgMembershipId"]),
-
   invites: defineTable({
     organizationId: v.id("organizations"),
-    workspaceId: v.optional(v.id("workspaces")),
     email: v.string(),
     role: orgRole,
     status: inviteStatus,
-    provider: inviteProvider,
     providerInviteId: v.optional(v.string()),
     invitedByAccountId: v.id("accounts"),
     expiresAt: v.number(),
@@ -173,15 +221,14 @@ export default defineSchema({
   }).index("by_org", ["organizationId"]),
 
   tasks: defineTable({
-    taskId: v.string(),
     code: v.string(),
-    runtimeId: v.string(),
-    workspaceId: v.string(),
+    runtimeId: runtimeTarget,
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.string(),
     status: taskStatus,
     timeoutMs: v.number(),
-    metadata: v.any(),
+    metadata: v.record(v.string(), v.any()),
     error: v.optional(v.string()),
     stdout: v.optional(v.string()),
     stderr: v.optional(v.string()),
@@ -191,41 +238,36 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
   })
-    .index("by_task_id", ["taskId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_status_created", ["status", "createdAt"]),
 
   approvals: defineTable({
-    approvalId: v.string(),
-    taskId: v.string(),
-    workspaceId: v.string(),
+    taskId: v.id("tasks"),
+    workspaceId: v.id("workspaces"),
     toolPath: v.string(),
-    input: v.any(),
+    input: v.record(v.string(), v.any()),
     status: approvalStatus,
     reason: v.optional(v.string()),
     reviewerId: v.optional(v.string()),
     createdAt: v.number(),
     resolvedAt: v.optional(v.number()),
   })
-    .index("by_approval_id", ["approvalId"])
     .index("by_task", ["taskId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_workspace_status_created", ["workspaceId", "status", "createdAt"]),
 
   taskEvents: defineTable({
     sequence: v.number(),
-    taskId: v.string(),
-    eventName: v.string(),
-    type: v.string(),
-    payload: v.any(),
+    taskId: v.id("tasks"),
+    type: taskEventType,
+    payload: v.record(v.string(), v.any()),
     createdAt: v.number(),
   })
     .index("by_sequence", ["sequence"])
     .index("by_task_sequence", ["taskId", "sequence"]),
 
   accessPolicies: defineTable({
-    policyId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.string(),
     toolPathPattern: v.string(),
@@ -234,43 +276,37 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_policy_id", ["policyId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
   sourceCredentials: defineTable({
-    credentialId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScope,
     actorId: v.string(),
-    secretJson: v.any(),
+    secretJson: v.record(v.string(), v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_credential_id", ["credentialId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_workspace_source_scope_actor", ["workspaceId", "sourceKey", "scope", "actorId"]),
 
   toolSources: defineTable({
-    sourceId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     name: v.string(),
     type: toolSourceType,
-    config: v.any(),
+    config: toolSourceConfig,
     enabled: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_source_id", ["sourceId"])
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
     .index("by_workspace_name", ["workspaceId", "name"])
     .index("by_workspace_enabled_updated", ["workspaceId", "enabled", "updatedAt"]),
 
   agentTasks: defineTable({
-    agentTaskId: v.string(),
     prompt: v.string(),
     requesterId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     status: agentTaskStatus,
     resultText: v.optional(v.string()),
@@ -279,7 +315,6 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_agent_task_id", ["agentTaskId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_requester_created", ["requesterId", "createdAt"]),
 
@@ -289,7 +324,6 @@ export default defineSchema({
     actorId: v.string(),
     clientId: v.string(),
     accountId: v.optional(v.id("accounts")),
-    userId: v.optional(v.id("workspaceMembers")),
     createdAt: v.number(),
     lastSeenAt: v.number(),
   })

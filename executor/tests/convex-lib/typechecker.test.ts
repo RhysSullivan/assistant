@@ -1,6 +1,11 @@
 import { test, expect, describe } from "bun:test";
-import { generateToolDeclarations, generateToolInventory, typecheckCode, type TypecheckResult } from "./typechecker";
-import type { ToolDescriptor } from "./types";
+import {
+  generateToolDeclarations,
+  generateToolInventory,
+  typecheckCode,
+  type TypecheckResult,
+} from "../../convex/lib/typechecker";
+import type { ToolDescriptor } from "../../convex/lib/types";
 
 // ---------------------------------------------------------------------------
 // Test fixtures

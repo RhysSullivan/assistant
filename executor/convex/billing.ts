@@ -1,10 +1,13 @@
 import { StripeSubscriptions } from "@convex-dev/stripe";
+import type { GenericActionCtx } from "convex/server";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import { getOneFrom } from "convex-helpers/server/relationships";
+import { runSessionFunctions, type SessionId } from "convex-helpers/server/sessions";
+import type { DataModel, Id } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { action } from "./_generated/server";
-import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
+import { optionalSessionIdValidator, organizationMutation, organizationQuery } from "./lib/functionBuilders";
 import { canManageBilling, isAdminRole } from "./lib/identity";
 
 const stripeClient = new StripeSubscriptions(components.stripe, {});
@@ -26,10 +29,24 @@ async function getBillableSeatCount(ctx: DbCtx, organizationId: Id<"organization
 }
 
 async function getSeatState(ctx: DbCtx, organizationId: Id<"organizations">) {
-  return await ctx.db
-    .query("billingSeatState")
-    .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-    .unique();
+  return await getOneFrom(ctx.db, "billingSeatState", "by_org", organizationId, "organizationId");
+}
+
+async function getBillingAccessForRequest(
+  ctx: GenericActionCtx<DataModel>,
+  args: { organizationId: Id<"organizations">; sessionId?: string },
+) {
+  if (!args.sessionId) {
+    return await ctx.runQuery(internal.billingInternal.getBillingAccessForRequest, {
+      organizationId: args.organizationId,
+      sessionId: undefined,
+    });
+  }
+
+  return await runSessionFunctions(ctx, args.sessionId as SessionId).runSessionQuery(
+    internal.billingInternal.getBillingAccessForRequest,
+    { organizationId: args.organizationId },
+  );
 }
 
 export const getSummary = organizationQuery({
@@ -37,10 +54,7 @@ export const getSummary = organizationQuery({
   handler: async (ctx) => {
     const billableMembers = await getBillableSeatCount(ctx, ctx.organizationId);
     const seatState = await getSeatState(ctx, ctx.organizationId);
-    const customer = await ctx.db
-      .query("billingCustomers")
-      .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
-      .unique();
+    const customer = await getOneFrom(ctx.db, "billingCustomers", "by_org", ctx.organizationId, "organizationId");
 
     const subscription = await ctx.runQuery(components.stripe.public.getSubscriptionByOrgId, {
       orgId: String(ctx.organizationId),
@@ -84,13 +98,10 @@ export const createSubscriptionCheckout = action({
     priceId: v.string(),
     successUrl: v.optional(v.string()),
     cancelUrl: v.optional(v.string()),
-    sessionId: v.optional(v.string()),
+    sessionId: optionalSessionIdValidator,
   },
   handler: async (ctx, args) => {
-    const access = await ctx.runQuery(internal.billingInternal.getBillingAccessForRequest, {
-      organizationId: args.organizationId,
-      sessionId: args.sessionId,
-    });
+    const access = await getBillingAccessForRequest(ctx, args);
 
     if (!access || !canAccessBilling(access.role)) {
       throw new Error("Only organization admins can manage billing");
@@ -146,7 +157,7 @@ export const createCustomerPortal = action({
   args: {
     organizationId: v.id("organizations"),
     returnUrl: v.optional(v.string()),
-    sessionId: v.optional(v.string()),
+    sessionId: optionalSessionIdValidator,
   },
   returns: v.object({
     url: v.string(),
@@ -158,10 +169,7 @@ export const createCustomerPortal = action({
       organizationName: string;
       billableMembers: number;
       customerId: string | null;
-    } | null = await ctx.runQuery(internal.billingInternal.getBillingAccessForRequest, {
-      organizationId: args.organizationId,
-      sessionId: args.sessionId,
-    });
+    } | null = await getBillingAccessForRequest(ctx, args);
     if (!access || !canAccessBilling(access.role)) {
       throw new Error("Only organization admins can manage billing");
     }

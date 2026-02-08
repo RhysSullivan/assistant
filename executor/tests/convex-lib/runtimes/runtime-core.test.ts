@@ -1,17 +1,18 @@
 import { expect, test } from "bun:test";
-import { runCodeWithAdapter } from "./runtime-core";
-import { loadExternalTools } from "../tool-sources";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { runCodeWithAdapter } from "../../../convex/lib/runtimes/runtime_core";
+import { loadExternalTools } from "../../../convex/lib/tool_sources";
 import type {
   ExecutionAdapter,
   RuntimeOutputEvent,
   SandboxExecutionRequest,
   ToolDefinition,
   ToolRunContext,
-} from "../types";
+} from "../../../convex/lib/types";
 
 function request(code: string, timeoutMs = 1_000): SandboxExecutionRequest {
   return {
-    taskId: `task_${crypto.randomUUID()}`,
+    taskId: `task_${crypto.randomUUID()}` as Id<"tasks">,
     code,
     timeoutMs,
   };
@@ -34,7 +35,7 @@ function createRuntimeAdapter(
       try {
         const context: ToolRunContext = {
           taskId: call.runId,
-          workspaceId: "ws_test",
+          workspaceId: "workspace_test" as Id<"workspaces">,
           actorId: "actor_test",
           clientId: "web",
           isToolAllowed: () => true,
@@ -81,6 +82,22 @@ test("executes tool calls and captures output", async () => {
   expect(result.stdout).toContain("out hi");
   expect(result.stdout).toContain("result: 42");
   expect(outputEvents.some((event) => event.stream === "stdout")).toBe(true);
+});
+
+test("transpiles TypeScript syntax before execution", async () => {
+  const outputEvents: RuntimeOutputEvent[] = [];
+  const adapter = createRuntimeAdapter(new Map(), outputEvents);
+
+  const result = await runCodeWithAdapter(
+    request(`
+      const message: string = "hello-ts";
+      return message;
+    `),
+    adapter,
+  );
+
+  expect(result.status).toBe("completed");
+  expect(result.stdout).toContain("result: hello-ts");
 });
 
 test("returns denied when adapter marks tool call denied", async () => {

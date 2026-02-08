@@ -103,7 +103,6 @@ export const create = organizationMutation({
   args: {
     email: v.string(),
     role: organizationRoleValidator,
-    workspaceId: v.optional(v.id("workspaces")),
     expiresInDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -115,27 +114,16 @@ export const create = organizationMutation({
     const expiresAt = now + (args.expiresInDays ?? 7) * 24 * 60 * 60 * 1000;
     const normalizedEmail = args.email.toLowerCase().trim();
 
-    if (args.workspaceId) {
-      const workspace = await ctx.db.get(args.workspaceId);
-      if (workspace?.organizationId !== ctx.organizationId) {
-        throw new Error("Workspace does not belong to this organization");
-      }
-    }
-
     if (ctx.account.provider !== "workos") {
       throw new Error("Inviter is not linked to WorkOS");
     }
     const inviterWorkosUserId = ctx.account.providerAccountId;
 
-    const provider = "workos";
-
     const inviteId = await ctx.db.insert("invites", {
       organizationId: ctx.organizationId,
-      workspaceId: args.workspaceId,
       email: normalizedEmail,
       role: args.role,
       status: "pending",
-      provider,
       invitedByAccountId: ctx.account._id,
       expiresAt,
       createdAt: now,
@@ -164,7 +152,6 @@ export const create = organizationMutation({
         expiresAt: invite.expiresAt,
       },
       delivery: {
-        provider,
         providerInviteId: invite.providerInviteId ?? null,
         state: "queued",
       },
@@ -187,7 +174,7 @@ export const deliverWorkosInvite = internalAction({
       return;
     }
 
-    let workosOrgId = context.organization.workosOrgId ?? context.workspace?.workosOrgId ?? null;
+    let workosOrgId = context.organization.workosOrgId ?? null;
 
     try {
       if (!workosOrgId) {
@@ -196,7 +183,6 @@ export const deliverWorkosInvite = internalAction({
 
         await ctx.runMutation(internal.invites.linkOrganizationToWorkos, {
           organizationId: context.organization._id,
-          workspaceId: context.workspace?._id,
           workosOrgId,
         });
       }
@@ -290,12 +276,9 @@ export const getInviteDeliveryContext = internalQuery({
       return null;
     }
 
-    const workspace = invite.workspaceId ? await ctx.db.get(invite.workspaceId) : null;
-
     return {
       invite,
       organization,
-      workspace,
     };
   },
 });
@@ -303,27 +286,12 @@ export const getInviteDeliveryContext = internalQuery({
 export const linkOrganizationToWorkos = internalMutation({
   args: {
     organizationId: v.id("organizations"),
-    workspaceId: v.optional(v.id("workspaces")),
     workosOrgId: v.string(),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
 
     await ctx.db.patch(args.organizationId, {
-      workosOrgId: args.workosOrgId,
-      updatedAt: now,
-    });
-
-    if (!args.workspaceId) {
-      return;
-    }
-
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (!workspace || workspace.organizationId !== args.organizationId) {
-      return;
-    }
-
-    await ctx.db.patch(args.workspaceId, {
       workosOrgId: args.workosOrgId,
       updatedAt: now,
     });

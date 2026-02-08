@@ -2,21 +2,27 @@ import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { api } from "./_generated/api";
-import schema from "./schema";
+import { api, internal } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import schema from "../../convex/schema";
 
 function setup() {
   return convexTest(schema, {
-    "./database.ts": () => import("./database"),
-    "./executor.ts": () => import("./executor"),
-    "./executorNode.ts": () => import("./executorNode"),
-    "./http.ts": () => import("./http"),
-    "./auth.ts": () => import("./auth"),
-    "./_generated/api.js": () => import("./_generated/api.js"),
+    "./database.ts": () => import("../../convex/database"),
+    "./executor.ts": () => import("../../convex/executor"),
+    "./executorNode.ts": () => import("../../convex/executorNode"),
+    "./http.ts": () => import("../../convex/http"),
+    "./auth.ts": () => import("../../convex/auth"),
+    "./_generated/api.js": () => import("../../convex/_generated/api.js"),
   });
 }
 
-function createMcpTransport(t: ReturnType<typeof setup>, workspaceId: string, actorId: string, clientId = "e2e") {
+function createMcpTransport(
+  t: ReturnType<typeof setup>,
+  workspaceId: Id<"workspaces">,
+  actorId: string,
+  clientId = "e2e",
+) {
   const url = new URL("https://executor.test/mcp");
   url.searchParams.set("workspaceId", workspaceId);
   url.searchParams.set("actorId", actorId);
@@ -24,7 +30,12 @@ function createMcpTransport(t: ReturnType<typeof setup>, workspaceId: string, ac
 
   return new StreamableHTTPClientTransport(url, {
     fetch: async (input, init) => {
-      const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const raw =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : String((input as Request).url);
       const parsed = new URL(raw);
       const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
       return await t.fetch(path, init);
@@ -32,7 +43,11 @@ function createMcpTransport(t: ReturnType<typeof setup>, workspaceId: string, ac
   });
 }
 
-async function waitForTaskId(t: ReturnType<typeof setup>, workspaceId: string, timeoutMs = 10_000): Promise<string> {
+async function waitForTaskId(
+  t: ReturnType<typeof setup>,
+  workspaceId: Id<"workspaces">,
+  timeoutMs = 10_000,
+): Promise<Id<"tasks">> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const tasks = await t.query(api.database.listTasks, { workspaceId });
@@ -47,10 +62,10 @@ async function waitForTaskId(t: ReturnType<typeof setup>, workspaceId: string, t
 
 async function waitForPendingApproval(
   t: ReturnType<typeof setup>,
-  workspaceId: string,
+  workspaceId: Id<"workspaces">,
   toolPath: string,
   timeoutMs = 10_000,
-): Promise<string> {
+): Promise<Id<"approvals">> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const approvals = await t.query(api.database.listPendingApprovals, { workspaceId });
@@ -82,7 +97,7 @@ test("MCP run_code survives delayed approval and completes", async () => {
     });
 
     const taskId = await waitForTaskId(t, session.workspaceId);
-    const runTask = t.action(api.executorNode.runTask, { taskId });
+    const runTask = t.action(internal.executorNode.runTask, { taskId });
 
     const approvalId = await waitForPendingApproval(t, session.workspaceId, "admin.send_announcement");
 
@@ -133,7 +148,7 @@ test("MCP run_code returns denied after approval denial", async () => {
     });
 
     const taskId = await waitForTaskId(t, session.workspaceId);
-    const runTask = t.action(api.executorNode.runTask, { taskId });
+    const runTask = t.action(internal.executorNode.runTask, { taskId });
 
     const approvalId = await waitForPendingApproval(t, session.workspaceId, "admin.delete_data");
     await t.mutation(api.executor.resolveApproval, {

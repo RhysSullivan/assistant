@@ -1,9 +1,12 @@
+"use node";
+
 // NOTE: The Vercel sandbox runtime (vercel-sandbox-runtime.ts) contains a JS
 // string version of similar logic, built from sandbox-fragments.ts. Changes to
 // the core helpers here (formatArgs, createToolsProxy, console proxy, execution
 // loop, result mapping) should be mirrored there.
-import { APPROVAL_DENIED_PREFIX, TASK_TIMEOUT_MARKER } from "../execution-constants";
+import { APPROVAL_DENIED_PREFIX, TASK_TIMEOUT_MARKER } from "../execution_constants";
 import { Script, createContext } from "node:vm";
+import type { Id } from "../../_generated/dataModel";
 import type {
   ExecutionAdapter,
   SandboxExecutionRequest,
@@ -13,8 +16,13 @@ import type {
 async function transpileForRuntime(code: string): Promise<string> {
   let ts: typeof import("typescript");
   try {
-    ts = await import("typescript");
+    const loaded = await import("typescript") as typeof import("typescript") | { default?: typeof import("typescript") };
+    ts = ("default" in loaded && loaded.default ? loaded.default : loaded) as typeof import("typescript");
   } catch {
+    return code;
+  }
+
+  if (!ts || typeof ts.transpileModule !== "function") {
     return code;
   }
 
@@ -56,7 +64,7 @@ function fireAndForget(promise: void | Promise<void>): void {
 
 function createToolsProxy(
   adapter: ExecutionAdapter,
-  runId: string,
+  runId: Id<"tasks">,
   path: string[] = [],
 ): unknown {
   const callable = () => {};

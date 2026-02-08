@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { getAll, getManyFrom, getOneFrom } from "convex-helpers/server/relationships";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { optionalAccountQuery, authedMutation } from "./lib/functionBuilders";
@@ -12,6 +13,9 @@ type WorkspaceSummary = {
   slug: string;
   iconUrl: string | null;
 };
+
+type OrganizationStatus = "active" | "deleted";
+type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
 
 async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName);
@@ -75,7 +79,6 @@ export const create = authedMutation({
       organizationId,
       slug: "default",
       name: "Default Workspace",
-      plan: "free",
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,
@@ -108,31 +111,27 @@ export const listMine = optionalAccountQuery({
       return [];
     }
 
-    const memberships = await ctx.db
-      .query("organizationMembers")
-      .withIndex("by_account", (q) => q.eq("accountId", account._id))
-      .collect();
+    const memberships = await getManyFrom(ctx.db, "organizationMembers", "by_account", account._id, "accountId");
 
-    const organizations = await Promise.all(
-      memberships
-        .filter((membership) => membership.status === "active")
-        .map(async (membership) => {
-          const org = await ctx.db.get(membership.organizationId);
-          if (!org) {
-            return null;
-          }
+    const activeMemberships = memberships.filter((membership) => membership.status === "active");
+    const orgDocs = await getAll(ctx.db, activeMemberships.map((membership) => membership.organizationId));
 
-          return {
-            id: org._id,
-            name: org.name,
-            slug: org.slug,
-            status: org.status,
-            role: membership.role,
-          };
-        }),
-    );
+    return activeMemberships
+      .map((membership, index) => {
+        const org = orgDocs[index];
+        if (!org) {
+          return null;
+        }
 
-    return organizations.filter((org): org is NonNullable<typeof org> => org !== null);
+        return {
+          id: org._id,
+          name: org.name,
+          slug: org.slug,
+          status: org.status,
+          role: membership.role,
+        };
+      })
+      .filter((org): org is NonNullable<typeof org> => org !== null);
   },
 });
 
@@ -140,16 +139,19 @@ export const getNavigationState = optionalAccountQuery({
   args: {},
   handler: async (ctx) => {
     const account = ctx.account;
-    const organizations: Array<{ id: Id<"organizations">; name: string; slug: string; status: string; role: string }> = [];
+    const organizations: Array<{
+      id: Id<"organizations">;
+      name: string;
+      slug: string;
+      status: OrganizationStatus;
+      role: OrganizationRole;
+    }> = [];
     const workspaces: WorkspaceSummary[] = [];
 
     if (!account) {
       if (ctx.sessionId) {
         const sessionId = ctx.sessionId;
-        const anonymousSession = await ctx.db
-          .query("anonymousSessions")
-          .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
-          .unique();
+        const anonymousSession = await getOneFrom(ctx.db, "anonymousSessions", "by_session_id", sessionId, "sessionId");
         if (anonymousSession?.workspaceId) {
           const workspace = await ctx.db.get(anonymousSession.workspaceId);
           if (workspace) {
@@ -166,15 +168,15 @@ export const getNavigationState = optionalAccountQuery({
       };
     }
 
-    const memberships = await ctx.db
-      .query("organizationMembers")
-      .withIndex("by_account", (q) => q.eq("accountId", account._id))
-      .collect();
+    const memberships = await getManyFrom(ctx.db, "organizationMembers", "by_account", account._id, "accountId");
 
     const activeMemberships = memberships.filter((membership) => membership.status === "active");
 
-    for (const membership of activeMemberships) {
-      const org = await ctx.db.get(membership.organizationId);
+    const orgDocs = await getAll(ctx.db, activeMemberships.map((membership) => membership.organizationId));
+
+    for (let index = 0; index < activeMemberships.length; index += 1) {
+      const membership = activeMemberships[index]!;
+      const org = orgDocs[index];
       if (!org) {
         continue;
       }
@@ -187,10 +189,7 @@ export const getNavigationState = optionalAccountQuery({
         role: membership.role,
       });
 
-      const orgWorkspaces = await ctx.db
-        .query("workspaces")
-        .withIndex("by_organization_created", (q) => q.eq("organizationId", org._id))
-        .collect();
+      const orgWorkspaces = await getManyFrom(ctx.db, "workspaces", "by_organization_created", org._id, "organizationId");
       for (const workspace of orgWorkspaces) {
         workspaces.push(await mapWorkspaceWithIcon(ctx, workspace));
       }

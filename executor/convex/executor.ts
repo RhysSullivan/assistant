@@ -1,19 +1,27 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation, mutation } from "./_generated/server";
-import type { ApprovalRecord, TaskRecord } from "./lib/types";
+import type {
+  ApprovalRecord,
+  TaskEventPayloadByType,
+  TaskEventType,
+  TaskRecord,
+} from "./lib/types";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const runtimeTargetValidator = v.literal("local-bun");
 
 async function publishTaskEvent(
   ctx: MutationCtx,
   input: {
-    taskId: string;
-    eventName: string;
-    type: string;
-    payload: Record<string, unknown>;
-  },
+    [K in TaskEventType]: {
+      taskId: Id<"tasks">;
+      type: K;
+      payload: TaskEventPayloadByType[K];
+    };
+  }[TaskEventType],
 ): Promise<void> {
   await ctx.runMutation(api.database.createTaskEvent, input);
 }
@@ -22,9 +30,9 @@ export const createTask = mutation({
   args: {
     code: v.string(),
     timeoutMs: v.optional(v.number()),
-    runtimeId: v.optional(v.string()),
-    metadata: v.optional(v.any()),
-    workspaceId: v.string(),
+    runtimeId: v.optional(runtimeTargetValidator),
+    metadata: v.optional(v.record(v.string(), v.any())),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.optional(v.string()),
   },
@@ -38,9 +46,7 @@ export const createTask = mutation({
       throw new Error(`Unsupported runtime: ${runtimeId}`);
     }
 
-    const taskId = `task_${crypto.randomUUID()}`;
     const task = (await ctx.runMutation(api.database.createTask, {
-      id: taskId,
       code: args.code,
       runtimeId,
       timeoutMs: args.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -51,11 +57,10 @@ export const createTask = mutation({
     })) as TaskRecord;
 
     await publishTaskEvent(ctx, {
-      taskId,
-      eventName: "task",
+      taskId: task.id,
       type: "task.created",
       payload: {
-        taskId,
+        taskId: task.id,
         status: task.status,
         runtimeId: task.runtimeId,
         timeoutMs: task.timeoutMs,
@@ -67,17 +72,16 @@ export const createTask = mutation({
     });
 
     await publishTaskEvent(ctx, {
-      taskId,
-      eventName: "task",
+      taskId: task.id,
       type: "task.queued",
       payload: {
-        taskId,
+        taskId: task.id,
         status: "queued",
       },
     });
 
     await ctx.scheduler.runAfter(1, internal.executorNode.runTask, {
-      taskId,
+      taskId: task.id,
     });
 
     return { task };
@@ -86,8 +90,8 @@ export const createTask = mutation({
 
 export const resolveApproval = mutation({
   args: {
-    workspaceId: v.string(),
-    approvalId: v.string(),
+    workspaceId: v.id("workspaces"),
+    approvalId: v.id("approvals"),
     decision: v.union(v.literal("approved"), v.literal("denied")),
     reviewerId: v.optional(v.string()),
     reason: v.optional(v.string()),
@@ -111,15 +115,18 @@ export const resolveApproval = mutation({
       return null;
     }
 
+    const decision = approval.status === "approved" || approval.status === "denied"
+      ? approval.status
+      : args.decision;
+
     await publishTaskEvent(ctx, {
       taskId: approval.taskId,
-      eventName: "approval",
       type: "approval.resolved",
       payload: {
         approvalId: approval.id,
         taskId: approval.taskId,
         toolPath: approval.toolPath,
-        decision: approval.status,
+        decision,
         reviewerId: approval.reviewerId,
         reason: approval.reason,
         resolvedAt: approval.resolvedAt,
@@ -139,7 +146,7 @@ export const resolveApproval = mutation({
 
 export const appendRuntimeOutput = internalMutation({
   args: {
-    runId: v.string(),
+    runId: v.id("tasks"),
     stream: v.union(v.literal("stdout"), v.literal("stderr")),
     line: v.string(),
     timestamp: v.optional(v.number()),
@@ -147,7 +154,6 @@ export const appendRuntimeOutput = internalMutation({
   handler: async (ctx, args) => {
     await ctx.runMutation(api.database.createTaskEvent, {
       taskId: args.runId,
-      eventName: "task",
       type: args.stream === "stdout" ? "task.stdout" : "task.stderr",
       payload: {
         taskId: args.runId,

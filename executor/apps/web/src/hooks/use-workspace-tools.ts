@@ -2,10 +2,11 @@
 
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useAction, useQuery as useConvexQuery } from "convex/react";
-import { convexApi } from "@/lib/convex-api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+import { convexApi } from "../lib/convex-api";
 
 interface WorkspaceContext {
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId?: string;
   clientId?: string;
 }

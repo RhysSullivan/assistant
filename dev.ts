@@ -151,9 +151,21 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
+// ── Kill previous dev processes ──
+
+console.log("Cleaning up previous dev processes...\n");
+{
+  const kill = Bun.spawn(["bun", "run", "kill-dev.ts"], {
+    cwd: import.meta.dir,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  await kill.exited;
+}
+
 // ── Start everything ──
 
-console.log("Starting all services...\n");
+console.log("\nStarting all services...\n");
 if (!Bun.env.DISCORD_BOT_TOKEN) {
   console.log(`${colors.bot}[bot]${colors.reset} Skipped — no DISCORD_BOT_TOKEN set\n`);
 }

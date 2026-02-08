@@ -28,6 +28,8 @@ import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useMutation, useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+import type { RuntimeId } from "@executor/contracts";
 import type {
   TaskRecord,
 } from "@/lib/types";
@@ -62,7 +64,7 @@ function formatDate(ts: number) {
 function TaskComposer() {
   const { context } = useSession();
   const [code, setCode] = useState(DEFAULT_CODE);
-  const [runtimeId, setRuntimeId] = useState("local-bun");
+  const [runtimeId, setRuntimeId] = useState<RuntimeId>("local-bun");
   const [timeoutMs, setTimeoutMs] = useState("15000");
   const [submitting, setSubmitting] = useState(false);
 
@@ -104,7 +106,7 @@ function TaskComposer() {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Runtime</Label>
-            <Select value={runtimeId} onValueChange={setRuntimeId}>
+            <Select value={runtimeId} onValueChange={(value) => setRuntimeId(value as RuntimeId)}>
               <SelectTrigger className="h-8 text-xs font-mono bg-background">
                 <SelectValue />
               </SelectTrigger>
@@ -205,7 +207,7 @@ function TaskDetail({
   onClose,
 }: {
   task: TaskRecord;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   onClose: () => void;
 }) {
   const liveTaskData = useQuery(

@@ -1,4 +1,5 @@
-import { APPROVAL_DENIED_PREFIX } from "../execution-constants";
+import { APPROVAL_DENIED_PREFIX } from "../execution_constants";
+import type { Id } from "../../_generated/dataModel";
 import type {
   ExecutionAdapter,
   RuntimeOutputEvent,
@@ -8,7 +9,7 @@ import type {
 import { describeError } from "../utils";
 
 interface InProcessExecutionAdapterOptions {
-  runId: string;
+  runId: Id<"tasks">;
   invokeTool: (call: ToolCallRequest) => Promise<unknown>;
   emitOutput: (event: RuntimeOutputEvent) => void;
 }

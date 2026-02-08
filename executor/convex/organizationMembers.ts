@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { getAll, getManyFrom } from "convex-helpers/server/relationships";
 import { internal } from "./_generated/api";
 import { getOrganizationMembership } from "./lib/identity";
 import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
@@ -13,28 +14,24 @@ const organizationRoleValidator = v.union(
 export const list = organizationQuery({
   args: {},
   handler: async (ctx) => {
-    const members = await ctx.db
-      .query("organizationMembers")
-      .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
-      .collect();
+    const members = await getManyFrom(ctx.db, "organizationMembers", "by_org", ctx.organizationId, "organizationId");
+    const profiles = await getAll(ctx.db, members.map((member) => member.accountId));
 
-    const results = await Promise.all(
-      members.map(async (member) => {
-        const profile = await ctx.db.get(member.accountId);
-        return {
-          id: member._id,
-          organizationId: member.organizationId,
-          accountId: member.accountId,
-          email: profile?.email ?? null,
-          displayName: profile?.name ?? "Unknown User",
-          avatarUrl: profile?.avatarUrl ?? null,
-          role: member.role,
-          status: member.status,
-          billable: member.billable,
-          joinedAt: member.joinedAt ?? null,
-        };
-      }),
-    );
+    const results = members.map((member, index) => {
+      const profile = profiles[index];
+      return {
+        id: member._id,
+        organizationId: member.organizationId,
+        accountId: member.accountId,
+        email: profile?.email ?? null,
+        displayName: profile?.name ?? "Unknown User",
+        avatarUrl: profile?.avatarUrl ?? null,
+        role: member.role,
+        status: member.status,
+        billable: member.billable,
+        joinedAt: member.joinedAt ?? null,
+      };
+    });
 
     return { items: results };
   },

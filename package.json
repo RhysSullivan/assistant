@@ -11,7 +11,9 @@
     "assistant/packages/reacord"
   ],
   "scripts": {
+    "kill:all": "bun run kill-dev.ts",
     "dev": "bun run dev.ts",
+    "db:clear": "bun run --cwd executor db:clear",
     "dev:executor": "bun run --cwd executor dev",
     "dev:assistant": "bun run --cwd assistant dev:server",
     "dev:bot": "bun run --cwd assistant dev:bot",

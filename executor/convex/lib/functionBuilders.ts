@@ -8,6 +8,11 @@ type OrganizationAccessOptions = {
   requireBillingAdmin?: boolean;
 };
 
+export const optionalSessionIdValidator = v.optional(v.string());
+export const optionalSessionIdArg = {
+  sessionId: optionalSessionIdValidator,
+};
+
 function ensureOrganizationRole(role: string, options: OrganizationAccessOptions): void {
   if (options.requireAdmin && !isAdminRole(role)) {
     throw new Error("Only organization admins can perform this action");
@@ -30,9 +35,7 @@ async function requireAccountFromSession(
 }
 
 export const authedQuery = customQuery(query, {
-  args: {
-    sessionId: v.optional(v.string()),
-  },
+  args: optionalSessionIdArg,
   input: async (ctx, args) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
     return {
@@ -43,9 +46,7 @@ export const authedQuery = customQuery(query, {
 });
 
 export const optionalAccountQuery = customQuery(query, {
-  args: {
-    sessionId: v.optional(v.string()),
-  },
+  args: optionalSessionIdArg,
   input: async (ctx, args) => {
     const account = await resolveAccountForRequest(ctx, args.sessionId);
     return {
@@ -56,9 +57,7 @@ export const optionalAccountQuery = customQuery(query, {
 });
 
 export const authedMutation = customMutation(mutation, {
-  args: {
-    sessionId: v.optional(v.string()),
-  },
+  args: optionalSessionIdArg,
   input: async (ctx, args) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
     return {
@@ -71,7 +70,7 @@ export const authedMutation = customMutation(mutation, {
 export const organizationQuery = customQuery(query, {
   args: {
     organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
+    ...optionalSessionIdArg,
   },
   input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
@@ -97,7 +96,7 @@ export const organizationQuery = customQuery(query, {
 export const organizationMutation = customMutation(mutation, {
   args: {
     organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
+    ...optionalSessionIdArg,
   },
   input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
@@ -123,7 +122,7 @@ export const organizationMutation = customMutation(mutation, {
 export const internalOrganizationQuery = customQuery(internalQuery, {
   args: {
     organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
+    ...optionalSessionIdArg,
   },
   input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);

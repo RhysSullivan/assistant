@@ -24,9 +24,6 @@ export function MembersView() {
   const derivedOrganizationId = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)?.organizationId ?? null
     : null;
-  const activeWorkspace = context
-    ? workspaces.find((workspace) => workspace.id === context.workspaceId) ?? null
-    : null;
   const typedOrganizationId = derivedOrganizationId;
 
   const members = useQuery(
@@ -76,12 +73,10 @@ export function MembersView() {
         organizationId: typedOrganizationId,
         email: inviteEmail.trim(),
         role: inviteRole,
-        workspaceId: activeWorkspace?.docId ?? undefined,
         sessionId: context?.sessionId ?? undefined,
       });
       setInviteState("sent");
-      const deliveryProvider = result.delivery.provider;
-      setInviteMessage(`Invite ${result.delivery.state} via ${deliveryProvider}.`);
+      setInviteMessage(`Invite ${result.delivery.state}.`);
       setInviteEmail("");
     } catch (error) {
       setInviteState("failed");
@@ -157,7 +152,7 @@ export function MembersView() {
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
             <Users className="h-4 w-4" />
-            Workspace Members
+            Organization Members
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">

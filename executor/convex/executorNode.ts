@@ -2,22 +2,28 @@
 
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { action, internalAction } from "./_generated/server";
-import { InProcessExecutionAdapter } from "./lib/adapters/in-process-execution-adapter";
-import { APPROVAL_DENIED_PREFIX } from "./lib/execution-constants";
-import { runCodeWithAdapter } from "./lib/runtimes/runtime-core";
-import { createDiscoverTool } from "./lib/tool-discovery";
+import { InProcessExecutionAdapter } from "./lib/adapters/in_process_execution_adapter";
+import { APPROVAL_DENIED_PREFIX } from "./lib/execution_constants";
+import { runCodeWithAdapter } from "./lib/runtimes/runtime_core";
+import { createDiscoverTool } from "./lib/tool_discovery";
 import {
   loadExternalTools,
   parseGraphqlOperationPaths,
   type ExternalToolSourceConfig,
-} from "./lib/tool-sources";
+} from "./lib/tool_sources";
 import { DEFAULT_TOOLS } from "./lib/tools";
 import type {
   AccessPolicyRecord,
   CredentialScope,
+  GraphqlToolSourceConfig,
+  McpToolSourceConfig,
+  OpenApiToolSourceConfig,
   PolicyDecision,
   ResolvedToolCredential,
+  TaskEventPayloadByType,
+  TaskEventType,
   TaskRecord,
   ToolCallRequest,
   ToolCallResult,
@@ -28,10 +34,6 @@ import type {
   ToolRunContext,
 } from "./lib/types";
 import { asPayload, describeError } from "./lib/utils";
-
-function createApprovalId(): string {
-  return `approval_${crypto.randomUUID()}`;
-}
 
 function matchesToolPath(pattern: string, toolPath: string): boolean {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
@@ -48,39 +50,36 @@ function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientI
   return score;
 }
 
-function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
+function sourceSignature(
+  workspaceId: Id<"workspaces">,
+  sources: Array<{ id: string; updatedAt: number; enabled: boolean }>,
+): string {
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();
   return `${workspaceId}|${parts.join(",")}`;
 }
 
-function normalizeExternalToolSource(raw: {
-  type: ToolSourceRecord["type"];
-  name: string;
-  config: Record<string, unknown>;
-}): ExternalToolSourceConfig {
-  const merged = {
-    type: raw.type,
-    name: raw.name,
-    ...raw.config,
-  } as Record<string, unknown>;
-
+function normalizeExternalToolSource(raw:
+  | { type: "mcp"; name: string; config: McpToolSourceConfig }
+  | { type: "openapi"; name: string; config: OpenApiToolSourceConfig }
+  | { type: "graphql"; name: string; config: GraphqlToolSourceConfig }
+): ExternalToolSourceConfig {
   if (raw.type === "mcp") {
-    if (typeof merged.url !== "string" || merged.url.trim().length === 0) {
+    if (typeof raw.config.url !== "string" || raw.config.url.trim().length === 0) {
       throw new Error(`MCP source '${raw.name}' missing url`);
     }
 
     if (
-      merged.transport !== undefined
-      && merged.transport !== "sse"
-      && merged.transport !== "streamable-http"
+      raw.config.transport !== undefined
+      && raw.config.transport !== "sse"
+      && raw.config.transport !== "streamable-http"
     ) {
       throw new Error(`MCP source '${raw.name}' has invalid transport`);
     }
 
-    if (merged.queryParams !== undefined) {
-      const queryParams = merged.queryParams;
+    if (raw.config.queryParams !== undefined) {
+      const queryParams = raw.config.queryParams;
       if (!queryParams || typeof queryParams !== "object" || Array.isArray(queryParams)) {
         throw new Error(`MCP source '${raw.name}' queryParams must be an object`);
       }
@@ -92,22 +91,34 @@ function normalizeExternalToolSource(raw: {
       }
     }
 
-    return merged as unknown as ExternalToolSourceConfig;
+    return {
+      type: "mcp",
+      name: raw.name,
+      ...raw.config,
+    };
   }
 
   if (raw.type === "graphql") {
-    if (typeof merged.endpoint !== "string" || merged.endpoint.trim().length === 0) {
+    if (typeof raw.config.endpoint !== "string" || raw.config.endpoint.trim().length === 0) {
       throw new Error(`GraphQL source '${raw.name}' missing endpoint`);
     }
-    return merged as unknown as ExternalToolSourceConfig;
+    return {
+      type: "graphql",
+      name: raw.name,
+      ...raw.config,
+    };
   }
 
-  const spec = merged.spec;
+  const spec = raw.config.spec;
   if (typeof spec !== "string" && typeof spec !== "object") {
     throw new Error(`OpenAPI source '${raw.name}' missing spec`);
   }
 
-  return merged as unknown as ExternalToolSourceConfig;
+  return {
+    type: "openapi",
+    name: raw.name,
+    ...raw.config,
+  };
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -122,20 +133,23 @@ const workspaceToolCache = new Map<
 
 async function publish(
   ctx: any,
-  taskId: string,
-  eventName: "task" | "approval",
-  type: string,
-  payload: Record<string, unknown>,
+  input: {
+    [K in TaskEventType]: {
+      taskId: Id<"tasks">;
+      type: K;
+    } & TaskEventPayloadByType[K];
+  }[TaskEventType],
 ): Promise<void> {
+  const { taskId, type, ...payload } = input;
+
   await ctx.runMutation(api.database.createTaskEvent, {
     taskId,
-    eventName,
     type,
-    payload,
+    payload: payload as unknown as Record<string, unknown>,
   });
 }
 
-async function waitForApproval(ctx: any, approvalId: string): Promise<"approved" | "denied"> {
+async function waitForApproval(ctx: any, approvalId: Id<"approvals">): Promise<"approved" | "denied"> {
   while (true) {
     const approval = await ctx.runQuery(api.database.getApproval, { approvalId });
     if (!approval) {
@@ -150,7 +164,7 @@ async function waitForApproval(ctx: any, approvalId: string): Promise<"approved"
   }
 }
 
-async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<string, ToolDefinition>> {
+async function getWorkspaceTools(ctx: any, workspaceId: Id<"workspaces">): Promise<Map<string, ToolDefinition>> {
   const sources = (await ctx.runQuery(api.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
   const signature = sourceSignature(workspaceId, sources);
@@ -197,7 +211,7 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
 
 function getDecisionForContext(
   tool: ToolDefinition,
-  context: { workspaceId: string; actorId?: string; clientId?: string },
+  context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   policies: AccessPolicyRecord[],
 ): PolicyDecision {
   const defaultDecision: PolicyDecision = tool.approval === "required" ? "require_approval" : "allow";
@@ -366,8 +380,9 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
   }
 
   if (decision === "deny") {
-    await publish(ctx, task.id, "task", "tool.call.denied", {
+    await publish(ctx, {
       taskId: task.id,
+      type: "tool.call.denied",
       callId,
       toolPath: effectiveToolPath,
       reason: "policy_deny",
@@ -384,8 +399,9 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
     credential = resolved;
   }
 
-  await publish(ctx, task.id, "task", "tool.call.started", {
+  await publish(ctx, {
     taskId: task.id,
+    type: "tool.call.started",
     callId,
     toolPath: effectiveToolPath,
     approval: decision === "require_approval" ? "required" : "auto",
@@ -394,15 +410,15 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
 
   if (decision === "require_approval") {
     const approval = await ctx.runMutation(api.database.createApproval, {
-      id: createApprovalId(),
       taskId: task.id,
       toolPath: effectiveToolPath,
       input,
     });
 
-    await publish(ctx, task.id, "approval", "approval.requested", {
+    await publish(ctx, {
       approvalId: approval.id,
       taskId: task.id,
+      type: "approval.requested",
       callId,
       toolPath: approval.toolPath,
       input: asPayload(approval.input),
@@ -411,8 +427,9 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
 
     const approvalDecision = await waitForApproval(ctx, approval.id);
     if (approvalDecision === "denied") {
-      await publish(ctx, task.id, "task", "tool.call.denied", {
+      await publish(ctx, {
         taskId: task.id,
+        type: "tool.call.denied",
         callId,
         toolPath: effectiveToolPath,
         approvalId: approval.id,
@@ -431,8 +448,9 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
       isToolAllowed: (path) => isToolAllowedForTask(task, path, workspaceTools, typedPolicies),
     };
     const value = await tool.run(input, context);
-    await publish(ctx, task.id, "task", "tool.call.completed", {
+    await publish(ctx, {
       taskId: task.id,
+      type: "tool.call.completed",
       callId,
       toolPath: effectiveToolPath,
       output: asPayload(value),
@@ -440,8 +458,9 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
     return value;
   } catch (error) {
     const message = describeError(error);
-    await publish(ctx, task.id, "task", "tool.call.failed", {
+    await publish(ctx, {
       taskId: task.id,
+      type: "tool.call.failed",
       callId,
       toolPath: effectiveToolPath,
       error: message,
@@ -452,7 +471,7 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
 
 export const listTools = action({
   args: {
-    workspaceId: v.optional(v.string()),
+    workspaceId: v.optional(v.id("workspaces")),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
   },
@@ -473,15 +492,20 @@ export const listTools = action({
       ctx.runQuery(api.database.listAccessPolicies, { workspaceId: args.workspaceId }),
     ]);
     const typedPolicies = policies as AccessPolicyRecord[];
+    const listContext = {
+      workspaceId: args.workspaceId,
+      actorId: args.actorId,
+      clientId: args.clientId,
+    };
     const all = [...workspaceTools.values()];
 
     return all
       .filter((tool) => {
-        const decision = getDecisionForContext(tool, args as { workspaceId: string; actorId?: string; clientId?: string }, typedPolicies);
+        const decision = getDecisionForContext(tool, listContext, typedPolicies);
         return decision !== "deny";
       })
       .map((tool) => {
-        const decision = getDecisionForContext(tool, args as { workspaceId: string; actorId?: string; clientId?: string }, typedPolicies);
+        const decision = getDecisionForContext(tool, listContext, typedPolicies);
         return {
           path: tool.path,
           description: tool.description,
@@ -496,10 +520,10 @@ export const listTools = action({
 
 export const handleExternalToolCall = internalAction({
   args: {
-    runId: v.string(),
+    runId: v.id("tasks"),
     callId: v.string(),
     toolPath: v.string(),
-    input: v.optional(v.any()),
+    input: v.optional(v.record(v.string(), v.any())),
   },
   handler: async (ctx, args): Promise<ToolCallResult> => {
     const task = (await ctx.runQuery(api.database.getTask, {
@@ -539,7 +563,7 @@ export const handleExternalToolCall = internalAction({
 });
 
 export const runTask = internalAction({
-  args: { taskId: v.string() },
+  args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const task = (await ctx.runQuery(api.database.getTask, { taskId: args.taskId })) as TaskRecord | null;
     if (!task || task.status !== "queued") {
@@ -556,9 +580,10 @@ export const runTask = internalAction({
       });
 
       if (failed) {
-        await publish(ctx, args.taskId, "task", "task.failed", {
+        await publish(ctx, {
           taskId: args.taskId,
-          status: failed.status,
+          type: "task.failed",
+          status: "failed",
           error: failed.error,
         });
       }
@@ -573,9 +598,10 @@ export const runTask = internalAction({
         return null;
       }
 
-      await publish(ctx, args.taskId, "task", "task.running", {
+      await publish(ctx, {
         taskId: args.taskId,
-        status: running.status,
+        type: "task.running",
+        status: "running",
         startedAt: running.startedAt,
       });
 
@@ -623,9 +649,10 @@ export const runTask = internalAction({
               ? "task.denied"
               : "task.failed";
 
-      await publish(ctx, args.taskId, "task", terminalEvent, {
+      await publish(ctx, {
         taskId: args.taskId,
-        status: finished.status,
+        type: terminalEvent,
+        status: runtimeResult.status,
         exitCode: finished.exitCode,
         durationMs: runtimeResult.durationMs,
         error: finished.error,
@@ -643,9 +670,10 @@ export const runTask = internalAction({
       });
 
       if (finished) {
-        await publish(ctx, args.taskId, "task", denied ? "task.denied" : "task.failed", {
+        await publish(ctx, {
           taskId: args.taskId,
-          status: finished.status,
+          type: denied ? "task.denied" : "task.failed",
+          status: denied ? "denied" : "failed",
           error: finished.error,
           completedAt: finished.completedAt,
         });

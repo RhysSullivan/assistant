@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { loadExternalTools } from "./tool-sources";
-import type { ExternalToolSourceConfig } from "./tool-sources";
+import { loadExternalTools } from "../../convex/lib/tool_sources";
+import type { ExternalToolSourceConfig } from "../../convex/lib/tool_sources";
 
 function makeInlineSpec(tag: string, operationId: string): Record<string, unknown> {
   return {

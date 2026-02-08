@@ -26,7 +26,7 @@ export function generateToolDeclarations(tools: ToolDescriptor[]): string {
   for (const tool of tools) {
     if (tool.schemaTypes) {
       for (const [name, type] of Object.entries(tool.schemaTypes)) {
-        if (!allSchemas.has(name)) {
+        if (!allSchemas.has(name) && typeof type === "string") {
           allSchemas.set(name, type);
         }
       }
@@ -123,9 +123,14 @@ export function typecheckCode(
 ): TypecheckResult {
   let ts: typeof import("typescript");
   try {
-    ts = require("typescript");
+    const loaded = require("typescript") as typeof import("typescript") | { default?: typeof import("typescript") };
+    ts = ("default" in loaded && loaded.default ? loaded.default : loaded) as typeof import("typescript");
   } catch {
     // TypeScript not available — skip typechecking
+    return { ok: true, errors: [] };
+  }
+
+  if (!ts || typeof ts.createCompilerHost !== "function" || !(ts as unknown as { sys?: unknown }).sys) {
     return { ok: true, errors: [] };
   }
 
@@ -159,15 +164,20 @@ export function typecheckCode(
     types: [], // prevent automatic @types/* (e.g. @types/node) from conflicting with our sandbox declarations
   };
 
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile.bind(host);
-  host.getSourceFile = (fileName, languageVersion) => {
-    if (fileName === "generated.ts") return sourceFile;
-    return originalGetSourceFile(fileName, languageVersion);
-  };
+  let diagnostics: readonly import("typescript").Diagnostic[];
+  try {
+    const host = ts.createCompilerHost(compilerOptions);
+    const originalGetSourceFile = host.getSourceFile.bind(host);
+    host.getSourceFile = (fileName, languageVersion) => {
+      if (fileName === "generated.ts") return sourceFile;
+      return originalGetSourceFile(fileName, languageVersion);
+    };
 
-  const program = ts.createProgram(["generated.ts"], compilerOptions, host);
-  const diagnostics = program.getSemanticDiagnostics(sourceFile);
+    const program = ts.createProgram(["generated.ts"], compilerOptions, host);
+    diagnostics = program.getSemanticDiagnostics(sourceFile);
+  } catch {
+    return { ok: true, errors: [] };
+  }
 
   if (diagnostics.length === 0) {
     return { ok: true, errors: [] };

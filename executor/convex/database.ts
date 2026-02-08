@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import { getAll, getOneFrom } from "convex-helpers/server/relationships";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { ensureUniqueSlug } from "./lib/slug";
@@ -18,7 +19,80 @@ const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approve
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
 const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
+const toolApprovalModeValidator = v.union(v.literal("auto"), v.literal("required"));
+const toolCredentialModeValidator = v.union(v.literal("static"), credentialScopeValidator);
+const toolSourceApprovalOverrideValidator = v.object({ approval: v.optional(toolApprovalModeValidator) });
+const toolSourceAuthValidator = v.union(
+  v.object({ type: v.literal("none") }),
+  v.object({
+    type: v.literal("basic"),
+    mode: v.optional(toolCredentialModeValidator),
+    username: v.optional(v.string()),
+    password: v.optional(v.string()),
+  }),
+  v.object({
+    type: v.literal("bearer"),
+    mode: v.optional(toolCredentialModeValidator),
+    token: v.optional(v.string()),
+  }),
+  v.object({
+    type: v.literal("apiKey"),
+    mode: v.optional(toolCredentialModeValidator),
+    header: v.string(),
+    value: v.optional(v.string()),
+  }),
+);
+const mcpSourceConfigValidator = v.object({
+  url: v.string(),
+  transport: v.optional(v.union(v.literal("sse"), v.literal("streamable-http"))),
+  queryParams: v.optional(v.record(v.string(), v.string())),
+  defaultApproval: v.optional(toolApprovalModeValidator),
+  overrides: v.optional(v.record(v.string(), toolSourceApprovalOverrideValidator)),
+});
+const openApiSourceConfigValidator = v.object({
+  spec: v.union(v.string(), v.record(v.string(), v.any())),
+  baseUrl: v.optional(v.string()),
+  auth: v.optional(toolSourceAuthValidator),
+  defaultReadApproval: v.optional(toolApprovalModeValidator),
+  defaultWriteApproval: v.optional(toolApprovalModeValidator),
+  overrides: v.optional(v.record(v.string(), toolSourceApprovalOverrideValidator)),
+});
+const graphqlSourceConfigValidator = v.object({
+  endpoint: v.string(),
+  schema: v.optional(v.record(v.string(), v.any())),
+  auth: v.optional(toolSourceAuthValidator),
+  defaultQueryApproval: v.optional(toolApprovalModeValidator),
+  defaultMutationApproval: v.optional(toolApprovalModeValidator),
+  overrides: v.optional(v.record(v.string(), toolSourceApprovalOverrideValidator)),
+});
+const toolSourceConfigValidator = v.union(
+  mcpSourceConfigValidator,
+  openApiSourceConfigValidator,
+  graphqlSourceConfigValidator,
+);
 const agentTaskStatusValidator = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
+const runtimeTargetValidator = v.literal("local-bun");
+const taskEventTypeValidator = v.union(
+  v.literal("task.created"),
+  v.literal("task.queued"),
+  v.literal("task.running"),
+  v.literal("task.completed"),
+  v.literal("task.failed"),
+  v.literal("task.timed_out"),
+  v.literal("task.denied"),
+  v.literal("task.stdout"),
+  v.literal("task.stderr"),
+  v.literal("tool.call.started"),
+  v.literal("tool.call.completed"),
+  v.literal("tool.call.failed"),
+  v.literal("tool.call.denied"),
+  v.literal("approval.requested"),
+  v.literal("approval.resolved"),
+);
+
+function taskEventNameFromType(type: string): "task" | "approval" {
+  return type.startsWith("approval.") ? "approval" : "task";
+}
 
 function normalizeOptional(value?: string): string {
   if (typeof value !== "string") {
@@ -102,9 +176,37 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
+function normalizeToolSourceConfig(
+  type: Doc<"toolSources">["type"],
+  config: Doc<"toolSources">["config"],
+): Doc<"toolSources">["config"] {
+  if (type === "mcp") {
+    if (!("url" in config) || typeof config.url !== "string" || config.url.trim().length === 0) {
+      throw new Error("MCP source config must include a non-empty url");
+    }
+    return config;
+  }
+
+  if (type === "openapi") {
+    if (!("spec" in config)) {
+      throw new Error("OpenAPI source config must include spec");
+    }
+    const spec = config.spec;
+    if (typeof spec !== "string" && (typeof spec !== "object" || spec === null || Array.isArray(spec))) {
+      throw new Error("OpenAPI source config must include spec");
+    }
+    return config;
+  }
+
+  if (!("endpoint" in config) || typeof config.endpoint !== "string" || config.endpoint.trim().length === 0) {
+    throw new Error("GraphQL source config must include a non-empty endpoint");
+  }
+  return config;
+}
+
 function mapTask(doc: Doc<"tasks">) {
   return {
-    id: doc.taskId,
+    id: doc._id,
     code: doc.code,
     runtimeId: doc.runtimeId,
     status: doc.status,
@@ -126,7 +228,7 @@ function mapTask(doc: Doc<"tasks">) {
 
 function mapApproval(doc: Doc<"approvals">) {
   return {
-    id: doc.approvalId,
+    id: doc._id,
     taskId: doc.taskId,
     toolPath: doc.toolPath,
     input: doc.input,
@@ -140,7 +242,7 @@ function mapApproval(doc: Doc<"approvals">) {
 
 function mapPolicy(doc: Doc<"accessPolicies">) {
   return {
-    id: doc.policyId,
+    id: doc._id,
     workspaceId: doc.workspaceId,
     actorId: optionalFromNormalized(doc.actorId),
     clientId: optionalFromNormalized(doc.clientId),
@@ -154,7 +256,7 @@ function mapPolicy(doc: Doc<"accessPolicies">) {
 
 function mapCredential(doc: Doc<"sourceCredentials">) {
   return {
-    id: doc.credentialId,
+    id: doc._id,
     workspaceId: doc.workspaceId,
     sourceKey: doc.sourceKey,
     scope: doc.scope,
@@ -167,11 +269,11 @@ function mapCredential(doc: Doc<"sourceCredentials">) {
 
 function mapSource(doc: Doc<"toolSources">) {
   return {
-    id: doc.sourceId,
+    id: doc._id,
     workspaceId: doc.workspaceId,
     name: doc.name,
     type: doc.type,
-    config: asRecord(doc.config),
+    config: doc.config,
     enabled: Boolean(doc.enabled),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -232,7 +334,6 @@ async function ensureAnonymousIdentity(
       organizationId,
       slug: `guest-${crypto.randomUUID().slice(0, 8)}`,
       name: "Guest Workspace",
-      plan: "free",
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,
@@ -254,32 +355,9 @@ async function ensureAnonymousIdentity(
     now,
   });
 
-  let user = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
-    .unique();
-
-  if (!user) {
-    const userId = await ctx.db.insert("workspaceMembers", {
-      workspaceId: workspace._id,
-      accountId: account._id,
-      role: "owner",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    user = await ctx.db.get(userId);
-    if (!user) {
-      throw new Error("Failed to create anonymous user membership");
-    }
-  } else {
-    await ctx.db.patch(user._id, { updatedAt: now });
-  }
-
   return {
     accountId: account._id,
     workspaceId: workspace._id,
-    userId: user._id,
   };
 }
 
@@ -290,7 +368,6 @@ function mapAnonymousContext(doc: Doc<"anonymousSessions">) {
     actorId: doc.actorId,
     clientId: doc.clientId,
     accountId: doc.accountId,
-    userId: doc.userId,
     createdAt: doc.createdAt,
     lastSeenAt: doc.lastSeenAt,
   };
@@ -300,44 +377,34 @@ function mapTaskEvent(doc: Doc<"taskEvents">) {
   return {
     id: doc.sequence,
     taskId: doc.taskId,
-    eventName: doc.eventName,
+    eventName: taskEventNameFromType(doc.type),
     type: doc.type,
     payload: doc.payload,
     createdAt: doc.createdAt,
   };
 }
 
-async function getTaskDoc(ctx: { db: QueryCtx["db"] }, taskId: string) {
-  return await ctx.db.query("tasks").withIndex("by_task_id", (q) => q.eq("taskId", taskId)).unique();
+async function getTaskDoc(ctx: { db: QueryCtx["db"] }, taskId: Id<"tasks">) {
+  return await ctx.db.get(taskId);
 }
 
-async function getApprovalDoc(ctx: { db: QueryCtx["db"] }, approvalId: string) {
-  return await ctx.db
-    .query("approvals")
-    .withIndex("by_approval_id", (q) => q.eq("approvalId", approvalId))
-    .unique();
+async function getApprovalDoc(ctx: { db: QueryCtx["db"] }, approvalId: Id<"approvals">) {
+  return await ctx.db.get(approvalId);
 }
 
 export const createTask = mutation({
   args: {
-    id: v.string(),
     code: v.string(),
-    runtimeId: v.string(),
+    runtimeId: runtimeTargetValidator,
     timeoutMs: v.optional(v.number()),
-    metadata: v.optional(v.any()),
-    workspaceId: v.string(),
+    metadata: v.optional(v.record(v.string(), v.any())),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await getTaskDoc(ctx, args.id);
-    if (existing) {
-      throw new Error(`Task already exists: ${args.id}`);
-    }
-
     const now = Date.now();
-    await ctx.db.insert("tasks", {
-      taskId: args.id,
+    const taskId = await ctx.db.insert("tasks", {
       code: args.code,
       runtimeId: args.runtimeId,
       workspaceId: args.workspaceId,
@@ -350,16 +417,16 @@ export const createTask = mutation({
       updatedAt: now,
     });
 
-    const created = await getTaskDoc(ctx, args.id);
+    const created = await getTaskDoc(ctx, taskId);
     if (!created) {
-      throw new Error(`Failed to fetch created task ${args.id}`);
+      throw new Error(`Failed to fetch created task ${taskId}`);
     }
     return mapTask(created);
   },
 });
 
 export const getTask = query({
-  args: { taskId: v.string() },
+  args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
     return doc ? mapTask(doc) : null;
@@ -367,7 +434,7 @@ export const getTask = query({
 });
 
 export const listTasks = query({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("tasks")
@@ -387,7 +454,7 @@ export const listQueuedTaskIds = query({
       .order("asc")
       .take(args.limit ?? 20);
 
-    return docs.map((doc) => doc.taskId);
+    return docs.map((doc) => doc._id);
   },
 });
 
@@ -405,7 +472,7 @@ export const listRuntimeTargets = query({
 });
 
 export const getTaskInWorkspace = query({
-  args: { taskId: v.string(), workspaceId: v.string() },
+  args: { taskId: v.id("tasks"), workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
     if (!doc || doc.workspaceId !== args.workspaceId) {
@@ -416,7 +483,7 @@ export const getTaskInWorkspace = query({
 });
 
 export const markTaskRunning = mutation({
-  args: { taskId: v.string() },
+  args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
     if (!doc || doc.status !== "queued") {
@@ -437,7 +504,7 @@ export const markTaskRunning = mutation({
 
 export const markTaskFinished = mutation({
   args: {
-    taskId: v.string(),
+    taskId: v.id("tasks"),
     status: completedTaskStatusValidator,
     stdout: v.string(),
     stderr: v.string(),
@@ -468,25 +535,18 @@ export const markTaskFinished = mutation({
 
 export const createApproval = mutation({
   args: {
-    id: v.string(),
-    taskId: v.string(),
+    taskId: v.id("tasks"),
     toolPath: v.string(),
-    input: v.optional(v.any()),
+    input: v.optional(v.record(v.string(), v.any())),
   },
   handler: async (ctx, args) => {
-    const existing = await getApprovalDoc(ctx, args.id);
-    if (existing) {
-      throw new Error(`Approval already exists: ${args.id}`);
-    }
-
     const task = await getTaskDoc(ctx, args.taskId);
     if (!task) {
       throw new Error(`Task not found for approval: ${args.taskId}`);
     }
 
     const now = Date.now();
-    await ctx.db.insert("approvals", {
-      approvalId: args.id,
+    const approvalId = await ctx.db.insert("approvals", {
       taskId: args.taskId,
       workspaceId: task.workspaceId,
       toolPath: args.toolPath,
@@ -495,16 +555,16 @@ export const createApproval = mutation({
       createdAt: now,
     });
 
-    const created = await getApprovalDoc(ctx, args.id);
+    const created = await getApprovalDoc(ctx, approvalId);
     if (!created) {
-      throw new Error(`Failed to fetch approval ${args.id}`);
+      throw new Error(`Failed to fetch approval ${approvalId}`);
     }
     return mapApproval(created);
   },
 });
 
 export const getApproval = query({
-  args: { approvalId: v.string() },
+  args: { approvalId: v.id("approvals") },
   handler: async (ctx, args) => {
     const doc = await getApprovalDoc(ctx, args.approvalId);
     return doc ? mapApproval(doc) : null;
@@ -513,7 +573,7 @@ export const getApproval = query({
 
 export const listApprovals = query({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     status: v.optional(approvalStatusValidator),
   },
   handler: async (ctx, args) => {
@@ -539,7 +599,7 @@ export const listApprovals = query({
 });
 
 export const listPendingApprovals = query({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("approvals")
@@ -549,11 +609,11 @@ export const listPendingApprovals = query({
       .order("asc")
       .collect();
 
-    const tasks = await Promise.all(docs.map((approval) => getTaskDoc(ctx, approval.taskId)));
+    const tasks = await getAll(ctx.db, docs.map((approval) => approval.taskId));
 
     const results: Array<
       ReturnType<typeof mapApproval> & {
-        task: { id: string; status: string; runtimeId: string; timeoutMs: number; createdAt: number };
+        task: { id: string; status: string; runtimeId: "local-bun"; timeoutMs: number; createdAt: number };
       }
     > = [];
     for (let i = 0; i < docs.length; i++) {
@@ -566,7 +626,7 @@ export const listPendingApprovals = query({
       results.push({
         ...mapApproval(approval),
         task: {
-          id: task.taskId,
+          id: task._id,
           status: task.status,
           runtimeId: task.runtimeId,
           timeoutMs: task.timeoutMs,
@@ -581,7 +641,7 @@ export const listPendingApprovals = query({
 
 export const resolveApproval = mutation({
   args: {
-    approvalId: v.string(),
+    approvalId: v.id("approvals"),
     decision: v.union(v.literal("approved"), v.literal("denied")),
     reviewerId: v.optional(v.string()),
     reason: v.optional(v.string()),
@@ -606,7 +666,7 @@ export const resolveApproval = mutation({
 });
 
 export const getApprovalInWorkspace = query({
-  args: { approvalId: v.string(), workspaceId: v.string() },
+  args: { approvalId: v.id("approvals"), workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const doc = await getApprovalDoc(ctx, args.approvalId);
     if (!doc || doc.workspaceId !== args.workspaceId) {
@@ -620,7 +680,7 @@ export const getApprovalInWorkspace = query({
 
 function mapAgentTask(doc: Doc<"agentTasks">) {
   return {
-    id: doc.agentTaskId,
+    id: doc._id,
     prompt: doc.prompt,
     requesterId: doc.requesterId,
     workspaceId: doc.workspaceId,
@@ -634,30 +694,16 @@ function mapAgentTask(doc: Doc<"agentTasks">) {
   };
 }
 
-async function getAgentTaskDoc(ctx: { db: QueryCtx["db"] }, agentTaskId: string) {
-  return await ctx.db
-    .query("agentTasks")
-    .withIndex("by_agent_task_id", (q) => q.eq("agentTaskId", agentTaskId))
-    .unique();
-}
-
 export const createAgentTask = mutation({
   args: {
-    id: v.string(),
     prompt: v.string(),
     requesterId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
   },
   handler: async (ctx, args) => {
-    const existing = await getAgentTaskDoc(ctx, args.id);
-    if (existing) {
-      throw new Error(`Agent task already exists: ${args.id}`);
-    }
-
     const now = Date.now();
-    await ctx.db.insert("agentTasks", {
-      agentTaskId: args.id,
+    const agentTaskId = await ctx.db.insert("agentTasks", {
       prompt: args.prompt,
       requesterId: args.requesterId,
       workspaceId: args.workspaceId,
@@ -668,30 +714,30 @@ export const createAgentTask = mutation({
       updatedAt: now,
     });
 
-    const created = await getAgentTaskDoc(ctx, args.id);
-    if (!created) throw new Error(`Failed to fetch created agent task ${args.id}`);
+    const created = await ctx.db.get(agentTaskId);
+    if (!created) throw new Error(`Failed to fetch created agent task ${agentTaskId}`);
     return mapAgentTask(created);
   },
 });
 
 export const getAgentTask = query({
-  args: { agentTaskId: v.string() },
+  args: { agentTaskId: v.id("agentTasks") },
   handler: async (ctx, args) => {
-    const doc = await getAgentTaskDoc(ctx, args.agentTaskId);
+    const doc = await ctx.db.get(args.agentTaskId);
     return doc ? mapAgentTask(doc) : null;
   },
 });
 
 export const updateAgentTask = mutation({
   args: {
-    agentTaskId: v.string(),
+    agentTaskId: v.id("agentTasks"),
     status: v.optional(agentTaskStatusValidator),
     resultText: v.optional(v.string()),
     error: v.optional(v.string()),
     codeRuns: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const doc = await getAgentTaskDoc(ctx, args.agentTaskId);
+    const doc = await ctx.db.get(args.agentTaskId);
     if (!doc) return null;
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
@@ -701,7 +747,7 @@ export const updateAgentTask = mutation({
     if (args.codeRuns !== undefined) patch.codeRuns = args.codeRuns;
 
     await ctx.db.patch(doc._id, patch);
-    const updated = await getAgentTaskDoc(ctx, args.agentTaskId);
+    const updated = await ctx.db.get(args.agentTaskId);
     return updated ? mapAgentTask(updated) : null;
   },
 });
@@ -714,10 +760,7 @@ export const bootstrapAnonymousSession = mutation({
 
     if (requestedSessionId) {
       const sessionId = requestedSessionId;
-      const existing = await ctx.db
-        .query("anonymousSessions")
-        .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
-        .unique();
+      const existing = await getOneFrom(ctx.db, "anonymousSessions", "by_session_id", sessionId, "sessionId");
       if (existing) {
         const identity = await ensureAnonymousIdentity(ctx, {
           sessionId,
@@ -729,14 +772,10 @@ export const bootstrapAnonymousSession = mutation({
         await ctx.db.patch(existing._id, {
           workspaceId: identity.workspaceId,
           accountId: identity.accountId,
-          userId: identity.userId,
           lastSeenAt: now,
         });
 
-        const refreshed = await ctx.db
-          .query("anonymousSessions")
-          .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
-          .unique();
+        const refreshed = await getOneFrom(ctx.db, "anonymousSessions", "by_session_id", sessionId, "sessionId");
         if (!refreshed) {
           throw new Error("Failed to refresh anonymous session");
         }
@@ -760,15 +799,11 @@ export const bootstrapAnonymousSession = mutation({
       actorId,
       clientId,
       accountId: identity.accountId,
-      userId: identity.userId,
       createdAt: now,
       lastSeenAt: now,
     });
 
-    const created = await ctx.db
-      .query("anonymousSessions")
-      .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
-      .unique();
+    const created = await getOneFrom(ctx.db, "anonymousSessions", "by_session_id", sessionId, "sessionId");
     if (!created) {
       throw new Error("Failed to create anonymous session");
     }
@@ -779,8 +814,8 @@ export const bootstrapAnonymousSession = mutation({
 
 export const upsertAccessPolicy = mutation({
   args: {
-    id: v.optional(v.string()),
-    workspaceId: v.string(),
+    id: v.optional(v.id("accessPolicies")),
+    workspaceId: v.id("workspaces"),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
     toolPathPattern: v.string(),
@@ -789,11 +824,7 @@ export const upsertAccessPolicy = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const policyId = args.id ?? `policy_${crypto.randomUUID()}`;
-    const existing = await ctx.db
-      .query("accessPolicies")
-      .withIndex("by_policy_id", (q) => q.eq("policyId", policyId))
-      .unique();
+    const existing = args.id ? await ctx.db.get(args.id) : null;
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -806,8 +837,7 @@ export const upsertAccessPolicy = mutation({
         updatedAt: now,
       });
     } else {
-      await ctx.db.insert("accessPolicies", {
-        policyId,
+      const insertedId = await ctx.db.insert("accessPolicies", {
         workspaceId: args.workspaceId,
         actorId: normalizeOptional(args.actorId),
         clientId: normalizeOptional(args.clientId),
@@ -817,21 +847,24 @@ export const upsertAccessPolicy = mutation({
         createdAt: now,
         updatedAt: now,
       });
+
+      const inserted = await ctx.db.get(insertedId);
+      if (!inserted) {
+        throw new Error(`Failed to read policy ${insertedId}`);
+      }
+      return mapPolicy(inserted);
     }
 
-    const updated = await ctx.db
-      .query("accessPolicies")
-      .withIndex("by_policy_id", (q) => q.eq("policyId", policyId))
-      .unique();
+    const updated = await ctx.db.get(existing._id);
     if (!updated) {
-      throw new Error(`Failed to read policy ${policyId}`);
+      throw new Error(`Failed to read policy ${existing._id}`);
     }
     return mapPolicy(updated);
   },
 });
 
 export const listAccessPolicies = query({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("accessPolicies")
@@ -851,12 +884,11 @@ export const listAccessPolicies = query({
 
 export const upsertCredential = mutation({
   args: {
-    id: v.optional(v.string()),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
-    secretJson: v.any(),
+    secretJson: v.record(v.string(), v.any()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -880,7 +912,6 @@ export const upsertCredential = mutation({
       });
     } else {
       await ctx.db.insert("sourceCredentials", {
-        credentialId: args.id ?? `cred_${crypto.randomUUID()}`,
         workspaceId: args.workspaceId,
         sourceKey: args.sourceKey,
         scope: args.scope,
@@ -911,7 +942,7 @@ export const upsertCredential = mutation({
 });
 
 export const listCredentials = query({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("sourceCredentials")
@@ -924,7 +955,7 @@ export const listCredentials = query({
 
 export const resolveCredential = query({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
@@ -967,28 +998,25 @@ export const resolveCredential = query({
 
 export const upsertToolSource = mutation({
   args: {
-    id: v.optional(v.string()),
-    workspaceId: v.string(),
+    id: v.optional(v.id("toolSources")),
+    workspaceId: v.id("workspaces"),
     name: v.string(),
     type: toolSourceTypeValidator,
-    config: v.any(),
+    config: toolSourceConfigValidator,
     enabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
+    const config = normalizeToolSourceConfig(args.type, args.config);
     const [existing, conflict] = await Promise.all([
-      ctx.db
-        .query("toolSources")
-        .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
-        .unique(),
+      args.id ? ctx.db.get(args.id) : Promise.resolve(null),
       ctx.db
         .query("toolSources")
         .withIndex("by_workspace_name", (q) => q.eq("workspaceId", args.workspaceId).eq("name", args.name))
         .unique(),
     ]);
 
-    if (conflict && conflict.sourceId !== sourceId) {
+    if (conflict && (!existing || conflict._id !== existing._id)) {
       throw new Error(`Tool source name '${args.name}' already exists in workspace ${args.workspaceId}`);
     }
 
@@ -997,36 +1025,36 @@ export const upsertToolSource = mutation({
         workspaceId: args.workspaceId,
         name: args.name,
         type: args.type,
-        config: asRecord(args.config),
+        config,
         enabled: args.enabled !== false,
         updatedAt: now,
       });
+      const updated = await ctx.db.get(existing._id);
+      if (!updated) {
+        throw new Error(`Failed to read tool source ${existing._id}`);
+      }
+      return mapSource(updated);
     } else {
-      await ctx.db.insert("toolSources", {
-        sourceId,
+      const insertedId = await ctx.db.insert("toolSources", {
         workspaceId: args.workspaceId,
         name: args.name,
         type: args.type,
-        config: asRecord(args.config),
+        config,
         enabled: args.enabled !== false,
         createdAt: now,
         updatedAt: now,
       });
+      const updated = await ctx.db.get(insertedId);
+      if (!updated) {
+        throw new Error(`Failed to read tool source ${insertedId}`);
+      }
+      return mapSource(updated);
     }
-
-    const updated = await ctx.db
-      .query("toolSources")
-      .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
-      .unique();
-    if (!updated) {
-      throw new Error(`Failed to read tool source ${sourceId}`);
-    }
-    return mapSource(updated);
   },
 });
 
 export const listToolSources = query({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("toolSources")
@@ -1038,28 +1066,24 @@ export const listToolSources = query({
 });
 
 export const deleteToolSource = mutation({
-  args: { workspaceId: v.string(), sourceId: v.string() },
+  args: { workspaceId: v.id("workspaces"), sourceId: v.id("toolSources") },
   handler: async (ctx, args) => {
-    const doc = await ctx.db
-      .query("toolSources")
-      .withIndex("by_source_id", (q) => q.eq("sourceId", args.sourceId))
-      .unique();
+    const doc = await ctx.db.get(args.sourceId);
 
     if (!doc || doc.workspaceId !== args.workspaceId) {
       return false;
     }
 
-    await ctx.db.delete(doc._id);
+    await ctx.db.delete(args.sourceId);
     return true;
   },
 });
 
 export const createTaskEvent = mutation({
   args: {
-    taskId: v.string(),
-    eventName: v.string(),
-    type: v.string(),
-    payload: v.any(),
+    taskId: v.id("tasks"),
+    type: taskEventTypeValidator,
+    payload: v.record(v.string(), v.any()),
   },
   handler: async (ctx, args) => {
     const task = await getTaskDoc(ctx, args.taskId);
@@ -1079,7 +1103,6 @@ export const createTaskEvent = mutation({
     await ctx.db.insert("taskEvents", {
       sequence,
       taskId: args.taskId,
-      eventName: args.eventName,
       type: args.type,
       payload: asRecord(args.payload),
       createdAt,
@@ -1099,7 +1122,7 @@ export const createTaskEvent = mutation({
 });
 
 export const listTaskEvents = query({
-  args: { taskId: v.string() },
+  args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("taskEvents")

@@ -1,6 +1,7 @@
 import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
+import { getManyFrom, getOneFrom } from "convex-helpers/server/relationships";
 import { components, internal } from "./_generated/api";
-import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { DataModel, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation, mutation } from "./_generated/server";
 import { ensureUniqueSlug } from "./lib/slug";
@@ -52,18 +53,34 @@ async function getAccountByWorkosId(ctx: DbCtx, workosUserId: string) {
     .unique();
 }
 
-async function getWorkspaceByWorkosOrgId(ctx: DbCtx, workosOrgId: string) {
-  return await ctx.db
-    .query("workspaces")
-    .withIndex("by_workos_org_id", (q) => q.eq("workosOrgId", workosOrgId))
-    .unique();
+async function getOrganizationByWorkosOrgId(ctx: DbCtx, workosOrgId: string) {
+  return await getOneFrom(ctx.db, "organizations", "by_workos_org_id", workosOrgId, "workosOrgId");
 }
 
-async function getOrganizationByWorkosOrgId(ctx: DbCtx, workosOrgId: string) {
+async function resolveOrganizationIdByWorkosOrgId(ctx: DbCtx, workosOrgId: string): Promise<Id<"organizations"> | null> {
+  const organization = await getOrganizationByWorkosOrgId(ctx, workosOrgId);
+  return organization?._id ?? null;
+}
+
+async function getPrimaryWorkspaceByOrganizationId(ctx: DbCtx, organizationId: Id<"organizations">) {
   return await ctx.db
-    .query("organizations")
-    .withIndex("by_workos_org_id", (q) => q.eq("workosOrgId", workosOrgId))
-    .unique();
+    .query("workspaces")
+    .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
+    .order("asc")
+    .first();
+}
+
+function mapWorkosRoleToOrganizationRole(roleSlug: string | undefined): OrganizationRole {
+  if (roleSlug === "owner") {
+    return "owner";
+  }
+  if (roleSlug === "admin") {
+    return "admin";
+  }
+  if (roleSlug === "billing_admin") {
+    return "billing_admin";
+  }
+  return "member";
 }
 
 async function ensureUniqueOrganizationSlug(ctx: DbCtx, baseName: string): Promise<string> {
@@ -82,6 +99,7 @@ async function upsertOrganizationMembership(
   args: {
     organizationId: Id<"organizations">;
     accountId: Id<"accounts">;
+    workosOrgMembershipId?: string;
     role: OrganizationRole;
     status: OrganizationMemberStatus;
     billable: boolean;
@@ -96,6 +114,7 @@ async function upsertOrganizationMembership(
 
   if (existing) {
     await ctx.db.patch(existing._id, {
+      workosOrgMembershipId: args.workosOrgMembershipId ?? existing.workosOrgMembershipId,
       role: args.role,
       status: args.status,
       billable: args.billable,
@@ -109,6 +128,7 @@ async function upsertOrganizationMembership(
   await ctx.db.insert("organizationMembers", {
     organizationId: args.organizationId,
     accountId: args.accountId,
+    workosOrgMembershipId: args.workosOrgMembershipId,
     role: args.role,
     status: args.status,
     billable: args.billable,
@@ -153,25 +173,22 @@ async function ensurePersonalWorkspace(
   accountId: Id<"accounts">,
   opts: { email: string; firstName?: string; workosUserId: string; now: number; workspaceName?: string },
 ) {
-  const memberships = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_account", (q) => q.eq("accountId", accountId))
-    .collect();
+  const personalWorkspace = await ctx.db
+    .query("workspaces")
+    .withIndex("by_creator_created", (q) => q.eq("createdByAccountId", accountId))
+    .order("asc")
+    .first();
 
-  for (const membership of memberships) {
-    const workspace = await ctx.db.get(membership.workspaceId);
-    if (workspace && workspace.createdByAccountId === accountId) {
-      await upsertOrganizationMembership(ctx, {
-        organizationId: workspace.organizationId,
-        accountId,
-        role: "owner",
-        status: "active",
-        billable: true,
-        now: opts.now,
-      });
-      const refreshedWorkspace = await ctx.db.get(workspace._id);
-      return { workspace: refreshedWorkspace, membership };
-    }
+  if (personalWorkspace) {
+    await upsertOrganizationMembership(ctx, {
+      organizationId: personalWorkspace.organizationId,
+      accountId,
+      role: "owner",
+      status: "active",
+      billable: true,
+      now: opts.now,
+    });
+    return { workspace: await ctx.db.get(personalWorkspace._id) };
   }
 
   const workspaceName = opts.workspaceName ?? `${opts.firstName ?? "My"}'s Workspace`;
@@ -190,7 +207,6 @@ async function ensurePersonalWorkspace(
     organizationId,
     slug: `${baseSlug}-${opts.workosUserId.slice(-6)}`,
     name: workspaceName,
-    plan: "free",
     createdByAccountId: accountId,
     createdAt: opts.now,
     updatedAt: opts.now,
@@ -205,18 +221,8 @@ async function ensurePersonalWorkspace(
     now: opts.now,
   });
 
-  const userId = await ctx.db.insert("workspaceMembers", {
-    workspaceId,
-    accountId,
-    role: "owner",
-    status: "active",
-    createdAt: opts.now,
-    updatedAt: opts.now,
-  });
-
   return {
     workspace: await ctx.db.get(workspaceId),
-    membership: await ctx.db.get(userId),
   };
 }
 
@@ -305,10 +311,7 @@ const workosEventHandlers = {
     const account = await getAccountByWorkosId(ctx, event.data.id);
     if (!account) return;
 
-    const memberships = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_account", (q) => q.eq("accountId", account._id))
-      .collect();
+    const memberships = await getManyFrom(ctx.db, "organizationMembers", "by_account", account._id, "accountId");
     for (const membership of memberships) {
       await ctx.db.delete(membership._id);
     }
@@ -343,10 +346,9 @@ const workosEventHandlers = {
       return;
     }
 
-    const existingWorkspace = await getWorkspaceByWorkosOrgId(ctx, event.data.id);
+    const existingWorkspace = await getPrimaryWorkspaceByOrganizationId(ctx, organization._id);
     if (existingWorkspace) {
       await ctx.db.patch(existingWorkspace._id, {
-        organizationId: organization._id,
         name: event.data.name,
         updatedAt: now,
       });
@@ -354,11 +356,9 @@ const workosEventHandlers = {
     }
 
     await ctx.db.insert("workspaces", {
-      workosOrgId: event.data.id,
       organizationId: organization._id,
       slug: `${slugify(event.data.name)}-${event.data.id.slice(-6)}`,
       name: event.data.name,
-      plan: "free",
       createdAt: now,
       updatedAt: now,
     });
@@ -366,19 +366,21 @@ const workosEventHandlers = {
 
   "organization.updated": async (ctx, event) => {
     const organization = await getOrganizationByWorkosOrgId(ctx, event.data.id);
-    if (organization) {
-      await ctx.db.patch(organization._id, {
-        name: event.data.name,
-        updatedAt: Date.now(),
-      });
-    }
+    if (!organization) return;
 
-    const workspace = await getWorkspaceByWorkosOrgId(ctx, event.data.id);
-    if (!workspace) return;
-    await ctx.db.patch(workspace._id, {
-      organizationId: workspace.organizationId,
+    const now = Date.now();
+
+    await ctx.db.patch(organization._id, {
       name: event.data.name,
-      updatedAt: Date.now(),
+      updatedAt: now,
+    });
+
+    const workspace = await getPrimaryWorkspaceByOrganizationId(ctx, organization._id);
+    if (!workspace) return;
+
+    await ctx.db.patch(workspace._id, {
+      name: event.data.name,
+      updatedAt: now,
     });
   },
 
@@ -391,18 +393,21 @@ const workosEventHandlers = {
       });
     }
 
-    const workspace = await getWorkspaceByWorkosOrgId(ctx, event.data.id);
-    if (!workspace) return;
-
-    const members = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .collect();
-    for (const member of members) {
-      await ctx.db.delete(member._id);
+    if (!organization) {
+      return;
     }
 
-    await ctx.db.delete(workspace._id);
+    const workspaces = await getManyFrom(
+      ctx.db,
+      "workspaces",
+      "by_organization_created",
+      organization._id,
+      "organizationId",
+    );
+
+    for (const workspace of workspaces) {
+      await ctx.db.delete(workspace._id);
+    }
   },
 
   "organization_membership.created": async (ctx, event) => {
@@ -420,26 +425,19 @@ const workosEventHandlers = {
     const workosOrgId = data.organization_id ?? data.organizationId;
     if (!workosUserId || !workosOrgId) return;
 
-    const [account, workspace] = await Promise.all([
+    const [account, organizationId] = await Promise.all([
       getAccountByWorkosId(ctx, workosUserId),
-      getWorkspaceByWorkosOrgId(ctx, workosOrgId),
+      resolveOrganizationIdByWorkosOrgId(ctx, workosOrgId),
     ]);
-    if (!account || !workspace) return;
+    if (!account || !organizationId) return;
 
-    const organizationId = workspace.organizationId;
-
-    const existing = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
-      .unique();
-
-    const workosRole = data.role?.slug ?? "member";
-    const role = workosRole === "admin" ? "admin" : "member";
+    const role = mapWorkosRoleToOrganizationRole(data.role?.slug);
     const status = data.status === "active" ? "active" : "pending";
 
     await upsertOrganizationMembership(ctx, {
       organizationId,
       accountId: account._id,
+      workosOrgMembershipId: data.id,
       role,
       status,
       billable: status === "active",
@@ -453,26 +451,6 @@ const workosEventHandlers = {
         acceptedAt: now,
       });
     }
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        workosOrgMembershipId: event.data.id,
-        role,
-        status,
-        updatedAt: now,
-      });
-      return;
-    }
-
-    await ctx.db.insert("workspaceMembers", {
-      workspaceId: workspace._id,
-      accountId: account._id,
-      workosOrgMembershipId: event.data.id,
-      role,
-      status,
-      createdAt: now,
-      updatedAt: now,
-    });
   },
 
   "organization_membership.updated": async (ctx, event) => {
@@ -487,47 +465,59 @@ const workosEventHandlers = {
       status?: string;
     };
 
-    let membership = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workos_membership_id", (q) => q.eq("workosOrgMembershipId", data.id))
-      .unique();
+    let membership = await getOneFrom(
+      ctx.db,
+      "organizationMembers",
+      "by_workos_membership_id",
+      data.id,
+      "workosOrgMembershipId",
+    );
 
-    let account: Doc<"accounts"> | null = null;
-    let workspace: Doc<"workspaces"> | null = null;
+    let accountId: Id<"accounts"> | null = membership?.accountId ?? null;
+    let organizationId: Id<"organizations"> | null = membership?.organizationId ?? null;
+    let account = accountId ? await ctx.db.get(accountId) : null;
 
-    if (!membership) {
+    if (!account || !organizationId) {
       const workosUserId = data.user_id ?? data.userId;
       const workosOrgId = data.organization_id ?? data.organizationId;
       if (!workosUserId || !workosOrgId) return;
-      [account, workspace] = await Promise.all([
+
+      const [resolvedAccount, resolvedOrganizationId] = await Promise.all([
         getAccountByWorkosId(ctx, workosUserId),
-        getWorkspaceByWorkosOrgId(ctx, workosOrgId),
+        resolveOrganizationIdByWorkosOrgId(ctx, workosOrgId),
       ]);
-      if (!account || !workspace) return;
-      const workspaceId = workspace._id;
-      const accountId = account._id;
+
+      account = resolvedAccount;
+      accountId = resolvedAccount?._id ?? null;
+      organizationId = resolvedOrganizationId;
+
+      if (!accountId || !organizationId) {
+        return;
+      }
+
+      const accountIdForLookup: Id<"accounts"> = accountId;
+      const organizationIdForLookup: Id<"organizations"> = organizationId;
+
       membership = await ctx.db
-        .query("workspaceMembers")
-        .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
+        .query("organizationMembers")
+        .withIndex("by_org_account", (q) =>
+          q.eq("organizationId", organizationIdForLookup).eq("accountId", accountIdForLookup),
+        )
         .unique();
-      if (!membership) return;
-    } else {
-      account = await ctx.db.get(membership.accountId);
-      workspace = await ctx.db.get(membership.workspaceId);
     }
 
-    if (!account || !workspace) {
+    if (!account || !accountId || !organizationId) {
       return;
     }
 
-    const organizationId = workspace.organizationId;
-
-    const workosRole = data.role?.slug ?? "member";
+    const role = mapWorkosRoleToOrganizationRole(data.role?.slug);
     const status = data.status === "active" ? "active" : "pending";
+
     await upsertOrganizationMembership(ctx, {
       organizationId,
-      accountId: account._id,
-      role: workosRole === "admin" ? "admin" : "member",
+      accountId,
+      workosOrgMembershipId: data.id,
+      role,
       status,
       billable: status === "active",
       now,
@@ -540,36 +530,59 @@ const workosEventHandlers = {
         acceptedAt: now,
       });
     }
-
-    await ctx.db.patch(membership._id, {
-      workosOrgMembershipId: data.id,
-      role: workosRole === "admin" ? "admin" : "member",
-      status,
-      updatedAt: now,
-    });
   },
 
   "organization_membership.deleted": async (ctx, event) => {
     const now = Date.now();
-    const membership = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workos_membership_id", (q) => q.eq("workosOrgMembershipId", event.data.id))
-      .unique();
-    if (!membership) return;
+    const data = event.data as {
+      id: string;
+      user_id?: string;
+      userId?: string;
+      organization_id?: string;
+      organizationId?: string;
+    };
 
-    const workspace = await ctx.db.get(membership.workspaceId);
-    if (workspace?.organizationId) {
-      await upsertOrganizationMembership(ctx, {
-        organizationId: workspace.organizationId,
-        accountId: membership.accountId,
-        role: membership.role,
-        status: "removed",
-        billable: false,
-        now,
-      });
+    let membership = await getOneFrom(
+      ctx.db,
+      "organizationMembers",
+      "by_workos_membership_id",
+      data.id,
+      "workosOrgMembershipId",
+    );
+
+    if (!membership) {
+      const workosUserId = data.user_id ?? data.userId;
+      const workosOrgId = data.organization_id ?? data.organizationId;
+      if (!workosUserId || !workosOrgId) {
+        return;
+      }
+
+      const [account, organizationId] = await Promise.all([
+        getAccountByWorkosId(ctx, workosUserId),
+        resolveOrganizationIdByWorkosOrgId(ctx, workosOrgId),
+      ]);
+      if (!account || !organizationId) {
+        return;
+      }
+
+      membership = await ctx.db
+        .query("organizationMembers")
+        .withIndex("by_org_account", (q) => q.eq("organizationId", organizationId).eq("accountId", account._id))
+        .unique();
+      if (!membership) {
+        return;
+      }
     }
 
-    await ctx.db.delete(membership._id);
+    await upsertOrganizationMembership(ctx, {
+      organizationId: membership.organizationId,
+      accountId: membership.accountId,
+      workosOrgMembershipId: data.id,
+      role: membership.role,
+      status: "removed",
+      billable: false,
+      now,
+    });
   },
 } satisfies Partial<Parameters<AuthKit<DataModel>["events"]>[0]>;
 
@@ -629,10 +642,7 @@ export const bootstrapCurrentWorkosAccount = mutation({
         "https://workos.com/profile_picture_url",
       ]);
 
-    let account = await ctx.db
-      .query("accounts")
-      .withIndex("by_provider", (q) => q.eq("provider", "workos").eq("providerAccountId", subject))
-      .unique();
+    let account = await getAccountByWorkosId(ctx, subject);
 
     if (account) {
       await ctx.db.patch(account._id, {

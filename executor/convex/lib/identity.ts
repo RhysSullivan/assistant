@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { getOneFrom } from "convex-helpers/server/relationships";
 
 type IdentityCtx = Pick<QueryCtx, "auth" | "db"> | Pick<MutationCtx, "auth" | "db">;
 type MembershipCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
@@ -31,10 +32,7 @@ export async function resolveAccountForRequest(
     return null;
   }
 
-  const anonymous = await ctx.db
-    .query("anonymousSessions")
-    .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
-    .unique();
+  const anonymous = await getOneFrom(ctx.db, "anonymousSessions", "by_session_id", sessionId, "sessionId");
   if (anonymous?.accountId) {
     return await ctx.db.get(anonymous.accountId);
   }

@@ -1,9 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
+import type { Id } from "../_generated/dataModel";
 import { generateToolDeclarations, generateToolInventory, typecheckCode } from "./typechecker";
 import type { LiveTaskEvent } from "./events";
-import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
+import type { AnonymousContext, CreateTaskInput, RuntimeId, TaskRecord, ToolDescriptor } from "./types";
 
 function getTaskTerminalState(status: string): boolean {
   return status === "completed" || status === "failed" || status === "timed_out" || status === "denied";
@@ -15,10 +16,10 @@ function getTaskTerminalState(status: string): boolean {
 
 interface McpExecutorService {
   createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }>;
-  getTask(taskId: string, workspaceId?: string): Promise<TaskRecord | null>;
-  subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void;
+  getTask(taskId: Id<"tasks">, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null>;
+  subscribe(taskId: Id<"tasks">, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;
-  listTools(context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
+  listTools(context?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -26,7 +27,7 @@ interface McpExecutorService {
 // ---------------------------------------------------------------------------
 
 export interface McpWorkspaceContext {
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId: string;
   clientId?: string;
 }
@@ -70,8 +71,8 @@ function summarizeTask(task: TaskRecord): string {
 
 function waitForTerminalTask(
   service: McpExecutorService,
-  taskId: string,
-  workspaceId: string,
+  taskId: Id<"tasks">,
+  workspaceId: Id<"workspaces">,
   waitTimeoutMs: number,
 ): Promise<TaskRecord | null> {
   return new Promise((resolve) => {
@@ -108,9 +109,11 @@ function waitForTerminalTask(
     // Subscribe for live events when available; polling remains as fallback.
     try {
       unsubscribe = service.subscribe(taskId, (event) => {
-        const type = typeof event.payload === "object" && event.payload
-          ? (event.payload as Record<string, unknown>).status
-          : undefined;
+        const payloadRecord =
+          typeof event.payload === "object" && event.payload
+            ? (event.payload as unknown as Record<string, unknown>)
+            : undefined;
+        const type = payloadRecord?.status;
         if (typeof type === "string" && getTaskTerminalState(type)) {
           clearTimeout(timeout);
           void done();
@@ -145,9 +148,9 @@ function createRunCodeTool(
     input: {
       code: string;
       timeoutMs?: number;
-      runtimeId?: string;
+      runtimeId?: RuntimeId;
       metadata?: Record<string, unknown>;
-      workspaceId?: string;
+      workspaceId?: Id<"workspaces">;
       actorId?: string;
       clientId?: string;
       sessionId?: string;
@@ -163,7 +166,7 @@ function createRunCodeTool(
     const requestedTimeoutMs = input.timeoutMs ?? 300_000;
 
     // Resolve context: bound context takes priority, then input, then anonymous
-    let context: { workspaceId: string; actorId: string; clientId?: string; sessionId?: string };
+    let context: { workspaceId: Id<"workspaces">; actorId: string; clientId?: string; sessionId?: string };
 
     if (boundContext) {
       context = { ...boundContext, sessionId: input.sessionId };
@@ -283,7 +286,7 @@ function createRunCodeTool(
 const FULL_INPUT = {
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
-  runtimeId: z.string().optional(),
+  runtimeId: z.literal("local-bun").optional(),
   metadata: z.record(z.string(), z.any()).optional(),
   workspaceId: z.string().optional(),
   actorId: z.string().optional(),
@@ -296,7 +299,7 @@ const FULL_INPUT = {
 const BOUND_INPUT = {
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
-  runtimeId: z.string().optional(),
+  runtimeId: z.literal("local-bun").optional(),
   metadata: z.record(z.string(), z.any()).optional(),
 } as const;
 

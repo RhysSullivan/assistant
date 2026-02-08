@@ -1,41 +1,42 @@
 import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
-import { api } from "./_generated/api";
-import schema from "./schema";
+import { api } from "../../convex/_generated/api";
+import schema from "../../convex/schema";
 
 function setup() {
   return convexTest(schema, {
-    "./database.ts": () => import("./database"),
-    "./_generated/api.js": () => import("./_generated/api.js"),
+    "./database.ts": () => import("../../convex/database"),
+    "./_generated/api.js": () => import("../../convex/_generated/api.js"),
   });
 }
 
 test("task lifecycle supports queue, run, and complete", async () => {
   const t = setup();
+  const anonymous = await t.mutation(api.database.bootstrapAnonymousSession, {});
+  const workspaceId = anonymous.workspaceId;
 
   const created = await t.mutation(api.database.createTask, {
-    id: "task_1",
     code: "console.log('hello')",
     runtimeId: "local-bun",
-    workspaceId: "ws_1",
+    workspaceId,
     actorId: "actor_1",
     clientId: "web",
   });
 
-  expect(created.id).toBe("task_1");
+  expect(created.id).toBeDefined();
   expect(created.status).toBe("queued");
 
   const queued = await t.query(api.database.listQueuedTaskIds, { limit: 10 });
-  expect(queued).toEqual(["task_1"]);
+  expect(queued).toEqual([created.id]);
 
-  const running = await t.mutation(api.database.markTaskRunning, { taskId: "task_1" });
+  const running = await t.mutation(api.database.markTaskRunning, { taskId: created.id });
   expect(running?.status).toBe("running");
 
-  const secondRun = await t.mutation(api.database.markTaskRunning, { taskId: "task_1" });
+  const secondRun = await t.mutation(api.database.markTaskRunning, { taskId: created.id });
   expect(secondRun).toBeNull();
 
   const finished = await t.mutation(api.database.markTaskFinished, {
-    taskId: "task_1",
+    taskId: created.id,
     status: "completed",
     stdout: "ok",
     stderr: "",
@@ -49,36 +50,36 @@ test("task lifecycle supports queue, run, and complete", async () => {
 
 test("approval lifecycle tracks pending and resolution", async () => {
   const t = setup();
+  const anonymous = await t.mutation(api.database.bootstrapAnonymousSession, {});
+  const workspaceId = anonymous.workspaceId;
 
-  await t.mutation(api.database.createTask, {
-    id: "task_2",
+  const createdTask = await t.mutation(api.database.createTask, {
     code: "await tools.admin.delete_data({ id: 'x' })",
     runtimeId: "local-bun",
-    workspaceId: "ws_2",
+    workspaceId,
     actorId: "actor_2",
     clientId: "web",
   });
 
   const createdApproval = await t.mutation(api.database.createApproval, {
-    id: "approval_1",
-    taskId: "task_2",
+    taskId: createdTask.id,
     toolPath: "admin.delete_data",
     input: { id: "x" },
   });
   expect(createdApproval.status).toBe("pending");
 
-  const pending = await t.query(api.database.listPendingApprovals, { workspaceId: "ws_2" });
+  const pending = await t.query(api.database.listPendingApprovals, { workspaceId });
   expect(pending.length).toBe(1);
-  expect(pending[0]?.task.id).toBe("task_2");
+  expect(pending[0]?.task.id).toBe(createdTask.id);
 
   const resolved = await t.mutation(api.database.resolveApproval, {
-    approvalId: "approval_1",
+    approvalId: createdApproval.id,
     decision: "approved",
     reviewerId: "reviewer_1",
   });
   expect(resolved?.status).toBe("approved");
 
-  const pendingAfter = await t.query(api.database.listPendingApprovals, { workspaceId: "ws_2" });
+  const pendingAfter = await t.query(api.database.listPendingApprovals, { workspaceId });
   expect(pendingAfter).toEqual([]);
 });
 
@@ -87,11 +88,9 @@ test("anonymous bootstrap links guest account membership", async () => {
 
   const first = await t.mutation(api.database.bootstrapAnonymousSession, {});
   expect(first.sessionId).toContain("anon_session_");
-  expect(first.workspaceId).toContain("ws_");
+  expect(first.workspaceId).toBeDefined();
   expect(first.actorId).toContain("anon_");
   expect(first.accountId).toBeDefined();
-  expect(first.workspaceDocId).toBeDefined();
-  expect(first.userId).toBeDefined();
 
   const again = await t.mutation(api.database.bootstrapAnonymousSession, {
     sessionId: first.sessionId,
@@ -99,8 +98,7 @@ test("anonymous bootstrap links guest account membership", async () => {
 
   expect(again.sessionId).toBe(first.sessionId);
   expect(again.accountId).toBe(first.accountId);
-  expect(again.workspaceDocId).toBe(first.workspaceDocId);
-  expect(again.userId).toBe(first.userId);
+  expect(again.workspaceId).toBe(first.workspaceId);
 });
 
 test("bootstrap honors caller-provided session id", async () => {

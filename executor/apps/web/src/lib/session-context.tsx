@@ -15,8 +15,13 @@ import { convexApi } from "@/lib/convex-api";
 import type { AnonymousContext } from "./types";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
+type SessionContextValue = Omit<AnonymousContext, "workspaceId" | "accountId"> & {
+  workspaceId: Id<"workspaces">;
+  accountId?: Id<"accounts">;
+};
+
 interface SessionState {
-  context: AnonymousContext | null;
+  context: SessionContextValue | null;
   loading: boolean;
   error: string | null;
   clientConfig: {
@@ -33,8 +38,8 @@ interface SessionState {
     id: Id<"organizations">;
     name: string;
     slug: string;
-    status: string;
-    role: string;
+    status: "active" | "deleted";
+    role: "owner" | "admin" | "member" | "billing_admin";
   }>;
   workspaces: Array<{
     id: Id<"workspaces">;
@@ -128,7 +133,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const guestContext: AnonymousContext | null = bootstrapSessionQuery.data ?? null;
+  const guestContext: SessionContextValue | null = bootstrapSessionQuery.data ?? null;
 
   const account = useConvexQuery(
     convexApi.app.getCurrentAccount,
@@ -244,7 +249,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     switchWorkspace,
   ]);
 
-  const workosContext = useMemo<AnonymousContext | null>(() => {
+  const workosContext = useMemo<SessionContextValue | null>(() => {
     if (!workosEnabled || !account || account.provider !== "workos" || !workspaces || workspaces.length === 0) {
       return null;
     }
@@ -263,7 +268,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       actorId: account._id,
       clientId: "web",
       accountId: account._id,
-      userId: account._id,
       createdAt: Date.now(),
       lastSeenAt: Date.now(),
     };
@@ -311,7 +315,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (guestContext) {
       return [
         {
-          id: guestContext.workspaceId as Id<"workspaces">,
+          id: guestContext.workspaceId,
           docId: null,
           name: "Guest Workspace",
           organizationId: null,

@@ -1,10 +1,12 @@
 import { registerRoutes as registerStripeRoutes } from "@convex-dev/stripe";
 import { httpRouter } from "convex/server";
 import { api, components, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
-import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp-server";
-import type { AnonymousContext, TaskRecord, ToolDescriptor } from "./lib/types";
+import type { LiveTaskEvent } from "./lib/events";
+import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp_server";
+import type { AnonymousContext, RuntimeId, TaskRecord, ToolDescriptor } from "./lib/types";
 
 const http = httpRouter();
 const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? "executor_internal_local_dev_token";
@@ -14,7 +16,7 @@ function parseMcpContext(url: URL): McpWorkspaceContext | undefined {
   const actorId = url.searchParams.get("actorId");
   if (!workspaceId || !actorId) return undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
-  return { workspaceId, actorId, clientId };
+  return { workspaceId: workspaceId as Id<"workspaces">, actorId, clientId };
 }
 
 function isInternalAuthorized(request: Request): boolean {
@@ -24,7 +26,7 @@ function isInternalAuthorized(request: Request): boolean {
   return header.slice("Bearer ".length) === internalToken;
 }
 
-function parseInternalRunPath(pathname: string): { runId: string; endpoint: "tool-call" | "output" } | null {
+function parseInternalRunPath(pathname: string): { runId: Id<"tasks">; endpoint: "tool-call" | "output" } | null {
   const parts = pathname.split("/").filter(Boolean);
   if (parts.length !== 4 || parts[0] !== "internal" || parts[1] !== "runs") {
     return null;
@@ -36,7 +38,7 @@ function parseInternalRunPath(pathname: string): { runId: string; endpoint: "too
     return null;
   }
 
-  return { runId, endpoint };
+  return { runId: runId as Id<"tasks">, endpoint };
 }
 
 const mcpHandler = httpAction(async (ctx, request) => {
@@ -47,27 +49,27 @@ const mcpHandler = httpAction(async (ctx, request) => {
     createTask: async (input: {
       code: string;
       timeoutMs?: number;
-      runtimeId?: string;
+      runtimeId?: RuntimeId;
       metadata?: Record<string, unknown>;
-      workspaceId: string;
+      workspaceId: Id<"workspaces">;
       actorId: string;
       clientId?: string;
     }) => {
       return (await ctx.runMutation(api.executor.createTask, input)) as { task: TaskRecord };
     },
-    getTask: async (taskId: string, workspaceId?: string) => {
+    getTask: async (taskId: Id<"tasks">, workspaceId?: Id<"workspaces">) => {
       if (workspaceId) {
         return (await ctx.runQuery(api.database.getTaskInWorkspace, { taskId, workspaceId })) as TaskRecord | null;
       }
       return (await ctx.runQuery(api.database.getTask, { taskId })) as TaskRecord | null;
     },
-    subscribe: () => {
+    subscribe: (_taskId: Id<"tasks">, _listener: (event: LiveTaskEvent) => void) => {
       return () => {};
     },
     bootstrapAnonymousContext: async (sessionId?: string) => {
       return (await ctx.runMutation(api.database.bootstrapAnonymousSession, { sessionId })) as AnonymousContext;
     },
-    listTools: async (toolContext?: { workspaceId: string; actorId?: string; clientId?: string }) => {
+    listTools: async (toolContext?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }) => {
       return (await ctx.runAction(api.executorNode.listTools, toolContext ?? {})) as ToolDescriptor[];
     },
   };
@@ -105,7 +107,10 @@ const internalRunsHandler = httpAction(async (ctx, request) => {
       runId: parsed.runId,
       callId,
       toolPath,
-      input: payload.input,
+      input:
+        payload.input && typeof payload.input === "object" && !Array.isArray(payload.input)
+          ? (payload.input as Record<string, unknown>)
+          : undefined,
     });
     return Response.json(result, { status: 200 });
   }

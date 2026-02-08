@@ -1,17 +1,18 @@
 import { expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { handleMcpRequest } from "./mcp-server";
-import type { LiveTaskEvent } from "./events";
-import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
+import type { Id } from "../../convex/_generated/dataModel";
+import { handleMcpRequest } from "../../convex/lib/mcp_server";
+import type { LiveTaskEvent } from "../../convex/lib/events";
+import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "../../convex/lib/types";
 
 class FakeMcpService {
-  private readonly tasks = new Map<string, TaskRecord>();
+  private readonly tasks = new Map<Id<"tasks">, TaskRecord>();
   private readonly sessions = new Map<string, AnonymousContext>();
-  private readonly listeners = new Map<string, Set<(event: LiveTaskEvent) => void>>();
+  private readonly listeners = new Map<Id<"tasks">, Set<(event: LiveTaskEvent) => void>>();
 
   async createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }> {
-    const id = `task_${crypto.randomUUID()}`;
+    const id = `task_${crypto.randomUUID()}` as Id<"tasks">;
     const now = Date.now();
     const queued: TaskRecord = {
       id,
@@ -50,7 +51,7 @@ class FakeMcpService {
     return { task: queued };
   }
 
-  async getTask(taskId: string, workspaceId?: string): Promise<TaskRecord | null> {
+  async getTask(taskId: Id<"tasks">, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null> {
     const task = this.tasks.get(taskId) ?? null;
     if (!task) return null;
     if (workspaceId && task.workspaceId !== workspaceId) return null;
@@ -68,7 +69,7 @@ class FakeMcpService {
     const now = Date.now();
     const context: AnonymousContext = {
       sessionId: sessionId ?? `anon_session_${crypto.randomUUID()}`,
-      workspaceId: `ws_${crypto.randomUUID()}`,
+      workspaceId: `workspace_${crypto.randomUUID()}` as Id<"workspaces">,
       actorId: `anon_${crypto.randomUUID()}`,
       clientId: "mcp",
       createdAt: now,
@@ -78,14 +79,16 @@ class FakeMcpService {
     return context;
   }
 
-  subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void {
+  subscribe(taskId: Id<"tasks">, listener: (event: LiveTaskEvent) => void): () => void {
     const set = this.listeners.get(taskId) ?? new Set();
     set.add(listener);
     this.listeners.set(taskId, set);
     return () => { set.delete(listener); };
   }
 
-  async listTools(_context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]> {
+  async listTools(
+    _context?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+  ): Promise<ToolDescriptor[]> {
     return [
       { path: "utils.get_time", description: "Get the current time", approval: "auto" },
     ];
@@ -128,7 +131,7 @@ test("run_code MCP tool returns terminal task result", async () => {
       name: "run_code",
       arguments: {
         code: "console.log('hello from mcp')",
-        workspaceId: "ws_test",
+        workspaceId: "workspace_test",
         actorId: "actor_test",
         clientId: "assistant",
       },

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { getManyFrom } from "convex-helpers/server/relationships";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { optionalAccountQuery, authedMutation } from "./lib/functionBuilders";
@@ -106,7 +107,6 @@ export const create = authedMutation({
       slug,
       name,
       iconStorageId: args.iconStorageId,
-      plan: "free",
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,
@@ -138,26 +138,23 @@ export const list = optionalAccountQuery({
         return [];
       }
 
-      const docs = await ctx.db
-        .query("workspaces")
-        .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
-        .collect();
+      const docs = await getManyFrom(ctx.db, "workspaces", "by_organization_created", organizationId, "organizationId");
       return await Promise.all(docs.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
     }
 
-    const memberships = await ctx.db
-      .query("organizationMembers")
-      .withIndex("by_account", (q) => q.eq("accountId", account._id))
-      .collect();
+    const memberships = await getManyFrom(ctx.db, "organizationMembers", "by_account", account._id, "accountId");
 
     const activeMemberships = memberships.filter((membership) => membership.status === "active");
     const allWorkspaces: WorkspaceResult[] = [];
 
     for (const membership of activeMemberships) {
-      const docs = await ctx.db
-        .query("workspaces")
-        .withIndex("by_organization_created", (q) => q.eq("organizationId", membership.organizationId))
-        .collect();
+      const docs = await getManyFrom(
+        ctx.db,
+        "workspaces",
+        "by_organization_created",
+        membership.organizationId,
+        "organizationId",
+      );
       for (const workspace of docs) {
         allWorkspaces.push(await toWorkspaceResult(ctx, workspace));
       }
