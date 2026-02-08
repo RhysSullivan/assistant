@@ -143,7 +143,7 @@ export async function upsertToolSource(request: {
   id?: string;
   workspaceId: string;
   name: string;
-  type: "mcp" | "openapi";
+  type: "mcp" | "openapi" | "graphql";
   config: Record<string, unknown>;
   enabled?: boolean;
 }): Promise<ToolSourceRecord> {

@@ -188,6 +188,10 @@ export interface ToolDefinition {
   source?: string;
   metadata?: ToolTypeMetadata;
   credential?: ToolCredentialSpec;
+  /** For GraphQL sources: the source name used for dynamic path extraction */
+  _graphqlSource?: string;
+  /** For GraphQL pseudo-tools: marks tools that exist only for discovery/policy */
+  _pseudoTool?: boolean;
   run(input: unknown, context: ToolRunContext): Promise<unknown>;
 }
 
@@ -200,11 +204,13 @@ export interface ToolDescriptor {
   returnsType?: string;
 }
 
+export type ToolSourceType = "mcp" | "openapi" | "graphql";
+
 export interface ToolSourceRecord {
   id: string;
   workspaceId: string;
   name: string;
-  type: "mcp" | "openapi";
+  type: ToolSourceType;
   config: Record<string, unknown>;
   enabled: boolean;
   createdAt: number;

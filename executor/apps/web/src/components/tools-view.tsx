@@ -55,9 +55,10 @@ interface ApiPreset {
   name: string;
   label: string;
   description: string;
-  type: "openapi" | "mcp";
+  type: "openapi" | "mcp" | "graphql";
   spec?: string;
   url?: string;
+  endpoint?: string;
   baseUrl?: string;
   authNote?: string;
 }
@@ -181,6 +182,14 @@ const API_PRESETS: ApiPreset[] = [
     spec: "https://raw.githubusercontent.com/resend/resend-openapi/main/resend.yaml",
     baseUrl: "https://api.resend.com",
   },
+  {
+    name: "linear",
+    label: "Linear",
+    description: "Issues, projects, teams, cycles, labels",
+    type: "graphql",
+    endpoint: "https://api.linear.app/graphql",
+    authNote: "Requires API key as bearer credential",
+  },
 ];
 
 /** Derive a favicon URL from any URL string via Google's favicon service. */
@@ -195,14 +204,16 @@ function faviconForUrl(url: string | undefined | null): string | null {
 }
 
 function getFaviconUrl(preset: ApiPreset): string | null {
-  return faviconForUrl(preset.baseUrl ?? preset.url);
+  return faviconForUrl(preset.baseUrl ?? preset.endpoint ?? preset.url);
 }
 
 function getSourceFavicon(source: ToolSourceRecord): string | null {
   const url =
     source.type === "mcp"
       ? (source.config.url as string)
-      : (source.config.baseUrl as string) ?? (source.config.spec as string);
+      : source.type === "graphql"
+        ? (source.config.endpoint as string)
+        : (source.config.baseUrl as string) ?? (source.config.spec as string);
   return faviconForUrl(url);
 }
 
@@ -249,7 +260,7 @@ function AddSourceDialog({
   const { context } = useSession();
   const [open, setOpen] = useState(false);
   const [presetsOpen, setPresetsOpen] = useState(false);
-  const [type, setType] = useState<"mcp" | "openapi">("mcp");
+  const [type, setType] = useState<"mcp" | "openapi" | "graphql">("mcp");
   const [name, setName] = useState("");
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [endpoint, setEndpoint] = useState("");
@@ -286,7 +297,7 @@ function AddSourceDialog({
 
   const addSource = async (
     sourceName: string,
-    sourceType: "mcp" | "openapi",
+    sourceType: "mcp" | "openapi" | "graphql",
     config: Record<string, unknown>,
   ) => {
     if (!context) return;
@@ -314,10 +325,12 @@ function AddSourceDialog({
       const config: Record<string, unknown> =
         preset.type === "mcp"
           ? { url: preset.url }
-          : {
-              spec: preset.spec,
-              ...(preset.baseUrl ? { baseUrl: preset.baseUrl } : {}),
-            };
+          : preset.type === "graphql"
+            ? { endpoint: preset.endpoint }
+            : {
+                spec: preset.spec,
+                ...(preset.baseUrl ? { baseUrl: preset.baseUrl } : {}),
+              };
       await addSource(preset.name, preset.type, config);
       if (preset.authNote) {
         toast.info(preset.authNote, { duration: 6000 });
@@ -337,7 +350,9 @@ function AddSourceDialog({
       const config: Record<string, unknown> =
         type === "mcp"
           ? { url: endpoint }
-          : { spec: endpoint, ...(baseUrl ? { baseUrl } : {}) };
+          : type === "graphql"
+            ? { endpoint: endpoint }
+            : { spec: endpoint, ...(baseUrl ? { baseUrl } : {}) };
       await addSource(name.trim(), type, config);
       resetForm();
       setOpen(false);
@@ -383,12 +398,15 @@ function AddSourceDialog({
                   <SelectItem value="openapi" className="text-xs">
                     OpenAPI Spec
                   </SelectItem>
+                  <SelectItem value="graphql" className="text-xs">
+                    GraphQL
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">
-                {type === "mcp" ? "Endpoint URL" : "Spec URL"}
+                {type === "mcp" ? "Endpoint URL" : type === "graphql" ? "GraphQL Endpoint" : "Spec URL"}
               </Label>
               <Input
                 value={endpoint}
@@ -396,7 +414,9 @@ function AddSourceDialog({
                 placeholder={
                   type === "mcp"
                     ? "https://mcp-server.example.com/sse"
-                    : "https://api.example.com/openapi.json"
+                    : type === "graphql"
+                      ? "https://api.example.com/graphql"
+                      : "https://api.example.com/openapi.json"
                 }
                 className="h-8 text-xs font-mono bg-background"
               />
@@ -577,7 +597,9 @@ function SourceCard({
         <span className="text-[11px] text-muted-foreground font-mono truncate block">
           {source.type === "mcp"
             ? (source.config.url as string)
-            : (source.config.spec as string)}
+            : source.type === "graphql"
+              ? (source.config.endpoint as string)
+              : (source.config.spec as string)}
         </span>
       </div>
       <Button

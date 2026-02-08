@@ -106,7 +106,7 @@ function mapToolSourceRow(row: Record<string, unknown>): ToolSourceRecord {
     id: String(row.id),
     workspaceId: String(row.workspace_id),
     name: String(row.name),
-    type: String(row.type) as "mcp" | "openapi",
+    type: String(row.type) as ToolSourceRecord["type"],
     config: parseMetadata(row.config_json),
     enabled: Number(row.enabled) === 1,
     createdAt: Number(row.created_at),
@@ -700,7 +700,7 @@ export class ExecutorDatabase {
     id?: string;
     workspaceId: string;
     name: string;
-    type: "mcp" | "openapi";
+    type: ToolSourceRecord["type"];
     config: Record<string, unknown>;
     enabled?: boolean;
   }): ToolSourceRecord {

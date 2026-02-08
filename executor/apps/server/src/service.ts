@@ -4,7 +4,7 @@ import { InProcessExecutionAdapter } from "./adapters/in-process-execution-adapt
 import { APPROVAL_DENIED_PREFIX } from "./execution-constants";
 import { createDiscoverTool } from "./tool-discovery";
 import type { ExternalToolSourceConfig } from "./tool-sources";
-import { loadExternalTools } from "./tool-sources";
+import { loadExternalTools, parseGraphqlOperationPaths } from "./tool-sources";
 import type {
   AccessPolicyRecord,
   AnonymousContext,
@@ -22,6 +22,7 @@ import type {
   ToolCallRequest,
   ToolDefinition,
   ToolDescriptor,
+  ToolSourceRecord,
   RuntimeOutputEvent,
   PolicyDecision,
   ResolvedToolCredential,
@@ -75,7 +76,7 @@ function sourceSignature(workspaceId: string, sources: Array<{ id: string; updat
 }
 
 function normalizeExternalToolSource(raw: {
-  type: "mcp" | "openapi";
+  type: ToolSourceRecord["type"];
   name: string;
   config: Record<string, unknown>;
 }): ExternalToolSourceConfig {
@@ -88,6 +89,13 @@ function normalizeExternalToolSource(raw: {
   if (raw.type === "mcp") {
     if (typeof merged.url !== "string" || merged.url.trim().length === 0) {
       throw new Error(`MCP source '${raw.name}' missing url`);
+    }
+    return merged as unknown as ExternalToolSourceConfig;
+  }
+
+  if (raw.type === "graphql") {
+    if (typeof merged.endpoint !== "string" || merged.endpoint.trim().length === 0) {
+      throw new Error(`GraphQL source '${raw.name}' missing endpoint`);
     }
     return merged as unknown as ExternalToolSourceConfig;
   }
@@ -192,16 +200,7 @@ export class ExecutorService {
     }));
   }
 
-  listToolSources(workspaceId: string): Array<{
-    id: string;
-    workspaceId: string;
-    name: string;
-    type: "mcp" | "openapi";
-    enabled: boolean;
-    config: Record<string, unknown>;
-    createdAt: number;
-    updatedAt: number;
-  }> {
+  listToolSources(workspaceId: string): ToolSourceRecord[] {
     return this.db.listToolSources(workspaceId);
   }
 
@@ -209,19 +208,10 @@ export class ExecutorService {
     id?: string;
     workspaceId: string;
     name: string;
-    type: "mcp" | "openapi";
+    type: ToolSourceRecord["type"];
     config: Record<string, unknown>;
     enabled?: boolean;
-  }): Promise<{
-    id: string;
-    workspaceId: string;
-    name: string;
-    type: "mcp" | "openapi";
-    enabled: boolean;
-    config: Record<string, unknown>;
-    createdAt: number;
-    updatedAt: number;
-  }> {
+  }): Promise<ToolSourceRecord & { warnings?: string[] }> {
     const source = this.db.upsertToolSource(input);
     this.workspaceToolCache.delete(source.workspaceId);
     await this.getWorkspaceTools(source.workspaceId);
@@ -597,6 +587,69 @@ export class ExecutorService {
     };
   }
 
+  /**
+   * For GraphQL tools with _graphqlSource, resolve the approval decision
+   * by parsing the query and checking policies against each virtual field path
+   * (e.g. linear.mutation.issueCreate, linear.query.issues).
+   *
+   * Returns the most restrictive decision across all field paths.
+   */
+  private getGraphqlDecision(
+    task: TaskRecord,
+    tool: ToolDefinition,
+    input: unknown,
+    workspaceTools: Map<string, ToolDefinition>,
+  ): { decision: PolicyDecision; effectivePaths: string[] } {
+    const sourceName = tool._graphqlSource!;
+    const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+    const queryString = typeof payload.query === "string" ? payload.query : "";
+
+    if (!queryString.trim()) {
+      // No query to parse — fall back to tool's own approval
+      return { decision: this.getToolDecision(task, tool), effectivePaths: [tool.path] };
+    }
+
+    const { fieldPaths } = parseGraphqlOperationPaths(sourceName, queryString);
+    if (fieldPaths.length === 0) {
+      return { decision: this.getToolDecision(task, tool), effectivePaths: [tool.path] };
+    }
+
+    const policies = this.db.listAccessPolicies(task.workspaceId);
+    let worstDecision: PolicyDecision = "allow";
+
+    for (const fieldPath of fieldPaths) {
+      // Look up the pseudo-tool for this field path to get its default approval
+      const pseudoTool = workspaceTools.get(fieldPath);
+      const fieldDecision = pseudoTool
+        ? this.getDecisionForContext(pseudoTool, {
+            workspaceId: task.workspaceId,
+            actorId: task.actorId,
+            clientId: task.clientId,
+          }, policies)
+        : // Unknown field — check if any policies match, otherwise default to mutation=required
+          this.getDecisionForContext(
+            { ...tool, path: fieldPath, approval: fieldPath.includes(".mutation.") ? "required" : "auto" },
+            {
+              workspaceId: task.workspaceId,
+              actorId: task.actorId,
+              clientId: task.clientId,
+            },
+            policies,
+          );
+
+      // Escalate: deny > require_approval > allow
+      if (fieldDecision === "deny") {
+        worstDecision = "deny";
+        break; // Can't get worse
+      }
+      if (fieldDecision === "require_approval") {
+        worstDecision = "require_approval";
+      }
+    }
+
+    return { decision: worstDecision, effectivePaths: fieldPaths };
+  }
+
   private async invokeTool(task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
     const { toolPath, input, callId } = call;
     const workspaceTools = await this.getWorkspaceTools(task.workspaceId);
@@ -605,15 +658,29 @@ export class ExecutorService {
       throw new Error(`Unknown tool: ${toolPath}`);
     }
 
-    const decision = this.getToolDecision(task, tool);
+    // Determine approval decision — for GraphQL tools, parse the query for granular paths
+    let decision: PolicyDecision;
+    let effectiveToolPath = toolPath;
+
+    if (tool._graphqlSource) {
+      const result = this.getGraphqlDecision(task, tool, input, workspaceTools);
+      decision = result.decision;
+      // Use the field paths for event reporting so approvals show what's actually being called
+      if (result.effectivePaths.length > 0) {
+        effectiveToolPath = result.effectivePaths.join(", ");
+      }
+    } else {
+      decision = this.getToolDecision(task, tool);
+    }
+
     if (decision === "deny") {
       this.publish(task.id, "task", "tool.call.denied", {
         taskId: task.id,
         callId,
-        toolPath,
+        toolPath: effectiveToolPath,
         reason: "policy_deny",
       });
-      throw new Error(`${APPROVAL_DENIED_PREFIX}${toolPath} (policy denied)`);
+      throw new Error(`${APPROVAL_DENIED_PREFIX}${effectiveToolPath} (policy denied)`);
     }
 
     let credential: ResolvedToolCredential | undefined;
@@ -630,7 +697,7 @@ export class ExecutorService {
     this.publish(task.id, "task", "tool.call.started", {
       taskId: task.id,
       callId,
-      toolPath,
+      toolPath: effectiveToolPath,
       approval: decision === "require_approval" ? "required" : "auto",
       input: asPayload(input),
     });
@@ -639,7 +706,7 @@ export class ExecutorService {
       const approval = this.db.createApproval({
         id: createApprovalId(),
         taskId: task.id,
-        toolPath,
+        toolPath: effectiveToolPath,
         input,
       });
 
@@ -652,15 +719,15 @@ export class ExecutorService {
         createdAt: approval.createdAt,
       });
 
-      const decision = await this.waitForApproval(approval.id);
-      if (decision === "denied") {
+      const approvalDecision = await this.waitForApproval(approval.id);
+      if (approvalDecision === "denied") {
         this.publish(task.id, "task", "tool.call.denied", {
           taskId: task.id,
           callId,
-          toolPath,
+          toolPath: effectiveToolPath,
           approvalId: approval.id,
         });
-        throw new Error(`${APPROVAL_DENIED_PREFIX}${toolPath} (${approval.id})`);
+        throw new Error(`${APPROVAL_DENIED_PREFIX}${effectiveToolPath} (${approval.id})`);
       }
     }
 
@@ -677,7 +744,7 @@ export class ExecutorService {
       this.publish(task.id, "task", "tool.call.completed", {
         taskId: task.id,
         callId,
-        toolPath,
+        toolPath: effectiveToolPath,
         output: asPayload(value),
       });
       return value;
@@ -686,7 +753,7 @@ export class ExecutorService {
       this.publish(task.id, "task", "tool.call.failed", {
         taskId: task.id,
         callId,
-        toolPath,
+        toolPath: effectiveToolPath,
         error: message,
       });
       throw error;

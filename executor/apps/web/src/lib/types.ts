@@ -120,11 +120,13 @@ export interface CredentialDescriptor {
   hasSecret: boolean;
 }
 
+export type ToolSourceType = "mcp" | "openapi" | "graphql";
+
 export interface ToolSourceRecord {
   id: string;
   workspaceId: string;
   name: string;
-  type: "mcp" | "openapi";
+  type: ToolSourceType;
   config: Record<string, unknown>;
   enabled: boolean;
   createdAt: number;

@@ -32,7 +32,22 @@ export interface OpenApiToolSourceConfig {
   overrides?: Record<string, { approval?: ToolApprovalMode }>;
 }
 
-export type ExternalToolSourceConfig = McpToolSourceConfig | OpenApiToolSourceConfig;
+export interface GraphqlToolSourceConfig {
+  type: "graphql";
+  name: string;
+  endpoint: string;
+  /** Optional static introspection result — if omitted, we introspect at load time */
+  schema?: Record<string, unknown>;
+  auth?: OpenApiAuth;
+  defaultQueryApproval?: ToolApprovalMode;
+  defaultMutationApproval?: ToolApprovalMode;
+  overrides?: Record<string, { approval?: ToolApprovalMode }>;
+}
+
+export type ExternalToolSourceConfig =
+  | McpToolSourceConfig
+  | OpenApiToolSourceConfig
+  | GraphqlToolSourceConfig;
 
 function toObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -398,6 +413,391 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
   return tools;
 }
 
+// ── GraphQL introspection ──
+
+const INTROSPECTION_QUERY = `
+  query IntrospectionQuery {
+    __schema {
+      queryType { name }
+      mutationType { name }
+      types {
+        kind name
+        fields {
+          name description
+          args { name description type { ...TypeRef } defaultValue }
+          type { ...TypeRef }
+        }
+        inputFields {
+          name description
+          type { ...TypeRef }
+          defaultValue
+        }
+        enumValues { name description }
+      }
+    }
+  }
+  fragment TypeRef on __Type {
+    kind name
+    ofType {
+      kind name
+      ofType {
+        kind name
+        ofType {
+          kind name
+          ofType { kind name }
+        }
+      }
+    }
+  }
+`;
+
+interface GqlTypeRef {
+  kind: string;
+  name: string | null;
+  ofType?: GqlTypeRef | null;
+}
+
+interface GqlField {
+  name: string;
+  description: string | null;
+  args: Array<{
+    name: string;
+    description: string | null;
+    type: GqlTypeRef;
+    defaultValue: string | null;
+  }>;
+  type: GqlTypeRef;
+}
+
+interface GqlInputField {
+  name: string;
+  description: string | null;
+  type: GqlTypeRef;
+  defaultValue: string | null;
+}
+
+interface GqlEnumValue {
+  name: string;
+  description: string | null;
+}
+
+interface GqlType {
+  kind: string;
+  name: string;
+  fields: GqlField[] | null;
+  inputFields: GqlInputField[] | null;
+  enumValues: GqlEnumValue[] | null;
+}
+
+interface GqlSchema {
+  queryType: { name: string } | null;
+  mutationType: { name: string } | null;
+  types: GqlType[];
+}
+
+/** Resolve a GqlTypeRef to the underlying named type (unwrapping NON_NULL/LIST wrappers) */
+function unwrapType(ref: GqlTypeRef): string | null {
+  if (ref.kind === "NON_NULL" && ref.ofType) return unwrapType(ref.ofType);
+  if (ref.kind === "LIST" && ref.ofType) return unwrapType(ref.ofType);
+  return ref.name;
+}
+
+/**
+ * Convert a GraphQL type reference to a TypeScript-like type hint,
+ * recursively expanding INPUT_OBJECT types so the model sees actual fields.
+ */
+function gqlTypeToHint(ref: GqlTypeRef, typeMap?: Map<string, GqlType>, depth = 0): string {
+  if (ref.kind === "NON_NULL" && ref.ofType) return gqlTypeToHint(ref.ofType, typeMap, depth);
+  if (ref.kind === "LIST" && ref.ofType) return `${gqlTypeToHint(ref.ofType, typeMap, depth)}[]`;
+
+  if (ref.name && typeMap && depth < 3) {
+    const resolved = typeMap.get(ref.name);
+    if (resolved?.kind === "INPUT_OBJECT" && resolved.inputFields) {
+      return expandInputObject(resolved, typeMap, depth);
+    }
+    if (resolved?.kind === "ENUM" && resolved.enumValues && resolved.enumValues.length > 0) {
+      const values = resolved.enumValues.slice(0, 8).map((v) => `"${v.name}"`);
+      const suffix = resolved.enumValues.length > 8 ? " | ..." : "";
+      return values.join(" | ") + suffix;
+    }
+  }
+
+  // Map common GraphQL scalars to TS primitives
+  if (ref.name) {
+    switch (ref.name) {
+      case "String":
+      case "ID":
+      case "DateTime":
+      case "Date":
+      case "UUID":
+      case "JSONString":
+      case "TimelessDate":
+        return "string";
+      case "Int":
+      case "Float":
+        return "number";
+      case "Boolean":
+        return "boolean";
+      case "JSON":
+      case "JSONObject":
+        return "Record<string, unknown>";
+      default:
+        return ref.name;
+    }
+  }
+  return "unknown";
+}
+
+function expandInputObject(type: GqlType, typeMap: Map<string, GqlType>, depth: number): string {
+  const fields = type.inputFields;
+  if (!fields || fields.length === 0) return "Record<string, unknown>";
+  const entries = fields.slice(0, 16).map((f) => {
+    const required = f.type.kind === "NON_NULL";
+    return `${f.name}${required ? "" : "?"}: ${gqlTypeToHint(f.type, typeMap, depth + 1)}`;
+  });
+  const suffix = fields.length > 16 ? "; ..." : "";
+  return `{ ${entries.join("; ")}${suffix} }`;
+}
+
+function gqlFieldArgsTypeHint(args: GqlField["args"], typeMap?: Map<string, GqlType>): string {
+  if (args.length === 0) return "{}";
+  const entries = args.slice(0, 12).map((a) => {
+    const required = a.type.kind === "NON_NULL";
+    return `${a.name}${required ? "" : "?"}: ${gqlTypeToHint(a.type, typeMap)}`;
+  });
+  return `{ ${entries.join("; ")} }`;
+}
+
+function isRequired(ref: GqlTypeRef): boolean {
+  return ref.kind === "NON_NULL";
+}
+
+/** Build a minimal GraphQL document for a single root field with its arguments */
+function buildFieldQuery(
+  operationType: "query" | "mutation",
+  fieldName: string,
+  args: GqlField["args"],
+): string {
+  if (args.length === 0) {
+    return `${operationType} { ${fieldName} }`;
+  }
+  const varDefs = args.map((a) => `$${a.name}: ${printGqlType(a.type)}`).join(", ");
+  const fieldArgs = args.map((a) => `${a.name}: $${a.name}`).join(", ");
+  return `${operationType}(${varDefs}) { ${fieldName}(${fieldArgs}) }`;
+}
+
+function printGqlType(ref: GqlTypeRef): string {
+  if (ref.kind === "NON_NULL" && ref.ofType) return `${printGqlType(ref.ofType)}!`;
+  if (ref.kind === "LIST" && ref.ofType) return `[${printGqlType(ref.ofType)}]`;
+  return ref.name ?? "String";
+}
+
+/**
+ * Parse a GraphQL query string to extract the operation type and root field names.
+ * This is intentionally simple — no full parser needed, just enough for policy routing.
+ */
+export function parseGraphqlOperationPaths(
+  sourceName: string,
+  queryString: string,
+): { operationType: "query" | "mutation" | "subscription"; fieldPaths: string[] } {
+  const trimmed = queryString.trim();
+
+  // Determine operation type
+  let operationType: "query" | "mutation" | "subscription" = "query";
+  if (/^mutation\b/i.test(trimmed)) operationType = "mutation";
+  else if (/^subscription\b/i.test(trimmed)) operationType = "subscription";
+
+  // Find the first { ... } block and extract top-level field names
+  const braceStart = trimmed.indexOf("{");
+  if (braceStart === -1) return { operationType, fieldPaths: [] };
+
+  // Walk the content inside the first braces, extract field names at depth 0
+  const content = trimmed.slice(braceStart + 1);
+  const fieldPaths: string[] = [];
+  let depth = 0;
+  let current = "";
+
+  for (const char of content) {
+    if (char === "{") {
+      if (depth === 0 && current.trim()) {
+        // Grab the field name (before any args in parens)
+        const fieldName = current.trim().split(/[\s(]/)[0];
+        if (fieldName && !fieldName.startsWith("__")) {
+          fieldPaths.push(`${sanitizeSegment(sourceName)}.${operationType}.${sanitizeSegment(fieldName)}`);
+        }
+      }
+      depth++;
+      current = "";
+    } else if (char === "}") {
+      if (depth === 0) {
+        // End of top-level block — grab last field if any
+        const fieldName = current.trim().split(/[\s(]/)[0];
+        if (fieldName && !fieldName.startsWith("__")) {
+          fieldPaths.push(`${sanitizeSegment(sourceName)}.${operationType}.${sanitizeSegment(fieldName)}`);
+        }
+        break;
+      }
+      depth--;
+      current = "";
+    } else if (depth === 0) {
+      if (char === "\n" || char === ",") {
+        const fieldName = current.trim().split(/[\s(]/)[0];
+        if (fieldName && !fieldName.startsWith("__")) {
+          fieldPaths.push(`${sanitizeSegment(sourceName)}.${operationType}.${sanitizeSegment(fieldName)}`);
+        }
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+  }
+
+  return { operationType, fieldPaths };
+}
+
+async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDefinition[]> {
+  const authHeaders = buildStaticAuthHeaders(config.auth);
+  const sourceKey = `graphql:${config.name}`;
+  const credentialSpec = buildCredentialSpec(sourceKey, config.auth);
+  const sourceName = sanitizeSegment(config.name);
+
+  // Introspect the schema
+  const introspectionResult = await fetch(config.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify({ query: INTROSPECTION_QUERY }),
+  });
+
+  if (!introspectionResult.ok) {
+    const text = await introspectionResult.text().catch(() => "");
+    throw new Error(`GraphQL introspection failed: HTTP ${introspectionResult.status}: ${text.slice(0, 300)}`);
+  }
+
+  const introspectionJson = (await introspectionResult.json()) as { data?: { __schema?: GqlSchema }; errors?: unknown[] };
+  if (introspectionJson.errors) {
+    throw new Error(`GraphQL introspection errors: ${JSON.stringify(introspectionJson.errors).slice(0, 500)}`);
+  }
+  const schema = introspectionJson.data?.__schema;
+  if (!schema) {
+    throw new Error("GraphQL introspection returned no schema");
+  }
+
+  // Index types by name
+  const typeMap = new Map<string, GqlType>();
+  for (const t of schema.types) {
+    typeMap.set(t.name, t);
+  }
+
+  const tools: ToolDefinition[] = [];
+
+  // Create the main graphql tool — this is the one that actually executes queries
+  const mainToolPath = `${sourceName}.graphql`;
+  tools.push({
+    path: mainToolPath,
+    source: sourceKey,
+    description: `Execute a GraphQL query or mutation against ${config.name}. Use the ${sourceName}.query.* and ${sourceName}.mutation.* tool descriptions to see available operations.`,
+    approval: "auto", // Actual approval is determined dynamically per-invocation
+    metadata: {
+      argsType: "{ query: string; variables?: Record<string, unknown> }",
+      returnsType: "unknown",
+    },
+    credential: credentialSpec,
+    // Tag as graphql source so invokeTool knows to do dynamic path extraction
+    _graphqlSource: config.name,
+    run: async (input: unknown, context) => {
+      const payload = toObject(input);
+      const query = String(payload.query ?? "");
+      const variables = payload.variables ?? undefined;
+
+      if (!query.trim()) {
+        throw new Error("GraphQL query string is required");
+      }
+
+      const response = await fetch(config.endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...authHeaders,
+          ...(context.credential?.headers ?? {}),
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`HTTP ${response.status} ${response.statusText}: ${text.slice(0, 500)}`);
+      }
+
+      const result = await response.json() as { data?: unknown; errors?: unknown[] };
+      if (result.errors && (!result.data || Object.keys(result.data as object).length === 0)) {
+        throw new Error(`GraphQL errors: ${JSON.stringify(result.errors).slice(0, 1000)}`);
+      }
+      // Return both data and errors if partial
+      if (result.errors) return result;
+      return result.data;
+    },
+  } as ToolDefinition & { _graphqlSource: string });
+
+  // Create pseudo-tools for each query/mutation field — these are for discovery/intellisense
+  // but they all route through the main .graphql tool
+  const rootTypes: Array<{ typeName: string | null; operationType: "query" | "mutation" }> = [
+    { typeName: schema.queryType?.name ?? null, operationType: "query" },
+    { typeName: schema.mutationType?.name ?? null, operationType: "mutation" },
+  ];
+
+  for (const { typeName, operationType } of rootTypes) {
+    if (!typeName) continue;
+    const rootType = typeMap.get(typeName);
+    if (!rootType?.fields) continue;
+
+    const defaultApproval = operationType === "query"
+      ? (config.defaultQueryApproval ?? "auto")
+      : (config.defaultMutationApproval ?? "required");
+
+    for (const field of rootType.fields) {
+      if (field.name.startsWith("__")) continue;
+
+      const fieldPath = `${sourceName}.${operationType}.${sanitizeSegment(field.name)}`;
+      const approval = config.overrides?.[field.name]?.approval ?? defaultApproval;
+
+      // Build the example query for the description
+      const exampleQuery = buildFieldQuery(operationType, field.name, field.args);
+
+      tools.push({
+        path: fieldPath,
+        source: sourceKey,
+        description: field.description
+          ? `${field.description}\n\nExample: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`
+          : `GraphQL ${operationType}: ${field.name}\n\nExample: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`,
+        approval,
+        metadata: {
+          argsType: gqlFieldArgsTypeHint(field.args, typeMap),
+          returnsType: gqlTypeToHint(field.type, typeMap),
+        },
+        // Pseudo-tools don't have a run — they exist for discovery and policy matching only
+        _pseudoTool: true,
+        run: async (input: unknown, context) => {
+          // If someone calls this directly, delegate to the main graphql tool
+          const payload = toObject(input);
+          if (!payload.query) {
+            // Auto-build the query from the variables
+            payload.query = buildFieldQuery(operationType, field.name, field.args);
+          }
+          // Find and invoke the main tool
+          const mainTool = tools.find((t) => t.path === mainToolPath);
+          if (!mainTool) throw new Error(`Main GraphQL tool not found`);
+          return mainTool.run(payload, context);
+        },
+      } as ToolDefinition & { _pseudoTool: boolean });
+    }
+  }
+
+  return tools;
+}
+
 export function parseToolSourcesFromEnv(raw: string | undefined): ExternalToolSourceConfig[] {
   if (!raw || raw.trim().length === 0) {
     return [];
@@ -411,7 +811,7 @@ export function parseToolSourcesFromEnv(raw: string | undefined): ExternalToolSo
   return parsed as ExternalToolSourceConfig[];
 }
 
-export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Promise<ToolDefinition[]> {
+export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
   const loaded: ToolDefinition[] = [];
   const warnings: string[] = [];
 
@@ -421,6 +821,8 @@ export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Pr
         loaded.push(...(await loadMcpTools(source)));
       } else if (source.type === "openapi") {
         loaded.push(...(await loadOpenApiTools(source)));
+      } else if (source.type === "graphql") {
+        loaded.push(...(await loadGraphqlTools(source)));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

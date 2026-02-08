@@ -213,7 +213,7 @@ const server = Bun.serve({
           id?: string;
           workspaceId?: string;
           name?: string;
-          type?: "mcp" | "openapi";
+          type?: "mcp" | "openapi" | "graphql";
           config?: Record<string, unknown>;
           enabled?: boolean;
         }>(request);
@@ -222,8 +222,8 @@ const server = Bun.serve({
           return error(400, "workspaceId, name, type, and config are required");
         }
 
-        if (body.type !== "mcp" && body.type !== "openapi") {
-          return error(400, "type must be 'mcp' or 'openapi'");
+        if (body.type !== "mcp" && body.type !== "openapi" && body.type !== "graphql") {
+          return error(400, "type must be 'mcp', 'openapi', or 'graphql'");
         }
 
         try {
