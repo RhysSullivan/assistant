@@ -66,6 +66,8 @@ if (Bun.env.POSTHOG_PROJECT_ID) {
   contextLines.push(`- PostHog project ID: ${Bun.env.POSTHOG_PROJECT_ID}`);
 }
 
+const CONVEX_URL = Bun.env.CONVEX_URL ?? "http://127.0.0.1:3210";
+
 const app = createApp({
   executor,
   generate: (messages) => model.generate(messages),
@@ -73,6 +75,7 @@ const app = createApp({
   actorId: anonCtx.actorId,
   clientId: anonCtx.clientId,
   context: contextLines.length > 0 ? contextLines.join("\n") : undefined,
+  convexUrl: CONVEX_URL,
 });
 
 app.listen(PORT);

@@ -96,6 +96,23 @@ export default defineSchema({
     .index("by_workspace_name", ["workspaceId", "name"])
     .index("by_workspace_enabled_updated", ["workspaceId", "enabled", "updatedAt"]),
 
+  agentTasks: defineTable({
+    agentTaskId: v.string(),
+    prompt: v.string(),
+    requesterId: v.string(),
+    workspaceId: v.string(),
+    actorId: v.string(),
+    status: v.string(), // "running" | "completed" | "failed"
+    resultText: v.optional(v.string()),
+    error: v.optional(v.string()),
+    codeRuns: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_agent_task_id", ["agentTaskId"])
+    .index("by_workspace_created", ["workspaceId", "createdAt"])
+    .index("by_requester_created", ["requesterId", "createdAt"]),
+
   anonymousSessions: defineTable({
     sessionId: v.string(),
     workspaceId: v.string(),

@@ -5,8 +5,8 @@
 import type { ChatInputCommandInteraction, CommandInteraction } from "discord.js";
 import type { Client } from "@assistant/server/client";
 import { unwrap } from "@assistant/server/client";
-import type { Treaty } from "@elysiajs/eden";
 import type { ConvexReactClient } from "convex/react";
+import { ConvexProvider } from "convex/react";
 import type { ReacordInstance } from "@openassistant/reacord";
 import { Effect, Runtime } from "effect";
 import { TaskMessage } from "../views/task-message";
@@ -29,13 +29,13 @@ export async function handleAskCommand(
 
   await interaction.deferReply();
 
-  let taskId: string;
+  let agentTaskId: string;
   let workspaceId: string;
   try {
     const data = await unwrap(
       deps.api.api.tasks.post({ prompt, requesterId }),
     );
-    taskId = data.taskId;
+    agentTaskId = data.agentTaskId;
     workspaceId = data.workspaceId;
   } catch (error) {
     await interaction.editReply({
@@ -47,13 +47,14 @@ export async function handleAskCommand(
   await Runtime.runPromise(Runtime.defaultRuntime)(
     deps.reacord.reply(
       interaction,
-      <TaskMessage
-        taskId={taskId}
-        prompt={prompt}
-        workspaceId={workspaceId}
-        executor={deps.executor}
-        convex={deps.convex}
-      />,
+      <ConvexProvider client={deps.convex}>
+        <TaskMessage
+          agentTaskId={agentTaskId}
+          prompt={prompt}
+          workspaceId={workspaceId}
+          executor={deps.executor}
+        />
+      </ConvexProvider>,
     ),
   );
 }

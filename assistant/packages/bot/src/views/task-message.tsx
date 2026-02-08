@@ -1,12 +1,12 @@
 /**
- * TaskMessage — live-updating Discord message.
+ * TaskMessage — live-updating Discord message powered by Convex reactivity.
  *
- * - Polls assistant server for task status (agent_message, completed, failed)
- * - Watches Convex for pending approvals (reactive, no polling)
+ * - Watches agentTask in Convex for status, result, error (reactive, no polling)
+ * - Watches pending approvals in Convex (reactive)
  * - Approval buttons resolve via executor REST API
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Container,
   TextDisplay,
@@ -16,130 +16,34 @@ import {
   Loading,
   useInstance,
 } from "@openassistant/reacord";
-// Executor client is just an Eden Treaty client — no separate adapter needed
-import type { ConvexReactClient } from "convex/react";
-import { api as convexApi } from "@executor/convex/_generated/api";
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-interface PendingApproval {
-  readonly id: string;
-  readonly toolPath: string;
-  readonly input: unknown;
-}
-
-interface TaskState {
-  readonly status: "running" | "completed" | "failed";
-  readonly statusMessage: string;
-  readonly agentMessage: string | null;
-  readonly error: string | null;
-  readonly pendingApprovals: PendingApproval[];
-}
-
-const INITIAL_STATE: TaskState = {
-  status: "running",
-  statusMessage: "Thinking...",
-  agentMessage: null,
-  error: null,
-  pendingApprovals: [],
-};
+import { useQuery } from "convex/react";
+import { api } from "@executor/convex/_generated/api";
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export interface TaskMessageProps {
-  readonly taskId: string;
+  readonly agentTaskId: string;
   readonly prompt: string;
   readonly workspaceId: string;
   readonly executor: ReturnType<typeof import("@elysiajs/eden").treaty>;
-  readonly convex: ConvexReactClient;
 }
 
-export function TaskMessage({ taskId, prompt, workspaceId, executor, convex }: TaskMessageProps) {
+export function TaskMessage({ agentTaskId, prompt, workspaceId, executor }: TaskMessageProps) {
   const instance = useInstance();
-  const [state, setState] = useState<TaskState>(INITIAL_STATE);
 
-  // Poll assistant server for task completion
-  useEffect(() => {
-    let cancelled = false;
+  // Reactive queries — no polling!
+  const agentTask = useQuery(api.database.getAgentTask, { agentTaskId });
+  const pendingApprovals = useQuery(api.database.listPendingApprovals, { workspaceId });
 
-    const poll = async () => {
-      while (!cancelled) {
-        try {
-          const resp = await fetch(`http://localhost:3000/api/tasks/${taskId}`);
-          if (resp.ok) {
-            const task = await resp.json() as {
-              status: string;
-              resultText?: string;
-              errorMessage?: string;
-            };
+  const status = agentTask?.status ?? "running";
+  const isDone = status !== "running";
 
-            if (task.status === "completed" && task.resultText) {
-              setState((s) => ({
-                ...s,
-                status: "completed",
-                statusMessage: "Completed",
-                agentMessage: task.resultText!,
-              }));
-              return;
-            }
-
-            if (task.status === "failed") {
-              setState((s) => ({
-                ...s,
-                status: "failed",
-                statusMessage: "Failed",
-                error: task.errorMessage ?? "Unknown error",
-              }));
-              return;
-            }
-          }
-        } catch {
-          // ignore
-        }
-
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    };
-
-    poll();
-    return () => { cancelled = true; };
-  }, [taskId]);
-
-  // Watch Convex for pending approvals (reactive!)
-  useEffect(() => {
-    const watch = convex.watchQuery(convexApi.database.listPendingApprovals, {
-      workspaceId,
-    });
-
-    const unsubscribe = watch.onUpdate(() => {
-      const approvals = watch.localQueryResult();
-      if (!approvals) return;
-
-      setState((s) => ({
-        ...s,
-        pendingApprovals: (approvals as any[]).map((a) => ({
-          id: a.id,
-          toolPath: a.toolPath,
-          input: a.input,
-        })),
-        statusMessage: (approvals as any[]).length > 0 ? "Waiting for approval..." : s.statusMessage,
-      }));
-    });
-
-    return unsubscribe;
-  }, [convex, workspaceId]);
-
-  // Deactivate once done
-  useEffect(() => {
-    if (state.status !== "running") {
-      const timer = setTimeout(() => instance.deactivate(), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [state.status]);
+  // Deactivate instance after completion (give Discord a moment to render)
+  if (isDone) {
+    setTimeout(() => instance.deactivate(), 5000);
+  }
 
   const handleApproval = useCallback(async (approvalId: string, decision: "approved" | "denied") => {
     try {
@@ -152,17 +56,21 @@ export function TaskMessage({ taskId, prompt, workspaceId, executor, convex }: T
     }
   }, [executor, workspaceId]);
 
-  const isDone = state.status !== "running";
   const accentColor = isDone
-    ? state.status === "completed" ? 0x57f287 : 0xed4245
+    ? status === "completed" ? 0x57f287 : 0xed4245
     : 0x5865f2;
+
+  const statusEmoji = status === "running" ? "\u23f3" : status === "completed" ? "\u2705" : "\u274c";
+  const statusMessage = status === "running"
+    ? (pendingApprovals && pendingApprovals.length > 0 ? "Waiting for approval..." : "Thinking...")
+    : status === "completed" ? "Completed" : "Failed";
 
   return (
     <Container accentColor={accentColor}>
-      <TextDisplay>{`${state.status === "running" ? "\u23f3" : state.status === "completed" ? "\u2705" : "\u274c"} **${state.statusMessage}**`}</TextDisplay>
+      <TextDisplay>{`${statusEmoji} **${statusMessage}**`}</TextDisplay>
       <TextDisplay>{`> ${prompt.length > 200 ? prompt.slice(0, 200) + "..." : prompt}`}</TextDisplay>
 
-      {state.pendingApprovals.map((approval) => (
+      {pendingApprovals?.map((approval: any) => (
         <ApprovalSection
           key={approval.id}
           approval={approval}
@@ -170,25 +78,25 @@ export function TaskMessage({ taskId, prompt, workspaceId, executor, convex }: T
         />
       ))}
 
-      {state.error && (
+      {agentTask?.error && (
         <>
           <Separator />
-          <TextDisplay>{`\u274c **Error:** ${state.error.slice(0, 500)}`}</TextDisplay>
+          <TextDisplay>{`\u274c **Error:** ${agentTask.error.slice(0, 500)}`}</TextDisplay>
         </>
       )}
 
-      {state.agentMessage && (
+      {agentTask?.resultText && (
         <>
           <Separator />
           <TextDisplay>
-            {state.agentMessage.length > 1800
-              ? state.agentMessage.slice(0, 1800) + "..."
-              : state.agentMessage}
+            {agentTask.resultText.length > 1800
+              ? agentTask.resultText.slice(0, 1800) + "..."
+              : agentTask.resultText}
           </TextDisplay>
         </>
       )}
 
-      {state.status === "running" && state.pendingApprovals.length === 0 && <Loading />}
+      {status === "running" && (!pendingApprovals || pendingApprovals.length === 0) && <Loading />}
     </Container>
   );
 }
@@ -201,7 +109,7 @@ function ApprovalSection({
   approval,
   onDecision,
 }: {
-  approval: PendingApproval;
+  approval: { id: string; toolPath: string; input: unknown };
   onDecision: (decision: "approved" | "denied") => void;
 }) {
   const [resolved, setResolved] = useState(false);

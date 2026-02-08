@@ -65,6 +65,7 @@
         "@assistant/agent-executor-adapter": "workspace:*",
         "@assistant/core": "workspace:*",
         "@elysiajs/eden": "latest",
+        "convex": "^1.31.7",
         "elysia": "latest",
       },
       "devDependencies": {

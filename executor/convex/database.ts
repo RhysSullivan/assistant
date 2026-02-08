@@ -455,6 +455,96 @@ export const getApprovalInWorkspace = query({
   },
 });
 
+// ── Agent Tasks ──
+
+function mapAgentTask(doc: any) {
+  return {
+    id: doc.agentTaskId,
+    prompt: doc.prompt,
+    requesterId: doc.requesterId,
+    workspaceId: doc.workspaceId,
+    actorId: doc.actorId,
+    status: doc.status,
+    resultText: doc.resultText,
+    error: doc.error,
+    codeRuns: doc.codeRuns ?? 0,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
+}
+
+async function getAgentTaskDoc(ctx: any, agentTaskId: string) {
+  return await ctx.db
+    .query("agentTasks")
+    .withIndex("by_agent_task_id", (q: any) => q.eq("agentTaskId", agentTaskId))
+    .unique();
+}
+
+export const createAgentTask = mutation({
+  args: {
+    id: v.string(),
+    prompt: v.string(),
+    requesterId: v.string(),
+    workspaceId: v.string(),
+    actorId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await getAgentTaskDoc(ctx, args.id);
+    if (existing) {
+      throw new Error(`Agent task already exists: ${args.id}`);
+    }
+
+    const now = Date.now();
+    await ctx.db.insert("agentTasks", {
+      agentTaskId: args.id,
+      prompt: args.prompt,
+      requesterId: args.requesterId,
+      workspaceId: args.workspaceId,
+      actorId: args.actorId,
+      status: "running",
+      codeRuns: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const created = await getAgentTaskDoc(ctx, args.id);
+    if (!created) throw new Error(`Failed to fetch created agent task ${args.id}`);
+    return mapAgentTask(created);
+  },
+});
+
+export const getAgentTask = query({
+  args: { agentTaskId: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await getAgentTaskDoc(ctx, args.agentTaskId);
+    return doc ? mapAgentTask(doc) : null;
+  },
+});
+
+export const updateAgentTask = mutation({
+  args: {
+    agentTaskId: v.string(),
+    status: v.optional(v.string()),
+    resultText: v.optional(v.string()),
+    error: v.optional(v.string()),
+    codeRuns: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const doc = await getAgentTaskDoc(ctx, args.agentTaskId);
+    if (!doc) return null;
+
+    const patch: Record<string, unknown> = { updatedAt: Date.now() };
+    if (args.status !== undefined) patch.status = args.status;
+    if (args.resultText !== undefined) patch.resultText = args.resultText;
+    if (args.error !== undefined) patch.error = args.error;
+    if (args.codeRuns !== undefined) patch.codeRuns = args.codeRuns;
+
+    await ctx.db.patch(doc._id, patch);
+    const updated = await getAgentTaskDoc(ctx, args.agentTaskId);
+    return updated ? mapAgentTask(updated) : null;
+  },
+});
+
 export const bootstrapAnonymousSession = mutation({
   args: { sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
