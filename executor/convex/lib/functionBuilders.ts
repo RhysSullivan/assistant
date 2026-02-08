@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { customMutation, customQuery } from "convex-helpers/server/customFunctions";
-import { mutation, query } from "../_generated/server";
-import { canManageBilling, getOrganizationMembership, isAdminRole, requireAccountForRequest, resolveAccountForRequest } from "./identity";
+import { internalQuery, mutation, query } from "../_generated/server";
+import { canManageBilling, getOrganizationMembership, isAdminRole, resolveAccountForRequest } from "./identity";
 
 type OrganizationAccessOptions = {
   requireAdmin?: boolean;
@@ -18,12 +18,23 @@ function ensureOrganizationRole(role: string, options: OrganizationAccessOptions
   }
 }
 
+async function requireAccountFromSession(
+  ctx: Parameters<typeof resolveAccountForRequest>[0],
+  sessionId?: string,
+) {
+  const account = await resolveAccountForRequest(ctx, sessionId);
+  if (!account) {
+    throw new Error("Must be signed in");
+  }
+  return account;
+}
+
 export const authedQuery = customQuery(query, {
   args: {
     sessionId: v.optional(v.string()),
   },
   input: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
+    const account = await requireAccountFromSession(ctx, args.sessionId);
     return {
       ctx: { account },
       args: {},
@@ -49,7 +60,7 @@ export const authedMutation = customMutation(mutation, {
     sessionId: v.optional(v.string()),
   },
   input: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
+    const account = await requireAccountFromSession(ctx, args.sessionId);
     return {
       ctx: { account },
       args: {},
@@ -63,7 +74,7 @@ export const organizationQuery = customQuery(query, {
     sessionId: v.optional(v.string()),
   },
   input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
+    const account = await requireAccountFromSession(ctx, args.sessionId);
     const actorMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
 
     if (!actorMembership || actorMembership.status !== "active") {
@@ -89,7 +100,33 @@ export const organizationMutation = customMutation(mutation, {
     sessionId: v.optional(v.string()),
   },
   input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
+    const account = await requireAccountFromSession(ctx, args.sessionId);
+    const actorMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
+
+    if (!actorMembership || actorMembership.status !== "active") {
+      throw new Error("You are not a member of this organization");
+    }
+
+    ensureOrganizationRole(actorMembership.role, options);
+
+    return {
+      ctx: {
+        account,
+        actorMembership,
+        organizationId: args.organizationId,
+      },
+      args: {},
+    };
+  },
+});
+
+export const internalOrganizationQuery = customQuery(internalQuery, {
+  args: {
+    organizationId: v.id("organizations"),
+    sessionId: v.optional(v.string()),
+  },
+  input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
+    const account = await requireAccountFromSession(ctx, args.sessionId);
     const actorMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
 
     if (!actorMembership || actorMembership.status !== "active") {

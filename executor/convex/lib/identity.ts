@@ -58,17 +58,6 @@ export async function resolveAccountForRequest(
   return null;
 }
 
-export async function requireAccountForRequest(
-  ctx: IdentityCtx,
-  sessionId?: string,
-): Promise<Doc<"accounts">> {
-  const account = await resolveAccountForRequest(ctx, sessionId);
-  if (!account) {
-    throw new Error("Must be signed in");
-  }
-  return account;
-}
-
 export async function getOrganizationMembership(
   ctx: MembershipCtx,
   organizationId: Id<"organizations">,

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { getOrganizationMembership, requireAccountForRequest } from "./lib/identity";
+import { internalOrganizationQuery } from "./lib/functionBuilders";
 
 type DbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
 
@@ -26,32 +26,23 @@ async function getSeatState(
     .unique();
 }
 
-export const getBillingAccessForRequest = internalQuery({
-  args: {
-    organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
-    const membership = await getOrganizationMembership(ctx, args.organizationId, account._id);
-    if (!membership || membership.status !== "active") {
-      return null;
-    }
-
-    const organization = await ctx.db.get(args.organizationId);
+export const getBillingAccessForRequest = internalOrganizationQuery({
+  args: {},
+  handler: async (ctx) => {
+    const organization = await ctx.db.get(ctx.organizationId);
     if (!organization) {
       return null;
     }
 
-    const billableMembers = await getBillableSeatCount(ctx, args.organizationId);
+    const billableMembers = await getBillableSeatCount(ctx, ctx.organizationId);
     const customer = await ctx.db
       .query("billingCustomers")
-      .withIndex("by_org", (q) => q.eq("organizationId", args.organizationId))
+      .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
       .unique();
 
     return {
-      role: membership.role,
-      email: account.email,
+      role: ctx.actorMembership.role,
+      email: ctx.account.email,
       organizationName: organization.name,
       billableMembers,
       customerId: customer?.stripeCustomerId ?? null,
