@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { getTaskTerminalState } from "./service";
+import type { LiveTaskEvent } from "./events";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -11,6 +12,7 @@ import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } fr
 interface McpExecutorService {
   createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }>;
   getTask(taskId: string, workspaceId?: string): Promise<TaskRecord | null>;
+  subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;
   listTools(context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
 }
@@ -62,20 +64,47 @@ function summarizeTask(task: TaskRecord): string {
   return text;
 }
 
-async function waitForTerminalTask(
+function waitForTerminalTask(
   service: McpExecutorService,
   taskId: string,
   workspaceId: string,
   waitTimeoutMs: number,
 ): Promise<TaskRecord | null> {
-  const deadline = Date.now() + waitTimeoutMs;
-  while (Date.now() < deadline) {
-    const task = await service.getTask(taskId, workspaceId);
-    if (!task) return null;
-    if (getTaskTerminalState(task.status)) return task;
-    await Bun.sleep(300);
-  }
-  return await service.getTask(taskId, workspaceId);
+  return new Promise((resolve) => {
+    let settled = false;
+    let unsubscribe: (() => void) | undefined;
+
+    const done = async () => {
+      if (settled) return;
+      settled = true;
+      unsubscribe?.();
+      resolve(await service.getTask(taskId, workspaceId));
+    };
+
+    const timeout = setTimeout(done, waitTimeoutMs);
+
+    // Check if already terminal before subscribing (race condition guard)
+    service.getTask(taskId, workspaceId).then((task) => {
+      if (settled) return;
+      if (task && getTaskTerminalState(task.status)) {
+        clearTimeout(timeout);
+        settled = true;
+        resolve(task);
+        return;
+      }
+
+      // Subscribe for live events
+      unsubscribe = service.subscribe(taskId, (event) => {
+        const type = typeof event.payload === "object" && event.payload
+          ? (event.payload as Record<string, unknown>).status
+          : undefined;
+        if (typeof type === "string" && getTaskTerminalState(type)) {
+          clearTimeout(timeout);
+          done();
+        }
+      });
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

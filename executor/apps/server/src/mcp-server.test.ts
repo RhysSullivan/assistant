@@ -2,11 +2,13 @@ import { expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { handleMcpRequest } from "./mcp-server";
+import type { LiveTaskEvent } from "./events";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
 
 class FakeMcpService {
   private readonly tasks = new Map<string, TaskRecord>();
   private readonly sessions = new Map<string, AnonymousContext>();
+  private readonly listeners = new Map<string, Set<(event: LiveTaskEvent) => void>>();
 
   async createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }> {
     const id = `task_${crypto.randomUUID()}`;
@@ -39,6 +41,10 @@ class FakeMcpService {
         stdout: `ran:${input.code.slice(0, 20)}`,
         stderr: "",
       });
+      // Notify subscribers
+      for (const listener of this.listeners.get(id) ?? []) {
+        listener({ id: 1, eventName: "task", payload: { status: "completed" }, createdAt: Date.now() });
+      }
     });
 
     return { task: queued };
@@ -70,6 +76,13 @@ class FakeMcpService {
     };
     this.sessions.set(context.sessionId, context);
     return context;
+  }
+
+  subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void {
+    const set = this.listeners.get(taskId) ?? new Set();
+    set.add(listener);
+    this.listeners.set(taskId, set);
+    return () => { set.delete(listener); };
   }
 
   async listTools(_context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]> {
