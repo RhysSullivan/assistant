@@ -5,6 +5,13 @@ import type {
   SandboxExecutionResult,
   SandboxRuntime,
 } from "../types";
+import {
+  buildFormatArgs,
+  buildCallInternal,
+  buildOutputHelpers,
+  buildCreateToolsProxy,
+  buildSandboxExecution,
+} from "./sandbox-fragments";
 
 const RESULT_MARKER = "__EXECUTOR_RESULT__";
 
@@ -19,6 +26,8 @@ function stripTrailingSlash(value: string): string {
 }
 
 function buildRunnerScript(codeFilePath: string): string {
+  // Composed from sandbox-fragments.ts — see that file for the mirror
+  // relationship with runtime-core.ts.
   return `
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -42,179 +51,11 @@ const userCode = await readFile(${JSON.stringify(codeFilePath)}, "utf8");
 const startedAt = Date.now();
 const stdoutLines = [];
 const stderrLines = [];
-
-function formatArgs(args) {
-  return args.map((value) => {
-    if (typeof value === "string") return value;
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }).join(" ");
-}
-
-async function callInternal(path, payload) {
-  const response = await fetch(baseUrl + path, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: "Bearer " + token } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const text = await response.text();
-  let data = {};
-  if (text.length > 0) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { error: text };
-    }
-  }
-
-  if (!response.ok) {
-    const message = typeof data.error === "string"
-      ? data.error
-      : "Internal request failed (" + response.status + ")";
-    throw new Error(message);
-  }
-
-  return data;
-}
-
-function emitOutput(stream, line) {
-  return callInternal("/internal/runs/" + encodeURIComponent(runId) + "/output", {
-    stream,
-    line,
-    timestamp: Date.now(),
-  });
-}
-
-function appendStdout(line) {
-  stdoutLines.push(line);
-  void emitOutput("stdout", line);
-}
-
-function appendStderr(line) {
-  stderrLines.push(line);
-  void emitOutput("stderr", line);
-}
-
-function createToolsProxy(path = []) {
-  const callable = () => {};
-  return new Proxy(callable, {
-    get(_target, prop) {
-      if (prop === "then") return undefined;
-      if (typeof prop !== "string") return undefined;
-      return createToolsProxy([...path, prop]);
-    },
-    async apply(_target, _thisArg, args) {
-      const toolPath = path.join(".");
-      if (!toolPath) {
-        throw new Error("Tool path missing in invocation");
-      }
-
-      const data = await callInternal(
-        "/internal/runs/" + encodeURIComponent(runId) + "/tool-call",
-        {
-          callId: "call_" + randomUUID(),
-          toolPath,
-          input: args.length > 0 ? args[0] : {},
-        },
-      );
-
-      if (data.ok) {
-        return data.value;
-      }
-
-      if (data.denied) {
-        throw new Error("APPROVAL_DENIED:" + String(data.error || "Tool call denied"));
-      }
-
-      throw new Error(String(data.error || "Tool call failed"));
-    },
-  });
-}
-
-const tools = createToolsProxy();
-const consoleProxy = {
-  log: (...args) => appendStdout(formatArgs(args)),
-  info: (...args) => appendStdout(formatArgs(args)),
-  warn: (...args) => appendStderr(formatArgs(args)),
-  error: (...args) => appendStderr(formatArgs(args)),
-};
-
-const sandbox = Object.assign(Object.create(null), {
-  tools,
-  console: consoleProxy,
-  setTimeout,
-  clearTimeout,
-});
-const context = vm.createContext(sandbox, {
-  codeGeneration: {
-    strings: false,
-    wasm: false,
-  },
-});
-const runnerScript = new vm.Script("(async () => {\\n\"use strict\";\\n" + userCode + "\\n})()");
-
-const timeoutPromise = new Promise((_, reject) => {
-  setTimeout(() => reject(new Error("TASK_TIMEOUT")), requestTimeoutMs);
-});
-
-let result;
-try {
-  const value = await Promise.race([
-    Promise.resolve(runnerScript.runInContext(context, { timeout: Math.max(1, requestTimeoutMs) })),
-    timeoutPromise,
-  ]);
-  if (value !== undefined) {
-    appendStdout("result: " + formatArgs([value]));
-  }
-
-  result = {
-    status: "completed",
-    stdout: stdoutLines.join("\\n"),
-    stderr: stderrLines.join("\\n"),
-    exitCode: 0,
-    durationMs: Date.now() - startedAt,
-  };
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-
-  if (message === "TASK_TIMEOUT" || message.includes("Script execution timed out")) {
-    const timeoutMessage = "Execution timed out after " + requestTimeoutMs + "ms";
-    appendStderr(timeoutMessage);
-    result = {
-      status: "timed_out",
-      stdout: stdoutLines.join("\\n"),
-      stderr: stderrLines.join("\\n"),
-      error: timeoutMessage,
-      durationMs: Date.now() - startedAt,
-    };
-  } else if (message.startsWith("APPROVAL_DENIED:")) {
-    const deniedMessage = message.slice("APPROVAL_DENIED:".length).trim();
-    appendStderr(deniedMessage);
-    result = {
-      status: "denied",
-      stdout: stdoutLines.join("\\n"),
-      stderr: stderrLines.join("\\n"),
-      error: deniedMessage,
-      durationMs: Date.now() - startedAt,
-    };
-  } else {
-    appendStderr(message);
-    result = {
-      status: "failed",
-      stdout: stdoutLines.join("\\n"),
-      stderr: stderrLines.join("\\n"),
-      error: message,
-      durationMs: Date.now() - startedAt,
-    };
-  }
-}
+${buildFormatArgs()}
+${buildCallInternal()}
+${buildOutputHelpers()}
+${buildCreateToolsProxy()}
+${buildSandboxExecution()}
 
 process.stdout.write(RESULT_MARKER + JSON.stringify(result) + "\\n");
 `;

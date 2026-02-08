@@ -1,3 +1,7 @@
+// NOTE: The Vercel sandbox runtime (vercel-sandbox-runtime.ts) contains a JS
+// string version of similar logic, built from sandbox-fragments.ts. Changes to
+// the core helpers here (formatArgs, createToolsProxy, console proxy, execution
+// loop, result mapping) should be mirrored there.
 import { APPROVAL_DENIED_PREFIX, TASK_TIMEOUT_MARKER } from "../execution-constants";
 import { Script, createContext } from "node:vm";
 import type {
