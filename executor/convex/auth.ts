@@ -915,7 +915,7 @@ export const createWorkspace = mutation({
       userId: user._id,
       role: user.role,
       status: user.status,
-      runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${String(workspace._id)}`,
+      runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
     };
   },
 });
@@ -934,7 +934,10 @@ export const generateWorkspaceIconUploadUrl = mutation({
   },
 });
 
-async function resolveAccountForRequest(ctx: { auth: any; db: any }, sessionId?: string): Promise<Doc<"accounts"> | null> {
+async function resolveAccountForRequest(
+  ctx: Pick<MutationCtx, "auth" | "db"> | Pick<QueryCtx, "auth" | "db">,
+  sessionId?: string,
+): Promise<Doc<"accounts"> | null> {
   const identity = await ctx.auth.getUserIdentity();
   if (identity) {
     return await ctx.db
@@ -985,7 +988,7 @@ export const getMyWorkspaces = query({
             userId: membership._id,
             role: membership.role,
             status: membership.status,
-            runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${String(workspace._id)}`,
+            runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
           };
         }),
     );
@@ -1020,7 +1023,7 @@ export const getMyAccountsWithWorkspaces = query({
             userId: membership._id,
             role: membership.role,
             status: membership.status,
-            runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${String(workspace._id)}`,
+            runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
           };
         }),
     );
