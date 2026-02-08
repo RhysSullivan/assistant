@@ -68,7 +68,7 @@ function TaskComposer() {
   const [submitting, setSubmitting] = useState(false);
 
   const runtimes = useQuery(convexApi.database.listRuntimeTargets, {});
-  const { tools } = useWorkspaceTools(context ?? null);
+  const { tools, loading: toolsLoading } = useWorkspaceTools(context ?? null);
 
   const handleSubmit = async () => {
     if (!context || !code.trim()) return;
@@ -139,6 +139,7 @@ function TaskComposer() {
               value={code}
               onChange={setCode}
               tools={tools}
+              typesLoading={toolsLoading}
               height="400px"
             />
           </div>

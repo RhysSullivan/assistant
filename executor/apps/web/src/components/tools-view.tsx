@@ -507,7 +507,6 @@ function AddSourceDialog({
               <div className="pt-3 space-y-1">
                 {API_PRESETS.map((preset) => {
                   const alreadyAdded = existingSourceNames.has(preset.name);
-                  const isAdding = addingPreset === preset.name;
                   return (
                     <button
                       key={preset.name}
@@ -518,7 +517,6 @@ function AddSourceDialog({
                         alreadyAdded
                           ? "opacity-50 cursor-default"
                           : "hover:bg-accent/30 cursor-pointer",
-                        isAdding && "bg-primary/5",
                       )}
                     >
                       <span className="flex items-center justify-center h-6 w-6 rounded bg-muted shrink-0 overflow-hidden">
@@ -548,17 +546,6 @@ function AddSourceDialog({
                           {preset.description}
                         </span>
                       </div>
-                      {alreadyAdded ? (
-                        <span className="text-[9px] font-mono text-terminal-green shrink-0">
-                          added
-                        </span>
-                      ) : isAdding ? (
-                        <span className="text-[9px] font-mono text-terminal-amber shrink-0">
-                          adding...
-                        </span>
-                      ) : (
-                        <Plus className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                      )}
                     </button>
                   );
                 })}

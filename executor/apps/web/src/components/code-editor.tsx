@@ -2,6 +2,7 @@
 
 import { useRef, useEffect } from "react";
 import Editor, { type OnMount, type BeforeMount, type Monaco } from "@monaco-editor/react";
+import { Loader2 } from "lucide-react";
 import type { ToolDescriptor } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -147,10 +148,28 @@ declare function setInterval(callback: (...args: any[]) => void, ms?: number, ..
 declare function clearInterval(id: number): void;
 `;
 
+const DIAGNOSTIC_CODES_TO_IGNORE = [
+  1375, // 'await' expressions are only allowed at the top level of a file when that file is a module
+  1378, // Top-level 'await' expressions are only allowed when the 'module' option is set to 'es2022'...
+  2307, // Cannot find module
+  80005, // 'require' call may be converted to an import
+];
+
+function setDiagnosticsOptions(monaco: Monaco, suppressSemantic: boolean) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ts = (monaco.languages as any).typescript;
+  ts.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: suppressSemantic,
+    noSyntaxValidation: false,
+    diagnosticCodesToIgnore: DIAGNOSTIC_CODES_TO_IGNORE,
+  });
+}
+
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   tools: ToolDescriptor[];
+  typesLoading?: boolean;
   className?: string;
   height?: string;
 }
@@ -159,6 +178,7 @@ export function CodeEditor({
   value,
   onChange,
   tools,
+  typesLoading = false,
   className,
   height = "400px",
 }: CodeEditorProps) {
@@ -190,6 +210,13 @@ export function CodeEditor({
     );
   }, [tools]);
 
+  // Avoid transient semantic errors while tool metadata is still loading.
+  useEffect(() => {
+    const m = monacoRef.current;
+    if (!m) return;
+    setDiagnosticsOptions(m, typesLoading);
+  }, [typesLoading]);
+
   // Clean up on unmount
   useEffect(() => {
     return () => {
@@ -207,16 +234,7 @@ export function CodeEditor({
     // Configure JavaScript/TypeScript defaults for our execution environment
     // Code runs inside an AsyncFunction body so top-level await is valid
     // and there are no imports/exports.
-    ts.javascriptDefaults.setDiagnosticsOptions({
-      noSemanticValidation: false,
-      noSyntaxValidation: false,
-      diagnosticCodesToIgnore: [
-        1375, // 'await' expressions are only allowed at the top level of a file when that file is a module
-        1378, // Top-level 'await' expressions are only allowed when the 'module' option is set to 'es2022'...
-        2307, // Cannot find module
-        80005, // 'require' call may be converted to an import
-      ],
-    });
+    setDiagnosticsOptions(monaco, typesLoading);
 
     ts.javascriptDefaults.setCompilerOptions({
       target: ts.ScriptTarget.ESNext,
@@ -312,6 +330,12 @@ export function CodeEditor({
 
   return (
     <div className={cn("relative", className)}>
+      {typesLoading ? (
+        <div className="pointer-events-none absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-md border border-border/80 bg-background/85 px-2 py-1 text-[10px] font-mono text-muted-foreground backdrop-blur-sm">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Loading tool types...
+        </div>
+      ) : null}
       <Editor
         height={height}
         language="javascript"
