@@ -1,5 +1,4 @@
 import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
-import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -16,10 +15,10 @@ const workosEnabled = Boolean(
   process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_WEBHOOK_SECRET,
 );
 
-const authFunctions = (internal as any).auth as AuthFunctions;
+const authFunctions: AuthFunctions = internal.auth;
 
 const authKitInstance = workosEnabled
-  ? new AuthKit<DataModel>((components as any).workOSAuthKit, {
+  ? new AuthKit<DataModel>(components.workOSAuthKit, {
       authFunctions,
       additionalEventTypes: [
         "organization.created",
@@ -233,7 +232,7 @@ function getIdentityString(identity: Record<string, unknown>, keys: string[]): s
 
 async function getAuthKitUserProfile(ctx: RunQueryCtx, workosUserId: string) {
   try {
-    return await ctx.runQuery((components as any).workOSAuthKit.lib.getAuthUser, {
+    return await ctx.runQuery(components.workOSAuthKit.lib.getAuthUser, {
       id: workosUserId,
     });
   } catch {
@@ -241,7 +240,7 @@ async function getAuthKitUserProfile(ctx: RunQueryCtx, workosUserId: string) {
   }
 }
 
-const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => Promise<void>> = {
+const workosEventHandlers = {
   "user.created": async (ctx, event) => {
     const now = Date.now();
     const data = event.data;
@@ -572,15 +571,16 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
 
     await ctx.db.delete(membership._id);
   },
-};
+} satisfies Partial<Parameters<AuthKit<DataModel>["events"]>[0]>;
 
-export const authKitEvent =
-  workosEnabled && authKitInstance
-    ? (authKitInstance.events(workosEventHandlers as any) as any).authKitEvent
-    : internalMutation({
-        args: {},
-        handler: async () => null,
-      });
+const authKitEvents = workosEnabled && authKitInstance
+  ? authKitInstance.events(workosEventHandlers)
+  : null;
+
+export const authKitEvent = authKitEvents?.authKitEvent ?? internalMutation({
+  args: {},
+  handler: async () => null,
+});
 
 export const bootstrapCurrentWorkosAccount = mutation({
   args: {},

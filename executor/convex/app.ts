@@ -8,7 +8,7 @@ export const getClientConfig = query({
   handler: async () => {
     return {
       authProviderMode: workosEnabled ? "workos" : "local",
-      invitesProvider: workosEnabled ? "workos" : "local",
+      invitesProvider: workosEnabled ? "workos" : "disabled",
       features: {
         organizations: true,
         billing: true,

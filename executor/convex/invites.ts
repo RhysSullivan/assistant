@@ -2,8 +2,7 @@ import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { getOrganizationMembership } from "./lib/identity";
-import { authedMutation, organizationMutation, organizationQuery } from "./lib/functionBuilders";
+import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
 
 const workosEnabled = Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY);
 const workosClient = process.env.WORKOS_API_KEY ? new WorkOS(process.env.WORKOS_API_KEY) : null;
@@ -15,14 +14,6 @@ const organizationRoleValidator = v.union(
   v.literal("member"),
   v.literal("billing_admin"),
 );
-
-async function sha256Hex(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 type WorkosInvitationResponse = {
   id: string;
@@ -136,8 +127,6 @@ export const create = organizationMutation({
     }
     const inviterWorkosUserId = ctx.account.providerAccountId;
 
-    const token = `invite_${crypto.randomUUID()}`;
-    const tokenHash = await sha256Hex(token);
     const provider = "workos";
 
     const inviteId = await ctx.db.insert("invites", {
@@ -146,7 +135,6 @@ export const create = organizationMutation({
       email: normalizedEmail,
       role: args.role,
       status: "pending",
-      tokenHash,
       provider,
       invitedByAccountId: ctx.account._id,
       expiresAt,
@@ -174,7 +162,6 @@ export const create = organizationMutation({
         role: invite.role,
         status: invite.status,
         expiresAt: invite.expiresAt,
-        token,
       },
       delivery: {
         provider,
@@ -386,71 +373,5 @@ export const markInviteDeliveryFailed = internalMutation({
       status: "failed",
       updatedAt: Date.now(),
     });
-  },
-});
-
-export const accept = authedMutation({
-  args: {
-    token: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const tokenHash = await sha256Hex(args.token);
-
-    const invite = await ctx.db
-      .query("invites")
-      .withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash))
-      .unique();
-
-    if (!invite || invite.status !== "pending") {
-      throw new Error("Invite is invalid or expired");
-    }
-    if (invite.expiresAt < Date.now()) {
-      await ctx.db.patch(invite._id, {
-        status: "expired",
-        updatedAt: Date.now(),
-      });
-      throw new Error("Invite has expired");
-    }
-
-    const existing = await getOrganizationMembership(ctx, invite.organizationId, ctx.account._id);
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        role: invite.role,
-        status: "active",
-        joinedAt: existing.joinedAt ?? Date.now(),
-        updatedAt: Date.now(),
-      });
-    } else {
-      await ctx.db.insert("organizationMembers", {
-        organizationId: invite.organizationId,
-        accountId: ctx.account._id,
-        role: invite.role,
-        status: "active",
-        billable: true,
-        invitedByAccountId: invite.invitedByAccountId,
-        joinedAt: Date.now(),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-    }
-
-    await ctx.db.patch(invite._id, {
-      status: "accepted",
-      acceptedAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-
-    const nextVersion = await ctx.runMutation(internal.billingInternal.bumpSeatSyncVersion, {
-      organizationId: invite.organizationId,
-    });
-    await ctx.scheduler.runAfter(0, internal.billingSync.syncSeatQuantity, {
-      organizationId: invite.organizationId,
-      expectedVersion: nextVersion,
-    });
-
-    return {
-      ok: true,
-      organizationId: invite.organizationId,
-    };
   },
 });

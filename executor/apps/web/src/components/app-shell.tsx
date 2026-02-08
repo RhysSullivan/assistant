@@ -208,7 +208,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                 New workspace
               </DropdownMenuItem>
               <DropdownMenuLabel className="text-[10px] text-muted-foreground">
-                Invites via {clientConfig?.invitesProvider === "workos" ? "WorkOS" : "local provider"}
+                Invites via WorkOS
               </DropdownMenuLabel>
             </>
           ) : null}

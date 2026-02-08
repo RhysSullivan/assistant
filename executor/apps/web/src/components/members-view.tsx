@@ -18,7 +18,6 @@ const ROLE_OPTIONS: Role[] = ["owner", "admin", "member", "billing_admin"];
 export function MembersView() {
   const {
     context,
-    clientConfig,
     workspaces,
   } = useSession();
 
@@ -145,9 +144,7 @@ export function MembersView() {
               {inviteState === "sending" ? "Sending..." : "Send invite"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Provider: {clientConfig?.invitesProvider === "workos" ? "WorkOS" : "Local invite flow"}
-          </p>
+          <p className="text-xs text-muted-foreground">Provider: WorkOS</p>
           {inviteMessage ? (
             <p className={inviteState === "failed" ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
               {inviteMessage}

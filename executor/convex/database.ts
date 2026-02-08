@@ -8,6 +8,18 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
 type OrganizationMemberStatus = "active" | "pending" | "removed";
 
+const completedTaskStatusValidator = v.union(
+  v.literal("completed"),
+  v.literal("failed"),
+  v.literal("timed_out"),
+  v.literal("denied"),
+);
+const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
+const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
+const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
+const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
+const agentTaskStatusValidator = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
+
 function normalizeOptional(value?: string): string {
   if (typeof value !== "string") {
     return "";
@@ -426,7 +438,7 @@ export const markTaskRunning = mutation({
 export const markTaskFinished = mutation({
   args: {
     taskId: v.string(),
-    status: v.string(),
+    status: completedTaskStatusValidator,
     stdout: v.string(),
     stderr: v.string(),
     exitCode: v.optional(v.number()),
@@ -502,7 +514,7 @@ export const getApproval = query({
 export const listApprovals = query({
   args: {
     workspaceId: v.string(),
-    status: v.optional(v.string()),
+    status: v.optional(approvalStatusValidator),
   },
   handler: async (ctx, args) => {
     if (args.status) {
@@ -570,7 +582,7 @@ export const listPendingApprovals = query({
 export const resolveApproval = mutation({
   args: {
     approvalId: v.string(),
-    decision: v.string(),
+    decision: v.union(v.literal("approved"), v.literal("denied")),
     reviewerId: v.optional(v.string()),
     reason: v.optional(v.string()),
   },
@@ -673,7 +685,7 @@ export const getAgentTask = query({
 export const updateAgentTask = mutation({
   args: {
     agentTaskId: v.string(),
-    status: v.optional(v.string()),
+    status: v.optional(agentTaskStatusValidator),
     resultText: v.optional(v.string()),
     error: v.optional(v.string()),
     codeRuns: v.optional(v.number()),
@@ -772,7 +784,7 @@ export const upsertAccessPolicy = mutation({
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
     toolPathPattern: v.string(),
-    decision: v.string(),
+    decision: policyDecisionValidator,
     priority: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -842,7 +854,7 @@ export const upsertCredential = mutation({
     id: v.optional(v.string()),
     workspaceId: v.string(),
     sourceKey: v.string(),
-    scope: v.string(),
+    scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
     secretJson: v.any(),
   },
@@ -914,7 +926,7 @@ export const resolveCredential = query({
   args: {
     workspaceId: v.string(),
     sourceKey: v.string(),
-    scope: v.string(),
+    scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -958,7 +970,7 @@ export const upsertToolSource = mutation({
     id: v.optional(v.string()),
     workspaceId: v.string(),
     name: v.string(),
-    type: v.string(),
+    type: toolSourceTypeValidator,
     config: v.any(),
     enabled: v.optional(v.boolean()),
   },
