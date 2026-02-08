@@ -1,9 +1,8 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation } from "./_generated/server";
-import { optionalAccountQuery } from "./lib/functionBuilders";
-import { getOrganizationMembership, requireAccountForRequest, slugify } from "./lib/identity";
+import { optionalAccountQuery, authedMutation } from "./lib/functionBuilders";
+import { getOrganizationMembership, slugify } from "./lib/identity";
 
 type WorkspaceResult = {
   id: string;
@@ -61,15 +60,14 @@ async function toWorkspaceResult(
   };
 }
 
-export const create = mutation({
+export const create = authedMutation({
   args: {
     name: v.string(),
     organizationId: v.optional(v.id("organizations")),
     iconStorageId: v.optional(v.id("_storage")),
-    sessionId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
+    const account = ctx.account;
     const name = args.name.trim();
     if (name.length < 2) {
       throw new Error("Workspace name must be at least 2 characters");
