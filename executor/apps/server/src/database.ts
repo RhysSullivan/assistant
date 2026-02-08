@@ -56,6 +56,16 @@ export class ExecutorDatabase {
     this.client = new ConvexHttpClient(convexUrl);
   }
 
+  // The `as never` casts below are intentional. ConvexHttpClient.mutation() and
+  // .query() expect the exact generated function reference type and its
+  // corresponding args type. Because we call them dynamically with string
+  // function names (e.g. "database:createTask") and generic arg objects,
+  // TypeScript cannot verify the relationship between name and args at the
+  // call site. Properly typing this would require a discriminated-union
+  // overload map for every Convex function, which adds significant
+  // complexity for little safety gain — the real type safety lives in the
+  // public method signatures of this class and the Convex handler
+  // definitions themselves.
   private async mutation<TArgs extends Record<string, unknown>, TResult>(
     name: MutationName,
     args: TArgs,

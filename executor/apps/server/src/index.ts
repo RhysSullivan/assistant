@@ -159,6 +159,14 @@ function parseMcpContext(url: URL): McpWorkspaceContext | undefined {
   return { workspaceId, actorId, clientId };
 }
 
+// ── MCP handler ──
+
+const handleMcp = async ({ request }: { request: Request }) => {
+  const url = new URL(request.url);
+  const context = parseMcpContext(url);
+  return await handleMcpRequest(service, request, context);
+};
+
 // ── Elysia app ──
 
 const app = new Elysia()
@@ -173,21 +181,9 @@ const app = new Elysia()
   // ── MCP (raw protocol passthrough) ──
   // Optional query params: ?workspaceId=...&actorId=... to bind workspace context.
   // When bound, run_code description includes sandbox tool inventory and input is simplified.
-  .post("/mcp", async ({ request }) => {
-    const url = new URL(request.url);
-    const context = parseMcpContext(url);
-    return await handleMcpRequest(service, request, context);
-  })
-  .get("/mcp", async ({ request }) => {
-    const url = new URL(request.url);
-    const context = parseMcpContext(url);
-    return await handleMcpRequest(service, request, context);
-  })
-  .delete("/mcp", async ({ request }) => {
-    const url = new URL(request.url);
-    const context = parseMcpContext(url);
-    return await handleMcpRequest(service, request, context);
-  })
+  .post("/mcp", handleMcp)
+  .get("/mcp", handleMcp)
+  .delete("/mcp", handleMcp)
 
   // ── Health ──
   .get("/api/health", () => ({
@@ -208,11 +204,7 @@ const app = new Elysia()
   .get("/api/runtime-targets", () => service.listRuntimes())
 
   // ── Tools ──
-  .get("/api/tools", async ({ query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
+  .get("/api/tools", async ({ query }) => {
     return await service.listTools({
       workspaceId: query.workspaceId,
       actorId: query.actorId,
@@ -227,11 +219,7 @@ const app = new Elysia()
   })
 
   // ── Tool Sources ──
-  .get("/api/tool-sources", async ({ query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
+  .get("/api/tool-sources", async ({ query }) => {
     return await service.listToolSources(query.workspaceId);
   }, {
     query: t.Object({
@@ -240,10 +228,6 @@ const app = new Elysia()
   })
 
   .post("/api/tool-sources", async ({ body, set }) => {
-    if (!body.workspaceId || !body.name || !body.type || !body.config) {
-      set.status = 400;
-      return { error: "workspaceId, name, type, and config are required" };
-    }
     try {
       return await service.upsertToolSource({
         id: body.id,
@@ -269,10 +253,6 @@ const app = new Elysia()
   })
 
   .delete("/api/tool-sources/:sourceId", async ({ params, query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
     const deleted = await service.deleteToolSource(query.workspaceId, params.sourceId);
     if (!deleted) {
       set.status = 404;
@@ -285,11 +265,7 @@ const app = new Elysia()
   })
 
   // ── Tasks ──
-  .get("/api/tasks", async ({ query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
+  .get("/api/tasks", async ({ query }) => {
     return await service.listTasks(query.workspaceId);
   }, {
     query: t.Object({ workspaceId: t.String() }),
@@ -316,10 +292,6 @@ const app = new Elysia()
   })
 
   .get("/api/tasks/:taskId", async ({ params, query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
     const task = await service.getTask(params.taskId, query.workspaceId);
     if (!task) {
       set.status = 404;
@@ -332,10 +304,6 @@ const app = new Elysia()
   })
 
   .get("/api/tasks/:taskId/events", async ({ params, query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
     const task = await service.getTask(params.taskId, query.workspaceId);
     if (!task) {
       set.status = 404;
@@ -349,10 +317,6 @@ const app = new Elysia()
 
   // ── Approvals ──
   .get("/api/approvals", async ({ query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
     const status = query.status as ApprovalStatus | undefined;
 
     if (status === "pending") {
@@ -373,11 +337,6 @@ const app = new Elysia()
   })
 
   .post("/api/approvals/:approvalId", async ({ params, body, set }) => {
-    if (!body.workspaceId || (body.decision !== "approved" && body.decision !== "denied")) {
-      set.status = 400;
-      return { error: "workspaceId and decision are required" };
-    }
-
     const resolved = await service.resolveApproval(
       body.workspaceId,
       params.approvalId,
@@ -402,21 +361,13 @@ const app = new Elysia()
   })
 
   // ── Policies ──
-  .get("/api/policies", async ({ query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
+  .get("/api/policies", async ({ query }) => {
     return await service.listAccessPolicies(query.workspaceId);
   }, {
     query: t.Object({ workspaceId: t.String() }),
   })
 
-  .post("/api/policies", async ({ body, set }) => {
-    if (!body.workspaceId || !body.toolPathPattern || !body.decision) {
-      set.status = 400;
-      return { error: "workspaceId, toolPathPattern, and decision are required" };
-    }
+  .post("/api/policies", async ({ body }) => {
     return await service.upsertAccessPolicy({
       id: body.id,
       workspaceId: body.workspaceId,
@@ -439,21 +390,13 @@ const app = new Elysia()
   })
 
   // ── Credentials ──
-  .get("/api/credentials", async ({ query, set }) => {
-    if (!query.workspaceId) {
-      set.status = 400;
-      return { error: "workspaceId is required" };
-    }
+  .get("/api/credentials", async ({ query }) => {
     return await service.listCredentials(query.workspaceId);
   }, {
     query: t.Object({ workspaceId: t.String() }),
   })
 
   .post("/api/credentials", async ({ body, set }) => {
-    if (!body.workspaceId || !body.sourceKey || !body.scope || !body.secretJson) {
-      set.status = 400;
-      return { error: "workspaceId, sourceKey, scope, and secretJson are required" };
-    }
     if (body.scope === "actor" && (!body.actorId || body.actorId.trim().length === 0)) {
       set.status = 400;
       return { error: "actorId is required for actor-scoped credential" };
@@ -492,10 +435,6 @@ const app = new Elysia()
     if (!isInternalAuthorized(request)) {
       set.status = 401;
       return { error: "Unauthorized internal call" };
-    }
-    if (!body.callId || !body.toolPath) {
-      set.status = 400;
-      return { error: "callId and toolPath are required" };
     }
 
     const call: ToolCallRequest = {
