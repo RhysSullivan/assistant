@@ -49,7 +49,7 @@ The browser persists `sessionId` and reuses it to maintain the same anonymous wo
 
 Legacy unscoped task/approval reads are disabled. Requests must include workspace context.
 
-## External Tool Sources (MCP + OpenAPI)
+## External Tool Sources (MCP + OpenAPI + GraphQL)
 
 You can load callable tools automatically from MCP servers and OpenAPI specs via env config:
 
@@ -76,7 +76,26 @@ Example:
 ]
 ```
 
-OpenAPI tools are generated as namespaced callables (`tools.<name>.<tag>.<operation>`), and MCP tools are generated as (`tools.<name>.<tool>`).
+OpenAPI tools are generated as namespaced callables (`tools.<name>.<tag>.<operation>`), GraphQL sources expose `tools.<name>.graphql` plus discoverable pseudo-tools, and MCP tools are generated as (`tools.<name>.<tool>`).
+
+For MCP sources, optional config keys:
+
+- `transport`: `"streamable-http"` or `"sse"` (default auto-detect)
+- `queryParams`: object of query-string params appended to the MCP endpoint URL (useful for anonymous user scoping before OAuth auth provider integration)
+
+Example MCP config with query params:
+
+```json
+{
+  "type": "mcp",
+  "name": "my-mcp",
+  "url": "https://mcp.example.com/mcp",
+  "transport": "streamable-http",
+  "queryParams": {
+    "userId": "anon_123"
+  }
+}
+```
 
 OpenAPI auth modes in source config:
 
@@ -93,6 +112,16 @@ Credential and policy management endpoints:
 Tasks should include `workspaceId`, `actorId`, and optional `clientId` so policy and credential resolution can be applied per caller.
 
 The web UI supports adding MCP/OpenAPI sources per workspace and viewing discovered workspace tool inventory.
+
+## MCP Endpoint (`run_code`)
+
+The executor server also exposes an MCP endpoint at `/mcp` with a `run_code` tool.
+
+- tool name: `run_code`
+- required input: `code`
+- optional: `runtimeId`, `timeoutMs`, `workspaceId`, `actorId`, `clientId`, `sessionId`, `waitForResult`, `resultTimeoutMs`, `metadata`
+
+If `workspaceId` / `actorId` are omitted, executor bootstraps anonymous context (optionally keyed by `sessionId`).
 
 ## Vercel Sandbox Runtime
 

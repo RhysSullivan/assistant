@@ -1,5 +1,6 @@
 import { ExecutorDatabase } from "./database";
 import { TaskEventHub } from "./events";
+import { handleMcpRequest } from "./mcp-server";
 import { LocalBunRuntime } from "./runtimes/local-bun-runtime";
 import { VercelSandboxRuntime } from "./runtimes/vercel-sandbox-runtime";
 import { ExecutorService, getTaskTerminalState } from "./service";
@@ -181,6 +182,11 @@ async function createTaskEventsResponse(taskId: string): Promise<Response> {
 const server = Bun.serve({
   port,
   routes: {
+    "/mcp": {
+      POST: async (request) => await handleMcpRequest(service, request),
+      GET: async (request) => await handleMcpRequest(service, request),
+      DELETE: async (request) => await handleMcpRequest(service, request),
+    },
     "/api/health": {
       GET: () => json({ ok: true, tools: service.getBaseToolCount() }),
     },

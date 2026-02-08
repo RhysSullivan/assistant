@@ -266,6 +266,8 @@ function AddSourceDialog({
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [endpoint, setEndpoint] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [mcpTransport, setMcpTransport] = useState<"auto" | "streamable-http" | "sse">("auto");
+  const [mcpActorQueryParamKey, setMcpActorQueryParamKey] = useState("userId");
   const [submitting, setSubmitting] = useState(false);
   const [addingPreset, setAddingPreset] = useState<string | null>(null);
 
@@ -286,6 +288,8 @@ function AddSourceDialog({
     setName("");
     setEndpoint("");
     setBaseUrl("");
+    setMcpTransport("auto");
+    setMcpActorQueryParamKey("userId");
     setNameManuallyEdited(false);
     setPresetsOpen(false);
     setAddingPreset(null);
@@ -341,7 +345,13 @@ function AddSourceDialog({
     try {
       const config: Record<string, unknown> =
         type === "mcp"
-          ? { url: endpoint }
+          ? {
+              url: endpoint,
+              ...(mcpTransport !== "auto" ? { transport: mcpTransport } : {}),
+              ...(mcpActorQueryParamKey.trim() && context.actorId
+                ? { queryParams: { [mcpActorQueryParamKey.trim()]: context.actorId } }
+                : {}),
+            }
           : type === "graphql"
             ? { endpoint: endpoint }
             : { spec: endpoint, ...(baseUrl ? { baseUrl } : {}) };
@@ -378,7 +388,7 @@ function AddSourceDialog({
               <Label className="text-xs text-muted-foreground">Type</Label>
               <Select
                 value={type}
-                onValueChange={(v) => setType(v as "mcp" | "openapi")}
+                onValueChange={(v) => setType(v as "mcp" | "openapi" | "graphql")}
               >
                 <SelectTrigger className="h-8 text-xs bg-background">
                   <SelectValue />
@@ -434,6 +444,43 @@ function AddSourceDialog({
                   className="h-8 text-xs font-mono bg-background"
                 />
               </div>
+            )}
+            {type === "mcp" && (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Transport</Label>
+                  <Select
+                    value={mcpTransport}
+                    onValueChange={(v) => setMcpTransport(v as "auto" | "streamable-http" | "sse")}
+                  >
+                    <SelectTrigger className="h-8 text-xs bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto" className="text-xs">
+                        Auto (streamable, then SSE)
+                      </SelectItem>
+                      <SelectItem value="streamable-http" className="text-xs">
+                        Streamable HTTP
+                      </SelectItem>
+                      <SelectItem value="sse" className="text-xs">
+                        SSE
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    Anon actor query key (optional)
+                  </Label>
+                  <Input
+                    value={mcpActorQueryParamKey}
+                    onChange={(e) => setMcpActorQueryParamKey(e.target.value)}
+                    placeholder="userId"
+                    className="h-8 text-xs font-mono bg-background"
+                  />
+                </div>
+              </>
             )}
             <Button
               onClick={handleCustomSubmit}
@@ -747,7 +794,7 @@ export function ToolsView() {
                     No external tool sources
                   </p>
                   <p className="text-[11px] text-muted-foreground/60">
-                    Add MCP or OpenAPI sources to extend available tools
+                    Add MCP, OpenAPI, or GraphQL sources to extend available tools
                   </p>
                 </div>
               ) : (

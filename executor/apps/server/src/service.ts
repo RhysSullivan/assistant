@@ -86,6 +86,31 @@ function normalizeExternalToolSource(raw: {
     if (typeof merged.url !== "string" || merged.url.trim().length === 0) {
       throw new Error(`MCP source '${raw.name}' missing url`);
     }
+
+    if (
+      merged.transport !== undefined &&
+      merged.transport !== "sse" &&
+      merged.transport !== "streamable-http"
+    ) {
+      throw new Error(`MCP source '${raw.name}' has invalid transport (expected 'sse' or 'streamable-http')`);
+    }
+
+    if (merged.queryParams !== undefined) {
+      const queryParams = merged.queryParams;
+      if (!queryParams || typeof queryParams !== "object" || Array.isArray(queryParams)) {
+        throw new Error(`MCP source '${raw.name}' queryParams must be an object`);
+      }
+
+      for (const [key, value] of Object.entries(queryParams as Record<string, unknown>)) {
+        if (typeof key !== "string" || key.trim().length === 0) {
+          throw new Error(`MCP source '${raw.name}' queryParams contains an invalid key`);
+        }
+        if (typeof value !== "string") {
+          throw new Error(`MCP source '${raw.name}' queryParams values must be strings`);
+        }
+      }
+    }
+
     return merged as unknown as ExternalToolSourceConfig;
   }
 

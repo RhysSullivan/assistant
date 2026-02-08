@@ -6,7 +6,8 @@
     "@apidevtools/swagger-parser": "^12.1.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@vercel/sandbox": "latest",
-    "convex": "latest"
+    "convex": "latest",
+    "zod": "^4.3.6"
   },
   "scripts": {
     "dev": "bun --hot src/index.ts",

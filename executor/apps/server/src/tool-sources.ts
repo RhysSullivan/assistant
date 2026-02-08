@@ -11,6 +11,7 @@ export interface McpToolSourceConfig {
   name: string;
   url: string;
   transport?: "sse" | "streamable-http";
+  queryParams?: Record<string, string>;
   defaultApproval?: ToolApprovalMode;
   overrides?: Record<string, { approval?: ToolApprovalMode }>;
 }
@@ -113,9 +114,16 @@ function jsonSchemaTypeHint(schema: unknown, depth = 0): string {
 
 async function connectMcp(
   url: string,
+  queryParams: Record<string, string> | undefined,
   preferredTransport?: "sse" | "streamable-http",
 ): Promise<{ client: Client; close: () => Promise<void> }> {
   const endpoint = new URL(url);
+  if (queryParams) {
+    for (const [key, value] of Object.entries(queryParams)) {
+      if (!key.trim()) continue;
+      endpoint.searchParams.set(key, value);
+    }
+  }
   const client = new Client(
     { name: "executor-tool-loader", version: "0.1.0" },
     { capabilities: {} },
@@ -141,7 +149,13 @@ async function connectMcp(
 }
 
 async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition[]> {
-  let connection = await connectMcp(config.url, config.transport);
+  const queryParams = config.queryParams
+    ? Object.fromEntries(
+      Object.entries(config.queryParams).map(([key, value]) => [key, String(value)]),
+    )
+    : undefined;
+
+  let connection = await connectMcp(config.url, queryParams, config.transport);
 
   async function callToolWithReconnect(name: string, input: Record<string, unknown>): Promise<unknown> {
     try {
@@ -158,7 +172,7 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
         // ignore
       }
 
-      connection = await connectMcp(config.url, config.transport);
+      connection = await connectMcp(config.url, queryParams, config.transport);
       return await connection.client.callTool({ name, arguments: input });
     }
   }

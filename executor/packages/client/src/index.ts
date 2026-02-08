@@ -132,7 +132,7 @@ export async function upsertToolSource(
     id?: string;
     workspaceId: string;
     name: string;
-    type: "mcp" | "openapi";
+    type: "mcp" | "openapi" | "graphql";
     config: Record<string, unknown>;
     enabled?: boolean;
   },
