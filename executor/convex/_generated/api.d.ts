@@ -18,6 +18,7 @@ import type * as executor from "../executor.js";
 import type * as executorNode from "../executorNode.js";
 import type * as http from "../http.js";
 import type * as invites from "../invites.js";
+import type * as lib_functionBuilders from "../lib/functionBuilders.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as organizationMembers from "../organizationMembers.js";
 import type * as organizations from "../organizations.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   executorNode: typeof executorNode;
   http: typeof http;
   invites: typeof invites;
+  "lib/functionBuilders": typeof lib_functionBuilders;
   "lib/identity": typeof lib_identity;
   organizationMembers: typeof organizationMembers;
   organizations: typeof organizations;

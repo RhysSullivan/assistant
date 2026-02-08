@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
-import { getOrganizationMembership, requireAccountForRequest, resolveAccountForRequest, slugify } from "./lib/identity";
+import { mutation } from "./_generated/server";
+import { optionalAccountQuery } from "./lib/functionBuilders";
+import { getOrganizationMembership, requireAccountForRequest, slugify } from "./lib/identity";
 
 type WorkspaceSummary = {
   id: string;
@@ -120,12 +121,10 @@ export const create = mutation({
   },
 });
 
-export const listMine = query({
-  args: {
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const account = await resolveAccountForRequest(ctx, args.sessionId);
+export const listMine = optionalAccountQuery({
+  args: {},
+  handler: async (ctx) => {
+    const account = ctx.account;
     if (!account) {
       return [];
     }
@@ -158,18 +157,16 @@ export const listMine = query({
   },
 });
 
-export const getNavigationState = query({
-  args: {
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const account = await resolveAccountForRequest(ctx, args.sessionId);
+export const getNavigationState = optionalAccountQuery({
+  args: {},
+  handler: async (ctx) => {
+    const account = ctx.account;
     const organizations: Array<{ id: string; name: string; slug: string; status: string; role: string }> = [];
     const workspaces: WorkspaceSummary[] = [];
 
     if (!account) {
-      if (args.sessionId) {
-        const sessionId = args.sessionId;
+      if (ctx.sessionId) {
+        const sessionId = ctx.sessionId;
         const anonymousSession = await ctx.db
           .query("anonymousSessions")
           .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
@@ -244,13 +241,12 @@ export const getNavigationState = query({
   },
 });
 
-export const getOrganizationAccess = query({
+export const getOrganizationAccess = optionalAccountQuery({
   args: {
     organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const account = await resolveAccountForRequest(ctx, args.sessionId);
+    const account = ctx.account;
     if (!account) {
       return null;
     }

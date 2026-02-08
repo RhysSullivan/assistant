@@ -1,34 +1,14 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
-import { canManageBilling, getOrganizationMembership, isAdminRole, requireAccountForRequest } from "./lib/identity";
+import { getOrganizationMembership } from "./lib/identity";
+import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
 
-async function requireActiveMembership(
-  ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
-  organizationId: Id<"organizations">,
-  accountId: Id<"accounts">,
-) {
-  const membership = await getOrganizationMembership(ctx, organizationId, accountId);
-  if (!membership || membership.status !== "active") {
-    throw new Error("You are not a member of this organization");
-  }
-  return membership;
-}
-
-export const list = query({
-  args: {
-    organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
-    await requireActiveMembership(ctx, args.organizationId, account._id);
-
+export const list = organizationQuery({
+  args: {},
+  handler: async (ctx) => {
     const members = await ctx.db
       .query("organizationMembers")
-      .withIndex("by_org", (q) => q.eq("organizationId", args.organizationId))
+      .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
       .collect();
 
     const results = await Promise.all(
@@ -53,21 +33,14 @@ export const list = query({
   },
 });
 
-export const updateRole = mutation({
+export const updateRole = organizationMutation({
   args: {
-    organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
     role: v.string(),
-    sessionId: v.optional(v.string()),
   },
+  requireAdmin: true,
   handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
-    const actorMembership = await requireActiveMembership(ctx, args.organizationId, account._id);
-    if (!isAdminRole(actorMembership.role)) {
-      throw new Error("Only organization admins can update member roles");
-    }
-
-    const membership = await getOrganizationMembership(ctx, args.organizationId, args.accountId);
+    const membership = await getOrganizationMembership(ctx, ctx.organizationId, args.accountId);
     if (!membership) {
       throw new Error("Organization member not found");
     }
@@ -81,21 +54,14 @@ export const updateRole = mutation({
   },
 });
 
-export const updateBillable = mutation({
+export const updateBillable = organizationMutation({
   args: {
-    organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
     billable: v.boolean(),
-    sessionId: v.optional(v.string()),
   },
+  requireBillingAdmin: true,
   handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
-    const actorMembership = await requireActiveMembership(ctx, args.organizationId, account._id);
-    if (!isAdminRole(actorMembership.role) && !canManageBilling(actorMembership.role)) {
-      throw new Error("Only organization admins can update billing flags");
-    }
-
-    const membership = await getOrganizationMembership(ctx, args.organizationId, args.accountId);
+    const membership = await getOrganizationMembership(ctx, ctx.organizationId, args.accountId);
     if (!membership) {
       throw new Error("Organization member not found");
     }
@@ -106,10 +72,10 @@ export const updateBillable = mutation({
     });
 
     const nextVersion = await ctx.runMutation(internal.billingInternal.bumpSeatSyncVersion, {
-      organizationId: args.organizationId,
+      organizationId: ctx.organizationId,
     });
     await ctx.scheduler.runAfter(0, internal.billingSync.syncSeatQuantity, {
-      organizationId: args.organizationId,
+      organizationId: ctx.organizationId,
       expectedVersion: nextVersion,
     });
 
@@ -117,20 +83,13 @@ export const updateBillable = mutation({
   },
 });
 
-export const remove = mutation({
+export const remove = organizationMutation({
   args: {
-    organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
-    sessionId: v.optional(v.string()),
   },
+  requireAdmin: true,
   handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
-    const actorMembership = await requireActiveMembership(ctx, args.organizationId, account._id);
-    if (!isAdminRole(actorMembership.role)) {
-      throw new Error("Only organization admins can remove members");
-    }
-
-    const membership = await getOrganizationMembership(ctx, args.organizationId, args.accountId);
+    const membership = await getOrganizationMembership(ctx, ctx.organizationId, args.accountId);
     if (!membership) {
       throw new Error("Organization member not found");
     }
@@ -141,10 +100,10 @@ export const remove = mutation({
     });
 
     const nextVersion = await ctx.runMutation(internal.billingInternal.bumpSeatSyncVersion, {
-      organizationId: args.organizationId,
+      organizationId: ctx.organizationId,
     });
     await ctx.scheduler.runAfter(0, internal.billingSync.syncSeatQuantity, {
-      organizationId: args.organizationId,
+      organizationId: ctx.organizationId,
       expectedVersion: nextVersion,
     });
 

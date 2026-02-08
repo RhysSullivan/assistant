@@ -3,8 +3,9 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { action, mutation, query } from "./_generated/server";
-import { canManageBilling, getOrganizationMembership, isAdminRole, requireAccountForRequest } from "./lib/identity";
+import { action } from "./_generated/server";
+import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
+import { canManageBilling, isAdminRole } from "./lib/identity";
 
 const stripeClient = new StripeSubscriptions(components.stripe, {});
 
@@ -31,33 +32,24 @@ async function getSeatState(ctx: DbCtx, organizationId: Id<"organizations">) {
     .unique();
 }
 
-export const getSummary = query({
-  args: {
-    organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
-    const membership = await getOrganizationMembership(ctx, args.organizationId, account._id);
-    if (!membership || membership.status !== "active") {
-      throw new Error("You are not a member of this organization");
-    }
-
-    const billableMembers = await getBillableSeatCount(ctx, args.organizationId);
-    const seatState = await getSeatState(ctx, args.organizationId);
+export const getSummary = organizationQuery({
+  args: {},
+  handler: async (ctx) => {
+    const billableMembers = await getBillableSeatCount(ctx, ctx.organizationId);
+    const seatState = await getSeatState(ctx, ctx.organizationId);
     const customer = await ctx.db
       .query("billingCustomers")
-      .withIndex("by_org", (q) => q.eq("organizationId", args.organizationId))
+      .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
       .unique();
 
     const subscription = await ctx.runQuery(components.stripe.public.getSubscriptionByOrgId, {
-      orgId: String(args.organizationId),
+      orgId: String(ctx.organizationId),
     });
 
     const syncStatus = seatState?.syncError ? "error" : seatState?.lastSyncAt ? "ok" : "pending";
 
     return {
-      organizationId: String(args.organizationId),
+      organizationId: String(ctx.organizationId),
       customer: customer
         ? {
             stripeCustomerId: customer.stripeCustomerId,
@@ -200,24 +192,16 @@ export const createCustomerPortal = action({
   },
 });
 
-export const retrySeatSync = mutation({
-  args: {
-    organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
-    const membership = await getOrganizationMembership(ctx, args.organizationId, account._id);
-    if (!membership || membership.status !== "active" || !canAccessBilling(membership.role)) {
-      throw new Error("Only organization admins can manage billing");
-    }
-
+export const retrySeatSync = organizationMutation({
+  requireBillingAdmin: true,
+  args: {},
+  handler: async (ctx) => {
     const nextVersion = await ctx.runMutation(internal.billingInternal.bumpSeatSyncVersion, {
-      organizationId: args.organizationId,
+      organizationId: ctx.organizationId,
     });
 
     await ctx.scheduler.runAfter(0, internal.billingSync.syncSeatQuantity, {
-      organizationId: args.organizationId,
+      organizationId: ctx.organizationId,
       expectedVersion: nextVersion,
     });
 

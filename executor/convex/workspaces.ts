@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
-import { getOrganizationMembership, requireAccountForRequest, resolveAccountForRequest, slugify } from "./lib/identity";
+import { mutation } from "./_generated/server";
+import { optionalAccountQuery } from "./lib/functionBuilders";
+import { getOrganizationMembership, requireAccountForRequest, slugify } from "./lib/identity";
 
 type WorkspaceResult = {
   id: string;
@@ -107,13 +108,12 @@ export const create = mutation({
   },
 });
 
-export const list = query({
+export const list = optionalAccountQuery({
   args: {
     organizationId: v.optional(v.id("organizations")),
-    sessionId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const account = await resolveAccountForRequest(ctx, args.sessionId);
+    const account = ctx.account;
     if (!account) {
       return [];
     }

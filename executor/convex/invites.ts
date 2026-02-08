@@ -1,9 +1,7 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
-import { getOrganizationMembership, isAdminRole, requireAccountForRequest } from "./lib/identity";
+import { getOrganizationMembership } from "./lib/identity";
+import { authedMutation, organizationMutation, organizationQuery } from "./lib/functionBuilders";
 
 const workosEnabled = Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY);
 
@@ -15,30 +13,13 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
-async function requireOrgAdmin(
-  ctx: Pick<QueryCtx, "db" | "auth"> | Pick<MutationCtx, "db" | "auth">,
-  organizationId: Id<"organizations">,
-  sessionId?: string,
-) {
-  const account = await requireAccountForRequest(ctx, sessionId);
-  const membership = await getOrganizationMembership(ctx, organizationId, account._id);
-  if (!membership || membership.status !== "active" || !isAdminRole(membership.role)) {
-    throw new Error("Only organization admins can manage invites");
-  }
-  return { account, membership };
-}
-
-export const list = query({
-  args: {
-    organizationId: v.id("organizations"),
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await requireOrgAdmin(ctx, args.organizationId, args.sessionId);
-
+export const list = organizationQuery({
+  requireAdmin: true,
+  args: {},
+  handler: async (ctx) => {
     const invites = await ctx.db
       .query("invites")
-      .withIndex("by_org", (q) => q.eq("organizationId", args.organizationId))
+      .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
       .order("desc")
       .take(200);
 
@@ -56,17 +37,15 @@ export const list = query({
   },
 });
 
-export const create = mutation({
+export const create = organizationMutation({
+  requireAdmin: true,
   args: {
-    organizationId: v.id("organizations"),
     email: v.string(),
     role: v.string(),
-    sessionId: v.optional(v.string()),
     workspaceId: v.optional(v.id("workspaces")),
     expiresInDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { account } = await requireOrgAdmin(ctx, args.organizationId, args.sessionId);
     const now = Date.now();
     const expiresAt = now + (args.expiresInDays ?? 7) * 24 * 60 * 60 * 1000;
 
@@ -75,14 +54,14 @@ export const create = mutation({
     const provider = workosEnabled ? "workos" : "local";
 
     const inviteId = await ctx.db.insert("invites", {
-      organizationId: args.organizationId,
+      organizationId: ctx.organizationId,
       workspaceId: args.workspaceId,
       email: args.email.toLowerCase().trim(),
       role: args.role,
       status: "pending",
       tokenHash,
       provider,
-      invitedByAccountId: account._id,
+      invitedByAccountId: ctx.account._id,
       expiresAt,
       createdAt: now,
       updatedAt: now,
@@ -112,13 +91,11 @@ export const create = mutation({
   },
 });
 
-export const accept = mutation({
+export const accept = authedMutation({
   args: {
     token: v.string(),
-    sessionId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const account = await requireAccountForRequest(ctx, args.sessionId);
     const tokenHash = await sha256Hex(args.token);
 
     const invite = await ctx.db
@@ -137,7 +114,7 @@ export const accept = mutation({
       throw new Error("Invite has expired");
     }
 
-    const existing = await getOrganizationMembership(ctx, invite.organizationId, account._id);
+    const existing = await getOrganizationMembership(ctx, invite.organizationId, ctx.account._id);
     if (existing) {
       await ctx.db.patch(existing._id, {
         role: invite.role,
@@ -148,7 +125,7 @@ export const accept = mutation({
     } else {
       await ctx.db.insert("organizationMembers", {
         organizationId: invite.organizationId,
-        accountId: account._id,
+        accountId: ctx.account._id,
         role: invite.role,
         status: "active",
         billable: true,
