@@ -315,17 +315,10 @@ function AddSourceDialog({
 
     // Trigger a server-side tool refresh so the workspace tools inventory
     // is updated immediately (instead of waiting for the worker poll).
+    // Fetching the tools list forces the server to load external sources
+    // and sync the workspaceTools table.
     try {
-      await fetch(`/api/tool-sources`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: context.workspaceId,
-          name: sourceName,
-          type: sourceType,
-          config,
-        }),
-      });
+      await fetch(`/api/tools?workspaceId=${encodeURIComponent(context.workspaceId)}`);
     } catch {
       // Server-side refresh is best-effort; the worker will eventually sync.
     }

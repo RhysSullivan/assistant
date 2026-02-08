@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import Editor, { type OnMount, type BeforeMount, type Monaco } from "@monaco-editor/react";
 import type { ToolDescriptor } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 // ── Generate TypeScript declarations for the tools proxy ──
 
@@ -159,41 +160,41 @@ export function CodeEditor({
   onChange,
   tools,
   className,
-  height = "240px",
+  height = "400px",
 }: CodeEditorProps) {
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
-  const extraLibDisposables = useRef<{ dispose: () => void }[]>([]);
+  const envLibDisposable = useRef<{ dispose: () => void } | null>(null);
+  const toolsLibDisposable = useRef<{ dispose: () => void } | null>(null);
+  const toolsLibVersion = useRef(0);
 
-  const updateToolTypes = useCallback(
-    (monaco: Monaco) => {
-      // Dispose old extra libs
-      for (const d of extraLibDisposables.current) d.dispose();
-      extraLibDisposables.current = [];
-
-      const dts = generateToolsDts(tools);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ts = (monaco.languages as any).typescript;
-      extraLibDisposables.current.push(
-        ts.javascriptDefaults.addExtraLib(BASE_ENVIRONMENT_DTS, "ts:env.d.ts"),
-        ts.javascriptDefaults.addExtraLib(dts, "ts:tools.d.ts"),
-      );
-    },
-    [tools],
-  );
-
-  // Update types when tools change
+  // Update types when tools change (or on first mount)
   useEffect(() => {
-    if (monacoRef.current) {
-      updateToolTypes(monacoRef.current);
-    }
-  }, [tools, updateToolTypes]);
+    const m = monacoRef.current;
+    if (!m) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jsDefaults = (m.languages as any).typescript.javascriptDefaults;
+
+    // Dispose previous tool type declarations
+    toolsLibDisposable.current?.dispose();
+
+    const dts = generateToolsDts(tools);
+
+    // Use a versioned filename — disposing + re-adding the same filename
+    // can cause the TS worker to serve stale completions from its cache.
+    const version = ++toolsLibVersion.current;
+    toolsLibDisposable.current = jsDefaults.addExtraLib(
+      dts,
+      `file:///node_modules/@types/executor-tools/v${version}.d.ts`,
+    );
+  }, [tools]);
 
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      for (const d of extraLibDisposables.current) d.dispose();
+      envLibDisposable.current?.dispose();
+      toolsLibDisposable.current?.dispose();
     };
   }, []);
 
@@ -229,8 +230,26 @@ export function CodeEditor({
       lib: ["esnext"],
     });
 
-    // Add our tools type declarations
-    updateToolTypes(monaco);
+    // Ensure the worker eagerly syncs models so that completions from
+    // addExtraLib declarations are available immediately.
+    ts.javascriptDefaults.setEagerModelSync(true);
+
+    // Add stable environment declarations (once)
+    envLibDisposable.current?.dispose();
+    envLibDisposable.current = ts.javascriptDefaults.addExtraLib(
+      BASE_ENVIRONMENT_DTS,
+      "file:///node_modules/@types/executor-env/index.d.ts",
+    );
+
+    // Add initial tool type declarations
+    // (will be replaced by useEffect when tools load from the API)
+    toolsLibDisposable.current?.dispose();
+    const dts = generateToolsDts(tools);
+    const version = ++toolsLibVersion.current;
+    toolsLibDisposable.current = ts.javascriptDefaults.addExtraLib(
+      dts,
+      `file:///node_modules/@types/executor-tools/v${version}.d.ts`,
+    );
 
     // Define the dark theme matching our UI
     monaco.editor.defineTheme("executor-dark", {
@@ -292,10 +311,11 @@ export function CodeEditor({
   };
 
   return (
-    <div className={className}>
+    <div className={cn("relative", className)}>
       <Editor
         height={height}
         language="javascript"
+        path="task.js"
         theme="executor-dark"
         value={value}
         onChange={(v) => onChange(v ?? "")}
@@ -303,6 +323,7 @@ export function CodeEditor({
         onMount={handleMount}
         options={{
           minimap: { enabled: false },
+          fixedOverflowWidgets: true,
           fontSize: 13,
           lineHeight: 22,
           fontFamily: "var(--font-geist-mono), 'JetBrains Mono', monospace",
@@ -324,14 +345,22 @@ export function CodeEditor({
             showFields: true,
             showVariables: true,
             showModules: true,
+            showProperties: true,
+            showKeywords: true,
             preview: true,
+            shareSuggestSelections: true,
           },
           quickSuggestions: {
             other: true,
             comments: false,
             strings: true,
           },
+          acceptSuggestionOnCommitCharacter: true,
           parameterHints: {
+            enabled: true,
+            cycle: true,
+          },
+          inlineSuggest: {
             enabled: true,
           },
           wordWrap: "on",
