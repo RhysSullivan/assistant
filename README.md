@@ -13,10 +13,21 @@ The active prototype work is in `executor/`.
 
 ```bash
 bun install --cwd executor
+```
+
+Terminal 1:
+
+```bash
+bun run --cwd executor dev:convex
+```
+
+Terminal 2:
+
+```bash
 bun run --cwd executor dev
 ```
 
 This starts:
 
-- Executor API server (task execution, approvals, SQLite storage)
+- Executor API server (task execution, approvals, Convex storage)
 - Executor web UI (pending approvals + task history)

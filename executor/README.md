@@ -8,7 +8,7 @@ Prototype executor control plane for running AI-generated code with tool-call ap
   - task execution API
   - per-tool-call approval API
   - task event stream (SSE)
-  - SQLite-backed task and approval history
+  - Convex-backed task and approval history
   - pluggable sandbox runtime interface
 - `apps/web`: web interface for:
   - pending approvals
@@ -27,7 +27,7 @@ Prototype executor control plane for running AI-generated code with tool-call ap
 - A built-in `tools.discover({ query, depth?, limit? })` helper is available so agents can search available tools at runtime.
 - Task execution pauses on required tool calls until that specific call is approved or denied.
 - Runtime targets are swappable by ID (`runtimeId`) so sandbox backends can change later.
-- SQLite is used as a prototype event/history store.
+- Convex is used as the event/history store.
 
 Auth/tenancy design draft: `docs/auth-and-tenancy-model.md`
 
@@ -122,7 +122,20 @@ When creating tasks, set `runtimeId` to `vercel-sandbox` to use this backend.
 
 ```bash
 bun install
+```
+
+Terminal 1:
+
+```bash
+bun run dev:convex
+```
+
+Terminal 2:
+
+```bash
 bun run dev
 ```
 
 Server defaults to `http://localhost:4001`.
+
+`dev:convex` runs `convex dev --local`, so persistence stays local (no cloud deployment).

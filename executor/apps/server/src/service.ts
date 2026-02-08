@@ -137,30 +137,30 @@ export class ExecutorService {
     }
   }
 
-  listTasks(workspaceId: string): TaskRecord[] {
-    return this.db.listTasks(workspaceId);
+  async listTasks(workspaceId: string): Promise<TaskRecord[]> {
+    return await this.db.listTasks(workspaceId);
   }
 
-  getTask(taskId: string, workspaceId?: string): TaskRecord | null {
+  async getTask(taskId: string, workspaceId?: string): Promise<TaskRecord | null> {
     if (workspaceId) {
-      return this.db.getTaskInWorkspace(taskId, workspaceId);
+      return await this.db.getTaskInWorkspace(taskId, workspaceId);
     }
-    return this.db.getTask(taskId);
+    return await this.db.getTask(taskId);
   }
 
-  listTaskEvents(taskId: string): TaskEventRecord[] {
-    return this.db.listTaskEvents(taskId);
+  async listTaskEvents(taskId: string): Promise<TaskEventRecord[]> {
+    return await this.db.listTaskEvents(taskId);
   }
 
   subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void {
     return this.hub.subscribe(taskId, listener);
   }
 
-  listApprovals(workspaceId: string, status?: ApprovalStatus): ApprovalRecord[] {
-    return this.db.listApprovals(workspaceId, status);
+  async listApprovals(workspaceId: string, status?: ApprovalStatus): Promise<ApprovalRecord[]> {
+    return await this.db.listApprovals(workspaceId, status);
   }
 
-  upsertAccessPolicy(input: {
+  async upsertAccessPolicy(input: {
     id?: string;
     workspaceId: string;
     actorId?: string;
@@ -168,27 +168,29 @@ export class ExecutorService {
     toolPathPattern: string;
     decision: PolicyDecision;
     priority?: number;
-  }): AccessPolicyRecord {
-    return this.db.upsertAccessPolicy(input);
+  }): Promise<AccessPolicyRecord> {
+    return await this.db.upsertAccessPolicy(input);
   }
 
-  listAccessPolicies(workspaceId: string): AccessPolicyRecord[] {
-    return this.db.listAccessPolicies(workspaceId);
+  async listAccessPolicies(workspaceId: string): Promise<AccessPolicyRecord[]> {
+    return await this.db.listAccessPolicies(workspaceId);
   }
 
-  upsertCredential(input: {
+  async upsertCredential(input: {
     id?: string;
     workspaceId: string;
     sourceKey: string;
     scope: CredentialScope;
     actorId?: string;
     secretJson: Record<string, unknown>;
-  }): CredentialRecord {
-    return this.db.upsertCredential(input);
+  }): Promise<CredentialRecord> {
+    return await this.db.upsertCredential(input);
   }
 
-  listCredentials(workspaceId: string): Array<Omit<CredentialRecord, "secretJson"> & { hasSecret: boolean }> {
-    return this.db.listCredentials(workspaceId).map((credential) => ({
+  async listCredentials(
+    workspaceId: string,
+  ): Promise<Array<Omit<CredentialRecord, "secretJson"> & { hasSecret: boolean }>> {
+    return (await this.db.listCredentials(workspaceId)).map((credential) => ({
       id: credential.id,
       workspaceId: credential.workspaceId,
       sourceKey: credential.sourceKey,
@@ -200,8 +202,8 @@ export class ExecutorService {
     }));
   }
 
-  listToolSources(workspaceId: string): ToolSourceRecord[] {
-    return this.db.listToolSources(workspaceId);
+  async listToolSources(workspaceId: string): Promise<ToolSourceRecord[]> {
+    return await this.db.listToolSources(workspaceId);
   }
 
   async upsertToolSource(input: {
@@ -212,7 +214,7 @@ export class ExecutorService {
     config: Record<string, unknown>;
     enabled?: boolean;
   }): Promise<ToolSourceRecord & { warnings?: string[] }> {
-    const source = this.db.upsertToolSource(input);
+    const source = await this.db.upsertToolSource(input);
     this.workspaceToolCache.delete(source.workspaceId);
     await this.getWorkspaceTools(source.workspaceId);
     const warnings = this.workspaceToolLoadWarnings.get(source.workspaceId) ?? [];
@@ -220,7 +222,7 @@ export class ExecutorService {
   }
 
   async deleteToolSource(workspaceId: string, sourceId: string): Promise<boolean> {
-    const deleted = this.db.deleteToolSource(workspaceId, sourceId);
+    const deleted = await this.db.deleteToolSource(workspaceId, sourceId);
     if (deleted) {
       this.workspaceToolCache.delete(workspaceId);
       await this.getWorkspaceTools(workspaceId);
@@ -228,12 +230,12 @@ export class ExecutorService {
     return deleted;
   }
 
-  listPendingApprovals(workspaceId: string): PendingApprovalRecord[] {
-    return this.db.listPendingApprovals(workspaceId);
+  async listPendingApprovals(workspaceId: string): Promise<PendingApprovalRecord[]> {
+    return await this.db.listPendingApprovals(workspaceId);
   }
 
-  bootstrapAnonymousContext(sessionId?: string): AnonymousContext {
-    return this.db.bootstrapAnonymousSession(sessionId);
+  async bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext> {
+    return await this.db.bootstrapAnonymousSession(sessionId);
   }
 
   async listTools(context?: {
@@ -256,7 +258,7 @@ export class ExecutorService {
       }));
     }
 
-    const policies = this.db.listAccessPolicies(context.workspaceId);
+    const policies = await this.db.listAccessPolicies(context.workspaceId);
     return all
       .filter((tool) => {
         const decision = this.getDecisionForContext(tool, context, policies);
@@ -287,7 +289,7 @@ export class ExecutorService {
     return [...this.baseTools.keys()].filter((path) => path !== "discover").length + 1;
   }
 
-  createTask(input: CreateTaskInput): { task: TaskRecord } {
+  async createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }> {
     if (!input.code || input.code.trim().length === 0) {
       throw new Error("Task code is required");
     }
@@ -305,7 +307,7 @@ export class ExecutorService {
       throw new Error(`Unknown runtime: ${runtimeId}`);
     }
 
-    const task = this.db.createTask({
+    const task = await this.db.createTask({
       id: createTaskId(),
       code: input.code,
       runtimeId,
@@ -316,7 +318,7 @@ export class ExecutorService {
       clientId: input.clientId,
     });
 
-    this.publish(task.id, "task", "task.created", {
+    await this.publish(task.id, "task", "task.created", {
       taskId: task.id,
       status: task.status,
       runtimeId: task.runtimeId,
@@ -327,7 +329,7 @@ export class ExecutorService {
       createdAt: task.createdAt,
     });
 
-    this.publish(task.id, "task", "task.queued", {
+    await this.publish(task.id, "task", "task.queued", {
       taskId: task.id,
       status: "queued",
     });
@@ -336,19 +338,19 @@ export class ExecutorService {
     return { task };
   }
 
-  resolveApproval(
+  async resolveApproval(
     workspaceId: string,
     approvalId: string,
     decision: "approved" | "denied",
     reviewerId?: string,
     reason?: string,
-  ): { approval: ApprovalRecord; task: TaskRecord } | null {
-    const scopedApproval = this.db.getApprovalInWorkspace(approvalId, workspaceId);
+  ): Promise<{ approval: ApprovalRecord; task: TaskRecord } | null> {
+    const scopedApproval = await this.db.getApprovalInWorkspace(approvalId, workspaceId);
     if (!scopedApproval || scopedApproval.status !== "pending") {
       return null;
     }
 
-    const approval = this.db.resolveApproval({
+    const approval = await this.db.resolveApproval({
       approvalId,
       decision,
       reviewerId,
@@ -359,7 +361,7 @@ export class ExecutorService {
       return null;
     }
 
-    this.publish(approval.taskId, "approval", "approval.resolved", {
+    await this.publish(approval.taskId, "approval", "approval.resolved", {
       approvalId: approval.id,
       taskId: approval.taskId,
       toolPath: approval.toolPath,
@@ -375,7 +377,7 @@ export class ExecutorService {
       waiter.resolve(approval.status as "approved" | "denied");
     }
 
-    const task = this.db.getTask(approval.taskId);
+    const task = await this.db.getTask(approval.taskId);
     if (!task) {
       throw new Error(`Task ${approval.taskId} missing while resolving approval`);
     }
@@ -384,7 +386,7 @@ export class ExecutorService {
   }
 
   async handleExternalToolCall(call: ToolCallRequest): Promise<ToolCallResult> {
-    const task = this.db.getTask(call.runId);
+    const task = await this.db.getTask(call.runId);
     if (!task) {
       return {
         ok: false,
@@ -412,8 +414,8 @@ export class ExecutorService {
     }
   }
 
-  appendRuntimeOutput(event: RuntimeOutputEvent): void {
-    this.publish(
+  async appendRuntimeOutput(event: RuntimeOutputEvent): Promise<void> {
+    await this.publish(
       event.runId,
       "task",
       event.stream === "stdout" ? "task.stdout" : "task.stderr",
@@ -425,13 +427,13 @@ export class ExecutorService {
     );
   }
 
-  private publish(
+  private async publish(
     taskId: string,
     eventName: TaskEventRecord["eventName"],
     type: string,
     payload: Record<string, unknown>,
-  ): void {
-    const event = this.db.createTaskEvent({ taskId, eventName, type, payload });
+  ): Promise<void> {
+    const event = await this.db.createTaskEvent({ taskId, eventName, type, payload });
     this.hub.publish(taskId, {
       id: event.id,
       eventName,
@@ -441,7 +443,7 @@ export class ExecutorService {
   }
 
   private async waitForApproval(approvalId: string): Promise<"approved" | "denied"> {
-    const approval = this.db.getApproval(approvalId);
+    const approval = await this.db.getApproval(approvalId);
     if (!approval) {
       throw new Error(`Approval ${approvalId} not found`);
     }
@@ -456,7 +458,7 @@ export class ExecutorService {
   }
 
   private async getWorkspaceTools(workspaceId: string): Promise<Map<string, ToolDefinition>> {
-    const sources = this.db.listToolSources(workspaceId).filter((source) => source.enabled);
+    const sources = (await this.db.listToolSources(workspaceId)).filter((source) => source.enabled);
     const signature = sourceSignature(workspaceId, sources);
     const cached = this.workspaceToolCache.get(workspaceId);
     if (cached && cached.signature === signature) {
@@ -499,7 +501,11 @@ export class ExecutorService {
     return merged;
   }
 
-  private getToolDecision(task: TaskRecord, tool: ToolDefinition): PolicyDecision {
+  private getToolDecision(
+    task: TaskRecord,
+    tool: ToolDefinition,
+    policies: AccessPolicyRecord[],
+  ): PolicyDecision {
     return this.getDecisionForContext(
       tool,
       {
@@ -507,18 +513,17 @@ export class ExecutorService {
         actorId: task.actorId,
         clientId: task.clientId,
       },
-      this.db.listAccessPolicies(task.workspaceId),
+      policies,
     );
   }
 
   private getDecisionForContext(
     tool: ToolDefinition,
     context: { workspaceId: string; actorId?: string; clientId?: string },
-    policies?: AccessPolicyRecord[],
+    policies: AccessPolicyRecord[],
   ): PolicyDecision {
     const defaultDecision: PolicyDecision = tool.approval === "required" ? "require_approval" : "allow";
-    const scopedPolicies = policies ?? this.db.listAccessPolicies(context.workspaceId);
-    const candidates = scopedPolicies
+    const candidates = policies
       .filter((policy) => {
         if (policy.actorId && policy.actorId !== context.actorId) return false;
         if (policy.clientId && policy.clientId !== context.clientId) return false;
@@ -537,17 +542,18 @@ export class ExecutorService {
     task: TaskRecord,
     toolPath: string,
     workspaceTools: Map<string, ToolDefinition>,
+    policies: AccessPolicyRecord[],
   ): boolean {
     const tool = workspaceTools.get(toolPath);
     if (!tool) return false;
-    return this.getToolDecision(task, tool) !== "deny";
+    return this.getToolDecision(task, tool, policies) !== "deny";
   }
 
-  private resolveCredentialHeaders(
+  private async resolveCredentialHeaders(
     spec: ToolCredentialSpec,
     task: TaskRecord,
-  ): ResolvedToolCredential | null {
-    const record = this.db.resolveCredential({
+  ): Promise<ResolvedToolCredential | null> {
+    const record = await this.db.resolveCredential({
       workspaceId: task.workspaceId,
       sourceKey: spec.sourceKey,
       scope: spec.mode,
@@ -599,6 +605,7 @@ export class ExecutorService {
     tool: ToolDefinition,
     input: unknown,
     workspaceTools: Map<string, ToolDefinition>,
+    policies: AccessPolicyRecord[],
   ): { decision: PolicyDecision; effectivePaths: string[] } {
     const sourceName = tool._graphqlSource!;
     const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
@@ -606,15 +613,14 @@ export class ExecutorService {
 
     if (!queryString.trim()) {
       // No query to parse — fall back to tool's own approval
-      return { decision: this.getToolDecision(task, tool), effectivePaths: [tool.path] };
+      return { decision: this.getToolDecision(task, tool, policies), effectivePaths: [tool.path] };
     }
 
     const { fieldPaths } = parseGraphqlOperationPaths(sourceName, queryString);
     if (fieldPaths.length === 0) {
-      return { decision: this.getToolDecision(task, tool), effectivePaths: [tool.path] };
+      return { decision: this.getToolDecision(task, tool, policies), effectivePaths: [tool.path] };
     }
 
-    const policies = this.db.listAccessPolicies(task.workspaceId);
     let worstDecision: PolicyDecision = "allow";
 
     for (const fieldPath of fieldPaths) {
@@ -653,6 +659,7 @@ export class ExecutorService {
   private async invokeTool(task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
     const { toolPath, input, callId } = call;
     const workspaceTools = await this.getWorkspaceTools(task.workspaceId);
+    const policies = await this.db.listAccessPolicies(task.workspaceId);
     const tool = workspaceTools.get(toolPath);
     if (!tool) {
       throw new Error(`Unknown tool: ${toolPath}`);
@@ -663,18 +670,18 @@ export class ExecutorService {
     let effectiveToolPath = toolPath;
 
     if (tool._graphqlSource) {
-      const result = this.getGraphqlDecision(task, tool, input, workspaceTools);
+      const result = this.getGraphqlDecision(task, tool, input, workspaceTools, policies);
       decision = result.decision;
       // Use the field paths for event reporting so approvals show what's actually being called
       if (result.effectivePaths.length > 0) {
         effectiveToolPath = result.effectivePaths.join(", ");
       }
     } else {
-      decision = this.getToolDecision(task, tool);
+      decision = this.getToolDecision(task, tool, policies);
     }
 
     if (decision === "deny") {
-      this.publish(task.id, "task", "tool.call.denied", {
+      await this.publish(task.id, "task", "tool.call.denied", {
         taskId: task.id,
         callId,
         toolPath: effectiveToolPath,
@@ -685,7 +692,7 @@ export class ExecutorService {
 
     let credential: ResolvedToolCredential | undefined;
     if (tool.credential) {
-      const resolved = this.resolveCredentialHeaders(tool.credential, task);
+      const resolved = await this.resolveCredentialHeaders(tool.credential, task);
       if (!resolved) {
         throw new Error(
           `Missing credential for source '${tool.credential.sourceKey}' (${tool.credential.mode} scope)`,
@@ -694,7 +701,7 @@ export class ExecutorService {
       credential = resolved;
     }
 
-    this.publish(task.id, "task", "tool.call.started", {
+    await this.publish(task.id, "task", "tool.call.started", {
       taskId: task.id,
       callId,
       toolPath: effectiveToolPath,
@@ -703,14 +710,14 @@ export class ExecutorService {
     });
 
     if (decision === "require_approval") {
-      const approval = this.db.createApproval({
+      const approval = await this.db.createApproval({
         id: createApprovalId(),
         taskId: task.id,
         toolPath: effectiveToolPath,
         input,
       });
 
-      this.publish(task.id, "approval", "approval.requested", {
+      await this.publish(task.id, "approval", "approval.requested", {
         approvalId: approval.id,
         taskId: task.id,
         callId,
@@ -721,7 +728,7 @@ export class ExecutorService {
 
       const approvalDecision = await this.waitForApproval(approval.id);
       if (approvalDecision === "denied") {
-        this.publish(task.id, "task", "tool.call.denied", {
+        await this.publish(task.id, "task", "tool.call.denied", {
           taskId: task.id,
           callId,
           toolPath: effectiveToolPath,
@@ -738,10 +745,10 @@ export class ExecutorService {
         actorId: task.actorId,
         clientId: task.clientId,
         credential,
-        isToolAllowed: (path) => this.isToolAllowedForTask(task, path, workspaceTools),
+        isToolAllowed: (path) => this.isToolAllowedForTask(task, path, workspaceTools, policies),
       };
       const value = await tool.run(input, context);
-      this.publish(task.id, "task", "tool.call.completed", {
+      await this.publish(task.id, "task", "tool.call.completed", {
         taskId: task.id,
         callId,
         toolPath: effectiveToolPath,
@@ -750,7 +757,7 @@ export class ExecutorService {
       return value;
     } catch (error) {
       const message = describeError(error);
-      this.publish(task.id, "task", "tool.call.failed", {
+      await this.publish(task.id, "task", "tool.call.failed", {
         taskId: task.id,
         callId,
         toolPath: effectiveToolPath,
@@ -767,14 +774,14 @@ export class ExecutorService {
 
     this.inFlightTaskIds.add(taskId);
     try {
-      const task = this.db.getTask(taskId);
+      const task = await this.db.getTask(taskId);
       if (!task || task.status !== "queued") {
         return;
       }
 
       const runtime = this.runtimes.get(task.runtimeId);
       if (!runtime) {
-        const failed = this.db.markTaskFinished({
+        const failed = await this.db.markTaskFinished({
           taskId,
           status: "failed",
           stdout: "",
@@ -783,7 +790,7 @@ export class ExecutorService {
         });
 
         if (failed) {
-          this.publish(taskId, "task", "task.failed", {
+          await this.publish(taskId, "task", "task.failed", {
             taskId,
             status: failed.status,
             error: failed.error,
@@ -792,12 +799,12 @@ export class ExecutorService {
         return;
       }
 
-      const running = this.db.markTaskRunning(taskId);
+      const running = await this.db.markTaskRunning(taskId);
       if (!running) {
         return;
       }
 
-      this.publish(taskId, "task", "task.running", {
+      await this.publish(taskId, "task", "task.running", {
         taskId,
         status: running.status,
         startedAt: running.startedAt,
@@ -806,8 +813,8 @@ export class ExecutorService {
       const adapter = new InProcessExecutionAdapter({
         runId: taskId,
         invokeTool: async (call) => await this.invokeTool(running, call),
-        emitOutput: (event) => {
-          this.appendRuntimeOutput(event);
+        emitOutput: async (event) => {
+          await this.appendRuntimeOutput(event);
         },
       });
 
@@ -820,7 +827,7 @@ export class ExecutorService {
         adapter,
       );
 
-      const finished = this.db.markTaskFinished({
+      const finished = await this.db.markTaskFinished({
         taskId,
         status: runtimeResult.status,
         stdout: runtimeResult.stdout,
@@ -842,7 +849,7 @@ export class ExecutorService {
               ? "task.denied"
               : "task.failed";
 
-      this.publish(taskId, "task", terminalEvent, {
+      await this.publish(taskId, "task", terminalEvent, {
         taskId,
         status: finished.status,
         exitCode: finished.exitCode,
@@ -853,7 +860,7 @@ export class ExecutorService {
     } catch (error) {
       const message = describeError(error);
       const denied = message.startsWith(APPROVAL_DENIED_PREFIX);
-      const finished = this.db.markTaskFinished({
+      const finished = await this.db.markTaskFinished({
         taskId,
         status: denied ? "denied" : "failed",
         stdout: "",
@@ -862,7 +869,7 @@ export class ExecutorService {
       });
 
       if (finished) {
-        this.publish(taskId, "task", denied ? "task.denied" : "task.failed", {
+        await this.publish(taskId, "task", denied ? "task.denied" : "task.failed", {
           taskId,
           status: finished.status,
           error: finished.error,

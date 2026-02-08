@@ -5,7 +5,8 @@
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@vercel/sandbox": "latest"
+    "@vercel/sandbox": "latest",
+    "convex": "latest"
   },
   "scripts": {
     "dev": "bun --hot src/index.ts",

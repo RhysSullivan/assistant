@@ -8,3 +8,4 @@ node_modules
 *.db-wal
 .vercel
 .env*.local
+.convex

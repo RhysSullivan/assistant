@@ -101,8 +101,8 @@ async function parseBody<T>(request: Request): Promise<T | null> {
   }
 }
 
-function createTaskEventsResponse(taskId: string): Response {
-  const task = service.getTask(taskId);
+async function createTaskEventsResponse(taskId: string): Promise<Response> {
+  const task = await service.getTask(taskId);
   if (!task) {
     return error(404, "Task not found");
   }
@@ -113,45 +113,51 @@ function createTaskEventsResponse(taskId: string): Response {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const replay = service.listTaskEvents(taskId);
-      for (const event of replay) {
-        const frame = `event: ${event.eventName}\ndata: ${JSON.stringify(event)}\n\n`;
-        controller.enqueue(encoder.encode(frame));
-      }
-
-      if (getTaskTerminalState(task.status)) {
-        controller.close();
-        return;
-      }
-
-      unsubscribe = service.subscribe(taskId, (event) => {
-        try {
+      void (async () => {
+        const replay = await service.listTaskEvents(taskId);
+        for (const event of replay) {
           const frame = `event: ${event.eventName}\ndata: ${JSON.stringify(event)}\n\n`;
           controller.enqueue(encoder.encode(frame));
-
-          if (
-            event.eventName === "task" &&
-            typeof event.payload === "object" &&
-            event.payload !== null &&
-            "status" in event.payload
-          ) {
-            const status = String((event.payload as { status?: unknown }).status ?? "") as TaskStatus;
-            if (getTaskTerminalState(status)) {
-              if (keepalive) clearInterval(keepalive);
-              if (unsubscribe) unsubscribe();
-              controller.close();
-            }
-          }
-        } catch {
-          if (keepalive) clearInterval(keepalive);
-          if (unsubscribe) unsubscribe();
-          controller.close();
         }
-      });
 
-      keepalive = setInterval(() => {
-        controller.enqueue(encoder.encode(": keepalive\n\n"));
-      }, 15_000);
+        if (getTaskTerminalState(task.status)) {
+          controller.close();
+          return;
+        }
+
+        unsubscribe = service.subscribe(taskId, (event) => {
+          try {
+            const frame = `event: ${event.eventName}\ndata: ${JSON.stringify(event)}\n\n`;
+            controller.enqueue(encoder.encode(frame));
+
+            if (
+              event.eventName === "task" &&
+              typeof event.payload === "object" &&
+              event.payload !== null &&
+              "status" in event.payload
+            ) {
+              const status = String((event.payload as { status?: unknown }).status ?? "") as TaskStatus;
+              if (getTaskTerminalState(status)) {
+                if (keepalive) clearInterval(keepalive);
+                if (unsubscribe) unsubscribe();
+                controller.close();
+              }
+            }
+          } catch {
+            if (keepalive) clearInterval(keepalive);
+            if (unsubscribe) unsubscribe();
+            controller.close();
+          }
+        });
+
+        keepalive = setInterval(() => {
+          controller.enqueue(encoder.encode(": keepalive\n\n"));
+        }, 15_000);
+      })().catch(() => {
+        if (keepalive) clearInterval(keepalive);
+        if (unsubscribe) unsubscribe();
+        controller.close();
+      });
     },
     cancel() {
       if (keepalive) clearInterval(keepalive);
@@ -179,7 +185,7 @@ const server = Bun.serve({
     "/api/auth/anonymous/bootstrap": {
       POST: async (request) => {
         const body = await parseBody<{ sessionId?: string }>(request);
-        const context = service.bootstrapAnonymousContext(body?.sessionId);
+        const context = await service.bootstrapAnonymousContext(body?.sessionId);
         return json(context, 201);
       },
     },
@@ -201,12 +207,12 @@ const server = Bun.serve({
       },
     },
     "/api/tool-sources": {
-      GET: (request) => {
+      GET: async (request) => {
         const workspaceId = new URL(request.url).searchParams.get("workspaceId");
         if (!workspaceId) {
           return error(400, "workspaceId is required");
         }
-        return json(service.listToolSources(workspaceId));
+        return json(await service.listToolSources(workspaceId));
       },
       POST: async (request) => {
         const body = await parseBody<{
@@ -256,12 +262,12 @@ const server = Bun.serve({
       },
     },
     "/api/tasks": {
-      GET: (request) => {
+      GET: async (request) => {
         const workspaceId = new URL(request.url).searchParams.get("workspaceId");
         if (!workspaceId) {
           return error(400, "workspaceId is required");
         }
-        return json(service.listTasks(workspaceId));
+        return json(await service.listTasks(workspaceId));
       },
       POST: async (request) => {
         const body = await parseBody<CreateTaskInput>(request);
@@ -270,7 +276,7 @@ const server = Bun.serve({
         }
 
         try {
-          const created = service.createTask(body);
+          const created = await service.createTask(body);
           return json({ taskId: created.task.id, status: created.task.status }, 201);
         } catch (cause) {
           return error(400, cause instanceof Error ? cause.message : String(cause));
@@ -278,13 +284,13 @@ const server = Bun.serve({
       },
     },
     "/api/tasks/:taskId": {
-      GET: (request) => {
+      GET: async (request) => {
         const workspaceId = new URL(request.url).searchParams.get("workspaceId");
         if (!workspaceId) {
           return error(400, "workspaceId is required");
         }
 
-        const task = service.getTask(request.params.taskId, workspaceId);
+        const task = await service.getTask(request.params.taskId, workspaceId);
         if (!task) {
           return error(404, "Task not found");
         }
@@ -292,21 +298,21 @@ const server = Bun.serve({
       },
     },
     "/api/tasks/:taskId/events": {
-      GET: (request) => {
+      GET: async (request) => {
         const workspaceId = new URL(request.url).searchParams.get("workspaceId");
         if (!workspaceId) {
           return error(400, "workspaceId is required");
         }
 
-        const task = service.getTask(request.params.taskId, workspaceId);
+        const task = await service.getTask(request.params.taskId, workspaceId);
         if (!task) {
           return error(404, "Task not found");
         }
-        return createTaskEventsResponse(request.params.taskId);
+        return await createTaskEventsResponse(request.params.taskId);
       },
     },
     "/api/approvals": {
-      GET: (request) => {
+      GET: async (request) => {
         const query = new URL(request.url).searchParams;
         const workspaceId = query.get("workspaceId");
         if (!workspaceId) {
@@ -315,14 +321,14 @@ const server = Bun.serve({
         const status = query.get("status") as ApprovalStatus | null;
 
         if (status === "pending") {
-          return json(service.listPendingApprovals(workspaceId) satisfies PendingApprovalRecord[]);
+          return json((await service.listPendingApprovals(workspaceId)) satisfies PendingApprovalRecord[]);
         }
 
         if (status && status !== "approved" && status !== "denied") {
           return error(400, "Invalid approval status");
         }
 
-        return json(service.listApprovals(workspaceId, status ?? undefined));
+        return json(await service.listApprovals(workspaceId, status ?? undefined));
       },
     },
     "/api/approvals/:approvalId": {
@@ -338,7 +344,7 @@ const server = Bun.serve({
           return error(400, "workspaceId and decision are required");
         }
 
-        const resolved = service.resolveApproval(
+        const resolved = await service.resolveApproval(
           body.workspaceId,
           request.params.approvalId,
           body.decision,
@@ -354,13 +360,13 @@ const server = Bun.serve({
       },
     },
     "/api/policies": {
-      GET: (request) => {
+      GET: async (request) => {
         const query = new URL(request.url).searchParams;
         const workspaceId = query.get("workspaceId");
         if (!workspaceId) {
           return error(400, "workspaceId is required");
         }
-        return json(service.listAccessPolicies(workspaceId));
+        return json(await service.listAccessPolicies(workspaceId));
       },
       POST: async (request) => {
         const body = await parseBody<{
@@ -381,7 +387,7 @@ const server = Bun.serve({
           return error(400, "Invalid decision");
         }
 
-        return json(service.upsertAccessPolicy({
+        return json(await service.upsertAccessPolicy({
           id: body.id,
           workspaceId: body.workspaceId,
           actorId: body.actorId,
@@ -393,13 +399,13 @@ const server = Bun.serve({
       },
     },
     "/api/credentials": {
-      GET: (request) => {
+      GET: async (request) => {
         const query = new URL(request.url).searchParams;
         const workspaceId = query.get("workspaceId");
         if (!workspaceId) {
           return error(400, "workspaceId is required");
         }
-        return json(service.listCredentials(workspaceId));
+        return json(await service.listCredentials(workspaceId));
       },
       POST: async (request) => {
         const body = await parseBody<{
@@ -423,7 +429,7 @@ const server = Bun.serve({
           return error(400, "actorId is required for actor-scoped credential");
         }
 
-        const credential = service.upsertCredential({
+        const credential = await service.upsertCredential({
           id: body.id,
           workspaceId: body.workspaceId,
           sourceKey: body.sourceKey,
@@ -491,12 +497,12 @@ const server = Bun.serve({
           timestamp: typeof body.timestamp === "number" ? body.timestamp : Date.now(),
         };
 
-        const task = service.getTask(event.runId);
+        const task = await service.getTask(event.runId);
         if (!task) {
           return error(404, `Run not found: ${event.runId}`);
         }
 
-        service.appendRuntimeOutput(event);
+        await service.appendRuntimeOutput(event);
         return json({ ok: true });
       },
     },
