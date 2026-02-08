@@ -5,7 +5,6 @@ import {
   Wrench,
   Plus,
   Trash2,
-  RefreshCw,
   ShieldCheck,
   Globe,
   Server,
@@ -699,17 +698,7 @@ export function ToolsView() {
       <PageHeader
         title="Tools"
         description="Manage tool sources and view available tools"
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 text-xs"
-          onClick={() => void refreshInventory()}
-        >
-          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-          Refresh
-        </Button>
-      </PageHeader>
+      />
 
       <Tabs defaultValue="sources" className="w-full">
         <TabsList className="bg-muted/50 h-9">

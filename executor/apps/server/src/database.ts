@@ -45,6 +45,7 @@ type QueryName =
   | "database:listCredentials"
   | "database:resolveCredential"
   | "database:listToolSources"
+  | "database:listToolSourceWorkspaceUpdates"
   | "database:listWorkspaceToolsForContext"
   | "database:listTaskEvents";
 
@@ -208,6 +209,10 @@ export class ExecutorDatabase {
 
   async listToolSources(workspaceId: string): Promise<ToolSourceRecord[]> {
     return await this.query("database:listToolSources", { workspaceId });
+  }
+
+  async listToolSourceWorkspaceUpdates(): Promise<Array<{ workspaceId: string; updatedAt: number }>> {
+    return await this.query("database:listToolSourceWorkspaceUpdates", {});
   }
 
   async syncWorkspaceTools(params: {

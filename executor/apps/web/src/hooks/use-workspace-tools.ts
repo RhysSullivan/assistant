@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useQuery } from "convex/react";
 import { convexApi } from "../lib/convex-api";
-import * as api from "../lib/api";
 
 interface WorkspaceContext {
   workspaceId: string;
@@ -24,21 +23,8 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
   );
 
   const refresh = useCallback(async () => {
-    if (!context) return;
-    try {
-      await api.listToolsForContext({
-        workspaceId: context.workspaceId,
-        actorId: context.actorId,
-        clientId: context.clientId,
-      });
-    } catch {
-      // best effort warm-up for server-side tool discovery sync
-    }
-  }, [context]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    // Convex queries are live; manual refresh is not required.
+  }, []);
 
   return {
     tools,

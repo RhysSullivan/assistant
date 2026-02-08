@@ -763,6 +763,25 @@ export const listToolSources = query({
   },
 });
 
+export const listToolSourceWorkspaceUpdates = query({
+  args: {},
+  handler: async (ctx) => {
+    const docs = await ctx.db.query("toolSources").collect();
+    const byWorkspace = new Map<string, number>();
+
+    for (const doc of docs) {
+      const existing = byWorkspace.get(doc.workspaceId) ?? 0;
+      if (doc.updatedAt > existing) {
+        byWorkspace.set(doc.workspaceId, doc.updatedAt);
+      }
+    }
+
+    return [...byWorkspace.entries()]
+      .map(([workspaceId, updatedAt]) => ({ workspaceId, updatedAt }))
+      .sort((a, b) => a.workspaceId.localeCompare(b.workspaceId));
+  },
+});
+
 export const syncWorkspaceTools = mutation({
   args: {
     workspaceId: v.string(),
