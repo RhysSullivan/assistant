@@ -135,17 +135,26 @@ test("sandboxed runner does not expose host globals", async () => {
 
   const result = await runCodeWithAdapter(
     request(`
+      let fsEscape = "unknown";
+      try {
+        fsEscape = [].constructor.constructor("return typeof process")();
+      } catch {
+        fsEscape = "blocked";
+      }
+
       const checks = {
         process: typeof process,
         bun: typeof Bun,
         fetch: typeof fetch,
-        fsEscape: [].constructor.constructor("return typeof process")(),
+        fsEscape,
       };
       console.log(JSON.stringify(checks));
       if (checks.process !== "undefined") throw new Error("process leaked");
       if (checks.bun !== "undefined") throw new Error("Bun leaked");
       if (checks.fetch !== "undefined") throw new Error("fetch leaked");
-      if (checks.fsEscape !== "undefined") throw new Error("constructor escape leaked");
+      if (checks.fsEscape !== "undefined" && checks.fsEscape !== "blocked") {
+        throw new Error("constructor escape leaked");
+      }
       return "ok";
     `),
     adapter,
@@ -155,7 +164,65 @@ test("sandboxed runner does not expose host globals", async () => {
   expect(result.stdout).toContain("\"process\":\"undefined\"");
   expect(result.stdout).toContain("\"bun\":\"undefined\"");
   expect(result.stdout).toContain("\"fetch\":\"undefined\"");
-  expect(result.stdout).toContain("\"fsEscape\":\"undefined\"");
+  expect(result.stdout).toMatch(/"fsEscape":"(undefined|blocked)"/);
+});
+
+test("sandbox blocks global constructor and eval escapes", async () => {
+  const adapter = createRuntimeAdapter(new Map(), []);
+
+  const result = await runCodeWithAdapter(
+    request(`
+      let ctorEscape = "unknown";
+      let evalEscape = "unknown";
+      let functionEscape = "unknown";
+
+      try {
+        ctorEscape = globalThis.constructor.constructor("return typeof process")();
+      } catch {
+        ctorEscape = "blocked";
+      }
+
+      try {
+        evalEscape = eval("typeof process");
+      } catch {
+        evalEscape = "blocked";
+      }
+
+      try {
+        functionEscape = Function("return typeof process")();
+      } catch {
+        functionEscape = "blocked";
+      }
+
+      console.log(JSON.stringify({ ctorEscape, evalEscape, functionEscape }));
+      if (ctorEscape !== "undefined" && ctorEscape !== "blocked") throw new Error("ctor escape");
+      if (evalEscape !== "undefined" && evalEscape !== "blocked") throw new Error("eval escape");
+      if (functionEscape !== "undefined" && functionEscape !== "blocked") throw new Error("Function escape");
+    `),
+    adapter,
+  );
+
+  expect(result.status).toBe("completed");
+  expect(result.stdout).toMatch(/"ctorEscape":"(undefined|blocked)"/);
+  expect(result.stdout).toMatch(/"evalEscape":"(undefined|blocked)"/);
+  expect(result.stdout).toMatch(/"functionEscape":"(undefined|blocked)"/);
+});
+
+test("sandbox prototype pollution does not leak to host", async () => {
+  const marker = `__pwned_${crypto.randomUUID().replace(/-/g, "")}`;
+  expect(({} as Record<string, unknown>)[marker]).toBeUndefined();
+
+  const adapter = createRuntimeAdapter(new Map(), []);
+  const result = await runCodeWithAdapter(
+    request(`
+      Object.prototype[${JSON.stringify(marker)}] = "yes";
+      return "done";
+    `),
+    adapter,
+  );
+
+  expect(result.status).toBe("completed");
+  expect(({} as Record<string, unknown>)[marker]).toBeUndefined();
 });
 
 test("runs openapi and graphql sourced tools through the runtime", async () => {

@@ -104,11 +104,17 @@ export async function runCodeWithAdapter(
     error: (...args: unknown[]) => appendStderr(formatArgs(args)),
   };
 
-  const context = createContext({
+  const sandbox = Object.assign(Object.create(null), {
     tools,
     console: consoleProxy,
     setTimeout,
     clearTimeout,
+  });
+  const context = createContext(sandbox, {
+    codeGeneration: {
+      strings: false,
+      wasm: false,
+    },
   });
 
   const runnerScript = new Script(`(async () => {\n"use strict";\n${request.code}\n})()`);

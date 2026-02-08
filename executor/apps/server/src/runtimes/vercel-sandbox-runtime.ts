@@ -146,11 +146,17 @@ const consoleProxy = {
   error: (...args) => appendStderr(formatArgs(args)),
 };
 
-const context = vm.createContext({
+const sandbox = Object.assign(Object.create(null), {
   tools,
   console: consoleProxy,
   setTimeout,
   clearTimeout,
+});
+const context = vm.createContext(sandbox, {
+  codeGeneration: {
+    strings: false,
+    wasm: false,
+  },
 });
 const runnerScript = new vm.Script("(async () => {\\n\"use strict\";\\n" + userCode + "\\n})()");
 
