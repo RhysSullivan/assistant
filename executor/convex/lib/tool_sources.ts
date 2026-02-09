@@ -318,7 +318,7 @@ function extractArgsType(
         for (const ct of contentMember.type.members) {
           if (!ts.isPropertySignature(ct) || !ct.name || !ct.type) continue;
           const ctName = ts.isStringLiteral(ct.name) ? ct.name.text : ts.isIdentifier(ct.name) ? ct.name.text : "";
-          if (ctName === "application/json" || ctName === "*/*") {
+          if (ctName === "application/json" || ctName === "*/*" || ctName.includes("json")) {
             // The body type — try to merge its properties into the args
             if (ts.isTypeLiteralNode(ct.type)) {
               for (const bodyProp of ct.type.members) {
@@ -375,14 +375,17 @@ function extractReturnsType(
     const contentMember = findMember(ts, resp.type, "content");
     if (!contentMember?.type || !ts.isTypeLiteralNode(contentMember.type)) continue;
 
+    let firstTypeText: string | undefined;
     for (const ct of contentMember.type.members) {
       if (!ts.isPropertySignature(ct) || !ct.name || !ct.type) continue;
       const ctName = ts.isStringLiteral(ct.name) ? ct.name.text : ts.isIdentifier(ct.name) ? ct.name.text : "";
-      if (ctName === "application/json" || ctName === "*/*") {
-        const typeText = ct.type.getText(sourceFile).replace(/\s+/g, " ").trim();
+      const typeText = ct.type.getText(sourceFile).replace(/\s+/g, " ").trim();
+      if (!firstTypeText && typeText && typeText !== "never") firstTypeText = typeText;
+      if (ctName === "application/json" || ctName === "*/*" || ctName.includes("json")) {
         return typeText || "unknown";
       }
     }
+    if (firstTypeText) return firstTypeText;
   }
 
   return "unknown";
@@ -403,6 +406,28 @@ function findMember(
     if (memberName === name) return member;
   }
   return undefined;
+}
+
+function getPreferredContentSchema(content: Record<string, unknown>): Record<string, unknown> {
+  const preferredKeys = ["application/json", "*/*"];
+
+  for (const key of preferredKeys) {
+    const schema = asRecord(asRecord(content[key]).schema);
+    if (Object.keys(schema).length > 0) return schema;
+  }
+
+  for (const [key, value] of Object.entries(content)) {
+    if (!key.includes("json")) continue;
+    const schema = asRecord(asRecord(value).schema);
+    if (Object.keys(schema).length > 0) return schema;
+  }
+
+  for (const value of Object.values(content)) {
+    const schema = asRecord(asRecord(value).schema);
+    if (Object.keys(schema).length > 0) return schema;
+  }
+
+  return {};
 }
 
 /** Simple depth-limited type hint generator for schemas (used as fallback) */
@@ -643,14 +668,35 @@ function buildOpenApiUrl(
 }
 
 async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDefinition[]> {
-  // Run two things concurrently:
-  // 1. Parse the spec structure (bundle resolves external $refs but keeps internal ones)
-  // 2. Generate proper TypeScript types via openapiTS (handles circular refs correctly)
-  const [bundled, typeMap] = await Promise.all([
-    (SwaggerParser as unknown as { bundle(spec: unknown): Promise<unknown> }).bundle(config.spec)
-      .then((api) => api as Record<string, unknown>),
-    generateOpenApiTypes(config.spec),
-  ]);
+  // Run type generation in parallel with spec loading.
+  // We prefer `bundle` so external refs are resolved, but some real-world specs
+  // contain broken internal refs. In that case, fall back to `parse` so we can
+  // still load operation paths and expose usable tools.
+  const typeMapPromise = generateOpenApiTypes(config.spec);
+  const parser = SwaggerParser as unknown as {
+    bundle(spec: unknown): Promise<unknown>;
+    parse(spec: unknown): Promise<unknown>;
+  };
+
+  let bundled: Record<string, unknown>;
+  try {
+    bundled = await parser.bundle(config.spec).then((api) => api as Record<string, unknown>);
+  } catch (bundleError) {
+    const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
+    console.warn(
+      `[executor] OpenAPI bundle failed for '${config.name}', falling back to parse-only mode: ${bundleMessage}`,
+    );
+    try {
+      bundled = await parser.parse(config.spec).then((api) => api as Record<string, unknown>);
+    } catch (parseError) {
+      const parseMessage = parseError instanceof Error ? parseError.message : String(parseError);
+      throw new Error(
+        `Failed to load OpenAPI source '${config.name}': bundle error (${bundleMessage}); parse error (${parseMessage})`,
+      );
+    }
+  }
+
+  const typeMap = await typeMapPromise;
 
   const servers = Array.isArray(bundled.servers) ? (bundled.servers as Array<{ url?: unknown }>) : [];
   const baseUrl = config.baseUrl ?? String(servers[0]?.url ?? "");
@@ -712,20 +758,14 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
         // Fallback: build types from the bundled schema using the depth-limited hint generator
         const requestBody = asRecord(operation.requestBody);
         const requestBodyContent = asRecord(requestBody.content);
-        const requestBodySchema = asRecord(
-          asRecord(requestBodyContent["application/json"])["schema"] ??
-          asRecord(requestBodyContent["*/*"])["schema"],
-        );
+        const requestBodySchema = getPreferredContentSchema(requestBodyContent);
 
         const responses = asRecord(operation.responses);
         let responseSchema: Record<string, unknown> = {};
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
           const responseContent = asRecord(asRecord(responseValue).content);
-          responseSchema = asRecord(
-            asRecord(responseContent["application/json"])["schema"] ??
-            asRecord(responseContent["*/*"])["schema"],
-          );
+          responseSchema = getPreferredContentSchema(responseContent);
           if (Object.keys(responseSchema).length > 0) break;
         }
 

@@ -36,6 +36,12 @@ function buildTree(tools: ToolDescriptor[]): NamespaceNode {
 
 function emitToolMethod(tool: ToolDescriptor): string {
   const funcName = tool.path.split(".").pop()!;
+  const hasArgsType = Boolean(tool.argsType?.trim());
+  const argsType = hasArgsType ? tool.argsType!.trim() : "Record<string, unknown>";
+  const returnsType = tool.returnsType?.trim() || "unknown";
+  const inputParam = !hasArgsType || argsType === "{}"
+    ? `input?: ${argsType}`
+    : `input: ${argsType}`;
   const approvalNote =
     tool.approval === "required"
       ? " **Requires approval** - execution will pause until approved."
@@ -48,7 +54,7 @@ function emitToolMethod(tool: ToolDescriptor): string {
    * ${desc}
    *${tool.source ? ` @source ${tool.source}` : ""}
    */
-  ${funcName}(input?: Record<string, unknown>): Promise<Record<string, unknown>>;`;
+  ${funcName}(${inputParam}): Promise<${returnsType}>;`;
 }
 
 function emitNamespaceInterface(
@@ -90,6 +96,16 @@ function countAllTools(node: NamespaceNode): number {
 
 function generateToolsDts(tools: ToolDescriptor[]): string {
   const root = buildTree(tools);
+  const schemaTypeAliases = new Map<string, string>();
+
+  for (const tool of tools) {
+    if (!tool.schemaTypes) continue;
+    for (const [name, type] of Object.entries(tool.schemaTypes)) {
+      if (!schemaTypeAliases.has(name)) {
+        schemaTypeAliases.set(name, type);
+      }
+    }
+  }
 
   const interfaces: string[] = [];
 
@@ -118,6 +134,9 @@ function generateToolsDts(tools: ToolDescriptor[]): string {
  * Tools marked with "approval: required" will pause execution until approved.
  */
 `;
+  if (schemaTypeAliases.size > 0) {
+    dts += Array.from(schemaTypeAliases, ([name, type]) => `type ${name} = ${type};`).join("\n") + "\n\n";
+  }
   dts += interfaces.join("\n\n") + "\n\n";
   dts += `interface ToolsProxy {\n${rootMembers.join("\n\n")}\n}\n\n`;
   dts += `declare const tools: ToolsProxy;\n`;

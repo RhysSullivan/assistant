@@ -11,6 +11,7 @@ import {
   Zap,
   Search,
   ChevronRight,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -709,7 +710,7 @@ export function ToolsView() {
   );
   const sourcesLoading = !!context && sources === undefined;
 
-  const { tools, loading: toolsLoading } = useWorkspaceTools(context ?? null);
+  const { tools, warnings, loading: toolsLoading } = useWorkspaceTools(context ?? null);
 
   if (sessionLoading) {
     return (
@@ -777,6 +778,26 @@ export function ToolsView() {
                 </div>
               ) : (
                 <div className="space-y-2">
+                  {warnings.length > 0 && (
+                    <div className="rounded-md border border-terminal-amber/30 bg-terminal-amber/10 px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-terminal-amber">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Source load warnings ({warnings.length})
+                      </div>
+                      <div className="mt-1.5 space-y-1">
+                        {warnings.slice(0, 3).map((warning, i) => (
+                          <p key={`${warning}-${i}`} className="text-[11px] text-terminal-amber/90">
+                            {warning}
+                          </p>
+                        ))}
+                        {warnings.length > 3 && (
+                          <p className="text-[10px] text-terminal-amber/80">
+                            +{warnings.length - 3} more warning{warnings.length - 3 === 1 ? "" : "s"}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {sources.map((s) => (
                     <SourceCard key={s.id} source={s} />
                   ))}
@@ -798,6 +819,14 @@ export function ToolsView() {
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
+              {warnings.length > 0 && !toolsLoading && (
+                <div className="mb-3 rounded-md border border-terminal-amber/30 bg-terminal-amber/10 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-terminal-amber">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Some sources failed to load; inventory may be incomplete
+                  </div>
+                </div>
+              )}
               {toolsLoading ? (
                 <div className="space-y-2">
                   {Array.from({ length: 5 }).map((_, i) => (

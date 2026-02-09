@@ -119,8 +119,8 @@ const workspaceToolCache = new Map<
   string,
   { signature: string; loadedAt: number; tools: Map<string, ToolDefinition>; warnings: string[] }
 >();
-const WORKSPACE_TOOL_CACHE_TTL_MS = 5 * 60_000;
-const WORKSPACE_TOOL_CACHE_RETRY_TTL_MS = 15_000;
+const WORKSPACE_TOOL_CACHE_TTL_MS = 5 * 60 * 60_000;
+const WORKSPACE_TOOL_CACHE_RETRY_TTL_MS = 5 * 60 * 60_000;
 
 function isWorkspaceToolCacheFresh(
   cached: { signature: string; loadedAt: number; warnings: string[] },
@@ -246,6 +246,36 @@ function getToolDecision(task: TaskRecord, tool: ToolDefinition, policies: Acces
     },
     policies,
   );
+}
+
+function toToolDescriptor(tool: ToolDefinition, approval: "auto" | "required"): ToolDescriptor {
+  return {
+    path: tool.path,
+    description: tool.description,
+    approval,
+    source: tool.source,
+    argsType: tool.metadata?.argsType,
+    returnsType: tool.metadata?.returnsType,
+    schemaTypes: tool.metadata?.schemaTypes,
+  };
+}
+
+function listVisibleToolDescriptors(
+  workspaceTools: Map<string, ToolDefinition>,
+  context: { workspaceId: string; actorId?: string; clientId?: string },
+  policies: AccessPolicyRecord[],
+): ToolDescriptor[] {
+  const all = [...workspaceTools.values()];
+
+  return all
+    .filter((tool) => {
+      const decision = getDecisionForContext(tool, context, policies);
+      return decision !== "deny";
+    })
+    .map((tool) => {
+      const decision = getDecisionForContext(tool, context, policies);
+      return toToolDescriptor(tool, decision === "require_approval" ? "required" : "auto");
+    });
 }
 
 function isToolAllowedForTask(
@@ -478,14 +508,7 @@ export const listTools = action({
   },
   handler: async (ctx, args): Promise<ToolDescriptor[]> => {
     if (!args.workspaceId) {
-      return [...baseTools.values()].map((tool) => ({
-        path: tool.path,
-        description: tool.description,
-        approval: tool.approval,
-        source: tool.source,
-        argsType: tool.metadata?.argsType,
-        returnsType: tool.metadata?.returnsType,
-      }));
+      return [...baseTools.values()].map((tool) => toToolDescriptor(tool, tool.approval));
     }
 
     const [workspaceTools, policies] = await Promise.all([
@@ -493,24 +516,46 @@ export const listTools = action({
       ctx.runQuery(api.database.listAccessPolicies, { workspaceId: args.workspaceId }),
     ]);
     const typedPolicies = policies as AccessPolicyRecord[];
-    const all = [...workspaceTools.values()];
 
-    return all
-      .filter((tool) => {
-        const decision = getDecisionForContext(tool, args as { workspaceId: string; actorId?: string; clientId?: string }, typedPolicies);
-        return decision !== "deny";
-      })
-      .map((tool) => {
-        const decision = getDecisionForContext(tool, args as { workspaceId: string; actorId?: string; clientId?: string }, typedPolicies);
-        return {
-          path: tool.path,
-          description: tool.description,
-          approval: decision === "require_approval" ? "required" : "auto",
-          source: tool.source,
-          argsType: tool.metadata?.argsType,
-          returnsType: tool.metadata?.returnsType,
-        };
-      });
+    return listVisibleToolDescriptors(
+      workspaceTools,
+      args as { workspaceId: string; actorId?: string; clientId?: string },
+      typedPolicies,
+    );
+  },
+});
+
+export const listToolsWithWarnings = action({
+  args: {
+    workspaceId: v.optional(v.string()),
+    actorId: v.optional(v.string()),
+    clientId: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ tools: ToolDescriptor[]; warnings: string[] }> => {
+    if (!args.workspaceId) {
+      return {
+        tools: [...baseTools.values()].map((tool) => toToolDescriptor(tool, tool.approval)),
+        warnings: [],
+      };
+    }
+
+    const [workspaceTools, policies] = await Promise.all([
+      getWorkspaceTools(ctx, args.workspaceId),
+      ctx.runQuery(api.database.listAccessPolicies, { workspaceId: args.workspaceId }),
+    ]);
+    const typedPolicies = policies as AccessPolicyRecord[];
+
+    return {
+      tools: listVisibleToolDescriptors(
+        workspaceTools,
+        args as { workspaceId: string; actorId?: string; clientId?: string },
+        typedPolicies,
+      ),
+      warnings: workspaceToolCache.get(args.workspaceId)?.warnings ?? [],
+    };
   },
 });
 

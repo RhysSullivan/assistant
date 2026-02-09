@@ -7,6 +7,10 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     description: "Return current server time.",
     approval: "auto",
     source: "local",
+    metadata: {
+      argsType: "{}",
+      returnsType: "{ iso: string; unix: number }",
+    },
     run: async () => ({
       iso: new Date().toISOString(),
       unix: Date.now(),
@@ -17,6 +21,10 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     description: "Add two numbers.",
     approval: "auto",
     source: "local",
+    metadata: {
+      argsType: "{ a: number; b: number }",
+      returnsType: "{ result: number }",
+    },
     run: async (input) => {
       const payload = asRecord(input);
       const a = Number(payload.a ?? 0);
@@ -32,6 +40,10 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     description: "Mock announcement sender that requires approval.",
     approval: "required",
     source: "local",
+    metadata: {
+      argsType: "{ channel?: string; message: string }",
+      returnsType: "{ sent: true; channel: string; message: string }",
+    },
     run: async (input) => {
       const payload = asRecord(input);
       const channel = String(payload.channel ?? "general");
@@ -51,6 +63,10 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
     description: "Mock destructive operation that requires approval.",
     approval: "required",
     source: "local",
+    metadata: {
+      argsType: "{ key: string }",
+      returnsType: "{ deleted: true; key: string }",
+    },
     run: async (input) => {
       const payload = asRecord(input);
       const key = String(payload.key ?? "");

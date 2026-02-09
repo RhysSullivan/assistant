@@ -166,3 +166,71 @@ test("loadExternalTools captures individual source failures without blocking oth
   expect(warnings.length).toBe(1);
   expect(warnings[0]).toContain("bad");
 });
+
+test("loadExternalTools tolerates OpenAPI specs with broken internal refs", async () => {
+  const brokenRefSpec: Record<string, unknown> = {
+    openapi: "3.0.3",
+    info: { title: "Broken refs", version: "1.0.0" },
+    servers: [{ url: "https://api.example.com" }],
+    paths: {
+      "/contacts": {
+        get: {
+          operationId: "listContacts",
+          tags: ["contacts"],
+          responses: {
+            "200": {
+              description: "ok",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/contact_list" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/conversations": {
+        post: {
+          operationId: "createConversation",
+          tags: ["conversations"],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/create_conversation_request" },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "ok" },
+          },
+        },
+      },
+    },
+    components: {
+      schemas: {
+        create_conversation_request: {
+          type: "object",
+          properties: {
+            body: { type: "string" },
+            custom_attributes: { $ref: "#/components/schemas/custom_attributes" },
+          },
+        },
+      },
+    },
+  };
+
+  const { tools, warnings } = await loadExternalTools([
+    {
+      type: "openapi",
+      name: "intercom-like",
+      spec: brokenRefSpec,
+      baseUrl: "https://api.example.com",
+    },
+  ]);
+
+  expect(warnings).toHaveLength(0);
+  const toolPaths = tools.map((t) => t.path);
+  expect(toolPaths).toContain("intercom_like.contacts.listcontacts");
+  expect(toolPaths).toContain("intercom_like.conversations.createconversation");
+});

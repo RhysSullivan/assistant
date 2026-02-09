@@ -17,7 +17,7 @@ interface WorkspaceContext {
  * (the reactive value is included in the query key).
  */
 export function useWorkspaceTools(context: WorkspaceContext | null) {
-  const listTools = useAction(convexApi.executorNode.listTools);
+  const listToolsWithWarnings = useAction(convexApi.executorNode.listToolsWithWarnings);
 
   // Watch tool sources reactively so we invalidate when sources change
   const toolSources = useConvexQuery(
@@ -34,8 +34,8 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
       toolSources,
     ],
     queryFn: async () => {
-      if (!context) return [];
-      return await listTools({
+      if (!context) return { tools: [], warnings: [] };
+      return await listToolsWithWarnings({
         workspaceId: context.workspaceId,
         ...(context.actorId && { actorId: context.actorId }),
         ...(context.clientId && { clientId: context.clientId }),
@@ -45,7 +45,8 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
   });
 
   return {
-    tools: data ?? [],
+    tools: data?.tools ?? [],
+    warnings: data?.warnings ?? [],
     loading: !!context && isLoading,
   };
 }
