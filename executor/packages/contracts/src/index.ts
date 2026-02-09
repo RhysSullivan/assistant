@@ -14,6 +14,8 @@ export type PolicyDecision = "allow" | "require_approval" | "deny";
 
 export type CredentialScope = "workspace" | "actor";
 
+export type CredentialProvider = "managed" | "workos-vault";
+
 export type ToolApprovalMode = "auto" | "required";
 
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
@@ -83,6 +85,7 @@ export interface CredentialRecord {
   sourceKey: string;
   scope: CredentialScope;
   actorId?: string;
+  provider: CredentialProvider;
   secretJson: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;

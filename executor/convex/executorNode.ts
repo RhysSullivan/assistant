@@ -1,10 +1,10 @@
 "use node";
 
 import { v } from "convex/values";
-import { ActionCache } from "@convex-dev/action-cache";
-import { api, components, internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { action, internalAction } from "./_generated/server";
 import { InProcessExecutionAdapter } from "./lib/adapters/in_process_execution_adapter";
+import { resolveCredentialPayload } from "./lib/credential_providers";
 import { APPROVAL_DENIED_PREFIX } from "./lib/execution_constants";
 import { runCodeWithAdapter } from "./lib/runtimes/runtime_core";
 import { createDiscoverTool } from "./lib/tool_discovery";
@@ -135,23 +135,8 @@ const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 const WORKSPACE_TOOL_CACHE_TTL_MS = 5 * 60 * 60_000;
 const WORKSPACE_TOOL_CACHE_RETRY_TTL_MS = 5 * 60 * 60_000;
 
-const actionCacheComponent = components as unknown as { actionCache: unknown };
-const openApiSpecCache = new ActionCache(actionCacheComponent.actionCache as never, {
-  action: internal.executorNode.prepareOpenApiSpecForCache,
-  name: "openapi-spec-transform-v1",
-  ttl: OPENAPI_SPEC_CACHE_TTL_MS,
-});
-const MAX_ACTION_CACHE_VALUE_BYTES = 900_000;
-const OVERSIZED_OPENAPI_LOCAL_CACHE_TTL_MS = 5 * 60 * 60_000;
-const oversizedOpenApiSpecCache = new Map<
-  string,
-  { loadedAt: number; prepared: PreparedOpenApiSpec }
->();
-
-interface PreparedOpenApiSpecCacheValue {
-  preparedJson: string;
-  oversized?: boolean;
-}
+/** Cache version — bump when PreparedOpenApiSpec shape changes. */
+const OPENAPI_CACHE_VERSION = "v2";
 
 function isWorkspaceToolCacheFresh(
   cached: { signature: string; loadedAt: number; warnings: string[] },
@@ -200,92 +185,78 @@ async function waitForApproval(ctx: any, approvalId: string): Promise<"approved"
   }
 }
 
-export const prepareOpenApiSpecForCache = internalAction({
-  args: {
-    specUrl: v.string(),
-  },
-  handler: async (_ctx, args): Promise<PreparedOpenApiSpecCacheValue> => {
-    const prepared = await prepareOpenApiSpec(args.specUrl, args.specUrl);
-    // Action cache values must be valid Convex values. Raw OpenAPI objects can
-    // contain keys like "$ref", which Convex object fields disallow, so we
-    // store the prepared payload as a JSON string.
-    let preparedJson = JSON.stringify(prepared);
+/**
+ * Load a prepared OpenAPI spec, using Convex file storage as a persistent cache.
+ *
+ * Flow:
+ * 1. Check the `openApiSpecCache` table for a valid entry → fetch blob from storage.
+ * 2. On miss: prepare the spec from scratch, store the JSON blob, write the metadata row.
+ *
+ * No size limits — Convex file storage handles multi-MB specs without issue.
+ */
+async function loadCachedOpenApiSpec(
+  ctx: any,
+  specUrl: string,
+  sourceName: string,
+): Promise<PreparedOpenApiSpec> {
+  // 1. Persistent cache (Convex table + file storage)
+  try {
+    const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
+      specUrl,
+      version: OPENAPI_CACHE_VERSION,
+      maxAgeMs: OPENAPI_SPEC_CACHE_TTL_MS,
+    });
 
-    if (preparedJson.length > MAX_ACTION_CACHE_VALUE_BYTES) {
-      const reduced: PreparedOpenApiSpec = {
-        servers: prepared.servers,
-        paths: prepared.paths,
-        warnings: [
-          ...(prepared.warnings ?? []),
-          "OpenAPI type metadata omitted due cache size limits.",
-        ],
-      };
-      preparedJson = JSON.stringify(reduced);
+    if (entry) {
+      const blob = await ctx.storage.get(entry.storageId);
+      if (blob) {
+        const json = await blob.text();
+        return JSON.parse(json) as PreparedOpenApiSpec;
+      }
+      // Blob missing (deleted externally?) — fall through to re-prepare
     }
+  } catch (error) {
+    // Cache read failed — log and fall through to fresh preparation
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[executor] OpenAPI cache read failed for '${sourceName}': ${message}`);
+  }
 
-    if (preparedJson.length > MAX_ACTION_CACHE_VALUE_BYTES) {
-      return { preparedJson: "", oversized: true };
-    }
+  // 2. Cache miss — prepare from scratch
+  const prepared = await prepareOpenApiSpec(specUrl, sourceName);
 
-    return { preparedJson };
-  },
-});
+  // Store in file storage + metadata table (best-effort, don't block on failure)
+  try {
+    const json = JSON.stringify(prepared);
+    const blob = new Blob([json], { type: "application/json" });
+    const storageId = await ctx.storage.store(blob);
+    await ctx.runMutation(internal.openApiSpecCache.putEntry, {
+      specUrl,
+      version: OPENAPI_CACHE_VERSION,
+      storageId,
+      sizeBytes: json.length,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[executor] OpenAPI cache write failed for '${sourceName}': ${message}`);
+  }
+
+  return prepared;
+}
 
 async function loadSourceTools(
   ctx: any,
   source: ExternalToolSourceConfig,
 ): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
-  const loadOpenApiDirect = async (extraWarnings: string[] = []) => {
-    const specUrl = source.spec;
-    const now = Date.now();
-    const cached = oversizedOpenApiSpecCache.get(specUrl);
-    const prepared = (cached && (now - cached.loadedAt) < OVERSIZED_OPENAPI_LOCAL_CACHE_TTL_MS)
-      ? cached.prepared
-      : await prepareOpenApiSpec(specUrl, source.name);
-
-    if (!cached || (now - cached.loadedAt) >= OVERSIZED_OPENAPI_LOCAL_CACHE_TTL_MS) {
-      oversizedOpenApiSpecCache.set(specUrl, { loadedAt: now, prepared });
-    }
-
-    const tools = buildOpenApiToolsFromPrepared(source, prepared);
-    return {
-      tools,
-      warnings: [
-        ...extraWarnings,
-        ...(prepared.warnings ?? []).map((warning) => `Source '${source.name}': ${warning}`),
-      ],
-    };
-  };
-
   if (source.type === "openapi" && typeof source.spec === "string") {
     try {
-      const cached = await openApiSpecCache.fetch(ctx, { specUrl: source.spec }) as PreparedOpenApiSpecCacheValue;
-      if (cached.oversized || !cached.preparedJson) {
-        return await loadOpenApiDirect([
-          `Source '${source.name}': OpenAPI metadata is too large for global cache; using direct load.`,
-        ]);
-      }
-      const prepared = JSON.parse(cached.preparedJson) as PreparedOpenApiSpec;
+      const prepared = await loadCachedOpenApiSpec(ctx, source.spec, source.name);
       const tools = buildOpenApiToolsFromPrepared(source, prepared);
-      const warnings = (prepared.warnings ?? []).map((warning) => `Source '${source.name}': ${warning}`);
+      const warnings = (prepared.warnings ?? []).map(
+        (warning) => `Source '${source.name}': ${warning}`,
+      );
       return { tools, warnings };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-
-      if (/Value is too large/i.test(message)) {
-        try {
-          return await loadOpenApiDirect([
-            `Source '${source.name}': OpenAPI metadata exceeded global cache limits; using direct load.`,
-          ]);
-        } catch (fallbackError) {
-          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-          return {
-            tools: [],
-            warnings: [`Failed to load openapi source '${source.name}': ${fallbackMessage}`],
-          };
-        }
-      }
-
       return {
         tools: [],
         warnings: [`Failed to load openapi source '${source.name}': ${message}`],
@@ -449,7 +420,9 @@ async function resolveCredentialHeaders(
     actorId: task.actorId,
   });
 
-  const source = record?.secretJson ?? spec.staticSecretJson ?? null;
+  const source = record
+    ? await resolveCredentialPayload(record)
+    : spec.staticSecretJson ?? null;
   if (!source) {
     return null;
   }

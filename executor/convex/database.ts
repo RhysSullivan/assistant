@@ -17,6 +17,10 @@ const completedTaskStatusValidator = v.union(
 const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
+const credentialProviderValidator = v.union(
+  v.literal("managed"),
+  v.literal("workos-vault"),
+);
 const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
 const agentTaskStatusValidator = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
 
@@ -159,6 +163,7 @@ function mapCredential(doc: Doc<"sourceCredentials">) {
     sourceKey: doc.sourceKey,
     scope: doc.scope,
     actorId: optionalFromNormalized(doc.actorId),
+    provider: doc.provider ?? "managed",
     secretJson: asRecord(doc.secretJson),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -856,6 +861,7 @@ export const upsertCredential = mutation({
     sourceKey: v.string(),
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
+    provider: v.optional(credentialProviderValidator),
     secretJson: v.any(),
   },
   handler: async (ctx, args) => {
@@ -873,8 +879,11 @@ export const upsertCredential = mutation({
       )
       .unique();
 
+    const provider = args.provider ?? existing?.provider ?? "managed";
+
     if (existing) {
       await ctx.db.patch(existing._id, {
+        provider,
         secretJson: asRecord(args.secretJson),
         updatedAt: now,
       });
@@ -885,6 +894,7 @@ export const upsertCredential = mutation({
         sourceKey: args.sourceKey,
         scope: args.scope,
         actorId,
+        provider,
         secretJson: asRecord(args.secretJson),
         createdAt: now,
         updatedAt: now,
@@ -919,6 +929,24 @@ export const listCredentials = query({
       .order("desc")
       .collect();
     return docs.map(mapCredential);
+  },
+});
+
+export const listCredentialProviders = query({
+  args: {},
+  handler: async () => {
+    return [
+      {
+        id: "managed",
+        label: "Managed",
+        description: "Store credential payload in Executor's sourceCredentials table.",
+      },
+      {
+        id: "workos-vault",
+        label: "Encrypted",
+        description: "Store credential payload in encrypted external storage.",
+      },
+    ] as const;
   },
 });
 

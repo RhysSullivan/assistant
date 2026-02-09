@@ -37,6 +37,10 @@ const taskStatus = v.union(
 const approvalStatus = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
 const policyDecision = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScope = v.union(v.literal("workspace"), v.literal("actor"));
+const credentialProvider = v.union(
+  v.literal("managed"),
+  v.literal("workos-vault"),
+);
 const toolSourceType = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
 const agentTaskStatus = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
 
@@ -244,6 +248,7 @@ export default defineSchema({
     sourceKey: v.string(),
     scope: credentialScope,
     actorId: v.string(),
+    provider: v.optional(credentialProvider),
     secretJson: v.any(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -283,6 +288,15 @@ export default defineSchema({
     .index("by_agent_task_id", ["agentTaskId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_requester_created", ["requesterId", "createdAt"]),
+
+  openApiSpecCache: defineTable({
+    specUrl: v.string(),
+    storageId: v.id("_storage"),
+    version: v.string(),
+    sizeBytes: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_spec_url_version", ["specUrl", "version"]),
 
   anonymousSessions: defineTable({
     sessionId: v.string(),

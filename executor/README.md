@@ -41,3 +41,19 @@ bun test convex/database.test.ts convex/executor-mcp.e2e.test.ts
 - Internal runtime callback routes are served by Convex HTTP routes at `/internal/runs/:runId/*`.
 - `run_code` supports TypeScript typechecking and runtime transpilation before execution.
 - `run_code` now attempts MCP form elicitation for pending tool approvals when the MCP client advertises `elicitation.form`; clients without elicitation support continue using the existing out-of-band approval flow.
+
+## Credential Providers
+
+`sourceCredentials` now supports pluggable providers:
+
+- `managed` (default): stores `secretJson` in Convex.
+- `workos-vault`: stores credential payload in encrypted external storage and keeps only a reference in Convex.
+
+`workos-vault` uses the standard `WORKOS_API_KEY` environment variable for Vault reads.
+
+Examples for `upsertCredential.secretJson`:
+
+- `managed`: `{ "token": "ghp_..." }`
+- `workos-vault`: `{ "token": "ghp_..." }` (backend stores encrypted object)
+
+Compatibility note: `workos-vault` also accepts `{ "objectId": "secret_..." }` when importing existing references.

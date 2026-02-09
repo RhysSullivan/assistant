@@ -4,6 +4,7 @@ export type {
   ApprovalStatus,
   PolicyDecision,
   CredentialScope,
+  CredentialProvider,
   ToolApprovalMode,
   ToolSourceType,
   TaskRecord,

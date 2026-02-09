@@ -120,3 +120,57 @@ test("bootstrap honors caller-provided session id", async () => {
   expect(again.workspaceId).toBe(seeded.workspaceId);
   expect(again.actorId).toBe(seeded.actorId);
 });
+
+test("credentials persist provider and resolve by scope", async () => {
+  const t = setup();
+
+  const workspaceCredential = await t.mutation(api.database.upsertCredential, {
+    workspaceId: "ws_cred",
+    sourceKey: "openapi:github",
+    scope: "workspace",
+    provider: "managed",
+    secretJson: { token: "workspace-token" },
+  });
+
+  expect(workspaceCredential.provider).toBe("managed");
+
+  const actorCredential = await t.mutation(api.database.upsertCredential, {
+    workspaceId: "ws_cred",
+    sourceKey: "openapi:github",
+    scope: "actor",
+    actorId: "actor_cred",
+    provider: "workos-vault",
+    secretJson: { objectId: "secret_actor_github" },
+  });
+
+  expect(actorCredential.provider).toBe("workos-vault");
+  expect(actorCredential.actorId).toBe("actor_cred");
+
+  const resolvedWorkspace = await t.query(api.database.resolveCredential, {
+    workspaceId: "ws_cred",
+    sourceKey: "openapi:github",
+    scope: "workspace",
+  });
+  expect(resolvedWorkspace?.provider).toBe("managed");
+
+  const resolvedActor = await t.query(api.database.resolveCredential, {
+    workspaceId: "ws_cred",
+    sourceKey: "openapi:github",
+    scope: "actor",
+    actorId: "actor_cred",
+  });
+  expect(resolvedActor?.provider).toBe("workos-vault");
+});
+
+test("upsertCredential defaults provider to managed", async () => {
+  const t = setup();
+
+  const credential = await t.mutation(api.database.upsertCredential, {
+    workspaceId: "ws_default_provider",
+    sourceKey: "openapi:stripe",
+    scope: "workspace",
+    secretJson: { token: "sk_test_123" },
+  });
+
+  expect(credential.provider).toBe("managed");
+});
