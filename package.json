@@ -25,13 +25,16 @@
     "convex:codegen": "bunx --cwd executor convex codegen"
   },
   "dependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@convex-dev/stripe": "^0.1.3",
     "@convex-dev/workos-authkit": "^0.1.6",
     "@executor/contracts": "workspace:*",
     "@workos-inc/node": "^8.2.0",
     "convex": "^1.31.7",
     "convex-helpers": "^0.1.111",
-    "jose": "^6.1.0"
+    "jose": "^6.1.0",
+    "openapi-typescript": "^7.12.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
