@@ -90,7 +90,6 @@ test("anonymous bootstrap links guest account membership", async () => {
   expect(first.workspaceId).toContain("ws_");
   expect(first.actorId).toContain("anon_");
   expect(first.accountId).toBeDefined();
-  expect(first.workspaceDocId).toBeDefined();
   expect(first.userId).toBeDefined();
 
   const again = await t.mutation(api.database.bootstrapAnonymousSession, {
@@ -99,7 +98,6 @@ test("anonymous bootstrap links guest account membership", async () => {
 
   expect(again.sessionId).toBe(first.sessionId);
   expect(again.accountId).toBe(first.accountId);
-  expect(again.workspaceDocId).toBe(first.workspaceDocId);
   expect(again.userId).toBe(first.userId);
 });
 

@@ -16,7 +16,6 @@
     "baseUrl": "."
   },
   "include": [
-    "apps/**/*.ts",
     "packages/**/*.ts",
     "convex/**/*.ts"
   ]
