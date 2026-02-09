@@ -36,16 +36,23 @@ interface SessionState {
     status: string;
     role: string;
   }>;
+  organizationsLoading: boolean;
   workspaces: Array<{
     id: Id<"workspaces">;
     docId: Id<"workspaces"> | null;
     name: string;
     organizationId: Id<"organizations"> | null;
+    organizationName: string | null;
+    organizationSlug: string | null;
     iconUrl?: string | null;
   }>;
   switchWorkspace: (workspaceId: Id<"workspaces">) => void;
   creatingWorkspace: boolean;
-  createWorkspace: (name: string, iconFile?: File | null) => Promise<void>;
+  createWorkspace: (
+    name: string,
+    iconFile?: File | null,
+    organizationId?: Id<"organizations">,
+  ) => Promise<void>;
   isSignedInToWorkos: boolean;
   workosProfile: {
     name: string;
@@ -62,6 +69,7 @@ const SessionContext = createContext<SessionState>({
   clientConfig: null,
   mode: "guest",
   organizations: [],
+  organizationsLoading: true,
   workspaces: [],
   switchWorkspace: () => {},
   creatingWorkspace: false,
@@ -191,7 +199,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [account]);
 
-  const createWorkspace = useCallback(async (name: string, iconFile?: File | null) => {
+  const createWorkspace = useCallback(async (
+    name: string,
+    iconFile?: File | null,
+    organizationId?: Id<"organizations">,
+  ) => {
     setCreatingWorkspace(true);
     setRuntimeError(null);
     try {
@@ -224,6 +236,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const created = await createWorkspaceMutation({
         name,
         iconStorageId,
+        organizationId,
         sessionId: storedSessionId ?? undefined,
       });
 
@@ -304,6 +317,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         docId: workspace.id,
         name: workspace.name,
         organizationId: workspace.organizationId ?? null,
+        organizationName: workspace.organizationName,
+        organizationSlug: workspace.organizationSlug,
         iconUrl: workspace.iconUrl,
       }));
     }
@@ -315,6 +330,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           docId: null,
           name: "Guest Workspace",
           organizationId: null,
+          organizationName: null,
+          organizationSlug: null,
         },
       ];
     }
@@ -331,6 +348,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         clientConfig: clientConfig ?? null,
         mode,
         organizations: organizations ?? [],
+        organizationsLoading: workosEnabled ? organizations === undefined : false,
         workspaces: workspaceOptions,
         switchWorkspace,
         creatingWorkspace,

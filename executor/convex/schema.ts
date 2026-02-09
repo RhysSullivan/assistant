@@ -90,6 +90,7 @@ export default defineSchema({
   organizationMembers: defineTable({
     organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
+    workosOrgMembershipId: v.optional(v.string()),
     role: orgRole,
     status: orgMemberStatus,
     billable: v.boolean(),
@@ -125,7 +126,7 @@ export default defineSchema({
     email: v.string(),
     role: orgRole,
     status: inviteStatus,
-    provider: inviteProvider,
+    provider: v.optional(inviteProvider),
     providerInviteId: v.optional(v.string()),
     invitedByAccountId: v.id("accounts"),
     expiresAt: v.number(),

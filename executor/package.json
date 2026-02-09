@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "bun run dev:convex",
     "dev:convex": "bunx convex dev",
+    "db:clear": "bun run wipe-convex-db.ts",
     "dev:web": "bun run --cwd apps/web dev",
     "dev:all": "bun run dev:convex & bun run dev:web",
     "start": "bun run dev:convex",

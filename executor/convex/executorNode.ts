@@ -3,15 +3,15 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { action, internalAction } from "./_generated/server";
-import { InProcessExecutionAdapter } from "./lib/adapters/in-process-execution-adapter";
-import { APPROVAL_DENIED_PREFIX } from "./lib/execution-constants";
-import { runCodeWithAdapter } from "./lib/runtimes/runtime-core";
-import { createDiscoverTool } from "./lib/tool-discovery";
+import { InProcessExecutionAdapter } from "./lib/adapters/in_process_execution_adapter";
+import { APPROVAL_DENIED_PREFIX } from "./lib/execution_constants";
+import { runCodeWithAdapter } from "./lib/runtimes/runtime_core";
+import { createDiscoverTool } from "./lib/tool_discovery";
 import {
   loadExternalTools,
   parseGraphqlOperationPaths,
   type ExternalToolSourceConfig,
-} from "./lib/tool-sources";
+} from "./lib/tool_sources";
 import { DEFAULT_TOOLS } from "./lib/tools";
 import type {
   AccessPolicyRecord,
@@ -119,6 +119,25 @@ const workspaceToolCache = new Map<
   string,
   { signature: string; loadedAt: number; tools: Map<string, ToolDefinition>; warnings: string[] }
 >();
+const WORKSPACE_TOOL_CACHE_TTL_MS = 5 * 60_000;
+const WORKSPACE_TOOL_CACHE_RETRY_TTL_MS = 15_000;
+
+function isWorkspaceToolCacheFresh(
+  cached: { signature: string; loadedAt: number; warnings: string[] },
+  signature: string,
+  now: number,
+): boolean {
+  if (cached.signature !== signature) {
+    return false;
+  }
+
+  const ageMs = now - cached.loadedAt;
+  const ttlMs = cached.warnings.length > 0
+    ? WORKSPACE_TOOL_CACHE_RETRY_TTL_MS
+    : WORKSPACE_TOOL_CACHE_TTL_MS;
+
+  return ageMs < ttlMs;
+}
 
 async function publish(
   ctx: any,
@@ -153,9 +172,10 @@ async function waitForApproval(ctx: any, approvalId: string): Promise<"approved"
 async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<string, ToolDefinition>> {
   const sources = (await ctx.runQuery(api.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
+  const now = Date.now();
   const signature = sourceSignature(workspaceId, sources);
   const cached = workspaceToolCache.get(workspaceId);
-  if (cached && cached.signature === signature) {
+  if (cached && isWorkspaceToolCacheFresh(cached, signature, now)) {
     return cached.tools;
   }
 
@@ -187,7 +207,7 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
 
   workspaceToolCache.set(workspaceId, {
     signature,
-    loadedAt: Date.now(),
+    loadedAt: now,
     tools: merged,
     warnings,
   });

@@ -3,8 +3,8 @@ import { httpRouter } from "convex/server";
 import { api, components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
-import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp-server";
-import type { AnonymousContext, TaskRecord, ToolDescriptor } from "./lib/types";
+import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp_server";
+import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescriptor } from "./lib/types";
 
 const http = httpRouter();
 const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? "executor_internal_local_dev_token";
@@ -69,6 +69,18 @@ const mcpHandler = httpAction(async (ctx, request) => {
     },
     listTools: async (toolContext?: { workspaceId: string; actorId?: string; clientId?: string }) => {
       return (await ctx.runAction(api.executorNode.listTools, toolContext ?? {})) as ToolDescriptor[];
+    },
+    listPendingApprovals: async (workspaceId: string) => {
+      return (await ctx.runQuery(api.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];
+    },
+    resolveApproval: async (input: {
+      workspaceId: string;
+      approvalId: string;
+      decision: "approved" | "denied";
+      reviewerId?: string;
+      reason?: string;
+    }) => {
+      return await ctx.runMutation(api.executor.resolveApproval, input);
     },
   };
 

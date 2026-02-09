@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useMutation } from "convex/react";
 import {
   LayoutDashboard,
   Play,
@@ -15,6 +16,7 @@ import {
   ChevronsUpDown,
   Plus,
   Check,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -36,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/session-context";
+import { convexApi } from "@/lib/convex-api";
 import { workosEnabled } from "@/lib/auth-capabilities";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +83,8 @@ function NavLinks({ onClick }: { onClick?: () => void }) {
 }
 
 function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
+  const router = useRouter();
+  const createOrganizationMutation = useMutation(convexApi.organizations.create);
   const {
     context,
     mode,
@@ -92,18 +97,72 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [newWorkspaceIcon, setNewWorkspaceIcon] = useState<File | null>(null);
+  const [createScope, setCreateScope] = useState<"current_org" | "new_org">("current_org");
+  const [createTargetOrganizationId, setCreateTargetOrganizationId] = useState<(typeof workspaces)[number]["organizationId"]>(null);
+  const [createTargetOrganizationName, setCreateTargetOrganizationName] = useState<string | null>(null);
+  const [creatingOrganization, setCreatingOrganization] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const activeWorkspace = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)
     : null;
+  const activeOrganizationLabel = activeWorkspace?.organizationName ?? "Organization";
   const activeWorkspaceLabel = activeWorkspace?.name ?? (mode === "guest" ? "Guest Workspace" : "Select workspace");
   const activeWorkspaceInitial = (activeWorkspaceLabel[0] ?? "W").toUpperCase();
 
-  const openCreateWorkspace = () => {
+  const workspaceGroups = useMemo(() => {
+    if (mode !== "workos") {
+      return [];
+    }
+
+    const groups: Array<{
+      key: string;
+      organizationId: (typeof workspaces)[number]["organizationId"];
+      organizationName: string;
+      workspaces: Array<(typeof workspaces)[number]>;
+    }> = [];
+    const byKey = new Map<string, number>();
+
+    for (const workspace of workspaces) {
+      const key = workspace.organizationId ? `org:${workspace.organizationId}` : `workspace:${workspace.id}`;
+      const existingIndex = byKey.get(key);
+      if (existingIndex === undefined) {
+        byKey.set(key, groups.length);
+        groups.push({
+          key,
+          organizationId: workspace.organizationId,
+          organizationName: workspace.organizationName ?? "Organization",
+          workspaces: [workspace],
+        });
+        continue;
+      }
+
+      groups[existingIndex].workspaces.push(workspace);
+    }
+
+    return groups;
+  }, [mode, workspaces]);
+
+  const openCreateWorkspaceForOrganization = (
+    organizationId: (typeof workspaces)[number]["organizationId"],
+    organizationName: string,
+  ) => {
     setCreateError(null);
     setNewWorkspaceName("");
     setNewWorkspaceIcon(null);
+    setCreateScope("current_org");
+    setCreateTargetOrganizationId(organizationId);
+    setCreateTargetOrganizationName(organizationName);
+    setCreateOpen(true);
+  };
+
+  const openCreateOrganization = () => {
+    setCreateError(null);
+    setNewWorkspaceName("");
+    setNewWorkspaceIcon(null);
+    setCreateScope("new_org");
+    setCreateTargetOrganizationId(null);
+    setCreateTargetOrganizationName(null);
     setCreateOpen(true);
   };
 
@@ -117,19 +176,34 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
     }
 
     try {
-      await createWorkspace(trimmed, newWorkspaceIcon);
+      if (createScope === "new_org") {
+        setCreatingOrganization(true);
+        const created = await createOrganizationMutation({ name: trimmed });
+        switchWorkspace(created.workspace.id);
+      } else {
+        if (!createTargetOrganizationId) {
+          throw new Error("Select an organization first");
+        }
+
+        await createWorkspace(trimmed, newWorkspaceIcon, createTargetOrganizationId);
+      }
+
       setCreateError(null);
       setNewWorkspaceName("");
       setNewWorkspaceIcon(null);
       setCreateOpen(false);
     } catch (cause) {
-      setCreateError(cause instanceof Error ? cause.message : "Failed to create workspace");
+      const fallback = createScope === "new_org" ? "Failed to create organization" : "Failed to create workspace";
+      setCreateError(cause instanceof Error ? cause.message : fallback);
+    } finally {
+      setCreatingOrganization(false);
     }
   };
 
   const triggerClassName = inHeader
     ? "h-full w-full justify-between rounded-none border-0 bg-transparent px-3 text-[12px] font-medium shadow-none hover:bg-accent/40"
     : "h-8 w-full justify-between text-[11px]";
+  const isCreating = creatingWorkspace || creatingOrganization;
 
   return (
     <>
@@ -153,7 +227,14 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                 </span>
               )}
               <span className="min-w-0">
-                <span className="truncate block">{activeWorkspaceLabel}</span>
+                {mode === "workos" ? (
+                  <>
+                    <span className="truncate block text-[10px] text-muted-foreground">{activeOrganizationLabel}</span>
+                    <span className="truncate block">{activeWorkspaceLabel}</span>
+                  </>
+                ) : (
+                  <span className="truncate block">{activeWorkspaceLabel}</span>
+                )}
               </span>
             </span>
             <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -163,28 +244,68 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
           {mode === "workos"
             ? (
               <>
-                {workspaces.map((workspace) => {
-                  const isActive = workspace.id === context?.workspaceId;
+                {workspaceGroups.map((group, groupIndex) => {
+                  const settingsWorkspace = group.workspaces.find((workspace) => workspace.id === context?.workspaceId)
+                    ?? group.workspaces[0]
+                    ?? null;
+
                   return (
-                    <DropdownMenuItem
-                      key={workspace.id}
-                      onSelect={() => switchWorkspace(workspace.id)}
-                      className="text-xs"
-                    >
-                      <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
-                      {workspace.iconUrl ? (
-                        <img
-                          src={workspace.iconUrl}
-                          alt={workspace.name}
-                          className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
-                        />
-                      ) : (
-                        <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
-                          {(workspace.name[0] ?? "W").toUpperCase()}
+                    <div key={group.key}>
+                      {groupIndex > 0 ? <DropdownMenuSeparator /> : null}
+                      <div className="px-2 py-1.5 flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground truncate">
+                          {group.organizationName}
                         </span>
-                      )}
-                      <span className="truncate">{workspace.name}</span>
-                    </DropdownMenuItem>
+                        {settingsWorkspace ? (
+                          <button
+                            type="button"
+                            className="inline-flex h-5 w-5 items-center justify-center rounded-sm border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+                            onClick={() => {
+                              switchWorkspace(settingsWorkspace.id);
+                              router.push("/members");
+                            }}
+                            aria-label={`Open ${group.organizationName} settings`}
+                            title="Organization settings"
+                          >
+                            <Settings className="h-3 w-3" />
+                          </button>
+                        ) : null}
+                      </div>
+                      {group.workspaces.map((workspace) => {
+                        const isActive = workspace.id === context?.workspaceId;
+                        return (
+                          <DropdownMenuItem
+                            key={workspace.id}
+                            onSelect={() => switchWorkspace(workspace.id)}
+                            className="text-xs"
+                          >
+                            <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
+                            {workspace.iconUrl ? (
+                              <img
+                                src={workspace.iconUrl}
+                                alt={workspace.name}
+                                className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
+                              />
+                            ) : (
+                              <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
+                                {(workspace.name[0] ?? "W").toUpperCase()}
+                              </span>
+                            )}
+                            <span className="min-w-0 truncate">{workspace.name}</span>
+                          </DropdownMenuItem>
+                        );
+                      })}
+
+                      {group.organizationId ? (
+                        <DropdownMenuItem
+                          onSelect={() => openCreateWorkspaceForOrganization(group.organizationId, group.organizationName)}
+                          className="text-xs"
+                        >
+                          <Plus className="mr-2 h-3.5 w-3.5" />
+                          New workspace
+                        </DropdownMenuItem>
+                      ) : null}
+                    </div>
                   );
                 })}
 
@@ -203,9 +324,9 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
           {mode === "workos" ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={openCreateWorkspace} className="text-xs">
+              <DropdownMenuItem onSelect={openCreateOrganization} className="text-xs">
                 <Plus className="mr-2 h-3.5 w-3.5" />
-                New workspace
+                New organization
               </DropdownMenuItem>
               <DropdownMenuLabel className="text-[10px] text-muted-foreground">
                 Invites via WorkOS
@@ -219,9 +340,11 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
         <DialogContent>
           <form className="space-y-4" onSubmit={handleCreateWorkspace}>
             <DialogHeader>
-              <DialogTitle>Create workspace</DialogTitle>
+              <DialogTitle>{createScope === "new_org" ? "Create organization" : "Create workspace"}</DialogTitle>
               <DialogDescription>
-                Create a new personal workspace for your account.
+                {createScope === "new_org"
+                  ? "Create a new organization with a default workspace."
+                  : `Create a workspace inside ${createTargetOrganizationName ?? "this organization"}.`}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
@@ -231,21 +354,25 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                   setCreateError(null);
                   setNewWorkspaceName(event.target.value);
                 }}
-                placeholder="Acme Labs"
+                placeholder={createScope === "new_org" ? "Acme" : "Marketing"}
                 maxLength={64}
               />
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(event) => {
-                  setCreateError(null);
-                  setNewWorkspaceIcon(event.target.files?.[0] ?? null);
-                }}
-              />
-              {newWorkspaceIcon ? (
-                <p className="text-[11px] text-muted-foreground truncate">
-                  Icon: {newWorkspaceIcon.name}
-                </p>
+              {createScope === "current_org" ? (
+                <>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => {
+                      setCreateError(null);
+                      setNewWorkspaceIcon(event.target.files?.[0] ?? null);
+                    }}
+                  />
+                  {newWorkspaceIcon ? (
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      Icon: {newWorkspaceIcon.name}
+                    </p>
+                  ) : null}
+                </>
               ) : null}
               {createError ? (
                 <p className="text-xs text-destructive">{createError}</p>
@@ -256,12 +383,16 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                 type="button"
                 variant="outline"
                 onClick={() => setCreateOpen(false)}
-                disabled={creatingWorkspace}
+                disabled={isCreating}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={creatingWorkspace}>
-                {creatingWorkspace ? "Creating..." : "Create workspace"}
+              <Button type="submit" disabled={isCreating}>
+                {isCreating
+                  ? "Creating..."
+                  : createScope === "new_org"
+                    ? "Create organization"
+                    : "Create workspace"}
               </Button>
             </DialogFooter>
           </form>
@@ -272,10 +403,36 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
 }
 
 function SessionInfo() {
-  const { loading, clientConfig, isSignedInToWorkos, workosProfile } = useSession();
+  const { loading, clientConfig, isSignedInToWorkos, workosProfile, context, workspaces } = useSession();
+  const searchParams = useSearchParams();
   const avatarUrl = workosProfile?.avatarUrl ?? null;
   const avatarLabel = workosProfile?.name || workosProfile?.email || "User";
   const avatarInitial = (avatarLabel[0] ?? "U").toUpperCase();
+
+  const activeWorkspace = context
+    ? workspaces.find((workspace) => workspace.id === context.workspaceId)
+    : null;
+  const inferredOrganizationId = activeWorkspace?.organizationId ?? undefined;
+  const hintedOrganizationId =
+    searchParams.get("organization_id")
+    ?? searchParams.get("organizationId")
+    ?? searchParams.get("org_id")
+    ?? searchParams.get("orgId")
+    ?? inferredOrganizationId
+    ?? undefined;
+  const hintedLogin =
+    searchParams.get("login_hint")
+    ?? searchParams.get("loginHint")
+    ?? searchParams.get("email")
+    ?? undefined;
+  const signInParams = new URLSearchParams();
+  if (hintedOrganizationId) {
+    signInParams.set("organization_id", hintedOrganizationId);
+  }
+  if (hintedLogin) {
+    signInParams.set("login_hint", hintedLogin);
+  }
+  const signInHref = signInParams.size > 0 ? `/sign-in?${signInParams.toString()}` : "/sign-in";
 
   if (loading) {
     return (
@@ -334,7 +491,7 @@ function SessionInfo() {
 
         {!isSignedInToWorkos && workosEnabled ? (
           <div className="px-3 pb-3">
-            <Link href="/sign-in" className="inline-flex">
+            <Link href={signInHref} className="inline-flex">
               <Button variant="outline" size="sm" className="h-7 text-[11px]">
                 Sign in
               </Button>
@@ -398,6 +555,51 @@ function MobileHeader() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { loading, organizations, organizationsLoading, isSignedInToWorkos } = useSession();
+
+  const onOnboardingRoute = pathname.startsWith("/onboarding");
+  const needsOnboarding = isSignedInToWorkos && !organizationsLoading && organizations.length === 0;
+
+  useEffect(() => {
+    if (loading || organizationsLoading) {
+      return;
+    }
+
+    if (needsOnboarding && !onOnboardingRoute) {
+      router.replace("/onboarding");
+      return;
+    }
+
+    if (!needsOnboarding && onOnboardingRoute && organizations.length > 0) {
+      router.replace("/");
+    }
+  }, [
+    loading,
+    organizationsLoading,
+    needsOnboarding,
+    onOnboardingRoute,
+    organizations.length,
+    router,
+  ]);
+
+  if (isSignedInToWorkos && organizationsLoading && !onOnboardingRoute) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-background">
+        <p className="text-sm text-muted-foreground">Loading organization...</p>
+      </div>
+    );
+  }
+
+  if (onOnboardingRoute || needsOnboarding) {
+    return (
+      <div className="min-h-screen bg-background">
+        <main className="mx-auto w-full max-w-2xl p-4 md:p-8">{children}</main>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen">
       <Sidebar />

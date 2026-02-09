@@ -59,6 +59,39 @@ async function createWorkosOrganization(name: string): Promise<{ id: string }> {
   };
 }
 
+async function updateWorkosOrganizationName(workosOrgId: string, name: string): Promise<void> {
+  const workos = requireWorkosClient();
+  await workos.organizations.updateOrganization({
+    organization: workosOrgId,
+    name,
+  });
+}
+
+function isDuplicateWorkosMembershipError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("already") && (message.includes("membership") || message.includes("organization"));
+}
+
+async function ensureWorkosOrganizationMembership(args: { workosOrgId: string; workosUserId: string }): Promise<void> {
+  const workos = requireWorkosClient();
+
+  try {
+    await workos.userManagement.createOrganizationMembership({
+      organizationId: args.workosOrgId,
+      userId: args.workosUserId,
+    });
+  } catch (error) {
+    if (isDuplicateWorkosMembershipError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
 async function revokeWorkosInvitation(invitationId: string): Promise<void> {
   const workos = requireWorkosClient();
   await workos.userManagement.revokeInvitation(invitationId);
@@ -72,6 +105,18 @@ function mapRoleToWorkosRoleSlug(role: OrganizationRole): string | undefined {
     return "member";
   }
   return undefined;
+}
+
+function normalizePersonalOrganizationName(name: string): string {
+  const match = name.match(/^(.*)'s Workspace$/i);
+  if (!match) {
+    return name;
+  }
+  const ownerName = match[1]?.trim();
+  if (!ownerName) {
+    return name;
+  }
+  return `${ownerName}'s Organization`;
 }
 
 export const list = organizationQuery({
@@ -112,6 +157,19 @@ export const create = organizationMutation({
     }
 
     const now = Date.now();
+    const organization = await ctx.db.get(ctx.organizationId);
+    if (!organization) {
+      throw new Error("Organization not found");
+    }
+
+    const normalizedOrganizationName = normalizePersonalOrganizationName(organization.name);
+    if (normalizedOrganizationName !== organization.name) {
+      await ctx.db.patch(ctx.organizationId, {
+        name: normalizedOrganizationName,
+        updatedAt: now,
+      });
+    }
+
     const expiresAt = now + (args.expiresInDays ?? 7) * 24 * 60 * 60 * 1000;
     const normalizedEmail = args.email.toLowerCase().trim();
 
@@ -187,12 +245,15 @@ export const deliverWorkosInvite = internalAction({
       return;
     }
 
+    const organizationName = normalizePersonalOrganizationName(context.organization.name);
     let workosOrgId = context.organization.workosOrgId ?? context.workspace?.workosOrgId ?? null;
+    let createdWorkosOrganization = false;
 
     try {
       if (!workosOrgId) {
-        const created = await createWorkosOrganization(context.organization.name);
+        const created = await createWorkosOrganization(organizationName);
         workosOrgId = created.id;
+        createdWorkosOrganization = true;
 
         await ctx.runMutation(internal.invites.linkOrganizationToWorkos, {
           organizationId: context.organization._id,
@@ -204,6 +265,15 @@ export const deliverWorkosInvite = internalAction({
       if (!workosOrgId) {
         throw new Error("Failed to resolve WorkOS organization");
       }
+
+      if (createdWorkosOrganization) {
+        await ensureWorkosOrganizationMembership({
+          workosOrgId,
+          workosUserId: args.inviterWorkosUserId,
+        });
+      }
+
+      await updateWorkosOrganizationName(workosOrgId, organizationName);
 
       const response = await sendWorkosInvitation({
         email: context.invite.email,
@@ -314,16 +384,18 @@ export const linkOrganizationToWorkos = internalMutation({
       updatedAt: now,
     });
 
-    if (!args.workspaceId) {
-      return;
-    }
+    const workspace = args.workspaceId
+      ? await ctx.db.get(args.workspaceId)
+      : await ctx.db
+        .query("workspaces")
+        .withIndex("by_organization_created", (q) => q.eq("organizationId", args.organizationId))
+        .first();
 
-    const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace || workspace.organizationId !== args.organizationId) {
       return;
     }
 
-    await ctx.db.patch(args.workspaceId, {
+    await ctx.db.patch(workspace._id, {
       workosOrgId: args.workosOrgId,
       updatedAt: now,
     });

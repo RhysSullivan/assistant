@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { APPROVAL_DENIED_PREFIX } from "../execution-constants";
-import { InProcessExecutionAdapter } from "./in-process-execution-adapter";
+import { APPROVAL_DENIED_PREFIX } from "../execution_constants";
+import { InProcessExecutionAdapter } from "./in_process_execution_adapter";
 
 test("returns run mismatch without invoking tool", async () => {
   let called = 0;

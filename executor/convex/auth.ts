@@ -45,6 +45,48 @@ function slugify(input: string): string {
   return slug.length > 0 ? slug : "workspace";
 }
 
+function titleCaseWords(input: string): string {
+  return input
+    .split(" ")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function deriveOwnerLabel(args: { firstName?: string; fullName?: string; email: string; workosUserId: string }): string {
+  const firstName = args.firstName?.trim();
+  if (firstName && !/^my$/i.test(firstName)) {
+    return firstName;
+  }
+
+  const fullName = args.fullName?.trim();
+  if (fullName && !fullName.includes("@")) {
+    return fullName;
+  }
+
+  const emailLocalPart = args.email.split("@")[0]?.trim();
+  if (emailLocalPart) {
+    const normalized = emailLocalPart
+      .replace(/[._-]+/g, " ")
+      .replace(/[^a-zA-Z0-9 ]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (normalized.length > 0) {
+      return titleCaseWords(normalized);
+    }
+  }
+
+  return `User ${args.workosUserId.slice(-6)}`;
+}
+
+function derivePersonalNames(args: { firstName?: string; fullName?: string; email: string; workosUserId: string }) {
+  const ownerLabel = deriveOwnerLabel(args);
+  return {
+    organizationName: `${ownerLabel}'s Organization`,
+    workspaceName: `${ownerLabel}'s Workspace`,
+  };
+}
+
 async function getAccountByWorkosId(ctx: DbCtx, workosUserId: string) {
   return await ctx.db
     .query("accounts")
@@ -64,6 +106,13 @@ async function getOrganizationByWorkosOrgId(ctx: DbCtx, workosOrgId: string) {
     .query("organizations")
     .withIndex("by_workos_org_id", (q) => q.eq("workosOrgId", workosOrgId))
     .unique();
+}
+
+async function getFirstWorkspaceByOrganizationId(ctx: DbCtx, organizationId: Id<"organizations">) {
+  return await ctx.db
+    .query("workspaces")
+    .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
+    .first();
 }
 
 async function ensureUniqueOrganizationSlug(ctx: DbCtx, baseName: string): Promise<string> {
@@ -151,8 +200,15 @@ async function markPendingInvitesAcceptedByEmail(
 async function ensurePersonalWorkspace(
   ctx: DbCtx,
   accountId: Id<"accounts">,
-  opts: { email: string; firstName?: string; workosUserId: string; now: number; workspaceName?: string },
+  opts: { email: string; firstName?: string; fullName?: string; workosUserId: string; now: number },
 ) {
+  const personalNames = derivePersonalNames({
+    firstName: opts.firstName,
+    fullName: opts.fullName,
+    email: opts.email,
+    workosUserId: opts.workosUserId,
+  });
+
   const memberships = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_account", (q) => q.eq("accountId", accountId))
@@ -161,6 +217,26 @@ async function ensurePersonalWorkspace(
   for (const membership of memberships) {
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace && workspace.createdByAccountId === accountId) {
+      const organization = await ctx.db.get(workspace.organizationId);
+
+      if (organization && organization.createdByAccountId === accountId) {
+        const shouldRenameOrganization = /workspace$/i.test(organization.name);
+        if (shouldRenameOrganization && organization.name !== personalNames.organizationName) {
+          await ctx.db.patch(organization._id, {
+            name: personalNames.organizationName,
+            updatedAt: opts.now,
+          });
+        }
+      }
+
+      const shouldRenameWorkspace = /^my'?s workspace$/i.test(workspace.name);
+      if (shouldRenameWorkspace && workspace.name !== personalNames.workspaceName) {
+        await ctx.db.patch(workspace._id, {
+          name: personalNames.workspaceName,
+          updatedAt: opts.now,
+        });
+      }
+
       await upsertOrganizationMembership(ctx, {
         organizationId: workspace.organizationId,
         accountId,
@@ -174,11 +250,10 @@ async function ensurePersonalWorkspace(
     }
   }
 
-  const workspaceName = opts.workspaceName ?? `${opts.firstName ?? "My"}'s Workspace`;
-  const organizationSlug = await ensureUniqueOrganizationSlug(ctx, workspaceName);
+  const organizationSlug = await ensureUniqueOrganizationSlug(ctx, personalNames.organizationName);
   const organizationId = await ctx.db.insert("organizations", {
     slug: organizationSlug,
-    name: workspaceName,
+    name: personalNames.organizationName,
     status: "active",
     createdByAccountId: accountId,
     createdAt: opts.now,
@@ -189,7 +264,7 @@ async function ensurePersonalWorkspace(
   const workspaceId = await ctx.db.insert("workspaces", {
     organizationId,
     slug: `${baseSlug}-${opts.workosUserId.slice(-6)}`,
-    name: workspaceName,
+    name: personalNames.workspaceName,
     plan: "free",
     createdByAccountId: accountId,
     createdAt: opts.now,
@@ -277,12 +352,6 @@ const workosEventHandlers = {
     }
 
     if (!account) return;
-    await ensurePersonalWorkspace(ctx, account._id, {
-      email: data.email,
-      firstName: data.firstName ?? undefined,
-      workosUserId: data.id,
-      now,
-    });
   },
 
   "user.updated": async (ctx, event) => {
@@ -347,7 +416,16 @@ const workosEventHandlers = {
     if (existingWorkspace) {
       await ctx.db.patch(existingWorkspace._id, {
         organizationId: organization._id,
-        name: event.data.name,
+        workosOrgId: event.data.id,
+        updatedAt: now,
+      });
+      return;
+    }
+
+    const organizationWorkspace = await getFirstWorkspaceByOrganizationId(ctx, organization._id);
+    if (organizationWorkspace) {
+      await ctx.db.patch(organizationWorkspace._id, {
+        workosOrgId: event.data.id,
         updatedAt: now,
       });
       return;
@@ -356,9 +434,10 @@ const workosEventHandlers = {
     await ctx.db.insert("workspaces", {
       workosOrgId: event.data.id,
       organizationId: organization._id,
-      slug: `${slugify(event.data.name)}-${event.data.id.slice(-6)}`,
-      name: event.data.name,
+      slug: "default",
+      name: "Default Workspace",
       plan: "free",
+      createdByAccountId: organization.createdByAccountId,
       createdAt: now,
       updatedAt: now,
     });
@@ -372,14 +451,6 @@ const workosEventHandlers = {
         updatedAt: Date.now(),
       });
     }
-
-    const workspace = await getWorkspaceByWorkosOrgId(ctx, event.data.id);
-    if (!workspace) return;
-    await ctx.db.patch(workspace._id, {
-      organizationId: workspace.organizationId,
-      name: event.data.name,
-      updatedAt: Date.now(),
-    });
   },
 
   "organization.deleted": async (ctx, event) => {
@@ -665,13 +736,37 @@ export const bootstrapCurrentWorkosAccount = mutation({
 
     if (!account) return null;
 
-    await ensurePersonalWorkspace(ctx, account._id, {
-      email,
-      firstName,
-      workosUserId: subject,
-      now,
-      workspaceName: `${firstName ?? "My"}'s Workspace`,
-    });
+    const activeOrgMembership = await ctx.db
+      .query("organizationMembers")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .first();
+
+    const hintedWorkosOrgId = getIdentityString(identityRecord, [
+      "org_id",
+      "organization_id",
+      "https://workos.com/organization_id",
+    ]);
+
+    if (!activeOrgMembership && hintedWorkosOrgId) {
+      const hintedOrganization = await getOrganizationByWorkosOrgId(ctx, hintedWorkosOrgId);
+      if (hintedOrganization) {
+        await upsertOrganizationMembership(ctx, {
+          organizationId: hintedOrganization._id,
+          accountId: account._id,
+          role: "member",
+          status: "active",
+          billable: true,
+          now,
+        });
+
+        await markPendingInvitesAcceptedByEmail(ctx, {
+          organizationId: hintedOrganization._id,
+          email,
+          acceptedAt: now,
+        });
+      }
+    }
 
     return account;
   },

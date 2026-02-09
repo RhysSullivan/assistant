@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { handleMcpRequest } from "./mcp-server";
+import { handleMcpRequest } from "./mcp_server";
 import type { LiveTaskEvent } from "./events";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
 

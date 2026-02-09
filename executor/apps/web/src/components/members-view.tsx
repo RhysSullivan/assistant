@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Mail, UserMinus, Users, X } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -24,9 +24,6 @@ export function MembersView() {
   const derivedOrganizationId = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)?.organizationId ?? null
     : null;
-  const activeWorkspace = context
-    ? workspaces.find((workspace) => workspace.id === context.workspaceId) ?? null
-    : null;
   const typedOrganizationId = derivedOrganizationId;
 
   const members = useQuery(
@@ -36,12 +33,20 @@ export function MembersView() {
       : "skip",
   );
 
+  const memberItems = members?.items ?? [];
+  const actorMembership = memberItems.find((member) =>
+    context?.accountId ? member.accountId === context.accountId : false,
+  );
+  const actorRole = actorMembership?.role ?? null;
+  const canManageMembers = actorRole === "owner" || actorRole === "admin";
+  const canManageBilling = actorRole === "owner" || actorRole === "admin" || actorRole === "billing_admin";
+
   const updateRole = useMutation(convexApi.organizationMembers.updateRole);
   const updateBillable = useMutation(convexApi.organizationMembers.updateBillable);
   const removeMember = useMutation(convexApi.organizationMembers.remove);
   const listInvites = useQuery(
     convexApi.invites.list,
-    typedOrganizationId
+    typedOrganizationId && canManageMembers
       ? { organizationId: typedOrganizationId, sessionId: context?.sessionId ?? undefined }
       : "skip",
   );
@@ -55,15 +60,8 @@ export function MembersView() {
   const [busyMemberAccountId, setBusyMemberAccountId] = useState<Id<"accounts"> | null>(null);
   const [busyInviteId, setBusyInviteId] = useState<Id<"invites"> | null>(null);
 
-  const memberItems = members?.items ?? [];
   const inviteItems = listInvites?.items ?? [];
   const pendingInviteItems = inviteItems.filter((invite) => invite.status === "pending" || invite.status === "failed");
-  const actorMembership = memberItems.find((member) =>
-    context?.accountId ? member.accountId === context.accountId : false,
-  );
-  const actorRole = actorMembership?.role ?? null;
-  const canManageMembers = actorRole === "owner" || actorRole === "admin";
-  const canManageBilling = actorRole === "owner" || actorRole === "admin" || actorRole === "billing_admin";
 
   const submitInvite = async () => {
     if (!typedOrganizationId) {
@@ -76,17 +74,22 @@ export function MembersView() {
         organizationId: typedOrganizationId,
         email: inviteEmail.trim(),
         role: inviteRole,
-        workspaceId: activeWorkspace?.docId ?? undefined,
         sessionId: context?.sessionId ?? undefined,
       });
       setInviteState("sent");
-      const deliveryProvider = result.delivery.provider;
-      setInviteMessage(`Invite ${result.delivery.state} via ${deliveryProvider}.`);
+      const deliveryProvider = result.delivery.provider ?? "WorkOS";
+      const deliveryState = result.delivery.state ?? "queued";
+      setInviteMessage(`Invite ${deliveryState} via ${deliveryProvider}.`);
       setInviteEmail("");
     } catch (error) {
       setInviteState("failed");
       setInviteMessage(error instanceof Error ? error.message : "Failed to send invite");
     }
+  };
+
+  const handleInviteSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await submitInvite();
   };
 
   if (!typedOrganizationId) {
@@ -117,7 +120,7 @@ export function MembersView() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-col md:flex-row gap-2">
+          <form className="flex flex-col md:flex-row gap-2" onSubmit={handleInviteSubmit}>
             <Input
               value={inviteEmail}
               onChange={(event) => setInviteEmail(event.target.value)}
@@ -138,12 +141,12 @@ export function MembersView() {
               ))}
             </select>
             <Button
-              onClick={submitInvite}
+              type="submit"
               disabled={!canManageMembers || inviteState === "sending" || inviteEmail.trim().length === 0}
             >
               {inviteState === "sending" ? "Sending..." : "Send invite"}
             </Button>
-          </div>
+          </form>
           <p className="text-xs text-muted-foreground">Provider: WorkOS</p>
           {inviteMessage ? (
             <p className={inviteState === "failed" ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
@@ -186,7 +189,7 @@ export function MembersView() {
                           await updateRole({
                             organizationId: typedOrganizationId,
                             accountId: member.accountId,
-                            role: event.target.value,
+                            role: event.target.value as Role,
                             sessionId: context?.sessionId ?? undefined,
                           });
                         } finally {
@@ -263,7 +266,9 @@ export function MembersView() {
           <CardTitle className="text-sm">Pending Invites</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {pendingInviteItems.length === 0 ? (
+          {!canManageMembers ? (
+            <p className="text-sm text-muted-foreground">Only organization admins can view pending invites.</p>
+          ) : pendingInviteItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">No pending invites.</p>
           ) : (
             pendingInviteItems.map((invite) => (

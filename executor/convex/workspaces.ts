@@ -8,11 +8,93 @@ import { ensureUniqueSlug } from "./lib/slug";
 type WorkspaceResult = {
   id: Id<"workspaces">;
   organizationId: Id<"organizations">;
+  organizationName: string;
+  organizationSlug: string;
   name: string;
   slug: string;
   iconUrl: string | null;
   createdAt: number;
 };
+
+async function workspaceHasActivity(
+  ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
+  workspaceId: Id<"workspaces">,
+): Promise<boolean> {
+  const workspaceIdString = String(workspaceId);
+
+  const [
+    task,
+    approval,
+    policy,
+    credential,
+    toolSource,
+    agentTask,
+    member,
+  ] = await Promise.all([
+    ctx.db.query("tasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString)).first(),
+    ctx.db.query("approvals").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString)).first(),
+    ctx.db.query("accessPolicies").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString)).first(),
+    ctx.db
+      .query("sourceCredentials")
+      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString))
+      .first(),
+    ctx.db.query("toolSources").withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceIdString)).first(),
+    ctx.db.query("agentTasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString)).first(),
+    ctx.db.query("workspaceMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first(),
+  ]);
+
+  return Boolean(task || approval || policy || credential || toolSource || agentTask || member);
+}
+
+async function filterDisplayWorkspaces(
+  ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
+  workspaces: Doc<"workspaces">[],
+): Promise<Doc<"workspaces">[]> {
+  if (workspaces.length <= 1) {
+    return workspaces;
+  }
+
+  const starterWorkspace = workspaces.find((workspace) => workspace.name === "Default Workspace");
+  if (!starterWorkspace) {
+    return workspaces;
+  }
+
+  const hasActivity = await workspaceHasActivity(ctx, starterWorkspace._id);
+  if (hasActivity) {
+    return workspaces;
+  }
+
+  return workspaces.filter((workspace) => workspace._id !== starterWorkspace._id);
+}
+
+async function cleanupEmptyStarterWorkspace(
+  ctx: Pick<MutationCtx, "db">,
+  organizationId: Id<"organizations">,
+  preserveWorkspaceId: Id<"workspaces">,
+): Promise<void> {
+  const docs = await ctx.db
+    .query("workspaces")
+    .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
+    .collect();
+
+  if (docs.length <= 1) {
+    return;
+  }
+
+  const starterWorkspace = docs.find(
+    (workspace) => workspace.name === "Default Workspace" && workspace._id !== preserveWorkspaceId,
+  );
+  if (!starterWorkspace) {
+    return;
+  }
+
+  const hasActivity = await workspaceHasActivity(ctx, starterWorkspace._id);
+  if (hasActivity) {
+    return;
+  }
+
+  await ctx.db.delete(starterWorkspace._id);
+}
 
 async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName);
@@ -41,13 +123,20 @@ async function ensureUniqueWorkspaceSlug(
 }
 
 async function toWorkspaceResult(
-  ctx: Pick<QueryCtx, "storage"> | Pick<MutationCtx, "storage">,
+  ctx: (Pick<QueryCtx, "db" | "storage"> | Pick<MutationCtx, "db" | "storage">),
   workspace: Doc<"workspaces">,
 ): Promise<WorkspaceResult> {
+  const organization = await ctx.db.get(workspace.organizationId);
+  if (!organization) {
+    throw new Error("Workspace organization not found");
+  }
+
   const iconUrl = workspace.iconStorageId ? await ctx.storage.getUrl(workspace.iconStorageId) : null;
   return {
     id: workspace._id,
     organizationId: workspace.organizationId,
+    organizationName: organization.name,
+    organizationSlug: organization.slug,
     name: workspace.name,
     slug: workspace.slug,
     iconUrl,
@@ -117,6 +206,8 @@ export const create = authedMutation({
       throw new Error("Failed to create workspace");
     }
 
+    await cleanupEmptyStarterWorkspace(ctx, organizationId, workspaceId);
+
     return await toWorkspaceResult(ctx, workspace);
   },
 });
@@ -142,7 +233,8 @@ export const list = optionalAccountQuery({
         .query("workspaces")
         .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
         .collect();
-      return await Promise.all(docs.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
+      const filteredDocs = await filterDisplayWorkspaces(ctx, docs);
+      return await Promise.all(filteredDocs.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
     }
 
     const memberships = await ctx.db
@@ -158,7 +250,8 @@ export const list = optionalAccountQuery({
         .query("workspaces")
         .withIndex("by_organization_created", (q) => q.eq("organizationId", membership.organizationId))
         .collect();
-      for (const workspace of docs) {
+      const filteredDocs = await filterDisplayWorkspaces(ctx, docs);
+      for (const workspace of filteredDocs) {
         allWorkspaces.push(await toWorkspaceResult(ctx, workspace));
       }
     }

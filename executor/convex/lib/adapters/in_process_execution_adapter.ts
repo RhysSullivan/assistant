@@ -1,4 +1,4 @@
-import { APPROVAL_DENIED_PREFIX } from "../execution-constants";
+import { APPROVAL_DENIED_PREFIX } from "../execution_constants";
 import type {
   ExecutionAdapter,
   RuntimeOutputEvent,

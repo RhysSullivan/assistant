@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { runCodeWithAdapter } from "./runtime-core";
-import { loadExternalTools } from "../tool-sources";
+import { runCodeWithAdapter } from "./runtime_core";
+import { loadExternalTools } from "../tool_sources";
 import type {
   ExecutionAdapter,
   RuntimeOutputEvent,

@@ -3,7 +3,13 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod";
 import { generateToolDeclarations, generateToolInventory, typecheckCode } from "./typechecker";
 import type { LiveTaskEvent } from "./events";
-import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
+import type {
+  AnonymousContext,
+  CreateTaskInput,
+  PendingApprovalRecord,
+  TaskRecord,
+  ToolDescriptor,
+} from "./types";
 
 function getTaskTerminalState(status: string): boolean {
   return status === "completed" || status === "failed" || status === "timed_out" || status === "denied";
@@ -19,7 +25,30 @@ interface McpExecutorService {
   subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;
   listTools(context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
+  listPendingApprovals?(workspaceId: string): Promise<PendingApprovalRecord[]>;
+  resolveApproval?(input: {
+    workspaceId: string;
+    approvalId: string;
+    decision: "approved" | "denied";
+    reviewerId?: string;
+    reason?: string;
+  }): Promise<unknown>;
 }
+
+interface ApprovalPromptDecision {
+  decision: "approved" | "denied";
+  reason?: string;
+}
+
+interface ApprovalPromptContext {
+  workspaceId: string;
+  actorId: string;
+}
+
+type ApprovalPrompt = (
+  approval: PendingApprovalRecord,
+  context: ApprovalPromptContext,
+) => Promise<ApprovalPromptDecision | null>;
 
 // ---------------------------------------------------------------------------
 // Workspace context (optional, from query params)
@@ -73,9 +102,19 @@ function waitForTerminalTask(
   taskId: string,
   workspaceId: string,
   waitTimeoutMs: number,
+  onApprovalPrompt?: ApprovalPrompt,
+  approvalContext?: ApprovalPromptContext,
 ): Promise<TaskRecord | null> {
   return new Promise((resolve) => {
     let settled = false;
+    let checking = false;
+    let elicitationEnabled = Boolean(
+      onApprovalPrompt
+      && approvalContext
+      && service.listPendingApprovals
+      && service.resolveApproval,
+    );
+    const seenApprovalIds = new Set<string>();
     let unsubscribe: (() => void) | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
 
@@ -89,21 +128,67 @@ function waitForTerminalTask(
 
     const timeout = setTimeout(done, waitTimeoutMs);
 
+    const maybeHandleApprovals = async () => {
+      if (!elicitationEnabled || !service.listPendingApprovals || !service.resolveApproval || !onApprovalPrompt || !approvalContext) {
+        return;
+      }
+
+      const approvals = await service.listPendingApprovals(workspaceId);
+      const pending = approvals.filter((approval) => approval.taskId === taskId && !seenApprovalIds.has(approval.id));
+      if (pending.length === 0) {
+        return;
+      }
+
+      for (const approval of pending) {
+        let decision: ApprovalPromptDecision | null;
+        try {
+          decision = await onApprovalPrompt(approval, approvalContext);
+        } catch {
+          // Client likely doesn't support elicitation; fallback to existing out-of-band approvals.
+          elicitationEnabled = false;
+          return;
+        }
+
+        if (!decision) {
+          // Client doesn't support elicitation; stop retrying in this request.
+          elicitationEnabled = false;
+          return;
+        }
+
+        await service.resolveApproval({
+          workspaceId,
+          approvalId: approval.id,
+          decision: decision.decision,
+          reason: decision.reason,
+          reviewerId: approvalContext.actorId,
+        });
+        seenApprovalIds.add(approval.id);
+      }
+    };
+
     const checkTask = async () => {
-      if (settled) return;
-      const task = await service.getTask(taskId, workspaceId);
-      if (task && getTaskTerminalState(task.status)) {
-        clearTimeout(timeout);
-        await done();
+      if (settled || checking) return;
+      checking = true;
+      try {
+        const task = await service.getTask(taskId, workspaceId);
+        if (task && getTaskTerminalState(task.status)) {
+          clearTimeout(timeout);
+          await done();
+          return;
+        }
+
+        await maybeHandleApprovals();
+      } finally {
+        checking = false;
       }
     };
 
     poll = setInterval(() => {
-      void checkTask();
+      void checkTask().catch(() => {});
     }, 400);
 
     // Check if already terminal before subscribing (race condition guard)
-    void checkTask();
+    void checkTask().catch(() => {});
 
     // Subscribe for live events when available; polling remains as fallback.
     try {
@@ -140,6 +225,7 @@ function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
 function createRunCodeTool(
   service: McpExecutorService,
   boundContext?: McpWorkspaceContext,
+  onApprovalPrompt?: ApprovalPrompt,
 ) {
   return async (
     input: {
@@ -240,7 +326,14 @@ function createRunCodeTool(
     }
 
     const waitTimeoutMs = input.resultTimeoutMs ?? Math.max(requestedTimeoutMs + 30_000, 120_000);
-    const task = await waitForTerminalTask(service, created.task.id, context.workspaceId, waitTimeoutMs);
+    const task = await waitForTerminalTask(
+      service,
+      created.task.id,
+      context.workspaceId,
+      waitTimeoutMs,
+      onApprovalPrompt,
+      { workspaceId: context.workspaceId, actorId: context.actorId },
+    );
 
     if (!task) {
       return {
@@ -323,13 +416,80 @@ async function createMcpServer(
     });
   }
 
+  const approvalPrompt: ApprovalPrompt = async (approval) => {
+    const mcpServer = mcp as unknown as {
+      server?: {
+        elicitInput?: (input: {
+          mode: "form";
+          message: string;
+          requestedSchema: Record<string, unknown>;
+        }) => Promise<{ action?: string; content?: unknown }>;
+      };
+    };
+
+    const elicitInput = mcpServer.server?.elicitInput;
+    if (typeof elicitInput !== "function") {
+      return null;
+    }
+
+    const inputPreview = (() => {
+      try {
+        const text = JSON.stringify(approval.input ?? {});
+        return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+      } catch {
+        return "{}";
+      }
+    })();
+
+    const result = await elicitInput({
+      mode: "form",
+      message: `Approval required for tool call '${approval.toolPath}'. Input: ${inputPreview}`,
+      requestedSchema: {
+        type: "object",
+        properties: {
+          decision: {
+            type: "string",
+            oneOf: [
+              { const: "approve", title: "Approve" },
+              { const: "deny", title: "Deny" },
+            ],
+            description: "Choose whether to allow this tool invocation",
+            default: "deny",
+          },
+          reason: {
+            type: "string",
+            description: "Optional reason",
+          },
+        },
+        required: ["decision"],
+      },
+    });
+
+    if (result.action !== "accept") {
+      return {
+        decision: "denied",
+        reason: result.action === "cancel" ? "Cancelled via MCP elicitation" : "Declined via MCP elicitation",
+      } satisfies ApprovalPromptDecision;
+    }
+
+    const content = result.content && typeof result.content === "object"
+      ? (result.content as Record<string, unknown>)
+      : {};
+    const decision = content.decision === "approve" ? "approved" : "denied";
+    const reason = typeof content.reason === "string" && content.reason.trim().length > 0
+      ? content.reason.trim()
+      : undefined;
+
+    return { decision, reason } satisfies ApprovalPromptDecision;
+  };
+
   mcp.registerTool(
     "run_code",
     {
       description: buildRunCodeDescription(tools),
       inputSchema: context ? BOUND_INPUT : FULL_INPUT,
     },
-    createRunCodeTool(service, context),
+    createRunCodeTool(service, context, approvalPrompt),
   );
 
   return mcp;
