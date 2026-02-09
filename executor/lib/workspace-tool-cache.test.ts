@@ -310,11 +310,11 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     expect(result).toBe("round-trip");
 
     // OpenAPI tools should have correct metadata
-    const listTool = rehydrated.find((t) => t.path.includes("listwidgets"))!;
+    const listTool = rehydrated.find((t) => t.metadata?.operationId === "listWidgets")!;
     expect(listTool.approval).toBe("auto"); // GET = auto
     expect(listTool.metadata!.argsType).toBeDefined();
 
-    const createTool = rehydrated.find((t) => t.path.includes("createwidget"))!;
+    const createTool = rehydrated.find((t) => t.metadata?.operationId === "createWidget")!;
     expect(createTool.approval).toBe("required"); // POST = required
   });
 

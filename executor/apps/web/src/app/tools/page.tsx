@@ -8,5 +8,9 @@ export default async function ToolsPage({
   const params = await searchParams;
   const source = typeof params.source === "string" ? params.source : null;
 
-  return <ToolsView initialSource={source} />;
+  return (
+    <div className="h-full min-h-0">
+      <ToolsView initialSource={source} />
+    </div>
+  );
 }

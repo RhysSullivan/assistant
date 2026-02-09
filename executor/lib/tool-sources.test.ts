@@ -159,8 +159,8 @@ test("loadExternalTools captures individual source failures without blocking oth
   // Both good sources should have loaded
   expect(tools.length).toBeGreaterThanOrEqual(2);
   const toolPaths = tools.map((t) => t.path);
-  expect(toolPaths).toContain("good.default.ok");
-  expect(toolPaths).toContain("also_good.default.ok");
+  expect(toolPaths).toContain("good.ok");
+  expect(toolPaths).toContain("also_good.ok");
 
   // The bad source should produce a warning, not crash everything
   expect(warnings.length).toBe(1);
@@ -231,6 +231,6 @@ test("loadExternalTools tolerates OpenAPI specs with broken internal refs", asyn
 
   expect(warnings).toHaveLength(0);
   const toolPaths = tools.map((t) => t.path);
-  expect(toolPaths).toContain("intercom_like.contacts.listcontacts");
-  expect(toolPaths).toContain("intercom_like.conversations.createconversation");
+  expect(toolPaths).toContain("intercom_like.contacts.list_contacts");
+  expect(toolPaths).toContain("intercom_like.conversations.create_conversation");
 });

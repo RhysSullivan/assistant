@@ -300,15 +300,18 @@ describe("buildOpenApiToolsFromPrepared", () => {
     }
 
     // GET operations should default to "auto" approval
-    const getTools = tools.filter((t) => t.path.includes("get_"));
+    const getTools = tools.filter((t) =>
+      (t.metadata?.operationId ?? "").startsWith("get_"),
+    );
     for (const tool of getTools) {
       expect(tool.approval).toBe("auto");
     }
 
     // POST/DELETE operations should default to "required" approval
-    const writeTools = tools.filter(
-      (t) => t.path.includes("create_") || t.path.includes("delete_"),
-    );
+    const writeTools = tools.filter((t) => {
+      const operationId = t.metadata?.operationId ?? "";
+      return operationId.startsWith("create_") || operationId.startsWith("delete_");
+    });
     for (const tool of writeTools) {
       expect(tool.approval).toBe("required");
     }
@@ -617,6 +620,134 @@ describe("buildOpenApiToolsFromPrepared", () => {
     expect(tool!.metadata?.returnsType).toContain("budgets");
     expect(tool!.metadata?.returnsType).toContain("id: string");
     expect(tool!.metadata?.returnsType).not.toContain("unknown[]");
+  });
+
+  test("resolves deep ref chains used by nested response objects", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Deep refs", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          Root: {
+            type: "object",
+            properties: {
+              result: {
+                type: "array",
+                items: { $ref: "#/components/schemas/A" },
+              },
+            },
+          },
+          A: {
+            type: "object",
+            properties: {
+              value: { $ref: "#/components/schemas/B" },
+            },
+          },
+          B: {
+            type: "object",
+            properties: {
+              value: { $ref: "#/components/schemas/C" },
+            },
+          },
+          C: {
+            type: "object",
+            properties: {
+              value: { type: "string" },
+            },
+          },
+        },
+      },
+      paths: {
+        "/deep": {
+          get: {
+            operationId: "deep/get",
+            tags: ["deep"],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/Root" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "deep-refs");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "deep",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "deep/get");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.returnsType).toContain("value");
+    expect(tool!.metadata?.returnsType).toContain("string");
+    expect(tool!.metadata?.returnsType).not.toContain("unknown");
+  });
+
+  test("handles recursive schema refs without blowing up", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Recursive refs", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          Node: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              child: { $ref: "#/components/schemas/Node" },
+            },
+            required: ["id"],
+          },
+        },
+      },
+      paths: {
+        "/nodes": {
+          get: {
+            operationId: "nodes/get",
+            tags: ["nodes"],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/Node" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "recursive");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "recursive",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "nodes/get");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.returnsType).toContain("id: string");
+    expect(tool!.metadata?.returnsType).toContain("child");
   });
 
   test("supports allOf-composed response schemas", async () => {
@@ -981,6 +1112,6 @@ describe("spec with $ref keys survives cache round-trip", () => {
     );
 
     expect(tools.length).toBe(1);
-    expect(tools[0]!.path).toBe("ref_api.people.listpeople");
+    expect(tools[0]!.path).toBe("ref_api.people.list_people");
   });
 });

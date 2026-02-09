@@ -64,6 +64,56 @@ function sanitizeSegment(value: string): string {
   return /^[0-9]/.test(cleaned) ? `_${cleaned}` : cleaned;
 }
 
+function sanitizeSnakeSegment(value: string): string {
+  const withWordBreaks = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([A-Za-z])([0-9])/g, "$1_$2")
+    .replace(/([0-9])([A-Za-z])/g, "$1_$2");
+
+  return sanitizeSegment(withWordBreaks);
+}
+
+function normalizeOpenApiTag(tagRaw: string): string {
+  let tag = sanitizeSnakeSegment(tagRaw);
+  tag = tag
+    .replace(/^api_?\d{8}_?/, "")
+    .replace(/^v\d+_?/, "");
+  return tag || "default";
+}
+
+function buildOpenApiToolPath(
+  sourceName: string,
+  tagRaw: string,
+  operationIdRaw: string,
+  usedPaths: Set<string>,
+): string {
+  const source = sanitizeSegment(sourceName);
+  const tag = normalizeOpenApiTag(tagRaw);
+  const operation = sanitizeSnakeSegment(operationIdRaw);
+  let operationName = operation;
+
+  if (tag !== "default" && operation.startsWith(`${tag}_`)) {
+    operationName = operation.slice(tag.length + 1) || operation;
+  }
+
+  const withTag = tag === "default"
+    ? `${source}.${operationName}`
+    : `${source}.${tag}.${operationName}`;
+
+  const basePath = withTag;
+
+  let path = basePath;
+  let suffix = 2;
+  while (usedPaths.has(path)) {
+    path = `${basePath}_${suffix}`;
+    suffix += 1;
+  }
+  usedPaths.add(path);
+
+  return path;
+}
+
 // ── Type generation from OpenAPI specs ──────────────────────────────────────
 //
 // We use `openapiTS(spec)` — the same thing as `npx openapi-typescript` — to
@@ -344,24 +394,30 @@ function responseTypeHintFromSchema(
   return "unknown";
 }
 
-/** Simple depth-limited type hint generator for schemas (used as fallback) */
+/** Depth-limited + cycle-safe type hint generator for schemas (used as fallback). */
 function jsonSchemaTypeHintFallback(
   schema: unknown,
   depth = 0,
   componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
 ): string {
   if (!schema || typeof schema !== "object") return "unknown";
-  if (depth > 4) return "unknown";
+  if (depth > 12) return "unknown";
 
   const shape = schema as JsonSchema;
   if (typeof shape.$ref === "string") {
     const ref = shape.$ref;
     const prefix = "#/components/schemas/";
     if (ref.startsWith(prefix)) {
+      if (seenRefs.has(ref)) {
+        return "unknown";
+      }
       const key = ref.slice(prefix.length);
       const resolved = componentSchemas ? asRecord(componentSchemas[key]) : {};
       if (Object.keys(resolved).length > 0) {
-        return jsonSchemaTypeHintFallback(resolved, depth + 1, componentSchemas);
+        const nextSeen = new Set(seenRefs);
+        nextSeen.add(ref);
+        return jsonSchemaTypeHintFallback(resolved, depth + 1, componentSchemas, nextSeen);
       }
     }
   }
@@ -373,18 +429,18 @@ function jsonSchemaTypeHintFallback(
 
   const oneOf = Array.isArray(shape.oneOf) ? shape.oneOf : undefined;
   if (oneOf && oneOf.length > 0) {
-    return oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas)).join(" | ");
+    return oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)).join(" | ");
   }
 
   const anyOf = Array.isArray(shape.anyOf) ? shape.anyOf : undefined;
   if (anyOf && anyOf.length > 0) {
-    return anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas)).join(" | ");
+    return anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)).join(" | ");
   }
 
   const allOf = Array.isArray(shape.allOf) ? shape.allOf : undefined;
   if (allOf && allOf.length > 0) {
     const parts = allOf
-      .map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas))
+      .map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs))
       .filter((part) => part.length > 0 && part !== "unknown");
     if (parts.length > 0) {
       return parts.join(" & ");
@@ -395,7 +451,7 @@ function jsonSchemaTypeHintFallback(
   const tupleItems = Array.isArray(shape.items) ? shape.items : undefined;
   if (!type && tupleItems && tupleItems.length > 0) {
     return tupleItems
-      .map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas))
+      .map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs))
       .join(" | ");
   }
   if (type === "integer") return "number";
@@ -404,7 +460,7 @@ function jsonSchemaTypeHintFallback(
   }
 
   if (type === "array") {
-    return `${jsonSchemaTypeHintFallback(shape.items, depth + 1, componentSchemas)}[]`;
+    return `${jsonSchemaTypeHintFallback(shape.items, depth + 1, componentSchemas, seenRefs)}[]`;
   }
 
   const props = asRecord(shape.properties);
@@ -415,13 +471,13 @@ function jsonSchemaTypeHintFallback(
   if (type === "object" || propEntries.length > 0) {
     if (propEntries.length === 0) {
       if (additionalProperties && typeof additionalProperties === "object") {
-        return `Record<string, ${jsonSchemaTypeHintFallback(additionalProperties, depth + 1, componentSchemas)}>`;
+        return `Record<string, ${jsonSchemaTypeHintFallback(additionalProperties, depth + 1, componentSchemas, seenRefs)}>`;
       }
       return "Record<string, unknown>";
     }
     const inner = propEntries
       .slice(0, 12)
-      .map(([key, value]) => `${key}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHintFallback(value, depth + 1, componentSchemas)}`)
+      .map(([key, value]) => `${key}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHintFallback(value, depth + 1, componentSchemas, seenRefs)}`)
       .join("; ");
     return `{ ${inner} }`;
   }
@@ -879,6 +935,7 @@ export function buildOpenApiToolsFromPrepared(
 
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
   const readMethods = new Set(["get", "head", "options"]);
+  const usedToolPaths = new Set<string>();
 
   for (const [pathTemplate, pathValue] of Object.entries(paths)) {
     const pathObject = asRecord(pathValue);
@@ -891,9 +948,8 @@ export function buildOpenApiToolsFromPrepared(
       if (Object.keys(operation).length === 0) continue;
 
       const tags = Array.isArray(operation.tags) ? (operation.tags as unknown[]) : [];
-      const tag = sanitizeSegment(String(tags[0] ?? "default"));
+      const tagRaw = String(tags[0] ?? "default");
       const operationIdRaw = String(operation.operationId ?? `${method}_${pathTemplate}`);
-      const operationId = sanitizeSegment(operationIdRaw);
       const parameters = [
         ...sharedParameters,
         ...(Array.isArray(operation.parameters)
@@ -961,7 +1017,7 @@ export function buildOpenApiToolsFromPrepared(
       };
 
       const tool: ToolDefinition & { _runSpec: SerializedTool["runSpec"] } = {
-        path: `${sanitizeSegment(config.name)}.${tag}.${operationId}`,
+        path: buildOpenApiToolPath(config.name, tagRaw, operationIdRaw, usedToolPaths),
         source: sourceKey,
         approval,
         description: String(operation.summary ?? operation.description ?? `${method.toUpperCase()} ${pathTemplate}`),

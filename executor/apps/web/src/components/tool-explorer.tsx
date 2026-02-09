@@ -8,7 +8,6 @@ import {
   useRef,
   memo,
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Search,
   ChevronRight,
@@ -47,7 +46,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Streamdown } from "streamdown";
 import { createCodePlugin } from "@streamdown/code";
@@ -82,6 +80,14 @@ function toolNamespace(path: string): string {
 function toolOperation(path: string): string {
   const parts = path.split(".");
   return parts[parts.length - 1];
+}
+
+function trimLeadingNamespace(path: string, prefix: string): string {
+  const dottedPrefix = `${prefix}.`;
+  if (path.startsWith(dottedPrefix)) {
+    return path.slice(dottedPrefix.length);
+  }
+  return path;
 }
 
 // ── Types for grouped tree data ──
@@ -133,7 +139,7 @@ function buildSourceTree(tools: ToolDescriptor[]): ToolGroup[] {
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([ns, nsTools]) => ({
           key: `source:${src}:ns:${ns}`,
-          label: ns,
+          label: trimLeadingNamespace(ns, src),
           type: "namespace" as const,
           childCount: nsTools.length,
           approvalCount: nsTools.filter((t) => t.approval === "required")
@@ -207,6 +213,23 @@ function buildApprovalTree(tools: ToolDescriptor[]): ToolGroup[] {
   }
 
   return groups;
+}
+
+function collectGroupKeys(groups: ToolGroup[]): Set<string> {
+  const keys = new Set<string>();
+  const stack = [...groups];
+
+  while (stack.length > 0) {
+    const group = stack.pop();
+    if (!group) continue;
+
+    keys.add(group.key);
+    if (group.children.length > 0 && "key" in group.children[0]) {
+      stack.push(...(group.children as ToolGroup[]));
+    }
+  }
+
+  return keys;
 }
 
 // ── Copy button ──
@@ -410,14 +433,17 @@ const ToolRow = memo(function ToolRow({
       <CollapsibleTrigger asChild>
         <div
           className={cn(
-            "flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors cursor-pointer group/tool select-none",
+            "flex items-center gap-2 px-2 py-1.5 transition-colors cursor-pointer group/tool select-none",
             expanded
-              ? "bg-accent/30"
+              ? "sticky bg-background/95 backdrop-blur-sm bg-accent/30"
               : selected
                 ? "bg-primary/5 ring-1 ring-primary/10"
                 : "hover:bg-accent/20",
           )}
-          style={{ paddingLeft: `${depth * 20 + 8}px` }}
+          style={{
+            paddingLeft: `${depth * 20 + 8}px`,
+            ...(expanded ? { top: `${depth * 32}px`, zIndex: 20 - depth } : {}),
+          }}
         >
           {/* Selection checkbox */}
           <button
@@ -510,12 +536,18 @@ function GroupNode({
       <CollapsibleTrigger asChild>
         <div
           className={cn(
-            "flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors cursor-pointer group/row select-none",
+            "flex items-center gap-2 px-2 py-1.5 transition-colors cursor-pointer group/row select-none",
+            "sticky bg-background/95 backdrop-blur-sm",
+            isExpanded && "border-b border-border/30",
             isGroupSelected
               ? "bg-primary/10 ring-1 ring-primary/20"
               : "hover:bg-accent/30",
           )}
-          style={{ paddingLeft: `${depth * 20 + 8}px` }}
+          style={{
+            paddingLeft: `${depth * 20 + 8}px`,
+            top: `${depth * 32}px`,
+            zIndex: 20 - depth,
+          }}
         >
           {/* Selection checkbox */}
           <button
@@ -756,24 +788,19 @@ export function ToolExplorer({
   const [filterApproval, setFilterApproval] = useState<
     "all" | "required" | "auto"
   >("all");
+  const treeListRef = useRef<HTMLDivElement>(null);
+  const flatListRef = useRef<HTMLDivElement>(null);
+
+  const handleSourceSelect = useCallback((source: string | null) => {
+    setActiveSource(source);
+    setExpandedKeys(source ? new Set([`source:${source}`]) : new Set());
+  }, []);
 
   // When initialSource changes (e.g. URL param), update the active source
   useEffect(() => {
-    if (initialSource) {
-      setActiveSource(initialSource);
-    }
+    setActiveSource(initialSource ?? null);
+    setExpandedKeys(initialSource ? new Set([`source:${initialSource}`]) : new Set());
   }, [initialSource]);
-
-  // Auto-expand source when navigating from dashboard with a source filter
-  useEffect(() => {
-    if (initialSource && tools.length > 0) {
-      setExpandedKeys((prev) => {
-        const next = new Set(prev);
-        next.add(`source:${initialSource}`);
-        return next;
-      });
-    }
-  }, [initialSource, tools.length]);
 
   // Filter tools by active source and approval filter
   const filteredTools = useMemo(() => {
@@ -946,22 +973,24 @@ export function ToolExplorer({
     ).length;
   }, [selectedKeys, filteredTools]);
 
-  const collectAllGroupKeys = useCallback(
-    (groups: ToolGroup[]): Set<string> => {
-      const keys = new Set<string>();
-      for (const g of groups) {
-        keys.add(g.key);
-        if (g.children.length > 0 && "key" in g.children[0]) {
-          for (const k of collectAllGroupKeys(
-            g.children as ToolGroup[],
-          )) {
-            keys.add(k);
-          }
-        }
-      }
-      return keys;
+  const handleExplorerWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      const listEl = viewMode === "flat" ? flatListRef.current : treeListRef.current;
+      if (!listEl) return;
+
+      const target = e.target as HTMLElement | null;
+      if (target && listEl.contains(target)) return;
+
+      const atTop = listEl.scrollTop <= 0;
+      const atBottom =
+        listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 1;
+
+      if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) return;
+
+      listEl.scrollTop += e.deltaY;
+      e.preventDefault();
     },
-    [],
+    [viewMode],
   );
 
   if (loading) {
@@ -991,18 +1020,19 @@ export function ToolExplorer({
   }
 
   return (
-    <div className="flex h-[calc(100vh-220px)] min-h-[400px]">
+    <div className="flex" onWheelCapture={handleExplorerWheel}>
       {/* Source sidebar */}
       <SourceSidebar
         tools={tools}
         activeSource={activeSource}
-        onSelectSource={setActiveSource}
+        onSelectSource={handleSourceSelect}
       />
 
       {/* Main content */}
       <div className="flex-1 min-w-0 flex flex-col pl-0 lg:pl-4">
-        {/* Toolbar */}
-        <div className="flex items-center gap-2 pb-3 flex-wrap">
+        <div className="shrink-0">
+          {/* Toolbar */}
+          <div className="flex items-center gap-2 pb-3 flex-wrap">
           {/* Search */}
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
@@ -1168,7 +1198,7 @@ export function ToolExplorer({
               <DropdownMenuSeparator />
               <DropdownMenuCheckboxItem
                 checked={activeSource === null}
-                onCheckedChange={() => setActiveSource(null)}
+                onCheckedChange={() => handleSourceSelect(null)}
                 className="text-xs"
               >
                 All sources
@@ -1180,7 +1210,7 @@ export function ToolExplorer({
                   key={src}
                   checked={activeSource === src}
                   onCheckedChange={() =>
-                    setActiveSource(
+                    handleSourceSelect(
                       activeSource === src ? null : src,
                     )
                   }
@@ -1191,90 +1221,96 @@ export function ToolExplorer({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-
-        {/* Selection bar */}
-        {selectedToolCount > 0 && (
-          <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-md bg-primary/5 border border-primary/10">
-            <span className="text-[12px] font-mono text-primary">
-              {selectedToolCount} tool
-              {selectedToolCount !== 1 ? "s" : ""} selected
-            </span>
-            <div className="flex-1" />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 text-[11px] text-muted-foreground"
-              onClick={selectAll}
-            >
-              Select all ({filteredTools.length})
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 text-[11px] text-muted-foreground"
-              onClick={clearSelection}
-            >
-              Clear
-            </Button>
-            <div className="h-4 w-px bg-border/50" />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-[11px] border-terminal-amber/30 text-terminal-amber hover:bg-terminal-amber/10"
-            >
-              <ShieldCheck className="h-3 w-3 mr-1" />
-              Set approval
-            </Button>
           </div>
-        )}
 
-        {/* Warnings */}
-        {warnings.length > 0 && (
-          <div className="mb-2 rounded-md border border-terminal-amber/20 bg-terminal-amber/5 px-3 py-2">
-            <p className="text-[11px] text-terminal-amber/80">
-              {warnings.length} source warning
-              {warnings.length !== 1 ? "s" : ""} — inventory may be
-              incomplete
-            </p>
-          </div>
-        )}
-
-        {/* Results info */}
-        <div className="flex items-center justify-between pb-1.5">
-          <span className="text-[10px] font-mono text-muted-foreground/50">
-            {search
-              ? `${searchedTools.length} results`
-              : `${filteredTools.length} tools`}
-            {activeSource && ` in ${activeSource}`}
-          </span>
-          {viewMode === "tree" && (
-            <div className="flex gap-1">
-              <button
-                onClick={() => {
-                  setExpandedKeys(collectAllGroupKeys(treeGroups));
-                }}
-                className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-              >
-                Expand all
-              </button>
-              <span className="text-[10px] text-muted-foreground/30">
-                ·
+          {/* Selection bar */}
+          {selectedToolCount > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-md bg-primary/5 border border-primary/10">
+              <span className="text-[12px] font-mono text-primary">
+                {selectedToolCount} tool
+                {selectedToolCount !== 1 ? "s" : ""} selected
               </span>
-              <button
-                onClick={() => setExpandedKeys(new Set())}
-                className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              <div className="flex-1" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[11px] text-muted-foreground"
+                onClick={selectAll}
               >
-                Collapse all
-              </button>
+                Select all ({filteredTools.length})
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[11px] text-muted-foreground"
+                onClick={clearSelection}
+              >
+                Clear
+              </Button>
+              <div className="h-4 w-px bg-border/50" />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 text-[11px] border-terminal-amber/30 text-terminal-amber hover:bg-terminal-amber/10"
+              >
+                <ShieldCheck className="h-3 w-3 mr-1" />
+                Set approval
+              </Button>
             </div>
           )}
+
+          {/* Warnings */}
+          {warnings.length > 0 && (
+            <div className="mb-2 rounded-md border border-terminal-amber/20 bg-terminal-amber/5 px-3 py-2">
+              <p className="text-[11px] text-terminal-amber/80">
+                {warnings.length} source warning
+                {warnings.length !== 1 ? "s" : ""} — inventory may be
+                incomplete
+              </p>
+            </div>
+          )}
+
+          {/* Results info */}
+          <div className="flex items-center justify-between pb-1.5">
+            <span className="text-[10px] font-mono text-muted-foreground/50">
+              {search
+                ? `${searchedTools.length} results`
+                : `${filteredTools.length} tools`}
+              {activeSource && ` in ${activeSource}`}
+            </span>
+            {viewMode === "tree" && (
+              <div className="flex gap-1">
+                <button
+                  onClick={() => {
+                    setExpandedKeys(collectGroupKeys(treeGroups));
+                  }}
+                  className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                >
+                  Expand all
+                </button>
+                <span className="text-[10px] text-muted-foreground/30">
+                  ·
+                </span>
+                <button
+                  onClick={() => {
+                    setExpandedKeys(new Set());
+                  }}
+                  className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                >
+                  Collapse all
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Scrollable list */}
         {viewMode === "flat" ? (
           flatTools.length === 0 ? (
-            <div className="flex-1 rounded-md border border-border/30 bg-background/30">
+            <div
+              ref={flatListRef}
+              className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
+            >
               <EmptyState hasSearch={!!search} />
             </div>
           ) : (
@@ -1282,10 +1318,14 @@ export function ToolExplorer({
               tools={flatTools}
               selectedKeys={selectedKeys}
               onSelectTool={toggleSelectTool}
+              scrollContainerRef={flatListRef}
             />
           )
         ) : (
-          <ScrollArea className="flex-1 rounded-md border border-border/30 bg-background/30">
+          <div
+            ref={treeListRef}
+            className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
+          >
             {treeGroups.length === 0 ? (
               <EmptyState hasSearch={!!search} />
             ) : (
@@ -1305,65 +1345,42 @@ export function ToolExplorer({
                 ))}
               </div>
             )}
-          </ScrollArea>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ── Virtualized flat list — only renders visible rows ──
-
-const ROW_HEIGHT = 32;
+// ── Flat list ──
 
 function VirtualFlatList({
   tools,
   selectedKeys,
   onSelectTool,
+  scrollContainerRef,
 }: {
   tools: ToolDescriptor[];
   selectedKeys: Set<string>;
   onSelectTool: (path: string, e: React.MouseEvent) => void;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  const virtualizer = useVirtualizer({
-    count: tools.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 20,
-  });
-
   return (
     <div
-      ref={scrollRef}
-      className="flex-1 rounded-md border border-border/30 bg-background/30 overflow-y-auto"
+      ref={scrollContainerRef}
+      className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
     >
-      <div
-        className="relative w-full p-1"
-        style={{ height: virtualizer.getTotalSize() }}
-      >
-        {virtualizer.getVirtualItems().map((vItem) => {
-          const tool = tools[vItem.index];
-          return (
-            <div
-              key={tool.path}
-              className="absolute left-0 right-0 px-1"
-              style={{
-                height: vItem.size,
-                transform: `translateY(${vItem.start}px)`,
-              }}
-            >
-              <SelectableToolRow
-                tool={tool}
-                label={tool.path}
-                depth={0}
-                selectedKeys={selectedKeys}
-                onSelectTool={onSelectTool}
-              />
-            </div>
-          );
-        })}
+      <div className="p-1">
+        {tools.map((tool) => (
+          <SelectableToolRow
+            key={tool.path}
+            tool={tool}
+            label={tool.path}
+            depth={0}
+            selectedKeys={selectedKeys}
+            onSelectTool={onSelectTool}
+          />
+        ))}
       </div>
     </div>
   );

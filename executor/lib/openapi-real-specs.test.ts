@@ -197,7 +197,7 @@ describe("real-world OpenAPI specs", () => {
       );
 
       expect(tool).toBeDefined();
-      expect(tool!.path).toBe("github.activity.activity_delete_repo_subscription");
+      expect(tool!.path).toBe("github.activity.delete_repo_subscription");
       expect(tool!.metadata!.argsType).toContain("owner");
       expect(tool!.metadata!.argsType).toContain("repo");
       expect(tool!.metadata!.argsType).not.toBe("Record<string, unknown>");
@@ -228,7 +228,7 @@ describe("real-world OpenAPI specs", () => {
       );
 
       expect(tool).toBeDefined();
-      expect(tool!.path).toBe("github.actions.actions_create_hosted_runner_for_org");
+      expect(tool!.path).toBe("github.actions.create_hosted_runner_for_org");
       expect(tool!.metadata!.argsType).toContain("org: string");
       expect(tool!.metadata!.returnsType).toContain("id");
       expect(tool!.metadata!.returnsType).not.toBe("unknown");
@@ -258,7 +258,7 @@ describe("real-world OpenAPI specs", () => {
       );
 
       expect(tool).toBeDefined();
-      expect(tool!.path).toBe("github.billing.billing_get_all_budgets_org");
+      expect(tool!.path).toBe("github.billing.get_all_budgets_org");
       expect(tool!.metadata!.argsType).toContain("org: string");
       expect(tool!.metadata!.returnsType).toContain("budgets");
       expect(tool!.metadata!.returnsType).not.toBe("unknown");
@@ -287,10 +287,39 @@ describe("real-world OpenAPI specs", () => {
       );
 
       expect(tool).toBeDefined();
-      expect(tool!.path).toBe("slack.admin_apps_approved.admin_apps_approved_list");
+      expect(tool!.path).toBe("slack.admin_apps_approved.list");
       expect(tool!.metadata!.argsType).toContain("token: string");
       expect(tool!.metadata!.argsType).toContain("limit?: number");
       expect(tool!.metadata!.returnsType).not.toBe("unknown");
+    },
+    300_000,
+  );
+
+  test(
+    "cloudflare: list health checks includes typed health check fields",
+    async () => {
+      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
+
+      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare");
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "cloudflare",
+          spec: cloudflareUrl,
+          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "health-checks-list-health-checks",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("cloudflare.health_checks.list_health_checks");
+      expect(tool!.metadata!.returnsType).toContain("address?: string");
+      expect(tool!.metadata!.returnsType).toContain("id?: string");
+      expect(tool!.metadata!.returnsType).toContain("interval?: number");
     },
     300_000,
   );

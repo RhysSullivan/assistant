@@ -57,7 +57,7 @@ function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientI
 }
 
 function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
-  const signatureVersion = "v8";
+  const signatureVersion = "v10";
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();
@@ -132,7 +132,7 @@ interface DtsStorageEntry {
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version — bump when PreparedOpenApiSpec shape changes. */
-const OPENAPI_CACHE_VERSION = "v11";
+const OPENAPI_CACHE_VERSION = "v12";
 
 async function publish(
   ctx: any,

@@ -1434,13 +1434,16 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-full min-h-0 flex-col gap-6">
       <PageHeader
         title="Tools"
         description="Manage sources, auth, credentials, and available tools"
       />
 
-      <Tabs defaultValue={initialSource ? "inventory" : "sources"} className="w-full">
+      <Tabs
+        defaultValue={initialSource ? "inventory" : "sources"}
+        className="w-full min-h-0 flex-1"
+      >
         <TabsList className="bg-muted/50 h-9">
           <TabsTrigger value="sources" className="text-xs data-[state=active]:bg-background">
             Sources
@@ -1547,7 +1550,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
           />
         </TabsContent>
 
-        <TabsContent value="inventory" className="mt-4">
+        <TabsContent value="inventory" className="mt-4 min-h-0">
           <ToolExplorer
             tools={tools}
             sources={sources ?? []}
