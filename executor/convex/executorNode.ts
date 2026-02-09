@@ -13,8 +13,11 @@ import {
   loadExternalTools,
   parseGraphqlOperationPaths,
   prepareOpenApiSpec,
+  rehydrateTools,
+  serializeTools,
   type PreparedOpenApiSpec,
   type ExternalToolSourceConfig,
+  type WorkspaceToolSnapshot,
 } from "./lib/tool_sources";
 import { DEFAULT_TOOLS } from "./lib/tools";
 import type {
@@ -272,11 +275,14 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
     .filter((source: { enabled: boolean }) => source.enabled);
   const now = Date.now();
   const signature = sourceSignature(workspaceId, sources);
+
+  // ── Layer 1: In-memory cache (same warm worker) ───────────────────────
   const cached = workspaceToolCache.get(workspaceId);
   if (cached && isWorkspaceToolCacheFresh(cached, signature, now)) {
     return cached.tools;
   }
 
+  // ── Layer 2: In-flight dedup (concurrent requests on same worker) ─────
   const inFlight = workspaceToolLoadsInFlight.get(workspaceId);
   if (inFlight && inFlight.signature === signature) {
     const loaded = await inFlight.promise;
@@ -284,6 +290,45 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
   }
 
   const loadPromise = (async () => {
+    // ── Layer 3: Persistent workspace cache (Convex file storage) ──────
+    // Single blob with all tool descriptors + run specs. Avoids per-source
+    // storage reads, JSON parses, and TS compiler runs on cold start.
+    try {
+      const cacheEntry = await ctx.runQuery(internal.workspaceToolCache.getEntry, {
+        workspaceId,
+        signature,
+      });
+
+      if (cacheEntry) {
+        const blob = await ctx.storage.get(cacheEntry.storageId);
+        if (blob) {
+          const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
+          const rehydrated = rehydrateTools(snapshot.tools, baseTools);
+
+          const merged = new Map<string, ToolDefinition>();
+          for (const tool of rehydrated) {
+            merged.set(tool.path, tool);
+          }
+          // Recreate discover tool (it captures the full tool list in a closure)
+          const discover = createDiscoverTool([...merged.values()]);
+          merged.set(discover.path, discover);
+
+          workspaceToolCache.set(workspaceId, {
+            signature,
+            loadedAt: Date.now(),
+            tools: merged,
+            warnings: snapshot.warnings,
+          });
+
+          return { tools: merged, warnings: snapshot.warnings };
+        }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`[executor] workspace tool cache read failed for '${workspaceId}': ${msg}`);
+    }
+
+    // ── Layer 4: Full rebuild from sources ─────────────────────────────
     const configs: ExternalToolSourceConfig[] = [];
     const warnings: string[] = [];
     for (const source of sources) {
@@ -317,6 +362,28 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
       tools: merged,
       warnings,
     });
+
+    // ── Write to persistent workspace cache (best-effort) ─────────────
+    try {
+      const allTools = [...merged.values()];
+      const snapshot: WorkspaceToolSnapshot = {
+        tools: serializeTools(allTools),
+        warnings,
+      };
+      const json = JSON.stringify(snapshot);
+      const blob = new Blob([json], { type: "application/json" });
+      const storageId = await ctx.storage.store(blob);
+      await ctx.runMutation(internal.workspaceToolCache.putEntry, {
+        workspaceId,
+        signature,
+        storageId,
+        toolCount: allTools.length,
+        sizeBytes: json.length,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`[executor] workspace tool cache write failed for '${workspaceId}': ${msg}`);
+    }
 
     return { tools: merged, warnings };
   })();

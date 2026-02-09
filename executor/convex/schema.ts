@@ -298,6 +298,16 @@ export default defineSchema({
   })
     .index("by_spec_url_version", ["specUrl", "version"]),
 
+  workspaceToolCache: defineTable({
+    workspaceId: v.string(),
+    signature: v.string(),
+    storageId: v.id("_storage"),
+    toolCount: v.number(),
+    sizeBytes: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"]),
+
   anonymousSessions: defineTable({
     sessionId: v.string(),
     workspaceId: v.id("workspaces"),

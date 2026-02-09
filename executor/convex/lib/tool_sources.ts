@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import openapiTS, { astToString } from "openapi-typescript";
-import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition } from "./types";
+import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolTypeMetadata } from "./types";
 import { asRecord } from "./utils";
 
 type JsonSchema = Record<string, unknown>;
@@ -601,25 +601,19 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
         argsType: jsonSchemaTypeHintFallback(inputSchema),
         returnsType: "unknown",
       },
+      _runSpec: {
+        kind: "mcp" as const,
+        url: config.url,
+        transport: config.transport,
+        queryParams: config.queryParams,
+        toolName,
+      },
       run: async (input: unknown) => {
         const payload = asRecord(input);
         const result = await callToolWithReconnect(toolName, payload);
-        if (!result || typeof result !== "object") return result;
-
-        const content = (result as { content?: unknown }).content;
-        if (!Array.isArray(content)) {
-          return result;
-        }
-
-        const texts = content
-          .map((item) => (item && typeof item === "object" ? (item as { text?: unknown }).text : undefined))
-          .filter((item): item is string => typeof item === "string");
-
-        if (texts.length === 0) return content;
-        if (texts.length === 1) return texts[0];
-        return texts;
+        return extractMcpResult(result);
       },
-    } satisfies ToolDefinition;
+    } satisfies ToolDefinition & { _runSpec: SerializedTool["runSpec"] };
   });
 }
 
@@ -991,7 +985,16 @@ export function buildOpenApiToolsFromPrepared(
           ? config.defaultReadApproval ?? "auto"
           : config.defaultWriteApproval ?? "required");
 
-      tools.push({
+      const runSpec: SerializedTool["runSpec"] = {
+        kind: "openapi",
+        baseUrl,
+        method,
+        pathTemplate,
+        parameters,
+        authHeaders,
+      };
+
+      const tool: ToolDefinition & { _runSpec: SerializedTool["runSpec"] } = {
         path: `${sanitizeSegment(config.name)}.${tag}.${operationId}`,
         source: sourceKey,
         approval,
@@ -1003,6 +1006,7 @@ export function buildOpenApiToolsFromPrepared(
           ...(schemaTypes && !schemaTypesEmitted ? { schemaTypes } : {}),
         },
         credential: credentialSpec,
+        _runSpec: runSpec,
         run: async (input: unknown, context) => {
           const payload = asRecord(input);
           const { url, bodyInput } = buildOpenApiUrl(baseUrl, pathTemplate, parameters, payload);
@@ -1029,7 +1033,8 @@ export function buildOpenApiToolsFromPrepared(
           }
           return await response.text();
         },
-      });
+      };
+      tools.push(tool);
 
       // Mark schemas as emitted so subsequent tools from this source don't duplicate them
       if (schemaTypes && !schemaTypesEmitted) {
@@ -1470,4 +1475,225 @@ export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Pr
   }
 
   return { tools: loaded, warnings };
+}
+
+// ── Workspace tool cache serialization ──────────────────────────────────────
+//
+// Serializes ToolDefinition[] (minus `run` closures) into a JSON-safe format.
+// On deserialization, `run` functions are reconstructed from stored metadata.
+
+/** JSON-safe representation of a ToolDefinition stored in the workspace cache. */
+export interface SerializedTool {
+  path: string;
+  description: string;
+  approval: ToolApprovalMode;
+  source?: string;
+  metadata?: ToolTypeMetadata;
+  credential?: ToolCredentialSpec;
+  _graphqlSource?: string;
+  _pseudoTool?: boolean;
+  /**
+   * Data needed to reconstruct `run()`. Shape depends on source type.
+   * OpenAPI: { kind: "openapi", baseUrl, method, pathTemplate, parameters, authHeaders }
+   * MCP: { kind: "mcp", url, transport?, queryParams?, toolName }
+   * GraphQL: { kind: "graphql", endpoint, operationName, operationType, auth? }
+   * Builtin: { kind: "builtin" } — run comes from DEFAULT_TOOLS
+   */
+  runSpec:
+    | {
+        kind: "openapi";
+        baseUrl: string;
+        method: string;
+        pathTemplate: string;
+        parameters: Array<{ name: string; in: string; required: boolean; schema: Record<string, unknown> }>;
+        authHeaders: Record<string, string>;
+      }
+    | {
+        kind: "mcp";
+        url: string;
+        transport?: "sse" | "streamable-http";
+        queryParams?: Record<string, string>;
+        toolName: string;
+      }
+    | {
+        kind: "graphql";
+        endpoint: string;
+        operationName: string;
+        operationType: "query" | "mutation";
+        authHeaders: Record<string, string>;
+      }
+    | { kind: "builtin" };
+}
+
+export interface WorkspaceToolSnapshot {
+  tools: SerializedTool[];
+  warnings: string[];
+}
+
+/** Serialize tools for cache storage. Strips `run` closures, stores reconstruction data. */
+export function serializeTools(tools: ToolDefinition[]): SerializedTool[] {
+  return tools.map((tool) => ({
+    path: tool.path,
+    description: tool.description,
+    approval: tool.approval,
+    source: tool.source,
+    metadata: tool.metadata,
+    credential: tool.credential,
+    _graphqlSource: tool._graphqlSource,
+    _pseudoTool: tool._pseudoTool,
+    // runSpec is attached during tool building — see below.
+    // Tools without a runSpec (builtins, discover) get { kind: "builtin" }.
+    runSpec: (tool as any)._runSpec ?? { kind: "builtin" as const },
+  }));
+}
+
+/**
+ * Reconstruct live ToolDefinition[] from a cached snapshot.
+ *
+ * OpenAPI `run` functions are rebuilt from stored parameters (pure data → fetch).
+ * MCP `run` functions establish a lazy connection on first call.
+ * GraphQL `run` functions rebuild the query executor.
+ * Builtins are looked up from the provided base tools map.
+ */
+export function rehydrateTools(
+  serialized: SerializedTool[],
+  baseTools: Map<string, ToolDefinition>,
+): ToolDefinition[] {
+  // Shared MCP connections — lazily created per URL on first tool call
+  const mcpConnections = new Map<
+    string,
+    { promise: Promise<{ client: any; close: () => Promise<void> }> }
+  >();
+
+  const readMethods = new Set(["get", "head", "options"]);
+
+  return serialized.map((st) => {
+    const base: Omit<ToolDefinition, "run"> = {
+      path: st.path,
+      description: st.description,
+      approval: st.approval,
+      source: st.source,
+      metadata: st.metadata,
+      credential: st.credential,
+      _graphqlSource: st._graphqlSource,
+      _pseudoTool: st._pseudoTool,
+    };
+
+    if (st.runSpec.kind === "builtin") {
+      const builtin = baseTools.get(st.path);
+      if (builtin) return builtin;
+      // Fallback — shouldn't happen but be safe
+      return { ...base, run: async () => { throw new Error(`Builtin tool '${st.path}' not found`); } };
+    }
+
+    if (st.runSpec.kind === "openapi") {
+      const { baseUrl, method, pathTemplate, parameters, authHeaders } = st.runSpec;
+      return {
+        ...base,
+        run: async (input: unknown, context) => {
+          const payload = asRecord(input);
+          const { url, bodyInput } = buildOpenApiUrl(baseUrl, pathTemplate, parameters, payload);
+          const hasBody = !readMethods.has(method) && Object.keys(bodyInput).length > 0;
+
+          const response = await fetch(url, {
+            method: method.toUpperCase(),
+            headers: {
+              ...authHeaders,
+              ...(context.credential?.headers ?? {}),
+              ...(hasBody ? { "content-type": "application/json" } : {}),
+            },
+            body: hasBody ? JSON.stringify(bodyInput) : undefined,
+          });
+
+          if (!response.ok) {
+            const text = await response.text().catch(() => "");
+            throw new Error(`HTTP ${response.status} ${response.statusText}: ${text.slice(0, 500)}`);
+          }
+
+          const contentType = response.headers.get("content-type") ?? "";
+          if (contentType.includes("json")) {
+            return await response.json();
+          }
+          return await response.text();
+        },
+      };
+    }
+
+    if (st.runSpec.kind === "mcp") {
+      const { url, transport, queryParams, toolName } = st.runSpec;
+      return {
+        ...base,
+        run: async (input: unknown) => {
+          // Lazy connection — shared across all MCP tools from same URL
+          const connKey = `${url}|${transport ?? ""}`;
+          if (!mcpConnections.has(connKey)) {
+            mcpConnections.set(connKey, {
+              promise: connectMcp(url, queryParams, transport),
+            });
+          }
+          let conn = await mcpConnections.get(connKey)!.promise;
+
+          const payload = asRecord(input);
+          try {
+            const result = await conn.client.callTool({ name: toolName, arguments: payload });
+            return extractMcpResult(result);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!/(socket|closed|ECONNRESET|fetch failed)/i.test(message)) {
+              throw error;
+            }
+            // Reconnect
+            try { await conn.close(); } catch { /* ignore */ }
+            const newConn = connectMcp(url, queryParams, transport);
+            mcpConnections.set(connKey, { promise: newConn });
+            conn = await newConn;
+            const result = await conn.client.callTool({ name: toolName, arguments: payload });
+            return extractMcpResult(result);
+          }
+        },
+      };
+    }
+
+    if (st.runSpec.kind === "graphql") {
+      const { endpoint, operationName, operationType, authHeaders } = st.runSpec;
+      return {
+        ...base,
+        run: async (input: unknown, context) => {
+          const payload = asRecord(input);
+          const query = `${operationType} ${operationName}($input: JSON) { ${operationName}(input: $input) }`;
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...authHeaders,
+              ...(context.credential?.headers ?? {}),
+            },
+            body: JSON.stringify({ query, variables: { input: payload } }),
+          });
+          if (!response.ok) {
+            const text = await response.text().catch(() => "");
+            throw new Error(`GraphQL HTTP ${response.status}: ${text.slice(0, 500)}`);
+          }
+          const json = await response.json() as Record<string, unknown>;
+          if (json.errors) throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
+          return (json.data as Record<string, unknown>)?.[operationName];
+        },
+      };
+    }
+
+    return { ...base, run: async () => { throw new Error(`Unknown run spec kind for '${st.path}'`); } };
+  });
+}
+
+/** Extract text content from MCP tool call result */
+function extractMcpResult(result: unknown): unknown {
+  if (!result || typeof result !== "object") return result;
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return result;
+  const texts = content
+    .map((item) => (item && typeof item === "object" ? (item as { text?: unknown }).text : undefined))
+    .filter((item): item is string => typeof item === "string");
+  if (texts.length === 0) return content;
+  if (texts.length === 1) return texts[0];
+  return texts;
 }

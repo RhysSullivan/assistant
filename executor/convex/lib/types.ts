@@ -125,5 +125,7 @@ export interface ToolDefinition {
   _graphqlSource?: string;
   /** For GraphQL pseudo-tools: marks tools that exist only for discovery/policy */
   _pseudoTool?: boolean;
+  /** Serializable data to reconstruct `run` from cache. Attached during tool building. */
+  _runSpec?: unknown;
   run(input: unknown, context: ToolRunContext): Promise<unknown>;
 }
