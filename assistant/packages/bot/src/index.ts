@@ -27,7 +27,10 @@ if (!DISCORD_TOKEN) {
 }
 
 const SERVER_URL = Bun.env.ASSISTANT_SERVER_URL ?? "http://localhost:3000";
-const CONVEX_URL = Bun.env.CONVEX_URL ?? "http://127.0.0.1:3210";
+const CONVEX_URL = Bun.env.CONVEX_URL;
+if (!CONVEX_URL) {
+  throw new Error("CONVEX_URL is required. Set it in your environment.");
+}
 
 // ---------------------------------------------------------------------------
 // Clients

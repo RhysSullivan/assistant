@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "with-env": "bun run --env-file=../../../.env --",
+    "dev": "bun with-env next dev",
+    "build": "bun with-env next build",
+    "start": "bun with-env next start",
     "lint": "eslint"
   },
   "dependencies": {

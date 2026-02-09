@@ -10,7 +10,10 @@ import { ConvexProvider, ConvexReactClient } from "convex/react";
 import type { ReactNode } from "react";
 import { workosEnabled } from "@/lib/auth-capabilities";
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL ?? "http://127.0.0.1:3210";
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+if (!convexUrl) {
+  throw new Error("CONVEX_URL is not set. Add it to the root .env file.");
+}
 const convexClient = new ConvexReactClient(convexUrl, {
   unsavedChangesWarning: false,
 });

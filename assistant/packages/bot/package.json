@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --hot src/index.ts",
-    "start": "bun src/index.ts"
+    "with-env": "bun run --env-file=../../../.env --",
+    "dev": "bun with-env bun --hot src/index.ts",
+    "start": "bun with-env bun src/index.ts"
   },
   "dependencies": {
     "@assistant/core": "workspace:*",

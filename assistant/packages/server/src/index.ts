@@ -7,7 +7,10 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@executor/convex/_generated/api";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
-const CONVEX_URL = Bun.env.CONVEX_URL ?? "http://127.0.0.1:3210";
+const CONVEX_URL = Bun.env.CONVEX_URL;
+if (!CONVEX_URL) {
+  throw new Error("CONVEX_URL is required. Set it in your environment.");
+}
 const EXECUTOR_URL = Bun.env.EXECUTOR_URL
   ?? Bun.env.CONVEX_SITE_URL
   ?? (CONVEX_URL.includes(".convex.cloud")

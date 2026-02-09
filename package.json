@@ -10,18 +10,18 @@
     "assistant/packages/reacord"
   ],
   "scripts": {
+    "with-env": "bun run --env-file=.env --",
     "dev": "bun run dev.ts",
-    "dev:executor": "bun run dev:executor:convex",
     "dev:executor:convex": "bunx --cwd executor convex dev",
     "dev:executor:web": "bun run --cwd executor/apps/web dev",
     "dev:executor:all": "bun run dev:executor:convex & bun run dev:executor:web",
-    "dev:assistant": "bun run --cwd assistant dev:server",
-    "dev:bot": "bun run --cwd assistant dev:bot",
+    "dev:assistant": "bun run --cwd assistant/packages/server dev",
+    "dev:bot": "bun run --cwd assistant/packages/bot dev",
     "test": "bun run test:executor && bun run test:assistant",
     "test:executor": "bun test --cwd executor",
     "test:assistant": "bun run --cwd assistant test",
     "typecheck:executor": "bunx tsc --noEmit -p executor/tsconfig.json",
-    "db:clear:executor": "bun run executor/wipe-convex-db.ts",
+    "db:clear:executor": "bun with-env bun run executor/wipe-convex-db.ts",
     "convex:codegen": "bunx --cwd executor convex codegen"
   },
   "dependencies": {

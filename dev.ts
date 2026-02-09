@@ -3,6 +3,8 @@
  *
  * Usage: bun dev
  *
+ * Reads all configuration from the root .env file (auto-loaded by Bun).
+ *
  * Starts:
  *   1. Convex cloud dev function push (once)
  *   2. Convex cloud dev function watcher
@@ -36,39 +38,12 @@ function toSiteUrl(convexUrl: string): string {
   return convexUrl;
 }
 
-async function resolveExecutorUrls(): Promise<{ convexUrl: string; executorUrl: string }> {
-  if (Bun.env.CONVEX_URL) {
-    const convexUrl = Bun.env.CONVEX_URL;
-    const executorUrl = Bun.env.CONVEX_SITE_URL ?? toSiteUrl(convexUrl);
-    return { convexUrl, executorUrl };
-  }
-
-  const envFile = Bun.file("./executor/.env.local");
-  if (!(await envFile.exists())) {
-    throw new Error("Missing executor/.env.local with CONVEX_URL");
-  }
-
-  const content = await envFile.text();
-  const lines = content
-    .split("\n")
-    .map((entry) => entry.trim());
-
-  const convexLine = lines.find((entry) => entry.startsWith("CONVEX_URL="));
-  const siteLine = lines.find((entry) => entry.startsWith("CONVEX_SITE_URL="));
-
-  if (!convexLine) {
-    throw new Error("CONVEX_URL not found in executor/.env.local");
-  }
-
-  const convexUrl = convexLine.slice("CONVEX_URL=".length).trim();
+function resolveExecutorUrls(): { convexUrl: string; executorUrl: string } {
+  const convexUrl = Bun.env.CONVEX_URL;
   if (!convexUrl) {
-    throw new Error("CONVEX_URL is empty in executor/.env.local");
+    throw new Error("CONVEX_URL is not set. Add it to the root .env file.");
   }
-
-  const executorUrl = siteLine
-    ? siteLine.slice("CONVEX_SITE_URL=".length).trim()
-    : toSiteUrl(convexUrl);
-
+  const executorUrl = Bun.env.CONVEX_SITE_URL ?? toSiteUrl(convexUrl);
   return { convexUrl, executorUrl };
 }
 
@@ -161,7 +136,7 @@ if (!Bun.env.DISCORD_BOT_TOKEN) {
 // 1. Push functions (must complete before executor starts)
 await pushConvexFunctions();
 
-const urls = await resolveExecutorUrls();
+const urls = resolveExecutorUrls();
 console.log(prefix("convex", `Using Convex URL: ${urls.convexUrl}`));
 console.log(prefix("convex", `Using executor HTTP URL: ${urls.executorUrl}`));
 
@@ -181,8 +156,8 @@ spawnService("web", ["bun", "run", "dev", "--", "-p", "3002"], {
 // Small delay for web to be ready
 await Bun.sleep(1200);
 
-spawnService("assistant", ["bun", "run", "--cwd", "packages/server", "dev"], {
-  cwd: "./assistant",
+spawnService("assistant", ["bun", "run", "dev"], {
+  cwd: "./assistant/packages/server",
   env: {
     EXECUTOR_URL: urls.executorUrl,
     CONVEX_URL: urls.convexUrl,
@@ -193,8 +168,8 @@ spawnService("assistant", ["bun", "run", "--cwd", "packages/server", "dev"], {
 
 if (Bun.env.DISCORD_BOT_TOKEN) {
   await Bun.sleep(1000);
-  spawnService("bot", ["bun", "run", "--cwd", "packages/bot", "dev"], {
-    cwd: "./assistant",
+  spawnService("bot", ["bun", "run", "dev"], {
+    cwd: "./assistant/packages/bot",
     env: {
       CONVEX_URL: urls.convexUrl,
     },
