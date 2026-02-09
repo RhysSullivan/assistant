@@ -37,6 +37,7 @@ import type * as lib_utils from "../lib/utils.js";
 import type * as openApiSpecCache from "../openApiSpecCache.js";
 import type * as organizationMembers from "../organizationMembers.js";
 import type * as organizations from "../organizations.js";
+import type * as workspaceToolCache from "../workspaceToolCache.js";
 import type * as workspaces from "../workspaces.js";
 
 import type {
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   openApiSpecCache: typeof openApiSpecCache;
   organizationMembers: typeof organizationMembers;
   organizations: typeof organizations;
+  workspaceToolCache: typeof workspaceToolCache;
   workspaces: typeof workspaces;
 }>;
 
