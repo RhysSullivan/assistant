@@ -115,9 +115,10 @@ async function upsertVaultObject(args: {
   const value = JSON.stringify(args.payload);
 
   if (args.existingObjectId) {
+    const objectId: string = args.existingObjectId;
     const updated = await withVaultRetry(async () => {
       return await workos.vault.updateObject({
-        id: args.existingObjectId,
+        id: objectId,
         value,
       });
     });
@@ -147,7 +148,7 @@ export const upsertCredential = action({
     provider: v.optional(credentialProviderValidator),
     secretJson: v.any(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Record<string, unknown>> => {
     const provider = args.provider ?? "managed";
     const actorId = normalizedActorId(args.scope, args.actorId);
     const submittedSecret = asRecord(args.secretJson);
@@ -166,13 +167,13 @@ export const upsertCredential = action({
       throw new Error("Encrypted storage value looks like a GitHub token. Paste the token in the token field.");
     }
 
-    const existing = await ctx.runQuery(api.database.resolveCredential, {
+    const existing: Record<string, unknown> | null = await ctx.runQuery(api.database.resolveCredential, {
       workspaceId: args.workspaceId,
       sourceKey: args.sourceKey,
       scope: args.scope,
       ...(args.scope === "actor" ? { actorId } : {}),
     });
-    const existingObjectId = existing ? extractObjectId(asRecord(existing.secretJson)) : null;
+    const existingObjectId: string | null = existing ? extractObjectId(asRecord(existing.secretJson)) : null;
 
     const objectId = (() => {
       if (submittedObjectId) return submittedObjectId;

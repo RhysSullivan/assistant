@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 function setup() {
@@ -24,7 +24,7 @@ function createMcpTransport(t: ReturnType<typeof setup>, workspaceId: string, ac
 
   return new StreamableHTTPClientTransport(url, {
     fetch: async (input, init) => {
-      const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
       const parsed = new URL(raw);
       const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
       return await t.fetch(path, init);
@@ -82,7 +82,7 @@ test("MCP run_code survives delayed approval and completes", async () => {
     });
 
     const taskId = await waitForTaskId(t, session.workspaceId);
-    const runTask = t.action(api.executorNode.runTask, { taskId });
+    const runTask = t.action(internal.executorNode.runTask, { taskId });
 
     const approvalId = await waitForPendingApproval(t, session.workspaceId, "admin.send_announcement");
 
@@ -133,7 +133,7 @@ test("MCP run_code returns denied after approval denial", async () => {
     });
 
     const taskId = await waitForTaskId(t, session.workspaceId);
-    const runTask = t.action(api.executorNode.runTask, { taskId });
+    const runTask = t.action(internal.executorNode.runTask, { taskId });
 
     const approvalId = await waitForPendingApproval(t, session.workspaceId, "admin.delete_data");
     await t.mutation(api.executor.resolveApproval, {
