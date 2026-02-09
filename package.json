@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "executor",
     "executor/apps/*",
     "executor/packages/*",
     "assistant",
@@ -12,12 +11,32 @@
   ],
   "scripts": {
     "dev": "bun run dev.ts",
-    "dev:executor": "bun run --cwd executor dev",
+    "dev:executor": "bun run dev:executor:convex",
+    "dev:executor:convex": "bunx --cwd executor convex dev",
+    "dev:executor:web": "bun run --cwd executor/apps/web dev",
+    "dev:executor:all": "bun run dev:executor:convex & bun run dev:executor:web",
     "dev:assistant": "bun run --cwd assistant dev:server",
     "dev:bot": "bun run --cwd assistant dev:bot",
     "test": "bun run test:executor && bun run test:assistant",
-    "test:executor": "bun run --cwd executor test",
+    "test:executor": "bun test --cwd executor",
     "test:assistant": "bun run --cwd assistant test",
-    "typecheck:executor": "bun run --cwd executor typecheck"
+    "typecheck:executor": "bunx tsc --noEmit -p executor/tsconfig.json",
+    "db:clear:executor": "bun run executor/wipe-convex-db.ts",
+    "convex:codegen": "bunx --cwd executor convex codegen"
+  },
+  "dependencies": {
+    "@convex-dev/stripe": "^0.1.3",
+    "@convex-dev/workos-authkit": "^0.1.6",
+    "@executor/contracts": "workspace:*",
+    "@workos-inc/node": "^8.2.0",
+    "convex": "^1.31.7",
+    "convex-helpers": "^0.1.111",
+    "jose": "^6.1.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@types/bun": "latest",
+    "convex-test": "^0.0.41",
+    "typescript": "latest"
   }
 }
