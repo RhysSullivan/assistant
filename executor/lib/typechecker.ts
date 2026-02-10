@@ -19,6 +19,76 @@ import type { ToolDescriptor } from "./types";
 // Tool declarations generation
 // ---------------------------------------------------------------------------
 
+let cachedTypeScript: typeof import("typescript") | null | undefined;
+
+function getTypeScriptModule(): typeof import("typescript") | null {
+  if (cachedTypeScript === undefined) {
+    try {
+      cachedTypeScript = require("typescript");
+    } catch {
+      cachedTypeScript = null;
+    }
+  }
+  return cachedTypeScript ?? null;
+}
+
+function isValidTypeExpression(typeExpression: string): boolean {
+  const ts = getTypeScriptModule();
+  if (!ts) {
+    // Best-effort fallback when TS isn't available.
+    return !/[\r\n`]/.test(typeExpression);
+  }
+
+  try {
+    const sourceFile = ts.createSourceFile(
+      "_type_expr_check.ts",
+      `type __T = ${typeExpression};`,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const diagnostics = (
+      sourceFile as unknown as { parseDiagnostics?: import("typescript").Diagnostic[] }
+    ).parseDiagnostics ?? [];
+    return diagnostics.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+function safeTypeExpression(raw: string | undefined, fallback: string): string {
+  const typeExpression = raw?.trim();
+  if (!typeExpression) return fallback;
+  return isValidTypeExpression(typeExpression) ? typeExpression : fallback;
+}
+
+const OPENAPI_HELPER_TYPES = `
+type _OrEmpty<T> = [T] extends [never] ? {} : T;
+type _Simplify<T> = { [K in keyof T]: T[K] } & {};
+type ToolInput<Op> = _Simplify<
+  _OrEmpty<Op extends { parameters: { query: infer Q } } ? { [K in keyof Q]: Q[K] } : never> &
+  _OrEmpty<Op extends { parameters: { path: infer P } } ? { [K in keyof P]: P[K] } : never> &
+  _OrEmpty<Op extends { requestBody: { content: { "application/json": infer B } } } ? B : never>
+>;
+type ToolOutput<Op> =
+  Op extends { responses: { 200: { content: { "application/json": infer R } } } } ? R :
+  Op extends { responses: { 201: { content: { "application/json": infer R } } } } ? R :
+  Op extends { responses: { 202: { content: { "application/json": infer R } } } } ? R :
+  Op extends { responses: { 204: unknown } } ? void :
+  Op extends { responses: { 205: unknown } } ? void :
+  unknown;
+`;
+
+function stripExportKeywordsForTypechecker(dts: string): string {
+  // openapi-typescript emits `export interface ...`; for our single-file checker
+  // we want ambient-like declarations in script scope.
+  return dts.replace(/\bexport\s+/g, "").trim();
+}
+
+export interface GenerateToolDeclarationOptions {
+  sourceDtsBySource?: Record<string, string>;
+}
+
 /**
  * Build a `declare const tools: { ... }` block from flat tool descriptors.
  *
@@ -29,7 +99,10 @@ import type { ToolDescriptor } from "./types";
  * Tool paths like "math.add" or "admin.send_announcement" are split on "."
  * and nested into a type tree.
  */
-export function generateToolDeclarations(tools: ToolDescriptor[]): string {
+export function generateToolDeclarations(
+  tools: ToolDescriptor[],
+  options?: GenerateToolDeclarationOptions,
+): string {
 
   // Legacy compat: collect schemaTypes from tools that use the old format
   const allSchemas = new Map<string, string>();
@@ -50,6 +123,7 @@ export function generateToolDeclarations(tools: ToolDescriptor[]): string {
   }
 
   const root: TreeNode = { children: new Map() };
+  const dtsSources = new Set(Object.keys(options?.sourceDtsBySource ?? {}));
 
   for (const tool of tools) {
     const segments = tool.path.split(".");
@@ -73,9 +147,18 @@ export function generateToolDeclarations(tools: ToolDescriptor[]): string {
     for (const [key, child] of node.children) {
       if (child.tool) {
         const tool = child.tool;
-        const args = tool.argsType || "Record<string, unknown>";
-        const returns = tool.returnsType || "unknown";
-        lines.push(`${pad}${key}(input: ${args}): Promise<${returns}>;`);
+        if (tool.operationId && tool.source && dtsSources.has(tool.source)) {
+          const opKey = JSON.stringify(tool.operationId);
+          lines.push(`${pad}${key}(input: ToolInput<operations[${opKey}]>): Promise<ToolOutput<operations[${opKey}]>>;`);
+        } else {
+          const hasArgsType = Boolean(tool.argsType?.trim());
+          const args = safeTypeExpression(tool.argsType, "Record<string, unknown>");
+          const returns = safeTypeExpression(tool.returnsType, "unknown");
+          const inputParam = !hasArgsType || args === "{}"
+            ? `input?: ${args}`
+            : `input: ${args}`;
+          lines.push(`${pad}${key}(${inputParam}): Promise<${returns}>;`);
+        }
       } else {
         lines.push(`${pad}${key}: {`);
         lines.push(renderNode(child, indent + 1));
@@ -96,6 +179,17 @@ export function generateToolDeclarations(tools: ToolDescriptor[]): string {
     }
   }
 
+  const sourceDtsBySource = options?.sourceDtsBySource ?? {};
+  const dtsEntries = Object.entries(sourceDtsBySource)
+    .filter(([, dts]) => typeof dts === "string" && dts.trim().length > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (dtsEntries.length > 0) {
+    parts.push(OPENAPI_HELPER_TYPES);
+    for (const [sourceKey, dts] of dtsEntries) {
+      parts.push(`// OpenAPI types from ${sourceKey}\n${stripExportKeywordsForTypechecker(dts)}`);
+    }
+  }
+
   // The tools declaration
   parts.push(`declare const tools: {\n${renderNode(root, 1)}\n};`);
 
@@ -109,14 +203,33 @@ export function generateToolDeclarations(tools: ToolDescriptor[]): string {
 export function generateToolInventory(tools: ToolDescriptor[]): string {
   if (!tools || tools.length === 0) return "";
 
-  const lines = tools.map((t) => {
-    const args = t.argsType || "Record<string, unknown>";
-    const returns = t.returnsType || "unknown";
-    const approval = t.approval === "required" ? " [approval required]" : "";
-    return `  tools.${t.path}(input: ${args}): Promise<${returns}>${approval}\n    ${t.description}`;
-  });
+  const namespaceCounts = new Map<string, number>();
+  for (const tool of tools) {
+    const topLevel = tool.path.split(".")[0] || tool.path;
+    namespaceCounts.set(topLevel, (namespaceCounts.get(topLevel) ?? 0) + 1);
+  }
 
-  return `\nAvailable tools in the sandbox:\n${lines.join("\n\n")}`;
+  const namespaces = [...namespaceCounts.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, count]) => `${name} (${count})`);
+
+  const examples = tools
+    .filter((tool) => tool.path !== "discover")
+    .slice(0, 8)
+    .map((tool) => `  - tools.${tool.path}(...)`);
+
+  return [
+    "",
+    "You have access to these tool namespaces:",
+    `  ${namespaces.join(", ")}`,
+    "",
+    "Use `tools.discover({ query, depth?, limit? })` first to find the exact callable tool paths relevant to the user request.",
+    "Never shadow the global `tools` object (do NOT write `const tools = ...`).",
+    "Then call tools directly using the returned path.",
+    ...(examples.length > 0
+      ? ["", "Example callable paths:", ...examples]
+      : []),
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------

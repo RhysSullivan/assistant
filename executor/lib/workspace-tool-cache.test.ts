@@ -269,6 +269,95 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     expect(restored[0]!.runSpec.kind).toBe("mcp");
   });
 
+  test("GraphQL raw and field tools survive cache round-trip", async () => {
+    const graphqlTools: ToolDefinition[] = [
+      {
+        path: "linear.graphql",
+        description: "Execute GraphQL",
+        approval: "auto",
+        source: "graphql:linear",
+        metadata: {
+          argsType: "{ query: string; variables?: Record<string, unknown> }",
+          returnsType: "unknown",
+        },
+        _runSpec: {
+          kind: "graphql_raw" as const,
+          endpoint: "https://linear.example/graphql",
+          authHeaders: {},
+        },
+        run: async () => ({ ok: true }),
+      },
+      {
+        path: "linear.query.teams",
+        description: "List teams",
+        approval: "auto",
+        source: "graphql:linear",
+        metadata: {
+          argsType: "{}",
+          returnsType: "unknown",
+        },
+        _pseudoTool: true,
+        _runSpec: {
+          kind: "graphql_field" as const,
+          endpoint: "https://linear.example/graphql",
+          operationName: "teams",
+          operationType: "query" as const,
+          queryTemplate: "query teams { teams { nodes { id name } } }",
+          authHeaders: {},
+        },
+        run: async () => ({ ok: true }),
+      },
+    ];
+
+    const serialized = serializeTools(graphqlTools);
+    expect(serialized[0]!.runSpec.kind).toBe("graphql_raw");
+    expect(serialized[1]!.runSpec.kind).toBe("graphql_field");
+
+    const restored = JSON.parse(JSON.stringify(serialized)) as SerializedTool[];
+    const rehydrated = rehydrateTools(restored, makeBaseTools());
+
+    const rawTool = rehydrated.find((tool) => tool.path === "linear.graphql");
+    const teamsTool = rehydrated.find((tool) => tool.path === "linear.query.teams");
+    expect(rawTool).toBeDefined();
+    expect(teamsTool).toBeDefined();
+
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ query: string; variables: unknown }> = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { query?: string; variables?: unknown };
+      calls.push({ query: body.query ?? "", variables: body.variables });
+
+      if ((body.query ?? "").includes("teams")) {
+        return new Response(JSON.stringify({ data: { teams: [{ id: "team_1", name: "Core" }] } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ data: { viewer: { id: "user_1" } } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const rawResult = await rawTool!.run(
+        { query: "query viewer { viewer { id } }" },
+        { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+      );
+      const teamsResult = await teamsTool!.run(
+        {},
+        { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+      );
+
+      expect(rawResult).toEqual({ viewer: { id: "user_1" } });
+      expect(teamsResult).toEqual([{ id: "team_1", name: "Core" }]);
+      expect(calls.length).toBe(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("full WorkspaceToolSnapshot round-trip", async () => {
     const prepared = await prepareOpenApiSpec(SMALL_SPEC, "widgets");
     const tools = buildOpenApiToolsFromPrepared(

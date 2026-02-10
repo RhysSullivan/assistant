@@ -9,6 +9,10 @@ const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("acto
 const credentialProviderValidator = v.union(v.literal("managed"), v.literal("workos-vault"));
 const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
 
+function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
+  return account.provider === "anonymous" ? account.providerAccountId : account._id;
+}
+
 function redactCredential<T extends { secretJson: Record<string, unknown> }>(credential: T): T {
   return {
     ...credential,
@@ -27,6 +31,16 @@ export const listRuntimeTargets = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.runQuery(internal.database.listRuntimeTargets, {});
+  },
+});
+
+export const getRequestContext = workspaceQuery({
+  args: {},
+  handler: async (ctx) => {
+    return {
+      workspaceId: ctx.workspaceId,
+      actorId: actorIdForAccount(ctx.account as { _id: string; provider: string; providerAccountId: string }),
+    };
   },
 });
 

@@ -27,6 +27,12 @@ Terminal 2:
 bun run dev:web
 ```
 
+Optional Terminal 3 (stateful MCP gateway for elicitation/sampling over Streamable HTTP):
+
+```bash
+bun run dev:mcp-gateway
+```
+
 ## Tests
 
 ```bash
@@ -36,6 +42,8 @@ bun test convex/database.test.ts convex/executor-mcp.e2e.test.ts
 ## Notes
 
 - MCP endpoint is served by Convex HTTP routes at `/mcp`.
+- For a long-lived stateful MCP transport (recommended for elicitation in multi-worker environments), run the gateway at `http://localhost:3003/mcp`.
+- Local gateway auth is optional by default; set `MCP_GATEWAY_REQUIRE_AUTH=1` to enforce MCP OAuth on the gateway.
 - Set `MCP_AUTHORIZATION_SERVER` (or `MCP_AUTHORIZATION_SERVER_URL`) to enable MCP OAuth bearer-token verification.
 - When MCP OAuth is enabled, the server exposes `/.well-known/oauth-protected-resource` and proxies `/.well-known/oauth-authorization-server`.
 - Internal runtime callback routes are served by Convex HTTP routes at `/internal/runs/:runId/*`.

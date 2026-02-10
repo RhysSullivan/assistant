@@ -425,6 +425,60 @@ describe("buildOpenApiToolsFromPrepared", () => {
     expect(tool!.metadata?.returnsType).not.toBe("unknown");
   });
 
+  test("quotes non-identifier parameter names in args type hints", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Header names", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      paths: {
+        "/meta": {
+          get: {
+            operationId: "meta/get",
+            tags: ["meta"],
+            parameters: [
+              {
+                name: "X-GitHub-Api-Version",
+                in: "header",
+                required: false,
+                schema: { type: "string" },
+              },
+            ],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        ver: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "headers");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "github",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "meta/get");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.argsType).toContain('"X-GitHub-Api-Version"?: string');
+  });
+
   test("resolves OpenAPI component schema refs for return type hints", async () => {
     const spec: Record<string, unknown> = {
       openapi: "3.0.3",

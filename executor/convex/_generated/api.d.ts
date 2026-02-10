@@ -20,6 +20,14 @@ import type { GenericId as Id } from "convex/values";
  * ```
  */
 export declare const api: {
+  accounts: {
+    deleteCurrentAccount: FunctionReference<
+      "mutation",
+      "public",
+      { sessionId?: string },
+      any
+    >;
+  };
   app: {
     getClientConfig: FunctionReference<"query", "public", {}, any>;
     getCurrentAccount: FunctionReference<
@@ -285,6 +293,12 @@ export declare const api: {
       "mutation",
       "public",
       { sessionId?: string; sourceId: string; workspaceId: string },
+      any
+    >;
+    getRequestContext: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: string },
       any
     >;
     getTask: FunctionReference<

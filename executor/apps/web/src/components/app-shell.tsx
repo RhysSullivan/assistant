@@ -399,11 +399,25 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
 }
 
 function SessionInfo() {
-  const { loading, clientConfig, isSignedInToWorkos, workosProfile, context, workspaces } = useSession();
+  const {
+    loading,
+    clientConfig,
+    isSignedInToWorkos,
+    workosProfile,
+    context,
+    workspaces,
+    resetWorkspace,
+  } = useSession();
   const searchParams = useSearchParams();
+  const deleteCurrentAccountMutation = useMutation(convexApi.accounts.deleteCurrentAccount);
+  const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const avatarUrl = workosProfile?.avatarUrl ?? null;
   const avatarLabel = workosProfile?.name || workosProfile?.email || "User";
   const avatarInitial = (avatarLabel[0] ?? "U").toUpperCase();
+  const canDeleteAccount = deleteConfirmText === "DELETE";
 
   const activeWorkspace = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)
@@ -430,6 +444,27 @@ function SessionInfo() {
   }
   const signInHref = signInParams.size > 0 ? `/sign-in?${signInParams.toString()}` : "/sign-in";
 
+  const handleDeleteAccount = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canDeleteAccount || deletingAccount) {
+      return;
+    }
+
+    setDeletingAccount(true);
+    setDeleteError(null);
+    try {
+      await deleteCurrentAccountMutation({
+        sessionId: context?.sessionId ?? undefined,
+      });
+      await resetWorkspace();
+      window.location.assign(workosEnabled ? "/sign-out" : "/");
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Failed to delete account";
+      setDeleteError(message);
+      setDeletingAccount(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="border-t border-border px-3 py-2">
@@ -441,44 +476,113 @@ function SessionInfo() {
   return (
     <div className="border-t border-border">
         {isSignedInToWorkos ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                className="h-14 w-full justify-between rounded-none border-0 bg-transparent px-3 py-0 text-left shadow-none hover:bg-accent/40"
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt={avatarLabel}
-                      className="h-6 w-6 rounded-full border border-border object-cover"
-                    />
-                  ) : (
-                    <span className="h-6 w-6 rounded-full border border-border bg-muted text-[10px] font-mono text-muted-foreground flex items-center justify-center">
-                      {avatarInitial}
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="h-14 w-full justify-between rounded-none border-0 bg-transparent px-3 py-0 text-left shadow-none hover:bg-accent/40"
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt={avatarLabel}
+                        className="h-6 w-6 rounded-full border border-border object-cover"
+                      />
+                    ) : (
+                      <span className="h-6 w-6 rounded-full border border-border bg-muted text-[10px] font-mono text-muted-foreground flex items-center justify-center">
+                        {avatarInitial}
+                      </span>
+                    )}
+                    <span className="min-w-0">
+                      <span className="text-[11px] font-medium truncate block">{avatarLabel}</span>
+                      {workosProfile?.email ? (
+                        <span className="text-[10px] text-muted-foreground truncate block">{workosProfile.email}</span>
+                      ) : null}
                     </span>
-                  )}
-                  <span className="min-w-0">
-                    <span className="text-[11px] font-medium truncate block">{avatarLabel}</span>
-                    {workosProfile?.email ? (
-                      <span className="text-[10px] text-muted-foreground truncate block">{workosProfile.email}</span>
-                    ) : null}
                   </span>
-                </span>
-                <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuLabel className="text-xs">
-                Account
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild className="text-xs">
-                <Link href="/sign-out">Sign out</Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="text-xs">
+                  Account
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-xs"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setDeleteConfirmText("");
+                    setDeleteError(null);
+                    setAccountSettingsOpen(true);
+                  }}
+                >
+                  Account Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className="text-xs">
+                  <Link href="/sign-out">Sign out</Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Dialog
+              open={accountSettingsOpen}
+              onOpenChange={(open) => {
+                setAccountSettingsOpen(open);
+                if (!open) {
+                  setDeleteConfirmText("");
+                  setDeleteError(null);
+                  setDeletingAccount(false);
+                }
+              }}
+            >
+              <DialogContent className="sm:max-w-md">
+                <form className="space-y-4" onSubmit={handleDeleteAccount}>
+                  <DialogHeader>
+                    <DialogTitle>Account Settings</DialogTitle>
+                    <DialogDescription>
+                      Deleting your account will remove organizations, workspaces, and data you created.
+                      This cannot be undone.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-2">
+                    <label htmlFor="delete-account-confirm" className="text-xs font-medium text-foreground">
+                      Type DELETE to confirm
+                    </label>
+                    <Input
+                      id="delete-account-confirm"
+                      value={deleteConfirmText}
+                      onChange={(event) => setDeleteConfirmText(event.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    {deleteError ? (
+                      <p className="text-xs text-destructive">{deleteError}</p>
+                    ) : null}
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setAccountSettingsOpen(false)}
+                      disabled={deletingAccount}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="destructive"
+                      disabled={!canDeleteAccount || deletingAccount}
+                    >
+                      {deletingAccount ? "Deleting..." : "Delete account"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
         ) : (
           <div className="px-3 py-3 space-y-2">
             {workosEnabled ? (

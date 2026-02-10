@@ -41,6 +41,10 @@ function resolveMcpOrigin(windowOrigin: string): string {
   return windowOrigin;
 }
 
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
+}
+
 export function McpSetupCard({
   workspaceId,
   actorId,
@@ -52,11 +56,25 @@ export function McpSetupCard({
 }) {
   const [selectedProviderId, setSelectedProviderId] = useState(MCP_PROVIDERS[0]?.id ?? "claude-code");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [urlMode, setUrlMode] = useState<"default" | "local">(() => {
+    if (typeof window === "undefined") {
+      return "default";
+    }
+    return isLocalHostname(window.location.hostname) ? "local" : "default";
+  });
 
-  const origin = useMemo(() => {
+  const defaultOrigin = useMemo(() => {
     if (typeof window === "undefined") return "";
     return resolveMcpOrigin(window.location.origin);
   }, []);
+
+  const showLocalGatewayOption = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return isLocalHostname(window.location.hostname);
+  }, []);
+
+  const localGatewayOrigin = (process.env.NEXT_PUBLIC_LOCAL_MCP_ORIGIN ?? "http://localhost:3003").trim().replace(/\/$/, "");
+  const origin = urlMode === "local" ? localGatewayOrigin : defaultOrigin;
 
   const mcpUrl = useMemo(() => {
     const base = origin ? new URL("/mcp", origin) : new URL("http://localhost/mcp");
@@ -94,6 +112,19 @@ export function McpSetupCard({
     <div className="space-y-5">
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">MCP Server URL</Label>
+        {showLocalGatewayOption ? (
+          <div className="space-y-1.5">
+            <Select value={urlMode} onValueChange={(value) => setUrlMode(value as "default" | "local")}>
+              <SelectTrigger className="h-8 text-xs bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local" className="text-xs">Local gateway (localhost:3003)</SelectItem>
+                <SelectItem value="default" className="text-xs">Hosted endpoint</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
           <Input value={mcpUrl} readOnly className="h-8 text-xs font-mono bg-background" />
           <Button

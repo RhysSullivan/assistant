@@ -25,6 +25,9 @@ interface McpExecutorService {
   subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;
   listTools(context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
+  listToolsForTypecheck?(
+    context: { workspaceId: string; actorId?: string; clientId?: string },
+  ): Promise<{ tools: ToolDescriptor[]; dtsUrls: Record<string, string> }>;
   listPendingApprovals?(workspaceId: string): Promise<PendingApprovalRecord[]>;
   resolveApproval?(input: {
     workspaceId: string;
@@ -71,6 +74,57 @@ function asCodeBlock(language: string, value: string): string {
 
 function textContent(text: string): { type: "text"; text: string } {
   return { type: "text", text };
+}
+
+function listTopLevelToolKeys(tools: ToolDescriptor[]): string[] {
+  const keys = new Set<string>();
+  for (const tool of tools) {
+    const first = tool.path.split(".")[0];
+    if (first) keys.add(first);
+  }
+  return [...keys].sort();
+}
+
+const dtsUrlCache = new Map<string, Promise<string | null>>();
+
+async function loadSourceDtsByUrl(dtsUrls: Record<string, string>): Promise<Record<string, string>> {
+  const entries = Object.entries(dtsUrls);
+  if (entries.length === 0) {
+    return {};
+  }
+
+  const results = await Promise.all(entries.map(async ([sourceKey, url]) => {
+    if (!url) return [sourceKey, null] as const;
+
+    if (!dtsUrlCache.has(url)) {
+      dtsUrlCache.set(url, (async () => {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            console.warn(`[executor] failed to fetch source .d.ts from ${url}: HTTP ${response.status}`);
+            return null;
+          }
+          return await response.text();
+        } catch (error) {
+          console.warn(
+            `[executor] failed to fetch source .d.ts from ${url}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return null;
+        }
+      })());
+    }
+
+    const content = await dtsUrlCache.get(url)!;
+    return [sourceKey, content] as const;
+  }));
+
+  const sourceDtsBySource: Record<string, string> = {};
+  for (const [sourceKey, dts] of results) {
+    if (dts) {
+      sourceDtsBySource[sourceKey] = dts;
+    }
+  }
+  return sourceDtsBySource;
 }
 
 function summarizeTask(task: TaskRecord): string {
@@ -223,8 +277,97 @@ function waitForTerminalTask(
 function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
   const base =
     "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns stdout/stderr. Code is typechecked before execution — type errors are returned without running.";
+  const toolList = tools ?? [];
+  const topLevelKeys = listTopLevelToolKeys(toolList);
+  const rootKeysNote = topLevelKeys.length > 0
+    ? `\n\nTop-level tool keys: ${topLevelKeys.join(", ")}`
+    : "";
+  const discoverNote = "\n\nTip: use `tools.discover({ query, depth?, limit? })` to find exact callable tool paths before invoking them. Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
 
-  return base + generateToolInventory(tools ?? []);
+  return base + rootKeysNote + discoverNote + generateToolInventory(toolList);
+}
+
+function formatApprovalInput(input: unknown, maxLength = 2000): string {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(input ?? {}, null, 2);
+  } catch {
+    serialized = String(input);
+  }
+
+  if (serialized.length <= maxLength) {
+    return serialized;
+  }
+
+  return `${serialized.slice(0, maxLength)}\n... [truncated ${serialized.length - maxLength} chars]`;
+}
+
+function buildApprovalPromptMessage(approval: PendingApprovalRecord): string {
+  const lines = [
+    "Approval required before tool execution can continue.",
+    `Tool: ${approval.toolPath}`,
+    `Task: ${approval.taskId}`,
+    `Runtime: ${approval.task.runtimeId}`,
+    "",
+    "Tool input:",
+    "```json",
+    formatApprovalInput(approval.input),
+    "```",
+  ];
+
+  return lines.join("\n");
+}
+
+function createMcpApprovalPrompt(mcp: McpServer): ApprovalPrompt {
+  return async (approval) => {
+    const response = await mcp.server.elicitInput({
+      mode: "form",
+      message: buildApprovalPromptMessage(approval),
+      requestedSchema: {
+        type: "object",
+        properties: {
+          decision: {
+            type: "string",
+            title: "Approval decision",
+            description: "Approve or deny this tool call",
+            oneOf: [
+              { const: "approved", title: "Approve tool call" },
+              { const: "denied", title: "Deny tool call" },
+            ],
+            default: "approved",
+          },
+          reason: {
+            type: "string",
+            title: "Reason (optional)",
+            description: "Optional note recorded with your decision",
+            maxLength: 500,
+          },
+        },
+        required: ["decision"],
+      },
+    }, { timeout: 15_000 }) as {
+      action: "accept" | "decline" | "cancel";
+      content?: Record<string, unknown>;
+    };
+
+    if (response.action !== "accept") {
+      return {
+        decision: "denied",
+        reason: response.action === "decline"
+          ? "User explicitly declined approval"
+          : "User canceled approval prompt",
+      };
+    }
+
+    const selectedDecision = response.content?.decision;
+    const decision = selectedDecision === "approved" ? "approved" : "denied";
+    const selectedReason = response.content?.reason;
+    const reason = typeof selectedReason === "string" && selectedReason.trim().length > 0
+      ? selectedReason
+      : undefined;
+
+    return { decision, reason };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -271,20 +414,52 @@ function createRunCodeTool(
       };
     }
 
-    // Typecheck code before execution — get tool inventory for declarations
-    const toolsForContext = await service.listTools({
-      workspaceId: context.workspaceId,
-      actorId: context.actorId,
-      clientId: context.clientId,
+    // Typecheck code before execution — align with Monaco by loading source .d.ts
+    // for OpenAPI tools when available.
+    let toolsForContext: ToolDescriptor[];
+    let sourceDtsBySource: Record<string, string> = {};
+    if (service.listToolsForTypecheck) {
+      const { tools, dtsUrls } = await service.listToolsForTypecheck({
+        workspaceId: context.workspaceId,
+        actorId: context.actorId,
+        clientId: context.clientId,
+      });
+      toolsForContext = tools;
+      sourceDtsBySource = await loadSourceDtsByUrl(dtsUrls ?? {});
+    } else {
+      toolsForContext = await service.listTools({
+        workspaceId: context.workspaceId,
+        actorId: context.actorId,
+        clientId: context.clientId,
+      });
+    }
+
+    const declarations = generateToolDeclarations(toolsForContext, {
+      sourceDtsBySource,
     });
-    const declarations = generateToolDeclarations(toolsForContext);
     const typecheck = typecheckCode(input.code, declarations);
 
     if (!typecheck.ok) {
+      const topLevelKeys = listTopLevelToolKeys(toolsForContext);
+      const toolsShadowingError = typecheck.errors.some((error) =>
+        error.includes("Block-scoped variable 'tools' used before its declaration")
+        || error.includes("'tools' implicitly has type 'any'"),
+      );
+
+      const hintLines: string[] = [];
+      if (toolsShadowingError) {
+        hintLines.push("Hint: avoid declaring a local variable named `tools`.");
+        hintLines.push("Example: `const discovered = await tools.discover({ query: \"github issues\" });`");
+      }
+      if (topLevelKeys.length > 0) {
+        hintLines.push(`Available top-level tool keys: ${topLevelKeys.join(", ")}`);
+      }
+
       const errorText = [
         "TypeScript type errors in generated code:",
         "",
         ...typecheck.errors.map((e) => `  ${e}`),
+        ...(hintLines.length > 0 ? ["", ...hintLines] : []),
         "",
         "Fix the type errors and try again.",
       ].join("\n");
@@ -403,6 +578,7 @@ async function createMcpServer(
     { name: "executor", version: "0.1.0" },
     { capabilities: { tools: {} } },
   );
+  const onApprovalPrompt = createMcpApprovalPrompt(mcp);
 
   // If workspace context is provided, fetch tool inventory for richer description
   let tools: ToolDescriptor[] | undefined;
@@ -420,17 +596,41 @@ async function createMcpServer(
       description: buildRunCodeDescription(tools),
       inputSchema: context ? BOUND_INPUT : FULL_INPUT,
     },
-    createRunCodeTool(service, context),
+    createRunCodeTool(service, context, onApprovalPrompt),
   );
 
   return mcp;
 }
 
-// ---------------------------------------------------------------------------
-// Request handler
-// ---------------------------------------------------------------------------
+function createDelegatingService(ref: { current: McpExecutorService }): McpExecutorService {
+  return {
+    createTask: async (input) => await ref.current.createTask(input),
+    getTask: async (taskId, workspaceId) => await ref.current.getTask(taskId, workspaceId),
+    subscribe: (taskId, listener) => ref.current.subscribe(taskId, listener),
+    bootstrapAnonymousContext: async (sessionId) => await ref.current.bootstrapAnonymousContext(sessionId),
+    listTools: async (context) => await ref.current.listTools(context),
+    listToolsForTypecheck: ref.current.listToolsForTypecheck
+      ? async (context) => await ref.current.listToolsForTypecheck!(context)
+      : undefined,
+    listPendingApprovals: ref.current.listPendingApprovals
+      ? async (workspaceId) => await ref.current.listPendingApprovals!(workspaceId)
+      : undefined,
+    resolveApproval: ref.current.resolveApproval
+      ? async (input) => await ref.current.resolveApproval!(input)
+      : undefined,
+  };
+}
 
-export async function handleMcpRequest(
+const mcpSessionRuntimes = new Map<
+  string,
+  {
+    transport: WebStandardStreamableHTTPServerTransport;
+    mcp: McpServer;
+    serviceRef: { current: McpExecutorService };
+  }
+>();
+
+async function handleStatelessMcpRequest(
   service: McpExecutorService,
   request: Request,
   context?: McpWorkspaceContext,
@@ -447,5 +647,76 @@ export async function handleMcpRequest(
   } finally {
     await transport.close().catch(() => {});
     await mcp.close().catch(() => {});
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Request handler
+// ---------------------------------------------------------------------------
+
+export async function handleMcpRequest(
+  service: McpExecutorService,
+  request: Request,
+  context?: McpWorkspaceContext,
+): Promise<Response> {
+  const runtimeSessionId = request.headers.get("mcp-session-id") ?? undefined;
+
+  if (runtimeSessionId) {
+    const runtime = mcpSessionRuntimes.get(runtimeSessionId);
+    if (runtime) {
+      runtime.serviceRef.current = service;
+      return await runtime.transport.handleRequest(request);
+    }
+
+    const headers = new Headers(request.headers);
+    headers.delete("mcp-session-id");
+    const requestWithoutSession = new Request(request, { headers });
+    return await handleStatelessMcpRequest(service, requestWithoutSession, context);
+  }
+
+  const serviceRef = { current: service };
+  const delegatingService = createDelegatingService(serviceRef);
+  const mcp = await createMcpServer(delegatingService, context);
+
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+    enableJsonResponse: true,
+    onsessioninitialized: (sessionId) => {
+      mcpSessionRuntimes.set(sessionId, {
+        transport,
+        mcp,
+        serviceRef,
+      });
+    },
+    onsessionclosed: async (sessionId) => {
+      if (!sessionId) {
+        return;
+      }
+
+      const runtime = mcpSessionRuntimes.get(sessionId);
+      if (!runtime) {
+        return;
+      }
+
+      mcpSessionRuntimes.delete(sessionId);
+      await runtime.mcp.close().catch(() => {});
+    },
+  });
+
+  try {
+    await mcp.connect(transport);
+    const response = await transport.handleRequest(request);
+
+    const initializedSessionId = response.headers.get("mcp-session-id") ?? undefined;
+    if (!initializedSessionId) {
+      await transport.close().catch(() => {});
+      await mcp.close().catch(() => {});
+    }
+
+    return response;
+  } catch (error) {
+    await transport.close().catch(() => {});
+    await mcp.close().catch(() => {});
+    throw error;
   }
 }

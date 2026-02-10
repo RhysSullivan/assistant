@@ -237,6 +237,32 @@ describe("real-world OpenAPI specs", () => {
   );
 
   test(
+    "github: meta/get has empty object input hint",
+    async () => {
+      const githubUrl =
+        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
+
+      const prepared = await prepareOpenApiSpec(githubUrl, "github");
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "github",
+          spec: githubUrl,
+          baseUrl: prepared.servers[0] || "https://api.github.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find((t) => t.metadata?.operationId === "meta/get");
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("github.meta.get");
+      expect(tool!.metadata!.argsType).toBe("{}");
+    },
+    300_000,
+  );
+
+  test(
     "github: all budgets for org has non-unknown return hint",
     async () => {
       const githubUrl =

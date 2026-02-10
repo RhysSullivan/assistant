@@ -57,7 +57,7 @@ function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientI
 }
 
 function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
-  const signatureVersion = "v10";
+  const signatureVersion = "v12";
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();
@@ -132,7 +132,7 @@ interface DtsStorageEntry {
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version — bump when PreparedOpenApiSpec shape changes. */
-const OPENAPI_CACHE_VERSION = "v12";
+const OPENAPI_CACHE_VERSION = "v14";
 
 async function publish(
   ctx: any,
@@ -376,6 +376,12 @@ function getDecisionForContext(
   context: { workspaceId: string; actorId?: string; clientId?: string },
   policies: AccessPolicyRecord[],
 ): PolicyDecision {
+  // `discover` is always available so models can find allowed tools dynamically.
+  // The discover implementation still filters returned results via context.isToolAllowed.
+  if (tool.path === "discover") {
+    return "allow";
+  }
+
   const defaultDecision: PolicyDecision = tool.approval === "required" ? "require_approval" : "allow";
   const candidates = policies
     .filter((policy) => {

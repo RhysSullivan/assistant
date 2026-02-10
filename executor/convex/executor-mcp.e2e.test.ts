@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { internal } from "./_generated/api";
 import schema from "./schema";
 
@@ -124,6 +125,68 @@ test("MCP run_code survives delayed approval and completes", async () => {
     await client.close().catch(() => {});
   }
 }, 60_000);
+
+test("MCP run_code resolves approval via real server form elicitation", async () => {
+  const t = setup();
+  const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
+  let elicitationCount = 0;
+
+  const client = new Client(
+    { name: "executor-e2e-elicitation", version: "0.0.1" },
+    { capabilities: { elicitation: { form: {} } } },
+  );
+  client.setRequestHandler(ElicitRequestSchema, async (request) => {
+    const mode = request.params.mode ?? "form";
+    if (mode !== "form") {
+      return { action: "decline" };
+    }
+
+    elicitationCount += 1;
+    return {
+      action: "accept",
+      content: {
+        decision: "approved",
+        reason: "approved via MCP form elicitation",
+      },
+    };
+  });
+
+  const transport = createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-elicitation");
+
+  try {
+    await client.connect(transport);
+
+    const runCode = client.callTool({
+      name: "run_code",
+      arguments: {
+        code: `return await tools.admin.send_announcement({ channel: "general", message: "approved by real-server elicitation" });`,
+      },
+    });
+
+    const taskId = await waitForTaskId(t, session.workspaceId);
+    const runTask = t.action(internal.executorNode.runTask, { taskId });
+
+    await runTask;
+
+    const result = (await runCode) as {
+      content: Array<{ type: string; text?: string }>;
+      isError?: boolean;
+    };
+    const text = result.content.find((item) => item.type === "text")?.text ?? "";
+
+    expect(elicitationCount).toBe(1);
+    expect(result.isError).toBeFalsy();
+    expect(text).toContain("status: completed");
+    expect(text).toContain("approved by real-server elicitation");
+
+    const approvals = await t.query(internal.database.listApprovals, { workspaceId: session.workspaceId });
+    const approval = approvals.find((item: { taskId: string }) => item.taskId === taskId);
+    expect(approval?.status).toBe("approved");
+  } finally {
+    await transport.close().catch(() => {});
+    await client.close().catch(() => {});
+  }
+}, 30_000);
 
 test("MCP run_code returns denied after approval denial", async () => {
   const t = setup();

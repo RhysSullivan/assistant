@@ -394,6 +394,15 @@ function responseTypeHintFromSchema(
   return "unknown";
 }
 
+function formatTsPropertyKey(key: string): string {
+  // Keep simple identifiers unquoted for readability.
+  // Quote keys with dashes/spaces or other punctuation (e.g. headers).
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) {
+    return key;
+  }
+  return JSON.stringify(key);
+}
+
 /** Depth-limited + cycle-safe type hint generator for schemas (used as fallback). */
 function jsonSchemaTypeHintFallback(
   schema: unknown,
@@ -477,7 +486,7 @@ function jsonSchemaTypeHintFallback(
     }
     const inner = propEntries
       .slice(0, 12)
-      .map(([key, value]) => `${key}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHintFallback(value, depth + 1, componentSchemas, seenRefs)}`)
+      .map(([key, value]) => `${formatTsPropertyKey(key)}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHintFallback(value, depth + 1, componentSchemas, seenRefs)}`)
       .join("; ");
     return `{ ${inner} }`;
   }
@@ -771,19 +780,20 @@ function compactOpenApiPaths(
 
         if (hasGeneratedTypes) {
           // Pre-compute lightweight type hint strings (the full schemas are in the .d.ts)
+          const mergedParameters = normalizeParameters(operation.parameters).concat(sharedParameters);
+          const hasInputSchema =
+            mergedParameters.length > 0 || Object.keys(requestBodySchema).length > 0;
           const combinedSchema: JsonSchema = {
             type: "object",
             properties: {
               ...Object.fromEntries(
-                normalizeParameters(operation.parameters)
-                  .concat(sharedParameters)
+                mergedParameters
                   .map((param) => [param.name, param.schema]),
               ),
               ...asRecord(requestBodySchema.properties),
             },
             required: [
-              ...normalizeParameters(operation.parameters)
-                .concat(sharedParameters)
+              ...mergedParameters
                 .filter((param) => param.required)
                 .map((param) => param.name as string),
               ...((Array.isArray(requestBodySchema.required)
@@ -791,7 +801,9 @@ function compactOpenApiPaths(
                 : []) as string[]),
             ],
           };
-          compactOperation._argsTypeHint = jsonSchemaTypeHintFallback(combinedSchema, 0, compSchemas);
+          compactOperation._argsTypeHint = hasInputSchema
+            ? jsonSchemaTypeHintFallback(combinedSchema, 0, compSchemas)
+            : "{}";
           compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
         } else {
           // Keep full schemas for the fallback path
@@ -998,7 +1010,9 @@ export function buildOpenApiToolsFromPrepared(
           ],
         };
 
-        argsType = jsonSchemaTypeHintFallback(combinedSchema);
+        const hasInputSchema = parameters.length > 0 || Object.keys(requestBodySchema).length > 0;
+
+        argsType = hasInputSchema ? jsonSchemaTypeHintFallback(combinedSchema) : "{}";
         returnsType = responseTypeHintFromSchema(responseSchema, responseStatus);
       }
 
@@ -1363,6 +1377,11 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
     credential: credentialSpec,
     // Tag as graphql source so invokeTool knows to do dynamic path extraction
     _graphqlSource: config.name,
+    _runSpec: {
+      kind: "graphql_raw" as const,
+      endpoint: config.endpoint,
+      authHeaders,
+    },
     run: async (input: unknown, context) => {
       const payload = asRecord(input);
       const query = String(payload.query ?? "");
@@ -1432,6 +1451,14 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
         metadata: {
           argsType: gqlFieldArgsTypeHint(field.args, typeMap),
           returnsType: gqlTypeToHint(field.type, typeMap),
+        },
+        _runSpec: {
+          kind: "graphql_field" as const,
+          endpoint: config.endpoint,
+          operationName: field.name,
+          operationType,
+          queryTemplate: exampleQuery,
+          authHeaders,
         },
         // Pseudo-tools don't have a run — they exist for discovery and policy matching only
         _pseudoTool: true,
@@ -1518,7 +1545,9 @@ export interface SerializedTool {
    * Data needed to reconstruct `run()`. Shape depends on source type.
    * OpenAPI: { kind: "openapi", baseUrl, method, pathTemplate, parameters, authHeaders }
    * MCP: { kind: "mcp", url, transport?, queryParams?, toolName }
-   * GraphQL: { kind: "graphql", endpoint, operationName, operationType, auth? }
+   * GraphQL raw: { kind: "graphql_raw", endpoint, authHeaders }
+   * GraphQL field: { kind: "graphql_field", endpoint, operationName, operationType, queryTemplate, authHeaders }
+   * GraphQL (legacy compat): { kind: "graphql", endpoint, operationName, operationType, authHeaders }
    * Builtin: { kind: "builtin" } — run comes from DEFAULT_TOOLS
    */
   runSpec:
@@ -1536,6 +1565,19 @@ export interface SerializedTool {
         transport?: "sse" | "streamable-http";
         queryParams?: Record<string, string>;
         toolName: string;
+      }
+    | {
+        kind: "graphql_raw";
+        endpoint: string;
+        authHeaders: Record<string, string>;
+      }
+    | {
+        kind: "graphql_field";
+        endpoint: string;
+        operationName: string;
+        operationType: "query" | "mutation";
+        queryTemplate: string;
+        authHeaders: Record<string, string>;
       }
     | {
         kind: "graphql";
@@ -1588,6 +1630,36 @@ export function rehydrateTools(
   >();
 
   const readMethods = new Set(["get", "head", "options"]);
+
+  async function executeGraphql(
+    endpoint: string,
+    authHeaders: Record<string, string>,
+    query: string,
+    variables: unknown,
+    context: { credential?: { headers: Record<string, string> } },
+  ): Promise<unknown> {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...authHeaders,
+        ...(context.credential?.headers ?? {}),
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`GraphQL HTTP ${response.status}: ${text.slice(0, 500)}`);
+    }
+
+    const result = await response.json() as { data?: unknown; errors?: unknown[] };
+    if (result.errors && (!result.data || Object.keys(result.data as object).length === 0)) {
+      throw new Error(`GraphQL errors: ${JSON.stringify(result.errors).slice(0, 1000)}`);
+    }
+    if (result.errors) return result;
+    return result.data;
+  }
 
   return serialized.map((st) => {
     const base: Omit<ToolDefinition, "run"> = {
@@ -1676,29 +1748,62 @@ export function rehydrateTools(
       };
     }
 
-    if (st.runSpec.kind === "graphql") {
-      const { endpoint, operationName, operationType, authHeaders } = st.runSpec;
+    if (st.runSpec.kind === "graphql_raw") {
+      const { endpoint, authHeaders } = st.runSpec;
       return {
         ...base,
         run: async (input: unknown, context) => {
           const payload = asRecord(input);
-          const query = `${operationType} ${operationName}($input: JSON) { ${operationName}(input: $input) }`;
-          const response = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              ...authHeaders,
-              ...(context.credential?.headers ?? {}),
-            },
-            body: JSON.stringify({ query, variables: { input: payload } }),
-          });
-          if (!response.ok) {
-            const text = await response.text().catch(() => "");
-            throw new Error(`GraphQL HTTP ${response.status}: ${text.slice(0, 500)}`);
+          const query = typeof payload.query === "string" ? payload.query : "";
+          if (!query.trim()) {
+            throw new Error("GraphQL query string is required");
           }
-          const json = await response.json() as Record<string, unknown>;
-          if (json.errors) throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
-          return (json.data as Record<string, unknown>)?.[operationName];
+          const variables = payload.variables;
+          return await executeGraphql(endpoint, authHeaders, query, variables, context);
+        },
+      };
+    }
+
+    if (st.runSpec.kind === "graphql_field") {
+      const { endpoint, operationName, queryTemplate, authHeaders } = st.runSpec;
+      return {
+        ...base,
+        run: async (input: unknown, context) => {
+          const payload = asRecord(input);
+          const hasExplicitQuery = typeof payload.query === "string" && payload.query.trim().length > 0;
+          const query = hasExplicitQuery ? String(payload.query) : queryTemplate;
+
+          let variables = payload.variables;
+          if (variables === undefined && !hasExplicitQuery) {
+            const variablePayload: Record<string, unknown> = { ...payload };
+            delete variablePayload.query;
+            delete variablePayload.variables;
+            variables = Object.keys(variablePayload).length > 0 ? variablePayload : undefined;
+          }
+
+          const result = await executeGraphql(endpoint, authHeaders, query, variables, context);
+          if (result && typeof result === "object") {
+            return (result as Record<string, unknown>)[operationName];
+          }
+          return result;
+        },
+      };
+    }
+
+    if (st.runSpec.kind === "graphql") {
+      // Legacy compat for older cached entries.
+      const { endpoint, operationName, operationType, authHeaders } = st.runSpec;
+      const queryTemplate = `${operationType} ${operationName}($input: JSON) { ${operationName}(input: $input) }`;
+      return {
+        ...base,
+        run: async (input: unknown, context) => {
+          const payload = asRecord(input);
+          const variables = payload.variables ?? { input: payload };
+          const result = await executeGraphql(endpoint, authHeaders, queryTemplate, variables, context);
+          if (result && typeof result === "object") {
+            return (result as Record<string, unknown>)[operationName];
+          }
+          return result;
         },
       };
     }

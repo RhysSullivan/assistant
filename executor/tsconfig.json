@@ -18,6 +18,8 @@
   "include": [
     "packages/**/*.ts",
     "convex/**/*.ts",
-    "lib/**/*.ts"
+    "lib/**/*.ts",
+    "mcp-gateway.ts",
+    "vscode-elicitation-server.ts"
   ]
 }

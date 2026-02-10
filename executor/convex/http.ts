@@ -9,15 +9,47 @@ import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescripto
 
 const http = httpRouter();
 const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? null;
-const mcpAuthorizationServer =
-  process.env.MCP_AUTHORIZATION_SERVER
-  ?? process.env.MCP_AUTHORIZATION_SERVER_URL
-  ?? process.env.WORKOS_AUTHKIT_ISSUER
-  ?? process.env.WORKOS_AUTHKIT_DOMAIN;
-const mcpAuthEnabled = Boolean(mcpAuthorizationServer);
-const mcpJwks = mcpAuthorizationServer
-  ? createRemoteJWKSet(new URL("/oauth2/jwks", mcpAuthorizationServer))
-  : null;
+const mcpJwksByServer = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
+function getMcpAuthorizationServer(): string | null {
+  return process.env.MCP_AUTHORIZATION_SERVER
+    ?? process.env.MCP_AUTHORIZATION_SERVER_URL
+    ?? process.env.WORKOS_AUTHKIT_ISSUER
+    ?? process.env.WORKOS_AUTHKIT_DOMAIN
+    ?? null;
+}
+
+function getMcpAuthConfig(): {
+  enabled: boolean;
+  authorizationServer: string | null;
+  jwks: ReturnType<typeof createRemoteJWKSet> | null;
+} {
+  const authorizationServer = getMcpAuthorizationServer();
+  if (!authorizationServer) {
+    return {
+      enabled: false,
+      authorizationServer: null,
+      jwks: null,
+    };
+  }
+
+  const existingJwks = mcpJwksByServer.get(authorizationServer);
+  if (existingJwks) {
+    return {
+      enabled: true,
+      authorizationServer,
+      jwks: existingJwks,
+    };
+  }
+
+  const jwks = createRemoteJWKSet(new URL("/oauth2/jwks", authorizationServer));
+  mcpJwksByServer.set(authorizationServer, jwks);
+  return {
+    enabled: true,
+    authorizationServer,
+    jwks,
+  };
+}
 
 function parseBearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
@@ -49,9 +81,12 @@ function unauthorizedMcpResponse(request: Request, message: string): Response {
   );
 }
 
-async function verifyMcpToken(request: Request): Promise<{ subject: string } | null> {
-  if (!mcpAuthEnabled || !mcpAuthorizationServer || !mcpJwks) {
-    return { subject: "" };
+async function verifyMcpToken(
+  request: Request,
+  config: ReturnType<typeof getMcpAuthConfig>,
+): Promise<{ subject: string } | null> {
+  if (!config.enabled || !config.authorizationServer || !config.jwks) {
+    return null;
   }
 
   const token = parseBearerToken(request);
@@ -60,8 +95,8 @@ async function verifyMcpToken(request: Request): Promise<{ subject: string } | n
   }
 
   try {
-    const { payload } = await jwtVerify(token, mcpJwks, {
-      issuer: mcpAuthorizationServer,
+    const { payload } = await jwtVerify(token, config.jwks, {
+      issuer: config.authorizationServer,
     });
 
     if (typeof payload.sub !== "string" || payload.sub.length === 0) {
@@ -74,13 +109,16 @@ async function verifyMcpToken(request: Request): Promise<{ subject: string } | n
   }
 }
 
-function parseMcpContext(url: URL, tokenSubject?: string): (McpWorkspaceContext & { sessionId?: string }) | undefined {
+function parseMcpContext(url: URL): {
+  workspaceId: string;
+  clientId?: string;
+  sessionId?: string;
+} | undefined {
   const workspaceId = url.searchParams.get("workspaceId");
-  const actorId = tokenSubject ?? url.searchParams.get("actorId");
-  if (!workspaceId || !actorId) return undefined;
+  if (!workspaceId) return undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const sessionId = url.searchParams.get("sessionId") ?? undefined;
-  return { workspaceId, actorId, clientId, sessionId };
+  return { workspaceId, clientId, sessionId };
 }
 
 function isInternalAuthorized(request: Request): boolean {
@@ -107,15 +145,11 @@ function parseInternalRunPath(pathname: string): { runId: string; endpoint: "too
 
 const mcpHandler = httpAction(async (ctx, request) => {
   const url = new URL(request.url);
-  const auth = await verifyMcpToken(request);
-  if (!auth) {
-    return unauthorizedMcpResponse(request, "No valid bearer token provided.");
-  }
+  const mcpAuthConfig = getMcpAuthConfig();
+  const auth = await verifyMcpToken(request, mcpAuthConfig);
+  const requestedContext = parseMcpContext(url);
 
-  const tokenSubject = mcpAuthEnabled ? auth.subject : undefined;
-  const requestedContext = parseMcpContext(url, tokenSubject);
-
-  if (mcpAuthEnabled && !requestedContext) {
+  if (mcpAuthConfig.enabled && !requestedContext) {
     return Response.json(
       { error: "workspaceId query parameter is required when MCP OAuth is enabled" },
       { status: 400 },
@@ -125,7 +159,7 @@ const mcpHandler = httpAction(async (ctx, request) => {
   let context: McpWorkspaceContext | undefined;
   if (requestedContext) {
     try {
-      if (mcpAuthEnabled) {
+      if (mcpAuthConfig.enabled && auth?.subject) {
         const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForWorkosSubject, {
           workspaceId: requestedContext.workspaceId,
           subject: auth.subject,
@@ -137,10 +171,21 @@ const mcpHandler = httpAction(async (ctx, request) => {
           clientId: requestedContext.clientId,
         };
       } else {
+        if (mcpAuthConfig.enabled && !requestedContext.sessionId) {
+          return unauthorizedMcpResponse(request, "No valid bearer token provided.");
+        }
+
         const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
           workspaceId: requestedContext.workspaceId,
           sessionId: requestedContext.sessionId,
         });
+
+        if (mcpAuthConfig.enabled && access.provider !== "anonymous") {
+          return unauthorizedMcpResponse(
+            request,
+            "Bearer token required for non-anonymous sessions.",
+          );
+        }
 
         context = {
           workspaceId: requestedContext.workspaceId,
@@ -188,6 +233,17 @@ const mcpHandler = httpAction(async (ctx, request) => {
 
       return (await ctx.runAction(internal.executorNode.listToolsInternal, toolContext)) as ToolDescriptor[];
     },
+    listToolsForTypecheck: async (toolContext: { workspaceId: string; actorId?: string; clientId?: string }) => {
+      const result = await ctx.runAction(internal.executorNode.listToolsWithWarningsInternal, toolContext) as {
+        tools: ToolDescriptor[];
+        dtsUrls?: Record<string, string>;
+      };
+
+      return {
+        tools: result.tools,
+        dtsUrls: result.dtsUrls ?? {},
+      };
+    },
     listPendingApprovals: async (workspaceId: string) => {
       return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];
     },
@@ -206,24 +262,26 @@ const mcpHandler = httpAction(async (ctx, request) => {
 });
 
 const oauthProtectedResourceHandler = httpAction(async (_ctx, request) => {
-  if (!mcpAuthEnabled || !mcpAuthorizationServer) {
+  const mcpAuthConfig = getMcpAuthConfig();
+  if (!mcpAuthConfig.enabled || !mcpAuthConfig.authorizationServer) {
     return Response.json({ error: "MCP OAuth is not configured" }, { status: 404 });
   }
 
   const url = new URL(request.url);
   return Response.json({
     resource: `${url.origin}/mcp`,
-    authorization_servers: [mcpAuthorizationServer],
+    authorization_servers: [mcpAuthConfig.authorizationServer],
     bearer_methods_supported: ["header"],
   });
 });
 
 const oauthAuthorizationServerProxyHandler = httpAction(async (_ctx, request) => {
-  if (!mcpAuthEnabled || !mcpAuthorizationServer) {
+  const mcpAuthConfig = getMcpAuthConfig();
+  if (!mcpAuthConfig.enabled || !mcpAuthConfig.authorizationServer) {
     return Response.json({ error: "MCP OAuth is not configured" }, { status: 404 });
   }
 
-  const upstream = new URL("/.well-known/oauth-authorization-server", mcpAuthorizationServer);
+  const upstream = new URL("/.well-known/oauth-authorization-server", mcpAuthConfig.authorizationServer);
   const response = await fetch(upstream.toString(), {
     headers: { accept: "application/json" },
   });

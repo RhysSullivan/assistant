@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { generateToolDeclarations, generateToolInventory, typecheckCode, type TypecheckResult } from "./typechecker";
+import { prepareOpenApiSpec, buildOpenApiToolsFromPrepared } from "./tool_sources";
 import type { ToolDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +45,7 @@ describe("generateToolDeclarations", () => {
 
   test("flat tool (no dots in path beyond single segment)", () => {
     const result = generateToolDeclarations([FLAT_TOOL]);
-    expect(result).toContain("get_time(input: {}): Promise<{ iso: string; unix: number }>;");
+    expect(result).toContain("get_time(input?: {}): Promise<{ iso: string; unix: number }>;");
   });
 
   test("nested tool (math.add)", () => {
@@ -62,7 +63,7 @@ describe("generateToolDeclarations", () => {
     expect(result).toContain("admin: {");
     expect(result).toContain("send_announcement(input: { message: string; channel?: string }): Promise<{ sent: boolean }>;");
     // flat
-    expect(result).toContain("get_time(input: {}): Promise<{ iso: string; unix: number }>;");
+    expect(result).toContain("get_time(input?: {}): Promise<{ iso: string; unix: number }>;");
   });
 
   test("missing argsType defaults to Record<string, unknown>", () => {
@@ -72,7 +73,7 @@ describe("generateToolDeclarations", () => {
       approval: "auto",
     };
     const result = generateToolDeclarations([tool]);
-    expect(result).toContain("bar(input: Record<string, unknown>): Promise<unknown>;");
+    expect(result).toContain("bar(input?: Record<string, unknown>): Promise<unknown>;");
   });
 
   test("missing returnsType defaults to unknown", () => {
@@ -85,6 +86,41 @@ describe("generateToolDeclarations", () => {
     const result = generateToolDeclarations([tool]);
     expect(result).toContain("baz(input: { x: number }): Promise<unknown>;");
   });
+
+  test("uses OpenAPI operations indexed-access types when source d.ts is provided", () => {
+    const tools: ToolDescriptor[] = [
+      {
+        path: "github.issues.list_for_repo",
+        description: "List issues for a repo",
+        approval: "auto",
+        source: "openapi:github",
+        operationId: "issues/list-for-repo",
+        argsType: "{ owner: string; repo: string }",
+        returnsType: "unknown",
+      },
+    ];
+
+    const sourceDts = `
+export interface operations {
+  "issues/list-for-repo": {
+    parameters: { path: { owner: string; repo: string } };
+    responses: { 200: { content: { "application/json": { ok: true }[] } } };
+  };
+}
+`;
+
+    const result = generateToolDeclarations(tools, {
+      sourceDtsBySource: {
+        "openapi:github": sourceDts,
+      },
+    });
+
+    expect(result).toContain("type ToolInput<Op>");
+    expect(result).toContain("interface operations");
+    expect(result).toContain(
+      "list_for_repo(input: ToolInput<operations[\"issues/list-for-repo\"]>): Promise<ToolOutput<operations[\"issues/list-for-repo\"]>>;",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -96,29 +132,20 @@ describe("generateToolInventory", () => {
     expect(generateToolInventory([])).toBe("");
   });
 
-  test("includes tool paths and type signatures", () => {
+  test("includes namespace summary and discover guidance", () => {
     const result = generateToolInventory(ALL_TOOLS);
-    expect(result).toContain("tools.math.add(input: { a: number; b: number }): Promise<{ result: number }>");
-    expect(result).toContain("tools.admin.send_announcement(input: { message: string; channel?: string }): Promise<{ sent: boolean }>");
-    expect(result).toContain("tools.get_time(input: {}): Promise<{ iso: string; unix: number }>");
+    expect(result).toContain("You have access to these tool namespaces:");
+    expect(result).toContain("admin (1)");
+    expect(result).toContain("math (1)");
+    expect(result).toContain("Use `tools.discover({ query, depth?, limit? })` first");
+    expect(result).toContain("Never shadow the global `tools` object");
   });
 
-  test("shows [approval required] for required-approval tools", () => {
+  test("includes example callable paths", () => {
     const result = generateToolInventory(ALL_TOOLS);
-    expect(result).toContain("[approval required]");
-    // math.add is auto — should NOT have the tag
-    const mathLine = result.split("\n").find((l) => l.includes("tools.math.add"));
-    expect(mathLine).not.toContain("[approval required]");
-    // admin.send_announcement is required — should have the tag
-    const adminLine = result.split("\n").find((l) => l.includes("tools.admin.send_announcement"));
-    expect(adminLine).toContain("[approval required]");
-  });
-
-  test("includes descriptions", () => {
-    const result = generateToolInventory(ALL_TOOLS);
-    expect(result).toContain("Add two numbers");
-    expect(result).toContain("Send an announcement");
-    expect(result).toContain("Get current time");
+    expect(result).toContain("Example callable paths:");
+    expect(result).toContain("tools.math.add(...)");
+    expect(result).toContain("tools.admin.send_announcement(...)");
   });
 });
 
@@ -240,12 +267,160 @@ return { sum: sum.result, sent: announcement.sent, time: time.unix };
     expect(result.ok).toBe(true);
   });
 
+  test("OpenAPI indexed-access declarations typecheck like Monaco", () => {
+    const tools: ToolDescriptor[] = [
+      {
+        path: "github.issues.list_for_repo",
+        description: "List issues for a repo",
+        approval: "auto",
+        source: "openapi:github",
+        operationId: "issues/list-for-repo",
+      },
+    ];
+
+    const sourceDts = `
+export interface operations {
+  "issues/list-for-repo": {
+    parameters: { path: { owner: string; repo: string }; query: { state?: "open" | "closed" } };
+    responses: { 200: { content: { "application/json": { id: number; title: string }[] } } };
+  };
+}
+`;
+
+    const declarations = generateToolDeclarations(tools, {
+      sourceDtsBySource: {
+        "openapi:github": sourceDts,
+      },
+    });
+
+    const ok = typecheckCode(
+      'const rows = await tools.github.issues.list_for_repo({ owner: "answeroverflow", repo: "answeroverflow", state: "open" }); return rows[0]?.id;',
+      declarations,
+    );
+    expect(ok.ok).toBe(true);
+
+    const bad = typecheckCode(
+      'await tools.github.issues.list_for_repo({ owner: 123, repo: "answeroverflow" });',
+      declarations,
+    );
+    expect(bad.ok).toBe(false);
+    expect(bad.errors.length).toBeGreaterThan(0);
+  });
+
   test("optional parameter can be provided", () => {
     const result = typecheckCode(
       'const r = await tools.admin.send_announcement({ message: "hi", channel: "general" }); return r.sent;',
       declarations,
     );
     expect(result.ok).toBe(true);
+  });
+
+  test("discover remains callable when OpenAPI fallback args contain hyphenated header names", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Header names", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      paths: {
+        "/meta": {
+          get: {
+            operationId: "meta/get",
+            tags: ["meta"],
+            parameters: [
+              {
+                name: "X-GitHub-Api-Version",
+                in: "header",
+                required: false,
+                schema: { type: "string" },
+              },
+            ],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        ok: { type: "boolean" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "headers");
+    const built = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "github",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const descriptors: ToolDescriptor[] = built.map((tool) => ({
+      path: tool.path,
+      description: tool.description,
+      approval: tool.approval,
+      source: tool.source,
+      argsType: tool.metadata?.argsType,
+      returnsType: tool.metadata?.returnsType,
+      operationId: tool.metadata?.operationId,
+    }));
+    descriptors.push({
+      path: "discover",
+      description: "Discover tools",
+      approval: "auto",
+      source: "system",
+      argsType: "{ query: string; depth?: number; limit?: number }",
+      returnsType: "unknown",
+    });
+
+    const declarations = generateToolDeclarations(descriptors);
+    const result = typecheckCode(
+      'const found = await tools.discover({ query: "github issues" }); return found;',
+      declarations,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test("invalid type hint strings are downgraded instead of corrupting declarations", () => {
+    const tools: ToolDescriptor[] = [
+      {
+        path: "github.meta.get",
+        description: "Get metadata",
+        approval: "auto",
+        // Intentionally invalid TS type expression (unquoted hyphenated key)
+        argsType: "{ X-GitHub-Api-Version?: string }",
+        returnsType: "unknown",
+      },
+      {
+        path: "discover",
+        description: "Discover tools",
+        approval: "auto",
+        argsType: "{ query: string; depth?: number; limit?: number }",
+        returnsType: "unknown",
+      },
+    ];
+
+    const declarations = generateToolDeclarations(tools);
+    expect(declarations).toContain("get(input: Record<string, unknown>): Promise<unknown>;");
+
+    const result = typecheckCode(
+      'const found = await tools.discover({ query: "github" }); return found;',
+      declarations,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 });
 

@@ -9,6 +9,11 @@ class FakeMcpService {
   private readonly tasks = new Map<string, TaskRecord>();
   private readonly sessions = new Map<string, AnonymousContext>();
   private readonly listeners = new Map<string, Set<(event: LiveTaskEvent) => void>>();
+  private typecheckPayload?: { tools: ToolDescriptor[]; dtsUrls: Record<string, string> };
+
+  setTypecheckPayload(payload: { tools: ToolDescriptor[]; dtsUrls: Record<string, string> }) {
+    this.typecheckPayload = payload;
+  }
 
   async createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }> {
     const id = `task_${crypto.randomUUID()}`;
@@ -90,6 +95,18 @@ class FakeMcpService {
       { path: "utils.get_time", description: "Get the current time", approval: "auto" },
     ];
   }
+
+  async listToolsForTypecheck(
+    _context: { workspaceId: string; actorId?: string; clientId?: string },
+  ): Promise<{ tools: ToolDescriptor[]; dtsUrls: Record<string, string> }> {
+    if (this.typecheckPayload) {
+      return this.typecheckPayload;
+    }
+    return {
+      tools: await this.listTools(_context),
+      dtsUrls: {},
+    };
+  }
 }
 
 async function withMcpClient<T>(
@@ -167,5 +184,52 @@ test("run_code MCP tool bootstraps anonymous context when workspace is omitted",
     expect(typeof structured?.workspaceId).toBe("string");
     expect(typeof structured?.actorId).toBe("string");
     expect(structured?.sessionId).toBe("mcp_session_test");
+  });
+});
+
+test("run_code typecheck uses OpenAPI .d.ts from typecheck context", async () => {
+  const service = new FakeMcpService();
+  service.setTypecheckPayload({
+    tools: [
+      {
+        path: "github.issues.list_for_repo",
+        description: "List issues for a repository",
+        approval: "auto",
+        source: "openapi:github",
+        operationId: "issues/list-for-repo",
+      },
+    ],
+    dtsUrls: {
+      "openapi:github":
+        "data:text/plain,"
+        + encodeURIComponent(
+          `export interface operations {
+  "issues/list-for-repo": {
+    parameters: { path: { owner: string; repo: string } };
+    responses: { 200: { content: { "application/json": { id: number }[] } } };
+  };
+}`,
+        ),
+    },
+  });
+
+  await withMcpClient(service, async (client) => {
+    const result = (await client.callTool({
+      name: "run_code",
+      arguments: {
+        code: "await tools.github.issues.list_for_repo({ owner: 123, repo: 'answeroverflow' });",
+      },
+    })) as {
+      isError?: boolean;
+      content: Array<{ type: string; text?: string }>;
+      structuredContent?: Record<string, unknown>;
+    };
+
+    expect(result.isError).toBe(true);
+    const typecheckErrors = Array.isArray(result.structuredContent?.typecheckErrors)
+      ? (result.structuredContent!.typecheckErrors as string[])
+      : [];
+    expect(typecheckErrors.length).toBeGreaterThan(0);
+    expect(typecheckErrors.some((error) => error.includes("owner") || error.includes("number"))).toBe(true);
   });
 });
