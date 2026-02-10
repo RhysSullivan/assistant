@@ -29,7 +29,7 @@ interface SessionState {
       workspaceRestrictions: boolean;
     };
   } | null;
-  mode: "guest" | "workos";
+  mode: "guest" | "workos" | "anonymous";
   organizations: Array<{
     id: Id<"organizations">;
     name: string;
@@ -43,8 +43,8 @@ interface SessionState {
     docId: Id<"workspaces"> | null;
     name: string;
     organizationId: Id<"organizations"> | null;
-    organizationName: string | null;
-    organizationSlug: string | null;
+    organizationName: string;
+    organizationSlug: string;
     iconUrl?: string | null;
   }>;
   switchWorkspace: (workspaceId: Id<"workspaces">) => void;
@@ -54,8 +54,8 @@ interface SessionState {
     iconFile?: File | null,
     organizationId?: Id<"organizations">,
   ) => Promise<void>;
-  creatingAnonymousWorkspace: boolean;
-  createAnonymousWorkspace: () => Promise<void>;
+  creatingAnonymousOrganization: boolean;
+  createAnonymousOrganization: () => Promise<void>;
   isSignedInToWorkos: boolean;
   workosProfile: {
     name: string;
@@ -76,9 +76,9 @@ interface WorkosAccount {
 
 interface WorkspaceListItem {
   id: Id<"workspaces">;
-  organizationId: Id<"organizations"> | null;
-  organizationName: string | null;
-  organizationSlug: string | null;
+  organizationId: Id<"organizations">;
+  organizationName: string;
+  organizationSlug: string;
   name: string;
   slug: string;
   iconUrl?: string | null;
@@ -97,8 +97,8 @@ const SessionContext = createContext<SessionState>({
   switchWorkspace: () => {},
   creatingWorkspace: false,
   createWorkspace: async () => {},
-  creatingAnonymousWorkspace: false,
-  createAnonymousWorkspace: async () => {},
+  creatingAnonymousOrganization: false,
+  createAnonymousOrganization: async () => {},
   isSignedInToWorkos: false,
   workosProfile: null,
   resetWorkspace: async () => {},
@@ -147,7 +147,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const createWorkspaceMutation = useMutation(convexApi.workspaces.create);
   const generateWorkspaceIconUploadUrl = useMutation(convexApi.workspaces.generateWorkspaceIconUploadUrl);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
-  const [creatingAnonymousWorkspace, setCreatingAnonymousWorkspace] = useState(false);
+  const [creatingAnonymousOrganization, setCreatingAnonymousOrganization] = useState(false);
   const [manualGuestContext, setManualGuestContext] = useState<AnonymousContext | null>(null);
 
   const bootstrapSessionQuery = useTanstackQuery({
@@ -173,15 +173,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const account = useConvexQuery(
     convexApi.app.getCurrentAccount,
-    workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
+    { sessionId: storedSessionId ?? undefined },
   ) as WorkosAccount | null | undefined;
   const workspaces = useConvexQuery(
     convexApi.workspaces.list,
-    workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
+    { sessionId: storedSessionId ?? undefined },
   ) as WorkspaceListItem[] | undefined;
   const organizations = useConvexQuery(
     convexApi.organizations.listMine,
-    workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
+    { sessionId: storedSessionId ?? undefined },
   );
 
   const resolvedActiveWorkspaceId = useMemo(() => {
@@ -193,7 +193,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return activeWorkspaceId;
     }
 
-    const accountId = account?.provider === "workos" ? account._id : null;
+    const accountId = account?._id ?? null;
     const accountStoredWorkspace = accountId ? readWorkspaceByAccount()[accountId] : null;
     if (accountStoredWorkspace && workspaces.some((workspace) => workspace.id === accountStoredWorkspace)) {
       return accountStoredWorkspace;
@@ -219,13 +219,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setRuntimeError(null);
   }, []);
 
-  const createAnonymousWorkspace = useCallback(async () => {
+  const createAnonymousOrganization = useCallback(async () => {
     if (!anonymousDemoEnabled) {
-      throw new Error("Anonymous workspace creation is disabled");
+      throw new Error("Anonymous organization creation is disabled");
     }
 
     setRuntimeError(null);
-    setCreatingAnonymousWorkspace(true);
+    setCreatingAnonymousOrganization(true);
     try {
       const context = await bootstrapAnonymousSession({});
       localStorage.setItem(SESSION_KEY, context.sessionId);
@@ -234,11 +234,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setActiveWorkspaceId(context.workspaceId as Id<"workspaces">);
       setManualGuestContext(context);
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "Failed to create anonymous workspace";
+      const message = cause instanceof Error ? cause.message : "Failed to create anonymous organization";
       setRuntimeError(message);
       throw cause;
     } finally {
-      setCreatingAnonymousWorkspace(false);
+      setCreatingAnonymousOrganization(false);
     }
   }, [bootstrapAnonymousSession]);
 
@@ -246,7 +246,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setActiveWorkspaceId(workspaceId);
     localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
 
-    if (account?.provider === "workos") {
+    if (account) {
       const accountId = account._id;
       const byAccount = readWorkspaceByAccount();
       writeWorkspaceByAccount({
@@ -314,8 +314,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     switchWorkspace,
   ]);
 
-  const workosContext = useMemo<AnonymousContext | null>(() => {
-    if (!workosEnabled || !account || account.provider !== "workos" || !workspaces || workspaces.length === 0) {
+  const accountWorkspaceContext = useMemo<AnonymousContext | null>(() => {
+    if (!account || !workspaces || workspaces.length === 0) {
       return null;
     }
 
@@ -327,17 +327,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
+    const sessionId = account.provider === "workos"
+      ? `workos_${account._id}`
+      : (storedSessionId ?? guestContext?.sessionId ?? null);
+    if (!sessionId) {
+      return null;
+    }
+
+    const actorId = account.provider === "workos" ? account._id : account.providerAccountId;
+
     return {
-      sessionId: `workos_${account._id}`,
+      sessionId,
       workspaceId: activeWorkspace.id,
-      actorId: account._id,
+      actorId,
       clientId: "web",
       accountId: account._id,
       userId: account._id,
       createdAt: Date.now(),
       lastSeenAt: Date.now(),
     };
-  }, [account, resolvedActiveWorkspaceId, workspaces]);
+  }, [account, guestContext?.sessionId, resolvedActiveWorkspaceId, storedSessionId, workspaces]);
 
   // When WorkOS is enabled, don't fall back to guest context while WorkOS
   // auth/account bootstrapping is still in flight. Otherwise workspace-bound
@@ -348,9 +357,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     || account === undefined
     || (account?.provider === "workos" && bootstrapWorkosAccountQuery.isFetching)
   );
-  const mode: "guest" | "workos" = workosContext ? "workos" : "guest";
+  const mode: "guest" | "workos" | "anonymous" = accountWorkspaceContext
+    ? (account?.provider === "workos" ? "workos" : "anonymous")
+    : "guest";
   const shouldBlockGuestFallback = workosEnabled && account?.provider === "workos";
-  const context = workosContext ?? ((workosStillLoading || shouldBlockGuestFallback) ? null : guestContext);
+  const context = accountWorkspaceContext ?? ((workosStillLoading || shouldBlockGuestFallback) ? null : guestContext);
 
   const bootstrapSessionError =
     storedSessionId && bootstrapSessionQuery.error instanceof Error
@@ -367,22 +378,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const error = runtimeError ?? bootstrapSessionError ?? bootstrapWorkosError;
 
   const effectiveLoading = !context && !error && (
-    creatingAnonymousWorkspace
+    creatingAnonymousOrganization
     || (storedSessionId !== null && bootstrapSessionQuery.isLoading)
     || workosStillLoading
     || bootstrapWorkosAccountQuery.isFetching
   );
   const workspaceOptions = useMemo(() => {
-    if (mode === "workos" && workspaces) {
-      return workspaces.map((workspace): SessionState["workspaces"][number] => ({
-        id: workspace.id,
-        docId: workspace.id,
-        name: workspace.name,
-        organizationId: workspace.organizationId ?? null,
-        organizationName: workspace.organizationName,
-        organizationSlug: workspace.organizationSlug,
-        iconUrl: workspace.iconUrl,
-      }));
+    if (mode !== "guest" && workspaces) {
+      return workspaces.map((workspace): SessionState["workspaces"][number] => {
+        return {
+          id: workspace.id,
+          docId: workspace.id,
+          name: workspace.name,
+          organizationId: workspace.organizationId,
+          organizationName: workspace.organizationName,
+          organizationSlug: workspace.organizationSlug,
+          iconUrl: workspace.iconUrl,
+        };
+      });
     }
 
     if (guestContext) {
@@ -390,10 +403,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         {
           id: guestContext.workspaceId as Id<"workspaces">,
           docId: null,
-          name: "Guest Workspace",
+          name: "Anonymous Workspace",
           organizationId: null,
-          organizationName: null,
-          organizationSlug: null,
+          organizationName: "Anonymous Organization",
+          organizationSlug: "anonymous-organization",
         },
       ];
     }
@@ -410,13 +423,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         clientConfig: clientConfig ?? null,
         mode,
         organizations: organizations ?? [],
-        organizationsLoading: workosEnabled ? organizations === undefined : false,
+        organizationsLoading: organizations === undefined,
         workspaces: workspaceOptions,
         switchWorkspace,
         creatingWorkspace,
         createWorkspace,
-        creatingAnonymousWorkspace,
-        createAnonymousWorkspace,
+        creatingAnonymousOrganization,
+        createAnonymousOrganization,
         isSignedInToWorkos: Boolean(account && account.provider === "workos"),
         workosProfile:
           account && account.provider === "workos"

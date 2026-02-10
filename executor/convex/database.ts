@@ -195,6 +195,8 @@ async function ensureAnonymousIdentity(
     timestamp: number;
   },
 ) {
+  const anonymousOrganizationName = "Anonymous Organization";
+  const anonymousWorkspaceName = "Anonymous Workspace";
   const now = params.timestamp;
 
   let account = await ctx.db
@@ -226,10 +228,10 @@ async function ensureAnonymousIdentity(
   let organizationId: Doc<"organizations">["_id"];
 
   if (!workspace) {
-    const organizationSlug = await ensureUniqueOrganizationSlug(ctx, "Guest Workspace");
+    const organizationSlug = await ensureUniqueOrganizationSlug(ctx, anonymousOrganizationName);
     organizationId = await ctx.db.insert("organizations", {
       slug: organizationSlug,
-      name: "Guest Workspace",
+      name: anonymousOrganizationName,
       status: "active",
       createdByAccountId: account._id,
       createdAt: now,
@@ -238,8 +240,8 @@ async function ensureAnonymousIdentity(
 
     const workspaceId = await ctx.db.insert("workspaces", {
       organizationId,
-      slug: `guest-${crypto.randomUUID().slice(0, 8)}`,
-      name: "Guest Workspace",
+      slug: `anonymous-${crypto.randomUUID().slice(0, 8)}`,
+      name: anonymousWorkspaceName,
       plan: "free",
       createdByAccountId: account._id,
       createdAt: now,

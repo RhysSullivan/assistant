@@ -6,6 +6,7 @@
       "name": "proto-monorepo",
       "dependencies": {
         "@apidevtools/swagger-parser": "^12.1.0",
+        "@convex-dev/migrations": "^0.3.1",
         "@convex-dev/stripe": "^0.1.3",
         "@convex-dev/workos-authkit": "^0.1.6",
         "@executor/contracts": "workspace:*",
@@ -283,6 +284,8 @@
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
 
     "@borewit/text-codec": ["@borewit/text-codec@0.2.1", "", {}, "sha512-k7vvKPbf7J2fZ5klGRD9AeKfUvojuZIQ3BT5u7Jfv+puwXkUBUT5PVyMDfJZpy30CBDXGMgw7fguK/lpOMBvgw=="],
+
+    "@convex-dev/migrations": ["@convex-dev/migrations@0.3.1", "", { "peerDependencies": { "convex": "^1.24.8" } }, "sha512-dGiN82vWMN415/AGMcVooDOJk8iTousZahBBs27uA03pL74Uo3ksucUW3CiCfPx75rv+x9UnenEakimQYYNIrA=="],
 
     "@convex-dev/stripe": ["@convex-dev/stripe@0.1.3", "", { "dependencies": { "stripe": "^20.0.0" }, "peerDependencies": { "convex": "^1.29.3", "react": "^18.3.1 || ^19.0.0" } }, "sha512-yL0ygrWrjto9f7rprCb4KYp+p3Oka7KG5e3HBoJ9qSzbncpavZI+JTkGZnLCYZjPOo2ByCrBJvtGAxfP169Nzw=="],
 

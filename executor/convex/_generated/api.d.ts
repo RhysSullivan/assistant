@@ -813,6 +813,80 @@ export declare const internal: {
       any
     >;
   };
+  migrations: {
+    deleteAnonymousSessionsMissingAccountId: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    deleteInvitesMissingProvider: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    deleteSourceCredentialsMissingProvider: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    renameLegacyAnonymousOrganizations: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    renameLegacyAnonymousWorkspaces: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    run: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+  };
   openApiSpecCache: {
     getEntry: FunctionReference<
       "query",
@@ -1267,6 +1341,92 @@ export declare const components: {
         "internal",
         { apiKey: string; quantity: number; stripeSubscriptionId: string },
         null
+      >;
+    };
+  };
+  migrations: {
+    lib: {
+      cancel: FunctionReference<
+        "mutation",
+        "internal",
+        { name: string },
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }
+      >;
+      cancelAll: FunctionReference<
+        "mutation",
+        "internal",
+        { sinceTs?: number },
+        Array<{
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }>
+      >;
+      clearAll: FunctionReference<
+        "mutation",
+        "internal",
+        { before?: number },
+        null
+      >;
+      getStatus: FunctionReference<
+        "query",
+        "internal",
+        { limit?: number; names?: Array<string> },
+        Array<{
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }>
+      >;
+      migrate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          dryRun: boolean;
+          fnHandle: string;
+          name: string;
+          next?: Array<{ fnHandle: string; name: string }>;
+          oneBatchOnly?: boolean;
+        },
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }
       >;
     };
   };
