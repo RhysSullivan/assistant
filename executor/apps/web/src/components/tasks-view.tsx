@@ -30,11 +30,12 @@ import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useMutation, useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type {
+  RuntimeTargetDescriptor,
+  TaskEventRecord,
   TaskRecord,
 } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { formatTime } from "@/lib/format";
 
 const DEFAULT_CODE = `// Example: call some tools
 const time = await tools.utils.get_time();
@@ -111,7 +112,7 @@ function TaskComposer() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(runtimes ?? []).map((r: any) => (
+                {(runtimes ?? []).map((r: RuntimeTargetDescriptor) => (
                   <SelectItem key={r.id} value={r.id} className="text-xs">
                     {r.label}
                   </SelectItem>
@@ -223,25 +224,26 @@ function TaskDetail({
   );
 
   const liveTask = liveTaskData ?? task;
+  const liveTaskEvents = taskEvents ?? [];
   const liveStdout = useMemo(() => {
-    const stdoutLines = (taskEvents ?? [])
-      .filter((event: any) => event.type === "task.stdout")
-      .map((event: any) => String((event.payload as Record<string, unknown>)?.line ?? ""));
+    const stdoutLines = liveTaskEvents
+      .filter((event: TaskEventRecord) => event.type === "task.stdout")
+      .map((event: TaskEventRecord) => String((event.payload as Record<string, unknown>)?.line ?? ""));
     if (stdoutLines.length > 0) {
       return stdoutLines.join("\n");
     }
     return liveTask.stdout ?? "";
-  }, [taskEvents, liveTask.stdout]);
+  }, [liveTaskEvents, liveTask.stdout]);
 
   const liveStderr = useMemo(() => {
-    const stderrLines = (taskEvents ?? [])
-      .filter((event: any) => event.type === "task.stderr")
-      .map((event: any) => String((event.payload as Record<string, unknown>)?.line ?? ""));
+    const stderrLines = liveTaskEvents
+      .filter((event: TaskEventRecord) => event.type === "task.stderr")
+      .map((event: TaskEventRecord) => String((event.payload as Record<string, unknown>)?.line ?? ""));
     if (stderrLines.length > 0) {
       return stderrLines.join("\n");
     }
     return liveTask.stderr ?? "";
-  }, [taskEvents, liveTask.stderr]);
+  }, [liveTaskEvents, liveTask.stderr]);
 
   const duration =
     liveTask.completedAt && liveTask.startedAt
@@ -368,8 +370,9 @@ export function TasksView() {
     context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
   const tasksLoading = !!context && tasks === undefined;
+  const taskItems = tasks ?? [];
 
-  const selectedTask = tasks?.find((t: any) => t.id === selectedId);
+  const selectedTask = taskItems.find((t: TaskRecord) => t.id === selectedId);
 
   const selectTask = useCallback(
     (taskId: string | null) => {
@@ -409,7 +412,7 @@ export function TasksView() {
                 Task History
                 {tasks && (
                   <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
-                    {tasks.length}
+                    {taskItems.length}
                   </span>
                 )}
               </CardTitle>
@@ -421,13 +424,13 @@ export function TasksView() {
                     <Skeleton key={i} className="h-14" />
                   ))}
                 </div>
-              ) : !tasks || tasks.length === 0 ? (
+              ) : taskItems.length === 0 ? (
                 <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                   No tasks yet. Create one above.
                 </div>
               ) : (
                 <div className="space-y-1 max-h-[500px] overflow-y-auto">
-                  {tasks.map((task: any) => (
+                  {taskItems.map((task: TaskRecord) => (
                     <TaskListItem
                       key={task.id}
                       task={task}

@@ -783,7 +783,9 @@ export function ToolExplorer({
   const [activeSource, setActiveSource] = useState<string | null>(
     initialSource,
   );
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
+    () => (initialSource ? new Set([`source:${initialSource}`]) : new Set()),
+  );
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [filterApproval, setFilterApproval] = useState<
     "all" | "required" | "auto"
@@ -795,12 +797,6 @@ export function ToolExplorer({
     setActiveSource(source);
     setExpandedKeys(source ? new Set([`source:${source}`]) : new Set());
   }, []);
-
-  // When initialSource changes (e.g. URL param), update the active source
-  useEffect(() => {
-    setActiveSource(initialSource ?? null);
-    setExpandedKeys(initialSource ? new Set([`source:${initialSource}`]) : new Set());
-  }, [initialSource]);
 
   // Filter tools by active source and approval filter
   const filteredTools = useMemo(() => {
@@ -846,28 +842,31 @@ export function ToolExplorer({
     return [...searchedTools].sort((a, b) => a.path.localeCompare(b.path));
   }, [searchedTools, viewMode]);
 
-  // Auto-expand everything when searching
-  useEffect(() => {
-    if (search.length >= 2 && viewMode === "tree") {
-      const allGroupKeys = new Set<string>();
-      const lowerSearch = search.toLowerCase();
-      const matching = filteredTools.filter(
-        (t) =>
-          t.path.toLowerCase().includes(lowerSearch) ||
-          t.description.toLowerCase().includes(lowerSearch),
-      );
-
-      for (const tool of matching) {
-        const src = sourceLabel(tool.source);
-        const ns = toolNamespace(tool.path);
-        allGroupKeys.add(`source:${src}`);
-        allGroupKeys.add(`source:${src}:ns:${ns}`);
-        allGroupKeys.add(`ns:${ns}`);
-      }
-
-      setExpandedKeys(allGroupKeys);
+  // Auto-expand matching groups while searching without mutating user state.
+  const autoExpandedKeys = useMemo(() => {
+    if (search.length < 2 || viewMode !== "tree") {
+      return null;
     }
+
+    const allGroupKeys = new Set<string>();
+    const lowerSearch = search.toLowerCase();
+    const matching = filteredTools.filter(
+      (t) =>
+        t.path.toLowerCase().includes(lowerSearch) ||
+        t.description.toLowerCase().includes(lowerSearch),
+    );
+
+    for (const tool of matching) {
+      const src = sourceLabel(tool.source);
+      const ns = toolNamespace(tool.path);
+      allGroupKeys.add(`source:${src}`);
+      allGroupKeys.add(`source:${src}:ns:${ns}`);
+      allGroupKeys.add(`ns:${ns}`);
+    }
+
+    return allGroupKeys;
   }, [search, filteredTools, viewMode]);
+  const visibleExpandedKeys = autoExpandedKeys ?? expandedKeys;
 
   const toggleExpand = useCallback((key: string) => {
     setExpandedKeys((prev) => {
@@ -1335,7 +1334,7 @@ export function ToolExplorer({
                     key={group.key}
                     group={group}
                     depth={0}
-                    expandedKeys={expandedKeys}
+                    expandedKeys={visibleExpandedKeys}
                     onToggle={toggleExpand}
                     selectedKeys={selectedKeys}
                     onSelectGroup={toggleSelectGroup}

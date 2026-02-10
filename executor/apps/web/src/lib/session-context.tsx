@@ -63,6 +63,26 @@ interface SessionState {
   resetWorkspace: () => Promise<void>;
 }
 
+interface WorkosAccount {
+  _id: Id<"accounts">;
+  provider: "workos" | "anonymous";
+  providerAccountId: string;
+  email: string;
+  name: string;
+  avatarUrl?: string | null;
+}
+
+interface WorkspaceListItem {
+  id: Id<"workspaces">;
+  organizationId: Id<"organizations"> | null;
+  organizationName: string | null;
+  organizationSlug: string | null;
+  name: string;
+  slug: string;
+  iconUrl?: string | null;
+  createdAt: number;
+}
+
 const SessionContext = createContext<SessionState>({
   context: null,
   loading: true,
@@ -143,11 +163,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const account = useConvexQuery(
     convexApi.app.getCurrentAccount,
     workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
-  );
+  ) as WorkosAccount | null | undefined;
   const workspaces = useConvexQuery(
     convexApi.workspaces.list,
     workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
-  );
+  ) as WorkspaceListItem[] | undefined;
   const organizations = useConvexQuery(
     convexApi.organizations.listMine,
     workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
@@ -158,13 +178,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return activeWorkspaceId;
     }
 
-    if (activeWorkspaceId && workspaces.some((workspace: any) => workspace.id === activeWorkspaceId)) {
+    if (activeWorkspaceId && workspaces.some((workspace) => workspace.id === activeWorkspaceId)) {
       return activeWorkspaceId;
     }
 
     const accountId = account?.provider === "workos" ? account._id : null;
     const accountStoredWorkspace = accountId ? readWorkspaceByAccount()[accountId] : null;
-    if (accountStoredWorkspace && workspaces.some((workspace: any) => workspace.id === accountStoredWorkspace)) {
+    if (accountStoredWorkspace && workspaces.some((workspace) => workspace.id === accountStoredWorkspace)) {
       return accountStoredWorkspace;
     }
 
@@ -265,7 +285,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     const activeWorkspace =
-      workspaces.find((workspace: any) => workspace.id === resolvedActiveWorkspaceId)
+      workspaces.find((workspace) => workspace.id === resolvedActiveWorkspaceId)
       ?? workspaces[0]
       ?? null;
     if (!activeWorkspace) {
@@ -318,7 +338,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
   const workspaceOptions = useMemo(() => {
     if (mode === "workos" && workspaces) {
-      return workspaces.map((workspace: any): SessionState["workspaces"][number] => ({
+      return workspaces.map((workspace): SessionState["workspaces"][number] => ({
         id: workspace.id,
         docId: workspace.id,
         name: workspace.name,
