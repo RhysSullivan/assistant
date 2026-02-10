@@ -104,12 +104,13 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
   const activeWorkspace = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)
     : null;
+  const supportsOrganizationManagement = mode !== "guest";
   const activeOrganizationLabel = activeWorkspace?.organizationName ?? "Organization";
-  const activeWorkspaceLabel = activeWorkspace?.name ?? (mode === "guest" ? "Guest Workspace" : "Select workspace");
+  const activeWorkspaceLabel = activeWorkspace?.name ?? (mode === "guest" ? "Anonymous Workspace" : "Select workspace");
   const activeWorkspaceInitial = (activeWorkspaceLabel[0] ?? "W").toUpperCase();
 
   const workspaceGroups = useMemo(() => {
-    if (mode !== "workos") {
+    if (!supportsOrganizationManagement) {
       return [];
     }
 
@@ -129,7 +130,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
         groups.push({
           key,
           organizationId: workspace.organizationId,
-          organizationName: workspace.organizationName ?? "Organization",
+          organizationName: workspace.organizationName,
           workspaces: [workspace],
         });
         continue;
@@ -139,7 +140,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
     }
 
     return groups;
-  }, [mode, workspaces]);
+  }, [supportsOrganizationManagement, workspaces]);
 
   const openCreateWorkspaceForOrganization = (
     organizationId: (typeof workspaces)[number]["organizationId"],
@@ -225,7 +226,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                 </span>
               )}
               <span className="min-w-0">
-                {mode === "workos" ? (
+                {supportsOrganizationManagement ? (
                   <>
                     <span className="truncate block text-[10px] text-muted-foreground">{activeOrganizationLabel}</span>
                     <span className="truncate block">{activeWorkspaceLabel}</span>
@@ -239,7 +240,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-72">
-          {mode === "workos"
+          {supportsOrganizationManagement
             ? (
               <>
                 {workspaceGroups.map((group, groupIndex) => {
@@ -319,7 +320,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                 Guest workspace
               </DropdownMenuItem>
             )}
-          {mode === "workos" ? (
+          {supportsOrganizationManagement ? (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={openCreateOrganization} className="text-xs">
@@ -668,8 +669,8 @@ function NoOrganizationModal({ enabled }: { enabled: boolean }) {
     organizationsLoading,
     context,
     isSignedInToWorkos,
-    createAnonymousWorkspace,
-    creatingAnonymousWorkspace,
+    createAnonymousOrganization,
+    creatingAnonymousOrganization,
   } = useSession();
   const [error, setError] = useState<string | null>(null);
 
@@ -680,12 +681,12 @@ function NoOrganizationModal({ enabled }: { enabled: boolean }) {
     && !isSignedInToWorkos
     && organizations.length === 0;
 
-  const handleCreateAnonymousWorkspace = async () => {
+  const handleCreateAnonymousOrganization = async () => {
     setError(null);
     try {
-      await createAnonymousWorkspace();
+      await createAnonymousOrganization();
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "Failed to create anonymous workspace";
+      const message = cause instanceof Error ? cause.message : "Failed to create anonymous organization";
       setError(message);
     }
   };
@@ -700,12 +701,12 @@ function NoOrganizationModal({ enabled }: { enabled: boolean }) {
         <DialogHeader>
           <DialogTitle>Choose how to continue</DialogTitle>
           <DialogDescription>
-            Sign in to access your organizations, or create an anonymous workspace to continue as a guest.
+            Sign in to access your organizations, or create an anonymous organization with a default workspace.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           {workosEnabled ? (
-            <Button asChild className="w-full" disabled={creatingAnonymousWorkspace}>
+            <Button asChild className="w-full" disabled={creatingAnonymousOrganization}>
               <Link to="/sign-in" reloadDocument className="gap-2">
                 <LogIn className="h-4 w-4" />
                 Sign in
@@ -715,13 +716,13 @@ function NoOrganizationModal({ enabled }: { enabled: boolean }) {
           <Button
             variant="outline"
             className="w-full"
-            onClick={handleCreateAnonymousWorkspace}
-            disabled={creatingAnonymousWorkspace || !anonymousDemoEnabled}
+            onClick={handleCreateAnonymousOrganization}
+            disabled={creatingAnonymousOrganization || !anonymousDemoEnabled}
           >
-            {creatingAnonymousWorkspace ? "Creating anonymous workspace..." : "Create anonymous workspace"}
+            {creatingAnonymousOrganization ? "Creating anonymous organization..." : "Create anonymous organization"}
           </Button>
           {!anonymousDemoEnabled ? (
-            <p className="text-xs text-muted-foreground">Anonymous workspace creation is disabled.</p>
+            <p className="text-xs text-muted-foreground">Anonymous organization creation is disabled.</p>
           ) : null}
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
         </div>
