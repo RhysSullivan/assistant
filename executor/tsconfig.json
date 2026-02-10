@@ -21,7 +21,6 @@
     "lib/**/*.ts",
     "scripts/**/*.ts",
     "executor.ts",
-    "mcp-gateway.ts",
     "vscode-elicitation-server.ts"
   ]
 }

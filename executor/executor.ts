@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
 import fs from "node:fs/promises";
-import { startMcpGateway } from "./mcp-gateway";
 import { managedRuntimeDiagnostics, runManagedBackend, runManagedWeb } from "./lib/managed_runtime";
 
 function printHelp(): void {
@@ -12,14 +11,12 @@ Usage:
   executor up [backend-args]
   executor backend <args>
   executor web [--port <number>]
-  executor gateway [--port <number>]
 
 Commands:
   doctor        Bootstrap and verify managed Convex backend runtime
   up            Run managed backend and auto-bootstrap Convex functions
   backend       Pass through arguments to managed convex-local-backend binary
   web           Run packaged web UI (default port: 5312)
-  gateway       Start Executor MCP gateway (default port: 5313)
 `);
 }
 
@@ -75,12 +72,10 @@ async function run(): Promise<void> {
   if (command === "doctor") {
     const info = await managedRuntimeDiagnostics();
     const webPort = Number(Bun.env.EXECUTOR_WEB_PORT ?? 5312);
-    const gatewayPort = Number(Bun.env.EXECUTOR_MCP_GATEWAY_PORT ?? 5313);
     const webInstalled = await pathExists(info.webServerEntry);
     const nodeInstalled = await pathExists(info.nodeBin);
     const backendRunning = await checkHttp(`${info.convexUrl}/version`);
     const webRunning = await checkHttp(`http://127.0.0.1:${webPort}/`);
-    const gatewayRunning = await checkHttp(`http://127.0.0.1:${gatewayPort}/health`);
 
     console.log("Managed runtime ready");
     console.log(`  root: ${info.rootDir}`);
@@ -90,8 +85,8 @@ async function run(): Promise<void> {
     console.log(`  node runtime: ${nodeInstalled ? info.nodeBin : "not installed yet (installed by 'executor web')"}`);
     console.log(`  web bundle: ${webInstalled ? info.webServerEntry : "not installed yet (installed by 'executor web')"}`);
     console.log(`  web URL: http://127.0.0.1:${webPort}`);
-    console.log(`  gateway URL: http://127.0.0.1:${gatewayPort}/mcp`);
-    console.log(`  running: backend=${backendRunning ? "yes" : "no"} web=${webRunning ? "yes" : "no"} gateway=${gatewayRunning ? "yes" : "no"}`);
+    console.log(`  mcp URL: ${info.convexSiteUrl}/mcp`);
+    console.log(`  running: backend=${backendRunning ? "yes" : "no"} web=${webRunning ? "yes" : "no"}`);
     console.log(`  config: ${info.configPath}`);
     return;
   }
@@ -107,12 +102,6 @@ async function run(): Promise<void> {
     }
     const exitCode = await runManagedBackend(rest);
     process.exit(exitCode);
-  }
-
-  if (command === "gateway") {
-    const port = parsePort(rest);
-    startMcpGateway(port);
-    return;
   }
 
   if (command === "web") {

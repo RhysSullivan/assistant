@@ -81,7 +81,7 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
   const webBuildEnv = {
     ...process.env,
     EXECUTOR_WEB_CONVEX_URL: "http://127.0.0.1:5410",
-    NEXT_PUBLIC_LOCAL_MCP_ORIGIN: "http://localhost:5313",
+    EXECUTOR_WEB_CONVEX_SITE_URL: "http://127.0.0.1:5411",
   };
 
   await runCommand(["bunx", "next", "build"], {

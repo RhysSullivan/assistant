@@ -4,7 +4,7 @@ Executor is a Convex-native execution platform for MCP-driven agents. It provide
 
 - task execution (`run_code`) with tool invocation and approval gates
 - workspace-scoped policy, credentials, and tool source management
-- MCP endpoints (Convex HTTP routes and a standalone Bun gateway)
+- MCP endpoints (Convex HTTP routes)
 - a Next.js web app for tasks, approvals, tools, members, and billing
 - a binary-first install flow for local self-hosted runtime
 
@@ -16,7 +16,6 @@ Core components:
 - `convex/http.ts`: HTTP routes for `/mcp`, OAuth discovery metadata, and internal runtime callbacks.
 - `convex/executorNode.ts`: task runner action (`runTask`) and tool invocation plumbing.
 - `lib/`: runtime engine, typechecker, tool discovery, external source adapters (MCP/OpenAPI/GraphQL), credential provider resolvers.
-- `mcp-gateway.ts`: standalone stateful MCP gateway with anonymous OAuth and optional WorkOS token verification.
 - `apps/web/`: operator UI (dashboard, tasks, approvals, tools, onboarding, org settings).
 - `executor.ts`: CLI entrypoint used by local source scripts and compiled binary releases.
 
@@ -50,16 +49,11 @@ bun run dev:executor:convex
 
 # Terminal 2: Web UI
 bun run dev:executor:web
-
-# Terminal 3 (optional but recommended for stateful MCP transport)
-bun run --cwd executor dev:mcp-gateway
 ```
 
 Default source-dev endpoints:
 
 - Web UI: `http://localhost:4312`
-- MCP gateway: `http://localhost:4313/mcp`
-- Gateway health: `http://localhost:4313/health`
 - Convex HTTP MCP route: `<CONVEX_SITE_URL>/mcp`
 
 ## Binary Install (No Global Bun/Node/Convex Required)
@@ -83,7 +77,6 @@ executor doctor
 executor up
 executor backend --help
 executor web
-executor gateway
 ```
 
 Uninstall:
@@ -97,7 +90,6 @@ Default managed-runtime ports:
 - backend API: `5410`
 - backend site proxy: `5411`
 - packaged web app: `5312`
-- MCP gateway: `5313`
 
 ## CLI Commands (executor/package.json)
 
@@ -108,7 +100,6 @@ bun run doctor
 bun run up
 bun run backend -- --help
 bun run web
-bun run gateway
 bun run codegen
 bun run deploy
 bun run build:binary
@@ -122,24 +113,15 @@ Notes:
 
 ## MCP and OAuth Surface
 
-Gateway routes (`mcp-gateway.ts`):
-
-- `/mcp` (GET/POST/DELETE)
-- `/.well-known/oauth-protected-resource`
-- `/.well-known/oauth-authorization-server`
-- `/oauth2/jwks`
-- `/register`
-- `/authorize`
-- `/token`
-- `/health`
-
-Convex HTTP routes (`convex/http.ts`) also expose:
+Convex HTTP routes (`convex/http.ts`) expose:
 
 - `/mcp` (direct Convex MCP transport)
+- `/.well-known/oauth-protected-resource`
+- `/.well-known/oauth-authorization-server`
 - `/internal/runs/:runId/tool-call`
 - `/internal/runs/:runId/output`
 
-Anonymous OAuth is always available on the standalone gateway. WorkOS token verification is enabled when `MCP_AUTHORIZATION_SERVER` (or `MCP_AUTHORIZATION_SERVER_URL`) is configured.
+MCP bearer-token verification is enabled when `MCP_AUTHORIZATION_SERVER` (or `MCP_AUTHORIZATION_SERVER_URL`) is configured.
 
 ## Configuration Reference
 
@@ -159,14 +141,11 @@ Important env vars (see root `.env.example` for the base template):
   - `STRIPE_PRICE_ID`
 - MCP auth integration:
   - `MCP_AUTHORIZATION_SERVER` or `MCP_AUTHORIZATION_SERVER_URL`
-- Managed runtime and gateway:
+- Managed runtime:
   - `EXECUTOR_RUNTIME_DIR`
   - `EXECUTOR_BACKEND_PORT`
   - `EXECUTOR_BACKEND_SITE_PORT`
   - `EXECUTOR_WEB_PORT`
-  - `EXECUTOR_MCP_GATEWAY_PORT`
-  - `EXECUTOR_INTERNAL_TOKEN` (recommended for Convex-backed anonymous OAuth key/client persistence)
-  - `NEXT_PUBLIC_LOCAL_MCP_ORIGIN`
 
 ## Credential Providers
 
@@ -198,17 +177,15 @@ bun run typecheck:executor
 executor/
 |- apps/web/                 # Next.js operator UI
 |- convex/                   # Convex functions, schema, auth, HTTP routes
-|- lib/                      # runtime, tool loading/discovery, gateway helpers
+|- lib/                      # runtime, tool loading/discovery, helper modules
 |- scripts/build-release.ts  # release artifact builder
 |- executor.ts               # CLI entrypoint (compiled into binary)
-|- mcp-gateway.ts            # standalone MCP + OAuth gateway
 |- install                   # curl install script
 `- uninstall                 # uninstall script
 ```
 
 ## Troubleshooting
 
-- `401` on `/mcp`: the gateway expects OAuth bearer tokens; complete MCP OAuth client flow first.
+- `401` on `/mcp`: verify your bearer token issuer matches `MCP_AUTHORIZATION_SERVER` (or disable MCP OAuth in local dev).
 - Web UI cannot load data: verify `CONVEX_URL` / `CONVEX_SITE_URL` and that Convex dev is running.
-- Gateway OAuth state resets between restarts: set `EXECUTOR_INTERNAL_TOKEN` so gateway can persist keys/clients in Convex.
 - Release build missing web archive for your platform: run `bun run build:release` on that target platform.

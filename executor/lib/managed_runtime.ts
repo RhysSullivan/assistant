@@ -642,7 +642,6 @@ export async function runManagedWeb(options: { port?: number } = {}): Promise<nu
   await ensureNodeRuntime(info);
   await ensureWebBundle(info);
 
-  const mcpPort = Number(Bun.env.EXECUTOR_MCP_GATEWAY_PORT ?? 5313);
   const webPort = options.port ?? Number(Bun.env.EXECUTOR_WEB_PORT ?? 5312);
   const host = Bun.env.EXECUTOR_WEB_INTERFACE ?? "127.0.0.1";
 
@@ -653,7 +652,6 @@ export async function runManagedWeb(options: { port?: number } = {}): Promise<nu
     HOSTNAME: host,
     CONVEX_URL: process.env.CONVEX_URL ?? `http://${info.config.hostInterface}:${info.config.backendPort}`,
     CONVEX_SITE_URL: process.env.CONVEX_SITE_URL ?? `http://${info.config.hostInterface}:${info.config.siteProxyPort}`,
-    NEXT_PUBLIC_LOCAL_MCP_ORIGIN: process.env.NEXT_PUBLIC_LOCAL_MCP_ORIGIN ?? `http://localhost:${mcpPort}`,
   };
 
   const proc = await runProcess(info.nodeBin, [info.webServerEntry], {

@@ -63,7 +63,7 @@ bun run dev
 
 - Convex dev watcher for `executor/`
 - Executor web app (`http://localhost:4312`)
-- Executor MCP gateway (`http://localhost:4313/mcp`)
+- Executor MCP endpoint (`<CONVEX_SITE_URL>/mcp`)
 - Assistant server (`http://localhost:3000`)
 - Discord bot (only if `DISCORD_BOT_TOKEN` is set)
 

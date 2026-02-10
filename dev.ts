@@ -8,9 +8,8 @@
  * Starts:
  *   1. Convex cloud dev function watcher  ─┐
  *   2. Executor web UI (port 4312)        ├─ all started concurrently
- *   3. Executor MCP gateway (port 4313)   │
- *   4. Assistant server (port 3000)       │
- *   5. Discord bot                        ─┘
+ *   3. Assistant server (port 3000)       │
+ *   4. Discord bot                        ─┘
  *
  * All processes are killed when this script exits (Ctrl+C).
  * PIDs are written to .dev.pids for use with `bun run kill:all`.
@@ -24,7 +23,6 @@ const PID_FILE = join(import.meta.dir, ".dev.pids");
 const colors = {
   convex: "\x1b[36m",   // cyan
   web: "\x1b[34m",      // blue
-  mcp: "\x1b[33m",      // yellow
   assistant: "\x1b[32m", // green
   bot: "\x1b[35m",      // magenta
   reset: "\x1b[0m",
@@ -119,8 +117,7 @@ process.on("SIGTERM", shutdown);
 // ── Kill stale processes from a previous run ──
 
 const EXECUTOR_WEB_PORT = Number(Bun.env.EXECUTOR_WEB_PORT ?? 4312);
-const EXECUTOR_MCP_PORT = Number(Bun.env.EXECUTOR_MCP_GATEWAY_PORT ?? 4313);
-const DEV_PORTS = [3000, EXECUTOR_WEB_PORT, EXECUTOR_MCP_PORT];
+const DEV_PORTS = [3000, EXECUTOR_WEB_PORT];
 
 async function killStaleProcesses() {
   let killed = 0;
@@ -178,16 +175,6 @@ spawnService("convex", [
 // 3. Everything else in parallel
 spawnService("web", ["bun", "run", "dev"], {
   cwd: "./executor/apps/web",
-});
-
-spawnService("mcp", ["bun", "run", "dev:mcp-gateway"], {
-  cwd: "./executor",
-  env: {
-    EXECUTOR_MCP_GATEWAY_PORT: String(EXECUTOR_MCP_PORT),
-    MCP_GATEWAY_REQUIRE_AUTH: "0",
-    MCP_AUTHORIZATION_SERVER: "",
-    MCP_AUTHORIZATION_SERVER_URL: "",
-  },
 });
 
 spawnService("assistant", ["bun", "run", "dev"], {
