@@ -3,13 +3,20 @@
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useAction, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
-import type { OpenApiSourceQuality } from "@/lib/types";
+import type { OpenApiSourceQuality, ToolDescriptor } from "@/lib/types";
 
 interface WorkspaceContext {
   workspaceId: string;
   actorId?: string;
   clientId?: string;
   sessionId?: string;
+}
+
+interface WorkspaceToolsQueryResult {
+  tools: ToolDescriptor[];
+  warnings: string[];
+  dtsUrls: Record<string, string>;
+  sourceQuality: Record<string, OpenApiSourceQuality>;
 }
 
 /**
@@ -35,8 +42,10 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
       context?.clientId,
       toolSources,
     ],
-    queryFn: async () => {
-      if (!context) return { tools: [], warnings: [], dtsUrls: {}, sourceQuality: {} };
+    queryFn: async (): Promise<WorkspaceToolsQueryResult> => {
+      if (!context) {
+        return { tools: [], warnings: [], dtsUrls: {}, sourceQuality: {} };
+      }
       return await listToolsWithWarnings({
         workspaceId: context.workspaceId,
         ...(context.actorId && { actorId: context.actorId }),
@@ -51,9 +60,9 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
     tools: data?.tools ?? [],
     warnings: data?.warnings ?? [],
     /** Per-source .d.ts download URLs for Monaco IntelliSense. Keyed by source key (e.g. "openapi:cloudflare"). */
-    dtsUrls: (data as any)?.dtsUrls ?? {},
+    dtsUrls: data?.dtsUrls ?? {},
     /** Per-source OpenAPI quality metrics (unknown/fallback type rates). */
-    sourceQuality: ((data as any)?.sourceQuality ?? {}) as Record<string, OpenApiSourceQuality>,
+    sourceQuality: data?.sourceQuality ?? {},
     loading: !!context && isLoading,
   };
 }

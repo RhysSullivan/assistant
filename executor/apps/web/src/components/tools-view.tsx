@@ -1423,6 +1423,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
     convexApi.workspace.listToolSources,
     context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
+  const sourceItems: ToolSourceRecord[] = sources ?? [];
   const sourcesLoading = !!context && sources === undefined;
 
   const credentials = useQuery(
@@ -1458,7 +1459,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
             Sources
             {sources && (
               <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
-                {sources.length}
+                {sourceItems.length}
               </span>
             )}
           </TabsTrigger>
@@ -1489,7 +1490,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
                   <Server className="h-4 w-4 text-muted-foreground" />
                   Tool Sources
                 </CardTitle>
-                <AddSourceDialog existingSourceNames={new Set((sources ?? []).map((s: any) => s.name))} />
+                <AddSourceDialog existingSourceNames={new Set(sourceItems.map((s) => s.name))} />
               </div>
             </CardHeader>
             <CardContent className="pt-0">
@@ -1499,7 +1500,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
                     <Skeleton key={i} className="h-16" />
                   ))}
                 </div>
-              ) : !sources || sources.length === 0 ? (
+              ) : sourceItems.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                   <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
                     <Wrench className="h-6 w-6 text-muted-foreground/40" />
@@ -1520,7 +1521,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
                         Source load warnings ({warnings.length})
                       </div>
                       <div className="mt-1.5 space-y-1">
-                        {warnings.slice(0, 3).map((warning: any, i: any) => (
+                        {warnings.slice(0, 3).map((warning: string, i: number) => (
                           <p key={`${warning}-${i}`} className="text-[11px] text-terminal-amber/90">
                             {warning}
                           </p>
@@ -1533,7 +1534,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
                       </div>
                     </div>
                   )}
-                  {sources.map((s: any) => {
+                  {sourceItems.map((s) => {
                     const sourceKey = sourceKeyForSource(s);
                     const quality = sourceKey ? sourceQuality[sourceKey] : undefined;
                     return (
@@ -1553,7 +1554,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
 
         <TabsContent value="credentials" className="mt-4">
           <CredentialsPanel
-            sources={sources ?? []}
+            sources={sourceItems}
             credentials={credentials ?? []}
             loading={credentialsLoading || sourcesLoading}
           />
@@ -1562,7 +1563,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
         <TabsContent value="inventory" className="mt-4 min-h-0">
           <ToolExplorer
             tools={tools}
-            sources={sources ?? []}
+            sources={sourceItems}
             loading={toolsLoading}
             warnings={warnings}
             initialSource={initialSource}

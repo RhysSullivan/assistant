@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 
 function getExternalOrigin(request: NextRequest) {
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
@@ -89,9 +91,9 @@ async function resolveOrganizationHint(request: NextRequest): Promise<string | u
   }
 
   try {
-    const workosOrganizationId = await (convexClient as any).query(
-      "organizations:resolveWorkosOrganizationId",
-      { organizationId: organizationHint },
+    const workosOrganizationId = await convexClient.query(
+      api.organizations.resolveWorkosOrganizationId,
+      { organizationId: organizationHint as unknown as Id<"organizations"> },
     );
     return typeof workosOrganizationId === "string" ? workosOrganizationId : undefined;
   } catch {

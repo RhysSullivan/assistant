@@ -12,6 +12,31 @@ import { convexApi } from "@/lib/convex-api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 type Role = "owner" | "admin" | "member" | "billing_admin";
+type MemberStatus = "active" | "pending" | "removed";
+type InviteStatus = "pending" | "accepted" | "expired" | "revoked" | "failed";
+
+interface OrganizationMemberListItem {
+  id: Id<"organizationMembers">;
+  organizationId: Id<"organizations">;
+  accountId: Id<"accounts">;
+  email: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  role: Role;
+  status: MemberStatus;
+  billable: boolean;
+  joinedAt: number | null;
+}
+
+interface OrganizationInviteListItem {
+  id: Id<"invites">;
+  organizationId: Id<"organizations">;
+  email: string;
+  role: Role;
+  status: InviteStatus;
+  expiresAt: number;
+  createdAt: number;
+}
 
 const ROLE_OPTIONS: Role[] = ["owner", "admin", "member", "billing_admin"];
 
@@ -37,7 +62,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
       : "skip",
   );
 
-  const memberItems = members?.items ?? [];
+  const memberItems: OrganizationMemberListItem[] = members?.items ?? [];
   const actorMembership = memberItems.find((member: { accountId?: string; role?: string }) =>
     context?.accountId ? member.accountId === context.accountId : false,
   );
@@ -64,9 +89,8 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
   const [busyMemberAccountId, setBusyMemberAccountId] = useState<Id<"accounts"> | null>(null);
   const [busyInviteId, setBusyInviteId] = useState<Id<"invites"> | null>(null);
 
-  const inviteItems = listInvites?.items ?? [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pendingInviteItems = inviteItems.filter((invite: any) => invite.status === "pending" || invite.status === "failed");
+  const inviteItems: OrganizationInviteListItem[] = listInvites?.items ?? [];
+  const pendingInviteItems = inviteItems.filter((invite) => invite.status === "pending" || invite.status === "failed");
 
   const submitInvite = async () => {
     if (!typedOrganizationId) {
@@ -174,7 +198,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
           {memberItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">No members found.</p>
           ) : (
-            memberItems.map((member: any) => (
+            memberItems.map((member) => (
               <div key={member.id} className="rounded-md border border-border p-3">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
@@ -278,7 +302,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
           ) : pendingInviteItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">No pending invites.</p>
           ) : (
-            pendingInviteItems.map((invite: any) => (
+            pendingInviteItems.map((invite) => (
               <div key={invite.id} className="rounded-md border border-border p-3 text-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -300,14 +324,14 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
                         try {
                           await revokeInvite({
                             organizationId: typedOrganizationId,
-                          inviteId: invite.id,
-                          sessionId: context?.sessionId ?? undefined,
-                        });
-                      } finally {
-                        setBusyInviteId(null);
-                      }
-                    }}
-                  >
+                            inviteId: invite.id,
+                            sessionId: context?.sessionId ?? undefined,
+                          });
+                        } finally {
+                          setBusyInviteId(null);
+                        }
+                      }}
+                    >
                     <X className="mr-1 h-3.5 w-3.5" />
                     Revoke
                   </Button>
