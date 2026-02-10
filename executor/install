@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP="executor"
+REPO="${EXECUTOR_REPO:-RhysSullivan/assistant}"
+INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
+REQUESTED_VERSION="${VERSION:-}"
+NO_MODIFY_PATH="0"
+
+RED='\033[0;31m'
+MUTED='\033[0;2m'
+NC='\033[0m'
+
+usage() {
+  cat <<EOF
+Executor installer
+
+Usage:
+  curl -fsSL https://executor.sh/install | bash
+
+Options:
+  -v, --version <version>  Install specific release tag (with or without leading v)
+  --no-modify-path         Do not append executor bin directory to shell rc
+  -h, --help               Show this help
+
+Environment:
+  EXECUTOR_REPO            GitHub repository to install from (default: RhysSullivan/assistant)
+  EXECUTOR_INSTALL_DIR     Install directory (default: ~/.executor/bin)
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -v|--version)
+      REQUESTED_VERSION="${2:-}"
+      if [[ -z "$REQUESTED_VERSION" ]]; then
+        echo -e "${RED}Missing value for --version${NC}"
+        exit 1
+      fi
+      shift 2
+      ;;
+    --no-modify-path)
+      NO_MODIFY_PATH="1"
+      shift
+      ;;
+    *)
+      echo -e "${RED}Unknown option: $1${NC}"
+      exit 1
+      ;;
+  esac
+done
+
+raw_os="$(uname -s)"
+case "$raw_os" in
+  Linux*) os="linux" ;;
+  Darwin*) os="darwin" ;;
+  *)
+    echo -e "${RED}Unsupported OS: ${raw_os}${NC}"
+    exit 1
+    ;;
+esac
+
+raw_arch="$(uname -m)"
+case "$raw_arch" in
+  x86_64|amd64) arch="x64" ;;
+  arm64|aarch64) arch="arm64" ;;
+  *)
+    echo -e "${RED}Unsupported architecture: ${raw_arch}${NC}"
+    exit 1
+    ;;
+esac
+
+archive_ext="zip"
+archive_ext="tar.gz"
+
+filename="${APP}-${os}-${arch}.${archive_ext}"
+mkdir -p "$INSTALL_DIR"
+
+if [[ -z "$REQUESTED_VERSION" ]]; then
+  url="https://github.com/${REPO}/releases/latest/download/${filename}"
+  version="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
+else
+  version="${REQUESTED_VERSION#v}"
+  url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
+fi
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+echo -e "${MUTED}Installing ${APP}${NC} ${version:-latest}"
+curl -fsSL "$url" -o "$tmp_dir/$filename"
+
+tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
+
+if [[ ! -f "$tmp_dir/$APP" ]]; then
+  echo -e "${RED}Archive did not contain expected binary '${APP}'${NC}"
+  exit 1
+fi
+
+mv "$tmp_dir/$APP" "$INSTALL_DIR/$APP"
+chmod 755 "$INSTALL_DIR/$APP"
+
+if [[ "$NO_MODIFY_PATH" != "1" ]]; then
+  shell_name="$(basename "${SHELL:-}")"
+  case "$shell_name" in
+    zsh) shell_rc="$HOME/.zshrc" ;;
+    bash) shell_rc="$HOME/.bashrc" ;;
+    *) shell_rc="$HOME/.profile" ;;
+  esac
+
+  export_line="export PATH=${INSTALL_DIR}:\$PATH"
+  if [[ -f "$shell_rc" ]]; then
+    if ! grep -Fxq "$export_line" "$shell_rc"; then
+      printf "\n# executor\n%s\n" "$export_line" >> "$shell_rc"
+    fi
+  fi
+fi
+
+echo ""
+echo "Installed to: $INSTALL_DIR/$APP"
+echo "Run:"
+echo "  executor doctor"
+echo "  executor up"
+echo "  executor gateway   # defaults to http://localhost:5313/mcp"

@@ -46,7 +46,7 @@ const agentTaskStatus = v.union(v.literal("running"), v.literal("completed"), v.
 export default defineSchema({
   accounts: defineTable({
     provider: accountProvider,
-    providerAccountId: v.string(),
+    providerAccountId: v.string(), // WorkOS user ID or anon_* UUID
     email: v.string(),
     name: v.string(),
     firstName: v.optional(v.string()),
@@ -60,7 +60,7 @@ export default defineSchema({
     .index("by_provider", ["provider", "providerAccountId"]),
 
   workspaces: defineTable({
-    workosOrgId: v.optional(v.string()),
+    workosOrgId: v.optional(v.string()), // external WorkOS org ID
     organizationId: v.id("organizations"),
     slug: v.string(),
     name: v.string(),
@@ -75,7 +75,7 @@ export default defineSchema({
     .index("by_slug", ["slug"]),
 
   organizations: defineTable({
-    workosOrgId: v.optional(v.string()),
+    workosOrgId: v.optional(v.string()), // external WorkOS org ID
     slug: v.string(),
     name: v.string(),
     status: organizationStatus,
@@ -90,7 +90,7 @@ export default defineSchema({
   organizationMembers: defineTable({
     organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
-    workosOrgMembershipId: v.optional(v.string()),
+    workosOrgMembershipId: v.optional(v.string()), // external WorkOS membership ID
     role: orgRole,
     status: orgMemberStatus,
     billable: v.boolean(),
@@ -107,7 +107,7 @@ export default defineSchema({
   workspaceMembers: defineTable({
     workspaceId: v.id("workspaces"),
     accountId: v.id("accounts"),
-    workosOrgMembershipId: v.optional(v.string()),
+    workosOrgMembershipId: v.optional(v.string()), // external WorkOS membership ID
     role: workspaceMemberRole,
     status: workspaceMemberStatus,
     createdAt: v.number(),
@@ -124,7 +124,7 @@ export default defineSchema({
     email: v.string(),
     role: orgRole,
     status: inviteStatus,
-    providerInviteId: v.optional(v.string()),
+    providerInviteId: v.optional(v.string()), // external WorkOS invite ID
     invitedByAccountId: v.id("accounts"),
     expiresAt: v.number(),
     acceptedAt: v.optional(v.number()),
@@ -136,7 +136,7 @@ export default defineSchema({
 
   billingCustomers: defineTable({
     organizationId: v.id("organizations"),
-    stripeCustomerId: v.string(),
+    stripeCustomerId: v.string(), // external Stripe customer ID
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -145,8 +145,8 @@ export default defineSchema({
 
   billingSubscriptions: defineTable({
     organizationId: v.id("organizations"),
-    stripeSubscriptionId: v.string(),
-    stripePriceId: v.string(),
+    stripeSubscriptionId: v.string(), // external Stripe subscription ID
+    stripePriceId: v.string(), // external Stripe price ID
     status: billingSubscriptionStatus,
     currentPeriodStart: v.optional(v.number()),
     currentPeriodEnd: v.optional(v.number()),
@@ -170,12 +170,12 @@ export default defineSchema({
   }).index("by_org", ["organizationId"]),
 
   tasks: defineTable({
-    taskId: v.string(),
+    taskId: v.string(), // domain ID: task_<uuid>
     code: v.string(),
     runtimeId: v.string(),
     workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
-    clientId: v.optional(v.string()),
+    actorId: v.optional(v.string()), // account._id or anon_<uuid>
+    clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
     status: taskStatus,
     timeoutMs: v.number(),
     metadata: v.any(),
@@ -193,14 +193,14 @@ export default defineSchema({
     .index("by_status_created", ["status", "createdAt"]),
 
   approvals: defineTable({
-    approvalId: v.string(),
-    taskId: v.string(),
+    approvalId: v.string(), // domain ID: approval_<uuid>
+    taskId: v.string(), // references tasks.taskId (not tasks._id)
     workspaceId: v.id("workspaces"),
     toolPath: v.string(),
     input: v.any(),
     status: approvalStatus,
     reason: v.optional(v.string()),
-    reviewerId: v.optional(v.string()),
+    reviewerId: v.optional(v.string()), // account._id or anon_<uuid>
     createdAt: v.number(),
     resolvedAt: v.optional(v.number()),
   })
@@ -210,7 +210,7 @@ export default defineSchema({
 
   taskEvents: defineTable({
     sequence: v.number(),
-    taskId: v.string(),
+    taskId: v.string(), // references tasks.taskId (not tasks._id)
     eventName: v.string(),
     type: v.string(),
     payload: v.any(),
@@ -219,10 +219,10 @@ export default defineSchema({
     .index("by_task_sequence", ["taskId", "sequence"]),
 
   accessPolicies: defineTable({
-    policyId: v.string(),
+    policyId: v.string(), // domain ID: policy_<uuid>
     workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
-    clientId: v.optional(v.string()),
+    actorId: v.optional(v.string()), // account._id or anon_<uuid>
+    clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
     toolPathPattern: v.string(),
     decision: policyDecision,
     priority: v.number(),
@@ -233,11 +233,11 @@ export default defineSchema({
     .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
   sourceCredentials: defineTable({
-    credentialId: v.string(),
+    credentialId: v.string(), // domain ID: cred_<uuid>
     workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScope,
-    actorId: v.string(),
+    actorId: v.string(), // account._id or anon_<uuid> (required for composite index)
     provider: credentialProvider,
     secretJson: v.any(),
     createdAt: v.number(),
@@ -247,7 +247,7 @@ export default defineSchema({
     .index("by_workspace_source_scope_actor", ["workspaceId", "sourceKey", "scope", "actorId"]),
 
   toolSources: defineTable({
-    sourceId: v.string(),
+    sourceId: v.string(), // domain ID: src_<uuid>
     workspaceId: v.id("workspaces"),
     name: v.string(),
     type: toolSourceType,
@@ -261,11 +261,11 @@ export default defineSchema({
     .index("by_workspace_name", ["workspaceId", "name"]),
 
   agentTasks: defineTable({
-    agentTaskId: v.string(),
+    agentTaskId: v.string(), // domain ID: atask_<timestamp>_<counter>
     prompt: v.string(),
-    requesterId: v.string(),
+    requesterId: v.string(), // external ID (e.g. Discord user snowflake)
     workspaceId: v.id("workspaces"),
-    actorId: v.string(),
+    actorId: v.string(), // account._id or anon_<uuid>
     status: agentTaskStatus,
     resultText: v.optional(v.string()),
     error: v.optional(v.string()),
@@ -301,10 +301,10 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"]),
 
   anonymousSessions: defineTable({
-    sessionId: v.string(),
+    sessionId: v.string(), // domain ID: anon_session_<uuid> or mcp_<uuid>
     workspaceId: v.id("workspaces"),
-    actorId: v.string(),
-    clientId: v.string(),
+    actorId: v.string(), // anon_<uuid>
+    clientId: v.string(), // client label: "web", "mcp", etc.
     accountId: v.id("accounts"),
     userId: v.id("workspaceMembers"),
     createdAt: v.number(),

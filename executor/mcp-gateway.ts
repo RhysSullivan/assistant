@@ -2,25 +2,62 @@ import { ConvexHttpClient } from "convex/browser";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { api } from "./convex/_generated/api";
 import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp_server";
+import { AnonymousOAuthServer, OAuthBadRequest } from "./lib/anonymous-oauth";
 import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescriptor } from "./lib/types";
 import type { Id } from "./convex/_generated/dataModel";
 
-const convexUrlFromEnv = Bun.env.CONVEX_URL;
-if (!convexUrlFromEnv) {
-  throw new Error("CONVEX_URL is required.");
-}
-const convexUrl: string = convexUrlFromEnv;
+// ---------------------------------------------------------------------------
+// Verified token result — unified across WorkOS and self-issued anonymous JWTs
+// ---------------------------------------------------------------------------
 
-const mcpAuthorizationServer =
-  Bun.env.MCP_AUTHORIZATION_SERVER
-  ?? Bun.env.MCP_AUTHORIZATION_SERVER_URL
-  ?? Bun.env.WORKOS_AUTHKIT_ISSUER
-  ?? Bun.env.WORKOS_AUTHKIT_DOMAIN;
-const mcpGatewayRequireAuth = Bun.env.MCP_GATEWAY_REQUIRE_AUTH === "1";
-const mcpAuthEnabled = mcpGatewayRequireAuth && Boolean(mcpAuthorizationServer);
-const mcpJwks = mcpAuthorizationServer
-  ? createRemoteJWKSet(new URL("/oauth2/jwks", mcpAuthorizationServer))
-  : null;
+interface VerifiedToken {
+  sub: string;
+  provider: "workos" | "anonymous";
+  /** The raw bearer token string (needed for WorkOS tokens to forward to Convex). */
+  rawToken: string;
+}
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+let convexUrl: string | undefined;
+let workosAuthorizationServer: string | undefined;
+let workosJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+let anonOAuth: AnonymousOAuthServer | null = null;
+
+function loadConfigFromEnv(): void {
+  const convexUrlFromEnv = Bun.env.CONVEX_URL;
+  if (!convexUrlFromEnv) {
+    throw new Error("CONVEX_URL is required.");
+  }
+
+  convexUrl = convexUrlFromEnv;
+  workosAuthorizationServer =
+    Bun.env.MCP_AUTHORIZATION_SERVER
+    ?? Bun.env.MCP_AUTHORIZATION_SERVER_URL
+    ?? Bun.env.WORKOS_AUTHKIT_ISSUER
+    ?? Bun.env.WORKOS_AUTHKIT_DOMAIN;
+  workosJwks = workosAuthorizationServer
+    ? createRemoteJWKSet(new URL("/oauth2/jwks", workosAuthorizationServer))
+    : null;
+}
+
+async function initAnonymousOAuth(issuer: string): Promise<void> {
+  anonOAuth = new AnonymousOAuthServer({ issuer });
+  await anonOAuth.init();
+}
+
+function requireConvexUrl(): string {
+  if (!convexUrl) {
+    throw new Error("CONVEX_URL is required.");
+  }
+  return convexUrl;
+}
+
+// ---------------------------------------------------------------------------
+// Token parsing & verification
+// ---------------------------------------------------------------------------
 
 function parseBearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
@@ -30,6 +67,45 @@ function parseBearerToken(request: Request): string | null {
   const token = header.slice("Bearer ".length).trim();
   return token.length > 0 ? token : null;
 }
+
+/**
+ * Unified token verification.  Tries the self-issued anonymous OAuth server
+ * first (fast, in-process), then falls back to the external WorkOS JWKS.
+ */
+async function verifyToken(request: Request): Promise<VerifiedToken | null> {
+  const rawToken = parseBearerToken(request);
+  if (!rawToken) {
+    return null;
+  }
+
+  // 1. Try the self-issued anonymous OAuth server
+  if (anonOAuth) {
+    const anon = await anonOAuth.verifyToken(rawToken);
+    if (anon) {
+      return { sub: anon.sub, provider: "anonymous", rawToken };
+    }
+  }
+
+  // 2. Try WorkOS
+  if (workosAuthorizationServer && workosJwks) {
+    try {
+      const { payload } = await jwtVerify(rawToken, workosJwks, {
+        issuer: workosAuthorizationServer,
+      });
+      if (typeof payload.sub === "string" && payload.sub.length > 0) {
+        return { sub: payload.sub, provider: "workos", rawToken };
+      }
+    } catch {
+      // Not a valid WorkOS token either
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// OAuth response helpers
+// ---------------------------------------------------------------------------
 
 function resourceMetadataUrl(request: Request): string {
   const url = new URL(request.url);
@@ -54,45 +130,9 @@ function unauthorizedMcpResponse(request: Request, message: string): Response {
   );
 }
 
-async function verifyMcpToken(request: Request): Promise<boolean> {
-  if (!mcpAuthEnabled || !mcpAuthorizationServer || !mcpJwks) {
-    return true;
-  }
-
-  const token = parseBearerToken(request);
-  if (!token) {
-    return false;
-  }
-
-  try {
-    const { payload } = await jwtVerify(token, mcpJwks, {
-      issuer: mcpAuthorizationServer,
-    });
-    return typeof payload.sub === "string" && payload.sub.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-async function verifyOptionalMcpToken(request: Request): Promise<string | null> {
-  if (!mcpAuthorizationServer || !mcpJwks) {
-    return null;
-  }
-
-  const token = parseBearerToken(request);
-  if (!token) {
-    return null;
-  }
-
-  const { payload } = await jwtVerify(token, mcpJwks, {
-    issuer: mcpAuthorizationServer,
-  });
-  if (typeof payload.sub !== "string" || payload.sub.length === 0) {
-    return null;
-  }
-
-  return payload.sub;
-}
+// ---------------------------------------------------------------------------
+// Workspace ID parsing
+// ---------------------------------------------------------------------------
 
 /**
  * Validated boundary for external workspace ID strings.
@@ -105,20 +145,20 @@ function parseWorkspaceId(raw: string): Id<"workspaces"> {
 
 function parseRequestedContext(url: URL): {
   workspaceId?: Id<"workspaces">;
-  actorId?: string;
   clientId?: string;
-  sessionId?: string;
 } {
   const rawWorkspaceId = url.searchParams.get("workspaceId");
   const workspaceId = rawWorkspaceId ? parseWorkspaceId(rawWorkspaceId) : undefined;
-  const actorId = url.searchParams.get("actorId") ?? undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
-  const sessionId = url.searchParams.get("sessionId") ?? undefined;
-  return { workspaceId, actorId, clientId, sessionId };
+  return { workspaceId, clientId };
 }
 
+// ---------------------------------------------------------------------------
+// Service factory
+// ---------------------------------------------------------------------------
+
 function createService(context?: McpWorkspaceContext, bearerToken?: string) {
-  const convex = new ConvexHttpClient(convexUrl);
+  const convex = new ConvexHttpClient(requireConvexUrl());
   if (bearerToken) {
     convex.setAuth(bearerToken);
   }
@@ -211,81 +251,61 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
   };
 }
 
-async function resolveContext(
-  requested: {
-    workspaceId?: Id<"workspaces">;
-    actorId?: string;
-    clientId?: string;
-    sessionId?: string;
-  },
-  bearerToken?: string,
-): Promise<McpWorkspaceContext | undefined> {
-  if (!requested.workspaceId) {
-    return undefined;
-  }
+// ---------------------------------------------------------------------------
+// Context resolution
+// ---------------------------------------------------------------------------
 
-  if (requested.actorId) {
-    return {
-      workspaceId: requested.workspaceId,
-      actorId: requested.actorId,
-      clientId: requested.clientId,
-      sessionId: requested.sessionId,
-    };
-  }
-
-  if (!bearerToken && !requested.sessionId) {
-    throw new Error("Provide actorId+sessionId or authenticate with MCP OAuth.");
-  }
-
-  const convex = new ConvexHttpClient(convexUrl);
-  if (bearerToken) {
-    convex.setAuth(bearerToken);
-  }
+async function resolveContextForWorkos(
+  workspaceId: Id<"workspaces">,
+  bearerToken: string,
+  clientId?: string,
+): Promise<McpWorkspaceContext> {
+  const convex = new ConvexHttpClient(requireConvexUrl());
+  convex.setAuth(bearerToken);
 
   const requestContext = await convex.query(api.workspace.getRequestContext, {
-    workspaceId: requested.workspaceId,
-    sessionId: requested.sessionId,
+    workspaceId,
   });
 
   return {
     workspaceId: requestContext.workspaceId,
     actorId: requestContext.actorId,
-    clientId: requested.clientId,
-    sessionId: requested.sessionId,
+    clientId,
   };
 }
 
-async function handleMcp(request: Request): Promise<Response> {
-  let verifiedSubject: string | null = null;
+// ---------------------------------------------------------------------------
+// MCP handler
+// ---------------------------------------------------------------------------
 
-  if (mcpGatewayRequireAuth) {
-    const authed = await verifyMcpToken(request);
-    if (!authed) {
-      return unauthorizedMcpResponse(request, "No valid bearer token provided.");
-    }
-  } else {
-    try {
-      verifiedSubject = await verifyOptionalMcpToken(request);
-    } catch {
-      verifiedSubject = null;
-    }
+async function handleMcp(request: Request): Promise<Response> {
+  const verified = await verifyToken(request);
+
+  // No token at all — return 401 so MCP clients discover the auth server
+  if (!verified) {
+    return unauthorizedMcpResponse(request, "Authorization required.");
   }
 
   const url = new URL(request.url);
   const requested = parseRequestedContext(url);
-  if (mcpGatewayRequireAuth && !requested.workspaceId) {
-    return Response.json(
-      { error: "workspaceId query parameter is required when MCP OAuth is enabled" },
-      { status: 400 },
-    );
-  }
 
-  const bearerToken = parseBearerToken(request) ?? undefined;
-  const effectiveBearerToken = verifiedSubject && bearerToken ? bearerToken : undefined;
   let context: McpWorkspaceContext | undefined;
-  if (requested.workspaceId) {
+
+  if (verified.provider === "workos") {
+    // WorkOS-authenticated user: must provide workspaceId
+    if (!requested.workspaceId) {
+      return Response.json(
+        { error: "workspaceId query parameter is required for authenticated users" },
+        { status: 400 },
+      );
+    }
+
     try {
-      context = await resolveContext(requested, effectiveBearerToken);
+      context = await resolveContextForWorkos(
+        requested.workspaceId,
+        verified.rawToken,
+        requested.clientId,
+      );
     } catch (error) {
       return Response.json(
         { error: error instanceof Error ? error.message : "Workspace authorization failed" },
@@ -293,70 +313,214 @@ async function handleMcp(request: Request): Promise<Response> {
       );
     }
   }
+  // Anonymous tokens: context is resolved lazily via bootstrapAnonymousContext
+  // in the MCP server's run_code handler (using the token sub as the actor).
+  // If workspaceId is provided, it will be passed through but the anonymous
+  // session bootstrap will create one if needed.
 
-  const service = createService(context, effectiveBearerToken);
+  const bearerToken = verified.provider === "workos" ? verified.rawToken : undefined;
+  const service = createService(context, bearerToken);
   return await handleMcpRequest(service, request, context);
 }
 
-async function handleAuthServerMetadataProxy(): Promise<Response> {
-  if (!mcpAuthEnabled || !mcpAuthorizationServer) {
-    return Response.json({ error: "MCP OAuth is not configured" }, { status: 404 });
-  }
-  const authServer = mcpAuthorizationServer;
-
-  const upstream = await fetch(new URL("/.well-known/oauth-authorization-server", authServer));
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: {
-      "content-type": upstream.headers.get("content-type") ?? "application/json",
-      "cache-control": upstream.headers.get("cache-control") ?? "public, max-age=60",
-    },
-  });
-}
+// ---------------------------------------------------------------------------
+// OAuth endpoints — self-issued anonymous auth server
+// ---------------------------------------------------------------------------
 
 function handleProtectedResourceMetadata(request: Request): Response {
-  if (!mcpAuthEnabled || !mcpAuthorizationServer) {
-    return Response.json({ error: "MCP OAuth is not configured" }, { status: 404 });
+  const url = new URL(request.url);
+  const authorizationServers: string[] = [];
+
+  // Always advertise the self-issued anonymous auth server
+  if (anonOAuth) {
+    authorizationServers.push(anonOAuth.getIssuer());
   }
 
-  const url = new URL(request.url);
+  // Also advertise WorkOS if configured
+  if (workosAuthorizationServer) {
+    authorizationServers.push(workosAuthorizationServer);
+  }
+
+  if (authorizationServers.length === 0) {
+    return Response.json({ error: "No authorization servers configured" }, { status: 404 });
+  }
+
   return Response.json({
     resource: `${url.origin}/mcp`,
-    authorization_servers: [mcpAuthorizationServer],
+    authorization_servers: authorizationServers,
     bearer_methods_supported: ["header"],
   });
 }
 
-const port = Number(Bun.env.PORT ?? 3003);
+function handleAuthServerMetadata(): Response {
+  if (!anonOAuth) {
+    return Response.json({ error: "Anonymous OAuth server not initialized" }, { status: 500 });
+  }
+  return Response.json(anonOAuth.getMetadata());
+}
 
-Bun.serve({
-  port,
-  async fetch(request) {
-    const url = new URL(request.url);
+function handleJwks(): Response {
+  if (!anonOAuth) {
+    return Response.json({ error: "Anonymous OAuth server not initialized" }, { status: 500 });
+  }
+  return Response.json(anonOAuth.getJwks(), {
+    headers: { "cache-control": "public, max-age=3600" },
+  });
+}
 
-    if (url.pathname === "/health") {
-      return new Response("ok");
+async function handleRegister(request: Request): Promise<Response> {
+  if (!anonOAuth) {
+    return Response.json({ error: "Anonymous OAuth server not initialized" }, { status: 500 });
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  try {
+    const registration = anonOAuth.registerClient(body as any);
+    return Response.json(registration, { status: 201 });
+  } catch (error) {
+    if (error instanceof OAuthBadRequest) {
+      return Response.json(
+        { error: "invalid_client_metadata", error_description: error.message },
+        { status: 400 },
+      );
     }
+    throw error;
+  }
+}
 
-    if (url.pathname === "/" || url.pathname === "/mcp") {
-      if (request.method === "POST" || request.method === "GET" || request.method === "DELETE") {
-        return await handleMcp(request);
+function handleAuthorize(request: Request): Response {
+  if (!anonOAuth) {
+    return Response.json({ error: "Anonymous OAuth server not initialized" }, { status: 500 });
+  }
+
+  const url = new URL(request.url);
+  try {
+    const { redirectTo } = anonOAuth.authorize(url.searchParams);
+    return Response.redirect(redirectTo, 302);
+  } catch (error) {
+    if (error instanceof OAuthBadRequest) {
+      return Response.json(
+        { error: "invalid_request", error_description: error.message },
+        { status: 400 },
+      );
+    }
+    throw error;
+  }
+}
+
+async function handleToken(request: Request): Promise<Response> {
+  if (!anonOAuth) {
+    return Response.json({ error: "Anonymous OAuth server not initialized" }, { status: 500 });
+  }
+
+  let body: URLSearchParams;
+  try {
+    const text = await request.text();
+    body = new URLSearchParams(text);
+  } catch {
+    return Response.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  try {
+    const tokens = await anonOAuth.exchangeToken(body);
+    return Response.json(tokens, {
+      headers: {
+        "cache-control": "no-store",
+        "pragma": "no-cache",
+      },
+    });
+  } catch (error) {
+    if (error instanceof OAuthBadRequest) {
+      return Response.json(
+        { error: "invalid_grant", error_description: error.message },
+        { status: 400 },
+      );
+    }
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Server
+// ---------------------------------------------------------------------------
+
+export async function startMcpGateway(
+  port = Number(Bun.env.EXECUTOR_MCP_GATEWAY_PORT ?? Bun.env.PORT ?? 5313),
+): Promise<ReturnType<typeof Bun.serve>> {
+  loadConfigFromEnv();
+
+  // Initialize the self-issued anonymous OAuth server.
+  // The issuer must match the gateway's public origin.
+  const gatewayOrigin = Bun.env.MCP_GATEWAY_ORIGIN ?? `http://localhost:${port}`;
+  await initAnonymousOAuth(gatewayOrigin);
+
+  // Periodically purge expired authorization codes
+  setInterval(() => {
+    anonOAuth?.purgeExpiredCodes();
+  }, 60_000);
+
+  const server = Bun.serve({
+    port,
+    async fetch(request) {
+      const url = new URL(request.url);
+
+      if (url.pathname === "/health") {
+        return new Response("ok");
       }
-      return new Response("Method Not Allowed", { status: 405 });
-    }
 
-    if (url.pathname === "/.well-known/oauth-protected-resource") {
-      return handleProtectedResourceMetadata(request);
-    }
+      // ── MCP endpoint ──────────────────────────────────────────────────
+      if (url.pathname === "/" || url.pathname === "/mcp") {
+        if (request.method === "POST" || request.method === "GET" || request.method === "DELETE") {
+          return await handleMcp(request);
+        }
+        return new Response("Method Not Allowed", { status: 405 });
+      }
 
-    if (url.pathname === "/.well-known/oauth-authorization-server") {
-      return await handleAuthServerMetadataProxy();
-    }
+      // ── OAuth discovery (RFC 9728 + RFC 8414) ─────────────────────────
+      if (url.pathname === "/.well-known/oauth-protected-resource") {
+        return handleProtectedResourceMetadata(request);
+      }
 
-    return new Response("Not found", { status: 404 });
-  },
-});
+      if (url.pathname === "/.well-known/oauth-authorization-server") {
+        return handleAuthServerMetadata();
+      }
 
-console.log(
-  `[executor-mcp-gateway] listening on http://localhost:${port}/mcp (auth ${mcpGatewayRequireAuth ? "required" : "optional"})`,
-);
+      // ── Self-issued OAuth endpoints ───────────────────────────────────
+      if (url.pathname === "/oauth2/jwks") {
+        return handleJwks();
+      }
+
+      if (url.pathname === "/register" && request.method === "POST") {
+        return await handleRegister(request);
+      }
+
+      if (url.pathname === "/authorize" && request.method === "GET") {
+        return handleAuthorize(request);
+      }
+
+      if (url.pathname === "/token" && request.method === "POST") {
+        return await handleToken(request);
+      }
+
+      return new Response("Not found", { status: 404 });
+    },
+  });
+
+  const hasWorkos = Boolean(workosAuthorizationServer);
+  console.log(
+    `[executor-mcp-gateway] listening on http://localhost:${port}/mcp`
+    + ` (anonymous-oauth: enabled, workos: ${hasWorkos ? "enabled" : "disabled"})`,
+  );
+
+  return server;
+}
+
+if (import.meta.main) {
+  await startMcpGateway();
+}

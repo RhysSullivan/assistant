@@ -3,9 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "doctor": "bun run executor.ts doctor",
+    "up": "bun run executor.ts up",
+    "backend": "bun run executor.ts backend",
+    "convex": "bun run executor.ts backend",
+    "gateway": "bun run executor.ts gateway",
     "deploy": "bunx convex deploy",
     "codegen": "bunx convex codegen",
-    "dev:mcp-gateway": "bun --hot mcp-gateway.ts",
+    "build:binary": "bun build executor.ts --compile --outfile dist/executor",
+    "build:release": "bun run scripts/build-release.ts",
+    "dev:mcp-gateway": "EXECUTOR_MCP_GATEWAY_PORT=4313 bun --hot mcp-gateway.ts",
     "start:mcp-gateway": "bun mcp-gateway.ts"
   },
   "dependencies": {

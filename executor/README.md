@@ -1,15 +1,31 @@
-# Executor Monorepo
+# Executor
 
-Executor is now Convex-native.
+Executor is Convex-native and now supports a binary-first install flow.
 
-## What is here
+## Binary install (no global Bun/Node/Convex)
 
-- `convex/`: executor control plane, MCP HTTP endpoint, task execution/actions, policies, credentials, approvals, and persistence.
-- `convex/lib/`: runtime, MCP server helpers, typechecker, tool loading/discovery utilities.
-- `apps/web`: executor web UI for approvals, task history, and settings.
-- `packages/contracts`: shared task/tool/policy contract types.
+```bash
+curl -fsSL https://executor.sh/install | bash
+```
 
-## Run
+The installed `executor` binary bootstraps and manages its own runtime under `~/.executor/runtime`, including:
+
+- `convex-local-backend` (downloaded from Convex precompiled releases)
+- persisted local backend config (`instanceName`, `instanceSecret`, and ports)
+- local SQLite + file storage data
+
+Common commands:
+
+```bash
+executor doctor
+executor up
+executor backend --help
+executor gateway
+```
+
+`executor up` runs the managed `convex-local-backend` binary directly without requiring users to install Bun, Node, or Convex.
+
+## Local development from source
 
 ```bash
 bun install
@@ -33,31 +49,50 @@ Optional Terminal 3 (stateful MCP gateway for elicitation/sampling over Streamab
 bun run dev:mcp-gateway
 ```
 
-## Tests
+## Build distribution artifacts
+
+Build host-native binary:
 
 ```bash
-bun test convex/database.test.ts convex/executor-mcp.e2e.test.ts
+bun run build:binary
 ```
+
+Build release archives for supported platforms:
+
+```bash
+bun run build:release
+```
+
+Artifacts are written to `dist/release/`.
+
+## Repository layout
+
+- `convex/`: executor control plane, MCP HTTP endpoint, task execution/actions, policies, credentials, approvals, and persistence.
+- `lib/`: runtime, MCP server helpers, typechecker, tool loading/discovery utilities.
+- `apps/web`: executor web UI for approvals, task history, and settings.
+- `packages/contracts`: shared task/tool/policy contract types.
 
 ## Notes
 
 - MCP endpoint is served by Convex HTTP routes at `/mcp`.
-- For a long-lived stateful MCP transport (recommended for elicitation in multi-worker environments), run the gateway at `http://localhost:3003/mcp`.
+- For a long-lived stateful MCP transport (recommended for elicitation in multi-worker environments), run the gateway at `http://localhost:4313/mcp` in source dev or `http://localhost:5313/mcp` from the installed binary.
 - Local gateway auth is optional by default; set `MCP_GATEWAY_REQUIRE_AUTH=1` to enforce MCP OAuth on the gateway.
 - Set `MCP_AUTHORIZATION_SERVER` (or `MCP_AUTHORIZATION_SERVER_URL`) to enable MCP OAuth bearer-token verification.
 - When MCP OAuth is enabled, the server exposes `/.well-known/oauth-protected-resource` and proxies `/.well-known/oauth-authorization-server`.
 - Internal runtime callback routes are served by Convex HTTP routes at `/internal/runs/:runId/*`.
 - `run_code` supports TypeScript typechecking and runtime transpilation before execution.
-- `run_code` now attempts MCP form elicitation for pending tool approvals when the MCP client advertises `elicitation.form`; clients without elicitation support continue using the existing out-of-band approval flow.
+- `run_code` attempts MCP form elicitation for pending tool approvals when the MCP client advertises `elicitation.form`; clients without elicitation support continue using out-of-band approval flow.
+- Local source-dev defaults: web `http://localhost:4312`, MCP gateway `http://localhost:4313/mcp`.
+- Installed binary default for `executor gateway`: `http://localhost:5313/mcp`.
 
-## Credential Providers
+## Credential providers
 
-`sourceCredentials` now supports pluggable providers:
+`sourceCredentials` supports pluggable providers:
 
 - `managed` (default): stores `secretJson` in Convex.
 - `workos-vault`: stores credential payload in encrypted external storage and keeps only a reference in Convex.
 
-`workos-vault` uses the standard `WORKOS_API_KEY` environment variable for Vault reads.
+`workos-vault` uses `WORKOS_API_KEY` for Vault reads.
 
 Examples for `upsertCredential.secretJson`:
 

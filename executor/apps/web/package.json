@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "with-env": "bun run --env-file=../../../.env --",
-    "dev": "bun with-env next dev",
+    "dev": "bun with-env next dev -p 4312",
     "build": "bun with-env next build",
-    "start": "bun with-env next start",
+    "start": "bun with-env next start -p 5312",
     "lint": "eslint"
   },
   "dependencies": {

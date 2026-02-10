@@ -73,7 +73,7 @@ export function McpSetupCard({
     return isLocalHostname(window.location.hostname);
   }, []);
 
-  const localGatewayOrigin = (process.env.NEXT_PUBLIC_LOCAL_MCP_ORIGIN ?? "http://localhost:3003").trim().replace(/\/$/, "");
+  const localGatewayOrigin = (process.env.NEXT_PUBLIC_LOCAL_MCP_ORIGIN ?? "http://localhost:4313").trim().replace(/\/$/, "");
   const origin = urlMode === "local" ? localGatewayOrigin : defaultOrigin;
 
   const mcpUrl = useMemo(() => {
@@ -119,7 +119,7 @@ export function McpSetupCard({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="local" className="text-xs">Local gateway (localhost:3003)</SelectItem>
+                <SelectItem value="local" className="text-xs">Local gateway (localhost:4313)</SelectItem>
                 <SelectItem value="default" className="text-xs">Hosted endpoint</SelectItem>
               </SelectContent>
             </Select>
