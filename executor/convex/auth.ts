@@ -64,6 +64,34 @@ function titleCaseWords(input: string): string {
     .join(" ");
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isGeneratedPersonalOrganizationName(name: string, workosUserId: string): boolean {
+  if (/workspace$/i.test(name)) {
+    return true;
+  }
+
+  if (/^user(?:[\s_][a-z0-9]+)?'s organization$/i.test(name)) {
+    return true;
+  }
+
+  return new RegExp(`^${escapeRegex(workosUserId)}'s organization$`, "i").test(name);
+}
+
+function isGeneratedPersonalWorkspaceName(name: string, workosUserId: string): boolean {
+  if (/^my'?s workspace$/i.test(name)) {
+    return true;
+  }
+
+  if (/^user(?:[\s_][a-z0-9]+)?'s workspace$/i.test(name)) {
+    return true;
+  }
+
+  return new RegExp(`^${escapeRegex(workosUserId)}'s workspace$`, "i").test(name);
+}
+
 function deriveOwnerLabel(args: { firstName?: string; fullName?: string; email: string; workosUserId: string }): string {
   const firstName = args.firstName?.trim();
   if (firstName && !/^my$/i.test(firstName)) {
@@ -265,7 +293,7 @@ async function ensurePersonalWorkspace(
       const organization = await ctx.db.get(workspace.organizationId);
 
       if (organization && organization.createdByAccountId === accountId) {
-        const shouldRenameOrganization = /workspace$/i.test(organization.name);
+        const shouldRenameOrganization = isGeneratedPersonalOrganizationName(organization.name, opts.workosUserId);
         if (shouldRenameOrganization && organization.name !== personalNames.organizationName) {
           await ctx.db.patch(organization._id, {
             name: personalNames.organizationName,
@@ -274,7 +302,7 @@ async function ensurePersonalWorkspace(
         }
       }
 
-      const shouldRenameWorkspace = /^my'?s workspace$/i.test(workspace.name);
+      const shouldRenameWorkspace = isGeneratedPersonalWorkspaceName(workspace.name, opts.workosUserId);
       if (shouldRenameWorkspace && workspace.name !== personalNames.workspaceName) {
         await ctx.db.patch(workspace._id, {
           name: personalNames.workspaceName,
@@ -337,6 +365,56 @@ async function ensurePersonalWorkspace(
     workspace: await ctx.db.get(workspaceId),
     membership: await ctx.db.get(userId),
   };
+}
+
+async function refreshGeneratedPersonalWorkspaceNames(
+  ctx: DbCtx,
+  accountId: Id<"accounts">,
+  opts: { email: string; firstName?: string; fullName?: string; workosUserId: string; now: number },
+) {
+  const personalNames = derivePersonalNames({
+    firstName: opts.firstName,
+    fullName: opts.fullName,
+    email: opts.email,
+    workosUserId: opts.workosUserId,
+  });
+
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_account", (q) => q.eq("accountId", accountId))
+    .collect();
+
+  for (const membership of memberships) {
+    const workspace = await ctx.db.get(membership.workspaceId);
+    if (!workspace || workspace.createdByAccountId !== accountId) {
+      continue;
+    }
+
+    const organization = await ctx.db.get(workspace.organizationId);
+    if (!organization || organization.createdByAccountId !== accountId) {
+      continue;
+    }
+
+    if (
+      isGeneratedPersonalOrganizationName(organization.name, opts.workosUserId)
+      && organization.name !== personalNames.organizationName
+    ) {
+      await ctx.db.patch(organization._id, {
+        name: personalNames.organizationName,
+        updatedAt: opts.now,
+      });
+    }
+
+    if (
+      isGeneratedPersonalWorkspaceName(workspace.name, opts.workosUserId)
+      && workspace.name !== personalNames.workspaceName
+    ) {
+      await ctx.db.patch(workspace._id, {
+        name: personalNames.workspaceName,
+        updatedAt: opts.now,
+      });
+    }
+  }
 }
 
 function getIdentityString(identity: Record<string, unknown>, keys: string[]): string | undefined {
@@ -778,6 +856,14 @@ export const bootstrapCurrentWorkosAccount = mutation({
     }
 
     if (!account) return null;
+
+    await refreshGeneratedPersonalWorkspaceNames(ctx, account._id, {
+      email,
+      firstName,
+      fullName,
+      workosUserId: subject,
+      now,
+    });
 
     const activeOrgMembership = await ctx.db
       .query("organizationMembers")

@@ -212,8 +212,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       workosEnabled
       && workosAuthenticated
       && !workosAuthLoading
-      && account !== undefined
-      && account?.provider !== "workos",
+      && account !== undefined,
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async () => bootstrapCurrentWorkosAccount({}),
