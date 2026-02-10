@@ -66,35 +66,3 @@ export const putEntry = internalMutation({
     });
   },
 });
-
-/**
- * Remove all cache entries older than the given timestamp.
- * Returns the number of entries removed.
- */
-export const pruneExpired = internalMutation({
-  args: {
-    maxAgeMs: v.number(),
-    batchSize: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const cutoff = Date.now() - args.maxAgeMs;
-    const limit = args.batchSize ?? 50;
-
-    // Scan all entries (the table should be small — one row per unique spec URL)
-    const entries = await ctx.db
-      .query("openApiSpecCache")
-      .collect();
-
-    let removed = 0;
-    for (const entry of entries) {
-      if (removed >= limit) break;
-      if (entry.createdAt < cutoff) {
-        await ctx.storage.delete(entry.storageId).catch(() => {});
-        await ctx.db.delete(entry._id);
-        removed++;
-      }
-    }
-
-    return removed;
-  },
-});

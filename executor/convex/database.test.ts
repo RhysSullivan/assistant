@@ -25,7 +25,6 @@ async function seedWorkspace(t: ReturnType<typeof setup>, name = "test-ws"): Pro
       name,
       slug: name,
       organizationId: orgId,
-      plan: "free",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });

@@ -1,5 +1,7 @@
 // ── Shared types (inlined from @executor/contracts) ──────────────────────────
 
+import type { Id } from "../convex/_generated/dataModel";
+
 export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
 export type ApprovalStatus = "pending" | "approved" | "denied";
 export type PolicyDecision = "allow" | "require_approval" | "deny";
@@ -15,7 +17,7 @@ export interface TaskRecord {
   status: TaskStatus;
   timeoutMs: number;
   metadata: Record<string, unknown>;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId?: string;
   clientId?: string;
   createdAt: number;
@@ -55,7 +57,7 @@ export interface TaskEventRecord {
 
 export interface AccessPolicyRecord {
   id: string;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId?: string;
   clientId?: string;
   toolPathPattern: string;
@@ -67,7 +69,7 @@ export interface AccessPolicyRecord {
 
 export interface CredentialRecord {
   id: string;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   sourceKey: string;
   scope: CredentialScope;
   actorId?: string;
@@ -79,7 +81,7 @@ export interface CredentialRecord {
 
 export interface ToolSourceRecord {
   id: string;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   name: string;
   type: ToolSourceType;
   config: Record<string, unknown>;
@@ -112,7 +114,7 @@ export interface OpenApiSourceQuality {
 
 export interface AnonymousContext {
   sessionId: string;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId: string;
   clientId: string;
   accountId: string;
@@ -128,7 +130,7 @@ export interface CreateTaskInput {
   timeoutMs?: number;
   runtimeId?: string;
   metadata?: Record<string, unknown>;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId: string;
   clientId?: string;
 }
@@ -201,7 +203,7 @@ export interface ResolvedToolCredential {
 
 export interface ToolRunContext {
   taskId: string;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId?: string;
   clientId?: string;
   credential?: ResolvedToolCredential;

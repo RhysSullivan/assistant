@@ -82,7 +82,6 @@ async function seedUser(
       organizationId,
       slug: `ws-${subject}`,
       name: opts.workspaceName ?? `${name}'s Workspace`,
-      plan: "free",
       createdByAccountId: accountId,
       createdAt: now,
       updatedAt: now,

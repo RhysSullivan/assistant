@@ -5,6 +5,7 @@
 import { createApp } from "./routes";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@executor/convex/_generated/api";
+import type { Id } from "@executor/convex/_generated/dataModel";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
 const CONVEX_URL = Bun.env.CONVEX_URL;
@@ -23,11 +24,11 @@ const ANON_SESSION_ID = Bun.env.EXECUTOR_ANON_SESSION_ID?.trim();
 
 // Bootstrap anonymous context on executor Convex backend
 const convex = new ConvexHttpClient(CONVEX_URL);
-let ctx: { workspaceId: string; actorId: string; clientId?: string };
+let ctx: { workspaceId: Id<"workspaces">; actorId: string; clientId?: string };
 
 if (PINNED_WORKSPACE_ID && PINNED_ACTOR_ID) {
   ctx = {
-    workspaceId: PINNED_WORKSPACE_ID,
+    workspaceId: PINNED_WORKSPACE_ID as Id<"workspaces">,
     actorId: PINNED_ACTOR_ID,
     clientId: PINNED_CLIENT_ID,
   };

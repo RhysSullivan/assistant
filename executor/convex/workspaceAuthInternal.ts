@@ -1,14 +1,11 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
 import {
+  actorIdForAccount,
   requireWorkspaceAccessForAccount,
   resolveAccountForRequest,
   resolveWorkosAccountBySubject,
 } from "../lib/identity";
-
-function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
-  return account.provider === "anonymous" ? account.providerAccountId : account._id;
-}
 
 export const getWorkspaceAccessForRequest = internalQuery({
   args: {

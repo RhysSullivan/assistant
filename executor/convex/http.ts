@@ -110,13 +110,23 @@ async function verifyMcpToken(
   }
 }
 
+/**
+ * Validated boundary for external workspace ID strings.
+ * Convex IDs are opaque strings at runtime; this cast is the single
+ * validated entry point so downstream code never needs ad-hoc casts.
+ */
+function parseWorkspaceId(raw: string): Id<"workspaces"> {
+  return raw as Id<"workspaces">;
+}
+
 function parseMcpContext(url: URL): {
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   clientId?: string;
   sessionId?: string;
 } | undefined {
-  const workspaceId = url.searchParams.get("workspaceId");
-  if (!workspaceId) return undefined;
+  const raw = url.searchParams.get("workspaceId");
+  if (!raw) return undefined;
+  const workspaceId = parseWorkspaceId(raw);
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const sessionId = url.searchParams.get("sessionId") ?? undefined;
   return { workspaceId, clientId, sessionId };
@@ -162,7 +172,7 @@ const mcpHandler = httpAction(async (ctx, request) => {
     try {
       if (mcpAuthConfig.enabled && auth?.subject) {
         const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForWorkosSubject, {
-          workspaceId: requestedContext.workspaceId as Id<"workspaces">,
+          workspaceId: requestedContext.workspaceId,
           subject: auth.subject,
         });
 
@@ -177,7 +187,7 @@ const mcpHandler = httpAction(async (ctx, request) => {
         }
 
         const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
-          workspaceId: requestedContext.workspaceId as Id<"workspaces">,
+          workspaceId: requestedContext.workspaceId,
           sessionId: requestedContext.sessionId,
         });
 
@@ -209,18 +219,17 @@ const mcpHandler = httpAction(async (ctx, request) => {
       timeoutMs?: number;
       runtimeId?: string;
       metadata?: Record<string, unknown>;
-      workspaceId: string;
+      workspaceId: Id<"workspaces">;
       actorId: string;
       clientId?: string;
     }) => {
       return (await ctx.runMutation(internal.executor.createTaskInternal, {
         ...input,
-        workspaceId: input.workspaceId as Id<"workspaces">,
       })) as { task: TaskRecord };
     },
-    getTask: async (taskId: string, workspaceId?: string) => {
+    getTask: async (taskId: string, workspaceId?: Id<"workspaces">) => {
       if (workspaceId) {
-        return (await ctx.runQuery(internal.database.getTaskInWorkspace, { taskId, workspaceId: workspaceId as Id<"workspaces"> })) as TaskRecord | null;
+        return (await ctx.runQuery(internal.database.getTaskInWorkspace, { taskId, workspaceId })) as TaskRecord | null;
       }
       return null;
     },
@@ -230,15 +239,15 @@ const mcpHandler = httpAction(async (ctx, request) => {
     bootstrapAnonymousContext: async (sessionId?: string) => {
       return (await ctx.runMutation(internal.database.bootstrapAnonymousSession, { sessionId })) as AnonymousContext;
     },
-    listTools: async (toolContext?: { workspaceId: string; actorId?: string; clientId?: string }) => {
+    listTools: async (toolContext?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }) => {
       if (!toolContext) {
         return [];
       }
 
-      return (await ctx.runAction(internal.executorNode.listToolsInternal, { ...toolContext, workspaceId: toolContext.workspaceId as Id<"workspaces"> })) as ToolDescriptor[];
+      return (await ctx.runAction(internal.executorNode.listToolsInternal, { ...toolContext })) as ToolDescriptor[];
     },
-    listToolsForTypecheck: async (toolContext: { workspaceId: string; actorId?: string; clientId?: string }) => {
-      const result = await ctx.runAction(internal.executorNode.listToolsWithWarningsInternal, { ...toolContext, workspaceId: toolContext.workspaceId as Id<"workspaces"> }) as {
+    listToolsForTypecheck: async (toolContext: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }) => {
+      const result = await ctx.runAction(internal.executorNode.listToolsWithWarningsInternal, { ...toolContext }) as {
         tools: ToolDescriptor[];
         dtsUrls?: Record<string, string>;
       };
@@ -248,11 +257,11 @@ const mcpHandler = httpAction(async (ctx, request) => {
         dtsUrls: result.dtsUrls ?? {},
       };
     },
-    listPendingApprovals: async (workspaceId: string) => {
-      return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId: workspaceId as Id<"workspaces"> })) as PendingApprovalRecord[];
+    listPendingApprovals: async (workspaceId: Id<"workspaces">) => {
+      return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];
     },
     resolveApproval: async (input: {
-      workspaceId: string;
+      workspaceId: Id<"workspaces">;
       approvalId: string;
       decision: "approved" | "denied";
       reviewerId?: string;
@@ -260,7 +269,6 @@ const mcpHandler = httpAction(async (ctx, request) => {
     }) => {
       return await ctx.runMutation(internal.executor.resolveApprovalInternal, {
         ...input,
-        workspaceId: input.workspaceId as Id<"workspaces">,
       });
     },
   };

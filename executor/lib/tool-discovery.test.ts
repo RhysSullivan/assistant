@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
+import type { Id } from "../convex/_generated/dataModel";
 import { createDiscoverTool } from "./tool_discovery";
 import type { ToolDefinition } from "./types";
+
+const TEST_WORKSPACE_ID = "w" as Id<"workspaces">;
 
 test("discover returns aliases and example calls", async () => {
   const tool = createDiscoverTool([
@@ -19,7 +22,7 @@ test("discover returns aliases and example calls", async () => {
 
   const result = await tool.run(
     { query: "addnumbers", depth: 2 },
-    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
     bestPath: string | null;
     results: Array<{
@@ -57,7 +60,7 @@ test("discover example call handles input-shaped args", async () => {
 
   const result = await tool.run(
     { query: "issuecreate", depth: 2 },
-    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
     bestPath: string | null;
     results: Array<{ exampleCall: string }>;
@@ -86,7 +89,7 @@ test("discover uses compact signatures by default and allows full mode", async (
 
   const compactResult = await tool.run(
     { query: "linear teams", depth: 2 },
-    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
     bestPath: string | null;
     results: Array<{ description: string; signature: string }>;
@@ -94,7 +97,7 @@ test("discover uses compact signatures by default and allows full mode", async (
 
   const fullResult = await tool.run(
     { query: "linear teams", depth: 2, compact: false },
-    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
     bestPath: string | null;
     results: Array<{ description: string; signature: string }>;
@@ -128,7 +131,7 @@ test("discover returns null bestPath when there are no matches", async () => {
 
   const result = await tool.run(
     { query: "totally_unrelated_keyword" },
-    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as { bestPath: string | null; results: Array<unknown>; total: number };
 
   expect(result.bestPath).toBeNull();
@@ -164,7 +167,7 @@ test("discover bestPath prefers simpler exact intent operation", async () => {
 
   const result = await tool.run(
     { query: "linear issue create", depth: 2 },
-    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as { bestPath: string | null; results: Array<{ path: string }> };
 
   expect(result.bestPath).toBe("linear.mutation.issuecreate");
@@ -199,7 +202,7 @@ test("discover namespace hint suppresses cross-namespace bestPath", async () => 
 
   const result = await tool.run(
     { query: "linear teams list", depth: 2 },
-    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as { bestPath: string | null; results: Array<{ path: string }> };
 
   expect(result.bestPath).toBe("linear.query.teams");

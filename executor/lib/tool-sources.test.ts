@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
+import type { Id } from "../convex/_generated/dataModel";
 import { loadExternalTools } from "./tool_sources";
 import type { ExternalToolSourceConfig } from "./tool_sources";
+
+const TEST_WORKSPACE_ID = "w" as Id<"workspaces">;
 
 function makeInlineSpec(tag: string, operationId: string): Record<string, unknown> {
   return {
@@ -461,7 +464,7 @@ test("graphql helper tools generate valid selection sets and envelope responses"
     expect(batchTool).toBeDefined();
     expect(rawTool).toBeDefined();
 
-    const context = { taskId: "t", workspaceId: "w", isToolAllowed: () => true };
+    const context = { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true };
 
     const teamsResult = await teamsTool!.run({}, context);
     const batchResult = await batchTool!.run({ input: { issues: ["one"] } }, context);

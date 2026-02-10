@@ -2,10 +2,13 @@
 
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { action, internalAction } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
 import { InProcessExecutionAdapter } from "../lib/adapters/in_process_execution_adapter";
 import { resolveCredentialPayload } from "../lib/credential_providers";
 import { APPROVAL_DENIED_PREFIX } from "../lib/execution_constants";
+import { actorIdForAccount } from "../lib/identity";
 import { runCodeWithAdapter } from "../lib/runtimes/runtime_core";
 import { createDiscoverTool } from "../lib/tool_discovery";
 import {
@@ -17,6 +20,9 @@ import {
   serializeTools,
   type PreparedOpenApiSpec,
   type ExternalToolSourceConfig,
+  type McpToolSourceConfig,
+  type OpenApiToolSourceConfig,
+  type GraphqlToolSourceConfig,
   type WorkspaceToolSnapshot,
 } from "../lib/tool_sources";
 import { DEFAULT_TOOLS } from "../lib/tools";
@@ -173,27 +179,23 @@ function normalizeExternalToolSource(raw: {
   name: string;
   config: Record<string, unknown>;
 }): ExternalToolSourceConfig {
-  const merged = {
-    type: raw.type,
-    name: raw.name,
-    ...raw.config,
-  } as Record<string, unknown>;
+  const config = raw.config;
 
   if (raw.type === "mcp") {
-    if (typeof merged.url !== "string" || merged.url.trim().length === 0) {
+    if (typeof config.url !== "string" || config.url.trim().length === 0) {
       throw new Error(`MCP source '${raw.name}' missing url`);
     }
 
     if (
-      merged.transport !== undefined
-      && merged.transport !== "sse"
-      && merged.transport !== "streamable-http"
+      config.transport !== undefined
+      && config.transport !== "sse"
+      && config.transport !== "streamable-http"
     ) {
       throw new Error(`MCP source '${raw.name}' has invalid transport`);
     }
 
-    if (merged.queryParams !== undefined) {
-      const queryParams = merged.queryParams;
+    if (config.queryParams !== undefined) {
+      const queryParams = config.queryParams;
       if (!queryParams || typeof queryParams !== "object" || Array.isArray(queryParams)) {
         throw new Error(`MCP source '${raw.name}' queryParams must be an object`);
       }
@@ -205,22 +207,52 @@ function normalizeExternalToolSource(raw: {
       }
     }
 
-    return merged as unknown as ExternalToolSourceConfig;
+    const result: McpToolSourceConfig = {
+      type: "mcp",
+      name: raw.name,
+      url: config.url,
+      transport: config.transport as McpToolSourceConfig["transport"],
+      queryParams: config.queryParams as McpToolSourceConfig["queryParams"],
+      defaultApproval: config.defaultApproval as McpToolSourceConfig["defaultApproval"],
+      overrides: config.overrides as McpToolSourceConfig["overrides"],
+    };
+    return result;
   }
 
   if (raw.type === "graphql") {
-    if (typeof merged.endpoint !== "string" || merged.endpoint.trim().length === 0) {
+    if (typeof config.endpoint !== "string" || config.endpoint.trim().length === 0) {
       throw new Error(`GraphQL source '${raw.name}' missing endpoint`);
     }
-    return merged as unknown as ExternalToolSourceConfig;
+
+    const result: GraphqlToolSourceConfig = {
+      type: "graphql",
+      name: raw.name,
+      endpoint: config.endpoint,
+      schema: config.schema as GraphqlToolSourceConfig["schema"],
+      auth: config.auth as GraphqlToolSourceConfig["auth"],
+      defaultQueryApproval: config.defaultQueryApproval as GraphqlToolSourceConfig["defaultQueryApproval"],
+      defaultMutationApproval: config.defaultMutationApproval as GraphqlToolSourceConfig["defaultMutationApproval"],
+      overrides: config.overrides as GraphqlToolSourceConfig["overrides"],
+    };
+    return result;
   }
 
-  const spec = merged.spec;
-  if (typeof spec !== "string" && typeof spec !== "object") {
+  const spec = config.spec;
+  if (typeof spec !== "string" && (typeof spec !== "object" || spec === null)) {
     throw new Error(`OpenAPI source '${raw.name}' missing spec`);
   }
 
-  return merged as unknown as ExternalToolSourceConfig;
+  const result: OpenApiToolSourceConfig = {
+    type: "openapi",
+    name: raw.name,
+    spec: spec as OpenApiToolSourceConfig["spec"],
+    baseUrl: config.baseUrl as OpenApiToolSourceConfig["baseUrl"],
+    auth: config.auth as OpenApiToolSourceConfig["auth"],
+    defaultReadApproval: config.defaultReadApproval as OpenApiToolSourceConfig["defaultReadApproval"],
+    defaultWriteApproval: config.defaultWriteApproval as OpenApiToolSourceConfig["defaultWriteApproval"],
+    overrides: config.overrides as OpenApiToolSourceConfig["overrides"],
+  };
+  return result;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -230,7 +262,7 @@ async function sleep(ms: number): Promise<void> {
 const baseTools = new Map<string, ToolDefinition>(DEFAULT_TOOLS.map((tool) => [tool.path, tool]));
 interface DtsStorageEntry {
   sourceKey: string;
-  storageId: string;
+  storageId: Id<"_storage">;
 }
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
@@ -239,7 +271,7 @@ const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 const OPENAPI_CACHE_VERSION = "v14";
 
 async function publish(
-  ctx: any,
+  ctx: ActionCtx,
   taskId: string,
   eventName: "task" | "approval",
   type: string,
@@ -253,7 +285,7 @@ async function publish(
   });
 }
 
-async function waitForApproval(ctx: any, approvalId: string): Promise<"approved" | "denied"> {
+async function waitForApproval(ctx: ActionCtx, approvalId: string): Promise<"approved" | "denied"> {
   while (true) {
     const approval = await ctx.runQuery(internal.database.getApproval, { approvalId });
     if (!approval) {
@@ -278,7 +310,7 @@ async function waitForApproval(ctx: any, approvalId: string): Promise<"approved"
  * No size limits — Convex file storage handles multi-MB specs without issue.
  */
 async function loadCachedOpenApiSpec(
-  ctx: any,
+  ctx: ActionCtx,
   specUrl: string,
   sourceName: string,
 ): Promise<PreparedOpenApiSpec> {
@@ -327,7 +359,7 @@ async function loadCachedOpenApiSpec(
 }
 
 async function loadSourceTools(
-  ctx: any,
+  ctx: ActionCtx,
   source: ExternalToolSourceConfig,
 ): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
   if (source.type === "openapi" && typeof source.spec === "string") {
@@ -356,7 +388,7 @@ interface WorkspaceToolsResult {
   dtsStorageIds: DtsStorageEntry[];
 }
 
-async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<WorkspaceToolsResult> {
+async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<WorkspaceToolsResult> {
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
   const signature = sourceSignature(workspaceId, sources);
@@ -440,7 +472,7 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Workspa
       dtsEntries.map(async (entry) => {
         const dtsBlob = new Blob([entry.content], { type: "text/plain" });
         const sid = await ctx.storage.store(dtsBlob);
-        return { sourceKey: entry.sourceKey, storageId: String(sid) };
+        return { sourceKey: entry.sourceKey, storageId: sid };
       }),
     );
     dtsStorageIds = storedDts;
@@ -463,7 +495,7 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Workspa
       workspaceId,
       signature,
       storageId,
-      dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId as any })),
+      dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId })),
       toolCount: allTools.length,
       sizeBytes: json.length,
     });
@@ -608,8 +640,8 @@ function listVisibleToolDescriptors(
 }
 
 async function listToolsForContext(
-  ctx: any,
-  context: { workspaceId: string; actorId?: string; clientId?: string },
+  ctx: ActionCtx,
+  context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
 ): Promise<ToolDescriptor[]> {
   const [result, policies] = await Promise.all([
     getWorkspaceTools(ctx, context.workspaceId),
@@ -621,8 +653,8 @@ async function listToolsForContext(
 }
 
 async function listToolsWithWarningsForContext(
-  ctx: any,
-  context: { workspaceId: string; actorId?: string; clientId?: string },
+  ctx: ActionCtx,
+  context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
 ): Promise<{
   tools: ToolDescriptor[];
   warnings: string[];
@@ -656,10 +688,6 @@ async function listToolsWithWarningsForContext(
   };
 }
 
-function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
-  return account.provider === "anonymous" ? account.providerAccountId : account._id;
-}
-
 function isToolAllowedForTask(
   task: TaskRecord,
   toolPath: string,
@@ -672,7 +700,7 @@ function isToolAllowedForTask(
 }
 
 async function resolveCredentialHeaders(
-  ctx: any,
+  ctx: ActionCtx,
   spec: ToolCredentialSpec,
   task: TaskRecord,
 ): Promise<ResolvedToolCredential | null> {
@@ -774,7 +802,7 @@ function getGraphqlDecision(
   return { decision: worstDecision, effectivePaths: fieldPaths };
 }
 
-async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
+async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
   const { toolPath, input, callId } = call;
   const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: task.workspaceId });
   const typedPolicies = policies as AccessPolicyRecord[];

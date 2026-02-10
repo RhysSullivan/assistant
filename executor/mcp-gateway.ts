@@ -94,13 +94,23 @@ async function verifyOptionalMcpToken(request: Request): Promise<string | null> 
   return payload.sub;
 }
 
+/**
+ * Validated boundary for external workspace ID strings.
+ * Convex IDs are opaque strings at runtime; this cast is the single
+ * validated entry point so downstream code never needs ad-hoc casts.
+ */
+function parseWorkspaceId(raw: string): Id<"workspaces"> {
+  return raw as Id<"workspaces">;
+}
+
 function parseRequestedContext(url: URL): {
-  workspaceId?: string;
+  workspaceId?: Id<"workspaces">;
   actorId?: string;
   clientId?: string;
   sessionId?: string;
 } {
-  const workspaceId = url.searchParams.get("workspaceId") ?? undefined;
+  const rawWorkspaceId = url.searchParams.get("workspaceId");
+  const workspaceId = rawWorkspaceId ? parseWorkspaceId(rawWorkspaceId) : undefined;
   const actorId = url.searchParams.get("actorId") ?? undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const sessionId = url.searchParams.get("sessionId") ?? undefined;
@@ -122,12 +132,12 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
       timeoutMs?: number;
       runtimeId?: string;
       metadata?: Record<string, unknown>;
-      workspaceId: string;
+      workspaceId: Id<"workspaces">;
       actorId: string;
       clientId?: string;
     }) => {
       const created = await convex.mutation(api.executor.createTask, {
-        workspaceId: input.workspaceId as Id<"workspaces">,
+        workspaceId: input.workspaceId,
         sessionId,
         code: input.code,
         timeoutMs: input.timeoutMs,
@@ -139,13 +149,13 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
       return created as { task: TaskRecord };
     },
 
-    getTask: async (taskId: string, workspace?: string) => {
+    getTask: async (taskId: string, workspace?: Id<"workspaces">) => {
       const effectiveWorkspaceId = workspace ?? workspaceId;
       if (!effectiveWorkspaceId) {
         return null;
       }
       const task = await convex.query(api.workspace.getTaskInWorkspace, {
-        workspaceId: effectiveWorkspaceId as Id<"workspaces">,
+        workspaceId: effectiveWorkspaceId,
         sessionId,
         taskId,
       });
@@ -161,12 +171,12 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
       return bootstrap as AnonymousContext;
     },
 
-    listTools: async (toolContext?: { workspaceId: string; actorId?: string; clientId?: string }) => {
+    listTools: async (toolContext?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }) => {
       if (!toolContext) {
         return [];
       }
       const tools = await convex.action(api.executorNode.listTools, {
-        workspaceId: toolContext.workspaceId as Id<"workspaces">,
+        workspaceId: toolContext.workspaceId,
         sessionId,
         actorId: toolContext.actorId,
         clientId: toolContext.clientId,
@@ -174,23 +184,23 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
       return tools as ToolDescriptor[];
     },
 
-    listPendingApprovals: async (approvalWorkspaceId: string) => {
+    listPendingApprovals: async (approvalWorkspaceId: Id<"workspaces">) => {
       const approvals = await convex.query(api.workspace.listPendingApprovals, {
-        workspaceId: approvalWorkspaceId as Id<"workspaces">,
+        workspaceId: approvalWorkspaceId,
         sessionId,
       });
       return approvals as PendingApprovalRecord[];
     },
 
     resolveApproval: async (input: {
-      workspaceId: string;
+      workspaceId: Id<"workspaces">;
       approvalId: string;
       decision: "approved" | "denied";
       reviewerId?: string;
       reason?: string;
     }) => {
       return await convex.mutation(api.executor.resolveApproval, {
-        workspaceId: input.workspaceId as Id<"workspaces">,
+        workspaceId: input.workspaceId,
         sessionId,
         approvalId: input.approvalId,
         decision: input.decision,
@@ -203,7 +213,7 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
 
 async function resolveContext(
   requested: {
-    workspaceId?: string;
+    workspaceId?: Id<"workspaces">;
     actorId?: string;
     clientId?: string;
     sessionId?: string;
@@ -233,7 +243,7 @@ async function resolveContext(
   }
 
   const requestContext = await convex.query(api.workspace.getRequestContext, {
-    workspaceId: requested.workspaceId as Id<"workspaces">,
+    workspaceId: requested.workspaceId,
     sessionId: requested.sessionId,
   });
 

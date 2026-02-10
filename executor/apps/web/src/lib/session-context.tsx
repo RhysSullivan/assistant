@@ -231,7 +231,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(SESSION_KEY, context.sessionId);
       localStorage.setItem(ACTIVE_WORKSPACE_KEY, context.workspaceId);
       setStoredSessionId(context.sessionId);
-      setActiveWorkspaceId(context.workspaceId as Id<"workspaces">);
+      setActiveWorkspaceId(context.workspaceId);
       setManualGuestContext(context);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Failed to create anonymous organization";
@@ -401,7 +401,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (guestContext) {
       return [
         {
-          id: guestContext.workspaceId as Id<"workspaces">,
+          id: guestContext.workspaceId,
           docId: null,
           name: "Anonymous Workspace",
           organizationId: null,

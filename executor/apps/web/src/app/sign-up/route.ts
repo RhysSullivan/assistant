@@ -93,7 +93,7 @@ async function resolveOrganizationHint(request: NextRequest): Promise<string | u
   try {
     const workosOrganizationId = await convexClient.query(
       api.organizations.resolveWorkosOrganizationId,
-      { organizationId: organizationHint as unknown as Id<"organizations"> },
+      { organizationId: organizationHint as Id<"organizations"> },
     );
     return typeof workosOrganizationId === "string" ? workosOrganizationId : undefined;
   } catch {

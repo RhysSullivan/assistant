@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { handleMcpRequest } from "./mcp_server";
 import type { LiveTaskEvent } from "./events";
+import type { Id } from "../convex/_generated/dataModel";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
 
 class FakeMcpService {
@@ -75,7 +76,7 @@ class FakeMcpService {
     const now = Date.now();
     const context: AnonymousContext = {
       sessionId: sessionId ?? `anon_session_${crypto.randomUUID()}`,
-      workspaceId: `ws_${crypto.randomUUID()}`,
+      workspaceId: `ws_${crypto.randomUUID()}` as Id<"workspaces">,
       actorId: `anon_${crypto.randomUUID()}`,
       clientId: "mcp",
       accountId: `account_${crypto.randomUUID()}`,

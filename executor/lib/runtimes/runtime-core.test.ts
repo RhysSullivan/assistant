@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { runCodeWithAdapter } from "./runtime_core";
 import { loadExternalTools } from "../tool_sources";
+import type { Id } from "../../convex/_generated/dataModel";
 import type {
   ExecutionAdapter,
   RuntimeOutputEvent,
@@ -34,7 +35,7 @@ function createRuntimeAdapter(
       try {
         const context: ToolRunContext = {
           taskId: call.runId,
-          workspaceId: "ws_test",
+          workspaceId: "ws_test" as Id<"workspaces">,
           actorId: "actor_test",
           clientId: "web",
           isToolAllowed: () => true,

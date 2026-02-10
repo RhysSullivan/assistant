@@ -10,6 +10,7 @@ import type {
   TaskRecord,
   ToolDescriptor,
 } from "./types";
+import type { Id } from "../convex/_generated/dataModel";
 
 function getTaskTerminalState(status: string): boolean {
   return status === "completed" || status === "failed" || status === "timed_out" || status === "denied";
@@ -21,16 +22,16 @@ function getTaskTerminalState(status: string): boolean {
 
 interface McpExecutorService {
   createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }>;
-  getTask(taskId: string, workspaceId?: string): Promise<TaskRecord | null>;
+  getTask(taskId: string, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null>;
   subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;
-  listTools(context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
+  listTools(context?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
   listToolsForTypecheck?(
-    context: { workspaceId: string; actorId?: string; clientId?: string },
+    context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   ): Promise<{ tools: ToolDescriptor[]; dtsUrls: Record<string, string> }>;
-  listPendingApprovals?(workspaceId: string): Promise<PendingApprovalRecord[]>;
+  listPendingApprovals?(workspaceId: Id<"workspaces">): Promise<PendingApprovalRecord[]>;
   resolveApproval?(input: {
-    workspaceId: string;
+    workspaceId: Id<"workspaces">;
     approvalId: string;
     decision: "approved" | "denied";
     reviewerId?: string;
@@ -44,7 +45,7 @@ interface ApprovalPromptDecision {
 }
 
 interface ApprovalPromptContext {
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId: string;
 }
 
@@ -58,7 +59,7 @@ type ApprovalPrompt = (
 // ---------------------------------------------------------------------------
 
 export interface McpWorkspaceContext {
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   actorId: string;
   clientId?: string;
   sessionId?: string;
@@ -173,7 +174,7 @@ function summarizeTask(task: TaskRecord): string {
 function waitForTerminalTask(
   service: McpExecutorService,
   taskId: string,
-  workspaceId: string,
+  workspaceId: Id<"workspaces">,
   waitTimeoutMs: number,
   onApprovalPrompt?: ApprovalPrompt,
   approvalContext?: ApprovalPromptContext,
@@ -422,7 +423,7 @@ function createRunCodeTool(
     const requestedTimeoutMs = input.timeoutMs ?? 300_000;
 
     // Resolve context: bound context takes priority, then input, then anonymous
-    let context: { workspaceId: string; actorId: string; clientId?: string; sessionId?: string };
+    let context: { workspaceId: Id<"workspaces">; actorId: string; clientId?: string; sessionId?: string };
 
     if (boundContext) {
       context = { ...boundContext, sessionId: input.sessionId ?? boundContext.sessionId };

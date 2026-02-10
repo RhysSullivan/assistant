@@ -18,6 +18,7 @@ import {
 } from "@openassistant/reacord";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@executor/convex/_generated/api";
+import type { Id } from "@executor/convex/_generated/dataModel";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -26,7 +27,7 @@ import { api } from "@executor/convex/_generated/api";
 export interface TaskMessageProps {
   readonly agentTaskId: string;
   readonly prompt: string;
-  readonly workspaceId: string;
+  readonly workspaceId: Id<"workspaces">;
 }
 
 export function TaskMessage({ agentTaskId, prompt, workspaceId }: TaskMessageProps) {

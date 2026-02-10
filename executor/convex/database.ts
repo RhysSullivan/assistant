@@ -27,21 +27,6 @@ const credentialProviderValidator = v.union(
 const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
 const agentTaskStatusValidator = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
 
-function normalizeOptional(value?: string): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : "";
-}
-
-function optionalFromNormalized(value?: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-  return value;
-}
-
 function slugify(input: string): string {
   const slug = input
     .toLowerCase()
@@ -118,8 +103,8 @@ function mapTask(doc: Doc<"tasks">) {
     timeoutMs: typeof doc.timeoutMs === "number" ? doc.timeoutMs : DEFAULT_TIMEOUT_MS,
     metadata: asRecord(doc.metadata),
     workspaceId: doc.workspaceId,
-    actorId: optionalFromNormalized(doc.actorId),
-    clientId: optionalFromNormalized(doc.clientId),
+    actorId: doc.actorId,
+    clientId: doc.clientId,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     startedAt: doc.startedAt,
@@ -149,8 +134,8 @@ function mapPolicy(doc: Doc<"accessPolicies">) {
   return {
     id: doc.policyId,
     workspaceId: doc.workspaceId,
-    actorId: optionalFromNormalized(doc.actorId),
-    clientId: optionalFromNormalized(doc.clientId),
+    actorId: doc.actorId,
+    clientId: doc.clientId,
     toolPathPattern: doc.toolPathPattern,
     decision: doc.decision,
     priority: doc.priority,
@@ -165,7 +150,7 @@ function mapCredential(doc: Doc<"sourceCredentials">) {
     workspaceId: doc.workspaceId,
     sourceKey: doc.sourceKey,
     scope: doc.scope,
-    actorId: optionalFromNormalized(doc.actorId),
+    actorId: doc.actorId || undefined,
     provider: doc.provider ?? "managed",
     secretJson: asRecord(doc.secretJson),
     createdAt: doc.createdAt,
@@ -242,7 +227,6 @@ async function ensureAnonymousIdentity(
       organizationId,
       slug: `anonymous-${crypto.randomUUID().slice(0, 8)}`,
       name: anonymousWorkspaceName,
-      plan: "free",
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,
@@ -351,8 +335,8 @@ export const createTask = internalMutation({
       code: args.code,
       runtimeId: args.runtimeId,
       workspaceId: args.workspaceId,
-      actorId: normalizeOptional(args.actorId),
-      clientId: normalizeOptional(args.clientId),
+      actorId: args.actorId?.trim() || undefined,
+      clientId: args.clientId?.trim() || undefined,
       status: "queued",
       timeoutMs: args.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       metadata: asRecord(args.metadata),
@@ -720,7 +704,7 @@ export const bootstrapAnonymousSession = internalMutation({
   args: { sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const requestedSessionId = normalizeOptional(args.sessionId);
+    const requestedSessionId = args.sessionId?.trim() || "";
     const allowRequestedSessionId = requestedSessionId?.startsWith("mcp_") ?? false;
 
     if (requestedSessionId) {
@@ -814,8 +798,8 @@ export const upsertAccessPolicy = internalMutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         workspaceId: args.workspaceId,
-        actorId: normalizeOptional(args.actorId),
-        clientId: normalizeOptional(args.clientId),
+        actorId: args.actorId?.trim() || undefined,
+        clientId: args.clientId?.trim() || undefined,
         toolPathPattern: args.toolPathPattern,
         decision: args.decision,
         priority: args.priority ?? 100,
@@ -825,8 +809,8 @@ export const upsertAccessPolicy = internalMutation({
       await ctx.db.insert("accessPolicies", {
         policyId,
         workspaceId: args.workspaceId,
-        actorId: normalizeOptional(args.actorId),
-        clientId: normalizeOptional(args.clientId),
+        actorId: args.actorId?.trim() || undefined,
+        clientId: args.clientId?.trim() || undefined,
         toolPathPattern: args.toolPathPattern,
         decision: args.decision,
         priority: args.priority ?? 100,
@@ -877,7 +861,7 @@ export const upsertCredential = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const actorId = args.scope === "actor" ? normalizeOptional(args.actorId) : "";
+    const actorId = args.scope === "actor" ? (args.actorId?.trim() || "") : "";
 
     const existing = await ctx.db
       .query("sourceCredentials")
@@ -970,7 +954,7 @@ export const resolveCredential = internalQuery({
   },
   handler: async (ctx, args) => {
     if (args.scope === "actor") {
-      const actorId = normalizeOptional(args.actorId);
+      const actorId = args.actorId?.trim() || "";
       if (!actorId) {
         return null;
       }

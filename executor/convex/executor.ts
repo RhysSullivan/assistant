@@ -4,6 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { workspaceMutation } from "../lib/functionBuilders";
+import { actorIdForAccount } from "../lib/identity";
 import type { ApprovalRecord, TaskRecord } from "../lib/types";
 
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -18,10 +19,6 @@ async function publishTaskEvent(
   },
 ): Promise<void> {
   await ctx.runMutation(internal.database.createTaskEvent, input);
-}
-
-function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }) {
-  return account.provider === "anonymous" ? account.providerAccountId : account._id;
 }
 
 async function createTaskRecord(

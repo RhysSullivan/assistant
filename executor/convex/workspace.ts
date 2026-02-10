@@ -2,16 +2,13 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { workspaceMutation, workspaceQuery } from "../lib/functionBuilders";
+import { actorIdForAccount } from "../lib/identity";
 
 const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProviderValidator = v.union(v.literal("managed"), v.literal("workos-vault"));
 const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
-
-function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
-  return account.provider === "anonymous" ? account.providerAccountId : account._id;
-}
 
 function redactCredential<T extends { secretJson: Record<string, unknown> }>(credential: T): T {
   return {

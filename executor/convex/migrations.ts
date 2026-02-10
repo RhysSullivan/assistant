@@ -81,17 +81,6 @@ export const deleteSourceCredentialsMissingProvider = migrations.define({
   },
 });
 
-export const deleteInvitesMissingProvider = migrations.define({
-  table: "invites",
-  migrateOne: async (ctx, invite) => {
-    if (invite.provider) {
-      return;
-    }
-
-    await ctx.db.delete(invite._id);
-  },
-});
-
 export const deleteAnonymousSessionsMissingUserId = migrations.define({
   table: "anonymousSessions",
   migrateOne: async (ctx, session) => {
@@ -109,6 +98,26 @@ export const backfillDtsStorageIds = migrations.define({
     if (entry.dtsStorageIds === undefined) {
       return { dtsStorageIds: [] };
     }
+  },
+});
+
+export const cleanupTaskEmptyStringSentinels = migrations.define({
+  table: "tasks",
+  migrateOne: async (_ctx, task) => {
+    const patch: Record<string, undefined> = {};
+    if (task.actorId === "") patch.actorId = undefined;
+    if (task.clientId === "") patch.clientId = undefined;
+    if (Object.keys(patch).length > 0) return patch;
+  },
+});
+
+export const cleanupAccessPolicyEmptyStringSentinels = migrations.define({
+  table: "accessPolicies",
+  migrateOne: async (_ctx, policy) => {
+    const patch: Record<string, undefined> = {};
+    if (policy.actorId === "") patch.actorId = undefined;
+    if (policy.clientId === "") patch.clientId = undefined;
+    if (Object.keys(patch).length > 0) return patch;
   },
 });
 

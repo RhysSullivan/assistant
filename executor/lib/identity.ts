@@ -158,3 +158,7 @@ export function isAdminRole(role: string): boolean {
 export function canManageBilling(role: string): boolean {
   return role === "owner" || role === "billing_admin";
 }
+
+export function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
+  return account.provider === "anonymous" ? account.providerAccountId : account._id;
+}

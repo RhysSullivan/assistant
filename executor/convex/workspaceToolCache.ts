@@ -72,21 +72,3 @@ export const putEntry = internalMutation({
     });
   },
 });
-
-/**
- * Look up .d.ts storage IDs for a workspace (used to generate download URLs).
- */
-export const getDtsStorageIds = internalQuery({
-  args: {
-    workspaceId: v.id("workspaces"),
-  },
-  handler: async (ctx, args) => {
-    const entry = await ctx.db
-      .query("workspaceToolCache")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-
-    if (!entry) return [];
-    return entry.dtsStorageIds;
-  },
-});

@@ -193,7 +193,6 @@ export const create = authedMutation({
       slug,
       name,
       iconStorageId: args.iconStorageId,
-      plan: "free",
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,

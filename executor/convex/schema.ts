@@ -25,7 +25,6 @@ const inviteStatus = v.union(
   v.literal("revoked"),
   v.literal("failed"),
 );
-const inviteProvider = v.literal("workos");
 const taskStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -58,8 +57,7 @@ export default defineSchema({
     updatedAt: v.number(),
     lastLoginAt: v.optional(v.number()),
   })
-    .index("by_provider", ["provider", "providerAccountId"])
-    .index("by_email", ["email"]),
+    .index("by_provider", ["provider", "providerAccountId"]),
 
   workspaces: defineTable({
     workosOrgId: v.optional(v.string()),
@@ -67,7 +65,6 @@ export default defineSchema({
     slug: v.string(),
     name: v.string(),
     iconStorageId: v.optional(v.id("_storage")),
-    plan: v.string(),
     createdByAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -75,7 +72,6 @@ export default defineSchema({
     .index("by_workos_org_id", ["workosOrgId"])
     .index("by_organization_created", ["organizationId", "createdAt"])
     .index("by_organization_slug", ["organizationId", "slug"])
-    .index("by_creator_created", ["createdByAccountId", "createdAt"])
     .index("by_slug", ["slug"]),
 
   organizations: defineTable({
@@ -106,7 +102,6 @@ export default defineSchema({
     .index("by_org", ["organizationId"])
     .index("by_org_account", ["organizationId", "accountId"])
     .index("by_account", ["accountId"])
-    .index("by_org_status", ["organizationId", "status"])
     .index("by_org_billable_status", ["organizationId", "billable", "status"]),
 
   workspaceMembers: defineTable({
@@ -121,7 +116,6 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_account", ["workspaceId", "accountId"])
     .index("by_account", ["accountId"])
-    .index("by_workspace_status", ["workspaceId", "status"])
     .index("by_workos_membership_id", ["workosOrgMembershipId"]),
 
   invites: defineTable({
@@ -130,7 +124,6 @@ export default defineSchema({
     email: v.string(),
     role: orgRole,
     status: inviteStatus,
-    provider: inviteProvider,
     providerInviteId: v.optional(v.string()),
     invitedByAccountId: v.id("accounts"),
     expiresAt: v.number(),
@@ -139,7 +132,6 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId"])
-    .index("by_org_status_created", ["organizationId", "status", "createdAt"])
     .index("by_org_email_status", ["organizationId", "email", "status"]),
 
   billingCustomers: defineTable({
@@ -182,8 +174,8 @@ export default defineSchema({
     code: v.string(),
     runtimeId: v.string(),
     workspaceId: v.id("workspaces"),
-    actorId: v.string(),
-    clientId: v.string(),
+    actorId: v.optional(v.string()),
+    clientId: v.optional(v.string()),
     status: taskStatus,
     timeoutMs: v.number(),
     metadata: v.any(),
@@ -213,7 +205,6 @@ export default defineSchema({
     resolvedAt: v.optional(v.number()),
   })
     .index("by_approval_id", ["approvalId"])
-    .index("by_task", ["taskId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_workspace_status_created", ["workspaceId", "status", "createdAt"]),
 
@@ -225,14 +216,13 @@ export default defineSchema({
     payload: v.any(),
     createdAt: v.number(),
   })
-    .index("by_sequence", ["sequence"])
     .index("by_task_sequence", ["taskId", "sequence"]),
 
   accessPolicies: defineTable({
     policyId: v.string(),
     workspaceId: v.id("workspaces"),
-    actorId: v.string(),
-    clientId: v.string(),
+    actorId: v.optional(v.string()),
+    clientId: v.optional(v.string()),
     toolPathPattern: v.string(),
     decision: policyDecision,
     priority: v.number(),
@@ -253,7 +243,6 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_credential_id", ["credentialId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_workspace_source_scope_actor", ["workspaceId", "sourceKey", "scope", "actorId"]),
 
@@ -269,8 +258,7 @@ export default defineSchema({
   })
     .index("by_source_id", ["sourceId"])
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
-    .index("by_workspace_name", ["workspaceId", "name"])
-    .index("by_workspace_enabled_updated", ["workspaceId", "enabled", "updatedAt"]),
+    .index("by_workspace_name", ["workspaceId", "name"]),
 
   agentTasks: defineTable({
     agentTaskId: v.string(),
@@ -286,8 +274,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_agent_task_id", ["agentTaskId"])
-    .index("by_workspace_created", ["workspaceId", "createdAt"])
-    .index("by_requester_created", ["requesterId", "createdAt"]),
+    .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
   openApiSpecCache: defineTable({
     specUrl: v.string(),

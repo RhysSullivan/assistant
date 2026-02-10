@@ -9,6 +9,7 @@ import type { ConvexReactClient } from "convex/react";
 import { ConvexProvider } from "convex/react";
 import type { ReacordInstance } from "@openassistant/reacord";
 import { Effect, Runtime } from "effect";
+import type { Id } from "@executor/convex/_generated/dataModel";
 import { TaskMessage } from "../views/task-message";
 
 interface AskCommandDeps {
@@ -29,13 +30,13 @@ export async function handleAskCommand(
   await interaction.deferReply();
 
   let agentTaskId: string;
-  let workspaceId: string;
+  let workspaceId: Id<"workspaces">;
   try {
     const data = await unwrap(
       deps.api.api.tasks.post({ prompt, requesterId }),
     );
     agentTaskId = data.agentTaskId;
-    workspaceId = data.workspaceId;
+    workspaceId = data.workspaceId as Id<"workspaces">;
   } catch (error) {
     await interaction.editReply({
       content: `\u274c Failed to create task: ${error instanceof Error ? error.message : String(error)}`,

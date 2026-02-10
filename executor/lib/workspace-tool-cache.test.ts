@@ -16,6 +16,8 @@ import {
 } from "./tool_sources";
 import type { ToolDefinition } from "./types";
 
+const TEST_WORKSPACE_ID = "w" as Id<"workspaces">;
+
 function makeBaseTools(): Map<string, ToolDefinition> {
   return new Map([
     [
@@ -236,7 +238,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     // The rehydrated run should work
     const result = await rehydrated[0]!.run(
       { message: "hello" },
-      { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+      { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
     );
     expect(result).toBe("hello");
   });
@@ -344,11 +346,11 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     try {
       const rawResult = await rawTool!.run(
         { query: "query viewer { viewer { id } }" },
-        { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+        { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
       );
       const teamsResult = await teamsTool!.run(
         {},
-        { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+        { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
       );
 
       expect(rawResult).toEqual({ data: { viewer: { id: "user_1" } }, errors: [] });
@@ -395,7 +397,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     const echoTool = rehydrated.find((t) => t.path === "echo")!;
     const result = await echoTool.run(
       { message: "round-trip" },
-      { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+      { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
     );
     expect(result).toBe("round-trip");
 
@@ -487,7 +489,6 @@ describe("workspace tool cache table", () => {
         name: "test-ws",
         slug: "test-ws",
         organizationId: orgId,
-        plan: "free",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });

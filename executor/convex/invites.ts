@@ -185,15 +185,12 @@ export const create = organizationMutation({
     }
     const inviterWorkosUserId = ctx.account.providerAccountId;
 
-    const provider = "workos";
-
     const inviteId = await ctx.db.insert("invites", {
       organizationId: ctx.organizationId,
       workspaceId: args.workspaceId,
       email: normalizedEmail,
       role: args.role,
       status: "pending",
-      provider,
       invitedByAccountId: ctx.account._id,
       expiresAt,
       createdAt: now,
@@ -222,7 +219,6 @@ export const create = organizationMutation({
         expiresAt: invite.expiresAt,
       },
       delivery: {
-        provider,
         providerInviteId: invite.providerInviteId ?? null,
         state: "queued",
       },

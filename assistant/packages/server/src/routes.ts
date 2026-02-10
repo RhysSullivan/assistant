@@ -10,6 +10,7 @@ import { createAgent } from "@assistant/core";
 import type { TaskEvent } from "@assistant/core";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@executor/convex/_generated/api";
+import type { Id } from "@executor/convex/_generated/dataModel";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -17,7 +18,7 @@ import { api } from "@executor/convex/_generated/api";
 
 export interface ServerOptions {
   readonly executorUrl: string;
-  readonly workspaceId: string;
+  readonly workspaceId: Id<"workspaces">;
   readonly actorId: string;
   readonly clientId?: string;
   readonly context?: string;

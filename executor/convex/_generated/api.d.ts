@@ -829,6 +829,30 @@ export declare const internal: {
       },
       any
     >;
+    cleanupAccessPolicyEmptyStringSentinels: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    cleanupTaskEmptyStringSentinels: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
     deleteAnonymousSessionsMissingAccountId: FunctionReference<
       "mutation",
       "internal",
@@ -842,18 +866,6 @@ export declare const internal: {
       any
     >;
     deleteAnonymousSessionsMissingUserId: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
-    deleteInvitesMissingProvider: FunctionReference<
       "mutation",
       "internal",
       {
@@ -921,12 +933,6 @@ export declare const internal: {
       { maxAgeMs: number; specUrl: string; version: string },
       any
     >;
-    pruneExpired: FunctionReference<
-      "mutation",
-      "internal",
-      { batchSize?: number; maxAgeMs: number },
-      any
-    >;
     putEntry: FunctionReference<
       "mutation",
       "internal",
@@ -954,12 +960,6 @@ export declare const internal: {
     >;
   };
   workspaceToolCache: {
-    getDtsStorageIds: FunctionReference<
-      "query",
-      "internal",
-      { workspaceId: Id<"workspaces"> },
-      any
-    >;
     getEntry: FunctionReference<
       "query",
       "internal",
