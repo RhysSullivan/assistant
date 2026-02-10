@@ -338,9 +338,7 @@ async function loadCachedOpenApiSpec(
   }
 
   // 2. Cache miss — prepare from scratch
-  const prepared = await prepareOpenApiSpec(specUrl, sourceName, {
-    mode: "fast",
-  });
+  const prepared = await prepareOpenApiSpec(specUrl, sourceName);
 
   // Store in file storage + metadata table (best-effort, don't block on failure)
   try {
@@ -584,6 +582,7 @@ function toToolDescriptor(tool: ToolDefinition, approval: "auto" | "required"): 
     returnsType: tool.metadata?.displayReturnsType ?? tool.metadata?.returnsType,
     strictArgsType: tool.metadata?.argsType,
     strictReturnsType: tool.metadata?.returnsType,
+    argPreviewKeys: tool.metadata?.argPreviewKeys,
     operationId: tool.metadata?.operationId,
     // Note: sourceDts is NOT included — it's too large to send over the wire.
     // Monaco fetches .d.ts blobs separately via Convex storage URLs.

@@ -14,6 +14,7 @@ interface DiscoverIndexEntry {
   source: string;
   argsType: string;
   returnsType: string;
+  argPreviewKeys: string[];
   searchText: string;
   normalizedPath: string;
   normalizedSearchText: string;
@@ -71,7 +72,7 @@ function buildExampleCall(entry: DiscoverIndexEntry): string {
     return `await tools.${entry.path}({});`;
   }
 
-  const keys = extractTopLevelTypeKeys(entry.argsType);
+  const keys = entry.argPreviewKeys.length > 0 ? entry.argPreviewKeys : extractTopLevelTypeKeys(entry.argsType);
   if (keys.length > 0) {
     const argsSnippet = keys.slice(0, 3)
       .map((key) => `${key}: ${key.toLowerCase().includes("input") ? "{ /* ... */ }" : "..."}`)
@@ -97,6 +98,9 @@ function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
         source: tool.source ?? "local",
         argsType: normalizeType(tool.metadata?.argsType),
         returnsType: normalizeType(tool.metadata?.returnsType),
+        argPreviewKeys: Array.isArray(tool.metadata?.argPreviewKeys)
+          ? tool.metadata.argPreviewKeys.filter((value): value is string => typeof value === "string")
+          : [],
         searchText,
         normalizedPath: normalizeSearchToken(tool.path),
         normalizedSearchText: normalizeSearchToken(searchText),

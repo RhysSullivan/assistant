@@ -168,23 +168,20 @@ describe("prepareOpenApiSpec with large specs", () => {
     expect(json.length).toBeGreaterThan(100_000);
   });
 
-  test("fast mode skips bundle and d.ts generation for very large specs", async () => {
+  test("very large specs still generate d.ts and typed tools", async () => {
     const spec = makeLargeSpec(250); // 750 operations
     const start = performance.now();
-    const prepared = await prepareOpenApiSpec(spec, "large-fast", {
-      mode: "fast",
-      fastPathOperationThreshold: 600,
-    });
+    const prepared = await prepareOpenApiSpec(spec, "large-full");
     const elapsed = performance.now() - start;
 
     expect(Object.keys(prepared.paths)).toHaveLength(250);
-    expect(prepared.dts).toBeUndefined();
-    expect(prepared.warnings.some((warning: string) => warning.includes("fast mode"))).toBe(true);
+    expect(prepared.dts).toBeDefined();
+    expect(prepared.warnings.some((warning: string) => warning.includes("fast mode"))).toBe(false);
 
     const tools = buildOpenApiToolsFromPrepared(
       {
         type: "openapi",
-        name: "large-fast",
+        name: "large-full",
         spec,
         baseUrl: "https://api.example.com/v1",
       },
@@ -194,8 +191,8 @@ describe("prepareOpenApiSpec with large specs", () => {
     expect(tools.length).toBeGreaterThan(700);
     const deleteTool = tools.find((tool) => tool.metadata?.operationId?.startsWith("delete_"));
     expect(deleteTool).toBeDefined();
-    expect(deleteTool?.metadata?.returnsType).toBe("void");
-    expect(elapsed).toBeLessThan(5_000);
+    expect(deleteTool?.metadata?.displayReturnsType).toContain("ToolOutput<operations[");
+    expect(elapsed).toBeLessThan(20_000);
   });
 
 
@@ -244,6 +241,107 @@ describe("buildOpenApiToolsFromPrepared", () => {
     for (const tool of writeTools) {
       expect(tool.approval).toBe("required");
     }
+  });
+
+  test("uses compact preview args for large nested request bodies", async () => {
+    const spec = {
+      openapi: "3.0.3",
+      info: { title: "Notion-like", version: "1.0.0" },
+      servers: [{ url: "https://api.notion.example" }],
+      paths: {
+        "/databases": {
+          post: {
+            operationId: "createDatabase",
+            tags: ["databases"],
+            summary: "Create a database",
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      parent: {
+                        type: "object",
+                        properties: {
+                          page_id: { type: "string" },
+                        },
+                      },
+                      title: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            text: {
+                              type: "object",
+                              properties: {
+                                content: { type: "string" },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      properties: {
+                        type: "object",
+                        additionalProperties: true,
+                      },
+                      icon: {
+                        type: "object",
+                        properties: { emoji: { type: "string" } },
+                      },
+                      cover: {
+                        type: "object",
+                        properties: {
+                          external: {
+                            type: "object",
+                            properties: { url: { type: "string" } },
+                          },
+                        },
+                      },
+                    },
+                    required: ["parent", "title", "properties"],
+                  },
+                },
+              },
+            },
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        id: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "notion-like");
+    const tools = buildOpenApiToolsFromPrepared(
+      { type: "openapi", name: "notion", spec, baseUrl: "https://api.notion.example" },
+      prepared,
+    );
+
+    const createDbTool = tools.find((tool) => tool.metadata?.operationId === "createDatabase");
+    expect(createDbTool).toBeDefined();
+    expect(createDbTool?.metadata?.argPreviewKeys).toEqual([
+      "parent",
+      "title",
+      "properties",
+      "icon",
+      "cover",
+    ]);
+    expect(createDbTool?.metadata?.displayArgsType).toBe(
+      "{ parent: ...; title: ...; properties: ...; icon: ...; cover: ... }",
+    );
   });
 
   test("resolves shared parameter refs and maps 204 responses to void", async () => {

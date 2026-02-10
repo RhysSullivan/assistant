@@ -50,14 +50,29 @@ export function extractTopLevelTypeKeys(typeHint: string): string[] {
   return keys;
 }
 
+export function compactArgKeysHint(keys: string[]): string {
+  const normalized = keys
+    .map((key) => key.trim())
+    .filter((key) => key.length > 0);
+
+  if (normalized.length === 0) return "{}";
+
+  const unique: string[] = [];
+  for (const key of normalized) {
+    if (!unique.includes(key)) unique.push(key);
+  }
+
+  const maxKeys = 6;
+  const shown = unique.slice(0, maxKeys).map((key) => `${key}: ...`);
+  const suffix = unique.length > maxKeys ? "; ..." : "";
+  return `{ ${shown.join("; ")}${suffix} }`;
+}
+
 export function compactArgTypeHint(argsType: string): string {
   if (argsType === "{}") return "{}";
   const keys = extractTopLevelTypeKeys(argsType);
   if (keys.length > 0) {
-    const maxKeys = 4;
-    const shown = keys.slice(0, maxKeys).map((key) => `${key}: ...`);
-    const suffix = keys.length > maxKeys ? "; ..." : "";
-    return `{ ${shown.join("; ")}${suffix} }`;
+    return compactArgKeysHint(keys);
   }
   return truncateInline(argsType, 120);
 }

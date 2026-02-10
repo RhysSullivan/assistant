@@ -6,7 +6,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import openapiTS, { astToString } from "openapi-typescript";
 import { Kind, parse, type FragmentDefinitionNode, type SelectionSetNode } from "graphql";
-import { compactArgTypeHint, compactReturnTypeHint } from "./type_hints";
+import { compactArgKeysHint, compactArgTypeHint, compactReturnTypeHint } from "./type_hints";
 import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolTypeMetadata } from "./types";
 import { asRecord } from "./utils";
 
@@ -572,6 +572,7 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
   return tools.map((tool) => {
     const toolName = String(tool.name ?? "tool");
     const inputSchema = asRecord(tool.inputSchema);
+    const argPreviewKeys = Object.keys(asRecord(inputSchema.properties)).filter((key) => key.length > 0);
     const argsType = jsonSchemaTypeHintFallback(inputSchema);
     const returnsType = "unknown";
     return {
@@ -584,6 +585,7 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
         returnsType,
         displayArgsType: compactArgTypeHint(argsType),
         displayReturnsType: compactReturnTypeHint(returnsType),
+        ...(argPreviewKeys.length > 0 ? { argPreviewKeys } : {}),
       },
       _runSpec: {
         kind: "mcp" as const,
@@ -693,7 +695,6 @@ function compactOpenApiPaths(
   componentSchemas?: Record<string, unknown>,
   componentResponses?: Record<string, unknown>,
   componentRequestBodies?: Record<string, unknown>,
-  typeHintMode: "full" | "fast" = "full",
 ): Record<string, unknown> {
   const paths = asRecord(pathsValue);
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
@@ -778,9 +779,6 @@ function compactOpenApiPaths(
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
           responseStatus = status;
-          if (typeHintMode === "fast" && !hasGeneratedTypes) {
-            break;
-          }
           const resolvedResponse = resolveResponseRef(asRecord(responseValue), compResponses);
           responseSchema = resolveSchemaRef(
             getPreferredResponseSchema(resolvedResponse),
@@ -816,11 +814,14 @@ function compactOpenApiPaths(
             ? jsonSchemaTypeHintFallback(combinedSchema, 0, compSchemas)
             : "{}";
           compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
-        } else if (typeHintMode === "fast") {
-          const mergedParameters = operationParameters.concat(sharedParameters);
-          const hasInputSchema = mergedParameters.length > 0 || Object.keys(rawRequestBodySchema).length > 0;
-          compactOperation._argsTypeHint = hasInputSchema ? "Record<string, unknown>" : "{}";
-          compactOperation._returnsTypeHint = responseStatus === "204" ? "void" : "unknown";
+          compactOperation._usesGeneratedTypes = true;
+          const previewKeys = [
+            ...mergedParameters.map((param) => String(param.name ?? "")).filter((name) => name.length > 0),
+            ...Object.keys(asRecord(requestBodySchema.properties)),
+          ];
+          if (previewKeys.length > 0) {
+            compactOperation._argPreviewKeys = [...new Set(previewKeys)];
+          }
         } else {
           // Keep full schemas for the fallback path
           if (Object.keys(requestBodySchema).length > 0) {
@@ -868,34 +869,9 @@ export interface PreparedOpenApiSpec {
   warnings: string[];
 }
 
-export interface PrepareOpenApiSpecOptions {
-  mode?: "full" | "fast";
-  fastPathOperationThreshold?: number;
-}
-
-const DEFAULT_FAST_PATH_OPERATION_THRESHOLD = 600;
-
-function countOpenApiOperations(pathsValue: unknown): number {
-  const paths = asRecord(pathsValue);
-  const methods = new Set(["get", "post", "put", "delete", "patch", "head", "options"]);
-  let count = 0;
-
-  for (const pathValue of Object.values(paths)) {
-    const pathObject = asRecord(pathValue);
-    for (const key of Object.keys(pathObject)) {
-      if (methods.has(key)) {
-        count += 1;
-      }
-    }
-  }
-
-  return count;
-}
-
 export async function prepareOpenApiSpec(
   spec: string | Record<string, unknown>,
   sourceName = "openapi",
-  options?: PrepareOpenApiSpecOptions,
 ): Promise<PreparedOpenApiSpec> {
   const parser = SwaggerParser as unknown as {
     bundle(spec: unknown): Promise<unknown>;
@@ -920,32 +896,19 @@ export async function prepareOpenApiSpec(
     parsed = spec;
   }
 
-  const operationCount = countOpenApiOperations(parsed.paths);
-  const mode = options?.mode ?? "full";
-  const fastPathOperationThreshold =
-    options?.fastPathOperationThreshold ?? DEFAULT_FAST_PATH_OPERATION_THRESHOLD;
-  const useFastPath = mode === "fast" && operationCount >= fastPathOperationThreshold;
-
   // ── Step 2: Generate .d.ts and bundle in parallel ─────────────────────
   // Both now operate on the in-memory object — no additional HTTP fetches.
-  let dts: string | null = null;
+  let dts: string | null;
   let bundled: Record<string, unknown>;
-  if (useFastPath) {
+  const dtsPromise = generateOpenApiDts(parsed);
+  try {
+    bundled = (await parser.bundle(parsed)) as Record<string, unknown>;
+  } catch (bundleError) {
+    const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
+    warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
     bundled = parsed;
-    warnings.push(
-      `OpenAPI source '${sourceName}' loaded in fast mode (${operationCount} operations): skipped bundle + d.ts generation for latency`,
-    );
-  } else {
-    const dtsPromise = generateOpenApiDts(parsed);
-    try {
-      bundled = (await parser.bundle(parsed)) as Record<string, unknown>;
-    } catch (bundleError) {
-      const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
-      warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
-      bundled = parsed;
-    }
-    dts = await dtsPromise;
   }
+  dts = await dtsPromise;
 
   // ── Step 3: Extract operation IDs for compaction ───────────────────────
   // If we have a .d.ts, we know which operations have full generated types.
@@ -966,7 +929,6 @@ export async function prepareOpenApiSpec(
       asRecord(asRecord(bundled.components).schemas),
       asRecord(asRecord(bundled.components).responses),
       asRecord(asRecord(bundled.components).requestBodies),
-      useFastPath ? "fast" : "full",
     ),
     dts: dts ?? undefined,
     warnings,
@@ -1028,6 +990,9 @@ export function buildOpenApiToolsFromPrepared(
       // Pre-computed during compaction when .d.ts types exist (schemas stripped to save space).
       let argsType: string;
       let returnsType: string;
+      let argPreviewKeys: string[] = Array.isArray(operation._argPreviewKeys)
+        ? operation._argPreviewKeys.filter((value): value is string => typeof value === "string")
+        : [];
       if (typeof operation._argsTypeHint === "string" && typeof operation._returnsTypeHint === "string") {
         argsType = operation._argsTypeHint as string;
         returnsType = operation._returnsTypeHint as string;
@@ -1064,7 +1029,24 @@ export function buildOpenApiToolsFromPrepared(
 
         argsType = hasInputSchema ? jsonSchemaTypeHintFallback(combinedSchema) : "{}";
         returnsType = responseTypeHintFromSchema(responseSchema, responseStatus);
+        if (argPreviewKeys.length === 0) {
+          argPreviewKeys = [
+            ...parameters.map((param) => param.name),
+            ...Object.keys(asRecord(requestBodySchema.properties)),
+          ].filter((name, index, all) => name.length > 0 && all.indexOf(name) === index);
+        }
       }
+
+      const usesGeneratedTypes = Boolean(operation._usesGeneratedTypes);
+      const operationIdKey = JSON.stringify(operationIdRaw);
+      const displayArgsType = argPreviewKeys.length > 0
+        ? compactArgKeysHint(argPreviewKeys)
+        : usesGeneratedTypes
+          ? `ToolInput<operations[${operationIdKey}]>`
+          : compactArgTypeHint(argsType);
+      const displayReturnsType = usesGeneratedTypes
+        ? `ToolOutput<operations[${operationIdKey}]>`
+        : compactReturnTypeHint(returnsType);
 
       const approval = config.overrides?.[operationIdRaw]?.approval
         ?? (readMethods.has(method)
@@ -1088,8 +1070,9 @@ export function buildOpenApiToolsFromPrepared(
         metadata: {
           argsType,
           returnsType,
-          displayArgsType: compactArgTypeHint(argsType),
-          displayReturnsType: compactReturnTypeHint(returnsType),
+          displayArgsType,
+          displayReturnsType,
+          ...(argPreviewKeys.length > 0 ? { argPreviewKeys } : {}),
           operationId: operationIdRaw,
           // Only attach sourceDts to the first tool to avoid duplicating the full .d.ts
           ...(sourceDts && !sourceDtsEmitted ? { sourceDts } : {}),
@@ -1617,6 +1600,7 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
       returnsType: "{ data: unknown; errors: unknown[] }",
       displayArgsType: "{ query: string; variables?: ... }",
       displayReturnsType: "{ data: ...; errors: unknown[] }",
+      argPreviewKeys: ["query", "variables"],
     },
     credential: credentialSpec,
     // Tag as graphql source so invokeTool knows to do dynamic path extraction
@@ -1681,6 +1665,7 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
       const approval = config.overrides?.[field.name]?.approval ?? defaultApproval;
       const argsType = gqlFieldArgsTypeHint(field.args, typeMap);
       const returnsType = `{ data: ${gqlTypeToHint(field.type, typeMap)}; errors: unknown[] }`;
+      const argPreviewKeys = field.args.map((arg) => arg.name).filter((name) => name.length > 0);
 
       // Build the example query for the description
       const exampleQuery = buildFieldQuery(operationType, field.name, field.args, field.type, typeMap);
@@ -1701,6 +1686,7 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
           returnsType,
           displayArgsType: compactArgTypeHint(argsType),
           displayReturnsType: "{ data: ...; errors: unknown[] }",
+          ...(argPreviewKeys.length > 0 ? { argPreviewKeys } : {}),
         },
         _runSpec: {
           kind: "graphql_field" as const,

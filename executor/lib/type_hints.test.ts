@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  compactArgKeysHint,
   compactArgTypeHint,
   compactDescriptionLine,
   compactReturnTypeHint,
@@ -16,6 +17,11 @@ test("compactArgTypeHint keeps only top-level previews", async () => {
     "{ parent: { database_id: string }; title: Array<{ text: { content: string } }>; icon?: { emoji: string }; properties?: Record<string, unknown> }",
   );
   expect(compact).toBe("{ parent: ...; title: ...; icon: ...; properties: ... }");
+});
+
+test("compactArgKeysHint caps key list with ellipsis", async () => {
+  const compact = compactArgKeysHint(["a", "b", "c", "d", "e", "f", "g", "h"]);
+  expect(compact).toBe("{ a: ...; b: ...; c: ...; d: ...; e: ...; f: ...; ... }");
 });
 
 test("compactReturnTypeHint collapses graphql envelopes", async () => {

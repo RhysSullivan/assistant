@@ -99,6 +99,7 @@ export interface ToolDescriptor {
   returnsType?: string;
   strictArgsType?: string;
   strictReturnsType?: string;
+  argPreviewKeys?: string[];
   operationId?: string;
 }
 

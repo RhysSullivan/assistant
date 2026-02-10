@@ -103,6 +103,8 @@ export interface ToolDescriptor {
   strictArgsType?: string;
   /** Full-fidelity return type hint for strict editor/typecheck usage. */
   strictReturnsType?: string;
+  /** Top-level argument key preview for examples/UI. */
+  argPreviewKeys?: string[];
   operationId?: string;
 }
 
@@ -225,6 +227,8 @@ export interface ToolTypeMetadata {
   displayArgsType?: string;
   /** Compact return hint intended for UI/discovery display. */
   displayReturnsType?: string;
+  /** Top-level argument keys for examples/UI without parsing type strings. */
+  argPreviewKeys?: string[];
   /** Raw operationId from the OpenAPI spec (used to generate typechecker wrapper). */
   operationId?: string;
   /**
