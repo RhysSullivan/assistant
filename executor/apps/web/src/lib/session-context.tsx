@@ -11,7 +11,7 @@ import {
 import { useMutation, useQuery as useConvexQuery } from "convex/react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { anonymousDemoEnabled, workosEnabled } from "@/lib/auth-capabilities";
-import { useWorkosAuthLoading } from "@/lib/convex-provider";
+import { useWorkosAuthState } from "@/lib/convex-provider";
 import { convexApi } from "@/lib/convex-api";
 import type { AnonymousContext } from "./types";
 import type { Id } from "@executor/convex/_generated/dataModel";
@@ -124,7 +124,7 @@ function writeWorkspaceByAccount(value: Record<string, Id<"workspaces">>) {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const workosAuthLoading = useWorkosAuthLoading();
+  const { loading: workosAuthLoading, authenticated: workosAuthenticated } = useWorkosAuthState();
   const bootstrapAnonymousSession = useMutation(convexApi.workspace.bootstrapAnonymousSession);
   const [storedSessionId, setStoredSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") {
@@ -203,8 +203,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [workspaces, activeWorkspaceId, account]);
 
   const bootstrapWorkosAccountQuery = useTanstackQuery({
-    queryKey: ["workos-account-bootstrap", storedSessionId ?? "none"],
-    enabled: workosEnabled && account !== undefined,
+    queryKey: [
+      "workos-account-bootstrap",
+      storedSessionId ?? "none",
+      workosAuthenticated ? "signed-in" : "signed-out",
+    ],
+    enabled:
+      workosEnabled
+      && workosAuthenticated
+      && !workosAuthLoading
+      && account !== undefined
+      && account?.provider !== "workos",
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async () => bootstrapCurrentWorkosAccount({}),

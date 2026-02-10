@@ -20,17 +20,27 @@ const convexClient = new ConvexReactClient(convexUrl, {
 });
 
 /** Exposes whether the WorkOS auth token is still being resolved. */
-const WorkosAuthLoadingContext = createContext(false);
+const WorkosAuthContext = createContext({
+  loading: false,
+  authenticated: false,
+});
+
+export function useWorkosAuthState() {
+  return useContext(WorkosAuthContext);
+}
+
 export function useWorkosAuthLoading() {
-  return useContext(WorkosAuthLoadingContext);
+  return useWorkosAuthState().loading;
 }
 
 function useConvexAuthFromWorkos() {
-  const { loading, user } = useWorkosAuth();
-  const { getAccessToken } = useAccessToken();
+  const { loading: authLoading, user } = useWorkosAuth();
+  const { loading: tokenLoading, getAccessToken } = useAccessToken();
+  const isAuthenticated = Boolean(user);
+  const isLoading = authLoading || (isAuthenticated && tokenLoading);
 
   const fetchAccessToken = useMemo(
-    () => async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
+    () => async () => {
       try {
         const token = await getAccessToken();
         return token ?? null;
@@ -43,23 +53,26 @@ function useConvexAuthFromWorkos() {
 
   return useMemo(
     () => ({
-      isLoading: loading,
-      isAuthenticated: !!user,
+      isLoading,
+      isAuthenticated,
       fetchAccessToken,
     }),
-    [loading, user, fetchAccessToken],
+    [isLoading, isAuthenticated, fetchAccessToken],
   );
 }
 
 function ConvexWithWorkos({ children }: { children: ReactNode }) {
-  const { loading } = useWorkosAuth();
+  const { loading: authLoading, user } = useWorkosAuth();
+  const { loading: tokenLoading } = useAccessToken();
+  const authenticated = Boolean(user);
+  const loading = authLoading || (authenticated && tokenLoading);
 
   return (
-    <WorkosAuthLoadingContext.Provider value={loading}>
+    <WorkosAuthContext.Provider value={{ loading, authenticated }}>
       <ConvexProviderWithAuth client={convexClient} useAuth={useConvexAuthFromWorkos}>
         {children}
       </ConvexProviderWithAuth>
-    </WorkosAuthLoadingContext.Provider>
+    </WorkosAuthContext.Provider>
   );
 }
 
