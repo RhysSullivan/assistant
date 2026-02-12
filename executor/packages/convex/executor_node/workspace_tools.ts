@@ -3,7 +3,7 @@
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { createDiscoverTool } from "../../core/src/tool-discovery";
+import { createCatalogTools, createDiscoverTool } from "../../core/src/tool-discovery";
 import {
   materializeCompiledToolSource,
   materializeWorkspaceSnapshot,
@@ -101,6 +101,10 @@ export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspa
           if (tool.path === "discover") continue;
           merged.set(tool.path, tool);
         }
+        const catalogTools = createCatalogTools([...merged.values()]);
+        for (const tool of catalogTools) {
+          merged.set(tool.path, tool);
+        }
         const discover = createDiscoverTool([...merged.values()]);
         merged.set(discover.path, discover);
 
@@ -138,6 +142,11 @@ export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspa
     merged.set(tool.path, tool);
   }
   for (const tool of externalTools) {
+    merged.set(tool.path, tool);
+  }
+
+  const catalogTools = createCatalogTools([...merged.values()]);
+  for (const tool of catalogTools) {
     merged.set(tool.path, tool);
   }
 

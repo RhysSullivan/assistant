@@ -19,7 +19,7 @@ import type {
 } from "../../core/src/types";
 import { asPayload, describeError } from "../../core/src/utils";
 import { getDecisionForContext, getToolDecision, isToolAllowedForTask } from "./policy";
-import { resolveAliasedToolPath, suggestToolPaths } from "./tool_paths";
+import { resolveAliasedToolPath, resolveClosestToolPath, suggestToolPaths, toPreferredToolPath } from "./tool_paths";
 import { baseTools, getWorkspaceTools } from "./workspace_tools";
 import { publishTaskEvent } from "./events";
 
@@ -188,11 +188,25 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
   if (!tool) {
     const availableTools = workspaceTools ?? baseTools;
+    const healedPath = resolveClosestToolPath(toolPath, availableTools);
+    if (healedPath) {
+      resolvedToolPath = healedPath;
+      tool = availableTools.get(healedPath);
+    }
+  }
+
+  if (!tool) {
+    const availableTools = workspaceTools ?? baseTools;
     const suggestions = suggestToolPaths(toolPath, availableTools);
+    const queryHint = toolPath
+      .split(".")
+      .filter(Boolean)
+      .join(" ");
     const suggestionText = suggestions.length > 0
-      ? `\nDid you mean: ${suggestions.map((path) => `tools.${path}`).join(", ")}`
+      ? `\nDid you mean: ${suggestions.map((path) => `tools.${toPreferredToolPath(path)}`).join(", ")}`
       : "";
-    throw new Error(`Unknown tool: ${toolPath}${suggestionText}`);
+    const discoverHint = `\nTry: const found = await tools.discover({ query: \"${queryHint}\", compact: false, depth: 2, limit: 12 });`;
+    throw new Error(`Unknown tool: ${toolPath}${suggestionText}${discoverHint}`);
   }
 
   let decision: PolicyDecision;

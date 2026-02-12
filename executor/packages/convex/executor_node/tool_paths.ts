@@ -2,16 +2,81 @@
 
 import type { ToolDefinition } from "../../core/src/types";
 
-function normalizeToolPathSegment(segment: string): string {
-  return segment.toLowerCase().replace(/[^a-z0-9]/g, "");
+const GENERIC_NAMESPACE_SUFFIXES = new Set([
+  "api",
+  "apis",
+  "openapi",
+  "sdk",
+  "service",
+  "services",
+]);
+
+function tokenizePathSegment(segment: string): string[] {
+  const normalized = segment
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .toLowerCase();
+
+  return normalized
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+function normalizeToolPathSegment(segment: string, isNamespace = false): string {
+  const tokens = tokenizePathSegment(segment);
+  if (tokens.length === 0) {
+    return segment.toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
+  const collapsed: string[] = [];
+  for (const token of tokens) {
+    if (collapsed[collapsed.length - 1] === token) continue;
+    collapsed.push(token);
+  }
+
+  if (isNamespace) {
+    while (collapsed.length > 1) {
+      const last = collapsed[collapsed.length - 1];
+      if (!last || !GENERIC_NAMESPACE_SUFFIXES.has(last)) break;
+      collapsed.pop();
+    }
+  }
+
+  return collapsed.join("");
 }
 
 function normalizeToolPath(path: string): string {
-  return path
+  const segments = path
     .split(".")
-    .filter(Boolean)
-    .map((segment) => normalizeToolPathSegment(segment))
+    .filter(Boolean);
+
+  return segments
+    .map((segment, index) => normalizeToolPathSegment(segment, index === 0))
     .join(".");
+}
+
+export function toPreferredToolPath(path: string): string {
+  const segments = path
+    .split(".")
+    .filter(Boolean);
+  if (segments.length === 0) return path;
+
+  const namespaceTokens = tokenizePathSegment(segments[0]!);
+  const collapsedNamespace: string[] = [];
+  for (const token of namespaceTokens) {
+    if (collapsedNamespace[collapsedNamespace.length - 1] === token) continue;
+    collapsedNamespace.push(token);
+  }
+  while (collapsedNamespace.length > 1) {
+    const last = collapsedNamespace[collapsedNamespace.length - 1];
+    if (!last || !GENERIC_NAMESPACE_SUFFIXES.has(last)) break;
+    collapsedNamespace.pop();
+  }
+
+  const namespace = collapsedNamespace.join("_");
+  if (!namespace || namespace === segments[0]) return path;
+  return [namespace, ...segments.slice(1)].join(".");
 }
 
 function levenshteinDistance(a: string, b: string): number {
@@ -102,4 +167,52 @@ export function suggestToolPaths(
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((item) => item.path);
+}
+
+export function resolveClosestToolPath(
+  requestedPath: string,
+  toolMap: Map<string, ToolDefinition>,
+): string | null {
+  const normalizedRequested = normalizeToolPath(requestedPath);
+  if (!normalizedRequested) return null;
+
+  const requestedNamespace = normalizedRequested.split(".").filter(Boolean)[0] ?? "";
+  const requestedLength = normalizedRequested.length;
+  const maxDistance = Math.max(2, Math.floor(requestedLength * 0.2));
+
+  const ranked = [...toolMap.keys()]
+    .map((path) => {
+      const normalizedCandidate = normalizeToolPath(path);
+      const candidateNamespace = normalizedCandidate.split(".").filter(Boolean)[0] ?? "";
+      const distance = levenshteinDistance(normalizedRequested, normalizedCandidate);
+      let score = -distance;
+
+      if (requestedNamespace && requestedNamespace === candidateNamespace) {
+        score += 8;
+      }
+
+      if (normalizedCandidate.includes(normalizedRequested) || normalizedRequested.includes(normalizedCandidate)) {
+        score += 4;
+      }
+
+      return {
+        path,
+        score,
+        distance,
+        candidateNamespace,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const best = ranked[0];
+  if (!best) return null;
+  if (best.distance > maxDistance) return null;
+  if (requestedNamespace && best.candidateNamespace !== requestedNamespace && best.distance > 1) return null;
+
+  const second = ranked[1];
+  if (second && best.score - second.score < 3) {
+    return null;
+  }
+
+  return best.path;
 }
