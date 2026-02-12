@@ -46,7 +46,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Streamdown } from "streamdown";
 import { createCodePlugin } from "@streamdown/code";
 import { cn } from "@/lib/utils";
@@ -88,6 +87,32 @@ function trimLeadingNamespace(path: string, prefix: string): string {
     return path.slice(dottedPrefix.length);
   }
   return path;
+}
+
+function displaySourceName(name: string): string {
+  const parts = name.split(/[-_.]+/).filter(Boolean);
+  if (parts.length === 0) return name;
+
+  const deduped = parts.filter((part, index, all) => {
+    if (index === 0) return true;
+    return part.toLowerCase() !== all[index - 1]?.toLowerCase();
+  });
+
+  const tokenMap: Record<string, string> = {
+    api: "API",
+    oauth: "OAuth",
+    graphql: "GraphQL",
+    mcp: "MCP",
+    github: "GitHub",
+  };
+
+  return deduped
+    .map((token) => {
+      const lower = token.toLowerCase();
+      if (tokenMap[lower]) return tokenMap[lower];
+      return `${lower[0]?.toUpperCase() ?? ""}${lower.slice(1)}`;
+    })
+    .join(" ");
 }
 
 // ── Types for grouped tree data ──
@@ -768,6 +793,9 @@ interface ToolExplorerProps {
   loading?: boolean;
   warnings?: string[];
   initialSource?: string | null;
+  activeSource?: string | null;
+  onActiveSourceChange?: (source: string | null) => void;
+  showSourceSidebar?: boolean;
 }
 
 export function ToolExplorer({
@@ -776,11 +804,14 @@ export function ToolExplorer({
   loading = false,
   warnings = [],
   initialSource = null,
+  activeSource,
+  onActiveSourceChange,
+  showSourceSidebar = true,
 }: ToolExplorerProps) {
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("tree");
   const [groupBy, setGroupBy] = useState<GroupBy>("source");
-  const [activeSource, setActiveSource] = useState<string | null>(
+  const [internalActiveSource, setInternalActiveSource] = useState<string | null>(
     initialSource,
   );
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
@@ -792,19 +823,24 @@ export function ToolExplorer({
   >("all");
   const treeListRef = useRef<HTMLDivElement>(null);
   const flatListRef = useRef<HTMLDivElement>(null);
+  const resolvedActiveSource =
+    activeSource === undefined ? internalActiveSource : activeSource;
 
   const handleSourceSelect = useCallback((source: string | null) => {
-    setActiveSource(source);
+    if (activeSource === undefined) {
+      setInternalActiveSource(source);
+    }
+    onActiveSourceChange?.(source);
     setExpandedKeys(source ? new Set([`source:${source}`]) : new Set());
-  }, []);
+  }, [activeSource, onActiveSourceChange]);
 
   // Filter tools by active source and approval filter
   const filteredTools = useMemo(() => {
     let result = tools;
 
-    if (activeSource) {
+    if (resolvedActiveSource) {
       result = result.filter(
-        (t) => sourceLabel(t.source) === activeSource,
+        (t) => sourceLabel(t.source) === resolvedActiveSource,
       );
     }
 
@@ -815,7 +851,7 @@ export function ToolExplorer({
     }
 
     return result;
-  }, [tools, activeSource, filterApproval]);
+  }, [tools, resolvedActiveSource, filterApproval]);
 
   // Apply search filter
   const searchedTools = useMemo(() => {
@@ -995,21 +1031,23 @@ export function ToolExplorer({
   if (loading) {
     const enabledSources = sources.filter((s) => s.enabled);
     return (
-      <div className="space-y-3">
+      <div className="space-y-3 rounded-md border border-border/40 bg-muted/20 p-3">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading {enabledSources.length > 0 ? `${enabledSources.length} tool source${enabledSources.length === 1 ? "" : "s"}` : "tools"}…
+          Loading tool inventory...
         </div>
         {enabledSources.length > 0 && (
           <div className="space-y-1">
             {enabledSources.map((s) => (
               <div
                 key={s.id}
-                className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
+                className="flex items-center gap-2 rounded-md border border-border bg-background/70 px-3 py-2 text-xs"
               >
                 <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                <span className="font-medium">{s.name}</span>
-                <span className="text-muted-foreground">{s.type}</span>
+                <span className="font-medium truncate">{displaySourceName(s.name)}</span>
+                <span className="ml-auto rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {s.type}
+                </span>
               </div>
             ))}
           </div>
@@ -1020,15 +1058,16 @@ export function ToolExplorer({
 
   return (
     <div className="flex" onWheelCapture={handleExplorerWheel}>
-      {/* Source sidebar */}
-      <SourceSidebar
-        tools={tools}
-        activeSource={activeSource}
-        onSelectSource={handleSourceSelect}
-      />
+      {showSourceSidebar ? (
+        <SourceSidebar
+          tools={tools}
+          activeSource={resolvedActiveSource}
+          onSelectSource={handleSourceSelect}
+        />
+      ) : null}
 
       {/* Main content */}
-      <div className="flex-1 min-w-0 flex flex-col pl-0 lg:pl-4">
+      <div className={cn("flex-1 min-w-0 flex flex-col", showSourceSidebar ? "pl-0 lg:pl-4" : "pl-0")}>
         <div className="shrink-0">
           {/* Toolbar */}
           <div className="flex items-center gap-2 pb-3 flex-wrap">
@@ -1182,12 +1221,13 @@ export function ToolExplorer({
                 variant="outline"
                 size="sm"
                 className={cn(
-                  "h-8 text-[11px] border-border/50 lg:hidden",
-                  activeSource && "border-primary/30 text-primary",
+                  "h-8 text-[11px] border-border/50",
+                  showSourceSidebar && "lg:hidden",
+                  resolvedActiveSource && "border-primary/30 text-primary",
                 )}
               >
                 <Server className="h-3 w-3 mr-1" />
-                {activeSource ?? "All"}
+                {resolvedActiveSource ?? "All"}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -1196,7 +1236,7 @@ export function ToolExplorer({
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuCheckboxItem
-                checked={activeSource === null}
+                checked={resolvedActiveSource === null}
                 onCheckedChange={() => handleSourceSelect(null)}
                 className="text-xs"
               >
@@ -1207,10 +1247,10 @@ export function ToolExplorer({
               ).map((src) => (
                 <DropdownMenuCheckboxItem
                   key={src}
-                  checked={activeSource === src}
+                  checked={resolvedActiveSource === src}
                   onCheckedChange={() =>
                     handleSourceSelect(
-                      activeSource === src ? null : src,
+                      resolvedActiveSource === src ? null : src,
                     )
                   }
                   className="text-xs font-mono"
@@ -1275,7 +1315,7 @@ export function ToolExplorer({
               {search
                 ? `${searchedTools.length} results`
                 : `${filteredTools.length} tools`}
-              {activeSource && ` in ${activeSource}`}
+              {resolvedActiveSource && ` in ${resolvedActiveSource}`}
             </span>
             {viewMode === "tree" && (
               <div className="flex gap-1">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import Editor, { type OnMount, type BeforeMount, type Monaco } from "@monaco-editor/react";
 import { Loader2 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -222,11 +222,11 @@ function generateToolsDts(tools: ToolDescriptor[], dtsSources: Set<string>): str
 
 const BASE_ENVIRONMENT_DTS = `
 interface Console {
-  /** Log output to stdout (visible in task detail). */
+  /** Console output is discarded; use explicit return values for results. */
   log(...args: any[]): void;
-  /** Log output to stderr (visible in task detail). */
+  /** Console output is discarded; use explicit return values for results. */
   error(...args: any[]): void;
-  /** Log a warning to stderr. */
+  /** Console output is discarded; use explicit return values for results. */
   warn(...args: any[]): void;
   info(...args: any[]): void;
   debug(...args: any[]): void;
@@ -277,6 +277,7 @@ export function CodeEditor({
   height = "400px",
 }: CodeEditorProps) {
   const { resolvedTheme } = useTheme();
+  const [dtsHydrating, setDtsHydrating] = useState(false);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const envLibDisposable = useRef<{ dispose: () => void } | null>(null);
@@ -285,10 +286,14 @@ export function CodeEditor({
   const toolsLibVersion = useRef(0);
   const fetchedDtsUrls = useRef<string>("");
   const dtsSources = new Set(Object.keys(dtsUrls ?? {}));
+  const toolTypesLoading = typesLoading || dtsHydrating;
 
   // Fetch and register .d.ts blobs from OpenAPI sources
   useEffect(() => {
-    if (!dtsUrls || Object.keys(dtsUrls).length === 0) return;
+    if (!dtsUrls || Object.keys(dtsUrls).length === 0) {
+      setDtsHydrating(false);
+      return;
+    }
     const m = monacoRef.current;
     if (!m) return;
 
@@ -305,6 +310,7 @@ export function CodeEditor({
     dtsLibDisposables.current = [];
 
     let cancelled = false;
+    setDtsHydrating(true);
 
     // Fetch each .d.ts blob and register with Monaco
     const entries = Object.entries(dtsUrls);
@@ -319,25 +325,31 @@ export function CodeEditor({
           return null;
         }
       }),
-    ).then((results) => {
-      if (cancelled) return;
+    )
+      .then((results) => {
+        if (cancelled) return;
 
-      // Build the helper types + .d.ts declarations
-      let helperDts = OPENAPI_HELPER_TYPES + "\n";
-      for (const result of results) {
-        if (!result) continue;
-        // Strip 'export' keywords so types are ambient in Monaco
-        const ambient = result.content.replace(/^export /gm, "");
-        helperDts += ambient + "\n";
-      }
+        // Build the helper types + .d.ts declarations
+        let helperDts = OPENAPI_HELPER_TYPES + "\n";
+        for (const result of results) {
+          if (!result) continue;
+          // Strip 'export' keywords so types are ambient in Monaco
+          const ambient = result.content.replace(/^export /gm, "");
+          helperDts += ambient + "\n";
+        }
 
-      const version = ++toolsLibVersion.current;
-      const disposable = jsDefaults.addExtraLib(
-        helperDts,
-        `file:///node_modules/@types/executor-openapi/v${version}.d.ts`,
-      );
-      dtsLibDisposables.current.push(disposable);
-    });
+        const version = ++toolsLibVersion.current;
+        const disposable = jsDefaults.addExtraLib(
+          helperDts,
+          `file:///node_modules/@types/executor-openapi/v${version}.d.ts`,
+        );
+        dtsLibDisposables.current.push(disposable);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDtsHydrating(false);
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -370,8 +382,8 @@ export function CodeEditor({
   useEffect(() => {
     const m = monacoRef.current;
     if (!m) return;
-    setDiagnosticsOptions(m, typesLoading);
-  }, [typesLoading]);
+    setDiagnosticsOptions(m, toolTypesLoading);
+  }, [toolTypesLoading]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -391,7 +403,7 @@ export function CodeEditor({
     // Configure JavaScript/TypeScript defaults for our execution environment
     // Code runs inside an AsyncFunction body so top-level await is valid
     // and there are no imports/exports.
-    setDiagnosticsOptions(monaco, typesLoading);
+    setDiagnosticsOptions(monaco, toolTypesLoading);
 
     ts.javascriptDefaults.setCompilerOptions({
       target: ts.ScriptTarget.ESNext,
@@ -537,10 +549,12 @@ export function CodeEditor({
 
   return (
     <div className={cn("relative", className)}>
-      {typesLoading ? (
+      {toolTypesLoading ? (
         <div className="pointer-events-none absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-md border border-border/80 bg-background/85 px-2 py-1 text-[10px] font-mono text-muted-foreground backdrop-blur-sm">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Loading tool types...
+          {tools.length > 0
+            ? `Loaded ${tools.length} tools, loading type definitions...`
+            : "Loading tool metadata..."}
         </div>
       ) : null}
       <Editor

@@ -43,8 +43,8 @@ import { ApprovalNotifier } from "@/components/approval-notifier";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/tasks", label: "Tasks", icon: Play },
+  { href: "/", label: "Home", icon: LayoutDashboard },
+  { href: "/tasks", label: "Task Activity", icon: Play },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/tools", label: "Tools", icon: Wrench },
 ];

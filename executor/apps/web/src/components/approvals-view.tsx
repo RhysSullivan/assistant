@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   ShieldCheck,
   ShieldX,
@@ -82,6 +83,7 @@ function ApprovalCard({
 }: {
   approval: PendingApprovalRecord;
 }) {
+  const navigate = useNavigate();
   const { context } = useSession();
   const resolveApproval = useMutation(convexApi.executor.resolveApproval);
   const [resolving, setResolving] = useState<"approved" | "denied" | null>(
@@ -139,7 +141,17 @@ function ApprovalCard({
               </span>
             </div>
           </div>
-          <TaskStatusBadge status={approval.task.status} />
+          <div className="flex items-center gap-2 shrink-0">
+            <TaskStatusBadge status={approval.task.status} />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={() => navigate(`/tasks?selected=${approval.taskId}`)}
+            >
+              Open task
+            </Button>
+          </div>
         </div>
 
         {/* Input */}

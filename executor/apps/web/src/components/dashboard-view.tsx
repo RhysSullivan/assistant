@@ -70,7 +70,7 @@ function PendingApprovalRow({ approval }: { approval: PendingApprovalRecord }) {
   const navigate = useNavigate();
   return (
     <button
-      onClick={() => navigate("/approvals")}
+      onClick={() => navigate(`/tasks?selected=${approval.taskId}`)}
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left group"
     >
       <div className="h-2 w-2 rounded-full bg-terminal-amber pulse-dot shrink-0" />
@@ -242,6 +242,11 @@ export function DashboardView() {
     context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
 
+  const sources = useQuery(
+    convexApi.workspace.listToolSources,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
+  );
+
   const { tools } = useWorkspaceTools(context ?? null);
 
   if (sessionLoading) {
@@ -258,6 +263,8 @@ export function DashboardView() {
   }
 
   const pendingCount = approvals?.length ?? 0;
+  const sourceCount = sources?.length ?? 0;
+  const taskItems = tasks ?? [];
   const runningCount =
     tasks?.filter((t: TaskRecord) => t.status === "running").length ?? 0;
   const completedCount =
@@ -265,14 +272,86 @@ export function DashboardView() {
   const failedCount =
     tasks?.filter((t: TaskRecord) => ["failed", "timed_out", "denied"].includes(t.status))
       .length ?? 0;
-  const recentTasks = (tasks ?? []).slice(0, 8);
+  const recentTasks = taskItems.slice(0, 8);
+
+  const setupSteps = [
+    {
+      label: "Connect a tool source",
+      done: sourceCount > 0,
+      href: "/tools",
+      pendingText: "Add MCP, OpenAPI, or GraphQL",
+      doneText: `${sourceCount} source${sourceCount === 1 ? "" : "s"} connected`,
+    },
+    {
+      label: "Run a first task",
+      done: taskItems.length > 0,
+      href: "/tasks",
+      pendingText: "Use the advanced runner to execute code",
+      doneText: `${taskItems.length} task${taskItems.length === 1 ? "" : "s"} recorded`,
+    },
+    {
+      label: "Review gated calls",
+      done: pendingCount === 0,
+      href: "/approvals",
+      pendingText: `${pendingCount} approval${pendingCount === 1 ? "" : "s"} waiting`,
+      doneText: "Approval queue is clear",
+    },
+  ];
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Dashboard"
-        description="Overview of your executor workspace"
+        title="Workspace Home"
+        description="Start from the current status, then jump straight to execution"
       />
+
+      <Card className="border-border bg-gradient-to-br from-card to-muted/25">
+        <CardContent className="p-5 md:p-6 space-y-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="space-y-1.5 max-w-2xl">
+              <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Landing View</p>
+              <h2 className="text-lg font-semibold tracking-tight">
+                {taskItems.length === 0
+                  ? "Connect tools and run your first task"
+                  : "Your task activity and approval queue are live"}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Tasks is the primary workflow. Use the advanced runner only when you want direct code execution.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild size="sm" className="h-8 text-xs">
+                <a href="/tasks">Open task activity</a>
+              </Button>
+              <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                <a href="/tools">Manage tools</a>
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-3">
+            {setupSteps.map((step) => (
+              <a
+                key={step.label}
+                href={step.href}
+                className="rounded-md border border-border/70 bg-background/70 px-3 py-2.5 hover:bg-accent/25 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-foreground">{step.label}</span>
+                  {step.done ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-terminal-green" />
+                  ) : (
+                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {step.done ? step.doneText : step.pendingText}
+                </p>
+              </a>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
   Play,
   ChevronRight,
   X,
   Send,
+  ShieldCheck,
+  ShieldX,
+  CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +26,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { FormattedCodeBlock } from "@/components/formatted-code-block";
 import { useSession } from "@/lib/session-context";
@@ -31,25 +35,27 @@ import { useMutation, useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type {
   RuntimeTargetDescriptor,
-  TaskEventRecord,
   TaskRecord,
+  PendingApprovalRecord,
 } from "@/lib/types";
 import type { Id } from "@executor/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_CODE = `// Example: call some tools
+const DEFAULT_CODE = `// Example: call some tools and return a compact result
 const time = await tools.utils.get_time();
-console.log("Current time:", time.iso);
-
-const result = await tools.math.add({ a: 7, b: 35 });
-console.log("7 + 35 =", result.result);
+const sum = await tools.math.add({ a: 7, b: 35 });
 
 // This will require approval:
 await tools.admin.send_announcement({
   channel: "general",
   message: "Hello from executor!"
-});`;
+});
+
+return {
+  isoTime: time.iso,
+  total: sum.result,
+};`;
 const DEFAULT_TIMEOUT_MS = 300_000;
 
 function formatDate(ts: number) {
@@ -59,6 +65,65 @@ function formatDate(ts: number) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatResult(result: unknown): string {
+  if (result === undefined) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result);
+  }
+}
+
+function formatApprovalInput(
+  input: unknown,
+): {
+  content: string;
+  language: "json" | "text";
+} | null {
+  if (input === null || input === undefined) {
+    return null;
+  }
+
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      return {
+        content: JSON.stringify(JSON.parse(trimmed), null, 2),
+        language: "json",
+      };
+    } catch {
+      return {
+        content: trimmed,
+        language: "text",
+      };
+    }
+  }
+
+  try {
+    return {
+      content: JSON.stringify(input, null, 2),
+      language: "json",
+    };
+  } catch {
+    const fallback = String(input).trim();
+    if (!fallback) {
+      return null;
+    }
+
+    return {
+      content: fallback,
+      language: "text",
+    };
+  }
 }
 
 // ── Task Composer ──
@@ -72,7 +137,7 @@ function TaskComposer() {
 
   const runtimes = useQuery(convexApi.workspace.listRuntimeTargets, {});
   const createTask = useMutation(convexApi.executor.createTask);
-  const { tools, dtsUrls, loading: toolsLoading } = useWorkspaceTools(context ?? null);
+  const { tools, dtsUrls, loadingTools, loadingTypes } = useWorkspaceTools(context ?? null);
 
   const handleSubmit = async () => {
     if (!context || !code.trim()) return;
@@ -134,14 +199,40 @@ function TaskComposer() {
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Code</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs text-muted-foreground">Code</Label>
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {loadingTools
+                ? "Loading tool inventory..."
+                : loadingTypes
+                  ? `${tools.length} tool${tools.length === 1 ? "" : "s"} loaded, type defs warming...`
+                  : `${tools.length} tool${tools.length === 1 ? "" : "s"} ready`}
+            </span>
+          </div>
+          {!loadingTools && loadingTypes && tools.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5">
+              {tools.slice(0, 8).map((tool) => (
+                <span
+                  key={tool.path}
+                  className="rounded bg-background px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+                >
+                  {tool.path}
+                </span>
+              ))}
+              {tools.length > 8 && (
+                <span className="rounded bg-background px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                  +{tools.length - 8} more
+                </span>
+              )}
+            </div>
+          )}
           <div className="rounded-md border border-border">
             <CodeEditor
               value={code}
               onChange={setCode}
               tools={tools}
               dtsUrls={dtsUrls}
-              typesLoading={toolsLoading}
+              typesLoading={loadingTypes}
               height="400px"
             />
           </div>
@@ -208,43 +299,24 @@ function TaskDetail({
   task,
   workspaceId,
   sessionId,
+  pendingApprovals,
   onClose,
 }: {
   task: TaskRecord;
   workspaceId: Id<"workspaces">;
   sessionId?: string;
+  pendingApprovals: PendingApprovalRecord[];
   onClose: () => void;
 }) {
+  const resolveApproval = useMutation(convexApi.executor.resolveApproval);
+  const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null);
   const liveTaskData = useQuery(
     convexApi.workspace.getTaskInWorkspace,
     workspaceId ? { taskId: task.id, workspaceId, sessionId } : "skip",
   );
-  const taskEvents = useQuery(
-    convexApi.workspace.listTaskEvents,
-    workspaceId ? { taskId: task.id, workspaceId, sessionId } : "skip",
-  );
 
   const liveTask = liveTaskData ?? task;
-  const liveTaskEvents = taskEvents ?? [];
-  const liveStdout = useMemo(() => {
-    const stdoutLines = liveTaskEvents
-      .filter((event: TaskEventRecord) => event.type === "task.stdout")
-      .map((event: TaskEventRecord) => String((event.payload as Record<string, unknown>)?.line ?? ""));
-    if (stdoutLines.length > 0) {
-      return stdoutLines.join("\n");
-    }
-    return liveTask.stdout ?? "";
-  }, [liveTaskEvents, liveTask.stdout]);
-
-  const liveStderr = useMemo(() => {
-    const stderrLines = liveTaskEvents
-      .filter((event: TaskEventRecord) => event.type === "task.stderr")
-      .map((event: TaskEventRecord) => String((event.payload as Record<string, unknown>)?.line ?? ""));
-    if (stderrLines.length > 0) {
-      return stderrLines.join("\n");
-    }
-    return liveTask.stderr ?? "";
-  }, [liveTaskEvents, liveTask.stderr]);
+  const liveResult = formatResult(liveTask.result);
 
   const duration =
     liveTask.completedAt && liveTask.startedAt
@@ -252,6 +324,31 @@ function TaskDetail({
       : liveTask.startedAt
         ? "running..."
         : "—";
+
+  const handleResolveApproval = async (
+    approvalId: string,
+    decision: "approved" | "denied",
+    toolPath: string,
+  ) => {
+    setResolvingApprovalId(approvalId);
+    try {
+      await resolveApproval({
+        workspaceId,
+        sessionId,
+        approvalId,
+        decision,
+      });
+      toast.success(
+        decision === "approved"
+          ? `Approved: ${toolPath}`
+          : `Denied: ${toolPath}`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to resolve approval");
+    } finally {
+      setResolvingApprovalId(null);
+    }
+  };
 
   return (
     <Card className="bg-card border-border">
@@ -295,6 +392,84 @@ function TaskDetail({
           ))}
         </div>
 
+        {pendingApprovals.length > 0 ? (
+          <>
+            <Separator />
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-widest text-terminal-amber">
+                  Pending approvals
+                </span>
+                <span className="text-[10px] font-mono bg-terminal-amber/10 text-terminal-amber px-1.5 py-0.5 rounded">
+                  {pendingApprovals.length}
+                </span>
+              </div>
+              {pendingApprovals.map((approval) => {
+                const input = formatApprovalInput(approval.input);
+                const resolving = resolvingApprovalId === approval.id;
+                return (
+                  <div
+                    key={approval.id}
+                    className="rounded-md border border-terminal-amber/30 bg-terminal-amber/6 p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-mono text-foreground truncate">
+                          {approval.toolPath}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          Requested {formatDate(approval.createdAt)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] border-terminal-green/30 text-terminal-green hover:bg-terminal-green/10"
+                          disabled={resolvingApprovalId !== null}
+                          onClick={() =>
+                            void handleResolveApproval(
+                              approval.id,
+                              "approved",
+                              approval.toolPath,
+                            )
+                          }
+                        >
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          {resolving ? "Approving..." : "Approve"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] border-terminal-red/30 text-terminal-red hover:bg-terminal-red/10"
+                          disabled={resolvingApprovalId !== null}
+                          onClick={() =>
+                            void handleResolveApproval(
+                              approval.id,
+                              "denied",
+                              approval.toolPath,
+                            )
+                          }
+                        >
+                          <ShieldX className="h-3 w-3 mr-1" />
+                          {resolving ? "Denying..." : "Deny"}
+                        </Button>
+                      </div>
+                    </div>
+                    {input ? (
+                      <FormattedCodeBlock
+                        content={input.content}
+                        language={input.language}
+                        className="max-h-40 overflow-y-auto"
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
+
         <Separator />
 
         {/* Code */}
@@ -309,31 +484,15 @@ function TaskDetail({
           />
         </div>
 
-        {/* Stdout */}
-        {liveStdout && (
+        {/* Result */}
+        {liveResult && (
           <div>
             <span className="text-[10px] uppercase tracking-widest text-terminal-green block mb-2">
-              Stdout
+              Result
             </span>
             <FormattedCodeBlock
-              content={liveStdout}
-              language="text"
-              tone="green"
-              className="max-h-48 overflow-y-auto"
-            />
-          </div>
-        )}
-
-        {/* Stderr */}
-        {liveStderr && (
-          <div>
-            <span className="text-[10px] uppercase tracking-widest text-terminal-amber block mb-2">
-              Stderr
-            </span>
-            <FormattedCodeBlock
-              content={liveStderr}
-              language="text"
-              tone="amber"
+              content={liveResult}
+              language="json"
               className="max-h-48 overflow-y-auto"
             />
           </div>
@@ -364,6 +523,7 @@ export function TasksView() {
   const { context, loading: sessionLoading } = useSession();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<"activity" | "runner">("activity");
   const selectedId = searchParams.get("selected");
 
   const tasks = useQuery(
@@ -373,7 +533,16 @@ export function TasksView() {
   const tasksLoading = !!context && tasks === undefined;
   const taskItems = tasks ?? [];
 
+  const approvals = useQuery(
+    convexApi.workspace.listPendingApprovals,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
+  );
+  const pendingApprovals = approvals ?? [];
+
   const selectedTask = taskItems.find((t: TaskRecord) => t.id === selectedId);
+  const selectedTaskApprovals = selectedTask
+    ? pendingApprovals.filter((approval: PendingApprovalRecord) => approval.taskId === selectedTask.id)
+    : [];
 
   const selectTask = useCallback(
     (taskId: string | null) => {
@@ -399,72 +568,115 @@ export function TasksView() {
     <div className="space-y-6">
       <PageHeader
         title="Tasks"
-        description="Execute code and manage task history"
-      />
+        description="Task activity first, with an advanced editor when you need it"
+      >
+        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setActiveTab("runner")}>
+          Advanced runner
+        </Button>
+        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => navigate("/approvals")}>
+          <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
+          {pendingApprovals.length} pending
+        </Button>
+      </PageHeader>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Left: composer + list */}
-        <div className="space-y-6">
-          <TaskComposer />
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "activity" | "runner")}>
+        <TabsList className="bg-muted/50 h-9">
+          <TabsTrigger value="activity" className="text-xs data-[state=active]:bg-background">
+            Activity
+            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">{taskItems.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="runner" className="text-xs data-[state=active]:bg-background">
+            Runner (Advanced)
+          </TabsTrigger>
+        </TabsList>
 
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                Task History
-                {tasks && (
-                  <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
-                    {taskItems.length}
-                  </span>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {tasksLoading ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <Skeleton key={i} className="h-14" />
-                  ))}
-                </div>
-              ) : taskItems.length === 0 ? (
-                <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-                  No tasks yet. Create one above.
-                </div>
-              ) : (
-                <div className="space-y-1 max-h-[500px] overflow-y-auto">
-                  {taskItems.map((task: TaskRecord) => (
-                    <TaskListItem
-                      key={task.id}
-                      task={task}
-                      selected={task.id === selectedId}
-                      onClick={() => selectTask(task.id)}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right: detail panel */}
-        <div>
-          {selectedTask ? (
-            <TaskDetail
-              task={selectedTask}
-              workspaceId={context!.workspaceId}
-              sessionId={context?.sessionId}
-              onClose={() => selectTask(null)}
-            />
-          ) : (
+        <TabsContent value="activity" className="mt-4">
+          <div className="grid lg:grid-cols-2 gap-6">
             <Card className="bg-card border-border">
-              <CardContent className="flex items-center justify-center py-24">
-                <p className="text-sm text-muted-foreground">
-                  Select a task to view details
-                </p>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  Task History
+                  {tasks && (
+                    <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
+                      {taskItems.length}
+                    </span>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {tasksLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <Skeleton key={i} className="h-14" />
+                    ))}
+                  </div>
+                ) : taskItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-sm text-muted-foreground gap-2">
+                    <p>No tasks yet.</p>
+                    <Button size="sm" className="h-8 text-xs" onClick={() => setActiveTab("runner")}>Run your first task</Button>
+                  </div>
+                ) : (
+                  <div className="space-y-1 max-h-[620px] overflow-y-auto">
+                    {taskItems.map((task: TaskRecord) => (
+                      <TaskListItem
+                        key={task.id}
+                        task={task}
+                        selected={task.id === selectedId}
+                        onClick={() => selectTask(task.id)}
+                      />
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
-          )}
-        </div>
-      </div>
+
+            <div>
+              {selectedTask ? (
+                <TaskDetail
+                  task={selectedTask}
+                  workspaceId={context!.workspaceId}
+                  sessionId={context?.sessionId}
+                  pendingApprovals={selectedTaskApprovals}
+                  onClose={() => selectTask(null)}
+                />
+              ) : (
+                <Card className="bg-card border-border">
+                  <CardContent className="flex items-center justify-center py-24">
+                    <p className="text-sm text-muted-foreground">
+                      Select a task to view logs, output, and approval actions
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="runner" className="mt-4">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <TaskComposer />
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Play className="h-4 w-4 text-terminal-green" />
+                  Before you run
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 space-y-3 text-xs text-muted-foreground">
+                <p>
+                  This editor is the advanced path for direct code execution. Most day-to-day work happens in Activity.
+                </p>
+                <p>
+                  New runs appear in Task History, and any gated tool calls can be approved inline from the selected task.
+                </p>
+                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setActiveTab("activity")}>
+                  Back to activity view
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

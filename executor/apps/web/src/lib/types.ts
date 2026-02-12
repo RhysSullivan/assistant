@@ -6,9 +6,18 @@ export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_
 export type ApprovalStatus = "pending" | "approved" | "denied";
 export type PolicyDecision = "allow" | "require_approval" | "deny";
 export type CredentialScope = "workspace" | "actor";
-export type CredentialProvider = "managed" | "workos-vault";
+export type CredentialProvider = "local-convex" | "workos-vault";
 export type ToolApprovalMode = "auto" | "required";
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
+
+export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
+
+export interface SourceAuthProfile {
+  type: SourceAuthType;
+  mode?: CredentialScope;
+  header?: string;
+  inferred: boolean;
+}
 
 export interface TaskRecord {
   id: string;
@@ -25,8 +34,7 @@ export interface TaskRecord {
   startedAt?: number;
   completedAt?: number;
   error?: string;
-  stdout?: string;
-  stderr?: string;
+  result?: unknown;
   exitCode?: number;
 }
 
@@ -69,10 +77,13 @@ export interface AccessPolicyRecord {
 
 export interface CredentialRecord {
   id: string;
+  bindingId?: string;
   workspaceId: string;
   sourceKey: string;
   scope: CredentialScope;
   actorId?: string;
+  overridesJson?: Record<string, unknown>;
+  boundAuthFingerprint?: string;
   provider: CredentialProvider;
   secretJson: Record<string, unknown>;
   createdAt: number;

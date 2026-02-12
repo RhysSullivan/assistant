@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Wrench,
   Plus,
@@ -11,7 +11,6 @@ import {
   AlertTriangle,
   KeyRound,
   Pencil,
-  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,6 +51,7 @@ import type {
   ToolSourceRecord,
   CredentialRecord,
   CredentialScope,
+  SourceAuthProfile,
   OpenApiSourceQuality,
 } from "@/lib/types";
 import { parse as parseDomain } from "tldts";
@@ -69,15 +69,108 @@ interface CatalogCollectionItem {
   logoUrl?: string;
   categories?: string;
   version?: string;
+  rank: number;
+  addedAt: string;
 }
 
-interface CatalogCollectionsResponse {
-  items?: CatalogCollectionItem[];
-  totalCount?: number;
-  hasMore?: boolean;
-  error?: string;
-  detail?: string;
-}
+const HARD_CODED_CATALOG_ITEMS: CatalogCollectionItem[] = [
+  {
+    id: "github-rest",
+    name: "GitHub REST API",
+    summary: "Manage repositories, pull requests, issues, and org settings.",
+    specUrl: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml",
+    originUrl: "https://docs.github.com/en/rest",
+    providerName: "GitHub",
+    categories: "developer-tools",
+    version: "latest",
+    rank: 1,
+    addedAt: "2026-01-10",
+  },
+  {
+    id: "stripe-api",
+    name: "Stripe API",
+    summary: "Create payments, manage customers, and handle billing workflows.",
+    specUrl: "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    originUrl: "https://docs.stripe.com/api",
+    providerName: "Stripe",
+    categories: "payments",
+    version: "2026-01",
+    rank: 2,
+    addedAt: "2026-01-08",
+  },
+  {
+    id: "openai-api",
+    name: "OpenAI API",
+    summary: "Generate text, run reasoning models, and process multimodal inputs.",
+    specUrl: "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml",
+    originUrl: "https://platform.openai.com/docs/api-reference",
+    providerName: "OpenAI",
+    categories: "ai",
+    version: "latest",
+    rank: 3,
+    addedAt: "2026-01-06",
+  },
+  {
+    id: "cloudflare-api",
+    name: "Cloudflare API",
+    summary: "Control zones, DNS records, workers, and edge configuration.",
+    specUrl: "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml",
+    originUrl: "https://api.cloudflare.com/",
+    providerName: "Cloudflare",
+    categories: "infrastructure",
+    version: "latest",
+    rank: 4,
+    addedAt: "2026-01-04",
+  },
+  {
+    id: "vercel-api",
+    name: "Vercel API",
+    summary: "Manage deployments, projects, domains, and team resources.",
+    specUrl: "https://openapi.vercel.sh",
+    originUrl: "https://vercel.com/docs/rest-api",
+    providerName: "Vercel",
+    categories: "developer-tools",
+    version: "latest",
+    rank: 5,
+    addedAt: "2025-12-18",
+  },
+  {
+    id: "slack-api",
+    name: "Slack API",
+    summary: "Work with channels, messages, users, and workspace automation.",
+    specUrl: "https://api.slack.com/specs/openapi/v2/slack_web.json",
+    originUrl: "https://api.slack.com/web",
+    providerName: "Slack",
+    categories: "communications",
+    version: "v2",
+    rank: 6,
+    addedAt: "2025-12-10",
+  },
+  {
+    id: "sentry-api",
+    name: "Sentry API",
+    summary: "Query issues, releases, projects, and alerting configuration.",
+    specUrl: "https://raw.githubusercontent.com/getsentry/sentry-api-schema/refs/heads/main/openapi-derefed.json",
+    originUrl: "https://docs.sentry.io/api/",
+    providerName: "Sentry",
+    categories: "observability",
+    version: "latest",
+    rank: 7,
+    addedAt: "2025-11-30",
+  },
+  {
+    id: "jira-cloud-api",
+    name: "Jira Cloud Platform",
+    summary: "Manage projects, issues, workflows, and Jira metadata.",
+    specUrl: "https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json",
+    originUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/",
+    providerName: "Atlassian",
+    categories: "project-management",
+    version: "v3",
+    rank: 8,
+    addedAt: "2025-11-15",
+  },
+];
 
 /** Derive a favicon URL from any URL string via Google's favicon service. */
 function faviconForUrl(url: string | undefined | null): string | null {
@@ -141,45 +234,94 @@ function sourceForCredentialKey(sources: ToolSourceRecord[], sourceKey: string):
   return sources.find((source) => source.id === sourceId) ?? null;
 }
 
-type SourceAuthType = "none" | "bearer" | "apiKey" | "basic";
+type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
 type SourceAuthMode = "workspace" | "actor";
 
-function readSourceAuth(source: ToolSourceRecord): {
+function normalizeSourceAuthProfile(profile: SourceAuthProfile | undefined): {
   type: SourceAuthType;
   mode?: SourceAuthMode;
   header?: string;
+  inferred?: boolean;
 } {
-  if (source.type !== "openapi" && source.type !== "graphql") {
+  if (!profile) {
     return { type: "none" };
   }
 
-  const auth = source.config.auth as Record<string, unknown> | undefined;
-  const type =
-    auth && typeof auth.type === "string" && ["none", "bearer", "apiKey", "basic"].includes(auth.type)
-      ? (auth.type as SourceAuthType)
-      : "none";
+  const type = profile.type === "mixed"
+    ? "mixed"
+    : profile.type === "basic"
+      ? "basic"
+      : profile.type === "apiKey"
+        ? "apiKey"
+        : profile.type === "bearer"
+          ? "bearer"
+          : "none";
 
-  const mode =
-    auth && typeof auth.mode === "string" && (auth.mode === "workspace" || auth.mode === "actor")
-      ? (auth.mode as SourceAuthMode)
-      : undefined;
-
-  const header = auth && typeof auth.header === "string" && auth.header.trim().length > 0
-    ? auth.header.trim()
+  const mode = profile.mode === "actor" ? "actor" : profile.mode === "workspace" ? "workspace" : undefined;
+  const header = typeof profile.header === "string" && profile.header.trim().length > 0
+    ? profile.header.trim()
     : undefined;
 
   return {
     type,
     ...(mode ? { mode } : {}),
     ...(header ? { header } : {}),
+    inferred: Boolean(profile.inferred),
   };
 }
 
-function formatSourceAuthBadge(source: ToolSourceRecord): string | null {
-  const auth = readSourceAuth(source);
+function readSourceAuth(
+  source: ToolSourceRecord,
+  inferredProfile?: SourceAuthProfile,
+): {
+  type: SourceAuthType;
+  mode?: SourceAuthMode;
+  header?: string;
+  inferred?: boolean;
+} {
+  if (source.type !== "openapi" && source.type !== "graphql") {
+    return { type: "none" };
+  }
+
+  const inferred = normalizeSourceAuthProfile(inferredProfile);
+
+  const auth = source.config.auth as Record<string, unknown> | undefined;
+  const type =
+    auth && typeof auth.type === "string" && ["none", "bearer", "apiKey", "basic", "mixed"].includes(auth.type)
+      ? (auth.type as SourceAuthType)
+      : inferred.type;
+
+  const mode =
+    auth && typeof auth.mode === "string" && (auth.mode === "workspace" || auth.mode === "actor")
+      ? (auth.mode as SourceAuthMode)
+      : inferred.mode;
+
+  const header = auth && typeof auth.header === "string" && auth.header.trim().length > 0
+    ? auth.header.trim()
+    : inferred.header;
+
+  return {
+    type,
+    ...(mode ? { mode } : {}),
+    ...(header ? { header } : {}),
+    inferred: auth?.type === undefined ? inferred.inferred : false,
+  };
+}
+
+function formatSourceAuthBadge(source: ToolSourceRecord, inferredProfile?: SourceAuthProfile): string | null {
+  const auth = readSourceAuth(source, inferredProfile);
   if (auth.type === "none") return null;
+  if (auth.type === "mixed") return "Mixed auth";
   const mode = auth.mode ?? "workspace";
-  return `${auth.type}:${mode}`;
+  const authLabel =
+    auth.type === "apiKey"
+      ? "API Key"
+      : auth.type === "bearer"
+        ? "Bearer"
+        : auth.type === "basic"
+          ? "Basic"
+          : "Auth";
+  return `${authLabel} · ${mode === "actor" ? "user" : "workspace"}`;
 }
 
 function credentialStatsForSource(source: ToolSourceRecord, credentials: CredentialRecord[]): {
@@ -206,14 +348,62 @@ function formatQualityPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function qualityBadgeClass(quality: OpenApiSourceQuality): string {
+function qualityToneClass(quality: OpenApiSourceQuality): string {
   if (quality.overallQuality >= 0.95) {
-    return "text-terminal-green border-terminal-green/30";
+    return "text-terminal-green";
   }
   if (quality.overallQuality >= 0.85) {
-    return "text-terminal-amber border-terminal-amber/30";
+    return "text-terminal-amber";
   }
-  return "text-terminal-red border-terminal-red/30";
+  return "text-terminal-red";
+}
+
+function qualitySummaryLabel(quality: OpenApiSourceQuality): string {
+  if (quality.overallQuality >= 0.95) {
+    return "strong typing";
+  }
+  if (quality.overallQuality >= 0.85) {
+    return "mostly typed";
+  }
+  return "needs type cleanup";
+}
+
+function displaySourceName(name: string): string {
+  const parts = name.split(/[-_.]+/).filter(Boolean);
+  if (parts.length === 0) return name;
+
+  const deduped = parts.filter((part, index, all) => {
+    if (index === 0) return true;
+    return part.toLowerCase() !== all[index - 1]?.toLowerCase();
+  });
+
+  const tokenMap: Record<string, string> = {
+    api: "API",
+    oauth: "OAuth",
+    graphql: "GraphQL",
+    mcp: "MCP",
+    github: "GitHub",
+  };
+
+  return deduped
+    .map((token) => {
+      const lower = token.toLowerCase();
+      if (tokenMap[lower]) return tokenMap[lower];
+      return `${lower[0]?.toUpperCase() ?? ""}${lower.slice(1)}`;
+    })
+    .join(" ");
+}
+
+function compactEndpointLabel(source: ToolSourceRecord): string {
+  const endpoint = sourceEndpointLabel(source);
+  if (endpoint.startsWith("catalog:")) return endpoint;
+  try {
+    const parsed = new URL(endpoint);
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    return `${parsed.hostname}${path}`;
+  } catch {
+    return endpoint;
+  }
 }
 
 // ── Add Source Dialog ──
@@ -284,8 +474,10 @@ function catalogSourceName(item: CatalogCollectionItem): string {
 
 function AddSourceDialog({
   existingSourceNames,
+  onSourceAdded,
 }: {
   existingSourceNames: Set<string>;
+  onSourceAdded?: (source: ToolSourceRecord) => void;
 }) {
   const { context } = useSession();
   const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
@@ -302,18 +494,27 @@ function AddSourceDialog({
   const [locallyReservedNames, setLocallyReservedNames] = useState<string[]>([]);
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogSort, setCatalogSort] = useState<"popular" | "recent">("popular");
-  const [catalogItems, setCatalogItems] = useState<CatalogCollectionItem[]>([]);
-  const [catalogOffset, setCatalogOffset] = useState(0);
-  const [catalogHasMore, setCatalogHasMore] = useState(true);
-  const [catalogTotalCount, setCatalogTotalCount] = useState<number | null>(null);
-  const [catalogLoading, setCatalogLoading] = useState(false);
-  const [catalogLoadingMore, setCatalogLoadingMore] = useState(false);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null);
-  const catalogRequestIdRef = useRef(0);
-  const catalogInFlightRef = useRef(false);
 
-  const CATALOG_PAGE_SIZE = 20;
+  const visibleCatalogItems = useMemo(() => {
+    const query = catalogQuery.trim().toLowerCase();
+    const filtered = HARD_CODED_CATALOG_ITEMS.filter((item) => {
+      if (!query) return true;
+      return [
+        item.name,
+        item.providerName,
+        item.summary,
+        item.categories ?? "",
+      ].some((value) => value.toLowerCase().includes(query));
+    });
+
+    return [...filtered].sort((a, b) => {
+      if (catalogSort === "recent") {
+        return new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime();
+      }
+      return a.rank - b.rank;
+    });
+  }, [catalogQuery, catalogSort]);
 
   const getTakenSourceNames = () => new Set([...existingSourceNames, ...locallyReservedNames]);
 
@@ -343,8 +544,6 @@ function AddSourceDialog({
   };
 
   const resetDialogState = () => {
-    catalogRequestIdRef.current += 1;
-    catalogInFlightRef.current = false;
     setView("catalog");
     setType("mcp");
     setName("");
@@ -356,117 +555,14 @@ function AddSourceDialog({
     setLocallyReservedNames([]);
     setCatalogQuery("");
     setCatalogSort("popular");
-    setCatalogItems([]);
-    setCatalogOffset(0);
-    setCatalogHasMore(true);
-    setCatalogTotalCount(null);
-    setCatalogLoading(false);
-    setCatalogLoadingMore(false);
-    setCatalogError(null);
     setAddingCatalogId(null);
-  };
-
-  const loadCatalogPage = async ({
-    mode,
-    query,
-    sort,
-  }: {
-    mode: "reset" | "next";
-    query?: string;
-    sort?: "popular" | "recent";
-  }) => {
-    const resolvedQuery = (query ?? catalogQuery).trim();
-    const resolvedSort = sort ?? catalogSort;
-    const nextOffset = mode === "reset" ? 0 : catalogOffset;
-
-    if (mode === "next") {
-      if (catalogLoading || catalogLoadingMore || catalogInFlightRef.current || !catalogHasMore) {
-        return;
-      }
-      setCatalogLoadingMore(true);
-    } else {
-      setCatalogLoading(true);
-      setCatalogLoadingMore(false);
-      setCatalogError(null);
-    }
-
-    const requestId = catalogRequestIdRef.current + 1;
-    catalogRequestIdRef.current = requestId;
-    catalogInFlightRef.current = true;
-
-    try {
-      const params = new URLSearchParams({
-        sort: resolvedSort,
-        limit: String(CATALOG_PAGE_SIZE),
-        offset: String(nextOffset),
-      });
-      if (resolvedQuery.length > 0) {
-        params.set("q", resolvedQuery);
-      }
-
-      const catalogBase = process.env.NEXT_PUBLIC_SOURCES_URL ?? "http://127.0.0.1:4343";
-      const response = await fetch(`${catalogBase}/collections?${params.toString()}`, {
-        cache: "no-store",
-      });
-      const body = await response.json() as CatalogCollectionsResponse;
-
-      if (requestId !== catalogRequestIdRef.current) {
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(body.error || "Failed to load API catalog");
-      }
-
-      const nextItems = Array.isArray(body.items) ? body.items : [];
-      setCatalogItems((current) => {
-        if (mode === "reset") {
-          return nextItems;
-        }
-
-        const merged = [...current];
-        const seen = new Set(current.map((entry) => entry.id));
-        for (const item of nextItems) {
-          if (seen.has(item.id)) continue;
-          seen.add(item.id);
-          merged.push(item);
-        }
-        return merged;
-      });
-      setCatalogOffset(nextOffset + nextItems.length);
-      setCatalogHasMore(typeof body.hasMore === "boolean" ? body.hasMore : nextItems.length >= CATALOG_PAGE_SIZE);
-      setCatalogTotalCount(typeof body.totalCount === "number" ? body.totalCount : null);
-      setCatalogError(null);
-    } catch (error) {
-      if (requestId !== catalogRequestIdRef.current) {
-        return;
-      }
-
-      if (mode === "reset") {
-        setCatalogItems([]);
-        setCatalogOffset(0);
-      }
-      setCatalogHasMore(false);
-      setCatalogTotalCount(null);
-      setCatalogError(error instanceof Error ? error.message : "Failed to load API catalog");
-    } finally {
-      if (requestId === catalogRequestIdRef.current) {
-        setCatalogLoading(false);
-        setCatalogLoadingMore(false);
-        catalogInFlightRef.current = false;
-      }
-    }
   };
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
     if (!isOpen) {
       resetDialogState();
-      return;
     }
-
-    resetDialogState();
-    void loadCatalogPage({ mode: "reset", query: "", sort: "popular" });
   };
 
   const addSource = async (
@@ -475,13 +571,14 @@ function AddSourceDialog({
     config: Record<string, unknown>,
   ) => {
     if (!context) return;
-    await upsertToolSource({
+    const created = await upsertToolSource({
       workspaceId: context.workspaceId,
       sessionId: context.sessionId,
       name: sourceName,
       type: sourceType,
       config,
     });
+    onSourceAdded?.(created as ToolSourceRecord);
     toast.success(`Source "${sourceName}" added — loading tools…`);
   };
 
@@ -563,20 +660,10 @@ function AddSourceDialog({
                   onChange={(event) => setCatalogQuery(event.target.value)}
                   placeholder="Search APIs"
                   className="h-8 text-xs font-mono bg-background flex-1 min-w-[150px]"
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void loadCatalogPage({ mode: "reset" });
-                    }
-                  }}
                 />
                 <Select
                   value={catalogSort}
-                  onValueChange={(value) => {
-                    const nextSort = value as "popular" | "recent";
-                    setCatalogSort(nextSort);
-                    void loadCatalogPage({ mode: "reset", sort: nextSort });
-                  }}
+                  onValueChange={(value) => setCatalogSort(value as "popular" | "recent")}
                 >
                   <SelectTrigger className="h-8 w-[105px] text-xs bg-background shrink-0">
                     <SelectValue />
@@ -586,35 +673,15 @@ function AddSourceDialog({
                     <SelectItem value="recent" className="text-xs">Recent</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 text-xs shrink-0"
-                  onClick={() => void loadCatalogPage({ mode: "reset" })}
-                  disabled={catalogLoading}
-                >
-                  {catalogLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Search"}
-                </Button>
               </div>
 
               <p className="text-[11px] text-muted-foreground">
-                Browse API collections and add them as tool sources.
-                {catalogTotalCount !== null ? ` Found ${catalogTotalCount.toLocaleString()} total.` : ""}
+                Browse curated APIs and add them as tool sources. Showing {visibleCatalogItems.length}.
               </p>
 
               <Separator />
 
-              <div
-                className="max-h-80 overflow-y-auto overflow-x-hidden space-y-1 pr-1"
-                onScroll={(event) => {
-                  const target = event.currentTarget;
-                  const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
-                  if (nearBottom) {
-                    void loadCatalogPage({ mode: "next" });
-                  }
-                }}
-              >
+              <div className="max-h-80 overflow-y-auto overflow-x-hidden space-y-1 pr-1">
                 <button
                   type="button"
                   onClick={() => setView("custom")}
@@ -631,7 +698,7 @@ function AddSourceDialog({
                   </div>
                 </button>
 
-                {catalogItems.map((item) => (
+                {visibleCatalogItems.map((item) => (
                   <div
                     key={item.id}
                     className="w-full max-w-full overflow-hidden flex items-start gap-2 px-2 py-2 rounded-md border border-border/50"
@@ -673,28 +740,9 @@ function AddSourceDialog({
                   </div>
                 ))}
 
-                {catalogLoadingMore && (
-                  <div className="flex items-center justify-center py-2 text-[11px] text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                    Loading more...
-                  </div>
-                )}
-
-                {!catalogLoading && !catalogLoadingMore && catalogItems.length === 0 && !catalogError && (
+                {visibleCatalogItems.length === 0 && (
                   <p className="text-[11px] text-muted-foreground px-1 py-1">
                     No collections found for this query.
-                  </p>
-                )}
-
-                {catalogError && (
-                  <p className="text-[11px] text-terminal-red px-1 py-1">
-                    {catalogError}
-                  </p>
-                )}
-
-                {!catalogHasMore && catalogItems.length > 0 && (
-                  <p className="text-[10px] text-muted-foreground/70 px-1 py-1">
-                    End of results.
                   </p>
                 )}
               </div>
@@ -820,24 +868,27 @@ function AddSourceDialog({
 
 function ConfigureSourceAuthDialog({
   source,
+  inferredProfile,
 }: {
   source: ToolSourceRecord;
+  inferredProfile?: SourceAuthProfile;
 }) {
   const { context } = useSession();
   const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const currentAuth = readSourceAuth(source);
-  const [authType, setAuthType] = useState<SourceAuthType>(currentAuth.type);
+  const currentAuth = readSourceAuth(source, inferredProfile);
+  const editableInitialAuthType = currentAuth.type === "mixed" ? "bearer" : currentAuth.type;
+  const [authType, setAuthType] = useState<Exclude<SourceAuthType, "mixed">>(editableInitialAuthType);
   const [authMode, setAuthMode] = useState<SourceAuthMode>(currentAuth.mode ?? "workspace");
   const [apiKeyHeader, setApiKeyHeader] = useState(currentAuth.header ?? "x-api-key");
 
   const configurable = source.type === "openapi" || source.type === "graphql";
 
   const resetFromSource = () => {
-    const auth = readSourceAuth(source);
-    setAuthType(auth.type);
+    const auth = readSourceAuth(source, inferredProfile);
+    setAuthType(auth.type === "mixed" ? "bearer" : auth.type);
     setAuthMode(auth.mode ?? "workspace");
     setApiKeyHeader(auth.header ?? "x-api-key");
   };
@@ -905,7 +956,7 @@ function ConfigureSourceAuthDialog({
 
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Auth Type</Label>
-            <Select value={authType} onValueChange={(value) => setAuthType(value as SourceAuthType)}>
+            <Select value={authType} onValueChange={(value) => setAuthType(value as Exclude<SourceAuthType, "mixed">)}>
               <SelectTrigger className="h-8 text-xs bg-background">
                 <SelectValue />
               </SelectTrigger>
@@ -917,6 +968,12 @@ function ConfigureSourceAuthDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {currentAuth.inferred && (
+            <p className="text-[11px] text-muted-foreground">
+              Suggested from spec inference. Save to pin an explicit auth config.
+            </p>
+          )}
 
           {authType !== "none" && (
             <>
@@ -946,7 +1003,7 @@ function ConfigureSourceAuthDialog({
               )}
 
               <p className="text-[11px] text-muted-foreground">
-                Save this first, then add credentials in the Credentials tab using source key
+                Save this first, then add a connection in the Connections tab using source key
                 <code className="ml-1">{sourceKeyForSource(source)}</code>.
               </p>
             </>
@@ -966,15 +1023,22 @@ function SourceCard({
   quality,
   qualityLoading,
   credentialStats,
+  sourceAuthProfiles,
+  selected = false,
+  onFocusSource,
 }: {
   source: ToolSourceRecord;
   quality?: OpenApiSourceQuality;
   qualityLoading?: boolean;
   credentialStats: { workspaceCount: number; actorCount: number };
+  sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  selected?: boolean;
+  onFocusSource?: (sourceName: string) => void;
 }) {
   const { context } = useSession();
   const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
   const [deleting, setDeleting] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const handleDelete = async () => {
     if (!context) return;
@@ -995,14 +1059,23 @@ function SourceCard({
 
   const TypeIcon = source.type === "mcp" ? Server : Globe;
   const favicon = getSourceFavicon(source);
-  const authBadge = formatSourceAuthBadge(source);
-  const auth = readSourceAuth(source);
+  const sourceKey = sourceKeyForSource(source) ?? "";
+  const authBadge = formatSourceAuthBadge(source, sourceAuthProfiles[sourceKey]);
+  const auth = readSourceAuth(source, sourceAuthProfiles[sourceKey]);
   const hasAuthConfigured = auth.type !== "none";
   const totalCredentials = credentialStats.workspaceCount + credentialStats.actorCount;
+  const prettyName = displaySourceName(source.name);
+  const compactEndpoint = compactEndpointLabel(source);
+  const showTypeSummary = source.type === "openapi" && (quality || qualityLoading);
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40 group">
-      <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+    <div
+      className={cn(
+        "group flex items-start gap-3 rounded-lg border border-border/60 bg-gradient-to-b from-muted/45 to-muted/20 px-3 py-3",
+        selected && "border-primary/35 bg-primary/5",
+      )}
+    >
+      <div className="mt-0.5 h-9 w-9 rounded-md bg-muted/80 flex items-center justify-center shrink-0 overflow-hidden">
         {favicon ? (
           <img src={favicon} alt="" width={20} height={20} className="w-5 h-5" loading="lazy" />
         ) : (
@@ -1010,20 +1083,20 @@ function SourceCard({
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-mono font-medium truncate">
-            {source.name}
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium truncate" title={source.name}>
+            {prettyName}
           </span>
           <Badge
             variant="outline"
-            className="text-[9px] font-mono uppercase tracking-wider"
+            className="text-[9px] uppercase tracking-wide"
           >
             {source.type}
           </Badge>
           {!source.enabled && (
             <Badge
               variant="outline"
-              className="text-[9px] font-mono uppercase tracking-wider text-terminal-red border-terminal-red/30"
+              className="text-[9px] uppercase tracking-wide text-terminal-red border-terminal-red/30"
             >
               disabled
             </Badge>
@@ -1031,7 +1104,7 @@ function SourceCard({
           {authBadge && (
             <Badge
               variant="outline"
-              className="text-[9px] font-mono uppercase tracking-wider text-primary border-primary/30"
+              className="text-[9px] uppercase tracking-wide text-primary border-primary/30"
             >
               {authBadge}
             </Badge>
@@ -1040,43 +1113,100 @@ function SourceCard({
             <Badge
               variant="outline"
               className={cn(
-                "text-[9px] font-mono uppercase tracking-wider",
+                "text-[9px] uppercase tracking-wide",
                 totalCredentials > 0
                   ? "text-terminal-green border-terminal-green/30"
                   : "text-terminal-amber border-terminal-amber/30",
               )}
             >
-              creds ws:{credentialStats.workspaceCount} actor:{credentialStats.actorCount}
-            </Badge>
-          )}
-          {source.type === "openapi" && quality && (
-            <Badge
-              variant="outline"
-              className={cn("text-[9px] font-mono uppercase tracking-wider", qualityBadgeClass(quality))}
-            >
-              quality {formatQualityPercent(quality.overallQuality)}
+              {totalCredentials > 0 ? "connections ready" : "connection needed"}
             </Badge>
           )}
         </div>
-        <span className="text-[11px] text-muted-foreground font-mono truncate block">
-          {sourceEndpointLabel(source)}
+        <span className="text-[11px] text-muted-foreground truncate block mt-0.5" title={sourceEndpointLabel(source)}>
+          {compactEndpoint}
         </span>
-        {source.type === "openapi" && quality && (
-          <span className="text-[10px] text-muted-foreground/90 font-mono truncate block mt-0.5">
-            args {formatQualityPercent(quality.argsQuality)} | returns {formatQualityPercent(quality.returnsQuality)}
-            {quality.unknownReturnsCount > 0
-              ? ` | ${quality.unknownReturnsCount} unknown returns`
-              : " | fully typed returns"}
-          </span>
+        {showTypeSummary && (
+          <div className="mt-1.5 flex items-center gap-2">
+            {quality ? (
+              <Badge
+                variant="outline"
+                className={cn("text-[9px] uppercase tracking-wide", qualityToneClass(quality))}
+              >
+                {formatQualityPercent(quality.overallQuality)} {qualitySummaryLabel(quality)}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                analyzing type quality
+              </Badge>
+            )}
+          </div>
         )}
-        {source.type === "openapi" && !quality && qualityLoading && (
-          <span className="text-[10px] text-muted-foreground/70 font-mono truncate block mt-0.5">
-            Computing OpenAPI type quality...
-          </span>
+        {source.type === "openapi" && (
+          <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+            <div className="mt-1.5">
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px] text-muted-foreground">
+                  <ChevronRight
+                    className={cn("mr-1 h-3 w-3 transition-transform", detailsOpen && "rotate-90")}
+                  />
+                  {detailsOpen ? "Hide details" : "View details"}
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+            <CollapsibleContent className="mt-1.5">
+              <div className="rounded-md border border-border/60 bg-background/70 px-2.5 py-2">
+                {quality && (
+                  <div className="space-y-1.5 text-[10px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Type quality</span>
+                      <span className={cn("font-medium", qualityToneClass(quality))}>
+                        {formatQualityPercent(quality.overallQuality)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>Args quality</span>
+                      <span>{formatQualityPercent(quality.argsQuality)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>Returns quality</span>
+                      <span>{formatQualityPercent(quality.returnsQuality)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>Inferred returns</span>
+                      <span>{quality.unknownReturnsCount}</span>
+                    </div>
+                  </div>
+                )}
+                {!quality && qualityLoading && (
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                    <span>Analyzing OpenAPI typing</span>
+                    <span className="inline-flex items-center gap-1 text-[10px]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse" />
+                      in progress
+                    </span>
+                  </div>
+                )}
+                {!quality && !qualityLoading && (
+                  <div className="text-[10px] text-muted-foreground">Type quality data unavailable.</div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
       </div>
       <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
-        <ConfigureSourceAuthDialog source={source} />
+        {onFocusSource ? (
+          <Button
+            variant={selected ? "default" : "outline"}
+            size="sm"
+            className="h-7 text-[11px]"
+            onClick={() => onFocusSource(source.name)}
+          >
+            {selected ? "Viewing" : "View tools"}
+          </Button>
+        ) : null}
+        <ConfigureSourceAuthDialog source={source} inferredProfile={sourceAuthProfiles[sourceKey]} />
         <Button
           variant="ghost"
           size="icon"
@@ -1091,62 +1221,109 @@ function SourceCard({
   );
 }
 
-function formatCredentialSecret(secretJson: Record<string, unknown>): string {
-  try {
-    return JSON.stringify(secretJson, null, 2);
-  } catch {
-    return "{}";
-  }
-}
-
 type SourceOption = { source: ToolSourceRecord; key: string; label: string };
 
-function sourceAuthForKey(sourceOptions: SourceOption[], key: string): {
+function sourceAuthForKey(
+  sourceOptions: SourceOption[],
+  key: string,
+  inferredProfiles: Record<string, SourceAuthProfile> = {},
+): {
   type: SourceAuthType;
   mode?: SourceAuthMode;
   header?: string;
+  inferred?: boolean;
 } {
   const match = sourceOptions.find((entry) => entry.key === key);
   if (!match) {
     return { type: "bearer" };
   }
-  return readSourceAuth(match.source);
+  return readSourceAuth(match.source, inferredProfiles[key]);
 }
 
 function sourceOptionLabel(source: ToolSourceRecord): string {
   return `${source.name} (${source.type})`;
 }
 
-function parseJsonObject(text: string): { value?: Record<string, unknown>; error?: string } {
-  try {
-    const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { error: "Credential JSON must be an object" };
+function providerLabel(provider: "local-convex" | "workos-vault"): string {
+  return provider === "workos-vault" ? "encrypted" : "local";
+}
+
+function connectionDisplayName(
+  sources: ToolSourceRecord[],
+  connection: {
+    scope: CredentialScope;
+    sourceKeys: Set<string>;
+    actorId?: string;
+  },
+): string {
+  const sourceNames = [...connection.sourceKeys]
+    .map((sourceKey) => sourceForCredentialKey(sources, sourceKey))
+    .filter((source): source is ToolSourceRecord => Boolean(source))
+    .map((source) => displaySourceName(source.name));
+
+  const primary = sourceNames[0] ?? "API";
+  const extraCount = Math.max(sourceNames.length - 1, 0);
+  const base = extraCount > 0 ? `${primary} +${extraCount}` : primary;
+
+  if (connection.scope === "actor") {
+    if (connection.actorId) {
+      return `${base} personal (${connection.actorId})`;
     }
-    return { value: parsed as Record<string, unknown> };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "Invalid credential JSON" };
+    return `${base} personal`;
   }
+
+  return `${base} workspace`;
 }
 
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : "";
+function parseHeaderOverrides(text: string): { value?: Record<string, string>; error?: string } {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) {
+    return { value: {} };
+  }
+
+  const headers: Record<string, string> = {};
+  for (const line of lines) {
+    const separator = line.indexOf(":");
+    if (separator <= 0) {
+      return { error: `Invalid header line: ${line}` };
+    }
+    const name = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1).trim();
+    if (!name || !value) {
+      return { error: `Invalid header line: ${line}` };
+    }
+    headers[name] = value;
+  }
+
+  return { value: headers };
 }
 
-function providerLabel(provider: "managed" | "workos-vault"): string {
-  return provider === "workos-vault" ? "encrypted" : "managed";
+function formatHeaderOverrides(overrides: Record<string, unknown> | undefined): string {
+  const headers = overrides && typeof overrides.headers === "object" ? (overrides.headers as Record<string, unknown>) : {};
+  return Object.entries(headers)
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join("\n");
 }
 
 function CredentialsPanel({
   sources,
   credentials,
+  sourceAuthProfiles,
   loading,
+  focusSourceKey,
+  onFocusHandled,
 }: {
   sources: ToolSourceRecord[];
   credentials: CredentialRecord[];
+  sourceAuthProfiles: Record<string, SourceAuthProfile>;
   loading: boolean;
+  focusSourceKey?: string | null;
+  onFocusHandled?: () => void;
 }) {
-  const { context } = useSession();
+  const { context, clientConfig } = useSession();
   const upsertCredential = useAction(convexApi.credentialsNode.upsertCredential);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1154,13 +1331,17 @@ function CredentialsPanel({
   const [sourceKey, setSourceKey] = useState("");
   const [scope, setScope] = useState<CredentialScope>("workspace");
   const [actorId, setActorId] = useState("");
-  const [provider, setProvider] = useState<"managed" | "workos-vault">("managed");
-  const [managedToken, setManagedToken] = useState("");
+  const [connectionMode, setConnectionMode] = useState<"new" | "existing">("new");
+  const [existingConnectionId, setExistingConnectionId] = useState("");
+  const [tokenValue, setTokenValue] = useState("");
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [basicUsername, setBasicUsername] = useState("");
   const [basicPassword, setBasicPassword] = useState("");
-  const [advancedMode, setAdvancedMode] = useState(false);
-  const [secretJsonText, setSecretJsonText] = useState("{}");
+  const [customHeadersText, setCustomHeadersText] = useState("");
+
+  const storageCopy = clientConfig?.authProviderMode === "workos"
+    ? "Stored encrypted"
+    : "Stored locally on this machine";
 
   const sourceOptions = sources
     .map((source) => {
@@ -1173,49 +1354,98 @@ function CredentialsPanel({
     })
     .filter((entry): entry is SourceOption => entry.key !== null);
 
-  const selectedAuth = sourceAuthForKey(sourceOptions, sourceKey);
+  const connectionOptions = useMemo(() => {
+    const grouped = new Map<string, {
+      id: string;
+      scope: CredentialScope;
+      actorId?: string;
+      provider: "local-convex" | "workos-vault";
+      sourceKeys: Set<string>;
+      updatedAt: number;
+    }>();
+
+    for (const credential of credentials) {
+      const existing = grouped.get(credential.id);
+      if (existing) {
+        existing.sourceKeys.add(credential.sourceKey);
+        existing.updatedAt = Math.max(existing.updatedAt, credential.updatedAt);
+      } else {
+        grouped.set(credential.id, {
+          id: credential.id,
+          scope: credential.scope,
+          actorId: credential.actorId,
+          provider: credential.provider,
+          sourceKeys: new Set([credential.sourceKey]),
+          updatedAt: credential.updatedAt,
+        });
+      }
+    }
+
+    return [...grouped.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [credentials]);
+
+  const representativeCredentialByConnection = useMemo(() => {
+    const map = new Map<string, CredentialRecord>();
+    for (const credential of credentials) {
+      if (!map.has(credential.id)) {
+        map.set(credential.id, credential);
+      }
+    }
+    return map;
+  }, [credentials]);
+
+  const selectedAuth = sourceAuthForKey(sourceOptions, sourceKey, sourceAuthProfiles);
+  const compatibleConnectionOptions = connectionOptions.filter((connection) => {
+    if (connection.scope !== scope) {
+      return false;
+    }
+    if (scope === "actor") {
+      return connection.actorId === actorId.trim();
+    }
+    return true;
+  });
   const selectedAuthBadge = selectedAuth.type === "none"
     ? "none"
-    : `${selectedAuth.type}:${selectedAuth.mode ?? "workspace"}`;
+    : selectedAuth.type === "mixed"
+      ? "mixed"
+      : `${selectedAuth.type}:${selectedAuth.mode ?? "workspace"}`;
 
-  const buildDraftSecretFromInputs = (): Record<string, unknown> => {
-    if (selectedAuth.type === "apiKey") {
-      return { value: apiKeyValue.trim() };
+  useEffect(() => {
+    if (!existingConnectionId) {
+      return;
     }
-    if (selectedAuth.type === "basic") {
-      return {
-        username: basicUsername,
-        password: basicPassword,
-      };
+    if (!compatibleConnectionOptions.some((connection) => connection.id === existingConnectionId)) {
+      setExistingConnectionId("");
     }
-    return { token: managedToken.trim() };
-  };
-
-  const setFormFromCredential = (credential: CredentialRecord) => {
-    const secret = credential.secretJson;
-    setManagedToken(asString(secret.token) || asString(secret.value));
-    setApiKeyValue(asString(secret.value) || asString(secret.token));
-    setBasicUsername(asString(secret.username));
-    setBasicPassword(asString(secret.password));
-    setSecretJsonText(formatCredentialSecret(secret));
-    setAdvancedMode(false);
-  };
+  }, [compatibleConnectionOptions, existingConnectionId]);
 
   const resetForm = () => {
     const defaultSourceKey = sourceOptions[0]?.key ?? "";
     setSourceKey(defaultSourceKey);
-    const defaultAuth = sourceAuthForKey(sourceOptions, defaultSourceKey);
+    const defaultAuth = sourceAuthForKey(sourceOptions, defaultSourceKey, sourceAuthProfiles);
     setScope(defaultAuth.mode ?? "workspace");
     setActorId(context?.actorId ?? "");
-    setProvider("managed");
-    setManagedToken("");
+    setConnectionMode("new");
+    setExistingConnectionId("");
+    setTokenValue("");
     setApiKeyValue("");
     setBasicUsername("");
     setBasicPassword("");
-    setAdvancedMode(false);
-    setSecretJsonText("{}");
+    setCustomHeadersText("");
     setEditing(null);
   };
+
+  useEffect(() => {
+    if (!focusSourceKey) {
+      return;
+    }
+    resetForm();
+    setSourceKey(focusSourceKey);
+    const auth = sourceAuthForKey(sourceOptions, focusSourceKey, sourceAuthProfiles);
+    setScope(auth.mode ?? "workspace");
+    setOpen(true);
+    onFocusHandled?.();
+  }, [focusSourceKey, onFocusHandled, sourceAuthProfiles, sourceOptions]);
 
   const openForCreate = () => {
     resetForm();
@@ -1227,27 +1457,21 @@ function CredentialsPanel({
     setSourceKey(credential.sourceKey);
     setScope(credential.scope);
     setActorId(credential.actorId ?? context?.actorId ?? "");
-    setProvider(credential.provider === "workos-vault" ? "workos-vault" : "managed");
-    setFormFromCredential(credential);
+    setConnectionMode("new");
+    setExistingConnectionId(credential.id);
+    setTokenValue("");
+    setApiKeyValue("");
+    setBasicUsername("");
+    setBasicPassword("");
+    setCustomHeadersText(formatHeaderOverrides(credential.overridesJson));
     setOpen(true);
   };
 
   const handleSourceKeyChange = (nextSourceKey: string) => {
     setSourceKey(nextSourceKey);
-    const auth = sourceAuthForKey(sourceOptions, nextSourceKey);
+    const auth = sourceAuthForKey(sourceOptions, nextSourceKey, sourceAuthProfiles);
     if (!editing) {
       setScope(auth.mode ?? "workspace");
-    }
-  };
-
-  const handleProviderChange = (value: "managed" | "workos-vault") => {
-    setProvider(value);
-  };
-
-  const handleAdvancedModeChange = (next: boolean) => {
-    setAdvancedMode(next);
-    if (next) {
-      setSecretJsonText(formatCredentialSecret(buildDraftSecretFromInputs()));
     }
   };
 
@@ -1262,61 +1486,61 @@ function CredentialsPanel({
       return;
     }
 
-    let secretJson: Record<string, unknown> = {};
-    const keepExistingEncryptedSecret = provider === "workos-vault" && Boolean(editing);
+    const parsedHeaders = parseHeaderOverrides(customHeadersText);
+    if (!parsedHeaders.value) {
+      toast.error(parsedHeaders.error ?? "Invalid header overrides");
+      return;
+    }
 
-    if (advancedMode) {
-      const parsed = parseJsonObject(secretJsonText);
-      if (!parsed.value) {
-        toast.error(parsed.error ?? "Invalid credential JSON");
-        return;
-      }
-      secretJson = parsed.value;
-    } else {
-      if (selectedAuth.type === "none") {
-        toast.error("Configure source auth before saving credentials");
-        return;
-      }
+    const linkExisting = !editing && connectionMode === "existing";
+    if (linkExisting && !existingConnectionId) {
+      toast.error("Select an existing connection to link");
+      return;
+    }
+    if (linkExisting && !compatibleConnectionOptions.some((connection) => connection.id === existingConnectionId)) {
+      toast.error("Selected connection does not match this scope");
+      return;
+    }
+
+    if (selectedAuth.type === "none") {
+      toast.error("This source does not require auth");
+      return;
+    }
+
+    if (selectedAuth.type === "mixed" && !linkExisting && !editing) {
+      toast.error("Mixed-auth sources must link to an existing connection");
+      return;
+    }
+
+    const secretJson: Record<string, unknown> = {};
+    if (!linkExisting) {
       if (selectedAuth.type === "basic") {
         const hasUsername = basicUsername.trim().length > 0;
         const hasPassword = basicPassword.trim().length > 0;
-        if (!hasUsername && !hasPassword && keepExistingEncryptedSecret) {
-          secretJson = {};
-        } else if (!hasUsername || !hasPassword) {
-          toast.error("Username and password are required for basic auth");
-          return;
-        } else {
-          secretJson = {
-            username: basicUsername,
-            password: basicPassword,
-          };
+        if (hasUsername || hasPassword) {
+          if (!hasUsername || !hasPassword) {
+            toast.error("Username and password are required for basic auth");
+            return;
+          }
+          secretJson.username = basicUsername;
+          secretJson.password = basicPassword;
         }
       } else if (selectedAuth.type === "apiKey") {
-        if (!apiKeyValue.trim()) {
-          if (keepExistingEncryptedSecret) {
-            secretJson = {};
-          } else {
-            toast.error("API key value is required");
-            return;
-          }
-        } else {
-          secretJson = { value: apiKeyValue.trim() };
+        if (apiKeyValue.trim()) {
+          secretJson.value = apiKeyValue.trim();
         }
-      } else {
-        if (!managedToken.trim()) {
-          if (keepExistingEncryptedSecret) {
-            secretJson = {};
-          } else {
-            toast.error("Token is required");
-            return;
-          }
-        } else {
-          secretJson = { token: managedToken.trim() };
+      } else if (selectedAuth.type === "bearer") {
+        if (tokenValue.trim()) {
+          secretJson.token = tokenValue.trim();
         }
       }
     }
 
-    if (provider === "workos-vault" && !editing && Object.keys(secretJson).length === 0) {
+    if (Object.keys(parsedHeaders.value).length > 0) {
+      secretJson.__headers = parsedHeaders.value;
+    }
+
+    if (Object.keys(secretJson).length === 0 && !editing && !linkExisting) {
       if (selectedAuth.type === "basic") {
         toast.error("Username and password are required");
       } else if (selectedAuth.type === "apiKey") {
@@ -1330,20 +1554,20 @@ function CredentialsPanel({
     setSaving(true);
     try {
       await upsertCredential({
+        ...(editing ? { id: editing.id } : linkExisting ? { id: existingConnectionId } : {}),
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         sourceKey: sourceKey.trim(),
         scope,
         ...(scope === "actor" ? { actorId: actorId.trim() } : {}),
-        provider,
         secretJson,
       });
 
-      toast.success(editing ? "Credential updated" : "Credential saved");
+      toast.success(editing ? "Connection updated" : linkExisting ? "Connection linked" : "Connection saved");
       setOpen(false);
       resetForm();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save credential");
+      toast.error(err instanceof Error ? err.message : "Failed to save connection");
     } finally {
       setSaving(false);
     }
@@ -1355,11 +1579,11 @@ function CredentialsPanel({
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-muted-foreground" />
-            Credentials
+            Connections
           </CardTitle>
           <Button size="sm" className="h-8 text-xs" onClick={openForCreate}>
             <Plus className="h-3.5 w-3.5 mr-1.5" />
-            Add Credential
+            Add Connection
           </Button>
         </div>
       </CardHeader>
@@ -1370,82 +1594,71 @@ function CredentialsPanel({
               <Skeleton key={i} className="h-14" />
             ))}
           </div>
-        ) : credentials.length === 0 ? (
+        ) : connectionOptions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 gap-2">
             <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
               <KeyRound className="h-5 w-5 text-muted-foreground/50" />
             </div>
-            <p className="text-sm text-muted-foreground">No credentials configured</p>
+            <p className="text-sm text-muted-foreground">No connections configured</p>
             <p className="text-[11px] text-muted-foreground/70 text-center max-w-md">
-              Configure source auth on an OpenAPI or GraphQL source, then add workspace or actor credentials.
+              Add a source, then create or link a reusable connection.
             </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {credentials.map((credential) => (
-              <div
-                key={`${credential.sourceKey}:${credential.scope}:${credential.actorId ?? "workspace"}`}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40"
-              >
-                {(() => {
-                  const source = sourceForCredentialKey(sources, credential.sourceKey);
-                  const favicon = source ? getSourceFavicon(source) : null;
-                  return (
-                    <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-                      {favicon ? (
-                        <img src={favicon} alt="" width={20} height={20} className="w-5 h-5" loading="lazy" />
-                      ) : (
-                        <KeyRound className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </div>
-                  );
-                })()}
-                <div className="flex-1 min-w-0">
-                  {(() => {
-                    const source = sourceForCredentialKey(sources, credential.sourceKey);
-                    if (!source) {
-                      return (
-                        <p className="text-[11px] text-muted-foreground/80 font-mono mb-1">
-                          {credential.sourceKey}
-                        </p>
-                      );
-                    }
-                    return (
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className="text-sm font-mono font-medium">{source.name}</span>
-                        <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                          {source.type}
-                        </Badge>
-                      </div>
-                    );
-                  })()}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                      {credential.scope}
-                    </Badge>
-                    <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                      {providerLabel(credential.provider === "workos-vault" ? "workos-vault" : "managed")}
-                    </Badge>
-                    {credential.scope === "actor" && credential.actorId && (
-                      <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                        {credential.actorId}
-                      </span>
+            {connectionOptions.map((connection) => {
+              const representative = representativeCredentialByConnection.get(connection.id);
+              if (!representative) return null;
+              const firstSource = sourceForCredentialKey(sources, representative.sourceKey);
+              const favicon = firstSource ? getSourceFavicon(firstSource) : null;
+
+              return (
+                <div
+                  key={connection.id}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40"
+                >
+                  <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                    {favicon ? (
+                      <img src={favicon} alt="" width={20} height={20} className="w-5 h-5" loading="lazy" />
+                    ) : (
+                      <KeyRound className="h-4 w-4 text-muted-foreground" />
                     )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Updated {new Date(credential.updatedAt).toLocaleString()}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                      <span className="text-sm font-medium">{connectionDisplayName(sources, connection)}</span>
+                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                        {connection.scope}
+                      </Badge>
+                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                        {providerLabel(connection.provider)}
+                      </Badge>
+                      {connection.scope === "actor" && connection.actorId && (
+                        <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                          {connection.actorId}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Linked to {connection.sourceKeys.size} source{connection.sourceKeys.size === 1 ? "" : "s"} • {storageCopy}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      ID: <span className="font-mono">{connection.id}</span> •
+                      {" "}
+                      Updated {new Date(connection.updatedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px]"
+                    onClick={() => openForEdit(representative)}
+                  >
+                    Edit
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[11px]"
-                  onClick={() => openForEdit(credential)}
-                >
-                  Edit
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
@@ -1454,7 +1667,7 @@ function CredentialsPanel({
         <DialogContent className="bg-card border-border sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-sm font-medium">
-              {editing ? "Edit Credential" : "Add Credential"}
+              {editing ? "Edit Connection" : "Add Connection"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
@@ -1491,6 +1704,11 @@ function CredentialsPanel({
               <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
                 {selectedAuthBadge}
               </Badge>
+              {selectedAuth.inferred && (
+                <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                  inferred
+                </Badge>
+              )}
               {selectedAuth.type === "apiKey" && selectedAuth.header && (
                 <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                   header: {selectedAuth.header}
@@ -1511,18 +1729,9 @@ function CredentialsPanel({
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Provider</Label>
-                <Select value={provider} onValueChange={(value) => handleProviderChange(value as "managed" | "workos-vault") }>
-                  <SelectTrigger className="h-8 text-xs bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="managed" className="text-xs">Managed storage</SelectItem>
-                    <SelectItem value="workos-vault" className="text-xs">Encrypted storage</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs text-muted-foreground">Storage</Label>
+                <Input value={storageCopy} readOnly className="h-8 text-xs bg-background" />
               </div>
             </div>
 
@@ -1538,79 +1747,114 @@ function CredentialsPanel({
               </div>
             )}
 
-            {provider === "workos-vault" && editing && (
-              <p className="text-[11px] text-muted-foreground">
-                Stored secret is hidden. Enter a new value below to rotate, or leave fields blank to keep existing.
-              </p>
-            )}
-
-            {selectedAuth.type === "none" ? (
-              <p className="text-[11px] text-terminal-amber">
-                This source has auth set to <code>none</code>. Configure source auth first.
-              </p>
-            ) : selectedAuth.type === "apiKey" ? (
+            {!editing && connectionOptions.length > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">API Key Value</Label>
-                <Input
-                  value={apiKeyValue}
-                  onChange={(e) => setApiKeyValue(e.target.value)}
-                  placeholder="sk_live_..."
-                  className="h-8 text-xs font-mono bg-background"
-                />
-              </div>
-            ) : selectedAuth.type === "basic" ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Username</Label>
-                  <Input
-                    value={basicUsername}
-                    onChange={(e) => setBasicUsername(e.target.value)}
-                    className="h-8 text-xs font-mono bg-background"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Password</Label>
-                  <Input
-                    type="password"
-                    value={basicPassword}
-                    onChange={(e) => setBasicPassword(e.target.value)}
-                    className="h-8 text-xs font-mono bg-background"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Bearer Token</Label>
-                <Input
-                  type="password"
-                  value={managedToken}
-                  onChange={(e) => setManagedToken(e.target.value)}
-                  placeholder="ghp_..."
-                  className="h-8 text-xs font-mono bg-background"
-                />
+                <Label className="text-xs text-muted-foreground">Connection Mode</Label>
+                <Select value={connectionMode} onValueChange={(value) => setConnectionMode(value as "new" | "existing") }>
+                  <SelectTrigger className="h-8 text-xs bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new" className="text-xs">Create new connection</SelectItem>
+                    <SelectItem value="existing" className="text-xs">Use existing connection</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
-            <Collapsible open={advancedMode} onOpenChange={handleAdvancedModeChange}>
-              <CollapsibleTrigger asChild>
-                <Button variant="outline" size="sm" className="h-7 text-[11px]">
-                  Advanced JSON
-                  <ChevronRight className={cn("ml-1.5 h-3 w-3 transition-transform", advancedMode && "rotate-90")} />
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2 space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Override Secret JSON</Label>
-                <Textarea
-                  value={secretJsonText}
-                  onChange={(e) => setSecretJsonText(e.target.value)}
-                  rows={6}
-                  className="text-xs font-mono bg-background"
-                />
-              </CollapsibleContent>
-            </Collapsible>
+            {!editing && connectionMode === "existing" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Existing Connection</Label>
+                <Select value={existingConnectionId} onValueChange={setExistingConnectionId}>
+                  <SelectTrigger className="h-8 text-xs bg-background">
+                    <SelectValue placeholder="Select a connection" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {compatibleConnectionOptions.map((connection) => (
+                      <SelectItem key={connection.id} value={connection.id} className="text-xs">
+                        {connectionDisplayName(sources, connection)} ({connection.sourceKeys.size} source{connection.sourceKeys.size === 1 ? "" : "s"})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {compatibleConnectionOptions.length === 0 && (
+                  <p className="text-[10px] text-muted-foreground">No compatible existing connections for this scope.</p>
+                )}
+              </div>
+            )}
+
+            {(editing || connectionMode === "new") && (
+              <>
+                {editing && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Stored secret is hidden. Enter a new value to rotate it, or leave fields blank to keep it.
+                  </p>
+                )}
+
+                {selectedAuth.type === "none" ? (
+                  <p className="text-[11px] text-terminal-amber">This source does not currently require auth.</p>
+                ) : selectedAuth.type === "mixed" ? (
+                  <p className="text-[11px] text-terminal-amber">
+                    This source has mixed auth requirements. Link an existing connection for now.
+                  </p>
+                ) : selectedAuth.type === "apiKey" ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">API Key Value</Label>
+                    <Input
+                      value={apiKeyValue}
+                      onChange={(e) => setApiKeyValue(e.target.value)}
+                      placeholder="sk_live_..."
+                      className="h-8 text-xs font-mono bg-background"
+                    />
+                  </div>
+                ) : selectedAuth.type === "basic" ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Username</Label>
+                      <Input
+                        value={basicUsername}
+                        onChange={(e) => setBasicUsername(e.target.value)}
+                        className="h-8 text-xs font-mono bg-background"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Password</Label>
+                      <Input
+                        type="password"
+                        value={basicPassword}
+                        onChange={(e) => setBasicPassword(e.target.value)}
+                        className="h-8 text-xs font-mono bg-background"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Bearer Token</Label>
+                    <Input
+                      type="password"
+                      value={tokenValue}
+                      onChange={(e) => setTokenValue(e.target.value)}
+                      placeholder="ghp_..."
+                      className="h-8 text-xs font-mono bg-background"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Custom Headers (optional)</Label>
+              <Textarea
+                value={customHeadersText}
+                onChange={(e) => setCustomHeadersText(e.target.value)}
+                rows={4}
+                placeholder="x-tenant-id: acme\nx-env: staging"
+                className="text-xs font-mono bg-background"
+              />
+            </div>
 
             <Button onClick={handleSave} disabled={saving} className="w-full h-9" size="sm">
-              {saving ? "Saving..." : editing ? "Update Credential" : "Save Credential"}
+              {saving ? "Saving..." : editing ? "Update Connection" : connectionMode === "existing" ? "Link Connection" : "Save Connection"}
             </Button>
           </div>
         </DialogContent>
@@ -1625,6 +1869,9 @@ function CredentialsPanel({
 
 export function ToolsView({ initialSource }: { initialSource?: string | null }) {
   const { context, loading: sessionLoading } = useSession();
+  const [selectedSource, setSelectedSource] = useState<string | null>(initialSource ?? null);
+  const [activeTab, setActiveTab] = useState<"catalog" | "credentials" | "mcp">("catalog");
+  const [focusCredentialSourceKey, setFocusCredentialSourceKey] = useState<string | null>(null);
 
   const sources = useQuery(
     convexApi.workspace.listToolSources,
@@ -1637,9 +1884,20 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
     convexApi.workspace.listCredentials,
     context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
+  const credentialItems: CredentialRecord[] = credentials ?? [];
   const credentialsLoading = !!context && credentials === undefined;
 
-  const { tools, warnings, sourceQuality, loading: toolsLoading } = useWorkspaceTools(context ?? null);
+  const {
+    tools,
+    warnings,
+    sourceQuality,
+    sourceAuthProfiles,
+    loadingTools,
+    refreshingTools,
+  } = useWorkspaceTools(context ?? null);
+  const selectedSourceRecord = selectedSource
+    ? sourceItems.find((source) => source.name === selectedSource) ?? null
+    : null;
 
   if (sessionLoading) {
     return (
@@ -1654,108 +1912,113 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
     <div className="flex h-full min-h-0 flex-col gap-6">
       <PageHeader
         title="Tools"
-        description="Manage sources, auth, credentials, and available tools"
+        description="Manage sources, auth, connections, and available tools"
       />
 
       <Tabs
-        defaultValue={initialSource ? "inventory" : "sources"}
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as "catalog" | "credentials" | "mcp")}
         className="w-full min-h-0 flex-1"
       >
         <TabsList className="bg-muted/50 h-9">
-          <TabsTrigger value="sources" className="text-xs data-[state=active]:bg-background">
-            Sources
-            {sources && (
-              <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
-                {sourceItems.length}
-              </span>
-            )}
+          <TabsTrigger value="catalog" className="text-xs data-[state=active]:bg-background">
+            Catalog
+            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
+              {loadingTools ? "..." : tools.length}
+            </span>
           </TabsTrigger>
           <TabsTrigger value="credentials" className="text-xs data-[state=active]:bg-background">
-            Credentials
+            Connections
             {credentials && (
               <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
-                {credentials.length}
+                {new Set(credentialItems.map((credential) => credential.id)).size}
               </span>
             )}
-          </TabsTrigger>
-          <TabsTrigger value="inventory" className="text-xs data-[state=active]:bg-background">
-            Inventory
-            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
-              {toolsLoading ? "…" : tools.length}
-            </span>
           </TabsTrigger>
           <TabsTrigger value="mcp" className="text-xs data-[state=active]:bg-background">
             MCP Setup
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="sources" className="mt-4">
-          <Card className="bg-card border-border">
+        <TabsContent value="catalog" className="mt-4 min-h-0">
+          <Card className="bg-card border-border min-h-0 flex flex-col">
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Server className="h-4 w-4 text-muted-foreground" />
-                  Tool Sources
+                  <Globe className="h-4 w-4 text-muted-foreground" />
+                  Tools + Sources
+                  <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
+                    {loadingTools ? "..." : tools.length}
+                  </span>
                 </CardTitle>
-                <AddSourceDialog existingSourceNames={new Set(sourceItems.map((s) => s.name))} />
+                <div className="flex items-center gap-2">
+                  {selectedSource ? (
+                    <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => setSelectedSource(null)}>
+                      Clear source filter
+                    </Button>
+                  ) : null}
+                  <AddSourceDialog
+                    existingSourceNames={new Set(sourceItems.map((s) => s.name))}
+                    onSourceAdded={(source) => {
+                      setActiveTab("credentials");
+                      setSelectedSource(source.name);
+                      const key = sourceKeyForSource(source);
+                      if (key) {
+                        setFocusCredentialSourceKey(key);
+                      }
+                    }}
+                  />
+                </div>
               </div>
+              <p className="text-[11px] text-muted-foreground">
+                {selectedSource
+                  ? `Filtering and managing ${selectedSource}.`
+                  : "Source management and tool inventory are unified here."}
+              </p>
             </CardHeader>
-            <CardContent className="pt-0">
+            <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
               {sourcesLoading ? (
                 <div className="space-y-2">
-                  {Array.from({ length: 3 }).map((_, i) => (
+                  {Array.from({ length: 2 }).map((_, i) => (
                     <Skeleton key={i} className="h-16" />
                   ))}
                 </div>
-              ) : sourceItems.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-3">
-                  <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                    <Wrench className="h-6 w-6 text-muted-foreground/40" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    No external tool sources
-                  </p>
-                  <p className="text-[11px] text-muted-foreground/60">
-                    Add MCP, OpenAPI, or GraphQL sources to extend available tools
+              ) : null}
+
+              {!sourcesLoading && sourceItems.length === 0 ? (
+                <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-2.5">
+                  <p className="text-[11px] text-muted-foreground">
+                    No external sources yet. Add MCP, OpenAPI, or GraphQL to expand available tools.
                   </p>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {warnings.length > 0 && (
-                    <div className="rounded-md border border-terminal-amber/30 bg-terminal-amber/10 px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-terminal-amber">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        Source load warnings ({warnings.length})
-                      </div>
-                      <div className="mt-1.5 space-y-1">
-                        {warnings.slice(0, 3).map((warning: string, i: number) => (
-                          <p key={`${warning}-${i}`} className="text-[11px] text-terminal-amber/90">
-                            {warning}
-                          </p>
-                        ))}
-                        {warnings.length > 3 && (
-                          <p className="text-[10px] text-terminal-amber/80">
-                            +{warnings.length - 3} more warning{warnings.length - 3 === 1 ? "" : "s"}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {sourceItems.map((s) => {
-                    const quality = sourceQuality[toolSourceLabelForSource(s)];
-                    const credentialStats = credentialStatsForSource(s, credentials ?? []);
-                    return (
-                      <SourceCard
-                        key={s.id}
-                        source={s}
-                        quality={quality}
-                        qualityLoading={toolsLoading}
-                        credentialStats={credentialStats}
-                      />
-                    );
-                  })}
+              ) : null}
+
+              {selectedSourceRecord ? (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Selected source</p>
+                  <SourceCard
+                    source={selectedSourceRecord}
+                    quality={sourceQuality[toolSourceLabelForSource(selectedSourceRecord)]}
+                    qualityLoading={selectedSourceRecord.type === "openapi" && !sourceQuality[toolSourceLabelForSource(selectedSourceRecord)] && refreshingTools}
+                    credentialStats={credentialStatsForSource(selectedSourceRecord, credentialItems)}
+                    sourceAuthProfiles={sourceAuthProfiles}
+                    selected
+                    onFocusSource={setSelectedSource}
+                  />
                 </div>
-              )}
+              ) : null}
+
+              <div className="min-h-0 flex-1">
+                <ToolExplorer
+                  tools={tools}
+                  sources={sourceItems}
+                  loading={loadingTools}
+                  warnings={warnings}
+                  initialSource={initialSource}
+                  activeSource={selectedSource}
+                  onActiveSourceChange={setSelectedSource}
+                />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1763,18 +2026,11 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
         <TabsContent value="credentials" className="mt-4">
           <CredentialsPanel
             sources={sourceItems}
-            credentials={credentials ?? []}
+            credentials={credentialItems}
+            sourceAuthProfiles={sourceAuthProfiles}
             loading={credentialsLoading || sourcesLoading}
-          />
-        </TabsContent>
-
-        <TabsContent value="inventory" className="mt-4 min-h-0">
-          <ToolExplorer
-            tools={tools}
-            sources={sourceItems}
-            loading={toolsLoading}
-            warnings={warnings}
-            initialSource={initialSource}
+            focusSourceKey={focusCredentialSourceKey}
+            onFocusHandled={() => setFocusCredentialSourceKey(null)}
           />
         </TabsContent>
 
