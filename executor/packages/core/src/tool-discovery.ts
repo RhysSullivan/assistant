@@ -9,6 +9,7 @@ import {
 
 interface DiscoverIndexEntry {
   path: string;
+  preferredPath: string;
   aliases: string[];
   description: string;
   approval: ToolDefinition["approval"];
@@ -36,12 +37,63 @@ const DISCOVER_STOP_WORDS = new Set([
   "with",
 ]);
 
+const GENERIC_NAMESPACE_SUFFIXES = new Set([
+  "api",
+  "apis",
+  "openapi",
+  "sdk",
+  "service",
+  "services",
+]);
+
 function normalizeType(type?: string): string {
   return type && type.trim().length > 0 ? type : "unknown";
 }
 
 function normalizeSearchToken(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function tokenizePathSegment(value: string): string[] {
+  const normalized = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .toLowerCase();
+  return normalized
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+function simplifyNamespaceSegment(segment: string): string {
+  const tokens = tokenizePathSegment(segment);
+  if (tokens.length === 0) return segment;
+
+  const collapsed: string[] = [];
+  for (const token of tokens) {
+    if (collapsed[collapsed.length - 1] === token) continue;
+    collapsed.push(token);
+  }
+
+  while (collapsed.length > 1) {
+    const last = collapsed[collapsed.length - 1];
+    if (!last || !GENERIC_NAMESPACE_SUFFIXES.has(last)) break;
+    collapsed.pop();
+  }
+
+  return collapsed.join("_");
+}
+
+function preferredToolPath(path: string): string {
+  const segments = path.split(".").filter(Boolean);
+  if (segments.length === 0) return path;
+
+  const simplifiedNamespace = simplifyNamespaceSegment(segments[0]!);
+  if (!simplifiedNamespace || simplifiedNamespace === segments[0]) {
+    return path;
+  }
+
+  return [simplifiedNamespace, ...segments.slice(1)].join(".");
 }
 
 function toCamelSegment(segment: string): string {
@@ -52,25 +104,31 @@ function getPathAliases(path: string): string[] {
   const segments = path.split(".").filter(Boolean);
   if (segments.length === 0) return [];
 
-  const aliases = new Set<string>();
-  const camelPath = segments.map(toCamelSegment).join(".");
-  const compactPath = segments.map((segment) => segment.replace(/[_-]/g, "")).join(".");
-  const lowerPath = path.toLowerCase();
+  const canonicalPath = path;
+  const publicPath = preferredToolPath(path);
 
-  if (camelPath !== path) aliases.add(camelPath);
-  if (compactPath !== path) aliases.add(compactPath);
-  if (lowerPath !== path) aliases.add(lowerPath);
+  const aliases = new Set<string>();
+  const publicSegments = publicPath.split(".").filter(Boolean);
+  const camelPath = publicSegments.map(toCamelSegment).join(".");
+  const compactPath = publicSegments.map((segment) => segment.replace(/[_-]/g, "")).join(".");
+  const lowerPath = publicPath.toLowerCase();
+
+  if (publicPath !== canonicalPath) aliases.add(publicPath);
+  if (camelPath !== publicPath) aliases.add(camelPath);
+  if (compactPath !== publicPath) aliases.add(compactPath);
+  if (lowerPath !== publicPath) aliases.add(lowerPath);
 
   return [...aliases].slice(0, 4);
 }
 
 function buildExampleCall(entry: DiscoverIndexEntry): string {
+  const callPath = entry.preferredPath;
   if (entry.path.endsWith(".graphql")) {
-    return `await tools.${entry.path}({ query: "query { __typename }", variables: {} });`;
+    return `await tools.${callPath}({ query: "query { __typename }", variables: {} });`;
   }
 
   if (entry.argsType === "{}") {
-    return `await tools.${entry.path}({});`;
+    return `await tools.${callPath}({});`;
   }
 
   const keys = entry.argPreviewKeys.length > 0 ? entry.argPreviewKeys : extractTopLevelTypeKeys(entry.argsType);
@@ -78,21 +136,23 @@ function buildExampleCall(entry: DiscoverIndexEntry): string {
     const argsSnippet = keys.slice(0, 5)
       .map((key) => `${key}: ${key.toLowerCase().includes("input") ? "{ /* ... */ }" : "..."}`)
       .join(", ");
-    return `await tools.${entry.path}({ ${argsSnippet} });`;
+    return `await tools.${callPath}({ ${argsSnippet} });`;
   }
 
-  return `await tools.${entry.path}({ /* ... */ });`;
+  return `await tools.${callPath}({ /* ... */ });`;
 }
 
 function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
   return tools
-    .filter((tool) => tool.path !== "discover")
+    .filter((tool) => tool.path !== "discover" && !tool.path.startsWith("catalog."))
     .map((tool) => {
+      const preferredPath = preferredToolPath(tool.path);
       const aliases = getPathAliases(tool.path);
-      const searchText = `${tool.path} ${aliases.join(" ")} ${tool.description} ${tool.source ?? ""}`.toLowerCase();
+      const searchText = `${tool.path} ${preferredPath} ${aliases.join(" ")} ${tool.description} ${tool.source ?? ""}`.toLowerCase();
 
       return {
         path: tool.path,
+        preferredPath,
         aliases,
         description: tool.description,
         approval: tool.approval,
@@ -161,7 +221,7 @@ function chooseBestPath(
     return null;
   }
 
-  return best.entry.path;
+  return best.entry.preferredPath;
 }
 
 function scoreEntry(
@@ -235,6 +295,113 @@ function formatSignature(entry: DiscoverIndexEntry, depth: number, compact: bool
   return `(input: ${entry.argsType}): Promise<${entry.returnsType}> [source=${entry.source}]`;
 }
 
+function listIndexForContext(index: DiscoverIndexEntry[], isToolAllowed: (toolPath: string) => boolean): DiscoverIndexEntry[] {
+  return index.filter((entry) => isToolAllowed(entry.path));
+}
+
+export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
+  const index = buildIndex(tools);
+
+  const namespacesTool: ToolDefinition = {
+    path: "catalog.namespaces",
+    source: "system",
+    approval: "auto",
+    description: "List available tool namespaces with counts and sample callable paths.",
+    metadata: {
+      argsType: "{}",
+      returnsType: "{ namespaces: Array<{ namespace: string; toolCount: number; samplePaths: string[] }>; total: number }",
+      displayArgsType: "{}",
+      displayReturnsType: "{ namespaces: ...; total: number }",
+    },
+    run: async (_input: unknown, context) => {
+      const visible = listIndexForContext(index, context.isToolAllowed);
+      const grouped = new Map<string, string[]>();
+
+      for (const entry of visible) {
+        const namespace = entry.preferredPath.split(".")[0] ?? entry.path.split(".")[0] ?? "default";
+        const list = grouped.get(namespace) ?? [];
+        list.push(entry.preferredPath);
+        grouped.set(namespace, list);
+      }
+
+      const namespaces = [...grouped.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([namespace, paths]) => ({
+          namespace,
+          toolCount: paths.length,
+          samplePaths: [...paths].sort((a, b) => a.localeCompare(b)).slice(0, 3),
+        }));
+
+      return {
+        namespaces,
+        total: namespaces.length,
+      };
+    },
+  };
+
+  const toolsTool: ToolDefinition = {
+    path: "catalog.tools",
+    source: "system",
+    approval: "auto",
+    description: "List tools with typed signatures. Supports namespace and query filters in one call.",
+    metadata: {
+      argsType: "{ namespace?: string; query?: string; depth?: number; limit?: number; compact?: boolean }",
+      returnsType:
+        "{ results: Array<{ path: string; aliases: string[]; source: string; approval: 'auto' | 'required'; description: string; argsType: string; returnsType: string; signature: string; exampleCall: string }>; total: number }",
+      displayArgsType: "{ namespace?: string; query?: string; depth?: number; limit?: number; compact?: boolean }",
+      displayReturnsType: "{ results: ...; total: number }",
+    },
+    run: async (input: unknown, context) => {
+      const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+      const namespaceFilter = String(payload.namespace ?? "").trim().toLowerCase();
+      const query = String(payload.query ?? "").trim().toLowerCase();
+      const depth = Math.max(0, Math.min(2, Number(payload.depth ?? 1)));
+      const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 50)));
+      const compact = payload.compact === false ? false : true;
+      const terms = query.length > 0 ? query.split(/\s+/).filter(Boolean) : [];
+
+      const visible = listIndexForContext(index, context.isToolAllowed);
+      const namespaceScoped = namespaceFilter.length > 0
+        ? visible.filter((entry) => {
+          const namespace = entry.preferredPath.split(".")[0]?.toLowerCase() ?? "";
+          const canonicalNamespace = entry.path.split(".")[0]?.toLowerCase() ?? "";
+          return namespace === namespaceFilter || canonicalNamespace === namespaceFilter;
+        })
+        : visible;
+
+      const ranked = (terms.length > 0
+        ? namespaceScoped
+          .map((entry) => ({ entry, score: scoreEntry(entry, terms, new Set<string>(), "") }))
+          .filter((item) => item.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .map((item) => item.entry)
+        : [...namespaceScoped].sort((a, b) => a.preferredPath.localeCompare(b.preferredPath)))
+        .slice(0, limit);
+
+      const results = ranked.map((entry) => ({
+        path: entry.preferredPath,
+        aliases: entry.aliases,
+        source: entry.source,
+        approval: entry.approval,
+        description: compact ? compactDescriptionLine(entry.description) : entry.description,
+        argsType: compact
+          ? (entry.argPreviewKeys.length > 0 ? compactArgKeysHint(entry.argPreviewKeys) : compactArgTypeHint(entry.argsType))
+          : entry.argsType,
+        returnsType: compact ? compactReturnTypeHint(entry.returnsType) : entry.returnsType,
+        signature: formatSignature(entry, depth, compact),
+        exampleCall: buildExampleCall(entry),
+      }));
+
+      return {
+        results,
+        total: results.length,
+      };
+    },
+  };
+
+  return [namespacesTool, toolsTool];
+}
+
 export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
   const index = buildIndex(tools);
 
@@ -243,7 +410,7 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
     source: "system",
     approval: "auto",
     description:
-      "Search available tools by keyword. Returns canonical path, aliases, signature hints, and ready-to-copy call examples. Compact mode is enabled by default.",
+      "Search available tools by keyword. Returns preferred path aliases, signature hints, and ready-to-copy call examples. Compact mode is enabled by default.",
     metadata: {
       argsType: "{ query: string; depth?: number; limit?: number; compact?: boolean }",
       returnsType:
@@ -274,7 +441,7 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
 
       const results = ranked
         .map(({ entry }) => ({
-          path: entry.path,
+          path: entry.preferredPath,
           aliases: entry.aliases,
           source: entry.source,
           approval: entry.approval,

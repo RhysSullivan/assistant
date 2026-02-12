@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Id } from "../../convex/_generated/dataModel";
-import { createDiscoverTool } from "./tool-discovery";
+import { createCatalogTools, createDiscoverTool } from "./tool-discovery";
 import type { ToolDefinition } from "./types";
 
 const TEST_WORKSPACE_ID = "w" as Id<"workspaces">;
@@ -207,4 +207,83 @@ test("discover namespace hint suppresses cross-namespace bestPath", async () => 
 
   expect(result.bestPath).toBe("linear.query.teams");
   expect(result.results.some((entry) => entry.path.startsWith("github."))).toBe(false);
+});
+
+test("discover prefers simplified alias path for ugly namespaces", async () => {
+  const tool = createDiscoverTool([
+    {
+      path: "vercel_vercel_api.domains.get_domain",
+      description: "Get Vercel domain",
+      approval: "auto",
+      source: "openapi:vercel",
+      metadata: {
+        argsType: "{ domain: string; teamId?: string }",
+        returnsType: "{ domain: string }",
+      },
+      run: async () => ({ domain: "executor.sh" }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const result = await tool.run(
+    { query: "vercel domain", depth: 2 },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+  ) as {
+    bestPath: string | null;
+    results: Array<{ path: string; aliases: string[]; exampleCall: string }>;
+  };
+
+  expect(result.bestPath).toBe("vercel.domains.get_domain");
+  expect(result.results[0]?.path).toBe("vercel.domains.get_domain");
+  expect(result.results[0]?.aliases).toContain("vercel.domains.get_domain");
+  expect(result.results[0]?.exampleCall).toContain("tools.vercel.domains.get_domain");
+});
+
+test("catalog tools list namespaces and typed signatures", async () => {
+  const [namespacesTool, toolsTool] = createCatalogTools([
+    {
+      path: "vercel_vercel_api.domains.get_domain",
+      description: "Get domain",
+      approval: "auto",
+      source: "openapi:vercel",
+      metadata: {
+        argsType: "{ domain: string; teamId?: string }",
+        returnsType: "{ domain: string }",
+      },
+      run: async () => ({ domain: "executor.sh" }),
+    } satisfies ToolDefinition,
+    {
+      path: "utils.get_time",
+      description: "Get time",
+      approval: "auto",
+      source: "local",
+      metadata: {
+        argsType: "{}",
+        returnsType: "{ iso: string; unix: number }",
+      },
+      run: async () => ({ iso: "", unix: 0 }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const namespaces = await namespacesTool!.run(
+    {},
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+  ) as { namespaces: Array<{ namespace: string; toolCount: number }>; total: number };
+
+  expect(namespaces.total).toBeGreaterThanOrEqual(2);
+  expect(namespaces.namespaces.some((item) => item.namespace === "vercel" && item.toolCount >= 1)).toBe(true);
+
+  const listed = await toolsTool!.run(
+    { namespace: "vercel", compact: false, depth: 2, limit: 10 },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+  ) as {
+    results: Array<{ path: string; aliases: string[]; signature: string; argsType: string; returnsType: string }>;
+    total: number;
+  };
+
+  expect(listed.total).toBe(1);
+  expect(listed.results[0]?.path).toBe("vercel.domains.get_domain");
+  expect(listed.results[0]?.aliases).toContain("vercel.domains.get_domain");
+  expect(listed.results[0]?.signature).toContain("domain: string");
+  expect(listed.results[0]?.argsType).toContain("domain: string");
+  expect(listed.results[0]?.returnsType).toContain("domain: string");
 });

@@ -231,7 +231,8 @@ describe("generateToolInventory", () => {
     expect(result).toContain("You have access to these tool namespaces:");
     expect(result).toContain("admin (1)");
     expect(result).toContain("math (1)");
-    expect(result).toContain("Use `tools.discover({ query, depth?, limit?, compact? })` first");
+    expect(result).toContain("tools.catalog.namespaces({})");
+    expect(result).toContain("tools.discover({ query, depth?, limit?, compact? })");
     expect(result).toContain("Never shadow the global `tools` object");
   });
 
