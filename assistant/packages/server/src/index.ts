@@ -7,7 +7,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@executor/convex/_generated/api";
 import type { Id } from "@executor/convex/_generated/dataModel";
 
-const PORT = Number(Bun.env.PORT ?? 3000);
+const PORT = Number(Bun.env.ASSISTANT_PORT ?? Bun.env.PORT ?? 3002);
 const CONVEX_URL = Bun.env.CONVEX_URL;
 if (!CONVEX_URL) {
   throw new Error("CONVEX_URL is required. Set it in your environment.");

@@ -14,7 +14,6 @@ function setup() {
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./workspaceToolCache.ts": () => import("./workspaceToolCache"),
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
-    "./mcpNode.ts": () => import("./mcpNode"),
     "./anonymousOauth.ts": () => import("./anonymousOauth"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });

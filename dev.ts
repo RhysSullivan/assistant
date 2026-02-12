@@ -10,7 +10,7 @@
  *   2. Convex cloud dev function watcher   │
  *   3. CF sandbox host worker (port 8787) ├─ all started concurrently
  *   4. Executor web UI (port 4312)        │
- *   5. Assistant server (port 3000)       │
+ *   5. Assistant server (port 3002)       │
  *   6. Discord bot                        ─┘
  *
  * All processes are killed when this script exits (Ctrl+C).
@@ -122,7 +122,8 @@ process.on("SIGTERM", shutdown);
 
 const EXECUTOR_WEB_PORT = Number(Bun.env.EXECUTOR_WEB_PORT ?? 4312);
 const SANDBOX_PORT = Number(Bun.env.SANDBOX_PORT ?? 8787);
-const DEV_PORTS = [3000, EXECUTOR_WEB_PORT, SANDBOX_PORT];
+const ASSISTANT_PORT = Number(Bun.env.ASSISTANT_PORT ?? 3002);
+const DEV_PORTS = [ASSISTANT_PORT, EXECUTOR_WEB_PORT, SANDBOX_PORT];
 
 async function killStaleProcesses() {
   let killed = 0;
@@ -198,6 +199,7 @@ spawnService("web", ["bun", "run", "dev"], {
 spawnService("assistant", ["bun", "run", "dev"], {
   cwd: "./assistant/packages/server",
   env: {
+    ASSISTANT_PORT: String(ASSISTANT_PORT),
     EXECUTOR_URL: urls.executorUrl,
     CONVEX_URL: urls.convexUrl,
     EXECUTOR_ANON_SESSION_ID: Bun.env.EXECUTOR_ANON_SESSION_ID ?? "assistant-discord-dev",
@@ -209,6 +211,7 @@ if (Bun.env.DISCORD_BOT_TOKEN) {
   spawnService("bot", ["bun", "run", "dev"], {
     cwd: "./assistant/packages/bot",
     env: {
+      ASSISTANT_SERVER_URL: Bun.env.ASSISTANT_SERVER_URL ?? `http://localhost:${ASSISTANT_PORT}`,
       CONVEX_URL: urls.convexUrl,
     },
   });

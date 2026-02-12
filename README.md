@@ -64,7 +64,7 @@ bun run dev
 - Convex dev watcher for `executor/`
 - Executor web app (`http://localhost:4312`)
 - Executor MCP endpoint (`<CONVEX_SITE_URL>/mcp`)
-- Assistant server (`http://localhost:3000`)
+- Assistant server (`http://localhost:3002`)
 - Discord bot (only if `DISCORD_BOT_TOKEN` is set)
 
 PIDs are tracked in `.dev.pids`. To stop all processes:

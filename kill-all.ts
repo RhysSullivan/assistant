@@ -2,7 +2,7 @@
  * Kills all processes started by `bun dev`.
  *
  * 1. Reads PIDs from .dev.pids and kills process trees
- * 2. Falls back to killing anything on known dev ports (3000, 3002)
+ * 2. Falls back to killing anything on known dev ports (assistant port)
  *
  * Usage: bun run kill:all
  */
@@ -11,7 +11,8 @@ import { join } from "node:path";
 import { unlinkSync } from "node:fs";
 
 const PID_FILE = join(import.meta.dir, ".dev.pids");
-const DEV_PORTS = [3000, 3002];
+const ASSISTANT_PORT = Number(Bun.env.ASSISTANT_PORT ?? 3002);
+const DEV_PORTS = [ASSISTANT_PORT];
 
 let killed = 0;
 let skipped = 0;

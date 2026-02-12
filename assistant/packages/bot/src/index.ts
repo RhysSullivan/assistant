@@ -26,7 +26,7 @@ if (!DISCORD_TOKEN) {
   throw new Error("DISCORD_BOT_TOKEN is required");
 }
 
-const SERVER_URL = Bun.env.ASSISTANT_SERVER_URL ?? "http://localhost:3000";
+const SERVER_URL = Bun.env.ASSISTANT_SERVER_URL ?? `http://localhost:${Bun.env.ASSISTANT_PORT ?? "3002"}`;
 const CONVEX_URL = Bun.env.CONVEX_URL;
 if (!CONVEX_URL) {
   throw new Error("CONVEX_URL is required. Set it in your environment.");

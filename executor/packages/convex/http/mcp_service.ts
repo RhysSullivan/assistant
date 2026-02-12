@@ -19,10 +19,11 @@ export function createMcpExecutorService(ctx: ActionCtx) {
       actorId: string;
       clientId?: string;
     }) => {
-      return (await ctx.runMutation(internal.executor.createTaskInternal, {
+      const taskInput = {
         ...input,
         scheduleAfterCreate: false,
-      })) as { task: TaskRecord };
+      } as Parameters<typeof ctx.runMutation<typeof internal.executor.createTaskInternal>>[1];
+      return (await ctx.runMutation(internal.executor.createTaskInternal, taskInput)) as { task: TaskRecord };
     },
     runTaskNow: async (taskId: string) => {
       return (await ctx.runAction(internal.executorNode.runTask, { taskId })) as null;
@@ -45,31 +46,6 @@ export function createMcpExecutorService(ctx: ActionCtx) {
       }
 
       return (await ctx.runAction(internal.executorNode.listToolsInternal, { ...toolContext })) as ToolDescriptor[];
-    },
-    listToolsForTypecheck: async (toolContext: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }) => {
-      const result = await ctx.runAction(internal.executorNode.listToolsWithWarningsInternal, { ...toolContext }) as {
-        tools: ToolDescriptor[];
-        dtsUrls?: Record<string, string>;
-      };
-
-      return {
-        tools: result.tools,
-        dtsUrls: result.dtsUrls ?? {},
-      };
-    },
-    typecheckRunCode: async (input: {
-      code: string;
-      workspaceId: Id<"workspaces">;
-      actorId?: string;
-      clientId?: string;
-    }) => {
-      const result = await ctx.runAction(internal.mcpNode.typecheckRunCodeInternal, {
-        code: input.code,
-        workspaceId: input.workspaceId,
-        actorId: input.actorId,
-        clientId: input.clientId,
-      });
-      return result;
     },
     listPendingApprovals: async (workspaceId: Id<"workspaces">) => {
       return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];

@@ -2,8 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Result } from "better-result";
 import { z } from "zod";
-import { loadSourceDtsByUrl } from "./dts-loader";
-import { generateToolDeclarations, generateToolInventory, typecheckCode } from "./typechecker";
+import { generateToolInventory } from "./typechecker";
 import type { LiveTaskEvent } from "./events";
 import type {
   AnonymousContext,
@@ -29,15 +28,6 @@ interface McpExecutorService {
   subscribe(taskId: string, workspaceId: Id<"workspaces">, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;
   listTools(context?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
-  listToolsForTypecheck?(
-    context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  ): Promise<{ tools: ToolDescriptor[]; dtsUrls: Record<string, string> }>;
-  typecheckRunCode?(input: {
-    code: string;
-    workspaceId: Id<"workspaces">;
-    actorId?: string;
-    clientId?: string;
-  }): Promise<{ ok: boolean; errors: string[]; tools: ToolDescriptor[] }>;
   listPendingApprovals?(workspaceId: Id<"workspaces">): Promise<PendingApprovalRecord[]>;
   resolveApproval?(input: {
     workspaceId: Id<"workspaces">;
@@ -238,7 +228,7 @@ function waitForTerminalTask(
 
 function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
   const base =
-    "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns only explicit return values (console output is not returned). Code is typechecked before execution — type errors are returned without running. Runtime has no filesystem/process/import access; use `tools.*` for external calls.";
+    "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns only explicit return values (console output is not returned). Runtime has no filesystem/process/import access; use `tools.*` for external calls.";
   const toolList = tools ?? [];
   const topLevelKeys = listTopLevelToolKeys(toolList);
   const rootKeysNote = topLevelKeys.length > 0
@@ -381,83 +371,6 @@ function createRunCodeTool(
       };
     }
 
-    // Typecheck code before execution — align with Monaco by loading source .d.ts
-    // for OpenAPI tools when available.
-    let toolsForContext: ToolDescriptor[];
-    let typecheck: { ok: boolean; errors: readonly string[] };
-    if (service.typecheckRunCode) {
-      const result = await service.typecheckRunCode({
-        code: input.code,
-        workspaceId: context.workspaceId,
-        actorId: context.actorId,
-        clientId: context.clientId,
-      });
-      toolsForContext = result.tools;
-      typecheck = {
-        ok: result.ok,
-        errors: result.errors,
-      };
-    } else {
-      let sourceDtsBySource: Record<string, string> = {};
-      if (service.listToolsForTypecheck) {
-        const { tools, dtsUrls } = await service.listToolsForTypecheck({
-          workspaceId: context.workspaceId,
-          actorId: context.actorId,
-          clientId: context.clientId,
-        });
-        toolsForContext = tools;
-        sourceDtsBySource = await loadSourceDtsByUrl(dtsUrls ?? {});
-      } else {
-        toolsForContext = await service.listTools({
-          workspaceId: context.workspaceId,
-          actorId: context.actorId,
-          clientId: context.clientId,
-        });
-      }
-
-      const declarations = generateToolDeclarations(toolsForContext, {
-        sourceDtsBySource,
-      });
-      typecheck = typecheckCode(input.code, declarations);
-    }
-
-    if (!typecheck.ok) {
-      const topLevelKeys = listTopLevelToolKeys(toolsForContext);
-      const toolsShadowingError = typecheck.errors.some((error) =>
-        error.includes("Block-scoped variable 'tools' used before its declaration")
-        || error.includes("'tools' implicitly has type 'any'"),
-      );
-
-      const hintLines: string[] = [];
-      if (toolsShadowingError) {
-        hintLines.push("Hint: avoid declaring a local variable named `tools`.");
-        hintLines.push("Example: `const discovered = await tools.discover({ query: \"github issues\" });`");
-      }
-      if (topLevelKeys.length > 0) {
-        hintLines.push(`Available top-level tool keys: ${topLevelKeys.join(", ")}`);
-      }
-
-      const errorText = [
-        "TypeScript type errors in generated code:",
-        "",
-        ...typecheck.errors.map((e) => `  ${e}`),
-        ...(hintLines.length > 0 ? ["", ...hintLines] : []),
-        "",
-        "Fix the type errors and try again.",
-      ].join("\n");
-
-      return {
-        content: [textContent(errorText)],
-        isError: true,
-        structuredContent: {
-          typecheckErrors: typecheck.errors,
-          workspaceId: context.workspaceId,
-          actorId: context.actorId,
-          sessionId: context.sessionId,
-        },
-      };
-    }
-
     const created = await service.createTask({
       code: input.code,
       timeoutMs: requestedTimeoutMs,
@@ -589,20 +502,10 @@ async function createMcpServer(
   );
   const onApprovalPrompt = createMcpApprovalPrompt(mcp);
 
-  // If workspace context is provided, fetch tool inventory for richer description
-  let tools: ToolDescriptor[] | undefined;
-  if (context) {
-    tools = await service.listTools({
-      workspaceId: context.workspaceId,
-      actorId: context.actorId,
-      clientId: context.clientId,
-    });
-  }
-
   mcp.registerTool(
     "run_code",
     {
-      description: buildRunCodeDescription(tools),
+      description: buildRunCodeDescription(),
       inputSchema: context ? BOUND_INPUT : FULL_INPUT,
     },
     createRunCodeTool(service, context, onApprovalPrompt),

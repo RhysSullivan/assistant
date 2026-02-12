@@ -17,7 +17,6 @@ function setup() {
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./workspaceToolCache.ts": () => import("./workspaceToolCache"),
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
-    "./mcpNode.ts": () => import("./mcpNode"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
 }
@@ -43,7 +42,7 @@ function createMcpTransport(
   });
 }
 
-test("MCP run_code reproduces Convex OOM failure surface", async () => {
+test("MCP run_code no longer hits typecheck OOM path", async () => {
   const t = setup();
   const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
 
@@ -61,7 +60,7 @@ test("MCP run_code reproduces Convex OOM failure surface", async () => {
     });
 
     const serialized = JSON.stringify(result);
-    expect(serialized.includes(OOM_MESSAGE)).toBe(true);
+    expect(serialized.includes(OOM_MESSAGE)).toBe(false);
   } finally {
     await transport.close().catch(() => {});
     await client.close().catch(() => {});
