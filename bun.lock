@@ -78,6 +78,9 @@
         "@types/bun": "latest",
       },
     },
+    "executor/apps/menubar": {
+      "name": "@executor/menubar",
+    },
     "executor/apps/web": {
       "name": "@executor/web",
       "version": "0.1.0",
@@ -85,6 +88,7 @@
         "@convex-dev/workos": "^0.0.1",
         "@elysiajs/eden": "^1.4.6",
         "@executor/convex": "workspace:*",
+        "@executor/ui": "workspace:*",
         "@monaco-editor/react": "^4.7.0",
         "@streamdown/code": "^1.0.1",
         "@tanstack/react-query": "^5.80.7",
@@ -164,6 +168,23 @@
         "@cloudflare/workers-types": "^4.20250214.0",
         "typescript": "^5.9.3",
         "wrangler": "^4.0.0",
+      },
+    },
+    "executor/packages/ui": {
+      "name": "@executor/ui",
+      "version": "0.1.0",
+      "dependencies": {
+        "@executor/convex": "workspace:*",
+        "convex": "^1.31.7",
+        "react": "19.2.3",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.3",
+        "typescript": "^5.9.3",
+      },
+      "peerDependencies": {
+        "convex": "^1.31.7",
+        "react": "^19.0.0",
       },
     },
     "sources": {
@@ -467,9 +488,13 @@
 
     "@executor/core": ["@executor/core@workspace:executor/packages/core"],
 
+    "@executor/menubar": ["@executor/menubar@workspace:executor/apps/menubar"],
+
     "@executor/runner-node": ["@executor/runner-node@workspace:executor/packages/runner-node"],
 
     "@executor/runner-sandbox-host": ["@executor/runner-sandbox-host@workspace:executor/packages/runner-sandbox-host"],
+
+    "@executor/ui": ["@executor/ui@workspace:executor/packages/ui"],
 
     "@executor/web": ["@executor/web@workspace:executor/apps/web"],
 

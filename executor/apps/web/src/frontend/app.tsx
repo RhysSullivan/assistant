@@ -4,6 +4,7 @@ import { Navigate, Outlet, Route, Routes, BrowserRouter, useSearchParams } from 
 import { AppShell } from "@/components/app-shell";
 import { ApprovalsView } from "@/components/approvals/approvals-view";
 import { DashboardView } from "@/components/dashboard/view";
+import { MenubarMvpView } from "@/components/menubar/mvp-view";
 import { OnboardingView } from "@/components/organization/onboarding-view";
 import { OrganizationSettingsView } from "@/components/organization/organization-settings-view";
 import { TasksView } from "@/components/tasks/tasks-view";
@@ -32,6 +33,7 @@ export default function FrontendApp() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/menubar" element={<MenubarMvpView />} />
         <Route element={<ShellLayout />}>
           <Route path="/" element={<DashboardView />} />
           <Route path="/static-app-shell" element={<DashboardView />} />
