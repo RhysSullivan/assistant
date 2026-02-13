@@ -35,6 +35,7 @@ function printHelp(): void {
 
 Usage:
   executor doctor [--verbose]
+  executor upgrade [--version <version>]
   executor up [backend-args]
   executor down
   executor backend <args>
@@ -43,6 +44,7 @@ Usage:
 
 Commands:
   doctor        Show install health and quick status
+  upgrade       Re-run installer to update executor
   up            Run managed backend and auto-bootstrap Convex functions
   down          Stop background backend/web services started by installer
   backend       Pass through arguments to managed convex-local-backend binary
@@ -488,6 +490,96 @@ Options:
   return 0;
 }
 
+async function runUpgrade(args: string[]): Promise<number> {
+  let requestedVersion: string | undefined;
+  let noModifyPath = false;
+  let noStarPrompt = false;
+  let index = 0;
+
+  while (index < args.length) {
+    const arg = args[index];
+
+    if (arg === "-h" || arg === "--help") {
+      console.log(`Usage:
+  executor upgrade [--version <version>] [--no-modify-path] [--no-star-prompt]
+
+Aliases:
+  executor update
+
+Options:
+  -v, --version <version>  Install specific release version
+  --no-modify-path         Do not modify shell PATH entries
+  --no-star-prompt         Do not print GitHub star prompt
+  -h, --help               Show this help`);
+      return 0;
+    }
+
+    if (arg === "-v" || arg === "--version") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("-")) {
+        console.log("Missing value for --version");
+        return 1;
+      }
+      requestedVersion = value;
+      index += 2;
+      continue;
+    }
+
+    if (arg === "--no-modify-path") {
+      noModifyPath = true;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--no-star-prompt") {
+      noStarPrompt = true;
+      index += 1;
+      continue;
+    }
+
+    console.log(`Unknown option: ${arg}`);
+    return 1;
+  }
+
+  const installUrl = Bun.env.EXECUTOR_INSTALL_URL ?? "https://executor.sh/install";
+  console.log(`[executor] upgrading via ${installUrl}`);
+
+  const response = await fetch(installUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download installer: ${response.status} ${response.statusText}`);
+  }
+
+  const script = await response.text();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "executor-upgrade-"));
+  const scriptPath = path.join(tempDir, "install.sh");
+
+  try {
+    await fs.writeFile(scriptPath, script, "utf8");
+    await fs.chmod(scriptPath, 0o755);
+
+    const installerArgs: string[] = [];
+    if (requestedVersion) {
+      installerArgs.push("--version", requestedVersion);
+    }
+    if (noModifyPath) {
+      installerArgs.push("--no-modify-path");
+    }
+    if (noStarPrompt) {
+      installerArgs.push("--no-star-prompt");
+    }
+
+    const proc = Bun.spawn(["bash", scriptPath, ...installerArgs], {
+      env: process.env,
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    return await proc.exited;
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function run(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
 
@@ -498,6 +590,11 @@ async function run(): Promise<void> {
 
   if (command === "doctor") {
     const exitCode = await runDoctor(rest);
+    process.exit(exitCode);
+  }
+
+  if (command === "upgrade" || command === "update") {
+    const exitCode = await runUpgrade(rest);
     process.exit(exitCode);
   }
 
