@@ -7,6 +7,22 @@ import { managedRuntimeVersions, pathExists } from "./managed-runtime-info";
 import { ensureConvexCliRuntime } from "./managed-runtime-installation";
 import { runProcess } from "./managed-runtime-process";
 
+const BOOTSTRAP_REQUIRED_DEPENDENCIES = [
+  "convex",
+  "@convex-dev/migrations",
+  "@convex-dev/stripe",
+  "@convex-dev/workos-authkit",
+  "@apidevtools/swagger-parser",
+  "@workos-inc/node",
+  "convex-helpers",
+  "jose",
+  "openapi-typescript",
+  "zod",
+  "graphql",
+  "better-result",
+  "@modelcontextprotocol/sdk",
+];
+
 async function generateSelfHostedAdminKey(info: ManagedRuntimeInfo): Promise<string> {
   const response = await fetch("https://api.convex.dev/api/local_deployment/generate_admin_key", {
     method: "POST",
@@ -94,11 +110,13 @@ async function hasConvexProjectConfig(candidate: string): Promise<boolean> {
   return await hasAnyPath(getConfigCandidates(resolvedFunctionsPath));
 }
 
-async function findProjectDir(): Promise<string | null> {
+async function findProjectDir(info?: ManagedRuntimeInfo): Promise<string | null> {
   const roots = [
     Bun.env.EXECUTOR_PROJECT_DIR,
     process.cwd(),
     path.resolve(import.meta.dir, ".."),
+    info ? path.join(info.rootDir, "bootstrap-project") : null,
+    info ? path.join(info.rootDir, "bootstrap-project", "executor") : null,
   ].filter((value): value is string => Boolean(value && value.trim().length > 0));
 
   const candidates: string[] = [];
@@ -126,6 +144,69 @@ async function writeBootstrapEnvFile(info: ManagedRuntimeInfo, adminKey: string)
   ].join("\n");
   await fs.writeFile(filePath, `${contents}\n`, "utf8");
   return filePath;
+}
+
+async function hasBootstrapDependencies(projectDir: string): Promise<boolean> {
+  const nodeModulesDir = path.join(projectDir, "node_modules");
+  if (!(await pathExists(nodeModulesDir))) {
+    return false;
+  }
+
+  for (const dependency of BOOTSTRAP_REQUIRED_DEPENDENCIES) {
+    const dependencyPath = path.join(nodeModulesDir, ...dependency.split("/"));
+    if (!(await pathExists(dependencyPath))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function ensureProjectDependencies(info: ManagedRuntimeInfo, projectDir: string): Promise<void> {
+  const bootstrapRelative = path.relative(path.join(info.rootDir, "bootstrap-project"), projectDir);
+  const isRuntimeBootstrapProject = bootstrapRelative.length > 0 && !bootstrapRelative.startsWith("..") && !path.isAbsolute(bootstrapRelative);
+
+  if (!isRuntimeBootstrapProject) {
+    return;
+  }
+
+  if (await hasBootstrapDependencies(projectDir)) {
+    return;
+  }
+
+  const env = {
+    ...process.env,
+    PATH: `${path.dirname(info.nodeBin)}:${process.env.PATH ?? ""}`,
+  };
+
+  console.log(`[executor] installing bootstrap dependencies in ${projectDir}`);
+  const install = await runProcess(
+    info.npmBin,
+    [
+      "install",
+      "--prefix",
+      projectDir,
+      "--no-save",
+      "--no-audit",
+      "--no-fund",
+      "--loglevel",
+      "error",
+      "--omit",
+      "dev",
+      "--ignore-scripts",
+      ...BOOTSTRAP_REQUIRED_DEPENDENCIES,
+    ],
+    { env, stdout: "pipe", stderr: "pipe" },
+  );
+
+  if (install.exitCode !== 0) {
+    const detail = install.stderr.trim() || install.stdout.trim() || `exit ${install.exitCode}`;
+    throw new Error(`Failed installing bootstrap dependencies in ${projectDir}: ${detail}`);
+  }
+
+  if (!(await hasBootstrapDependencies(projectDir))) {
+    throw new Error(`Bootstrap dependency install completed but dependencies are still missing in ${projectDir}`);
+  }
 }
 
 async function runManagedConvexCli(
@@ -181,7 +262,7 @@ export type BootstrapHealth = {
 };
 
 export async function checkBootstrapHealth(info: ManagedRuntimeInfo): Promise<BootstrapHealth> {
-  const projectDir = await findProjectDir();
+  const projectDir = await findProjectDir(info);
   if (!projectDir) {
     return { state: "no_project" };
   }
@@ -251,6 +332,8 @@ export async function ensureProjectBootstrapped(info: ManagedRuntimeInfo): Promi
   if (!projectDir) {
     throw new Error("Convex bootstrap failed to resolve project directory.");
   }
+
+  await ensureProjectDependencies(info, projectDir);
 
   const adminKey = await generateSelfHostedAdminKey(info);
   const envFilePath = await writeBootstrapEnvFile(info, adminKey);

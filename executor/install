@@ -365,13 +365,19 @@ download_bootstrap_project_archive() {
 }
 
 prepare_release_bootstrap_project() {
-  local bootstrap_dir="$RUNTIME_DIR/bootstrap-project"
-  local version_file="$bootstrap_dir/.executor-bootstrap-version"
+  local bootstrap_root="$RUNTIME_DIR/bootstrap-project"
+  local version_file="$bootstrap_root/.executor-bootstrap-version"
   local cache_key="${RESOLVED_VERSION:-main}"
 
-  if [[ -f "$version_file" ]] && [[ "$(cat "$version_file" 2>/dev/null || true)" == "$cache_key" ]] && is_convex_project_dir "$bootstrap_dir"; then
-    printf "%s" "$bootstrap_dir"
-    return
+  if [[ -f "$version_file" ]] && [[ "$(cat "$version_file" 2>/dev/null || true)" == "$cache_key" ]]; then
+    if is_convex_project_dir "$bootstrap_root"; then
+      printf "%s" "$bootstrap_root"
+      return
+    fi
+    if is_convex_project_dir "$bootstrap_root/executor"; then
+      printf "%s" "$bootstrap_root/executor"
+      return
+    fi
   fi
 
   local archive_file
@@ -382,24 +388,29 @@ prepare_release_bootstrap_project() {
     return
   fi
 
-  rm -rf "$bootstrap_dir"
-  mkdir -p "$bootstrap_dir"
-  if ! tar -xzf "$archive_file" -C "$bootstrap_dir" --strip-components=1; then
+  rm -rf "$bootstrap_root"
+  mkdir -p "$bootstrap_root"
+  if ! tar -xzf "$archive_file" -C "$bootstrap_root" --strip-components=1; then
     rm -f "$archive_file"
-    rm -rf "$bootstrap_dir"
+    rm -rf "$bootstrap_root"
     printf ""
     return
   fi
   rm -f "$archive_file"
 
-  if ! is_convex_project_dir "$bootstrap_dir"; then
-    rm -rf "$bootstrap_dir"
+  local project_dir="$bootstrap_root"
+  if is_convex_project_dir "$bootstrap_root"; then
+    project_dir="$bootstrap_root"
+  elif is_convex_project_dir "$bootstrap_root/executor"; then
+    project_dir="$bootstrap_root/executor"
+  else
+    rm -rf "$bootstrap_root"
     printf ""
     return
   fi
 
   printf "%s\n" "$cache_key" > "$version_file"
-  printf "%s" "$bootstrap_dir"
+  printf "%s" "$project_dir"
 }
 
 resolve_project_dir() {
@@ -447,15 +458,13 @@ start_background_services() {
 
   if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version" 2; then
     echo -e "${MUTED}Managed backend already running${NC} http://127.0.0.1:${BACKEND_PORT}"
-    run_executor up >>"$LOG_DIR/backend.log" 2>&1 || true
   elif [[ -f "$BACKEND_PID_FILE" ]]; then
     echo -e "${MUTED}Managed backend already tracked${NC} (pid $(cat "$BACKEND_PID_FILE"))"
-    run_executor up >>"$LOG_DIR/backend.log" 2>&1 || true
   else
     if [[ -n "$PROJECT_DIR" ]]; then
-      nohup env EXECUTOR_PROJECT_DIR="$PROJECT_DIR" "$INSTALL_DIR/$APP" up >"$LOG_DIR/backend.log" 2>&1 &
+      nohup env EXECUTOR_PROJECT_DIR="$PROJECT_DIR" "$INSTALL_DIR/$APP" up --disable-beacon >"$LOG_DIR/backend.log" 2>&1 &
     else
-      nohup "$INSTALL_DIR/$APP" up >"$LOG_DIR/backend.log" 2>&1 &
+      nohup "$INSTALL_DIR/$APP" up --disable-beacon >"$LOG_DIR/backend.log" 2>&1 &
     fi
     echo "$!" > "$BACKEND_PID_FILE"
     if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version"; then
@@ -496,12 +505,20 @@ ensure_project_bootstrapped() {
   fi
 
   echo -e "${MUTED}Ensuring Convex functions are bootstrapped${NC}"
-  run_executor up >>"$LOG_DIR/backend.log" 2>&1 || true
 
-  if run_executor doctor >/dev/null 2>&1; then
-    echo -e "${MUTED}Convex functions bootstrapped${NC}"
-    return 0
-  fi
+  local attempt
+  for attempt in 1 2 3; do
+    run_executor up >>"$LOG_DIR/backend.log" 2>&1 || true
+
+    if run_executor doctor >/dev/null 2>&1; then
+      echo -e "${MUTED}Convex functions bootstrapped${NC}"
+      return 0
+    fi
+
+    if (( attempt < 3 )); then
+      sleep 2
+    fi
+  done
 
   echo -e "${RED}Convex functions are not fully bootstrapped yet.${NC}"
   echo "  Run: EXECUTOR_PROJECT_DIR=$PROJECT_DIR executor up"
@@ -628,8 +645,16 @@ if [[ "$NO_MODIFY_PATH" != "1" ]]; then
 fi
 
 start_background_services
-wait_for_executor_ready || true
-ensure_project_bootstrapped || true
+runtime_ready=0
+if wait_for_executor_ready; then
+  runtime_ready=1
+fi
+
+if (( runtime_ready == 1 )); then
+  ensure_project_bootstrapped || true
+else
+  echo -e "${RED}Skipping function bootstrap because services are not healthy yet.${NC}"
+fi
 
 echo ""
 echo "Installed to: $INSTALL_DIR/$APP"

@@ -116,39 +116,47 @@ function isPidRunning(pid: number): boolean {
 }
 
 async function listListeningPids(port: number): Promise<number[]> {
-  const lsof = Bun.spawn(["lsof", "-ti", `tcp:${port}`, "-sTCP:LISTEN"], {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const lsofExit = await lsof.exited;
-  if (lsofExit === 0) {
-    const text = await new Response(lsof.stdout).text();
-    const fromLsof = text
-      .split("\n")
-      .map((line) => Number(line.trim()))
-      .filter((value) => Number.isInteger(value) && value > 0);
-    if (fromLsof.length > 0) {
-      return fromLsof;
+  try {
+    const lsof = Bun.spawn(["lsof", "-ti", `tcp:${port}`, "-sTCP:LISTEN"], {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const lsofExit = await lsof.exited;
+    if (lsofExit === 0) {
+      const text = await new Response(lsof.stdout).text();
+      const fromLsof = text
+        .split("\n")
+        .map((line) => Number(line.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0);
+      if (fromLsof.length > 0) {
+        return fromLsof;
+      }
     }
+  } catch {
+    // lsof may be unavailable in minimal environments
   }
 
-  const ss = Bun.spawn(["ss", "-ltnp", `( sport = :${port} )`], {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const ssExit = await ss.exited;
-  if (ssExit !== 0) {
+  try {
+    const ss = Bun.spawn(["ss", "-ltnp", `( sport = :${port} )`], {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const ssExit = await ss.exited;
+    if (ssExit !== 0) {
+      return [];
+    }
+
+    const ssText = await new Response(ss.stdout).text();
+    const matches = [...ssText.matchAll(/pid=(\d+)/g)];
+    const values = matches
+      .map((match) => Number(match[1]))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    return [...new Set(values)];
+  } catch {
     return [];
   }
-
-  const ssText = await new Response(ss.stdout).text();
-  const matches = [...ssText.matchAll(/pid=(\d+)/g)];
-  const values = matches
-    .map((match) => Number(match[1]))
-    .filter((value) => Number.isInteger(value) && value > 0);
-  return [...new Set(values)];
 }
 
 async function commandForPid(pid: number): Promise<string> {

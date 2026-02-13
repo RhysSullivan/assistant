@@ -81,18 +81,12 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
   const installScript = path.join(repoRoot, "install");
   const binaryPath = path.join(repoRoot, "dist", "executor");
 
-  if (!(await pathExists(binaryPath))) {
-    const buildBinary = await runCommand(["bun", "run", "build:binary"], {
-      cwd: repoRoot,
-      env: process.env,
-      timeoutMs: 240_000,
-    });
-    assertSuccess(buildBinary, "build binary");
-  }
-
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "executor-install-e2e-"));
   const installCwd = path.join(tempRoot, "workdir");
   const bootstrapArchive = path.join(tempRoot, "bootstrap-project.tar.gz");
+  const archiveRoot = path.dirname(repoRoot);
+  const archiveParent = path.dirname(archiveRoot);
+  const archiveFolder = path.basename(archiveRoot);
   const homeDir = path.join(tempRoot, "home");
   const executorHome = path.join(homeDir, ".executor");
   const installDir = path.join(executorHome, "bin");
@@ -119,6 +113,13 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
   };
 
   try {
+    const buildBinary = await runCommand(["bun", "run", "build:binary"], {
+      cwd: repoRoot,
+      env: process.env,
+      timeoutMs: 300_000,
+    });
+    assertSuccess(buildBinary, "build binary");
+
     await fs.mkdir(installCwd, { recursive: true });
 
     const archiveSource = await runCommand([
@@ -131,8 +132,8 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
       "-czf",
       bootstrapArchive,
       "-C",
-      path.dirname(repoRoot),
-      path.basename(repoRoot),
+      archiveParent,
+      archiveFolder,
     ], {
       cwd: repoRoot,
       env,
