@@ -32,11 +32,26 @@ export interface WorkspaceToolsResult {
   tools: Map<string, ToolDefinition>;
   warnings: string[];
   dtsStorageIds: DtsStorageEntry[];
+  debug: WorkspaceToolsDebug;
+}
+
+export interface WorkspaceToolsDebug {
+  mode: "cache-fresh" | "cache-stale" | "rebuild";
+  includeDts: boolean;
+  sourceTimeoutMs: number | null;
+  sourceCount: number;
+  normalizedSourceCount: number;
+  cacheHit: boolean;
+  cacheFresh: boolean | null;
+  timedOutSources: string[];
+  durationMs: number;
+  trace: string[];
 }
 
 interface GetWorkspaceToolsOptions {
   includeDts?: boolean;
   sourceTimeoutMs?: number;
+  allowStaleOnMismatch?: boolean;
 }
 
 export interface WorkspaceToolInventory {
@@ -45,6 +60,7 @@ export interface WorkspaceToolInventory {
   dtsStorageIds: DtsStorageEntry[];
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  debug: WorkspaceToolsDebug;
 }
 
 function computeSourceAuthProfiles(tools: Map<string, ToolDefinition>): Record<string, SourceAuthProfile> {
@@ -107,32 +123,82 @@ export async function getWorkspaceTools(
   workspaceId: Id<"workspaces">,
   options: GetWorkspaceToolsOptions = {},
 ): Promise<WorkspaceToolsResult> {
+  const startedAt = Date.now();
+  const trace: string[] = [];
+  const traceStep = (label: string, stepStartedAt: number) => {
+    trace.push(`${label}=${Date.now() - stepStartedAt}ms`);
+  };
+
+  const listSourcesStartedAt = Date.now();
   const includeDts = options.includeDts ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
+  const allowStaleOnMismatch = options.allowStaleOnMismatch ?? false;
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
+  traceStep("listToolSources", listSourcesStartedAt);
   const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
+  const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
+    includeDts,
+    sourceTimeoutMs: sourceTimeoutMs ?? null,
+    sourceCount: sources.length,
+  };
 
   try {
+    const cacheReadStartedAt = Date.now();
     const cacheEntry = await ctx.runQuery(internal.workspaceToolCache.getEntry, {
       workspaceId,
       signature,
     });
+    traceStep("cacheEntryLookup", cacheReadStartedAt);
 
     if (cacheEntry) {
+      const cacheHydrateStartedAt = Date.now();
       const blob = await ctx.storage.get(cacheEntry.storageId);
       if (blob) {
         const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
         const restored = materializeWorkspaceSnapshot(snapshot);
         const merged = mergeToolsWithCatalog(restored);
+        traceStep("cacheHydrate", cacheHydrateStartedAt);
 
         const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
-        const hasCachedDts = dtsStorageIds.length > 0;
-        if (includeDts && hasOpenApiSource && !hasCachedDts) {
-          // Continue into rebuild path to generate missing DTS.
-        } else {
-          return { tools: merged, warnings: snapshot.warnings, dtsStorageIds };
+        if (cacheEntry.isFresh) {
+          const hasCachedDts = dtsStorageIds.length > 0;
+          if (includeDts && hasOpenApiSource && !hasCachedDts) {
+            // Continue into rebuild path to generate missing DTS.
+          } else {
+            return {
+              tools: merged,
+              warnings: snapshot.warnings,
+              dtsStorageIds,
+              debug: {
+                ...debugBase,
+                mode: "cache-fresh",
+                normalizedSourceCount: sources.length,
+                cacheHit: true,
+                cacheFresh: true,
+                timedOutSources: [],
+                durationMs: Date.now() - startedAt,
+                trace,
+              },
+            };
+          }
+        } else if (allowStaleOnMismatch && !includeDts) {
+          return {
+            tools: merged,
+            warnings: [...snapshot.warnings, "Tool sources changed; showing previous results while refreshing."],
+            dtsStorageIds,
+            debug: {
+              ...debugBase,
+              mode: "cache-stale",
+              normalizedSourceCount: sources.length,
+              cacheHit: true,
+              cacheFresh: false,
+              timedOutSources: [],
+              durationMs: Date.now() - startedAt,
+              trace,
+            },
+          };
         }
       }
     }
@@ -143,6 +209,7 @@ export async function getWorkspaceTools(
 
   const configs: ExternalToolSourceConfig[] = [];
   const warnings: string[] = [];
+  const normalizeSourcesStartedAt = Date.now();
   for (const source of sources) {
     try {
       configs.push(normalizeExternalToolSource(source));
@@ -151,25 +218,37 @@ export async function getWorkspaceTools(
       warnings.push(`Source '${source.name}': ${message}`);
     }
   }
+  traceStep("normalizeSources", normalizeSourcesStartedAt);
 
+  const loadSourcesStartedAt = Date.now();
   const loadedSources = await Promise.all(configs.map(async (config) => {
     if (!sourceTimeoutMs || sourceTimeoutMs <= 0) {
-      return { ...(await loadSourceArtifact(ctx, config, { includeDts })), timedOut: false };
+      return {
+        ...(await loadSourceArtifact(ctx, config, { includeDts })),
+        timedOut: false,
+        sourceName: config.name,
+      };
     }
 
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeoutResult = new Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[]; timedOut: boolean }>((resolve) => {
+    const timeoutResult = new Promise<{
+      artifact?: CompiledToolSourceArtifact;
+      warnings: string[];
+      timedOut: boolean;
+      sourceName: string;
+    }>((resolve) => {
       timer = setTimeout(() => {
         resolve({
           artifact: undefined,
           warnings: [`Source '${config.name}' is still loading; showing partial results.`],
           timedOut: true,
+          sourceName: config.name,
         });
       }, sourceTimeoutMs);
     });
 
     const loadResult = loadSourceArtifact(ctx, config, { includeDts })
-      .then((result) => ({ ...result, timedOut: false }));
+      .then((result) => ({ ...result, timedOut: false, sourceName: config.name }));
 
     const result = await Promise.race([loadResult, timeoutResult]);
     if (timer && !result.timedOut) {
@@ -177,20 +256,39 @@ export async function getWorkspaceTools(
     }
     return result;
   }));
+  traceStep("loadSources", loadSourcesStartedAt);
   const externalArtifacts = loadedSources
     .map((loaded) => loaded.artifact)
     .filter((artifact): artifact is CompiledToolSourceArtifact => Boolean(artifact));
   const externalTools = externalArtifacts.flatMap((artifact) => materializeCompiledToolSource(artifact));
   warnings.push(...loadedSources.flatMap((loaded) => loaded.warnings));
   const hasTimedOutSource = loadedSources.some((loaded) => loaded.timedOut);
+  const timedOutSources = loadedSources
+    .filter((loaded) => loaded.timedOut)
+    .map((loaded) => loaded.sourceName);
   const merged = mergeToolsWithCatalog(externalTools);
 
   let dtsStorageIds: DtsStorageEntry[] = [];
   try {
     if (hasTimedOutSource) {
-      return { tools: merged, warnings, dtsStorageIds };
+      return {
+        tools: merged,
+        warnings,
+        dtsStorageIds,
+        debug: {
+          ...debugBase,
+          mode: "rebuild",
+          normalizedSourceCount: configs.length,
+          cacheHit: false,
+          cacheFresh: null,
+          timedOutSources,
+          durationMs: Date.now() - startedAt,
+          trace,
+        },
+      };
     }
 
+    const snapshotWriteStartedAt = Date.now();
     const allTools = [...merged.values()];
 
     const seenDtsSources = new Set<string>();
@@ -240,29 +338,51 @@ export async function getWorkspaceTools(
       toolCount: allTools.length,
       sizeBytes: json.length,
     });
+    traceStep("snapshotWrite", snapshotWriteStartedAt);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.warn(`[executor] workspace tool cache write failed for '${workspaceId}': ${msg}`);
   }
 
-  return { tools: merged, warnings, dtsStorageIds };
+  return {
+    tools: merged,
+    warnings,
+    dtsStorageIds,
+    debug: {
+      ...debugBase,
+      mode: "rebuild",
+      normalizedSourceCount: configs.length,
+      cacheHit: false,
+      cacheFresh: null,
+      timedOutSources,
+      durationMs: Date.now() - startedAt,
+      trace,
+    },
+  };
 }
 
 export async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean; sourceTimeoutMs?: number } = {},
+  options: { includeDts?: boolean; sourceTimeoutMs?: number; allowStaleOnMismatch?: boolean } = {},
 ): Promise<WorkspaceToolInventory> {
   const includeDts = options.includeDts ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
+  const allowStaleOnMismatch = options.allowStaleOnMismatch;
   const [result, policies] = await Promise.all([
-    getWorkspaceTools(ctx, context.workspaceId, { includeDts, sourceTimeoutMs }),
+    getWorkspaceTools(ctx, context.workspaceId, { includeDts, sourceTimeoutMs, allowStaleOnMismatch }),
     ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
   ]);
   const typedPolicies = policies as AccessPolicyRecord[];
+  const descriptorsStartedAt = Date.now();
   const tools = listVisibleToolDescriptors(result.tools, context, typedPolicies);
+  const descriptorsMs = Date.now() - descriptorsStartedAt;
+  const qualityStartedAt = Date.now();
   const sourceQuality = computeOpenApiSourceQuality(result.tools);
+  const qualityMs = Date.now() - qualityStartedAt;
+  const authProfilesStartedAt = Date.now();
   const sourceAuthProfiles = computeSourceAuthProfiles(result.tools);
+  const authProfilesMs = Date.now() - authProfilesStartedAt;
 
   return {
     tools,
@@ -270,13 +390,22 @@ export async function loadWorkspaceToolInventoryForContext(
     dtsStorageIds: result.dtsStorageIds,
     sourceQuality,
     sourceAuthProfiles,
+    debug: {
+      ...result.debug,
+      trace: [
+        ...result.debug.trace,
+        `listVisibleToolDescriptors=${descriptorsMs}ms`,
+        `computeOpenApiSourceQuality=${qualityMs}ms`,
+        `computeSourceAuthProfiles=${authProfilesMs}ms`,
+      ],
+    },
   };
 }
 
 export async function listToolsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean; sourceTimeoutMs?: number } = {},
+  options: { includeDts?: boolean; sourceTimeoutMs?: number; allowStaleOnMismatch?: boolean } = {},
 ): Promise<ToolDescriptor[]> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
   return inventory.tools;
@@ -285,13 +414,14 @@ export async function listToolsForContext(
 export async function listToolsWithWarningsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean; sourceTimeoutMs?: number } = {},
+  options: { includeDts?: boolean; sourceTimeoutMs?: number; allowStaleOnMismatch?: boolean } = {},
 ): Promise<{
   tools: ToolDescriptor[];
   warnings: string[];
   dtsUrls: Record<string, string>;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  debug: WorkspaceToolsDebug;
 }> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
   const dtsUrls = await loadDtsUrls(ctx, inventory.dtsStorageIds);
@@ -302,6 +432,7 @@ export async function listToolsWithWarningsForContext(
     dtsUrls,
     sourceQuality: inventory.sourceQuality,
     sourceAuthProfiles: inventory.sourceAuthProfiles,
+    debug: inventory.debug,
   };
 }
 

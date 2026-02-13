@@ -93,24 +93,34 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
     env: webBuildEnv,
   });
 
-  const standaloneAppRoot = path.join(webAppDir, ".next", "standalone", "executor", "apps", "web");
+  const standaloneRoot = path.join(webAppDir, ".next", "standalone");
   const staticRoot = path.join(webAppDir, ".next", "static");
   const publicRoot = path.join(webAppDir, "public");
   const stageRoot = path.join(releaseDir, `executor-web-${host.platform}-${host.arch}`);
+  const stagedAppRoot = path.join(stageRoot, "executor", "apps", "web");
 
-  if (!(await pathExists(standaloneAppRoot))) {
-    throw new Error(`Missing standalone output at ${standaloneAppRoot}. Ensure next build output is standalone.`);
+  if (!(await pathExists(standaloneRoot))) {
+    throw new Error(`Missing standalone output at ${standaloneRoot}. Ensure next build output is standalone.`);
   }
 
   await fs.rm(stageRoot, { recursive: true, force: true });
   await fs.mkdir(stageRoot, { recursive: true });
 
-  await fs.cp(standaloneAppRoot, stageRoot, { recursive: true });
-  await fs.mkdir(path.join(stageRoot, ".next"), { recursive: true });
-  await fs.cp(staticRoot, path.join(stageRoot, ".next", "static"), { recursive: true });
-  if (await pathExists(publicRoot)) {
-    await fs.cp(publicRoot, path.join(stageRoot, "public"), { recursive: true });
+  await fs.cp(standaloneRoot, stageRoot, { recursive: true, dereference: true });
+  const bundledNodeModules = path.join(stageRoot, "node_modules", ".bun", "node_modules");
+  if (await pathExists(bundledNodeModules)) {
+    await fs.cp(bundledNodeModules, path.join(stageRoot, "node_modules"), { recursive: true });
   }
+  await fs.mkdir(path.join(stagedAppRoot, ".next"), { recursive: true });
+  await fs.cp(staticRoot, path.join(stagedAppRoot, ".next", "static"), { recursive: true });
+  if (await pathExists(publicRoot)) {
+    await fs.cp(publicRoot, path.join(stagedAppRoot, "public"), { recursive: true });
+  }
+
+  await Bun.write(
+    path.join(stageRoot, "server.js"),
+    "process.chdir(__dirname + '/executor/apps/web');\nrequire('./executor/apps/web/server.js');\n",
+  );
 
   await runArchiveCommand(["tar", "-czf", archivePath, "-C", stageRoot, "."]);
   const digest = await sha256(archivePath);

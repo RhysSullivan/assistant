@@ -158,7 +158,7 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
             size="sm"
             className={triggerClassName}
           >
-            <span className={cn("flex gap-2 min-w-0", supportsOrganizationManagement ? "items-start" : "items-center")}>
+            <span className="flex items-center gap-2 min-w-0">
               {activeWorkspace?.iconUrl ? (
                 <Image
                   src={activeWorkspace.iconUrl}

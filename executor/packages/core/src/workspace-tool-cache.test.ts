@@ -539,12 +539,14 @@ describe("workspace tool cache table", () => {
     expect(hit).not.toBeNull();
     expect(hit!.storageId).toBe(storageId);
 
-    // Wrong signature = miss
+    // Wrong signature = stale entry
     const wrongSig = await t.query(internal.workspaceToolCache.getEntry, {
       workspaceId: wsId,
       signature: "sig_2",
     });
-    expect(wrongSig).toBeNull();
+    expect(wrongSig).not.toBeNull();
+    expect(wrongSig!.isFresh).toBe(false);
+    expect(wrongSig!.storageId).toBe(storageId);
   });
 
   test("putEntry replaces old entry and deletes old blob", async () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useAction, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
@@ -18,6 +19,18 @@ interface WorkspaceToolsQueryResult {
   warnings: string[];
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  debug?: {
+    mode: "cache-fresh" | "cache-stale" | "rebuild";
+    includeDts: boolean;
+    sourceTimeoutMs: number | null;
+    sourceCount: number;
+    normalizedSourceCount: number;
+    cacheHit: boolean;
+    cacheFresh: boolean | null;
+    timedOutSources: string[];
+    durationMs: number;
+    trace: string[];
+  };
 }
 
 interface WorkspaceToolDtsResult {
@@ -75,6 +88,23 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
   const hasOpenApiSource = (toolSources ?? []).some(
     (source: ToolSourceRecord) => source.type === "openapi" && source.enabled,
   );
+
+  useEffect(() => {
+    if (!inventoryData?.debug) return;
+    console.debug("[tools-debug] inventory", {
+      mode: inventoryData.debug.mode,
+      durationMs: inventoryData.debug.durationMs,
+      cacheHit: inventoryData.debug.cacheHit,
+      cacheFresh: inventoryData.debug.cacheFresh,
+      sourceCount: inventoryData.debug.sourceCount,
+      normalizedSourceCount: inventoryData.debug.normalizedSourceCount,
+      timedOutSources: inventoryData.debug.timedOutSources,
+      trace: inventoryData.debug.trace,
+      warningCount: inventoryData.warnings.length,
+      toolCount: inventoryData.tools.length,
+    });
+  }, [inventoryData]);
+
   const { data: dtsData, isLoading: dtsLoading } = useTanstackQuery({
     queryKey: [
       "workspace-tools-dts",
@@ -104,6 +134,7 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
     /** Per-source OpenAPI quality metrics (unknown/fallback type rates). */
     sourceQuality: inventoryData?.sourceQuality ?? {},
     sourceAuthProfiles: inventoryData?.sourceAuthProfiles ?? {},
+    debug: inventoryData?.debug,
     loadingTools: !!context && toolsLoading,
     refreshingTools: !!context && toolsFetching,
     loadingTypes: !!context && hasOpenApiSource && !!inventoryData && dtsLoading,

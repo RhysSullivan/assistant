@@ -2,6 +2,7 @@
 
 import { v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type {
   ToolCallResult,
   ToolDescriptor,
@@ -14,6 +15,7 @@ import {
   listToolsWithWarningsForContext,
   loadDtsUrls,
   loadWorkspaceDtsStorageIds,
+  type WorkspaceToolsDebug,
 } from "./runtime/workspace_tools";
 import { runQueuedTask } from "./runtime/task_runner";
 import { handleExternalToolCallRequest } from "./runtime/external_tool_call";
@@ -34,6 +36,7 @@ export const listToolsWithWarnings = action({
     dtsUrls: Record<string, string>;
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
+    debug: WorkspaceToolsDebug;
   }> => {
     const canonicalActorId = await requireCanonicalActor(ctx, {
       workspaceId: args.workspaceId,
@@ -41,11 +44,25 @@ export const listToolsWithWarnings = action({
       actorId: args.actorId,
     });
 
-    return await listToolsWithWarningsForContext(ctx, {
+    const inventory = await listToolsWithWarningsForContext(ctx, {
       workspaceId: args.workspaceId,
       actorId: canonicalActorId,
       clientId: args.clientId,
-    }, { includeDts: false, sourceTimeoutMs: 2_500 });
+    }, { includeDts: false, sourceTimeoutMs: 2_500, allowStaleOnMismatch: true });
+
+    if (inventory.warnings.some((warning) => warning.includes("showing previous results while refreshing"))) {
+      try {
+        await ctx.scheduler.runAfter(0, internal.executorNode.listToolsWithWarningsInternal, {
+          workspaceId: args.workspaceId,
+          actorId: canonicalActorId,
+          clientId: args.clientId,
+        });
+      } catch {
+        // Best effort refresh only.
+      }
+    }
+
+    return inventory;
   },
 });
 
@@ -98,6 +115,7 @@ export const listToolsWithWarningsInternal = internalAction({
     dtsUrls: Record<string, string>;
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
+    debug: WorkspaceToolsDebug;
   }> => {
     return await listToolsWithWarningsForContext(ctx, args, { includeDts: false });
   },

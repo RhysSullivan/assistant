@@ -17,9 +17,9 @@ export const getEntry = internalQuery({
       .unique();
 
     if (!entry) return null;
-    if (entry.signature !== args.signature) return null;
 
     return {
+      isFresh: entry.signature === args.signature,
       storageId: entry.storageId,
       dtsStorageIds: entry.dtsStorageIds,
       toolCount: entry.toolCount,
