@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useDeferredValue } from "react";
 import { cn } from "@/lib/utils";
 import {
   collectGroupKeys,
@@ -21,6 +21,7 @@ import {
 import { sourceLabel } from "@/lib/tool-source-utils";
 import {
   EmptyState,
+  LoadingState,
   VirtualFlatList,
 } from "./explorer-rows";
 import { GroupNode, SourceSidebar } from "./explorer-groups";
@@ -37,6 +38,7 @@ interface ToolExplorerProps {
   sources: ToolSourceRecord[];
   loading?: boolean;
   loadingSources?: string[];
+  onLoadToolDetails?: (toolPaths: string[]) => Promise<Record<string, ToolDescriptor>>;
   warnings?: string[];
   initialSource?: string | null;
   activeSource?: string | null;
@@ -47,15 +49,17 @@ interface ToolExplorerProps {
 export function ToolExplorer({
   tools,
   sources,
-  loading: _loading = false,
+  loading = false,
   loadingSources = [],
+  onLoadToolDetails,
   warnings = [],
   initialSource = null,
   activeSource,
   onActiveSourceChange,
   showSourceSidebar = true,
 }: ToolExplorerProps) {
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDeferredValue(searchInput);
   const [viewMode, setViewMode] = useState<ViewMode>("tree");
   const [groupBy, setGroupBy] = useState<GroupBy>("source");
   const [internalActiveSource, setInternalActiveSource] = useState<string | null>(initialSource);
@@ -64,6 +68,8 @@ export function ToolExplorer({
   );
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [filterApproval, setFilterApproval] = useState<FilterApproval>("all");
+  const [toolDetailsByPath, setToolDetailsByPath] = useState<Record<string, ToolDescriptor>>({});
+  const [loadingDetailPaths, setLoadingDetailPaths] = useState<Set<string>>(new Set());
   const treeListRef = useRef<HTMLDivElement>(null);
   const flatListRef = useRef<HTMLDivElement>(null);
   const resolvedActiveSource =
@@ -78,13 +84,24 @@ export function ToolExplorer({
     setExpandedKeys(expandedKeysForSource(source));
   }, [activeSource, onActiveSourceChange]);
 
+  const hydratedTools = useMemo(() => {
+    if (Object.keys(toolDetailsByPath).length === 0) {
+      return tools;
+    }
+
+    return tools.map((tool) => {
+      const override = toolDetailsByPath[tool.path];
+      return override ? { ...tool, ...override } : tool;
+    });
+  }, [tools, toolDetailsByPath]);
+
   const filteredTools = useMemo(() => {
     return filterToolsBySourceAndApproval(
-      tools,
+      hydratedTools,
       resolvedActiveSource,
       filterApproval,
     );
-  }, [tools, resolvedActiveSource, filterApproval]);
+  }, [hydratedTools, resolvedActiveSource, filterApproval]);
 
   const loadingSourceSet = useMemo(() => new Set(loadingSources), [loadingSources]);
 
@@ -105,13 +122,13 @@ export function ToolExplorer({
   const sourceCounts = useMemo(() => {
     const counts: Record<string, number> = {};
 
-    for (const tool of tools) {
+    for (const tool of hydratedTools) {
       const sourceName = sourceLabel(tool.source);
       counts[sourceName] = (counts[sourceName] ?? 0) + 1;
     }
 
     return counts;
-  }, [tools]);
+  }, [hydratedTools]);
 
   const searchedTools = useMemo(() => {
     return filterToolsBySearch(filteredTools, search);
@@ -201,9 +218,51 @@ export function ToolExplorer({
   }, [selectedKeys, filteredTools]);
 
   const sourceOptions = useMemo(
-    () => sourceOptionsFromTools(tools, loadingSources),
-    [tools, loadingSources],
+    () => sourceOptionsFromTools(hydratedTools, loadingSources),
+    [hydratedTools, loadingSources],
   );
+
+  const maybeLoadToolDetails = useCallback(async (tool: ToolDescriptor, expanded: boolean) => {
+    if (!expanded || !onLoadToolDetails) {
+      return;
+    }
+
+    const hasDetails = Boolean(
+      tool.description
+      || tool.strictArgsType
+      || tool.strictReturnsType
+      || tool.argsType
+      || tool.returnsType,
+    );
+
+    if (hasDetails || toolDetailsByPath[tool.path]) {
+      return;
+    }
+
+    if (loadingDetailPaths.has(tool.path)) {
+      return;
+    }
+
+    setLoadingDetailPaths((prev) => {
+      const next = new Set(prev);
+      next.add(tool.path);
+      return next;
+    });
+
+    try {
+      const loaded = await onLoadToolDetails([tool.path]);
+      const detail = loaded[tool.path];
+      if (detail) {
+        setToolDetailsByPath((prev) => ({ ...prev, [tool.path]: detail }));
+      }
+    } finally {
+      setLoadingDetailPaths((prev) => {
+        const next = new Set(prev);
+        next.delete(tool.path);
+        return next;
+      });
+    }
+  }, [loadingDetailPaths, onLoadToolDetails, toolDetailsByPath]);
 
   const flatLoadingRows = useMemo(() => {
     if (search.length > 0 || viewMode !== "flat") {
@@ -217,6 +276,10 @@ export function ToolExplorer({
   }, [search, viewMode, visibleLoadingSources]);
 
   const hasFlatRows = flatTools.length > 0 || flatLoadingRows.length > 0;
+  const awaitingInitialInventory =
+    searchInput.length === 0
+    && filteredTools.length === 0
+    && (loading || loadingSources.length > 0);
 
   const handleExpandAll = useCallback(() => {
     setExpandedKeys(collectGroupKeys(treeGroups));
@@ -265,10 +328,11 @@ export function ToolExplorer({
         )}
       >
         <ToolExplorerToolbar
-          search={search}
+          search={searchInput}
           filteredToolCount={filteredTools.length}
-          hasSearch={search.length > 0}
+          hasSearch={searchInput.length > 0}
           resultCount={searchedTools.length}
+          loadingInventory={awaitingInitialInventory}
           viewMode={viewMode}
           groupBy={groupBy}
           filterApproval={filterApproval}
@@ -277,8 +341,8 @@ export function ToolExplorer({
           sourceOptions={sourceOptions}
           selectedToolCount={selectedToolCount}
           warningsCount={warnings.length}
-          onSearchChange={setSearch}
-          onClearSearch={() => setSearch("")}
+          onSearchChange={setSearchInput}
+          onClearSearch={() => setSearchInput("")}
           onViewModeChange={setViewMode}
           onGroupByChange={setGroupBy}
           onFilterApprovalChange={setFilterApproval}
@@ -295,13 +359,15 @@ export function ToolExplorer({
               ref={flatListRef}
               className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
             >
-              <EmptyState hasSearch={!!search} />
+              {awaitingInitialInventory ? <LoadingState /> : <EmptyState hasSearch={!!search} />}
             </div>
           ) : (
             <VirtualFlatList
               tools={flatTools}
               selectedKeys={selectedKeys}
               onSelectTool={toggleSelectTool}
+              onExpandedChange={maybeLoadToolDetails}
+              detailLoadingPaths={loadingDetailPaths}
               scrollContainerRef={flatListRef}
               loadingRows={flatLoadingRows}
             />
@@ -312,7 +378,7 @@ export function ToolExplorer({
             className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
           >
             {treeGroups.length === 0 ? (
-              <EmptyState hasSearch={!!search} />
+              awaitingInitialInventory ? <LoadingState /> : <EmptyState hasSearch={!!search} />
             ) : (
               <div className="p-1">
                 {treeGroups.map((group) => (
@@ -325,6 +391,8 @@ export function ToolExplorer({
                     selectedKeys={selectedKeys}
                     onSelectGroup={toggleSelectGroup}
                     onSelectTool={toggleSelectTool}
+                    onExpandedChange={maybeLoadToolDetails}
+                    detailLoadingPaths={loadingDetailPaths}
                     search={search}
                   />
                 ))}

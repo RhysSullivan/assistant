@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useAction, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
@@ -38,15 +38,27 @@ interface WorkspaceToolDtsResult {
   dtsUrls: Record<string, string>;
 }
 
+interface UseWorkspaceToolsOptions {
+  includeDetails?: boolean;
+  includeDtsUrls?: boolean;
+}
+
 /**
  * Fetches tool metadata from a Convex action, cached by TanStack Query.
  *
  * Automatically re-fetches when the Convex `toolSources` subscription changes
  * (the reactive value is included in the query key).
  */
-export function useWorkspaceTools(context: WorkspaceContext | null) {
-  const listToolsWithWarnings = useAction(convexApi.executorNode.listToolsWithWarnings);
+export function useWorkspaceTools(
+  context: WorkspaceContext | null,
+  options: UseWorkspaceToolsOptions = {},
+) {
+  const includeDetails = options.includeDetails ?? true;
+  const includeDtsUrls = options.includeDtsUrls ?? true;
+  const listToolsWithWarningsRaw = useAction(convexApi.executorNode.listToolsWithWarnings);
   const listToolDtsUrls = useAction(convexApi.executorNode.listToolDtsUrls);
+  const listToolsWithWarnings = listToolsWithWarningsRaw as unknown as (args: Record<string, unknown>) => Promise<WorkspaceToolsQueryResult>;
+  const detailsCacheRef = useRef<Map<string, ToolDescriptor>>(new Map());
 
   // Watch tool sources reactively so we invalidate when sources change
   const toolSources = useConvexQuery(
@@ -64,6 +76,7 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
       context?.workspaceId,
       context?.actorId,
       context?.clientId,
+      includeDetails,
       toolSources,
     ],
     queryFn: async (): Promise<WorkspaceToolsQueryResult> => {
@@ -75,6 +88,7 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
         ...(context.actorId && { actorId: context.actorId }),
         ...(context.clientId && { clientId: context.clientId }),
         ...(context.sessionId && { sessionId: context.sessionId }),
+        includeDetails,
       });
     },
     enabled: !!context,
@@ -86,32 +100,68 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
     placeholderData: (previousData) => previousData,
   });
 
+  const loadToolDetails = useCallback(async (toolPaths: string[]): Promise<Record<string, ToolDescriptor>> => {
+    const requested = [...new Set(toolPaths.filter((path) => path.length > 0))];
+    if (requested.length === 0) {
+      return {};
+    }
+
+    const cache = detailsCacheRef.current;
+    const missing = requested.filter((path) => !cache.has(path));
+    if (missing.length > 0) {
+      if (!context) {
+        return {};
+      }
+
+      const detailedInventory = await listToolsWithWarnings({
+        workspaceId: context.workspaceId,
+        ...(context.actorId && { actorId: context.actorId }),
+        ...(context.clientId && { clientId: context.clientId }),
+        ...(context.sessionId && { sessionId: context.sessionId }),
+        includeDetails: true,
+        includeSourceMeta: false,
+        toolPaths: missing,
+      });
+
+      for (const tool of detailedInventory.tools) {
+        cache.set(tool.path, tool);
+      }
+    }
+
+    const result: Record<string, ToolDescriptor> = {};
+    for (const path of requested) {
+      const tool = cache.get(path);
+      if (tool) {
+        result[path] = tool;
+      }
+    }
+    return result;
+  }, [context, listToolsWithWarnings]);
+
+  useEffect(() => {
+    detailsCacheRef.current.clear();
+  }, [context?.workspaceId, context?.actorId, context?.clientId, context?.sessionId]);
+
+  useEffect(() => {
+    if (!inventoryData || !includeDetails) {
+      return;
+    }
+    const cache = detailsCacheRef.current;
+    for (const tool of inventoryData.tools) {
+      cache.set(tool.path, tool);
+    }
+  }, [inventoryData, includeDetails]);
+
   const hasOpenApiSource = (toolSources ?? []).some(
     (source: ToolSourceRecord) => source.type === "openapi" && source.enabled,
   );
-
-  useEffect(() => {
-    if (!inventoryData?.debug) return;
-    console.debug("[tools-debug] inventory", {
-      mode: inventoryData.debug.mode,
-      durationMs: inventoryData.debug.durationMs,
-      cacheHit: inventoryData.debug.cacheHit,
-      cacheFresh: inventoryData.debug.cacheFresh,
-      skipCacheRead: inventoryData.debug.skipCacheRead,
-      sourceCount: inventoryData.debug.sourceCount,
-      normalizedSourceCount: inventoryData.debug.normalizedSourceCount,
-      timedOutSources: inventoryData.debug.timedOutSources,
-      trace: inventoryData.debug.trace,
-      warningCount: inventoryData.warnings.length,
-      toolCount: inventoryData.tools.length,
-    });
-  }, [inventoryData]);
 
   const { data: dtsData, isLoading: dtsLoading } = useTanstackQuery({
     queryKey: [
       "workspace-tools-dts",
       context?.workspaceId,
       context?.actorId,
+      includeDtsUrls,
       toolSources,
     ],
     queryFn: async (): Promise<WorkspaceToolDtsResult> => {
@@ -124,7 +174,7 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
         ...(context.sessionId && { sessionId: context.sessionId }),
       });
     },
-    enabled: !!context && !!inventoryData && hasOpenApiSource,
+    enabled: !!context && !!inventoryData && hasOpenApiSource && includeDtsUrls,
     placeholderData: (previousData) => previousData,
   });
 
@@ -140,8 +190,9 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
     loadingSources: inventoryData?.debug?.timedOutSources ?? [],
     loadingTools: !!context && toolsLoading,
     refreshingTools: !!context && toolsFetching,
-    loadingTypes: !!context && hasOpenApiSource && !!inventoryData && dtsLoading,
+    loadingTypes: !!context && includeDtsUrls && hasOpenApiSource && !!inventoryData && dtsLoading,
     // Backward compatibility for callers that still use a single loading state.
     loading: !!context && toolsLoading,
+    loadToolDetails,
   };
 }

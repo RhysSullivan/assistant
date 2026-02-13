@@ -1,27 +1,21 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import {
-  AnonymousOAuthServer,
-} from "../../core/src/anonymous-oauth";
-import { ActionOAuthStorage } from "./action_oauth_storage";
 
-export const ANON_WORKSPACE_CLAIM = "workspace_id";
-export const ANON_SESSION_CLAIM = "session_id";
+export const MCP_PATH = "/mcp";
+export const MCP_ANONYMOUS_PATH = "/mcp/anonymous";
 
 export type McpAuthConfig = {
   enabled: boolean;
-  anonymousEnabled: boolean;
   authorizationServer: string | null;
   jwks: ReturnType<typeof createRemoteJWKSet> | null;
 };
 
-export type VerifiedMcpToken =
-  | { provider: "workos"; subject: string }
-  | { provider: "anonymous"; subject: string; workspaceId?: Id<"workspaces">; sessionId?: string };
+export type VerifiedMcpToken = { provider: "workos"; subject: string };
 
 export type ParsedMcpContext = {
   workspaceId?: Id<"workspaces">;
+  actorId?: string;
   clientId?: string;
   sessionId?: string;
 };
@@ -40,11 +34,9 @@ export function getMcpAuthorizationServer(): string | null {
 
 export function getMcpAuthConfig(): McpAuthConfig {
   const authorizationServer = getMcpAuthorizationServer();
-  const anonymousEnabled = process.env.MCP_ENABLE_ANONYMOUS_OAUTH === "1" || Boolean(authorizationServer);
-  if (!authorizationServer && !anonymousEnabled) {
+  if (!authorizationServer) {
     return {
       enabled: false,
-      anonymousEnabled: false,
       authorizationServer: null,
       jwks: null,
     };
@@ -56,7 +48,6 @@ export function getMcpAuthConfig(): McpAuthConfig {
 
   return {
     enabled: true,
-    anonymousEnabled,
     authorizationServer,
     jwks,
   };
@@ -68,41 +59,17 @@ export function isAnonymousSessionId(sessionId?: string): boolean {
 }
 
 export function selectMcpAuthProvider(
-  request: Request,
   config: McpAuthConfig,
-): "workos" | "anonymous" | null {
+): "workos" | null {
   if (!config.enabled) {
     return null;
-  }
-
-  const url = new URL(request.url);
-  const sessionId = url.searchParams.get("sessionId") ?? undefined;
-  if (config.anonymousEnabled && isAnonymousSessionId(sessionId)) {
-    return "anonymous";
   }
 
   if (config.authorizationServer) {
     return "workos";
   }
 
-  if (config.anonymousEnabled) {
-    return "anonymous";
-  }
-
   return null;
-}
-
-export async function getAnonymousOAuthServer(
-  ctx: ActionCtx,
-  request: Request,
-): Promise<AnonymousOAuthServer> {
-  const issuer = new URL(request.url).origin;
-  const server = new AnonymousOAuthServer({
-    issuer,
-    storage: new ActionOAuthStorage(ctx),
-  });
-  await server.init();
-  return server;
 }
 
 function parseBearerToken(request: Request): string | null {
@@ -116,6 +83,9 @@ function resourceMetadataUrl(request: Request): string {
   const url = new URL(request.url);
   const metadata = new URL("/.well-known/oauth-protected-resource", url.origin);
   metadata.search = url.search;
+  const resource = new URL(url.pathname, url.origin);
+  resource.search = url.search;
+  metadata.searchParams.set("resource", resource.toString());
   return metadata.toString();
 }
 
@@ -138,7 +108,7 @@ export function unauthorizedMcpResponse(request: Request, message: string): Resp
 }
 
 export async function verifyMcpToken(
-  ctx: ActionCtx,
+  _ctx: ActionCtx,
   request: Request,
   config: McpAuthConfig,
 ): Promise<VerifiedMcpToken | null> {
@@ -171,69 +141,17 @@ export async function verifyMcpToken(
     }
   }
 
-  try {
-    const anonymousOauthServer = await getAnonymousOAuthServer(ctx, request);
-    const verified = await anonymousOauthServer.verifyToken(token);
-    if (!verified || verified.provider !== "anonymous") {
-      return null;
-    }
-
-    const workspaceClaim = verified.claims[ANON_WORKSPACE_CLAIM];
-    const sessionClaim = verified.claims[ANON_SESSION_CLAIM];
-
-    return {
-      provider: "anonymous",
-      subject: verified.sub,
-      workspaceId: typeof workspaceClaim === "string" ? parseWorkspaceId(workspaceClaim) : undefined,
-      sessionId: typeof sessionClaim === "string" ? sessionClaim : undefined,
-    };
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export function parseMcpContext(url: URL): ParsedMcpContext | undefined {
   const raw = url.searchParams.get("workspaceId");
   const workspaceId = raw ? parseWorkspaceId(raw) : undefined;
+  const actorId = url.searchParams.get("actorId") ?? undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const sessionId = url.searchParams.get("sessionId") ?? undefined;
-  if (!workspaceId && !clientId && !sessionId) {
+  if (!workspaceId && !actorId && !clientId && !sessionId) {
     return undefined;
   }
-  return { workspaceId, clientId, sessionId };
-}
-
-export function parseAnonymousAuthorizeContext(params: URLSearchParams): {
-  workspaceId: Id<"workspaces">;
-  sessionId: string;
-} | null {
-  const directWorkspaceId = params.get("workspaceId");
-  const directSessionId = params.get("sessionId");
-  if (directWorkspaceId && directSessionId && isAnonymousSessionId(directSessionId)) {
-    return {
-      workspaceId: parseWorkspaceId(directWorkspaceId),
-      sessionId: directSessionId,
-    };
-  }
-
-  const resource = params.get("resource");
-  if (!resource) {
-    return null;
-  }
-
-  try {
-    const resourceUrl = new URL(resource);
-    const workspaceId = resourceUrl.searchParams.get("workspaceId");
-    const sessionId = resourceUrl.searchParams.get("sessionId");
-    if (!workspaceId || !sessionId || !isAnonymousSessionId(sessionId)) {
-      return null;
-    }
-
-    return {
-      workspaceId: parseWorkspaceId(workspaceId),
-      sessionId,
-    };
-  } catch {
-    return null;
-  }
+  return { workspaceId, actorId, clientId, sessionId };
 }

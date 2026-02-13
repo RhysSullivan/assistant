@@ -8,18 +8,28 @@ import type {
 } from "../../core/src/types";
 import { getDecisionForContext } from "./policy";
 
-function toToolDescriptor(tool: ToolDefinition, approval: "auto" | "required"): ToolDescriptor {
+function toToolDescriptor(
+  tool: ToolDefinition,
+  approval: "auto" | "required",
+  options: { includeDetails?: boolean } = {},
+): ToolDescriptor {
+  const includeDetails = options.includeDetails ?? true;
+
   return {
     path: tool.path,
-    description: tool.description,
+    description: includeDetails ? tool.description : "",
     approval,
     source: tool.source,
-    argsType: tool.metadata?.displayArgsType ?? tool.metadata?.argsType,
-    returnsType: tool.metadata?.displayReturnsType ?? tool.metadata?.returnsType,
-    strictArgsType: tool.metadata?.argsType,
-    strictReturnsType: tool.metadata?.returnsType,
-    argPreviewKeys: tool.metadata?.argPreviewKeys,
-    operationId: tool.metadata?.operationId,
+    ...(includeDetails
+      ? {
+          argsType: tool.metadata?.displayArgsType ?? tool.metadata?.argsType,
+          returnsType: tool.metadata?.displayReturnsType ?? tool.metadata?.returnsType,
+          strictArgsType: tool.metadata?.argsType,
+          strictReturnsType: tool.metadata?.returnsType,
+          argPreviewKeys: tool.metadata?.argPreviewKeys,
+          operationId: tool.metadata?.operationId,
+        }
+      : {}),
   };
 }
 
@@ -88,16 +98,32 @@ export function listVisibleToolDescriptors(
   workspaceTools: Map<string, ToolDefinition>,
   context: { workspaceId: string; actorId?: string; clientId?: string },
   policies: AccessPolicyRecord[],
+  options: { includeDetails?: boolean; toolPaths?: string[] } = {},
 ): ToolDescriptor[] {
-  const all = [...workspaceTools.values()];
+  const requestedPaths = options.toolPaths ?? [];
+  let candidates: ToolDefinition[];
 
-  return all
+  if (requestedPaths.length > 0) {
+    const seen = new Set<string>();
+    const selected: ToolDefinition[] = [];
+    for (const path of requestedPaths) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const tool = workspaceTools.get(path);
+      if (tool) selected.push(tool);
+    }
+    candidates = selected;
+  } else {
+    candidates = [...workspaceTools.values()];
+  }
+
+  return candidates
     .filter((tool) => {
       const decision = getDecisionForContext(tool, context, policies);
       return decision !== "deny";
     })
     .map((tool) => {
       const decision = getDecisionForContext(tool, context, policies);
-      return toToolDescriptor(tool, decision === "require_approval" ? "required" : "auto");
+      return toToolDescriptor(tool, decision === "require_approval" ? "required" : "auto", options);
     });
 }

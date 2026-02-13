@@ -13,7 +13,7 @@ Executor is a Convex-native execution platform for MCP-driven agents. It provide
 Core components:
 
 - `packages/convex/`: control plane data model and domain APIs (tasks, approvals, policies, credentials, org/workspace auth, billing).
-- `packages/convex/http.ts`: HTTP routes for `/mcp`, OAuth discovery metadata, and internal runtime callbacks.
+- `packages/convex/http.ts`: HTTP routes for `/mcp`, `/mcp/anonymous`, OAuth discovery metadata, and internal runtime callbacks.
 - `packages/convex/executorNode.ts`: task runner action (`runTask`) and tool invocation plumbing.
 - `packages/runner-sandbox-host/`: Cloudflare Worker sandbox runtime host.
 - `packages/core/src/`: runtime engine, typechecker, tool discovery, external source adapters (MCP/OpenAPI/GraphQL), credential provider resolvers.
@@ -55,7 +55,9 @@ bun run dev:executor:web
 Default source-dev endpoints:
 
 - Web UI: `http://localhost:4312`
-- Convex HTTP MCP route: `<CONVEX_SITE_URL>/mcp`
+- Convex HTTP MCP routes:
+  - `<CONVEX_SITE_URL>/mcp` (WorkOS / external OAuth)
+  - `<CONVEX_SITE_URL>/mcp/anonymous` (anonymous trial mode, no OAuth)
 
 ## Binary Install (No Global Bun/Node/Convex Required)
 
@@ -71,13 +73,16 @@ The installed `executor` binary manages its own runtime under `~/.executor/runti
 - local backend config (`instanceName`, `instanceSecret`, ports)
 - local SQLite data and file storage
 
+After install, the managed backend and packaged web UI are started automatically in the background.
+
 Common binary commands:
 
 ```bash
 executor doctor
-executor up      # keep this running as the backend service
-executor backend --help
+executor down
+executor up
 executor web
+executor backend --help
 ```
 
 Uninstall:
@@ -124,16 +129,13 @@ Manual GitHub release (recommended):
 
 Convex HTTP routes (`packages/convex/http.ts`) expose:
 
-- `/mcp` (direct Convex MCP transport)
+- `/mcp` (direct Convex MCP transport for WorkOS / external OAuth)
+- `/mcp/anonymous` (direct Convex MCP transport for anonymous trial mode)
 - `/.well-known/oauth-protected-resource`
 - `/.well-known/oauth-authorization-server`
-- `/oauth2/jwks` (self-issued anonymous OAuth)
-- `/register` (anonymous OAuth dynamic client registration)
-- `/authorize` (anonymous OAuth authorization endpoint)
-- `/token` (anonymous OAuth token exchange)
 - `/internal/runs/:runId/tool-call`
 
-MCP bearer-token verification is enabled when `MCP_AUTHORIZATION_SERVER` / `MCP_AUTHORIZATION_SERVER_URL` is configured, or when `MCP_ENABLE_ANONYMOUS_OAUTH=1`.
+MCP bearer-token verification is enabled on `/mcp` when `MCP_AUTHORIZATION_SERVER` / `MCP_AUTHORIZATION_SERVER_URL` is configured.
 
 ## Configuration Reference
 
@@ -154,7 +156,6 @@ Important env vars (see root `.env.example` for the base template):
   - `STRIPE_PRICE_ID`
 - MCP auth integration:
   - `MCP_AUTHORIZATION_SERVER` or `MCP_AUTHORIZATION_SERVER_URL`
-  - `MCP_ENABLE_ANONYMOUS_OAUTH` (`1` to enable anonymous OAuth without external auth server)
 - Managed runtime:
   - `EXECUTOR_RUNTIME_DIR`
   - `EXECUTOR_BACKEND_PORT`
@@ -205,6 +206,7 @@ executor/
 
 ## Troubleshooting
 
-- `401` on `/mcp`: verify your bearer token issuer matches `MCP_AUTHORIZATION_SERVER` (or disable MCP OAuth in local dev).
+- `401` on `/mcp`: verify your bearer token issuer matches `MCP_AUTHORIZATION_SERVER`.
+- `400` on `/mcp` with `anon_*` context: use `/mcp/anonymous` instead.
 - Web UI cannot load data: verify `CONVEX_URL` / `CONVEX_SITE_URL` and that Convex dev is running.
 - Release build missing web archive files: run `bun run build:release` and verify `executor/dist/release/` contains all expected `executor-web-*.tar.gz` assets.

@@ -35,18 +35,37 @@ export interface ManagedRuntimeInfo {
   webDownloadUrl: string;
 }
 
-export async function ensureManagedRuntime(): Promise<ManagedRuntimeInfo> {
+export async function ensureManagedRuntime(options: { quiet?: boolean } = {}): Promise<ManagedRuntimeInfo> {
   const info = runtimeInfo();
   await fs.mkdir(path.dirname(info.dbPath), { recursive: true });
   await fs.mkdir(info.storageDir, { recursive: true });
   info.config = await ensureConfig(info);
   await ensureBackendBinary(info);
-  console.log("[executor] managed Convex backend runtime ready");
+  if (!options.quiet) {
+    console.log("[executor] managed Convex backend runtime ready");
+  }
   return info;
 }
 
 export async function runManagedBackend(args: string[]): Promise<number> {
   const info = await ensureManagedRuntime();
+
+  if (args.length === 0) {
+    try {
+      await waitForBackendReady(info, 1_000);
+      console.log("[executor] managed backend is already running");
+      try {
+        await ensureProjectBootstrapped(info);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[executor] bootstrap skipped: ${message}`);
+      }
+      return 0;
+    } catch {
+      // not running yet, continue and start it now
+    }
+  }
+
   const env = {
     ...process.env,
     PATH: `${path.dirname(info.nodeBin)}:${process.env.PATH ?? ""}`,
@@ -115,7 +134,7 @@ export async function backendVersion(info: ManagedRuntimeInfo): Promise<string> 
 }
 
 export async function managedRuntimeDiagnostics(): Promise<ManagedRuntimeInfo & { backendVersion: string; convexUrl: string; convexSiteUrl: string }> {
-  const info = await ensureManagedRuntime();
+  const info = await ensureManagedRuntime({ quiet: true });
   const backendVer = await backendVersion(info);
 
   return {

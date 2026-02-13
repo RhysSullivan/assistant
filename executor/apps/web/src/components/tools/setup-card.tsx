@@ -20,6 +20,11 @@ function inferServerName(workspaceId?: string): string {
   return `executor-${workspaceId.slice(0, 8).toLowerCase()}`;
 }
 
+function isAnonymousSessionId(sessionId?: string): boolean {
+  if (!sessionId) return false;
+  return sessionId.startsWith("anon_session_") || sessionId.startsWith("mcp_");
+}
+
 function resolveMcpOrigin(windowOrigin: string): string {
   const explicit = process.env.NEXT_PUBLIC_EXECUTOR_HTTP_URL ?? process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
   if (explicit && explicit.trim().length > 0) {
@@ -60,10 +65,12 @@ export function McpSetupCard({
   }, []);
 
   const mcpUrl = useMemo(() => {
-    const base = origin ? new URL("/mcp", origin) : new URL("http://localhost/mcp");
+    const isAnonymousSession = isAnonymousSessionId(sessionId);
+    const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp";
+    const base = origin ? new URL(mcpPath, origin) : new URL(`http://localhost${mcpPath}`);
     if (workspaceId) base.searchParams.set("workspaceId", workspaceId);
-    if (actorId) base.searchParams.set("actorId", actorId);
-    if (sessionId) base.searchParams.set("sessionId", sessionId);
+    if (isAnonymousSession && actorId) base.searchParams.set("actorId", actorId);
+    if (!isAnonymousSession && sessionId) base.searchParams.set("sessionId", sessionId);
     if (!origin) {
       return `${base.pathname}${base.search}`;
     }

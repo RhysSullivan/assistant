@@ -5,6 +5,7 @@ APP="executor"
 REPO="${EXECUTOR_REPO:-RhysSullivan/executor}"
 INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
 WEB_INSTALL_DIR="${EXECUTOR_WEB_INSTALL_DIR:-$HOME/.executor/runtime/web}"
+RUNTIME_DIR="${EXECUTOR_RUNTIME_DIR:-$HOME/.executor/runtime}"
 REQUESTED_VERSION="${VERSION:-}"
 RESOLVED_VERSION=""
 BINARY_PATH=""
@@ -105,6 +106,12 @@ archive_ext="tar.gz"
 
 filename="${APP}-${os}-${arch}.${archive_ext}"
 web_filename="executor-web-${os}-${arch}.tar.gz"
+BACKEND_PORT="${EXECUTOR_BACKEND_PORT:-5410}"
+WEB_PORT="${EXECUTOR_WEB_PORT:-5312}"
+SERVICE_DIR="$RUNTIME_DIR/services"
+LOG_DIR="$RUNTIME_DIR/logs"
+BACKEND_PID_FILE="$SERVICE_DIR/backend.pid"
+WEB_PID_FILE="$SERVICE_DIR/web.pid"
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$WEB_INSTALL_DIR"
 
@@ -240,6 +247,81 @@ show_star_prompt() {
   fi
 }
 
+is_pid_running() {
+  local pid="$1"
+  if [[ -z "$pid" ]]; then
+    return 1
+  fi
+  kill -0 "$pid" >/dev/null 2>&1
+}
+
+cleanup_pid_file() {
+  local pid_file="$1"
+  if [[ ! -f "$pid_file" ]]; then
+    return
+  fi
+
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if ! is_pid_running "$pid"; then
+    rm -f "$pid_file"
+  fi
+}
+
+wait_for_http() {
+  local url="$1"
+  local attempts="${2:-60}"
+  local index=0
+
+  while (( index < attempts )); do
+    if curl -fsS --max-time 1 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    index=$((index + 1))
+    sleep 0.25
+  done
+
+  return 1
+}
+
+start_background_services() {
+  mkdir -p "$SERVICE_DIR"
+  mkdir -p "$LOG_DIR"
+
+  cleanup_pid_file "$BACKEND_PID_FILE"
+  cleanup_pid_file "$WEB_PID_FILE"
+
+  if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version" 2; then
+    echo -e "${MUTED}Managed backend already running${NC} http://127.0.0.1:${BACKEND_PORT}"
+  elif [[ -f "$BACKEND_PID_FILE" ]]; then
+    echo -e "${MUTED}Managed backend already tracked${NC} (pid $(cat "$BACKEND_PID_FILE"))"
+  else
+    nohup "$INSTALL_DIR/$APP" up >"$LOG_DIR/backend.log" 2>&1 &
+    echo "$!" > "$BACKEND_PID_FILE"
+    if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version"; then
+      echo -e "${MUTED}Started managed backend${NC} http://127.0.0.1:${BACKEND_PORT}"
+    else
+      echo -e "${RED}Managed backend did not become ready automatically.${NC}"
+      echo "  Check logs: $LOG_DIR/backend.log"
+    fi
+  fi
+
+  if wait_for_http "http://127.0.0.1:${WEB_PORT}/" 2; then
+    echo -e "${MUTED}Web UI already running${NC} http://127.0.0.1:${WEB_PORT}"
+  elif [[ -f "$WEB_PID_FILE" ]]; then
+    echo -e "${MUTED}Web UI already tracked${NC} (pid $(cat "$WEB_PID_FILE"))"
+  else
+    nohup "$INSTALL_DIR/$APP" web >"$LOG_DIR/web.log" 2>&1 &
+    echo "$!" > "$WEB_PID_FILE"
+    if wait_for_http "http://127.0.0.1:${WEB_PORT}/"; then
+      echo -e "${MUTED}Started web UI${NC} http://127.0.0.1:${WEB_PORT}"
+    else
+      echo -e "${RED}Web UI did not become ready automatically.${NC}"
+      echo "  Check logs: $LOG_DIR/web.log"
+    fi
+  fi
+}
+
 install_web_bundle
 
 if [[ "$NO_MODIFY_PATH" != "1" ]]; then
@@ -258,15 +340,19 @@ if [[ "$NO_MODIFY_PATH" != "1" ]]; then
   fi
 fi
 
+start_background_services
+
 echo ""
 echo "Installed to: $INSTALL_DIR/$APP"
 if [[ -f "$WEB_INSTALL_DIR/server.js" ]]; then
   echo "Web bundle installed to: $WEB_INSTALL_DIR"
 fi
-echo "Run:"
-echo "  executor doctor"
-echo "  executor up        # keep this running as the backend service"
-echo "  executor web       # defaults to http://localhost:5312"
+echo "Dashboard: http://localhost:${WEB_PORT}"
+echo "Use:"
+echo "  executor doctor            # friendly health check"
+echo "  executor down              # stop background services"
+echo "  executor up                # start backend manually"
+echo "  executor web               # start web manually"
 echo ""
 echo "To uninstall later:"
 echo "  executor uninstall --yes"

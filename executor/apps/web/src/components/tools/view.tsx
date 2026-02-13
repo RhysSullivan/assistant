@@ -73,11 +73,11 @@ export function ToolsView({
     warnings,
     sourceQuality,
     sourceAuthProfiles,
-    debug,
     loadingSources,
     loadingTools,
     refreshingTools,
-  } = useWorkspaceTools(context ?? null);
+    loadToolDetails,
+  } = useWorkspaceTools(context ?? null, { includeDetails: false, includeDtsUrls: false });
   const selectedSourceRecord = selectedSource
     ? sourceItems.find((source) => source.name === selectedSource) ?? null
     : null;
@@ -162,17 +162,6 @@ export function ToolsView({
                   ? `Filtering and managing ${selectedSource}.`
                   : "Source management and tool inventory are unified here."}
               </p>
-              {debug ? (
-                <div className="space-y-0.5">
-                  <p className="text-[10px] font-mono text-muted-foreground/90">
-                    debug mode={debug.mode} · cacheHit={String(debug.cacheHit)} · cacheFresh={String(debug.cacheFresh)} · skipCacheRead={String(debug.skipCacheRead)} · duration={debug.durationMs}ms · sources={debug.normalizedSourceCount}/{debug.sourceCount}
-                    {debug.timedOutSources.length > 0 ? ` · timedOut=${debug.timedOutSources.join(",")}` : " · timedOut=none"}
-                  </p>
-                  <p className="text-[10px] font-mono text-muted-foreground/80 truncate" title={debug.trace.join(" | ")}>
-                    trace {debug.trace.join(" | ")}
-                  </p>
-                </div>
-              ) : null}
             </CardHeader>
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
               {sourcesLoading ? (
@@ -212,6 +201,7 @@ export function ToolsView({
                   sources={sourceItems}
                   loadingSources={loadingSources}
                   loading={loadingTools}
+                  onLoadToolDetails={loadToolDetails}
                   warnings={warnings}
                   initialSource={initialSource}
                   activeSource={selectedSource}

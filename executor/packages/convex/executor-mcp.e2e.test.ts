@@ -28,10 +28,15 @@ function createMcpTransport(
   sessionId: string,
   clientId = "e2e",
 ) {
-  const url = new URL("https://executor.test/mcp");
+  const isAnonymousSession = sessionId.startsWith("anon_session_") || sessionId.startsWith("mcp_");
+  const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp";
+  const url = new URL(`https://executor.test${mcpPath}`);
   url.searchParams.set("workspaceId", workspaceId);
-  url.searchParams.set("actorId", actorId);
-  url.searchParams.set("sessionId", sessionId);
+  if (isAnonymousSession) {
+    url.searchParams.set("actorId", actorId);
+  } else {
+    url.searchParams.set("sessionId", sessionId);
+  }
   url.searchParams.set("clientId", clientId);
 
   return new StreamableHTTPClientTransport(url, {

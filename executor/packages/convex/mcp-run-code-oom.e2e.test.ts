@@ -24,12 +24,19 @@ function setup() {
 function createMcpTransport(
   t: ReturnType<typeof setup>,
   workspaceId: string,
+  actorId: string,
   sessionId: string,
   clientId = "oom-repro",
 ) {
-  const url = new URL("https://executor.test/mcp");
+  const isAnonymousSession = sessionId.startsWith("anon_session_") || sessionId.startsWith("mcp_");
+  const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp";
+  const url = new URL(`https://executor.test${mcpPath}`);
   url.searchParams.set("workspaceId", workspaceId);
-  url.searchParams.set("sessionId", sessionId);
+  if (isAnonymousSession) {
+    url.searchParams.set("actorId", actorId);
+  } else {
+    url.searchParams.set("sessionId", sessionId);
+  }
   url.searchParams.set("clientId", clientId);
 
   return new StreamableHTTPClientTransport(url, {
@@ -47,7 +54,7 @@ test("MCP run_code no longer hits typecheck OOM path", async () => {
   const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
 
   const client = new Client({ name: "executor-oom-repro", version: "0.0.1" }, { capabilities: {} });
-  const transport = createMcpTransport(t, session.workspaceId, session.sessionId);
+  const transport = createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId);
 
   try {
     await client.connect(transport);
