@@ -19,6 +19,7 @@
     "iac:diff": "bun run --cwd infra diff",
     "iac:remove": "bun run --cwd infra remove",
     "up": "bun run executor.ts up",
+    "upgrade": "bun run executor.ts upgrade",
     "down": "bun run executor.ts down",
     "backend": "bun run executor.ts backend",
     "convex": "bun run executor.ts backend",

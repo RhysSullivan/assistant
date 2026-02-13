@@ -79,6 +79,7 @@ Common binary commands:
 
 ```bash
 executor doctor
+executor upgrade
 executor down
 executor up
 executor web

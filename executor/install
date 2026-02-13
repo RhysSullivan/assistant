@@ -303,8 +303,7 @@ start_background_services() {
     if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version"; then
       echo -e "${MUTED}Started managed backend${NC} http://127.0.0.1:${BACKEND_PORT}"
     else
-      echo -e "${RED}Managed backend did not become ready automatically.${NC}"
-      echo "  Check logs: $LOG_DIR/backend.log"
+      echo -e "${MUTED}Managed backend is still initializing${NC} (continuing readiness checks)"
     fi
   fi
 
@@ -318,27 +317,63 @@ start_background_services() {
     if wait_for_http "http://127.0.0.1:${WEB_PORT}/"; then
       echo -e "${MUTED}Started web UI${NC} http://127.0.0.1:${WEB_PORT}"
     else
-      echo -e "${RED}Web UI did not become ready automatically.${NC}"
-      echo "  Check logs: $LOG_DIR/web.log"
+      echo -e "${MUTED}Web UI is still initializing${NC} (continuing readiness checks)"
     fi
   fi
 }
 
 wait_for_executor_ready() {
-  local max_seconds="${1:-120}"
-  local started
+  local max_seconds="${1:-90}"
+  local started now elapsed
+  local doctor_interval=5
+  local last_doctor_at=0
+  local backend_up=0
+  local web_up=0
+  local doctor_ok=1
+
   started="$(date +%s)"
+  echo -e "${MUTED}Waiting for services to become healthy (up to ${max_seconds}s)${NC}"
 
   while true; do
-    if "$INSTALL_DIR/$APP" doctor >/dev/null 2>&1; then
-      echo -e "${MUTED}Executor services healthy${NC}"
-      return 0
+    if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version" 1; then
+      backend_up=1
+    fi
+    if wait_for_http "http://127.0.0.1:${WEB_PORT}/" 1; then
+      web_up=1
     fi
 
-    local now
     now="$(date +%s)"
-    if (( now - started >= max_seconds )); then
+    elapsed=$((now - started))
+
+    if (( backend_up == 1 && web_up == 1 )); then
+      if (( now - last_doctor_at >= doctor_interval )); then
+        if "$INSTALL_DIR/$APP" doctor >/dev/null 2>&1; then
+          echo -e "${MUTED}Executor services healthy${NC}"
+          return 0
+        fi
+        last_doctor_at=$now
+      fi
+      doctor_ok=0
+    fi
+
+    if (( elapsed >= max_seconds )); then
       break
+    fi
+
+    if (( elapsed > 0 && elapsed % 5 == 0 )); then
+      if (( backend_up == 0 || web_up == 0 )); then
+        local backend_state="starting"
+        local web_state="starting"
+        if (( backend_up == 1 )); then
+          backend_state="running"
+        fi
+        if (( web_up == 1 )); then
+          web_state="running"
+        fi
+        echo -e "${MUTED}Still starting... backend=${backend_state} web=${web_state}${NC}"
+      elif (( doctor_ok == 0 )); then
+        echo -e "${MUTED}Services up; waiting for Convex functions bootstrap...${NC}"
+      fi
     fi
 
     sleep 0.5
@@ -384,6 +419,7 @@ fi
 echo "Dashboard: http://localhost:${WEB_PORT}"
 echo "Use:"
 echo "  executor doctor            # friendly health check"
+echo "  executor upgrade           # update to latest release"
 echo "  executor down              # stop background services"
 echo "  executor up                # start backend manually"
 echo "  executor web               # start web manually"
