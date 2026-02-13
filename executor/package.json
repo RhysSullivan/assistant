@@ -9,10 +9,10 @@
   "private": true,
   "scripts": {
     "doctor": "bun run executor.ts doctor",
-    "doctor:prod": "bun run scripts/doctor-prod.ts",
-    "deploy:prod": "bun run scripts/deploy-prod.ts",
-    "setup:prod:env": "bun run scripts/setup-prod-env.ts --from-env",
-    "setup:prod:cloudflare": "bun run scripts/setup-prod-cloudflare.ts",
+    "doctor:prod": "bun run scripts/prod/doctor-prod.ts",
+    "deploy:prod": "bun run scripts/prod/deploy-prod.ts",
+    "setup:prod:env": "bun run scripts/prod/setup-prod-env.ts --from-env",
+    "setup:prod:cloudflare": "bun run scripts/prod/setup-prod-cloudflare.ts",
     "setup:prod:all": "bun run setup:prod:cloudflare --deploy && bun run setup:prod:env && bun run doctor:prod",
     "iac:install": "bun install --cwd infra",
     "iac:deploy": "bun run --cwd infra deploy",
@@ -25,7 +25,7 @@
     "deploy": "bunx convex deploy",
     "codegen": "bunx convex codegen",
     "build:binary": "bun build executor.ts --compile --outfile dist/executor",
-    "build:release": "bun run scripts/build-release.ts"
+    "build:release": "bun run scripts/release/build-release.ts"
   },
   "type": "module"
 }

@@ -10,7 +10,7 @@ import {
   sendWorkosInvitation,
   updateWorkosOrganizationName,
   workosEnabled,
-} from "./invites-workos";
+} from "./invites/workos";
 
 const organizationRoleValidator = v.union(
   v.literal("owner"),

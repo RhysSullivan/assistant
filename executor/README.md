@@ -183,10 +183,14 @@ bun run typecheck:executor
 ```text
 executor/
 |- apps/web/                 # Next.js operator UI
+|  `- src/components/{approvals,dashboard,organization,tasks,tools,ui}
 |- packages/convex/          # Convex functions, schema, auth, HTTP routes
+|  `- runtime/               # task execution/runtime internals
 |- packages/runner-sandbox-host/ # Cloudflare worker sandbox runtime
 |- packages/core/src/        # shared executor runtime/tooling core package code
-|- scripts/build-release.ts  # release artifact builder
+|- scripts/dev/              # local/dev-only helpers
+|- scripts/prod/             # production setup and deploy scripts
+|- scripts/release/          # release artifact builder
 |- executor.ts               # CLI entrypoint (compiled into binary)
 |- install                   # curl install script
 `- uninstall                 # uninstall script

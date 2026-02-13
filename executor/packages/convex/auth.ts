@@ -2,8 +2,8 @@ import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalMutation, mutation } from "./_generated/server";
-import { bootstrapCurrentWorkosAccountImpl } from "./auth-bootstrap";
-import { workosEventHandlers } from "./auth-event-handlers";
+import { bootstrapCurrentWorkosAccountImpl } from "./auth/bootstrap";
+import { workosEventHandlers } from "./auth/event_handlers";
 
 const workosEnabled = Boolean(
   process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_WEBHOOK_SECRET,

@@ -8,15 +8,15 @@ import type {
   OpenApiSourceQuality,
   SourceAuthProfile,
 } from "../core/src/types";
-import { requireCanonicalActor } from "./executor_node/actor_auth";
+import { requireCanonicalActor } from "./runtime/actor_auth";
 import {
   listToolsForContext,
   listToolsWithWarningsForContext,
   loadDtsUrls,
   loadWorkspaceDtsStorageIds,
-} from "./executor_node/workspace_tools";
-import { runQueuedTask } from "./executor_node/task_runner";
-import { handleExternalToolCallRequest } from "./executor_node/external_tool_call";
+} from "./runtime/workspace_tools";
+import { runQueuedTask } from "./runtime/task_runner";
+import { handleExternalToolCallRequest } from "./runtime/external_tool_call";
 
 export const listToolsWithWarnings = action({
   args: {

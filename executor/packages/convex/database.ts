@@ -6,7 +6,7 @@ export {
   getTaskInWorkspace,
   markTaskRunning,
   markTaskFinished,
-} from "./database-tasks";
+} from "./database/tasks";
 export {
   createApproval,
   getApproval,
@@ -14,32 +14,32 @@ export {
   listPendingApprovals,
   resolveApproval,
   getApprovalInWorkspace,
-} from "./database-approvals";
+} from "./database/approvals";
 export {
   upsertToolCallRequested,
   getToolCall,
   setToolCallPendingApproval,
   finishToolCall,
   listToolCalls,
-} from "./database-tool-calls";
-export { bootstrapAnonymousSession } from "./database-anonymous-session";
+} from "./database/tool_calls";
+export { bootstrapAnonymousSession } from "./database/anonymous_session";
 export {
   listRuntimeTargets,
   upsertAccessPolicy,
   listAccessPolicies,
-} from "./database-policies";
+} from "./database/policies";
 export {
   upsertCredential,
   listCredentials,
   listCredentialProviders,
   resolveCredential,
-} from "./database-credentials";
+} from "./database/credentials";
 export {
   upsertToolSource,
   listToolSources,
   deleteToolSource,
-} from "./database-tool-sources";
-export { createTaskEvent, listTaskEvents } from "./database-task-events";
+} from "./database/tool_sources";
+export { createTaskEvent, listTaskEvents } from "./database/task_events";
 export {
   getActiveAnonymousOauthSigningKey,
   storeAnonymousOauthSigningKey,
@@ -49,4 +49,4 @@ export {
   consumeAnonymousOauthAuthorizationCode,
   purgeExpiredAnonymousOauthAuthorizationCodes,
   countAnonymousOauthAuthorizationCodes,
-} from "./database-oauth";
+} from "./database/oauth";

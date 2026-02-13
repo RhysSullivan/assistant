@@ -2,12 +2,12 @@
 
 import { Navigate, Outlet, Route, Routes, BrowserRouter, useSearchParams } from "react-router";
 import { AppShell } from "@/components/app-shell";
-import { ApprovalsView } from "@/components/approvals-view";
-import { DashboardView } from "@/components/dashboard-view";
-import { OnboardingView } from "@/components/onboarding-view";
-import { OrganizationSettingsView } from "@/components/organization-settings-view";
-import { TasksView } from "@/components/tasks-view";
-import { ToolsView } from "@/components/tools-view";
+import { ApprovalsView } from "@/components/approvals/approvals-view";
+import { DashboardView } from "@/components/dashboard/view";
+import { OnboardingView } from "@/components/organization/onboarding-view";
+import { OrganizationSettingsView } from "@/components/organization/organization-settings-view";
+import { TasksView } from "@/components/tasks/tasks-view";
+import { ToolsView } from "@/components/tools/view";
 
 function ToolsRoute() {
   const [searchParams] = useSearchParams();

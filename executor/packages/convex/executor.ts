@@ -7,10 +7,10 @@ import { workspaceMutation } from "../core/src/function-builders";
 import { actorIdForAccount } from "../core/src/identity";
 import { isKnownRuntimeId } from "../core/src/runtimes/runtime-catalog";
 import type { ApprovalRecord, TaskRecord } from "../core/src/types";
-import { isTerminalTaskStatus, taskTerminalEventType } from "./task-status";
-import { DEFAULT_TASK_TIMEOUT_MS } from "./task-constants";
-import { createTaskEvent } from "./task-events";
-import { markTaskFinished } from "./task-finish";
+import { isTerminalTaskStatus, taskTerminalEventType } from "./task/status";
+import { DEFAULT_TASK_TIMEOUT_MS } from "./task/constants";
+import { createTaskEvent } from "./task/events";
+import { markTaskFinished } from "./task/finish";
 
 async function createTaskRecord(
   ctx: MutationCtx,
