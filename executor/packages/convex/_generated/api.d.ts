@@ -213,7 +213,10 @@ export declare const api: {
       {
         actorId?: string;
         clientId?: string;
+        includeDetails?: boolean;
+        includeSourceMeta?: boolean;
         sessionId?: string;
+        toolPaths?: Array<string>;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -563,6 +566,12 @@ export declare const internal: {
         { sessionId?: string },
         any
       >;
+      ensureAnonymousMcpSession: FunctionReference<
+        "mutation",
+        "internal",
+        { actorId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
     };
     approvals: {
       createApproval: FunctionReference<
@@ -694,6 +703,12 @@ export declare const internal: {
       "mutation",
       "internal",
       { sourceId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    ensureAnonymousMcpSession: FunctionReference<
+      "mutation",
+      "internal",
+      { actorId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     finishToolCall: FunctionReference<

@@ -22,17 +22,26 @@ const ToolRow = memo(function ToolRow({
   depth,
   selected,
   onSelect,
+  onExpandedChange,
+  detailLoading,
 }: {
   tool: ToolDescriptor;
   label: string;
   depth: number;
   selected: boolean;
   onSelect: (e: React.MouseEvent) => void;
+  onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
+  detailLoading?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  const handleOpenChange = useCallback((open: boolean) => {
+    setExpanded(open);
+    onExpandedChange?.(tool, open);
+  }, [onExpandedChange, tool]);
+
   return (
-    <Collapsible open={expanded} onOpenChange={setExpanded}>
+    <Collapsible open={expanded} onOpenChange={handleOpenChange}>
       <CollapsibleTrigger asChild>
         <div
           className={cn(
@@ -88,7 +97,7 @@ const ToolRow = memo(function ToolRow({
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <ToolDetail tool={tool} depth={depth} />
+        <ToolDetail tool={tool} depth={depth} loading={detailLoading} />
       </CollapsibleContent>
     </Collapsible>
   );
@@ -100,12 +109,16 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   depth,
   selectedKeys,
   onSelectTool,
+  onExpandedChange,
+  detailLoading,
 }: {
   tool: ToolDescriptor;
   label: string;
   depth: number;
   selectedKeys: Set<string>;
   onSelectTool: (path: string, e: React.MouseEvent) => void;
+  onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
+  detailLoading?: boolean;
 }) {
   const selected = selectedKeys.has(tool.path);
   const handleSelect = useCallback(
@@ -120,6 +133,8 @@ export const SelectableToolRow = memo(function SelectableToolRow({
       depth={depth}
       selected={selected}
       onSelect={handleSelect}
+      onExpandedChange={onExpandedChange}
+      detailLoading={detailLoading}
     />
   );
 },
@@ -127,6 +142,7 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   prev.tool === next.tool &&
   prev.label === next.label &&
   prev.depth === next.depth &&
+  prev.detailLoading === next.detailLoading &&
   prev.selectedKeys.has(prev.tool.path) === next.selectedKeys.has(next.tool.path),
 );
 
@@ -134,12 +150,16 @@ export function VirtualFlatList({
   tools,
   selectedKeys,
   onSelectTool,
+  onExpandedChange,
+  detailLoadingPaths,
   loadingRows,
   scrollContainerRef,
 }: {
   tools: ToolDescriptor[];
   selectedKeys: Set<string>;
   onSelectTool: (path: string, e: React.MouseEvent) => void;
+  onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
+  detailLoadingPaths?: Set<string>;
   loadingRows?: { source: string; count: number }[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
@@ -157,6 +177,8 @@ export function VirtualFlatList({
             depth={0}
             selectedKeys={selectedKeys}
             onSelectTool={onSelectTool}
+            onExpandedChange={onExpandedChange}
+            detailLoading={detailLoadingPaths?.has(tool.path)}
           />
         ))}
 
@@ -182,6 +204,18 @@ export function EmptyState({ hasSearch }: { hasSearch: boolean }) {
       <p className="text-sm text-muted-foreground/60">
         {hasSearch ? "No tools match your search" : "No tools available"}
       </p>
+    </div>
+  );
+}
+
+export function LoadingState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full py-12 gap-2">
+      <div className="h-10 w-10 rounded-full bg-muted/50 flex items-center justify-center">
+        <Skeleton className="h-5 w-5 rounded-full" />
+      </div>
+      <p className="text-sm text-muted-foreground/70">Loading tools...</p>
+      <p className="text-[11px] text-muted-foreground/55">Fetching source inventories and tool names</p>
     </div>
   );
 }

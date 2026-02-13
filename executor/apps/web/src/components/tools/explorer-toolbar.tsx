@@ -28,6 +28,7 @@ interface ToolExplorerToolbarProps {
   filteredToolCount: number;
   hasSearch: boolean;
   resultCount: number;
+  loadingInventory?: boolean;
   viewMode: ViewMode;
   groupBy: GroupBy;
   filterApproval: FilterApproval;
@@ -53,6 +54,7 @@ export function ToolExplorerToolbar({
   filteredToolCount,
   hasSearch,
   resultCount,
+  loadingInventory = false,
   viewMode,
   groupBy,
   filterApproval,
@@ -80,7 +82,7 @@ export function ToolExplorerToolbar({
           <Input
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={`Search ${filteredToolCount} tools...`}
+            placeholder={loadingInventory ? "Loading tools..." : `Search ${filteredToolCount} tools...`}
             className="h-8 text-xs pl-8 bg-background/50 border-border/50 focus:border-primary/30"
           />
           {search && (
@@ -293,7 +295,11 @@ export function ToolExplorerToolbar({
 
       <div className="flex items-center justify-between pb-1.5">
         <span className="text-[10px] font-mono text-muted-foreground/50">
-          {hasSearch ? `${resultCount} results` : `${filteredToolCount} tools`}
+          {hasSearch
+            ? `${resultCount} results`
+            : loadingInventory
+              ? "Loading tool inventory..."
+              : `${filteredToolCount} tools`}
           {activeSource && ` in ${activeSource}`}
         </span>
         {viewMode === "tree" && (

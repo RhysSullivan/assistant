@@ -30,6 +30,8 @@ export function GroupNode({
   selectedKeys,
   onSelectGroup,
   onSelectTool,
+  onExpandedChange,
+  detailLoadingPaths,
   search,
 }: {
   group: ToolGroup;
@@ -39,6 +41,8 @@ export function GroupNode({
   selectedKeys: Set<string>;
   onSelectGroup: (key: string, e: React.MouseEvent) => void;
   onSelectTool: (path: string, e: React.MouseEvent) => void;
+  onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
+  detailLoadingPaths?: Set<string>;
   search: string;
 }) {
   const isExpanded = expandedKeys.has(group.key);
@@ -155,6 +159,8 @@ export function GroupNode({
                 selectedKeys={selectedKeys}
                 onSelectGroup={onSelectGroup}
                 onSelectTool={onSelectTool}
+                onExpandedChange={onExpandedChange}
+                detailLoadingPaths={detailLoadingPaths}
                 search={search}
               />
             ))
@@ -170,10 +176,12 @@ export function GroupNode({
                 <SelectableToolRow
                   key={tool.path}
                   tool={tool}
-                  label={search ? tool.path : toolOperation(tool.path)}
+                  label={toolOperation(tool.path)}
                   depth={depth + 1}
                   selectedKeys={selectedKeys}
                   onSelectTool={onSelectTool}
+                  onExpandedChange={onExpandedChange}
+                  detailLoading={detailLoadingPaths?.has(tool.path)}
                 />
               ))}
       </CollapsibleContent>

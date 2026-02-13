@@ -4,6 +4,9 @@ set -euo pipefail
 INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
 RUNTIME_DIR="${EXECUTOR_RUNTIME_DIR:-$HOME/.executor/runtime}"
 EXECUTOR_HOME="${EXECUTOR_HOME_DIR:-$HOME/.executor}"
+SERVICE_DIR="$RUNTIME_DIR/services"
+BACKEND_PID_FILE="$SERVICE_DIR/backend.pid"
+WEB_PID_FILE="$SERVICE_DIR/web.pid"
 ASSUME_YES="0"
 
 usage() {
@@ -36,6 +39,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+stop_pid_file() {
+  local pid_file="$1"
+  if [[ ! -f "$pid_file" ]]; then
+    return
+  fi
+
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+    kill "$pid" >/dev/null 2>&1 || true
+    sleep 1
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill -9 "$pid" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  rm -f "$pid_file"
+}
+
 if [[ "$ASSUME_YES" != "1" ]]; then
   echo "This will remove:"
   echo "  - $INSTALL_DIR/executor"
@@ -47,6 +69,9 @@ if [[ "$ASSUME_YES" != "1" ]]; then
     exit 0
   fi
 fi
+
+stop_pid_file "$WEB_PID_FILE"
+stop_pid_file "$BACKEND_PID_FILE"
 
 rm -f "$INSTALL_DIR/executor"
 rm -rf "$RUNTIME_DIR"

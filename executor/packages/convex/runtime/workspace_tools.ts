@@ -374,12 +374,17 @@ export async function loadWorkspaceToolInventoryForContext(
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
     includeDts?: boolean;
+    includeDetails?: boolean;
+    includeSourceMeta?: boolean;
+    toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
     skipCacheRead?: boolean;
   } = {},
 ): Promise<WorkspaceToolInventory> {
   const includeDts = options.includeDts ?? false;
+  const includeDetails = options.includeDetails ?? true;
+  const includeSourceMeta = options.includeSourceMeta ?? true;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch;
   const skipCacheRead = options.skipCacheRead;
@@ -394,14 +399,31 @@ export async function loadWorkspaceToolInventoryForContext(
   ]);
   const typedPolicies = policies as AccessPolicyRecord[];
   const descriptorsStartedAt = Date.now();
-  const tools = listVisibleToolDescriptors(result.tools, context, typedPolicies);
+  const tools = listVisibleToolDescriptors(result.tools, context, typedPolicies, {
+    includeDetails,
+    toolPaths: options.toolPaths,
+  });
   const descriptorsMs = Date.now() - descriptorsStartedAt;
-  const qualityStartedAt = Date.now();
-  const sourceQuality = computeOpenApiSourceQuality(result.tools);
-  const qualityMs = Date.now() - qualityStartedAt;
-  const authProfilesStartedAt = Date.now();
-  const sourceAuthProfiles = computeSourceAuthProfiles(result.tools);
-  const authProfilesMs = Date.now() - authProfilesStartedAt;
+  let sourceQuality: Record<string, OpenApiSourceQuality> = {};
+  let sourceAuthProfiles: Record<string, SourceAuthProfile> = {};
+  let qualityMs = 0;
+  let authProfilesMs = 0;
+
+  if (includeSourceMeta) {
+    const qualityStartedAt = Date.now();
+    sourceQuality = computeOpenApiSourceQuality(result.tools);
+    qualityMs = Date.now() - qualityStartedAt;
+    const authProfilesStartedAt = Date.now();
+    sourceAuthProfiles = computeSourceAuthProfiles(result.tools);
+    authProfilesMs = Date.now() - authProfilesStartedAt;
+  }
+
+  const sourceMetaTrace = includeSourceMeta
+    ? [
+        `computeOpenApiSourceQuality=${qualityMs}ms`,
+        `computeSourceAuthProfiles=${authProfilesMs}ms`,
+      ]
+    : ["sourceMeta=skipped"];
 
   return {
     tools,
@@ -414,8 +436,7 @@ export async function loadWorkspaceToolInventoryForContext(
       trace: [
         ...result.debug.trace,
         `listVisibleToolDescriptors=${descriptorsMs}ms`,
-        `computeOpenApiSourceQuality=${qualityMs}ms`,
-        `computeSourceAuthProfiles=${authProfilesMs}ms`,
+        ...sourceMetaTrace,
       ],
     },
   };
@@ -426,6 +447,9 @@ export async function listToolsForContext(
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
     includeDts?: boolean;
+    includeDetails?: boolean;
+    includeSourceMeta?: boolean;
+    toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
     skipCacheRead?: boolean;
@@ -440,6 +464,9 @@ export async function listToolsWithWarningsForContext(
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
     includeDts?: boolean;
+    includeDetails?: boolean;
+    includeSourceMeta?: boolean;
+    toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
     skipCacheRead?: boolean;

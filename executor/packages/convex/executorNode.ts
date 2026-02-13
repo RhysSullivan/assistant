@@ -26,6 +26,9 @@ export const listToolsWithWarnings = action({
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
     sessionId: v.optional(v.string()),
+    includeDetails: v.optional(v.boolean()),
+    includeSourceMeta: v.optional(v.boolean()),
+    toolPaths: v.optional(v.array(v.string())),
   },
   handler: async (
     ctx,
@@ -48,7 +51,14 @@ export const listToolsWithWarnings = action({
       workspaceId: args.workspaceId,
       actorId: canonicalActorId,
       clientId: args.clientId,
-    }, { includeDts: false, sourceTimeoutMs: 2_500, allowStaleOnMismatch: true });
+    }, {
+      includeDts: false,
+      includeDetails: args.includeDetails ?? true,
+      includeSourceMeta: args.includeSourceMeta ?? (args.toolPaths ? false : true),
+      toolPaths: args.toolPaths,
+      sourceTimeoutMs: 2_500,
+      allowStaleOnMismatch: true,
+    });
 
     if (inventory.warnings.some((warning) => warning.includes("showing previous results while refreshing"))) {
       try {

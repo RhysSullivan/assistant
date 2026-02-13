@@ -5,19 +5,45 @@ import os from "node:os";
 import path from "node:path";
 import { managedRuntimeDiagnostics, runManagedBackend, runManagedWeb } from "./packages/core/src/managed-runtime";
 
+interface InstallPaths {
+  installDir: string;
+  runtimeDir: string;
+  homeDir: string;
+  serviceDir: string;
+  backendPidFile: string;
+  webPidFile: string;
+}
+
+function installPaths(): InstallPaths {
+  const installDir = Bun.env.EXECUTOR_INSTALL_DIR ?? path.join(os.homedir(), ".executor", "bin");
+  const runtimeDir = Bun.env.EXECUTOR_RUNTIME_DIR ?? path.join(os.homedir(), ".executor", "runtime");
+  const homeDir = Bun.env.EXECUTOR_HOME_DIR ?? path.join(os.homedir(), ".executor");
+  const serviceDir = path.join(runtimeDir, "services");
+  return {
+    installDir,
+    runtimeDir,
+    homeDir,
+    serviceDir,
+    backendPidFile: path.join(serviceDir, "backend.pid"),
+    webPidFile: path.join(serviceDir, "web.pid"),
+  };
+}
+
 function printHelp(): void {
   console.log(`Executor CLI
 
 Usage:
-  executor doctor
+  executor doctor [--verbose]
   executor up [backend-args]
+  executor down
   executor backend <args>
   executor web [--port <number>]
   executor uninstall [--yes]
 
 Commands:
-  doctor        Bootstrap and verify managed Convex backend runtime
+  doctor        Show install health and quick status
   up            Run managed backend and auto-bootstrap Convex functions
+  down          Stop background backend/web services started by installer
   backend       Pass through arguments to managed convex-local-backend binary
   web           Run packaged web UI (expects backend already running)
   uninstall     Remove local managed runtime install
@@ -65,6 +91,289 @@ async function checkHttp(url: string): Promise<boolean> {
   }
 }
 
+async function readPid(filePath: string): Promise<number | null> {
+  if (!(await pathExists(filePath))) {
+    return null;
+  }
+  const raw = (await fs.readFile(filePath, "utf8")).trim();
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function isPidRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listListeningPids(port: number): Promise<number[]> {
+  const lsof = Bun.spawn(["lsof", "-ti", `tcp:${port}`, "-sTCP:LISTEN"], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const lsofExit = await lsof.exited;
+  if (lsofExit === 0) {
+    const text = await new Response(lsof.stdout).text();
+    const fromLsof = text
+      .split("\n")
+      .map((line) => Number(line.trim()))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    if (fromLsof.length > 0) {
+      return fromLsof;
+    }
+  }
+
+  const ss = Bun.spawn(["ss", "-ltnp", `( sport = :${port} )`], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const ssExit = await ss.exited;
+  if (ssExit !== 0) {
+    return [];
+  }
+
+  const ssText = await new Response(ss.stdout).text();
+  const matches = [...ssText.matchAll(/pid=(\d+)/g)];
+  const values = matches
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isInteger(value) && value > 0);
+  return [...new Set(values)];
+}
+
+async function commandForPid(pid: number): Promise<string> {
+  const proc = Bun.spawn(["ps", "-p", String(pid), "-o", "command="], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    return "";
+  }
+  return (await new Response(proc.stdout).text()).trim();
+}
+
+async function filterManagedPids(pids: number[], expected: "backend" | "web"): Promise<number[]> {
+  const allowed = expected === "backend"
+    ? ["convex-local-backend", "executor", "bun run", "bunx convex"]
+    : ["next-server", "server.js", "executor", "node"];
+
+  const result: number[] = [];
+  for (const pid of pids) {
+    const command = await commandForPid(pid);
+    if (allowed.some((needle) => command.includes(needle))) {
+      result.push(pid);
+    }
+  }
+  return result;
+}
+
+async function terminatePid(pid: number): Promise<boolean> {
+  if (!isPidRunning(pid)) {
+    return true;
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return false;
+  }
+
+  for (let index = 0; index < 30; index += 1) {
+    if (!isPidRunning(pid)) {
+      return true;
+    }
+    await Bun.sleep(100);
+  }
+
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    return false;
+  }
+
+  for (let index = 0; index < 20; index += 1) {
+    if (!isPidRunning(pid)) {
+      return true;
+    }
+    await Bun.sleep(100);
+  }
+
+  return !isPidRunning(pid);
+}
+
+async function listProcessEdges(): Promise<Array<{ pid: number; ppid: number }>> {
+  const proc = Bun.spawn(["ps", "-eo", "pid=,ppid="], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    return [];
+  }
+
+  const text = await new Response(proc.stdout).text();
+  const edges: Array<{ pid: number; ppid: number }> = [];
+  for (const line of text.split("\n")) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 2) {
+      continue;
+    }
+    const pid = Number(parts[0]);
+    const ppid = Number(parts[1]);
+    if (Number.isInteger(pid) && pid > 0 && Number.isInteger(ppid) && ppid >= 0) {
+      edges.push({ pid, ppid });
+    }
+  }
+
+  return edges;
+}
+
+async function terminatePidTree(rootPid: number): Promise<boolean> {
+  if (!isPidRunning(rootPid)) {
+    return true;
+  }
+
+  const edges = await listProcessEdges();
+  const childrenByParent = new Map<number, number[]>();
+  for (const edge of edges) {
+    const current = childrenByParent.get(edge.ppid) ?? [];
+    current.push(edge.pid);
+    childrenByParent.set(edge.ppid, current);
+  }
+
+  const stack = [rootPid];
+  const collected = new Set<number>();
+  while (stack.length > 0) {
+    const pid = stack.pop()!;
+    if (collected.has(pid)) {
+      continue;
+    }
+    collected.add(pid);
+    const children = childrenByParent.get(pid) ?? [];
+    for (const child of children) {
+      stack.push(child);
+    }
+  }
+
+  const ordered = [...collected].reverse();
+  let stopped = true;
+  for (const pid of ordered) {
+    stopped = (await terminatePid(pid)) && stopped;
+  }
+  return stopped;
+}
+
+async function stopManagedServices(): Promise<{ backendStopped: boolean; webStopped: boolean }> {
+  const paths = installPaths();
+  const backendPid = await readPid(paths.backendPidFile);
+  const webPid = await readPid(paths.webPidFile);
+
+  let backendStopped = backendPid === null ? true : await terminatePidTree(backendPid);
+  let webStopped = webPid === null ? true : await terminatePidTree(webPid);
+
+  const [backendPortPidsRaw, webPortPidsRaw] = await Promise.all([
+    listListeningPids(Number(Bun.env.EXECUTOR_BACKEND_PORT ?? 5410)),
+    listListeningPids(Number(Bun.env.EXECUTOR_WEB_PORT ?? 5312)),
+  ]);
+  const [backendPortPids, webPortPids] = await Promise.all([
+    filterManagedPids(backendPortPidsRaw, "backend"),
+    filterManagedPids(webPortPidsRaw, "web"),
+  ]);
+
+  for (const pid of backendPortPids) {
+    backendStopped = (await terminatePidTree(pid)) && backendStopped;
+  }
+  for (const pid of webPortPids) {
+    webStopped = (await terminatePidTree(pid)) && webStopped;
+  }
+
+  await fs.rm(paths.backendPidFile, { force: true });
+  await fs.rm(paths.webPidFile, { force: true });
+
+  return { backendStopped, webStopped };
+}
+
+async function runDown(args: string[]): Promise<number> {
+  if (args.length > 0 && args[0] !== "-h" && args[0] !== "--help") {
+    console.log(`Unknown option: ${args[0]}`);
+    return 1;
+  }
+
+  if (args[0] === "-h" || args[0] === "--help") {
+    console.log(`Usage:
+  executor down
+
+Stops background backend/web services started by the install script.`);
+    return 0;
+  }
+
+  const result = await stopManagedServices();
+  if (!result.backendStopped || !result.webStopped) {
+    console.log("Could not stop all managed services cleanly. You may need to stop lingering processes manually.");
+    return 1;
+  }
+
+  console.log("Managed services stopped.");
+  return 0;
+}
+
+async function runDoctor(args: string[]): Promise<number> {
+  const verbose = args.includes("-v") || args.includes("--verbose");
+  const unknownArgs = args.filter((arg) => arg !== "-v" && arg !== "--verbose");
+  if (unknownArgs.length > 0) {
+    console.log(`Unknown option: ${unknownArgs[0]}`);
+    return 1;
+  }
+
+  const info = await managedRuntimeDiagnostics();
+  const webPort = Number(Bun.env.EXECUTOR_WEB_PORT ?? 5312);
+  const webInstalled = await pathExists(info.webServerEntry);
+  const nodeInstalled = await pathExists(info.nodeBin);
+  const backendRunning = await checkHttp(`${info.convexUrl}/version`);
+  const webRunning = await checkHttp(`http://127.0.0.1:${webPort}/`);
+  const healthy = nodeInstalled && webInstalled && backendRunning && webRunning;
+
+  console.log(`Executor status: ${healthy ? "ready" : "needs attention"}`);
+  console.log(`Dashboard: http://127.0.0.1:${webPort} (${webRunning ? "running" : "not running"})`);
+  console.log(`Backend: ${backendRunning ? "running" : "not running"} (${info.convexUrl})`);
+  console.log(`MCP endpoint: ${info.convexSiteUrl}/mcp`);
+
+  if (!backendRunning) {
+    console.log("Next step: run `executor up`");
+  }
+  if (!webRunning) {
+    console.log("Next step: run `executor web`");
+  }
+  if (!webInstalled || !nodeInstalled) {
+    console.log("Missing runtime artifacts detected. Re-run install if needed.");
+  }
+
+  if (verbose) {
+    console.log("");
+    console.log("Details:");
+    console.log(`  root: ${info.rootDir}`);
+    console.log(`  backend: ${info.backendVersion} (${info.backendBinary})`);
+    console.log(`  convex URL: ${info.convexUrl}`);
+    console.log(`  convex site: ${info.convexSiteUrl}`);
+    console.log(`  node runtime: ${nodeInstalled ? info.nodeBin : "missing"}`);
+    console.log(`  web bundle: ${webInstalled ? info.webServerEntry : "missing"}`);
+    console.log(`  running: backend=${backendRunning ? "yes" : "no"} web=${webRunning ? "yes" : "no"}`);
+    console.log(`  config: ${info.configPath}`);
+  }
+
+  return healthy ? 0 : 1;
+}
+
 async function runUninstall(args: string[]): Promise<number> {
   let assumeYes = false;
   let index = 0;
@@ -91,14 +400,12 @@ Options:
     return 1;
   }
 
-  const installDir = Bun.env.EXECUTOR_INSTALL_DIR ?? path.join(os.homedir(), ".executor", "bin");
-  const runtimeDir = Bun.env.EXECUTOR_RUNTIME_DIR ?? path.join(os.homedir(), ".executor", "runtime");
-  const homeDir = Bun.env.EXECUTOR_HOME_DIR ?? path.join(os.homedir(), ".executor");
+  const paths = installPaths();
 
   if (!assumeYes) {
     console.log("This will remove:");
-    console.log(`  - ${installDir}/executor`);
-    console.log(`  - ${runtimeDir}`);
+    console.log(`  - ${paths.installDir}/executor`);
+    console.log(`  - ${paths.runtimeDir}`);
     const response = prompt("Continue? [y/N] ");
     if (response === null || response.toLowerCase() !== "y") {
       console.log("Cancelled.");
@@ -106,20 +413,25 @@ Options:
     }
   }
 
-  await fs.rm(path.join(installDir, "executor"), { force: true });
-  await fs.rm(runtimeDir, { recursive: true, force: true });
+  const stopResult = await stopManagedServices();
+  if (!stopResult.backendStopped || !stopResult.webStopped) {
+    console.warn("executor: some managed services did not stop cleanly before uninstall");
+  }
 
-  if (await pathExists(installDir)) {
+  await fs.rm(path.join(paths.installDir, "executor"), { force: true });
+  await fs.rm(paths.runtimeDir, { recursive: true, force: true });
+
+  if (await pathExists(paths.installDir)) {
     try {
-      await fs.rmdir(installDir);
+      await fs.rmdir(paths.installDir);
     } catch {
       // keep if it is not empty
     }
   }
 
-  if (await pathExists(homeDir)) {
+  if (await pathExists(paths.homeDir)) {
     try {
-      await fs.rmdir(homeDir);
+      await fs.rmdir(paths.homeDir);
     } catch {
       // keep if other files remain
     }
@@ -128,7 +440,7 @@ Options:
   console.log("Executor uninstall complete.");
   console.log("");
   console.log("If you previously added PATH manually, remove this line from your shell rc:");
-  console.log(`  export PATH=${installDir}:$PATH`);
+  console.log(`  export PATH=${paths.installDir}:$PATH`);
   return 0;
 }
 
@@ -141,25 +453,13 @@ async function run(): Promise<void> {
   }
 
   if (command === "doctor") {
-    const info = await managedRuntimeDiagnostics();
-    const webPort = Number(Bun.env.EXECUTOR_WEB_PORT ?? 5312);
-    const webInstalled = await pathExists(info.webServerEntry);
-    const nodeInstalled = await pathExists(info.nodeBin);
-    const backendRunning = await checkHttp(`${info.convexUrl}/version`);
-    const webRunning = await checkHttp(`http://127.0.0.1:${webPort}/`);
+    const exitCode = await runDoctor(rest);
+    process.exit(exitCode);
+  }
 
-    console.log("Managed runtime ready");
-    console.log(`  root: ${info.rootDir}`);
-    console.log(`  backend: ${info.backendVersion} (${info.backendBinary})`);
-    console.log(`  convex URL: ${info.convexUrl}`);
-    console.log(`  convex site: ${info.convexSiteUrl}`);
-    console.log(`  node runtime: ${nodeInstalled ? info.nodeBin : "not installed yet (installed by 'executor web')"}`);
-    console.log(`  web bundle: ${webInstalled ? info.webServerEntry : "not installed yet (installed by 'executor web')"}`);
-    console.log(`  web URL: http://127.0.0.1:${webPort}`);
-    console.log(`  mcp URL: ${info.convexSiteUrl}/mcp`);
-    console.log(`  running: backend=${backendRunning ? "yes" : "no"} web=${webRunning ? "yes" : "no"}`);
-    console.log(`  config: ${info.configPath}`);
-    return;
+  if (command === "down" || command === "stop") {
+    const exitCode = await runDown(rest);
+    process.exit(exitCode);
   }
 
   if (command === "up") {
