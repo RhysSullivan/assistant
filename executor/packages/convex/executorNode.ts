@@ -48,7 +48,7 @@ export const listToolsWithWarnings = action({
       workspaceId: args.workspaceId,
       actorId: canonicalActorId,
       clientId: args.clientId,
-    }, { includeDts: false, sourceTimeoutMs: 2_500, allowStaleOnMismatch: true, skipCacheRead: true });
+    }, { includeDts: false, sourceTimeoutMs: 2_500, allowStaleOnMismatch: true });
 
     if (inventory.warnings.some((warning) => warning.includes("showing previous results while refreshing"))) {
       try {

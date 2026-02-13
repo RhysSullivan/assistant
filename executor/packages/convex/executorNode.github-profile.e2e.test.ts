@@ -47,6 +47,11 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   });
   const warmMs = performance.now() - warmStart;
 
+  const publicWarm = await t.action(api.executorNode.listToolsWithWarnings, {
+    workspaceId: session.workspaceId,
+    sessionId: session.sessionId,
+  });
+
   console.log(
     `github openapi convex-test profiling: cold=${coldMs.toFixed(0)}ms warm=${warmMs.toFixed(0)}ms tools=${cold.tools.length}`,
   );
@@ -57,6 +62,10 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   expect(warm.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
   expect(Object.keys(cold.dtsUrls).length).toBe(0);
   expect(Object.keys(warm.dtsUrls).length).toBe(0);
+  expect(publicWarm.tools.length).toBe(warm.tools.length);
+  expect(publicWarm.debug.skipCacheRead).toBe(false);
+  expect(publicWarm.debug.cacheHit).toBe(true);
+  expect(publicWarm.debug.mode).toBe("cache-fresh");
 
   const dts = await t.action(api.executorNode.listToolDtsUrls, {
     workspaceId: session.workspaceId,

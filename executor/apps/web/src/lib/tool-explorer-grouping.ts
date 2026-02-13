@@ -8,6 +8,7 @@ export interface ToolGroup {
   sourceType?: string;
   childCount: number;
   approvalCount: number;
+  loadingPlaceholderCount?: number;
   children: ToolGroup[] | ToolDescriptor[];
 }
 

@@ -78,7 +78,8 @@ export function compactOpenApiPaths(
       if (Object.keys(operation).length === 0) continue;
 
       const operationIdRaw = String(operation.operationId ?? `${method}_${pathTemplate}`);
-      const hasGeneratedTypes = includeTypeHints && operationTypeIds.has(operationIdRaw);
+      const hasGeneratedTypes = includeTypeHints
+        && (operationTypeIds.size === 0 || operationTypeIds.has(operationIdRaw));
 
       const compactOperation: Record<string, unknown> = {};
       if (Array.isArray(operation.tags) && operation.tags.length > 0) {

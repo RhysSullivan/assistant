@@ -18,7 +18,7 @@ import {
   treeGroupsForView,
   type FilterApproval,
 } from "./explorer-derived";
-import { ToolExplorerLoading } from "./explorer-loading";
+import { sourceLabel } from "@/lib/tool-source-utils";
 import {
   EmptyState,
   VirtualFlatList,
@@ -36,6 +36,7 @@ interface ToolExplorerProps {
   tools: ToolDescriptor[];
   sources: ToolSourceRecord[];
   loading?: boolean;
+  loadingSources?: string[];
   warnings?: string[];
   initialSource?: string | null;
   activeSource?: string | null;
@@ -46,7 +47,8 @@ interface ToolExplorerProps {
 export function ToolExplorer({
   tools,
   sources,
-  loading = false,
+  loading: _loading = false,
+  loadingSources = [],
   warnings = [],
   initialSource = null,
   activeSource,
@@ -84,13 +86,44 @@ export function ToolExplorer({
     );
   }, [tools, resolvedActiveSource, filterApproval]);
 
+  const loadingSourceSet = useMemo(() => new Set(loadingSources), [loadingSources]);
+
+  const visibleLoadingSources = useMemo(() => {
+    if (loadingSourceSet.size === 0) {
+      return [] as string[];
+    }
+
+    if (resolvedActiveSource) {
+      return loadingSourceSet.has(resolvedActiveSource)
+        ? [resolvedActiveSource]
+        : [];
+    }
+
+    return Array.from(loadingSourceSet);
+  }, [loadingSourceSet, resolvedActiveSource]);
+
+  const sourceCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+
+    for (const tool of tools) {
+      const sourceName = sourceLabel(tool.source);
+      counts[sourceName] = (counts[sourceName] ?? 0) + 1;
+    }
+
+    return counts;
+  }, [tools]);
+
   const searchedTools = useMemo(() => {
     return filterToolsBySearch(filteredTools, search);
   }, [filteredTools, search]);
 
   const treeGroups = useMemo(() => {
-    return treeGroupsForView(searchedTools, viewMode, groupBy);
-  }, [searchedTools, viewMode, groupBy]);
+    return treeGroupsForView(searchedTools, viewMode, groupBy, {
+      loadingSources: visibleLoadingSources,
+      sourceRecords: sources,
+      activeSource: resolvedActiveSource,
+    });
+  }, [searchedTools, viewMode, groupBy, visibleLoadingSources, sources, resolvedActiveSource]);
 
   const flatTools = useMemo(() => {
     return flatToolsForView(searchedTools, viewMode);
@@ -167,7 +200,23 @@ export function ToolExplorer({
     return countSelectedTools(selectedKeys, filteredTools);
   }, [selectedKeys, filteredTools]);
 
-  const sourceOptions = useMemo(() => sourceOptionsFromTools(tools), [tools]);
+  const sourceOptions = useMemo(
+    () => sourceOptionsFromTools(tools, loadingSources),
+    [tools, loadingSources],
+  );
+
+  const flatLoadingRows = useMemo(() => {
+    if (search.length > 0 || viewMode !== "flat") {
+      return [];
+    }
+
+    return visibleLoadingSources.map((source) => ({
+      source,
+      count: 3,
+    }));
+  }, [search, viewMode, visibleLoadingSources]);
+
+  const hasFlatRows = flatTools.length > 0 || flatLoadingRows.length > 0;
 
   const handleExpandAll = useCallback(() => {
     setExpandedKeys(collectGroupKeys(treeGroups));
@@ -197,13 +246,13 @@ export function ToolExplorer({
     [viewMode],
   );
 
-  if (loading) return <ToolExplorerLoading sources={sources} />;
-
   return (
     <div className="flex" onWheelCapture={handleExplorerWheel}>
       {showSourceSidebar ? (
         <SourceSidebar
-          tools={tools}
+          sources={sources}
+          sourceCounts={sourceCounts}
+          loadingSources={loadingSourceSet}
           activeSource={resolvedActiveSource}
           onSelectSource={handleSourceSelect}
         />
@@ -241,7 +290,7 @@ export function ToolExplorer({
         />
 
         {viewMode === "flat" ? (
-          flatTools.length === 0 ? (
+          !hasFlatRows ? (
             <div
               ref={flatListRef}
               className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
@@ -254,6 +303,7 @@ export function ToolExplorer({
               selectedKeys={selectedKeys}
               onSelectTool={toggleSelectTool}
               scrollContainerRef={flatListRef}
+              loadingRows={flatLoadingRows}
             />
           )
         ) : (

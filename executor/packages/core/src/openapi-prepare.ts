@@ -179,8 +179,8 @@ export async function prepareOpenApiSpec(
       asRecord(asRecord(bundled.components).requestBodies),
       {
         includeSchemas: profile === "full",
-        includeTypeHints: profile === "full",
-        includeParameterSchemas: profile === "full",
+        includeTypeHints: true,
+        includeParameterSchemas: true,
       },
     ),
     dts: dts ?? undefined,

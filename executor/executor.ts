@@ -19,7 +19,7 @@ Commands:
   doctor        Bootstrap and verify managed Convex backend runtime
   up            Run managed backend and auto-bootstrap Convex functions
   backend       Pass through arguments to managed convex-local-backend binary
-  web           Run packaged web UI (default port: 5312)
+  web           Run packaged web UI (expects backend already running)
   uninstall     Remove local managed runtime install
 `);
 }

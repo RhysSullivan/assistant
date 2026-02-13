@@ -196,6 +196,30 @@ describe("prepareOpenApiSpec with large specs", () => {
     expect(elapsed).toBeLessThan(20_000);
   });
 
+  test("inventory profile skips d.ts but preserves typed tool hints", async () => {
+    const spec = makeLargeSpec(3);
+    const prepared = await prepareOpenApiSpec(spec, "inventory-typed", { includeDts: false });
+
+    expect(prepared.dts).toBeUndefined();
+    expect(prepared.dtsStatus).toBe("skipped");
+
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "inventory-typed",
+        spec,
+        baseUrl: "https://api.example.com/v1",
+      },
+      prepared,
+    );
+
+    expect(tools).toHaveLength(9);
+    for (const tool of tools) {
+      expect(tool.metadata?.returnsType).not.toBe("unknown");
+      expect(tool.metadata?.argsType).not.toBe("Record<string, unknown>");
+    }
+  });
+
 
 });
 

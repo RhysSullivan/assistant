@@ -137,6 +137,7 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
     sourceQuality: inventoryData?.sourceQuality ?? {},
     sourceAuthProfiles: inventoryData?.sourceAuthProfiles ?? {},
     debug: inventoryData?.debug,
+    loadingSources: inventoryData?.debug?.timedOutSources ?? [],
     loadingTools: !!context && toolsLoading,
     refreshingTools: !!context && toolsFetching,
     loadingTypes: !!context && hasOpenApiSource && !!inventoryData && dtsLoading,

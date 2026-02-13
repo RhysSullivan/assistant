@@ -75,7 +75,7 @@ Common binary commands:
 
 ```bash
 executor doctor
-executor up
+executor up      # keep this running as the backend service
 executor backend --help
 executor web
 ```

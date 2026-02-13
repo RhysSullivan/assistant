@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Globe,
   Layers,
+  Loader2,
   Server,
   ShieldCheck,
 } from "lucide-react";
@@ -15,11 +16,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { sourceLabel, sourceType } from "@/lib/tool-source-utils";
 import { toolOperation, type ToolGroup } from "@/lib/tool-explorer-grouping";
-import type { ToolDescriptor } from "@/lib/types";
-import { SelectableToolRow } from "./explorer-rows";
+import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
+import { SelectableToolRow, ToolLoadingRows } from "./explorer-rows";
 
 export function GroupNode({
   group,
@@ -42,6 +43,10 @@ export function GroupNode({
 }) {
   const isExpanded = expandedKeys.has(group.key);
   const isSource = group.type === "source";
+  const isLoading =
+    group.type === "source" &&
+    typeof group.loadingPlaceholderCount === "number" &&
+    group.loadingPlaceholderCount > 0;
   const isGroupSelected = selectedKeys.has(group.key);
   const SourceIcon =
     group.sourceType === "mcp"
@@ -114,13 +119,26 @@ export function GroupNode({
                 {group.sourceType}
               </span>
             )}
-            {group.approvalCount > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-terminal-amber">
-                <ShieldCheck className="h-2.5 w-2.5" />
-                {group.approvalCount}
-              </span>
+            {isLoading ? (
+              <>
+                <span className="inline-flex items-center gap-0.5 text-muted-foreground/60">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                </span>
+                <span>
+                  <Skeleton className="h-3 w-6" />
+                </span>
+              </>
+            ) : (
+              <>
+                {group.approvalCount > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-terminal-amber">
+                    <ShieldCheck className="h-2.5 w-2.5" />
+                    {group.approvalCount}
+                  </span>
+                )}
+                <span className="tabular-nums">{group.childCount}</span>
+              </>
             )}
-            <span className="tabular-nums">{group.childCount}</span>
           </span>
         </div>
       </CollapsibleTrigger>
@@ -140,52 +158,82 @@ export function GroupNode({
                 search={search}
               />
             ))
-          : (group.children as ToolDescriptor[]).map((tool) => (
-              <SelectableToolRow
-                key={tool.path}
-                tool={tool}
-                label={search ? tool.path : toolOperation(tool.path)}
+          : isLoading
+            ? (
+              <ToolLoadingRows
+                source={group.label}
+                count={group.loadingPlaceholderCount ?? 0}
                 depth={depth + 1}
-                selectedKeys={selectedKeys}
-                onSelectTool={onSelectTool}
               />
-            ))}
+            )
+            : (group.children as ToolDescriptor[]).map((tool) => (
+                <SelectableToolRow
+                  key={tool.path}
+                  tool={tool}
+                  label={search ? tool.path : toolOperation(tool.path)}
+                  depth={depth + 1}
+                  selectedKeys={selectedKeys}
+                  onSelectTool={onSelectTool}
+                />
+              ))}
       </CollapsibleContent>
     </Collapsible>
   );
 }
 
 export function SourceSidebar({
-  tools,
+  sources,
+  sourceCounts,
+  loadingSources,
   activeSource,
   onSelectSource,
 }: {
-  tools: ToolDescriptor[];
+  sources: ToolSourceRecord[];
+  sourceCounts: Record<string, number>;
+  loadingSources: Set<string>;
   activeSource: string | null;
   onSelectSource: (source: string | null) => void;
 }) {
+  const totalToolCount = useMemo(
+    () => Object.values(sourceCounts).reduce((sum, count) => sum + count, 0),
+    [sourceCounts],
+  );
+  const hasLoadingSources = useMemo(
+    () => loadingSources.size > 0,
+    [loadingSources],
+  );
+
   const groups = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; type: string; count: number; approvalCount: number }
+      { name: string; type: string; count: number; isLoading: boolean }
     >();
 
-    for (const tool of tools) {
-      const name = sourceLabel(tool.source);
-      const type = sourceType(tool.source);
-      let group = map.get(name);
-      if (!group) {
-        group = { name, type, count: 0, approvalCount: 0 };
-        map.set(name, group);
+    for (const source of sources) {
+      if (!source.enabled) {
+        continue;
       }
-      group.count++;
-      if (tool.approval === "required") {
-        group.approvalCount++;
+
+      const count = sourceCounts[source.name] ?? 0;
+      const isLoading = loadingSources.has(source.name);
+
+      if (count === 0 && !isLoading) {
+        continue;
       }
+
+      map.set(source.name, {
+        name: source.name,
+        type: source.type,
+        count,
+        isLoading,
+      });
     }
 
-    return Array.from(map.values()).sort((a, b) => b.count - a.count);
-  }, [tools]);
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.count !== b.count) return b.count - a.count;
+      return a.name.localeCompare(b.name);
+    });
+  }, [sourceCounts, sources, loadingSources]);
 
   return (
     <div className="w-52 shrink-0 border-r border-border/50 pr-0 hidden lg:block">
@@ -194,6 +242,7 @@ export function SourceSidebar({
           Sources
         </p>
       </div>
+
       <div className="space-y-0.5 px-1">
         <button
           onClick={() => onSelectSource(null)}
@@ -207,7 +256,9 @@ export function SourceSidebar({
           <Layers className="h-3 w-3 shrink-0" />
           <span className="font-medium truncate">All sources</span>
           <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60">
-            {tools.length}
+            <span className="inline-flex items-center gap-1">
+              {hasLoadingSources ? <Skeleton className="h-3 w-8" /> : totalToolCount}
+            </span>
           </span>
         </button>
 
@@ -226,8 +277,15 @@ export function SourceSidebar({
             >
               <Icon className="h-3 w-3 shrink-0" />
               <span className="font-mono font-medium truncate">{g.name}</span>
-              <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60">
-                {g.count}
+              <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">
+                {g.isLoading ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <Skeleton className="h-3 w-4" />
+                  </>
+                ) : (
+                  g.count
+                )}
               </span>
             </button>
           );

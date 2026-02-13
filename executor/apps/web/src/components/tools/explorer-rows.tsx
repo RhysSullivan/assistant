@@ -10,6 +10,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ToolDescriptor } from "@/lib/types";
 import { CopyButton } from "./explorer-copy-button";
@@ -133,11 +134,13 @@ export function VirtualFlatList({
   tools,
   selectedKeys,
   onSelectTool,
+  loadingRows,
   scrollContainerRef,
 }: {
   tools: ToolDescriptor[];
   selectedKeys: Set<string>;
   onSelectTool: (path: string, e: React.MouseEvent) => void;
+  loadingRows?: { source: string; count: number }[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
@@ -156,6 +159,15 @@ export function VirtualFlatList({
             onSelectTool={onSelectTool}
           />
         ))}
+
+        {loadingRows?.map((loadingRow) => (
+          <ToolLoadingRows
+            key={loadingRow.source}
+            source={loadingRow.source}
+            count={loadingRow.count}
+            depth={0}
+          />
+        ))}
       </div>
     </div>
   );
@@ -170,6 +182,42 @@ export function EmptyState({ hasSearch }: { hasSearch: boolean }) {
       <p className="text-sm text-muted-foreground/60">
         {hasSearch ? "No tools match your search" : "No tools available"}
       </p>
+    </div>
+  );
+}
+
+export function ToolLoadingRows({
+  source,
+  count,
+  depth,
+}: {
+  source: string;
+  count: number;
+  depth: number;
+}) {
+  if (count <= 0) return null;
+
+  return (
+    <div>
+      {Array.from({ length: count }).map((_, idx) => (
+        <div
+          key={`${source}-loading-${idx}`}
+          className="px-2 py-1.5"
+          style={{ paddingLeft: `${depth * 20 + 8}px` }}
+        >
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded border border-muted/40 flex items-center justify-center shrink-0">
+              <Skeleton className="h-2.5 w-2.5 rounded" />
+            </div>
+
+            <Skeleton className="h-3.5 w-56 max-w-full" />
+
+            <div className="ml-auto w-10">
+              <Skeleton className="h-3.5 w-full" />
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

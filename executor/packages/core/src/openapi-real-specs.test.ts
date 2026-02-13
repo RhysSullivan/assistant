@@ -349,4 +349,33 @@ describe("real-world OpenAPI specs", () => {
     },
     300_000,
   );
+
+  test(
+    "cloudflare inventory mode: access apps keeps typed args and non-unknown returns",
+    async () => {
+      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
+
+      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare", { includeDts: false });
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "cloudflare",
+          spec: cloudflareUrl,
+          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "access-applications-list-access-applications",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("cloudflare.access_applications.list_access_applications");
+      expect(tool!.metadata!.argsType).toContain("account_id: string");
+      expect(tool!.metadata!.argsType).not.toContain("account_id: unknown");
+      expect(tool!.metadata!.returnsType).not.toBe("unknown");
+    },
+    300_000,
+  );
 });

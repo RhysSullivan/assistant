@@ -74,6 +74,7 @@ export function ToolsView({
     sourceQuality,
     sourceAuthProfiles,
     debug,
+    loadingSources,
     loadingTools,
     refreshingTools,
   } = useWorkspaceTools(context ?? null);
@@ -209,6 +210,7 @@ export function ToolsView({
                 <ToolExplorer
                   tools={tools}
                   sources={sourceItems}
+                  loadingSources={loadingSources}
                   loading={loadingTools}
                   warnings={warnings}
                   initialSource={initialSource}

@@ -74,45 +74,10 @@ export async function runManagedBackend(args: string[]): Promise<number> {
 
 export async function runManagedWeb(options: { port?: number } = {}): Promise<number> {
   const info = await ensureManagedRuntime();
-  let managedBackend: ReturnType<typeof Bun.spawn> | null = null;
-  let startedManagedBackend = false;
-
   try {
-    try {
-      await waitForBackendReady(info, 3_000);
-    } catch {
-      const backendEnv = {
-        ...process.env,
-        PATH: `${path.dirname(info.nodeBin)}:${process.env.PATH ?? ""}`,
-      };
-
-      try {
-        managedBackend = Bun.spawn([info.backendBinary, ...backendArgs(info, [])], {
-          env: backendEnv,
-          stdin: "ignore",
-          stdout: "inherit",
-          stderr: "inherit",
-        });
-        startedManagedBackend = true;
-        await waitForBackendReady(info);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[executor] could not auto-start managed backend: ${message}`);
-      }
-    }
-
-    if (startedManagedBackend) {
-      console.log("[executor] started managed Convex backend for web UI");
-    }
-
-    try {
-      await ensureProjectBootstrapped(info);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[executor] failed to auto-bootstrap Convex functions: ${message}`);
-    }
+    await waitForBackendReady(info, 1_000);
   } catch {
-    // Backend unavailable for now; web can still start and retry queries later.
+    console.warn("[executor] managed backend is not running. Start it with 'executor up' before using the web UI.");
   }
   await ensureNodeRuntime(info);
   await ensureWebBundle(info);
@@ -133,12 +98,6 @@ export async function runManagedWeb(options: { port?: number } = {}): Promise<nu
     cwd: info.webDir,
     env,
   });
-
-  if (managedBackend && startedManagedBackend) {
-    managedBackend.kill();
-    await managedBackend.exited;
-  }
-
   return proc.exitCode;
 }
 

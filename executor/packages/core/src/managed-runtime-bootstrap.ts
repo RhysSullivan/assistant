@@ -203,7 +203,7 @@ export async function ensureProjectBootstrapped(info: ManagedRuntimeInfo): Promi
     const deploy = await runManagedConvexCli(
       info,
       projectDir,
-      ["dev", "--once", "--typecheck", "disable", "--codegen", "disable"],
+      ["deploy", "--yes", "--typecheck", "disable", "--codegen", "disable"],
       envFilePath,
     );
 

@@ -265,7 +265,7 @@ if [[ -f "$WEB_INSTALL_DIR/server.js" ]]; then
 fi
 echo "Run:"
 echo "  executor doctor"
-echo "  executor up"
+echo "  executor up        # keep this running as the backend service"
 echo "  executor web       # defaults to http://localhost:5312"
 echo ""
 echo "To uninstall later:"
