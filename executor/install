@@ -326,6 +326,50 @@ stop_existing_services() {
   stop_pid_file "$BACKEND_PID_FILE"
 }
 
+is_convex_project_dir() {
+  local candidate="$1"
+  if [[ -z "$candidate" ]]; then
+    return 1
+  fi
+  [[ -f "$candidate/convex.json" ]]
+}
+
+resolve_project_dir() {
+  if [[ -n "${EXECUTOR_PROJECT_DIR:-}" ]] && is_convex_project_dir "$EXECUTOR_PROJECT_DIR"; then
+    printf "%s" "$EXECUTOR_PROJECT_DIR"
+    return
+  fi
+
+  local candidates=()
+  candidates+=("$PWD" "$PWD/executor")
+
+  if command -v git >/dev/null 2>&1; then
+    local git_root
+    git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$git_root" ]]; then
+      candidates+=("$git_root" "$git_root/executor")
+    fi
+  fi
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if is_convex_project_dir "$candidate"; then
+      printf "%s" "$candidate"
+      return
+    fi
+  done
+
+  printf ""
+}
+
+run_executor() {
+  if [[ -n "${PROJECT_DIR:-}" ]]; then
+    EXECUTOR_PROJECT_DIR="$PROJECT_DIR" "$INSTALL_DIR/$APP" "$@"
+  else
+    "$INSTALL_DIR/$APP" "$@"
+  fi
+}
+
 start_background_services() {
   mkdir -p "$SERVICE_DIR"
   mkdir -p "$LOG_DIR"
@@ -335,12 +379,16 @@ start_background_services() {
 
   if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version" 2; then
     echo -e "${MUTED}Managed backend already running${NC} http://127.0.0.1:${BACKEND_PORT}"
-    "$INSTALL_DIR/$APP" up >>"$LOG_DIR/backend.log" 2>&1 || true
+    run_executor up >>"$LOG_DIR/backend.log" 2>&1 || true
   elif [[ -f "$BACKEND_PID_FILE" ]]; then
     echo -e "${MUTED}Managed backend already tracked${NC} (pid $(cat "$BACKEND_PID_FILE"))"
-    "$INSTALL_DIR/$APP" up >>"$LOG_DIR/backend.log" 2>&1 || true
+    run_executor up >>"$LOG_DIR/backend.log" 2>&1 || true
   else
-    nohup "$INSTALL_DIR/$APP" up >"$LOG_DIR/backend.log" 2>&1 &
+    if [[ -n "$PROJECT_DIR" ]]; then
+      nohup env EXECUTOR_PROJECT_DIR="$PROJECT_DIR" "$INSTALL_DIR/$APP" up >"$LOG_DIR/backend.log" 2>&1 &
+    else
+      nohup "$INSTALL_DIR/$APP" up >"$LOG_DIR/backend.log" 2>&1 &
+    fi
     echo "$!" > "$BACKEND_PID_FILE"
     if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version"; then
       echo -e "${MUTED}Started managed backend${NC} http://127.0.0.1:${BACKEND_PORT}"
@@ -354,7 +402,11 @@ start_background_services() {
   elif [[ -f "$WEB_PID_FILE" ]]; then
     echo -e "${MUTED}Web UI already tracked${NC} (pid $(cat "$WEB_PID_FILE"))"
   else
-    nohup "$INSTALL_DIR/$APP" web >"$LOG_DIR/web.log" 2>&1 &
+    if [[ -n "$PROJECT_DIR" ]]; then
+      nohup env EXECUTOR_PROJECT_DIR="$PROJECT_DIR" "$INSTALL_DIR/$APP" web >"$LOG_DIR/web.log" 2>&1 &
+    else
+      nohup "$INSTALL_DIR/$APP" web >"$LOG_DIR/web.log" 2>&1 &
+    fi
     echo "$!" > "$WEB_PID_FILE"
     if wait_for_http "http://127.0.0.1:${WEB_PORT}/"; then
       echo -e "${MUTED}Started web UI${NC} http://127.0.0.1:${WEB_PORT}"
@@ -362,6 +414,31 @@ start_background_services() {
       echo -e "${MUTED}Web UI is still initializing${NC} (continuing readiness checks)"
     fi
   fi
+}
+
+ensure_project_bootstrapped() {
+  if [[ -z "$PROJECT_DIR" ]]; then
+    echo -e "${MUTED}No local Convex project detected; skipping function bootstrap verification${NC}"
+    return 0
+  fi
+
+  if run_executor doctor >/dev/null 2>&1; then
+    echo -e "${MUTED}Convex functions bootstrapped${NC}"
+    return 0
+  fi
+
+  echo -e "${MUTED}Ensuring Convex functions are bootstrapped${NC}"
+  run_executor up >>"$LOG_DIR/backend.log" 2>&1 || true
+
+  if run_executor doctor >/dev/null 2>&1; then
+    echo -e "${MUTED}Convex functions bootstrapped${NC}"
+    return 0
+  fi
+
+  echo -e "${RED}Convex functions are not fully bootstrapped yet.${NC}"
+  echo "  Run: EXECUTOR_PROJECT_DIR=$PROJECT_DIR executor up"
+  echo "  Check: $INSTALL_DIR/$APP doctor --verbose"
+  return 1
 }
 
 wait_for_executor_ready() {
@@ -454,6 +531,13 @@ wait_for_executor_ready() {
 
 stop_existing_services
 install_web_bundle
+PROJECT_DIR="$(resolve_project_dir)"
+
+if [[ -n "$PROJECT_DIR" ]]; then
+  echo -e "${MUTED}Detected local Convex project${NC} $PROJECT_DIR"
+else
+  echo -e "${MUTED}No local Convex project detected from current directory${NC}"
+fi
 
 if [[ "$NO_MODIFY_PATH" != "1" ]]; then
   shell_name="$(basename "${SHELL:-}")"
@@ -473,6 +557,7 @@ fi
 
 start_background_services
 wait_for_executor_ready || true
+ensure_project_bootstrapped || true
 
 echo ""
 echo "Installed to: $INSTALL_DIR/$APP"

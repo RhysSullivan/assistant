@@ -78,6 +78,7 @@ function assertSuccess(result: CommandResult, label: string): void {
 
 test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
   const repoRoot = repositoryRoot();
+  const installCwd = path.dirname(repoRoot);
   const installScript = path.join(repoRoot, "install");
   const binaryPath = path.join(repoRoot, "dist", "executor");
 
@@ -113,7 +114,6 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
     EXECUTOR_BACKEND_PORT: backendPort,
     EXECUTOR_BACKEND_SITE_PORT: sitePort,
     EXECUTOR_WEB_PORT: webPort,
-    EXECUTOR_PROJECT_DIR: repoRoot,
   };
 
   try {
@@ -134,7 +134,7 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
       "--no-modify-path",
       "--no-star-prompt",
     ], {
-      cwd: repoRoot,
+      cwd: installCwd,
       env,
       timeoutMs: 420_000,
     });
@@ -142,13 +142,6 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
 
     expect(await pathExists(installedBinary)).toBe(true);
     expect(await pathExists(path.join(webDir, "server.js"))).toBe(true);
-
-    const bootstrap = await runCommand([installedBinary, "up"], {
-      cwd: repoRoot,
-      env,
-      timeoutMs: 300_000,
-    });
-    assertSuccess(bootstrap, "bootstrap via up");
 
     const doctor = await runCommand([installedBinary, "doctor", "--verbose"], {
       cwd: repoRoot,
