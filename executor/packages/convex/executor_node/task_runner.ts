@@ -14,7 +14,50 @@ import { runCodeWithAdapter } from "../../core/src/runtimes/runtime-core";
 import type { TaskRecord } from "../../core/src/types";
 import { describeError } from "../../core/src/utils";
 import { publishTaskEvent } from "./events";
+import { taskTerminalEventType } from "../task-status";
+import { markTaskFinished } from "../task-finish";
 import { invokeTool } from "./tool_invocation";
+
+async function markTaskFailedAndPublish(
+  ctx: ActionCtx,
+  args: { taskId: string; error: string },
+): Promise<void> {
+  const failed = await markTaskFinished(ctx, {
+    taskId: args.taskId,
+    status: "failed",
+    error: args.error,
+  });
+
+  if (!failed) {
+    return;
+  }
+
+  await publishTaskEvent(ctx, args.taskId, "task", "task.failed", {
+    taskId: args.taskId,
+    status: failed.status,
+    error: failed.error,
+    ...(failed.completedAt ? { completedAt: failed.completedAt } : {}),
+  });
+}
+
+async function publishTerminalTaskResult(
+  ctx: ActionCtx,
+  args: {
+    taskId: string;
+    status: "completed" | "failed" | "timed_out" | "denied";
+    finished: TaskRecord;
+    durationMs?: number;
+  },
+): Promise<void> {
+  await publishTaskEvent(ctx, args.taskId, "task", taskTerminalEventType(args.status), {
+    taskId: args.taskId,
+    status: args.finished.status,
+    exitCode: args.finished.exitCode,
+    durationMs: args.durationMs,
+    error: args.finished.error,
+    completedAt: args.finished.completedAt,
+  });
+}
 
 export async function runQueuedTask(
   ctx: ActionCtx,
@@ -26,36 +69,18 @@ export async function runQueuedTask(
   }
 
   if (!isKnownRuntimeId(task.runtimeId)) {
-    const failed = await ctx.runMutation(internal.database.markTaskFinished as any, {
+    await markTaskFailedAndPublish(ctx, {
       taskId: args.taskId,
-      status: "failed",
       error: `Runtime not found: ${task.runtimeId}`,
     });
-
-    if (failed) {
-      await publishTaskEvent(ctx, args.taskId, "task", "task.failed", {
-        taskId: args.taskId,
-        status: failed.status,
-        error: failed.error,
-      });
-    }
     return null;
   }
 
   if (task.runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID && !isCloudflareWorkerLoaderConfigured()) {
-    const failed = await ctx.runMutation(internal.database.markTaskFinished as any, {
+    await markTaskFailedAndPublish(ctx, {
       taskId: args.taskId,
-      status: "failed",
       error: `Runtime is not configured: ${task.runtimeId}`,
     });
-
-    if (failed) {
-      await publishTaskEvent(ctx, args.taskId, "task", "task.failed", {
-        taskId: args.taskId,
-        status: failed.status,
-        error: failed.error,
-      });
-    }
     return null;
   }
 
@@ -81,24 +106,14 @@ export async function runQueuedTask(
       });
 
       if (!dispatchResult.ok) {
-        const failed = await ctx.runMutation(internal.database.markTaskFinished as any, {
+        await markTaskFailedAndPublish(ctx, {
           taskId: args.taskId,
-          status: "failed",
           error: dispatchResult.error,
         });
-
-        if (failed) {
-          await publishTaskEvent(ctx, args.taskId, "task", "task.failed", {
-            taskId: args.taskId,
-            status: failed.status,
-            error: failed.error,
-            completedAt: failed.completedAt,
-          });
-        }
         return null;
       }
 
-      const finished = await ctx.runMutation(internal.database.markTaskFinished as any, {
+      const finished = await markTaskFinished(ctx, {
         taskId: args.taskId,
         status: dispatchResult.status,
         result: dispatchResult.result,
@@ -110,22 +125,11 @@ export async function runQueuedTask(
         return null;
       }
 
-      const terminalEvent =
-        dispatchResult.status === "completed"
-          ? "task.completed"
-          : dispatchResult.status === "timed_out"
-            ? "task.timed_out"
-            : dispatchResult.status === "denied"
-              ? "task.denied"
-              : "task.failed";
-
-      await publishTaskEvent(ctx, args.taskId, "task", terminalEvent, {
+      await publishTerminalTaskResult(ctx, {
         taskId: args.taskId,
-        status: finished.status,
-        exitCode: finished.exitCode,
+        status: dispatchResult.status,
+        finished,
         durationMs: dispatchResult.durationMs,
-        error: finished.error,
-        completedAt: finished.completedAt,
       });
       return null;
     }
@@ -146,7 +150,7 @@ export async function runQueuedTask(
       );
     })();
 
-    const finished = await ctx.runMutation(internal.database.markTaskFinished as any, {
+    const finished = await markTaskFinished(ctx, {
       taskId: args.taskId,
       status: runtimeResult.status,
       result: runtimeResult.result,
@@ -158,38 +162,26 @@ export async function runQueuedTask(
       return null;
     }
 
-    const terminalEvent =
-      runtimeResult.status === "completed"
-        ? "task.completed"
-        : runtimeResult.status === "timed_out"
-          ? "task.timed_out"
-          : runtimeResult.status === "denied"
-            ? "task.denied"
-            : "task.failed";
-
-    await publishTaskEvent(ctx, args.taskId, "task", terminalEvent, {
+    await publishTerminalTaskResult(ctx, {
       taskId: args.taskId,
-      status: finished.status,
-      exitCode: finished.exitCode,
+      status: runtimeResult.status,
+      finished,
       durationMs: runtimeResult.durationMs,
-      error: finished.error,
-      completedAt: finished.completedAt,
     });
   } catch (error) {
     const message = describeError(error);
     const denied = message.startsWith(APPROVAL_DENIED_PREFIX);
-    const finished = await ctx.runMutation(internal.database.markTaskFinished as any, {
+    const finished = await markTaskFinished(ctx, {
       taskId: args.taskId,
       status: denied ? "denied" : "failed",
       error: denied ? message.replace(APPROVAL_DENIED_PREFIX, "") : message,
     });
 
     if (finished) {
-      await publishTaskEvent(ctx, args.taskId, "task", denied ? "task.denied" : "task.failed", {
+      await publishTerminalTaskResult(ctx, {
         taskId: args.taskId,
-        status: finished.status,
-        error: finished.error,
-        completedAt: finished.completedAt,
+        status: denied ? "denied" : "failed",
+        finished,
       });
     }
   }

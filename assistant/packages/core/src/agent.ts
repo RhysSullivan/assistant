@@ -77,8 +77,10 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 export interface AgentOptions {
   readonly executorUrl: string;
   readonly workspaceId: string;
-  readonly actorId: string;
+  readonly actorId?: string;
   readonly clientId?: string;
+  readonly sessionId?: string;
+  readonly mcpAccessToken?: string;
   readonly apiKey?: string;
   readonly modelId?: string;
   readonly context?: string;
@@ -152,6 +154,8 @@ export function createAgent(options: AgentOptions) {
     workspaceId,
     actorId,
     clientId,
+    sessionId,
+    mcpAccessToken,
     apiKey,
     modelId = "claude-sonnet-4-5",
     context,
@@ -192,10 +196,22 @@ export function createAgent(options: AgentOptions) {
       emit({ type: "status", message: "Connecting..." });
       const mcpUrl = new URL(`${executorBaseUrl}/mcp`);
       mcpUrl.searchParams.set("workspaceId", workspaceId);
-      mcpUrl.searchParams.set("actorId", actorId);
+      if (actorId) mcpUrl.searchParams.set("actorId", actorId);
       if (clientId) mcpUrl.searchParams.set("clientId", clientId);
+      if (sessionId) mcpUrl.searchParams.set("sessionId", sessionId);
 
-      const transport = new StreamableHTTPClientTransport(mcpUrl);
+      const transport = mcpAccessToken
+        ? new StreamableHTTPClientTransport(mcpUrl, {
+            fetch: async (input, init) => {
+              const headers = new Headers(init?.headers);
+              headers.set("authorization", `Bearer ${mcpAccessToken}`);
+              return await fetch(input, {
+                ...init,
+                headers,
+              });
+            },
+          })
+        : new StreamableHTTPClientTransport(mcpUrl);
       const mcp = new Client({ name: "assistant-agent", version: "0.1.0" });
 
       let mcpConnected = false;

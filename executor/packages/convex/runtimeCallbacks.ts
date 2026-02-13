@@ -45,7 +45,7 @@ export const completeRun = mutation({
   handler: async (ctx, args) => {
     requireInternalSecret(args.internalSecret);
 
-    return await ctx.runMutation(internal.executor.completeRuntimeRun as any, {
+    return await ctx.runMutation(internal.executor.completeRuntimeRun, {
       runId: args.runId,
       status: args.status,
       result: args.result,

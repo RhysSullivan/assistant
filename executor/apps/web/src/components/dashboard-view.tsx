@@ -1,250 +1,41 @@
 "use client";
 
-import { useMemo } from "react";
-import { useNavigate } from "react-router";
-import {
-  Play,
-  ShieldCheck,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  ArrowRight,
-  Wrench,
-  ChevronRight,
-  Server,
-  Globe,
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { CheckCircle2, Play, ShieldCheck, XCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
-import { TaskStatusBadge } from "@/components/status-badge";
+import { DashboardSetupCard } from "@/components/dashboard-setup-card";
+import { DashboardStatCard } from "@/components/dashboard-stat-card";
+import { DashboardPendingApprovalsCard } from "@/components/dashboard-pending-approvals-card";
+import { DashboardRecentTasksCard } from "@/components/dashboard-recent-tasks-card";
+import { DashboardToolsSummaryCard } from "@/components/dashboard-tools-summary-card";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
-import type { TaskRecord, PendingApprovalRecord, ToolDescriptor } from "@/lib/types";
-import { formatTime, formatTimeAgo } from "@/lib/format";
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  accent,
-}: {
-  label: string;
-  value: number | string;
-  icon: React.ComponentType<{ className?: string }>;
-  accent?: "green" | "amber" | "red" | "default";
-}) {
-  const accentClass = {
-    green: "text-terminal-green",
-    amber: "text-terminal-amber",
-    red: "text-terminal-red",
-    default: "text-muted-foreground",
-  }[accent ?? "default"];
-
-  return (
-    <Card className="bg-card border-border">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
-              {label}
-            </p>
-            <p className={`text-2xl font-semibold mt-1 font-mono ${accentClass}`}>
-              {value}
-            </p>
-          </div>
-          <div className={`${accentClass} opacity-40`}>
-            <Icon className="h-8 w-8" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function PendingApprovalRow({ approval }: { approval: PendingApprovalRecord }) {
-  const navigate = useNavigate();
-  return (
-    <button
-      onClick={() => navigate(`/tasks?selected=${approval.taskId}`)}
-      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left group"
-    >
-      <div className="h-2 w-2 rounded-full bg-terminal-amber pulse-dot shrink-0" />
-      <div className="flex-1 min-w-0">
-        <span className="text-sm font-mono text-foreground">
-          {approval.toolPath}
-        </span>
-        <span className="text-[11px] text-muted-foreground ml-2">
-          {formatTimeAgo(approval.createdAt)}
-        </span>
-      </div>
-      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-    </button>
-  );
-}
-
-function RecentTaskRow({ task }: { task: TaskRecord }) {
-  const navigate = useNavigate();
-  return (
-    <button
-      onClick={() => navigate(`/tasks?selected=${task.id}`)}
-      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left group"
-    >
-      <div className="flex-1 min-w-0">
-        <span className="text-sm font-mono text-foreground truncate block">
-          {task.id}
-        </span>
-        <span className="text-[11px] text-muted-foreground">
-          {task.runtimeId} &middot; {formatTime(task.createdAt)}
-        </span>
-      </div>
-      <TaskStatusBadge status={task.status} />
-    </button>
-  );
-}
-
-/** Derive the "source name" from a tool's source field (e.g. "openapi:github" → "github"). */
-function sourceLabel(source?: string): string {
-  if (!source) return "built-in";
-  const colonIdx = source.indexOf(":");
-  return colonIdx >= 0 ? source.slice(colonIdx + 1) : source;
-}
-
-/** Derive the source type prefix (e.g. "openapi", "mcp", "graphql"). */
-function sourceType(source?: string): string {
-  if (!source) return "local";
-  const colonIdx = source.indexOf(":");
-  return colonIdx >= 0 ? source.slice(0, colonIdx) : "local";
-}
-
-function ToolsSummaryCard({ tools }: { tools: ToolDescriptor[] }) {
-  const navigate = useNavigate();
-
-  const groups = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        name: string;
-        type: string;
-        tools: ToolDescriptor[];
-        namespaces: Set<string>;
-        approvalCount: number;
-      }
-    >();
-
-    for (const tool of tools) {
-      const name = sourceLabel(tool.source);
-      const type = sourceType(tool.source);
-      let group = map.get(name);
-      if (!group) {
-        group = { name, type, tools: [], namespaces: new Set(), approvalCount: 0 };
-        map.set(name, group);
-      }
-      group.tools.push(tool);
-      // Extract namespace: first two segments of the path (e.g. "github.repos" from "github.repos.list")
-      const parts = tool.path.split(".");
-      if (parts.length >= 2) {
-        group.namespaces.add(`${parts[0]}.${parts[1]}`);
-      }
-      if (tool.approval === "required") {
-        group.approvalCount++;
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => b.tools.length - a.tools.length);
-  }, [tools]);
-
-  const totalApprovals = tools.filter((t) => t.approval === "required").length;
-
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Wrench className="h-4 w-4 text-muted-foreground" />
-            Tool Sources
-            <span className="text-[10px] font-mono bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-              {tools.length} tools
-            </span>
-            {totalApprovals > 0 && (
-              <span className="text-[10px] font-mono bg-terminal-amber/10 text-terminal-amber px-1.5 py-0.5 rounded">
-                {totalApprovals} gated
-              </span>
-            )}
-          </CardTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs h-7"
-            onClick={() => navigate("/tools")}
-          >
-            Manage
-            <ArrowRight className="h-3 w-3 ml-1" />
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="grid gap-1">
-          {groups.map((group) => {
-            const SourceIcon = group.type === "mcp" ? Server : Globe;
-            return (
-              <button
-                key={group.name}
-                onClick={() => navigate(`/tools?source=${encodeURIComponent(group.name)}`)}
-                className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-accent/40 transition-colors text-left group/row w-full"
-              >
-                <div className="h-7 w-7 rounded bg-muted flex items-center justify-center shrink-0">
-                  <SourceIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-mono font-medium text-foreground">
-                      {group.name}
-                    </span>
-                    <span className="text-[10px] font-mono text-muted-foreground/70 uppercase tracking-wider">
-                      {group.type}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-muted-foreground">
-                    {group.tools.length} tool{group.tools.length !== 1 ? "s" : ""}
-                    {group.namespaces.size > 0 && (
-                      <> · {group.namespaces.size} namespace{group.namespaces.size !== 1 ? "s" : ""}</>
-                    )}
-                    {group.approvalCount > 0 && (
-                      <> · <span className="text-terminal-amber">{group.approvalCount} gated</span></>
-                    )}
-                  </span>
-                </div>
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 opacity-0 group-hover/row:opacity-100 transition-opacity shrink-0" />
-              </button>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+import {
+  getPendingApprovals,
+  getRecentTasks,
+  getSetupSteps,
+  getTaskStats,
+} from "@/components/dashboard-view-helpers";
+import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 
 export function DashboardView() {
   const { context, loading: sessionLoading } = useSession();
 
   const tasks = useQuery(
     convexApi.workspace.listTasks,
-    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
+    workspaceQueryArgs(context),
   );
 
   const approvals = useQuery(
     convexApi.workspace.listPendingApprovals,
-    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
+    workspaceQueryArgs(context),
   );
 
   const sources = useQuery(
     convexApi.workspace.listToolSources,
-    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
+    workspaceQueryArgs(context),
   );
 
   const { tools } = useWorkspaceTools(context ?? null);
@@ -265,38 +56,10 @@ export function DashboardView() {
   const pendingCount = approvals?.length ?? 0;
   const sourceCount = sources?.length ?? 0;
   const taskItems = tasks ?? [];
-  const runningCount =
-    tasks?.filter((t: TaskRecord) => t.status === "running").length ?? 0;
-  const completedCount =
-    tasks?.filter((t: TaskRecord) => t.status === "completed").length ?? 0;
-  const failedCount =
-    tasks?.filter((t: TaskRecord) => ["failed", "timed_out", "denied"].includes(t.status))
-      .length ?? 0;
-  const recentTasks = taskItems.slice(0, 8);
-
-  const setupSteps = [
-    {
-      label: "Connect a tool source",
-      done: sourceCount > 0,
-      href: "/tools",
-      pendingText: "Add MCP, OpenAPI, or GraphQL",
-      doneText: `${sourceCount} source${sourceCount === 1 ? "" : "s"} connected`,
-    },
-    {
-      label: "Run a first task",
-      done: taskItems.length > 0,
-      href: "/tasks",
-      pendingText: "Use the advanced runner to execute code",
-      doneText: `${taskItems.length} task${taskItems.length === 1 ? "" : "s"} recorded`,
-    },
-    {
-      label: "Review gated calls",
-      done: pendingCount === 0,
-      href: "/approvals",
-      pendingText: `${pendingCount} approval${pendingCount === 1 ? "" : "s"} waiting`,
-      doneText: "Approval queue is clear",
-    },
-  ];
+  const { runningCount, completedCount, failedCount } = getTaskStats(taskItems);
+  const recentTasks = getRecentTasks(taskItems);
+  const pendingApprovals = getPendingApprovals(approvals ?? []);
+  const setupSteps = getSetupSteps({ sourceCount, taskCount: taskItems.length, pendingCount });
 
   return (
     <div className="space-y-6">
@@ -305,75 +68,28 @@ export function DashboardView() {
         description="Start from the current status, then jump straight to execution"
       />
 
-      <Card className="border-border bg-gradient-to-br from-card to-muted/25">
-        <CardContent className="p-5 md:p-6 space-y-5">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-1.5 max-w-2xl">
-              <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Landing View</p>
-              <h2 className="text-lg font-semibold tracking-tight">
-                {taskItems.length === 0
-                  ? "Connect tools and run your first task"
-                  : "Your task activity and approval queue are live"}
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Tasks is the primary workflow. Use the advanced runner only when you want direct code execution.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button asChild size="sm" className="h-8 text-xs">
-                <a href="/tasks">Open task activity</a>
-              </Button>
-              <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                <a href="/tools">Manage tools</a>
-              </Button>
-            </div>
-          </div>
+      <DashboardSetupCard taskCount={taskItems.length} setupSteps={setupSteps} />
 
-          <div className="grid gap-2 md:grid-cols-3">
-            {setupSteps.map((step) => (
-              <a
-                key={step.label}
-                href={step.href}
-                className="rounded-md border border-border/70 bg-background/70 px-3 py-2.5 hover:bg-accent/25 transition-colors"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-foreground">{step.label}</span>
-                  {step.done ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-terminal-green" />
-                  ) : (
-                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                  )}
-                </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {step.done ? step.doneText : step.pendingText}
-                </p>
-              </a>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
+        <DashboardStatCard
           label="Pending Approvals"
           value={pendingCount}
           icon={ShieldCheck}
           accent={pendingCount > 0 ? "amber" : "default"}
         />
-        <StatCard
+        <DashboardStatCard
           label="Running"
           value={runningCount}
           icon={Play}
           accent={runningCount > 0 ? "green" : "default"}
         />
-        <StatCard
+        <DashboardStatCard
           label="Completed"
           value={completedCount}
           icon={CheckCircle2}
           accent="green"
         />
-        <StatCard
+        <DashboardStatCard
           label="Failed"
           value={failedCount}
           icon={XCircle}
@@ -381,83 +97,12 @@ export function DashboardView() {
         />
       </div>
 
-      {/* Two column layout */}
       <div className="grid lg:grid-cols-2 gap-6">
-        {/* Pending approvals */}
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-terminal-amber" />
-                Pending Approvals
-                {pendingCount > 0 && (
-                  <span className="text-[10px] font-mono bg-terminal-amber/15 text-terminal-amber px-1.5 py-0.5 rounded">
-                    {pendingCount}
-                  </span>
-                )}
-              </CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs h-7"
-                asChild
-              >
-                <a href="/approvals">View all</a>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {pendingCount === 0 ? (
-              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-4 w-4 mr-2 text-terminal-green/50" />
-                No pending approvals
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                {(approvals ?? []).slice(0, 5).map((a: PendingApprovalRecord) => (
-                  <PendingApprovalRow key={a.id} approval={a} />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Recent tasks */}
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                Recent Tasks
-              </CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs h-7"
-                asChild
-              >
-                <a href="/tasks">View all</a>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {recentTasks.length === 0 ? (
-              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                No tasks yet
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                {recentTasks.map((t: TaskRecord) => (
-                  <RecentTaskRow key={t.id} task={t} />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <DashboardPendingApprovalsCard pendingCount={pendingCount} approvals={pendingApprovals} />
+        <DashboardRecentTasksCard recentTasks={recentTasks} />
       </div>
 
-      {/* Tools summary — grouped by source */}
-      {tools.length > 0 && <ToolsSummaryCard tools={tools} />}
+      {tools.length > 0 && <DashboardToolsSummaryCard tools={tools} />}
     </div>
   );
 }

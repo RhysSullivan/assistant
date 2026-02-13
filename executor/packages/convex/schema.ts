@@ -186,6 +186,8 @@ export default defineSchema({
     timeoutMs: v.number(),
     metadata: v.any(),
     error: v.optional(v.string()),
+    stdout: v.optional(v.string()),
+    stderr: v.optional(v.string()),
     result: v.optional(v.any()),
     exitCode: v.optional(v.number()),
     createdAt: v.number(),

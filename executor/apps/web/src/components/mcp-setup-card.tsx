@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -118,7 +119,14 @@ export function McpSetupCard({
             {MCP_PROVIDERS.map((item) => (
               <SelectItem key={item.id} value={item.id} className="text-xs">
                 <div className="flex items-center gap-2">
-                  <img src={item.icon} alt="" className="h-3.5 w-3.5 rounded-sm" />
+                  <Image
+                    src={item.icon}
+                    alt=""
+                    width={14}
+                    height={14}
+                    className="h-3.5 w-3.5 rounded-sm"
+                    unoptimized
+                  />
                   <span>{item.name}</span>
                 </div>
               </SelectItem>

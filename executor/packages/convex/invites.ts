@@ -1,12 +1,16 @@
-import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { organizationMutation, organizationQuery } from "../core/src/function-builders";
-
-const workosEnabled = Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY);
-const workosClient = process.env.WORKOS_API_KEY ? new WorkOS(process.env.WORKOS_API_KEY) : null;
-type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
+import {
+  createWorkosOrganization,
+  ensureWorkosOrganizationMembership,
+  mapRoleToWorkosRoleSlug,
+  revokeWorkosInvitation,
+  sendWorkosInvitation,
+  updateWorkosOrganizationName,
+  workosEnabled,
+} from "./invites-workos";
 
 const organizationRoleValidator = v.union(
   v.literal("owner"),
@@ -14,98 +18,6 @@ const organizationRoleValidator = v.union(
   v.literal("member"),
   v.literal("billing_admin"),
 );
-
-type WorkosInvitationResponse = {
-  id: string;
-  state: string;
-  expires_at?: string;
-};
-
-function requireWorkosClient(): WorkOS {
-  if (!workosClient) {
-    throw new Error("WORKOS_API_KEY is required for WorkOS invite operations");
-  }
-  return workosClient;
-}
-
-async function sendWorkosInvitation(args: {
-  email: string;
-  workosOrgId: string;
-  inviterWorkosUserId: string;
-  expiresInDays?: number;
-  roleSlug?: string;
-}): Promise<WorkosInvitationResponse> {
-  const workos = requireWorkosClient();
-  const invitation = await workos.userManagement.sendInvitation({
-    email: args.email,
-    organizationId: args.workosOrgId,
-    inviterUserId: args.inviterWorkosUserId,
-    expiresInDays: args.expiresInDays,
-    roleSlug: args.roleSlug,
-  });
-
-  return {
-    id: invitation.id,
-    state: invitation.state,
-    expires_at: invitation.expiresAt ?? undefined,
-  };
-}
-
-async function createWorkosOrganization(name: string): Promise<{ id: string }> {
-  const workos = requireWorkosClient();
-  const organization = await workos.organizations.createOrganization({ name });
-  return {
-    id: organization.id,
-  };
-}
-
-async function updateWorkosOrganizationName(workosOrgId: string, name: string): Promise<void> {
-  const workos = requireWorkosClient();
-  await workos.organizations.updateOrganization({
-    organization: workosOrgId,
-    name,
-  });
-}
-
-function isDuplicateWorkosMembershipError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-  return message.includes("already") && (message.includes("membership") || message.includes("organization"));
-}
-
-async function ensureWorkosOrganizationMembership(args: { workosOrgId: string; workosUserId: string }): Promise<void> {
-  const workos = requireWorkosClient();
-
-  try {
-    await workos.userManagement.createOrganizationMembership({
-      organizationId: args.workosOrgId,
-      userId: args.workosUserId,
-    });
-  } catch (error) {
-    if (isDuplicateWorkosMembershipError(error)) {
-      return;
-    }
-    throw error;
-  }
-}
-
-async function revokeWorkosInvitation(invitationId: string): Promise<void> {
-  const workos = requireWorkosClient();
-  await workos.userManagement.revokeInvitation(invitationId);
-}
-
-function mapRoleToWorkosRoleSlug(role: OrganizationRole): string | undefined {
-  if (role === "admin" || role === "owner") {
-    return "admin";
-  }
-  if (role === "member") {
-    return "member";
-  }
-  return undefined;
-}
 
 function normalizePersonalOrganizationName(name: string): string {
   const match = name.match(/^(.*)'s Workspace$/i);

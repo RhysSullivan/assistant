@@ -4,18 +4,12 @@ import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action } from "./_generated/server";
+import { asRecord } from "./lib/object";
 
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProviderValidator = v.union(v.literal("local-convex"), v.literal("workos-vault"));
 
 type SecretBackend = "local-convex" | "workos-vault";
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
 
 function normalizedActorId(scope: "workspace" | "actor", actorId?: string): string {
   if (scope !== "actor") return "";

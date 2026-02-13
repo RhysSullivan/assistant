@@ -8,17 +8,11 @@
     "start": "bun with-env bun src/index.ts"
   },
   "dependencies": {
-    "@assistant/core": "workspace:*",
     "@assistant/server": "workspace:*",
     "@elysiajs/eden": "latest",
-    "@openassistant/reacord": "workspace:*",
-    "convex": "^1.31.7",
-    "discord.js": "^14.17.3",
-    "effect": "latest",
-    "react": "^19.0.0"
+    "discord.js": "^14.25.1"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/react": "^19.0.0"
+    "@types/bun": "latest"
   }
 }

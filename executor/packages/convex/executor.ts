@@ -7,28 +7,10 @@ import { workspaceMutation } from "../core/src/function-builders";
 import { actorIdForAccount } from "../core/src/identity";
 import { isKnownRuntimeId } from "../core/src/runtimes/runtime-catalog";
 import type { ApprovalRecord, TaskRecord } from "../core/src/types";
-
-const DEFAULT_TIMEOUT_MS = 300_000;
-
-async function publishTaskEvent(
-  ctx: MutationCtx,
-  input: {
-    taskId: string;
-    eventName: string;
-    type: string;
-    payload: Record<string, unknown>;
-  },
-): Promise<void> {
-  await ctx.runMutation(internal.database.createTaskEvent, input);
-}
-
-function terminalEventForStatus(status: "completed" | "failed" | "timed_out" | "denied"):
-  "task.completed" | "task.failed" | "task.timed_out" | "task.denied" {
-  if (status === "completed") return "task.completed";
-  if (status === "timed_out") return "task.timed_out";
-  if (status === "denied") return "task.denied";
-  return "task.failed";
-}
+import { isTerminalTaskStatus, taskTerminalEventType } from "./task-status";
+import { DEFAULT_TASK_TIMEOUT_MS } from "./task-constants";
+import { createTaskEvent } from "./task-events";
+import { markTaskFinished } from "./task-finish";
 
 async function createTaskRecord(
   ctx: MutationCtx,
@@ -57,14 +39,14 @@ async function createTaskRecord(
     id: taskId,
     code: args.code,
     runtimeId,
-    timeoutMs: args.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    timeoutMs: args.timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS,
     metadata: args.metadata,
     workspaceId: args.workspaceId,
     actorId: args.actorId,
     clientId: args.clientId,
   })) as TaskRecord;
 
-  await publishTaskEvent(ctx, {
+  await createTaskEvent(ctx, {
     taskId,
     eventName: "task",
     type: "task.created",
@@ -80,7 +62,7 @@ async function createTaskRecord(
     },
   });
 
-  await publishTaskEvent(ctx, {
+  await createTaskEvent(ctx, {
     taskId,
     eventName: "task",
     type: "task.queued",
@@ -127,7 +109,7 @@ async function resolveApprovalRecord(
     return null;
   }
 
-  await publishTaskEvent(ctx, {
+  await createTaskEvent(ctx, {
     taskId: approval.taskId,
     eventName: "approval",
     type: "approval.resolved",
@@ -241,11 +223,11 @@ export const completeRuntimeRun = internalMutation({
       return { ok: false as const, error: `Run not found: ${args.runId}` };
     }
 
-    if (task.status === "completed" || task.status === "failed" || task.status === "timed_out" || task.status === "denied") {
+    if (isTerminalTaskStatus(task.status)) {
       return { ok: true as const, alreadyFinal: true as const, task };
     }
 
-    const finished = await ctx.runMutation(internal.database.markTaskFinished as any, {
+    const finished = await markTaskFinished(ctx, {
       taskId: args.runId,
       status: args.status,
       result: args.result,
@@ -257,10 +239,10 @@ export const completeRuntimeRun = internalMutation({
       return { ok: false as const, error: `Failed to mark run finished: ${args.runId}` };
     }
 
-    await publishTaskEvent(ctx, {
+    await createTaskEvent(ctx, {
       taskId: args.runId,
       eventName: "task",
-      type: terminalEventForStatus(args.status),
+      type: taskTerminalEventType(args.status),
       payload: {
         taskId: args.runId,
         status: finished.status,

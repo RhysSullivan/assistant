@@ -21,62 +21,8 @@ import type { PendingApprovalRecord } from "@/lib/types";
 import { toast } from "sonner";
 import { formatTimeAgo } from "@/lib/format";
 import { FormattedCodeBlock } from "@/components/formatted-code-block";
-
-function formatApprovalInput(
-  input: unknown,
-): {
-  content: string;
-  language: "json" | "text";
-} | null {
-  if (input === null || input === undefined) {
-    return null;
-  }
-
-  if (typeof input === "string") {
-    const trimmed = input.trim();
-    if (!trimmed) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      const serialized = JSON.stringify(parsed, null, 2);
-      if (serialized === "null" || serialized === "{}") {
-        return null;
-      }
-      return {
-        content: serialized,
-        language: "json",
-      };
-    } catch {
-      return {
-        content: trimmed,
-        language: "text",
-      };
-    }
-  }
-
-  try {
-    const serialized = JSON.stringify(input, null, 2);
-    if (serialized === "null" || serialized === "{}") {
-      return null;
-    }
-
-    return {
-      content: serialized,
-      language: "json",
-    };
-  } catch {
-    const fallback = String(input).trim();
-    if (!fallback) {
-      return null;
-    }
-    return {
-      content: fallback,
-      language: "text",
-    };
-  }
-}
+import { formatApprovalInput } from "@/lib/approval-input-format";
+import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 
 function ApprovalCard({
   approval,
@@ -113,7 +59,11 @@ function ApprovalCard({
   };
 
   const inputDisplay = useMemo(
-    () => formatApprovalInput(approval.input),
+    () =>
+      formatApprovalInput(approval.input, {
+        hideSerializedNull: true,
+        hideSerializedEmptyObject: true,
+      }),
     [approval.input],
   );
 
@@ -203,7 +153,7 @@ export function ApprovalsView() {
 
   const approvals = useQuery(
     convexApi.workspace.listPendingApprovals,
-    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
+    workspaceQueryArgs(context),
   );
   const approvalsLoading = !!context && approvals === undefined;
 
@@ -255,7 +205,7 @@ export function ApprovalsView() {
             <Clock className="h-3.5 w-3.5" />
             {count} pending approval{count !== 1 ? "s" : ""}
           </div>
-          {approvals!.map((a: PendingApprovalRecord) => (
+          {(approvals ?? []).map((a: PendingApprovalRecord) => (
             <ApprovalCard key={a.id} approval={a} />
           ))}
         </div>

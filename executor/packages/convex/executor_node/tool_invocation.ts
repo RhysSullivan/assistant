@@ -2,147 +2,45 @@
 
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { resolveCredentialPayload } from "../../core/src/credential-providers";
-import { APPROVAL_DENIED_PREFIX, APPROVAL_PENDING_PREFIX } from "../../core/src/execution-constants";
-import { parseGraphqlOperationPaths } from "../../core/src/tool-sources";
+import { APPROVAL_PENDING_PREFIX } from "../../core/src/execution-constants";
 import type {
   AccessPolicyRecord,
-  CredentialScope,
   PolicyDecision,
   ResolvedToolCredential,
   TaskRecord,
   ToolCallRecord,
   ToolCallRequest,
-  ToolCredentialSpec,
-  ToolDefinition,
   ToolRunContext,
 } from "../../core/src/types";
 import { asPayload, describeError } from "../../core/src/utils";
-import { getDecisionForContext, getToolDecision, isToolAllowedForTask } from "./policy";
-import { resolveAliasedToolPath, resolveClosestToolPath, suggestToolPaths, toPreferredToolPath } from "./tool_paths";
-import { baseTools, getWorkspaceTools } from "./workspace_tools";
+import { getToolDecision, isToolAllowedForTask } from "./policy";
+import { baseTools } from "./workspace_tools";
 import { publishTaskEvent } from "./events";
+import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecycle";
+import { assertPersistedCallRunnable, resolveCredentialHeaders } from "./tool_call_credentials";
+import { ensureWorkspaceTools, getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
 
 function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
 }
 
-async function resolveCredentialHeaders(
+async function denyToolCallForApproval(
   ctx: ActionCtx,
-  spec: ToolCredentialSpec,
-  task: TaskRecord,
-): Promise<ResolvedToolCredential | null> {
-  const record = await ctx.runQuery(internal.database.resolveCredential, {
-    workspaceId: task.workspaceId,
-    sourceKey: spec.sourceKey,
-    scope: spec.mode as CredentialScope,
-    actorId: task.actorId,
+  args: {
+    task: TaskRecord;
+    callId: string;
+    toolPath: string;
+    approvalId: string;
+  },
+): Promise<never> {
+  const deniedMessage = `${args.toolPath} (${args.approvalId})`;
+  return await denyToolCall(ctx, {
+    task: args.task,
+    callId: args.callId,
+    toolPath: args.toolPath,
+    deniedMessage,
+    approvalId: args.approvalId,
   });
-
-  const source = record
-    ? await resolveCredentialPayload(record)
-    : spec.staticSecretJson ?? null;
-  if (!source) {
-    return null;
-  }
-
-  const headers: Record<string, string> = {};
-  if (spec.authType === "bearer") {
-    const token = String((source as Record<string, unknown>).token ?? "").trim();
-    if (token) headers.authorization = `Bearer ${token}`;
-  } else if (spec.authType === "apiKey") {
-    const headerName = spec.headerName ?? String((source as Record<string, unknown>).headerName ?? "x-api-key");
-    const value = String((source as Record<string, unknown>).value ?? (source as Record<string, unknown>).token ?? "").trim();
-    if (value) headers[headerName] = value;
-  } else if (spec.authType === "basic") {
-    const username = String((source as Record<string, unknown>).username ?? "");
-    const password = String((source as Record<string, unknown>).password ?? "");
-    if (username || password) {
-      const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
-      headers.authorization = `Basic ${encoded}`;
-    }
-  }
-
-  if (Object.keys(headers).length === 0) {
-    const bindingOverrides = asPayload((record?.overridesJson as unknown) ?? {});
-    const overrideHeaders = asPayload(bindingOverrides.headers);
-    if (Object.keys(overrideHeaders).length === 0) {
-      return null;
-    }
-    for (const [key, value] of Object.entries(overrideHeaders)) {
-      if (!key) continue;
-      headers[key] = String(value);
-    }
-  } else {
-    const bindingOverrides = asPayload((record?.overridesJson as unknown) ?? {});
-    const overrideHeaders = asPayload(bindingOverrides.headers);
-    for (const [key, value] of Object.entries(overrideHeaders)) {
-      if (!key) continue;
-      headers[key] = String(value);
-    }
-  }
-
-  return {
-    sourceKey: spec.sourceKey,
-    mode: spec.mode,
-    headers,
-  };
-}
-
-function getGraphqlDecision(
-  task: TaskRecord,
-  tool: ToolDefinition,
-  input: unknown,
-  workspaceTools: Map<string, ToolDefinition>,
-  policies: AccessPolicyRecord[],
-): { decision: PolicyDecision; effectivePaths: string[] } {
-  const sourceName = tool._graphqlSource!;
-  const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
-  const queryString = typeof payload.query === "string" ? payload.query : "";
-
-  if (!queryString.trim()) {
-    return { decision: getToolDecision(task, tool, policies), effectivePaths: [tool.path] };
-  }
-
-  const { fieldPaths } = parseGraphqlOperationPaths(sourceName, queryString);
-  if (fieldPaths.length === 0) {
-    return { decision: getToolDecision(task, tool, policies), effectivePaths: [tool.path] };
-  }
-
-  let worstDecision: PolicyDecision = "allow";
-
-  for (const fieldPath of fieldPaths) {
-    const pseudoTool = workspaceTools.get(fieldPath);
-    const fieldDecision = pseudoTool
-      ? getDecisionForContext(
-          pseudoTool,
-          {
-            workspaceId: task.workspaceId,
-            actorId: task.actorId,
-            clientId: task.clientId,
-          },
-          policies,
-        )
-      : getDecisionForContext(
-          { ...tool, path: fieldPath, approval: fieldPath.includes(".mutation.") ? "required" : "auto" },
-          {
-            workspaceId: task.workspaceId,
-            actorId: task.actorId,
-            clientId: task.clientId,
-          },
-          policies,
-        );
-
-    if (fieldDecision === "deny") {
-      worstDecision = "deny";
-      break;
-    }
-    if (fieldDecision === "require_approval") {
-      worstDecision = "require_approval";
-    }
-  }
-
-  return { decision: worstDecision, effectivePaths: fieldPaths };
 }
 
 export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
@@ -153,69 +51,17 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     workspaceId: task.workspaceId,
     toolPath,
   })) as ToolCallRecord;
-
-  if (persistedCall.status === "completed") {
-    throw new Error(`Tool call ${callId} already completed; output is not retained`);
-  }
-
-  if (persistedCall.status === "failed") {
-    throw new Error(persistedCall.error ?? `Tool call failed: ${callId}`);
-  }
-
-  if (persistedCall.status === "denied") {
-    throw new Error(`${APPROVAL_DENIED_PREFIX}${persistedCall.error ?? persistedCall.toolPath}`);
-  }
+  assertPersistedCallRunnable(persistedCall, callId);
 
   const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: task.workspaceId });
   const typedPolicies = policies as AccessPolicyRecord[];
 
-  let workspaceTools: Map<string, ToolDefinition> | undefined;
-  let resolvedToolPath = toolPath;
-  let tool = baseTools.get(toolPath);
-  if (!tool) {
-    const result = await getWorkspaceTools(ctx, task.workspaceId);
-    workspaceTools = result.tools;
-    tool = workspaceTools.get(toolPath);
-
-    if (!tool) {
-      const aliasedPath = resolveAliasedToolPath(toolPath, workspaceTools);
-      if (aliasedPath) {
-        resolvedToolPath = aliasedPath;
-        tool = workspaceTools.get(aliasedPath);
-      }
-    }
-  }
-
-  if (!tool) {
-    const availableTools = workspaceTools ?? baseTools;
-    const healedPath = resolveClosestToolPath(toolPath, availableTools);
-    if (healedPath) {
-      resolvedToolPath = healedPath;
-      tool = availableTools.get(healedPath);
-    }
-  }
-
-  if (!tool) {
-    const availableTools = workspaceTools ?? baseTools;
-    const suggestions = suggestToolPaths(toolPath, availableTools);
-    const queryHint = toolPath
-      .split(".")
-      .filter(Boolean)
-      .join(" ");
-    const suggestionText = suggestions.length > 0
-      ? `\nDid you mean: ${suggestions.map((path) => `tools.${toPreferredToolPath(path)}`).join(", ")}`
-      : "";
-    const discoverHint = `\nTry: const found = await tools.discover({ query: \"${queryHint}\", compact: false, depth: 2, limit: 12 });`;
-    throw new Error(`Unknown tool: ${toolPath}${suggestionText}${discoverHint}`);
-  }
+  let { tool, resolvedToolPath, workspaceTools } = await resolveToolForCall(ctx, task, toolPath);
 
   let decision: PolicyDecision;
   let effectiveToolPath = resolvedToolPath;
   if (tool._graphqlSource) {
-    if (!workspaceTools) {
-      const result = await getWorkspaceTools(ctx, task.workspaceId);
-      workspaceTools = result.tools;
-    }
+    workspaceTools = await ensureWorkspaceTools(ctx, task, workspaceTools);
     const result = getGraphqlDecision(task, tool, input, workspaceTools, typedPolicies);
     decision = result.decision;
     if (result.effectivePaths.length > 0) {
@@ -229,19 +75,13 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
   if (decision === "deny") {
     const deniedMessage = `${effectiveToolPath} (policy denied)`;
-    await ctx.runMutation(internal.database.finishToolCall, {
-      taskId: task.id,
-      callId,
-      status: "denied",
-      error: deniedMessage,
-    });
-    await publishTaskEvent(ctx, task.id, "task", "tool.call.denied", {
-      taskId: task.id,
+    await denyToolCall(ctx, {
+      task,
       callId,
       toolPath: effectiveToolPath,
+      deniedMessage,
       reason: "policy_deny",
     });
-    throw new Error(`${APPROVAL_DENIED_PREFIX}${deniedMessage}`);
   }
 
   let credential: ResolvedToolCredential | undefined;
@@ -276,20 +116,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     }
 
     if (existingApproval.status === "denied") {
-      const deniedMessage = `${effectiveToolPath} (${existingApproval.id})`;
-      await ctx.runMutation(internal.database.finishToolCall, {
-        taskId: task.id,
-        callId,
-        status: "denied",
-        error: deniedMessage,
-      });
-      await publishTaskEvent(ctx, task.id, "task", "tool.call.denied", {
-        taskId: task.id,
+      await denyToolCallForApproval(ctx, {
+        task,
         callId,
         toolPath: effectiveToolPath,
         approvalId: existingApproval.id,
       });
-      throw new Error(`${APPROVAL_DENIED_PREFIX}${deniedMessage}`);
     }
 
     approvalSatisfied = existingApproval.status === "approved";
@@ -330,20 +162,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     }
 
     if (approval.status === "denied") {
-      const deniedMessage = `${effectiveToolPath} (${approval.id})`;
-      await ctx.runMutation(internal.database.finishToolCall, {
-        taskId: task.id,
-        callId,
-        status: "denied",
-        error: deniedMessage,
-      });
-      await publishTaskEvent(ctx, task.id, "task", "tool.call.denied", {
-        taskId: task.id,
+      await denyToolCallForApproval(ctx, {
+        task,
         callId,
         toolPath: effectiveToolPath,
         approvalId: approval.id,
       });
-      throw new Error(`${APPROVAL_DENIED_PREFIX}${deniedMessage}`);
     }
   }
 
@@ -357,31 +181,19 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       isToolAllowed: (path) => isToolAllowedForTask(task, path, workspaceTools ?? baseTools, typedPolicies),
     };
     const value = await tool.run(input, context);
-    await ctx.runMutation(internal.database.finishToolCall, {
-      taskId: task.id,
-      callId,
-      status: "completed",
-    });
-    await publishTaskEvent(ctx, task.id, "task", "tool.call.completed", {
+    await completeToolCall(ctx, {
       taskId: task.id,
       callId,
       toolPath: effectiveToolPath,
-      outputRedacted: true,
     });
     return value;
   } catch (error) {
     const message = describeError(error);
-    await ctx.runMutation(internal.database.finishToolCall, {
+    await failToolCall(ctx, {
       taskId: task.id,
       callId,
-      status: "failed",
       error: message,
-    });
-    await publishTaskEvent(ctx, task.id, "task", "tool.call.failed", {
-      taskId: task.id,
-      callId,
       toolPath: effectiveToolPath,
-      error: message,
     });
     throw error;
   }

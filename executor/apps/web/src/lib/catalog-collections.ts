@@ -1,0 +1,112 @@
+export interface CatalogCollectionItem {
+  id: string;
+  name: string;
+  summary: string;
+  specUrl: string;
+  originUrl?: string;
+  providerName: string;
+  logoUrl?: string;
+  categories?: string;
+  version?: string;
+  rank: number;
+  addedAt: string;
+}
+
+export const HARD_CODED_CATALOG_ITEMS: CatalogCollectionItem[] = [
+  {
+    id: "github-rest",
+    name: "GitHub REST API",
+    summary: "Manage repositories, pull requests, issues, and org settings.",
+    specUrl: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml",
+    originUrl: "https://docs.github.com/en/rest",
+    providerName: "GitHub",
+    categories: "developer-tools",
+    version: "latest",
+    rank: 1,
+    addedAt: "2026-01-10",
+  },
+  {
+    id: "stripe-api",
+    name: "Stripe API",
+    summary: "Create payments, manage customers, and handle billing workflows.",
+    specUrl: "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    originUrl: "https://docs.stripe.com/api",
+    providerName: "Stripe",
+    categories: "payments",
+    version: "2026-01",
+    rank: 2,
+    addedAt: "2026-01-08",
+  },
+  {
+    id: "openai-api",
+    name: "OpenAI API",
+    summary: "Generate text, run reasoning models, and process multimodal inputs.",
+    specUrl: "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml",
+    originUrl: "https://platform.openai.com/docs/api-reference",
+    providerName: "OpenAI",
+    categories: "ai",
+    version: "latest",
+    rank: 3,
+    addedAt: "2026-01-06",
+  },
+  {
+    id: "cloudflare-api",
+    name: "Cloudflare API",
+    summary: "Control zones, DNS records, workers, and edge configuration.",
+    specUrl: "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml",
+    originUrl: "https://api.cloudflare.com/",
+    providerName: "Cloudflare",
+    categories: "infrastructure",
+    version: "latest",
+    rank: 4,
+    addedAt: "2026-01-04",
+  },
+  {
+    id: "vercel-api",
+    name: "Vercel API",
+    summary: "Manage deployments, projects, domains, and team resources.",
+    specUrl: "https://openapi.vercel.sh",
+    originUrl: "https://vercel.com/docs/rest-api",
+    providerName: "Vercel",
+    categories: "developer-tools",
+    version: "latest",
+    rank: 5,
+    addedAt: "2025-12-18",
+  },
+  {
+    id: "slack-api",
+    name: "Slack API",
+    summary: "Work with channels, messages, users, and workspace automation.",
+    specUrl: "https://api.slack.com/specs/openapi/v2/slack_web.json",
+    originUrl: "https://api.slack.com/web",
+    providerName: "Slack",
+    categories: "communications",
+    version: "v2",
+    rank: 6,
+    addedAt: "2025-12-10",
+  },
+  {
+    id: "sentry-api",
+    name: "Sentry API",
+    summary: "Query issues, releases, projects, and alerting configuration.",
+    specUrl: "https://raw.githubusercontent.com/getsentry/sentry-api-schema/refs/heads/main/openapi-derefed.json",
+    originUrl: "https://docs.sentry.io/api/",
+    providerName: "Sentry",
+    categories: "observability",
+    version: "latest",
+    rank: 7,
+    addedAt: "2025-11-30",
+  },
+  {
+    id: "jira-cloud-api",
+    name: "Jira Cloud Platform",
+    summary: "Manage projects, issues, workflows, and Jira metadata.",
+    specUrl: "https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json",
+    originUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/",
+    providerName: "Atlassian",
+    categories: "project-management",
+    version: "v3",
+    rank: 8,
+    addedAt: "2025-11-15",
+  },
+];

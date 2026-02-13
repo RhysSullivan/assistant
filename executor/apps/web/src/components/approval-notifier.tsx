@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type { PendingApprovalRecord } from "@/lib/types";
+import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 
 export function ApprovalNotifier() {
   const navigate = useNavigate();
@@ -16,7 +17,7 @@ export function ApprovalNotifier() {
 
   const approvals = useQuery(
     convexApi.workspace.listPendingApprovals,
-    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
+    workspaceQueryArgs(context),
   );
 
   useEffect(() => {

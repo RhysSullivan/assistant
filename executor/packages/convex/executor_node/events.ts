@@ -1,16 +1,16 @@
 "use node";
 
 import type { ActionCtx } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { createTaskEvent, type TaskEventName } from "../task-events";
 
 export async function publishTaskEvent(
   ctx: ActionCtx,
   taskId: string,
-  eventName: "task" | "approval",
+  eventName: TaskEventName,
   type: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  await ctx.runMutation(internal.database.createTaskEvent, {
+  await createTaskEvent(ctx, {
     taskId,
     eventName,
     type,

@@ -8,9 +8,9 @@ import {
   materializeCompiledToolSource,
   materializeWorkspaceSnapshot,
   type CompiledToolSourceArtifact,
-  type ExternalToolSourceConfig,
   type WorkspaceToolSnapshot,
 } from "../../core/src/tool-sources";
+import type { ExternalToolSourceConfig } from "../../core/src/tool-source-types";
 import { DEFAULT_TOOLS } from "../../core/src/tools";
 import type {
   AccessPolicyRecord,
@@ -75,6 +75,29 @@ function computeSourceAuthProfiles(tools: Map<string, ToolDefinition>): Record<s
   return profiles;
 }
 
+function mergeToolsWithCatalog(externalTools: Iterable<ToolDefinition>): Map<string, ToolDefinition> {
+  const merged = new Map<string, ToolDefinition>();
+
+  for (const tool of baseTools.values()) {
+    if (tool.path === "discover") continue;
+    merged.set(tool.path, tool);
+  }
+
+  for (const tool of externalTools) {
+    if (tool.path === "discover") continue;
+    merged.set(tool.path, tool);
+  }
+
+  const catalogTools = createCatalogTools([...merged.values()]);
+  for (const tool of catalogTools) {
+    merged.set(tool.path, tool);
+  }
+
+  const discover = createDiscoverTool([...merged.values()]);
+  merged.set(discover.path, discover);
+  return merged;
+}
+
 export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<WorkspaceToolsResult> {
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
@@ -91,22 +114,7 @@ export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspa
       if (blob) {
         const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
         const restored = materializeWorkspaceSnapshot(snapshot);
-
-        const merged = new Map<string, ToolDefinition>();
-        for (const tool of baseTools.values()) {
-          if (tool.path === "discover") continue;
-          merged.set(tool.path, tool);
-        }
-        for (const tool of restored) {
-          if (tool.path === "discover") continue;
-          merged.set(tool.path, tool);
-        }
-        const catalogTools = createCatalogTools([...merged.values()]);
-        for (const tool of catalogTools) {
-          merged.set(tool.path, tool);
-        }
-        const discover = createDiscoverTool([...merged.values()]);
-        merged.set(discover.path, discover);
+        const merged = mergeToolsWithCatalog(restored);
 
         const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
 
@@ -135,23 +143,7 @@ export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspa
     .filter((artifact): artifact is CompiledToolSourceArtifact => Boolean(artifact));
   const externalTools = externalArtifacts.flatMap((artifact) => materializeCompiledToolSource(artifact));
   warnings.push(...loadedSources.flatMap((loaded) => loaded.warnings));
-
-  const merged = new Map<string, ToolDefinition>();
-  for (const tool of baseTools.values()) {
-    if (tool.path === "discover") continue;
-    merged.set(tool.path, tool);
-  }
-  for (const tool of externalTools) {
-    merged.set(tool.path, tool);
-  }
-
-  const catalogTools = createCatalogTools([...merged.values()]);
-  for (const tool of catalogTools) {
-    merged.set(tool.path, tool);
-  }
-
-  const discover = createDiscoverTool([...merged.values()]);
-  merged.set(discover.path, discover);
+  const merged = mergeToolsWithCatalog(externalTools);
 
   let dtsStorageIds: DtsStorageEntry[] = [];
   try {

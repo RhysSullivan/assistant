@@ -7,25 +7,26 @@ import {
   compileOpenApiToolSourceFromPrepared,
   prepareOpenApiSpec,
   type CompiledToolSourceArtifact,
-  type ExternalToolSourceConfig,
-  type GraphqlToolSourceConfig,
-  type McpToolSourceConfig,
-  type OpenApiToolSourceConfig,
-  type PreparedOpenApiSpec,
 } from "../../core/src/tool-sources";
+import type {
+  ExternalToolSourceConfig,
+  GraphqlToolSourceConfig,
+  McpToolSourceConfig,
+  OpenApiToolSourceConfig,
+  PreparedOpenApiSpec,
+} from "../../core/src/tool-source-types";
 import type { ToolSourceRecord } from "../../core/src/types";
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version - bump when PreparedOpenApiSpec shape changes. */
-const OPENAPI_CACHE_VERSION = "v15";
+const TOOL_SOURCE_CACHE_VERSION = "v15";
 
 export function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
-  const signatureVersion = "v15";
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();
-  return `${signatureVersion}|${workspaceId}|${parts.join(",")}`;
+  return `${TOOL_SOURCE_CACHE_VERSION}|${workspaceId}|${parts.join(",")}`;
 }
 
 export function normalizeExternalToolSource(raw: {
@@ -124,7 +125,7 @@ async function loadCachedOpenApiSpec(
   try {
     const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
       specUrl,
-      version: OPENAPI_CACHE_VERSION,
+      version: TOOL_SOURCE_CACHE_VERSION,
       maxAgeMs: OPENAPI_SPEC_CACHE_TTL_MS,
     });
 
@@ -148,7 +149,7 @@ async function loadCachedOpenApiSpec(
     const storageId = await ctx.storage.store(blob);
     await ctx.runMutation(internal.openApiSpecCache.putEntry, {
       specUrl,
-      version: OPENAPI_CACHE_VERSION,
+      version: TOOL_SOURCE_CACHE_VERSION,
       storageId,
       sizeBytes: json.length,
     });

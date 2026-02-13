@@ -18,37 +18,39 @@ export function createMcpExecutorService(ctx: ActionCtx) {
       workspaceId: Id<"workspaces">;
       actorId: string;
       clientId?: string;
-    }) => {
+    }): Promise<{ task: TaskRecord }> => {
       const taskInput = {
         ...input,
         scheduleAfterCreate: false,
-      } as Parameters<typeof ctx.runMutation<typeof internal.executor.createTaskInternal>>[1];
-      return (await ctx.runMutation(internal.executor.createTaskInternal, taskInput)) as { task: TaskRecord };
+      };
+      return await ctx.runMutation(internal.executor.createTaskInternal, taskInput);
     },
-    runTaskNow: async (taskId: string) => {
-      return (await ctx.runAction(internal.executorNode.runTask, { taskId })) as null;
+    runTaskNow: async (taskId: string): Promise<null> => {
+      return await ctx.runAction(internal.executorNode.runTask, { taskId });
     },
-    getTask: async (taskId: string, workspaceId?: Id<"workspaces">) => {
+    getTask: async (taskId: string, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null> => {
       if (workspaceId) {
-        return (await ctx.runQuery(internal.database.getTaskInWorkspace, { taskId, workspaceId })) as TaskRecord | null;
+        return await ctx.runQuery(internal.database.getTaskInWorkspace, { taskId, workspaceId });
       }
       return null;
     },
     subscribe: () => {
       return () => {};
     },
-    bootstrapAnonymousContext: async (sessionId?: string) => {
-      return (await ctx.runMutation(internal.database.bootstrapAnonymousSession, { sessionId })) as AnonymousContext;
+    bootstrapAnonymousContext: async (sessionId?: string): Promise<AnonymousContext> => {
+      return await ctx.runMutation(internal.database.bootstrapAnonymousSession, { sessionId });
     },
-    listTools: async (toolContext?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }) => {
+    listTools: async (
+      toolContext?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+    ): Promise<ToolDescriptor[]> => {
       if (!toolContext) {
         return [];
       }
 
-      return (await ctx.runAction(internal.executorNode.listToolsInternal, { ...toolContext })) as ToolDescriptor[];
+      return await ctx.runAction(internal.executorNode.listToolsInternal, { ...toolContext });
     },
-    listPendingApprovals: async (workspaceId: Id<"workspaces">) => {
-      return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];
+    listPendingApprovals: async (workspaceId: Id<"workspaces">): Promise<PendingApprovalRecord[]> => {
+      return await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId });
     },
     resolveApproval: async (input: {
       workspaceId: Id<"workspaces">;

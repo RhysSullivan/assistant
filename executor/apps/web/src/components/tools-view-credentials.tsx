@@ -1,0 +1,228 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { KeyRound, Plus } from "lucide-react";
+import Image from "next/image";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useSession } from "@/lib/session-context";
+import type {
+  CredentialRecord,
+  CredentialScope,
+  SourceAuthProfile,
+  ToolSourceRecord,
+} from "@/lib/types";
+import {
+  connectionDisplayName,
+  providerLabel,
+} from "@/lib/credentials-source-helpers";
+import {
+  getSourceFavicon,
+  sourceForCredentialKey,
+} from "@/lib/tools-source-helpers";
+import { ConnectionFormDialog } from "@/components/tools-view-connection-form-dialog";
+
+export function CredentialsPanel({
+  sources,
+  credentials,
+  sourceAuthProfiles,
+  loading,
+  focusSourceKey,
+  onFocusHandled,
+}: {
+  sources: ToolSourceRecord[];
+  credentials: CredentialRecord[];
+  sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  loading: boolean;
+  focusSourceKey?: string | null;
+  onFocusHandled?: () => void;
+}) {
+  const { clientConfig } = useSession();
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<CredentialRecord | null>(null);
+  const [initialSourceKey, setInitialSourceKey] = useState<string | null>(null);
+
+  const storageCopy = clientConfig?.authProviderMode === "workos"
+    ? "Stored encrypted"
+    : "Stored locally on this machine";
+
+  const connectionOptions = useMemo(() => {
+    const grouped = new Map<string, {
+      id: string;
+      scope: CredentialScope;
+      actorId?: string;
+      provider: "local-convex" | "workos-vault";
+      sourceKeys: Set<string>;
+      updatedAt: number;
+    }>();
+
+    for (const credential of credentials) {
+      const existing = grouped.get(credential.id);
+      if (existing) {
+        existing.sourceKeys.add(credential.sourceKey);
+        existing.updatedAt = Math.max(existing.updatedAt, credential.updatedAt);
+      } else {
+        grouped.set(credential.id, {
+          id: credential.id,
+          scope: credential.scope,
+          actorId: credential.actorId,
+          provider: credential.provider,
+          sourceKeys: new Set([credential.sourceKey]),
+          updatedAt: credential.updatedAt,
+        });
+      }
+    }
+
+    return [...grouped.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [credentials]);
+
+  const representativeCredentialByConnection = useMemo(() => {
+    const map = new Map<string, CredentialRecord>();
+    for (const credential of credentials) {
+      if (!map.has(credential.id)) {
+        map.set(credential.id, credential);
+      }
+    }
+    return map;
+  }, [credentials]);
+
+  const openForCreate = () => {
+    setEditing(null);
+    setInitialSourceKey(null);
+    setOpen(true);
+  };
+
+  const openForEdit = (credential: CredentialRecord) => {
+    setEditing(credential);
+    setInitialSourceKey(null);
+    setOpen(true);
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (focusSourceKey) {
+      onFocusHandled?.();
+    }
+    if (!nextOpen) {
+      setEditing(null);
+      setInitialSourceKey(null);
+    }
+  };
+
+  const effectiveOpen = open || !!focusSourceKey;
+  const effectiveEditing = focusSourceKey ? null : editing;
+  const effectiveInitialSourceKey = focusSourceKey ?? initialSourceKey;
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-muted-foreground" />
+            Connections
+          </CardTitle>
+          <Button size="sm" className="h-8 text-xs" onClick={openForCreate}>
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            Add Connection
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-14" />
+            ))}
+          </div>
+        ) : connectionOptions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-2">
+            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+              <KeyRound className="h-5 w-5 text-muted-foreground/50" />
+            </div>
+            <p className="text-sm text-muted-foreground">No connections configured</p>
+            <p className="text-[11px] text-muted-foreground/70 text-center max-w-md">
+              Add a source, then create or link a reusable connection.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {connectionOptions.map((connection) => {
+              const representative = representativeCredentialByConnection.get(connection.id);
+              if (!representative) {
+                return null;
+              }
+              const firstSource = sourceForCredentialKey(sources, representative.sourceKey);
+              const favicon = firstSource ? getSourceFavicon(firstSource) : null;
+
+              return (
+                <div
+                  key={connection.id}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40"
+                >
+                    <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                      {favicon ? (
+                        <Image
+                          src={favicon}
+                          alt=""
+                          width={20}
+                          height={20}
+                          className="w-5 h-5"
+                          loading="lazy"
+                          unoptimized
+                        />
+                      ) : (
+                      <KeyRound className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                      <span className="text-sm font-medium">{connectionDisplayName(sources, connection)}</span>
+                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                        {connection.scope}
+                      </Badge>
+                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                        {providerLabel(connection.provider)}
+                      </Badge>
+                      {connection.scope === "actor" && connection.actorId && (
+                        <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                          {connection.actorId}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Linked to {connection.sourceKeys.size} source{connection.sourceKeys.size === 1 ? "" : "s"} - {storageCopy}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      ID: <span className="font-mono">{connection.id}</span> -{" "}
+                      Updated {new Date(connection.updatedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px]"
+                    onClick={() => openForEdit(representative)}
+                  >
+                    Edit
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+
+      <ConnectionFormDialog
+        open={effectiveOpen}
+        onOpenChange={handleOpenChange}
+        editing={effectiveEditing}
+        initialSourceKey={effectiveInitialSourceKey}
+        sources={sources}
+        credentials={credentials}
+        sourceAuthProfiles={sourceAuthProfiles}
+      />
+    </Card>
+  );
+}

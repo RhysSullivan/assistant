@@ -97,14 +97,6 @@ function parseSecretValue(raw: string): CredentialPayload {
   return { token: value };
 }
 
-function requireString(config: Record<string, unknown>, key: string, providerName: string): string {
-  const value = config[key];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`Credential provider '${providerName}' requires secretJson.${key}`);
-  }
-  return value.trim();
-}
-
 async function resolveLocalConvex(
   record: Pick<CredentialRecord, "secretJson">,
 ): Promise<CredentialPayload | null> {
