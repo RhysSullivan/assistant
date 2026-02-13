@@ -1,6 +1,7 @@
 import { asRecord } from "./utils";
 
 type JsonSchema = Record<string, unknown>;
+const COMPONENT_REF_INLINE_DEPTH = 2;
 
 export type OpenApiParameterHint = {
   name: string;
@@ -157,6 +158,85 @@ function formatTsPropertyKey(key: string): string {
   return JSON.stringify(key);
 }
 
+function formatComponentSchemaRefType(key: string): string {
+  return `components["schemas"][${JSON.stringify(key)}]`;
+}
+
+function splitTopLevelBy(value: string, separator: string): string[] {
+  const parts: string[] = [];
+  let segment = "";
+  let depthCurly = 0;
+  let depthSquare = 0;
+  let depthParen = 0;
+  let depthAngle = 0;
+
+  for (const char of value) {
+    if (char === "{") depthCurly += 1;
+    else if (char === "}") depthCurly = Math.max(0, depthCurly - 1);
+    else if (char === "[") depthSquare += 1;
+    else if (char === "]") depthSquare = Math.max(0, depthSquare - 1);
+    else if (char === "(") depthParen += 1;
+    else if (char === ")") depthParen = Math.max(0, depthParen - 1);
+    else if (char === "<") depthAngle += 1;
+    else if (char === ">") depthAngle = Math.max(0, depthAngle - 1);
+
+    if (
+      char === separator
+      && depthCurly === 0
+      && depthSquare === 0
+      && depthParen === 0
+      && depthAngle === 0
+    ) {
+      const trimmed = segment.trim();
+      if (trimmed.length > 0) parts.push(trimmed);
+      segment = "";
+      continue;
+    }
+
+    segment += char;
+  }
+
+  const trimmed = segment.trim();
+  if (trimmed.length > 0) parts.push(trimmed);
+  return parts;
+}
+
+function dedupeTypeParts(parts: string[]): string[] {
+  const unique: string[] = [];
+  for (const part of parts) {
+    const value = part.trim();
+    if (!value || value === "never") continue;
+    if (!unique.includes(value)) unique.push(value);
+  }
+  return unique;
+}
+
+function joinUnion(parts: string[]): string {
+  const expanded = parts.flatMap((part) => splitTopLevelBy(part, "|"));
+  const unique = dedupeTypeParts(expanded);
+  if (unique.length === 0) return "unknown";
+  const withoutUnknown = unique.filter((part) => part !== "unknown");
+  const effective = withoutUnknown.length > 0 ? withoutUnknown : unique;
+  if (effective.length === 1) return effective[0]!;
+
+  return effective
+    .map((part) => (part.includes(" & ") ? `(${part})` : part))
+    .join(" | ");
+}
+
+function joinIntersection(parts: string[]): string {
+  const expanded = parts.flatMap((part) => splitTopLevelBy(part, "&"));
+  const unique = dedupeTypeParts(expanded).filter((part) => part !== "unknown");
+  if (unique.length === 0) return "unknown";
+  return unique.length === 1 ? unique[0]! : unique.join(" & ");
+}
+
+function maybeParenthesizeArrayElement(typeHint: string): string {
+  return typeHint.includes(" | ") || typeHint.includes(" & ")
+    ? `(${typeHint})`
+    : typeHint;
+}
+
 export function jsonSchemaTypeHintFallback(
   schema: unknown,
   depth = 0,
@@ -171,16 +251,21 @@ export function jsonSchemaTypeHintFallback(
     const ref = shape.$ref;
     const prefix = "#/components/schemas/";
     if (ref.startsWith(prefix)) {
+      const key = ref.slice(prefix.length);
+      if (depth >= COMPONENT_REF_INLINE_DEPTH) {
+        return formatComponentSchemaRefType(key);
+      }
       if (seenRefs.has(ref)) {
         return "unknown";
       }
-      const key = ref.slice(prefix.length);
       const resolved = componentSchemas ? asRecord(componentSchemas[key]) : {};
       if (Object.keys(resolved).length > 0) {
         const nextSeen = new Set(seenRefs);
         nextSeen.add(ref);
         return jsonSchemaTypeHintFallback(resolved, depth + 1, componentSchemas, nextSeen);
       }
+
+      return formatComponentSchemaRefType(key);
     }
   }
 
@@ -191,30 +276,24 @@ export function jsonSchemaTypeHintFallback(
 
   const oneOf = Array.isArray(shape.oneOf) ? shape.oneOf : undefined;
   if (oneOf && oneOf.length > 0) {
-    return oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)).join(" | ");
+    return joinUnion(oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
   }
 
   const anyOf = Array.isArray(shape.anyOf) ? shape.anyOf : undefined;
   if (anyOf && anyOf.length > 0) {
-    return anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)).join(" | ");
+    return joinUnion(anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
   }
 
   const allOf = Array.isArray(shape.allOf) ? shape.allOf : undefined;
   if (allOf && allOf.length > 0) {
-    const parts = allOf
-      .map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs))
-      .filter((part) => part.length > 0 && part !== "unknown");
-    if (parts.length > 0) {
-      return parts.join(" & ");
-    }
+    const parts = allOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs));
+    return joinIntersection(parts);
   }
 
   const type = typeof shape.type === "string" ? shape.type : undefined;
   const tupleItems = Array.isArray(shape.items) ? shape.items : undefined;
   if (!type && tupleItems && tupleItems.length > 0) {
-    return tupleItems
-      .map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs))
-      .join(" | ");
+    return joinUnion(tupleItems.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
   }
   if (type === "integer") return "number";
   if (type === "string" || type === "number" || type === "boolean" || type === "null") {
@@ -222,7 +301,8 @@ export function jsonSchemaTypeHintFallback(
   }
 
   if (type === "array") {
-    return `${jsonSchemaTypeHintFallback(shape.items, depth + 1, componentSchemas, seenRefs)}[]`;
+    const itemType = jsonSchemaTypeHintFallback(shape.items, depth + 1, componentSchemas, seenRefs);
+    return `${maybeParenthesizeArrayElement(itemType)}[]`;
   }
 
   const props = asRecord(shape.properties);

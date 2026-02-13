@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { KeyRound, Plus } from "lucide-react";
 import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,6 @@ import { useSession } from "@/lib/session-context";
 import type {
   CredentialRecord,
   CredentialScope,
-  SourceAuthProfile,
   ToolSourceRecord,
 } from "@/lib/types";
 import {
@@ -22,27 +21,21 @@ import {
   getSourceFavicon,
   sourceForCredentialKey,
 } from "@/lib/tools-source-helpers";
-import { ConnectionFormDialog } from "@/components/tools/connection-form-dialog";
 
 export function CredentialsPanel({
   sources,
   credentials,
-  sourceAuthProfiles,
   loading,
-  focusSourceKey,
-  onFocusHandled,
+  onCreateConnection,
+  onEditConnection,
 }: {
   sources: ToolSourceRecord[];
   credentials: CredentialRecord[];
-  sourceAuthProfiles: Record<string, SourceAuthProfile>;
   loading: boolean;
-  focusSourceKey?: string | null;
-  onFocusHandled?: () => void;
+  onCreateConnection: (sourceKey?: string) => void;
+  onEditConnection: (credential: CredentialRecord) => void;
 }) {
   const { clientConfig } = useSession();
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<CredentialRecord | null>(null);
-  const [initialSourceKey, setInitialSourceKey] = useState<string | null>(null);
 
   const storageCopy = clientConfig?.authProviderMode === "workos"
     ? "Stored encrypted"
@@ -88,33 +81,6 @@ export function CredentialsPanel({
     return map;
   }, [credentials]);
 
-  const openForCreate = () => {
-    setEditing(null);
-    setInitialSourceKey(null);
-    setOpen(true);
-  };
-
-  const openForEdit = (credential: CredentialRecord) => {
-    setEditing(credential);
-    setInitialSourceKey(null);
-    setOpen(true);
-  };
-
-  const handleOpenChange = (nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (focusSourceKey) {
-      onFocusHandled?.();
-    }
-    if (!nextOpen) {
-      setEditing(null);
-      setInitialSourceKey(null);
-    }
-  };
-
-  const effectiveOpen = open || !!focusSourceKey;
-  const effectiveEditing = focusSourceKey ? null : editing;
-  const effectiveInitialSourceKey = focusSourceKey ?? initialSourceKey;
-
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
@@ -123,7 +89,7 @@ export function CredentialsPanel({
             <KeyRound className="h-4 w-4 text-muted-foreground" />
             Connections
           </CardTitle>
-          <Button size="sm" className="h-8 text-xs" onClick={openForCreate}>
+          <Button size="sm" className="h-8 text-xs" onClick={() => onCreateConnection()}>
             <Plus className="h-3.5 w-3.5 mr-1.5" />
             Add Connection
           </Button>
@@ -192,37 +158,26 @@ export function CredentialsPanel({
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      Linked to {connection.sourceKeys.size} source{connection.sourceKeys.size === 1 ? "" : "s"} - {storageCopy}
+                      Linked to {connection.sourceKeys.size} API{connection.sourceKeys.size === 1 ? "" : "s"} - {storageCopy}
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      ID: <span className="font-mono">{connection.id}</span> -{" "}
                       Updated {new Date(connection.updatedAt).toLocaleString()}
                     </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[11px]"
-                    onClick={() => openForEdit(representative)}
-                  >
-                    Edit
-                  </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[11px]"
+                      onClick={() => onEditConnection(representative)}
+                    >
+                      Edit
+                    </Button>
                 </div>
               );
             })}
           </div>
         )}
       </CardContent>
-
-      <ConnectionFormDialog
-        open={effectiveOpen}
-        onOpenChange={handleOpenChange}
-        editing={effectiveEditing}
-        initialSourceKey={effectiveInitialSourceKey}
-        sources={sources}
-        credentials={credentials}
-        sourceAuthProfiles={sourceAuthProfiles}
-      />
     </Card>
   );
 }

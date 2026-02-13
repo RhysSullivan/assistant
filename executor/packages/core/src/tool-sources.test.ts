@@ -33,7 +33,11 @@ function makeInlineSpec(tag: string, operationId: string): Record<string, unknow
  * with a valid tool list. MCP uses HTTP so we can control latency precisely.
  * This is served as a Streamable HTTP endpoint (POST /mcp with JSON-RPC).
  */
-function makeFakeMcpServer(delayMs: number, toolName: string) {
+function makeFakeMcpServer(
+  delayMs: number,
+  toolName: string,
+  options: { outputSchema?: Record<string, unknown> } = {},
+) {
   const server = Bun.serve({
     port: 0,
     async fetch(req) {
@@ -74,6 +78,7 @@ function makeFakeMcpServer(delayMs: number, toolName: string) {
                   name: toolName,
                   description: `Tool ${toolName}`,
                   inputSchema: { type: "object", properties: {} },
+                  ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
                 },
               ],
             },
@@ -91,6 +96,41 @@ function makeFakeMcpServer(delayMs: number, toolName: string) {
 
   return { server, url: `http://127.0.0.1:${server.port}` };
 }
+
+test("mcp tools use outputSchema for return type hints when available", async () => {
+  const mcp = makeFakeMcpServer(0, "get_status", {
+    outputSchema: {
+      type: "object",
+      properties: {
+        ok: { type: "boolean" },
+        retries: { type: "integer" },
+      },
+      required: ["ok"],
+    },
+  });
+
+  try {
+    const { tools, warnings } = await loadExternalTools([
+      {
+        type: "mcp",
+        name: "status",
+        url: mcp.url,
+        transport: "streamable-http",
+      },
+    ]);
+
+    expect(warnings).toHaveLength(0);
+    expect(tools).toHaveLength(1);
+
+    const tool = tools[0];
+    expect(tool?.path).toBe("status.get_status");
+    expect(tool?.metadata?.returnsType).toContain("ok");
+    expect(tool?.metadata?.returnsType).toContain("retries");
+    expect(tool?.metadata?.displayReturnsType).toContain("ok");
+  } finally {
+    mcp.server.stop(true);
+  }
+});
 
 test("loadExternalTools loads multiple sources concurrently, not sequentially", async () => {
   const DELAY_MS = 150;

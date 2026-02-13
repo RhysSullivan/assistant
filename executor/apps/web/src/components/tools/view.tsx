@@ -13,6 +13,7 @@ import { ToolExplorer } from "@/components/tools/explorer";
 import { TaskComposer } from "@/components/tasks/task-composer";
 import { AddSourceDialog, SourceCard } from "@/components/tools/sources";
 import { CredentialsPanel } from "@/components/tools/credentials";
+import { ConnectionFormDialog } from "@/components/tools/connection-form-dialog";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useQuery } from "convex/react";
@@ -52,7 +53,9 @@ export function ToolsView({
   const { context, loading: sessionLoading } = useSession();
   const [selectedSource, setSelectedSource] = useState<string | null>(initialSource ?? null);
   const [activeTab, setActiveTab] = useState<ToolsTab>(parseInitialTab(initialTab));
-  const [focusCredentialSourceKey, setFocusCredentialSourceKey] = useState<string | null>(null);
+  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
+  const [connectionDialogEditing, setConnectionDialogEditing] = useState<CredentialRecord | null>(null);
+  const [connectionDialogSourceKey, setConnectionDialogSourceKey] = useState<string | null>(null);
 
   const sources = useQuery(
     convexApi.workspace.listToolSources,
@@ -81,6 +84,26 @@ export function ToolsView({
   const selectedSourceRecord = selectedSource
     ? sourceItems.find((source) => source.name === selectedSource) ?? null
     : null;
+
+  const openConnectionCreate = (sourceKey?: string) => {
+    setConnectionDialogEditing(null);
+    setConnectionDialogSourceKey(sourceKey ?? null);
+    setConnectionDialogOpen(true);
+  };
+
+  const openConnectionEdit = (credential: CredentialRecord) => {
+    setConnectionDialogEditing(credential);
+    setConnectionDialogSourceKey(null);
+    setConnectionDialogOpen(true);
+  };
+
+  const handleConnectionDialogOpenChange = (open: boolean) => {
+    setConnectionDialogOpen(open);
+    if (!open) {
+      setConnectionDialogEditing(null);
+      setConnectionDialogSourceKey(null);
+    }
+  };
 
   if (sessionLoading) {
     return (
@@ -147,11 +170,10 @@ export function ToolsView({
                   <AddSourceDialog
                     existingSourceNames={new Set(sourceItems.map((s) => s.name))}
                     onSourceAdded={(source) => {
-                      setActiveTab("credentials");
                       setSelectedSource(source.name);
-                      const key = sourceKeyForSource(source);
-                      if (key) {
-                        setFocusCredentialSourceKey(key);
+                      const sourceKey = sourceKeyForSource(source);
+                      if (sourceKey) {
+                        openConnectionCreate(sourceKey);
                       }
                     }}
                   />
@@ -191,6 +213,7 @@ export function ToolsView({
                     sourceAuthProfiles={sourceAuthProfiles}
                     selected
                     onFocusSource={setSelectedSource}
+                    onConnectSource={openConnectionCreate}
                   />
                 </div>
               ) : null}
@@ -216,14 +239,24 @@ export function ToolsView({
           <CredentialsPanel
             sources={sourceItems}
             credentials={credentialItems}
-            sourceAuthProfiles={sourceAuthProfiles}
             loading={credentialsLoading || sourcesLoading}
-            focusSourceKey={focusCredentialSourceKey}
-            onFocusHandled={() => setFocusCredentialSourceKey(null)}
+            onCreateConnection={openConnectionCreate}
+            onEditConnection={openConnectionEdit}
           />
         </TabsContent>
 
       </Tabs>
+
+      <ConnectionFormDialog
+        open={connectionDialogOpen}
+        onOpenChange={handleConnectionDialogOpenChange}
+        editing={connectionDialogEditing}
+        initialSourceKey={connectionDialogSourceKey}
+        sources={sourceItems}
+        credentials={credentialItems}
+        sourceAuthProfiles={sourceAuthProfiles}
+        loadingSourceNames={loadingSources}
+      />
     </div>
   );
 }

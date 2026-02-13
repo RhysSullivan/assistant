@@ -105,7 +105,6 @@ test("discover uses compact signatures by default and allows full mode", async (
 
   expect(compactResult.bestPath).toBe("linear.query.teams");
   expect(fullResult.bestPath).toBe("linear.query.teams");
-  expect(compactResult.results[0]?.signature).toContain("filter: ...");
   expect(compactResult.results[0]?.signature).toContain("Promise<{ data: ...; errors: unknown[] }>");
   expect(compactResult.results[0]?.description).not.toContain("TRAILING_MARKER_TEXT");
 

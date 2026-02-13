@@ -65,6 +65,25 @@ export interface WorkspaceToolInventory {
   debug: WorkspaceToolsDebug;
 }
 
+const MAX_TOOLS_IN_ACTION_RESULT = 8_000;
+
+function truncateToolsForActionResult(
+  tools: ToolDescriptor[],
+  warnings: string[],
+): { tools: ToolDescriptor[]; warnings: string[] } {
+  if (tools.length <= MAX_TOOLS_IN_ACTION_RESULT) {
+    return { tools, warnings };
+  }
+
+  return {
+    tools: tools.slice(0, MAX_TOOLS_IN_ACTION_RESULT),
+    warnings: [
+      ...warnings,
+      `Tool inventory truncated to ${MAX_TOOLS_IN_ACTION_RESULT} of ${tools.length} tools (Convex array limit). Use source filters or targeted lookups to narrow results.`,
+    ],
+  };
+}
+
 function computeSourceAuthProfiles(tools: Map<string, ToolDefinition>): Record<string, SourceAuthProfile> {
   const profiles: Record<string, SourceAuthProfile> = {};
 
@@ -425,9 +444,14 @@ export async function loadWorkspaceToolInventoryForContext(
       ]
     : ["sourceMeta=skipped"];
 
-  return {
+  const { tools: boundedTools, warnings: boundedWarnings } = truncateToolsForActionResult(
     tools,
-    warnings: result.warnings,
+    result.warnings,
+  );
+
+  return {
+    tools: boundedTools,
+    warnings: boundedWarnings,
     dtsStorageIds: result.dtsStorageIds,
     sourceQuality,
     sourceAuthProfiles,

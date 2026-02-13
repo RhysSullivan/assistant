@@ -88,6 +88,7 @@
         "@convex-dev/workos": "^0.0.1",
         "@elysiajs/eden": "^1.4.6",
         "@executor/convex": "workspace:*",
+        "@executor/core": "workspace:*",
         "@executor/ui": "workspace:*",
         "@monaco-editor/react": "^4.7.0",
         "@streamdown/code": "^1.0.1",

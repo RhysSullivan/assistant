@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./openapi-helper-types": "./src/openapi-helper-types.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },

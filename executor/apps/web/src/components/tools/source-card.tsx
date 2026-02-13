@@ -21,6 +21,7 @@ import {
   formatSourceAuthBadge,
   getSourceFavicon,
   readSourceAuth,
+  sourceAuthProfileForSource,
   sourceEndpointLabel,
   sourceKeyForSource,
 } from "@/lib/tools-source-helpers";
@@ -38,6 +39,7 @@ export function SourceCard({
   sourceAuthProfiles,
   selected = false,
   onFocusSource,
+  onConnectSource,
 }: {
   source: ToolSourceRecord;
   quality?: OpenApiSourceQuality;
@@ -46,6 +48,7 @@ export function SourceCard({
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
   selected?: boolean;
   onFocusSource?: (sourceName: string) => void;
+  onConnectSource?: (sourceKey: string) => void;
 }) {
   const { context } = useSession();
   const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
@@ -73,9 +76,11 @@ export function SourceCard({
   const TypeIcon = source.type === "mcp" ? Server : Globe;
   const favicon = getSourceFavicon(source);
   const sourceKey = sourceKeyForSource(source) ?? "";
-  const authBadge = formatSourceAuthBadge(source, sourceAuthProfiles[sourceKey]);
-  const auth = readSourceAuth(source, sourceAuthProfiles[sourceKey]);
+  const inferredProfile = sourceAuthProfileForSource(source, sourceAuthProfiles);
+  const authBadge = formatSourceAuthBadge(source, inferredProfile);
+  const auth = readSourceAuth(source, inferredProfile);
   const hasAuthConfigured = auth.type !== "none";
+  const sourceCanConnect = sourceKey.length > 0 && hasAuthConfigured;
   const totalCredentials = credentialStats.workspaceCount + credentialStats.actorCount;
   const prettyName = displaySourceName(source.name);
   const compactEndpoint = compactEndpointLabel(source);
@@ -160,7 +165,21 @@ export function SourceCard({
             {selected ? "Viewing" : "View tools"}
           </Button>
         ) : null}
-        <ConfigureSourceAuthDialog source={source} inferredProfile={sourceAuthProfiles[sourceKey]} />
+        {sourceCanConnect && onConnectSource ? (
+          <Button
+            variant="default"
+            size="sm"
+            className="h-7 text-[11px]"
+            onClick={() => onConnectSource(sourceKey)}
+          >
+            Connect
+          </Button>
+        ) : null}
+        <ConfigureSourceAuthDialog
+          source={source}
+          inferredProfile={inferredProfile}
+          onAuthSaved={onConnectSource}
+        />
         <Button
           variant="ghost"
           size="icon"

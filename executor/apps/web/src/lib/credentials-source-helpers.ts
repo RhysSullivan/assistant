@@ -1,5 +1,11 @@
 import { displaySourceName } from "@/lib/tool-source-utils";
-import { readSourceAuth, sourceForCredentialKey, type SourceAuthMode, type SourceAuthType } from "@/lib/tools-source-helpers";
+import {
+  readSourceAuth,
+  sourceForCredentialKey,
+  toolSourceLabelForSource,
+  type SourceAuthMode,
+  type SourceAuthType,
+} from "@/lib/tools-source-helpers";
 import type { CredentialScope, SourceAuthProfile, ToolSourceRecord } from "@/lib/types";
 
 export type SourceOption = { source: ToolSourceRecord; key: string; label: string };
@@ -18,7 +24,8 @@ export function sourceAuthForKey(
   if (!match) {
     return { type: "bearer" };
   }
-  return readSourceAuth(match.source, inferredProfiles[key]);
+  const inferredProfile = inferredProfiles[key] ?? inferredProfiles[toolSourceLabelForSource(match.source)];
+  return readSourceAuth(match.source, inferredProfile);
 }
 
 export function sourceOptionLabel(source: ToolSourceRecord): string {

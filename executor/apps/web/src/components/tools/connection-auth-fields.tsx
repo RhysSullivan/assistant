@@ -44,7 +44,7 @@ export function ConnectionAuthFields({
     <>
       {editing && (
         <p className="text-[11px] text-muted-foreground">
-          Stored secret is hidden. Enter a new value to rotate it, or leave fields blank to keep it.
+          Existing secret values are hidden. Enter new values to rotate credentials, or leave blank to keep them.
         </p>
       )}
 
@@ -52,7 +52,7 @@ export function ConnectionAuthFields({
         <p className="text-[11px] text-terminal-amber">This source does not currently require auth.</p>
       ) : selectedAuth.type === "mixed" ? (
         <p className="text-[11px] text-terminal-amber">
-          This source has mixed auth requirements. Link an existing connection for now.
+          This API uses multiple auth schemes. Reuse compatible saved credentials for now.
         </p>
       ) : selectedAuth.type === "apiKey" ? (
         <div className="space-y-1.5">

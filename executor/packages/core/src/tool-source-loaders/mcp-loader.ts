@@ -43,9 +43,12 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
   return tools.map((tool) => {
     const toolName = String(tool.name ?? "tool");
     const inputSchema = asRecord(tool.inputSchema);
+    const outputSchema = asRecord(tool.outputSchema);
     const argPreviewKeys = Object.keys(asRecord(inputSchema.properties)).filter((key) => key.length > 0);
     const argsType = jsonSchemaTypeHintFallback(inputSchema);
-    const returnsType = "unknown";
+    const returnsType = Object.keys(outputSchema).length > 0
+      ? jsonSchemaTypeHintFallback(outputSchema)
+      : "unknown";
     return {
       path: `${sanitizeSegment(config.name)}.${sanitizeSegment(toolName)}`,
       source: `mcp:${config.name}`,

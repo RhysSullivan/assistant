@@ -1,7 +1,6 @@
 {
   "name": "executor",
   "dependencies": {
-    "@typescript/native-preview": "^7.0.0-dev.20260212.1",
     "better-result": "^2.7.0",
     "convex": "^1.31.7",
     "graphql": "^16.12.0"

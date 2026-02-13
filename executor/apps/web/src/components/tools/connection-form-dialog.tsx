@@ -33,6 +33,7 @@ import {
   connectionDisplayName,
   parseHeaderOverrides,
 } from "@/lib/credentials-source-helpers";
+import { sourceForCredentialKey } from "@/lib/tools-source-helpers";
 import { ConnectionAuthFields } from "./connection-auth-fields";
 import { type ConnectionMode } from "./connection-form-dialog-state";
 import { useConnectionFormDialogForm } from "./connection-form-dialog-form";
@@ -50,6 +51,7 @@ export function ConnectionFormDialog({
   sources,
   credentials,
   sourceAuthProfiles,
+  loadingSourceNames = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -58,6 +60,7 @@ export function ConnectionFormDialog({
   sources: ToolSourceRecord[];
   credentials: CredentialRecord[];
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  loadingSourceNames?: string[];
 }) {
   const { context, clientConfig } = useSession();
   const upsertCredential = useAction(convexApi.credentialsNode.upsertCredential);
@@ -101,17 +104,27 @@ export function ConnectionFormDialog({
   const storageCopy = clientConfig?.authProviderMode === "workos"
     ? "Stored encrypted"
     : "Stored locally on this machine";
+  const selectedSource = sourceForCredentialKey(sources, sourceKey);
+  const selectedSourceName = selectedSource?.name;
+  const authDetectionPending =
+    !editing
+    && selectedAuth.type === "none"
+    && Boolean(selectedSource)
+    && Boolean(selectedSource?.type === "openapi" || selectedSource?.type === "graphql")
+    && selectedSource?.config.auth === undefined
+    && (selectedSourceName ? loadingSourceNames.includes(selectedSourceName) : false);
+  const detectedAuthLabel = authDetectionPending ? "Detecting..." : authBadge;
 
   const handleSave = async () => {
     if (!context) {
       return;
     }
     if (!sourceKey.trim()) {
-      toast.error("Source key is required");
+      toast.error("Choose an API source");
       return;
     }
     if (scope === "actor" && !actorId.trim()) {
-      toast.error("Actor ID is required for actor-scoped credentials");
+      toast.error("User ID is required for personal credentials");
       return;
     }
 
@@ -123,21 +136,25 @@ export function ConnectionFormDialog({
 
     const linkExisting = !editing && connectionMode === "existing";
     if (linkExisting && !existingConnectionId) {
-      toast.error("Select an existing connection to link");
+      toast.error("Select saved credentials");
       return;
     }
     if (linkExisting && !compatibleConnectionOptions.some((connection) => connection.id === existingConnectionId)) {
-      toast.error("Selected connection does not match this scope");
+      toast.error("Selected credentials do not match this scope");
       return;
     }
 
     if (selectedAuth.type === "none") {
-      toast.error("This source does not require auth");
+      if (authDetectionPending) {
+        toast.error("Still detecting auth from the API spec. Try again in a few seconds.");
+        return;
+      }
+      toast.error("This source is currently set to no auth. Configure auth before adding a connection.");
       return;
     }
 
     if (selectedAuth.type === "mixed" && !linkExisting && !editing) {
-      toast.error("Mixed-auth sources must link to an existing connection");
+      toast.error("This API uses mixed auth and must reuse saved credentials");
       return;
     }
 
@@ -183,16 +200,16 @@ export function ConnectionFormDialog({
       <DialogContent className="bg-card border-border sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-sm font-medium">
-            {editing ? "Edit Connection" : "Add Connection"}
+            {editing ? "Update Connection" : "Connect API"}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Source</Label>
+            <Label className="text-xs text-muted-foreground">API Source</Label>
             {sourceOptions.length > 0 ? (
               <Select value={sourceKey} onValueChange={handleSourceKeyChange}>
                 <SelectTrigger className="h-8 text-xs bg-background">
-                  <SelectValue />
+                  <SelectValue placeholder="Select a source" />
                 </SelectTrigger>
                 <SelectContent>
                   {sourceOptions.map((entry) => (
@@ -206,42 +223,46 @@ export function ConnectionFormDialog({
               <Input
                 value={sourceKey}
                 onChange={(e) => handleSourceKeyChange(e.target.value)}
-                placeholder="source:<source-id>"
+                placeholder="Enter source id"
                 className="h-8 text-xs font-mono bg-background"
               />
             )}
-            {sourceKey && (
-              <p className="text-[10px] text-muted-foreground font-mono">key: {sourceKey}</p>
-            )}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] text-muted-foreground">Detected auth</span>
-            <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-              {authBadge}
-            </Badge>
-            {selectedAuth.inferred && (
+          <div className="rounded-md border border-border/70 bg-muted/30 px-2.5 py-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-muted-foreground">Detected auth</span>
               <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                inferred
+                {detectedAuthLabel}
               </Badge>
+              {selectedAuth.inferred && !authDetectionPending && (
+                <Badge variant="outline" className="text-[9px] uppercase tracking-wider">
+                  inferred from spec
+                </Badge>
+              )}
+            </div>
+            {authDetectionPending && (
+              <p className="text-[10px] text-muted-foreground mt-1">
+                This spec is still loading. Auth settings will auto-fill once parsing completes.
+              </p>
             )}
             {selectedAuth.type === "apiKey" && selectedAuth.header && (
-              <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                header: {selectedAuth.header}
-              </span>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                API key header: <span className="font-mono">{selectedAuth.header}</span>
+              </p>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Scope</Label>
+              <Label className="text-xs text-muted-foreground">Who this is for</Label>
               <Select value={scope} onValueChange={(value) => setScope(value as CredentialScope)}>
                 <SelectTrigger className="h-8 text-xs bg-background">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="workspace" className="text-xs">Workspace</SelectItem>
-                  <SelectItem value="actor" className="text-xs">Per-user (actor)</SelectItem>
+                  <SelectItem value="workspace" className="text-xs">Workspace-wide</SelectItem>
+                  <SelectItem value="actor" className="text-xs">Only me (current user)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -253,7 +274,7 @@ export function ConnectionFormDialog({
 
           {scope === "actor" && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Actor ID</Label>
+              <Label className="text-xs text-muted-foreground">User ID</Label>
               <Input
                 value={actorId}
                 onChange={(e) => setActorId(e.target.value)}
@@ -265,14 +286,14 @@ export function ConnectionFormDialog({
 
           {!editing && connectionOptions.length > 0 && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Connection Mode</Label>
+              <Label className="text-xs text-muted-foreground">How to connect</Label>
               <Select value={connectionMode} onValueChange={(value) => setConnectionMode(value as ConnectionMode)}>
                 <SelectTrigger className="h-8 text-xs bg-background">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="new" className="text-xs">Create new connection</SelectItem>
-                  <SelectItem value="existing" className="text-xs">Use existing connection</SelectItem>
+                  <SelectItem value="new" className="text-xs">Enter new credentials</SelectItem>
+                  <SelectItem value="existing" className="text-xs">Reuse saved credentials</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -280,21 +301,21 @@ export function ConnectionFormDialog({
 
           {!editing && connectionMode === "existing" && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Existing Connection</Label>
+              <Label className="text-xs text-muted-foreground">Saved Credentials</Label>
               <Select value={existingConnectionId} onValueChange={setExistingConnectionId}>
                 <SelectTrigger className="h-8 text-xs bg-background">
-                  <SelectValue placeholder="Select a connection" />
+                  <SelectValue placeholder="Select saved credentials" />
                 </SelectTrigger>
                 <SelectContent>
                   {compatibleConnectionOptions.map((connection) => (
                     <SelectItem key={connection.id} value={connection.id} className="text-xs">
-                      {connectionDisplayName(sources, connection)} ({connection.sourceKeys.size} source{connection.sourceKeys.size === 1 ? "" : "s"})
+                      {connectionDisplayName(sources, connection)} ({connection.sourceKeys.size} API{connection.sourceKeys.size === 1 ? "" : "s"})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {compatibleConnectionOptions.length === 0 && (
-                <p className="text-[10px] text-muted-foreground">No compatible existing connections for this scope.</p>
+                <p className="text-[10px] text-muted-foreground">No compatible saved credentials for this scope.</p>
               )}
             </div>
           )}
@@ -314,7 +335,7 @@ export function ConnectionFormDialog({
           />
 
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Custom Headers (optional)</Label>
+            <Label className="text-xs text-muted-foreground">Extra Headers (optional)</Label>
             <Textarea
               value={customHeadersText}
               onChange={(e) => setCustomHeadersText(e.target.value)}
@@ -324,7 +345,7 @@ export function ConnectionFormDialog({
             />
           </div>
 
-          <Button onClick={handleSave} disabled={saving} className="w-full h-9" size="sm">
+          <Button onClick={handleSave} disabled={saving || authDetectionPending} className="w-full h-9" size="sm">
             {connectionSubmitCopy(Boolean(editing), saving, connectionMode)}
           </Button>
         </div>

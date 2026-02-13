@@ -1,8 +1,6 @@
 import type { ToolDefinition } from "./types";
 import {
-  compactArgDisplayHint,
   compactDescriptionLine,
-  compactReturnTypeHint,
 } from "./type-hints";
 import { buildExampleCall, formatSignature } from "./tool-discovery/formatting";
 import { buildIndex, getTopLevelNamespace, listIndexForContext } from "./tool-discovery/indexing";
@@ -93,10 +91,8 @@ export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
         source: entry.source,
         approval: entry.approval,
         description: compact ? compactDescriptionLine(entry.description) : entry.description,
-        argsType: compact
-          ? compactArgDisplayHint(entry.argsType, entry.argPreviewKeys)
-          : entry.argsType,
-        returnsType: compact ? compactReturnTypeHint(entry.returnsType) : entry.returnsType,
+        argsType: compact ? entry.displayArgsType : entry.argsType,
+        returnsType: compact ? entry.displayReturnsType : entry.returnsType,
         signature: formatSignature(entry, depth, compact),
         exampleCall: buildExampleCall(entry),
       }));

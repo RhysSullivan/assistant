@@ -62,7 +62,7 @@ export function buildSecretJson({
 }
 
 export function connectionSuccessCopy(editing: boolean, linkExisting: boolean): string {
-  return editing ? "Connection updated" : linkExisting ? "Connection linked" : "Connection saved";
+  return editing ? "Connection updated" : linkExisting ? "Credentials linked" : "Connection saved";
 }
 
 export function connectionSubmitCopy(editing: boolean, saving: boolean, connectionMode: "new" | "existing"): string {
@@ -72,5 +72,5 @@ export function connectionSubmitCopy(editing: boolean, saving: boolean, connecti
   if (editing) {
     return "Update Connection";
   }
-  return connectionMode === "existing" ? "Link Connection" : "Save Connection";
+  return connectionMode === "existing" ? "Link Credentials" : "Save Connection";
 }

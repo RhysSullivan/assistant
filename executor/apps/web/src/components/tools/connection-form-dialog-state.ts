@@ -73,10 +73,16 @@ export function compatibleConnections(
 
 export function selectedAuthBadge(type: SourceAuthType, mode?: CredentialScope): string {
   if (type === "none") {
-    return "none";
+    return "No auth";
   }
   if (type === "mixed") {
-    return "mixed";
+    return "Mixed auth";
   }
-  return `${type}:${mode ?? "workspace"}`;
+  const authLabel =
+    type === "apiKey"
+      ? "API key"
+      : type === "basic"
+        ? "Basic"
+        : "Bearer";
+  return `${authLabel} (${mode === "actor" ? "per-user" : "workspace"})`;
 }

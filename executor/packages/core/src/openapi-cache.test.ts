@@ -922,7 +922,7 @@ describe("buildOpenApiToolsFromPrepared", () => {
     const tool = tools.find((t) => t.metadata?.operationId === "billing/get-all-budgets-org");
     expect(tool).toBeDefined();
     expect(tool!.metadata?.returnsType).toContain("budgets");
-    expect(tool!.metadata?.returnsType).toContain("id: string");
+    expect(tool!.metadata?.returnsType).toContain('components["schemas"]["Budget"][]');
     expect(tool!.metadata?.returnsType).not.toContain("unknown[]");
   });
 
@@ -995,8 +995,7 @@ describe("buildOpenApiToolsFromPrepared", () => {
 
     const tool = tools.find((t) => t.metadata?.operationId === "deep/get");
     expect(tool).toBeDefined();
-    expect(tool!.metadata?.returnsType).toContain("value");
-    expect(tool!.metadata?.returnsType).toContain("string");
+    expect(tool!.metadata?.returnsType).toContain('components["schemas"]["A"][]');
     expect(tool!.metadata?.returnsType).not.toContain("unknown");
   });
 

@@ -26,7 +26,6 @@ import { convexApi } from "@/lib/convex-api";
 import type { SourceAuthProfile, ToolSourceRecord } from "@/lib/types";
 import {
   readSourceAuth,
-  sourceKeyForSource,
   type SourceAuthMode,
   type SourceAuthType,
 } from "@/lib/tools-source-helpers";
@@ -34,9 +33,11 @@ import {
 export function ConfigureSourceAuthDialog({
   source,
   inferredProfile,
+  onAuthSaved,
 }: {
   source: ToolSourceRecord;
   inferredProfile?: SourceAuthProfile;
+  onAuthSaved?: (sourceKey: string) => void;
 }) {
   const { context } = useSession();
   const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
@@ -50,6 +51,7 @@ export function ConfigureSourceAuthDialog({
   );
   const [authMode, setAuthMode] = useState<SourceAuthMode>(currentAuth.mode ?? "workspace");
   const [apiKeyHeader, setApiKeyHeader] = useState(currentAuth.header ?? "x-api-key");
+  const sourceKey = `source:${source.id}`;
 
   const configurable = source.type === "openapi" || source.type === "graphql";
 
@@ -67,7 +69,7 @@ export function ConfigureSourceAuthDialog({
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (connectAfterSave: boolean) => {
     if (!context || !configurable) {
       return;
     }
@@ -95,6 +97,9 @@ export function ConfigureSourceAuthDialog({
 
       toast.success(`Updated auth for ${source.name}`);
       setOpen(false);
+      if (connectAfterSave && authType !== "none") {
+        onAuthSaved?.(sourceKey);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update auth");
     } finally {
@@ -111,7 +116,7 @@ export function ConfigureSourceAuthDialog({
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="h-7 text-[11px]">
           <Pencil className="h-3 w-3 mr-1.5" />
-          Auth
+          Configure auth
         </Button>
       </DialogTrigger>
       <DialogContent className="bg-card border-border sm:max-w-md">
@@ -143,22 +148,24 @@ export function ConfigureSourceAuthDialog({
           </div>
 
           {currentAuth.inferred && (
-            <p className="text-[11px] text-muted-foreground">
-              Suggested from spec inference. Save to pin an explicit auth config.
-            </p>
+            <div className="rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2">
+              <p className="text-[11px] text-muted-foreground">
+                Detected from the API spec security schema. Save to pin this selection.
+              </p>
+            </div>
           )}
 
           {authType !== "none" && (
             <>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Credential Scope</Label>
+                <Label className="text-xs text-muted-foreground">Who this is for</Label>
                 <Select value={authMode} onValueChange={(value) => setAuthMode(value as SourceAuthMode)}>
                   <SelectTrigger className="h-8 text-xs bg-background">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="workspace" className="text-xs">Workspace</SelectItem>
-                    <SelectItem value="actor" className="text-xs">Per-user (actor)</SelectItem>
+                    <SelectItem value="workspace" className="text-xs">Workspace-wide</SelectItem>
+                    <SelectItem value="actor" className="text-xs">Only me (current user)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -174,17 +181,34 @@ export function ConfigureSourceAuthDialog({
                   />
                 </div>
               )}
-
-              <p className="text-[11px] text-muted-foreground">
-                Save this first, then add a connection in the Connections tab using source key
-                <code className="ml-1">{sourceKeyForSource(source)}</code>.
-              </p>
             </>
           )}
 
-          <Button onClick={handleSave} disabled={saving} className="w-full h-9" size="sm">
-            {saving ? "Saving..." : "Save Auth"}
-          </Button>
+          {authType !== "none" && onAuthSaved ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                onClick={() => void handleSave(false)}
+                disabled={saving}
+                className="h-9"
+                size="sm"
+              >
+                {saving ? "Saving..." : "Save Auth"}
+              </Button>
+              <Button
+                onClick={() => void handleSave(true)}
+                disabled={saving}
+                className="h-9"
+                size="sm"
+              >
+                {saving ? "Saving..." : "Save + Connect"}
+              </Button>
+            </div>
+          ) : (
+            <Button onClick={() => void handleSave(false)} disabled={saving} className="w-full h-9" size="sm">
+              {saving ? "Saving..." : "Save Auth"}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>

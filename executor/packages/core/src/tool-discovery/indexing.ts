@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../types";
+import { compactArgDisplayHint, compactReturnTypeHint } from "../type-hints";
 import type { DiscoverIndexEntry } from "./types";
 
 const GENERIC_NAMESPACE_SUFFIXES = new Set([
@@ -93,6 +94,19 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
       const preferredPath = preferredToolPath(tool.path);
       const aliases = getPathAliases(tool.path);
       const searchText = `${tool.path} ${preferredPath} ${aliases.join(" ")} ${tool.description} ${tool.source ?? ""}`.toLowerCase();
+      const argsType = normalizeType(tool.metadata?.argsType);
+      const returnsType = normalizeType(tool.metadata?.returnsType);
+      const argPreviewKeys = Array.isArray(tool.metadata?.argPreviewKeys)
+        ? tool.metadata.argPreviewKeys.filter((value): value is string => typeof value === "string")
+        : [];
+      const displayArgsType = normalizeType(
+        tool.metadata?.displayArgsType
+        ?? compactArgDisplayHint(argsType, argPreviewKeys),
+      );
+      const displayReturnsType = normalizeType(
+        tool.metadata?.displayReturnsType
+        ?? compactReturnTypeHint(returnsType),
+      );
 
       return {
         path: tool.path,
@@ -101,11 +115,11 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
         description: tool.description,
         approval: tool.approval,
         source: tool.source ?? "local",
-        argsType: normalizeType(tool.metadata?.argsType),
-        returnsType: normalizeType(tool.metadata?.returnsType),
-        argPreviewKeys: Array.isArray(tool.metadata?.argPreviewKeys)
-          ? tool.metadata.argPreviewKeys.filter((value): value is string => typeof value === "string")
-          : [],
+        argsType,
+        returnsType,
+        displayArgsType,
+        displayReturnsType,
+        argPreviewKeys,
         searchText,
         normalizedPath: normalizeSearchToken(tool.path),
         normalizedSearchText: normalizeSearchToken(searchText),

@@ -77,6 +77,23 @@ export function sourceForCredentialKey(sources: ToolSourceRecord[], sourceKey: s
   return sources.find((source) => source.id === sourceId) ?? null;
 }
 
+export function sourceAuthProfileForSource(
+  source: ToolSourceRecord,
+  sourceAuthProfiles: Record<string, SourceAuthProfile>,
+): SourceAuthProfile | undefined {
+  const sourceKey = sourceKeyForSource(source);
+  if (sourceKey && sourceAuthProfiles[sourceKey]) {
+    return sourceAuthProfiles[sourceKey];
+  }
+
+  const legacyKey = toolSourceLabelForSource(source);
+  if (sourceAuthProfiles[legacyKey]) {
+    return sourceAuthProfiles[legacyKey];
+  }
+
+  return undefined;
+}
+
 export function normalizeSourceAuthProfile(profile: SourceAuthProfile | undefined): {
   type: SourceAuthType;
   mode?: SourceAuthMode;

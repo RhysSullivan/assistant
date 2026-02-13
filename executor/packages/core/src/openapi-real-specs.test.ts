@@ -8,53 +8,6 @@
  */
 import { test, expect, describe } from "bun:test";
 import { prepareOpenApiSpec, buildOpenApiToolsFromPrepared } from "./tool-sources";
-import { generateToolDeclarations, typecheckCode } from "./typechecker";
-import type { ToolDefinition, ToolDescriptor } from "./types";
-
-function compareStrictHintsToOpenApiTypes(
-  tool: ToolDefinition,
-  sourceName: string,
-  sourceDts: string,
-) {
-  const operationId = tool.metadata?.operationId;
-  if (!operationId) {
-    throw new Error(`Tool ${tool.path} is missing operationId`);
-  }
-
-  const descriptor: ToolDescriptor = {
-    path: tool.path,
-    description: tool.description,
-    approval: tool.approval,
-    source: tool.source,
-    operationId,
-    argsType: tool.metadata?.displayArgsType,
-    returnsType: tool.metadata?.displayReturnsType,
-    strictArgsType: tool.metadata?.argsType,
-    strictReturnsType: tool.metadata?.returnsType,
-  };
-
-  const declarations = generateToolDeclarations([descriptor], {
-    sourceDtsBySource: {
-      [`openapi:${sourceName}`]: sourceDts,
-    },
-  });
-
-  const strictArgs = tool.metadata?.argsType ?? "{}";
-  const strictReturns = tool.metadata?.returnsType ?? "unknown";
-  const code = [
-    `type GeneratedInput = ToolInput<operations[${JSON.stringify(operationId)}]>`,
-    `type StrictInput = ${strictArgs}`,
-    "const _inputA: GeneratedInput = {} as StrictInput",
-    "const _inputB: StrictInput = {} as GeneratedInput",
-    `type GeneratedOutput = ToolOutput<operations[${JSON.stringify(operationId)}]>`,
-    `type StrictOutput = ${strictReturns}`,
-    "const _outputA: GeneratedOutput = {} as StrictOutput",
-    "const _outputB: StrictOutput = {} as GeneratedOutput",
-    "return true;",
-  ].join("\n");
-
-  return typecheckCode(code, declarations);
-}
 
 interface SpecFixture {
   name: string;
@@ -422,9 +375,8 @@ describe("real-world OpenAPI specs", () => {
 
       expect(tool).toBeDefined();
       expect(tool!.path).toBe("cloudflare.health_checks.list_health_checks");
-      expect(tool!.metadata!.returnsType).toContain("address?: string");
-      expect(tool!.metadata!.returnsType).toContain("id?: string");
-      expect(tool!.metadata!.returnsType).toContain("interval?: number");
+      expect(tool!.metadata!.returnsType).toContain('components["schemas"]["healthchecks_healthchecks"][]');
+      expect(tool!.metadata!.returnsType).not.toContain("unknown | unknown");
     },
     300_000,
   );
@@ -483,8 +435,8 @@ describe("real-world OpenAPI specs", () => {
       expect(tool!.metadata!.displayArgsType).toContain("account_id: string");
       expect(tool!.metadata!.displayArgsType).toContain("direction?: \"desc\" | \"asc\"");
       expect(tool!.metadata!.displayArgsType).not.toContain("...");
-      expect(tool!.metadata!.displayReturnsType).toContain("messages: { code: number");
-      expect(tool!.metadata!.displayReturnsType).toContain("result?: {");
+      expect(tool!.metadata!.displayReturnsType).toContain('messages: components["schemas"]["access_messages"]');
+      expect(tool!.metadata!.displayReturnsType).toContain('result?: components["schemas"]["access_access-requests"][]');
       expect(tool!.metadata!.displayReturnsType).not.toContain("...");
     },
     300_000,
@@ -511,16 +463,17 @@ describe("real-world OpenAPI specs", () => {
       );
 
       expect(tool).toBeDefined();
-      expect(tool!.metadata!.displayArgsType).toBe("{ app_id: string; account_id: string }");
+      expect(tool!.metadata!.displayArgsType).toContain("app_id:");
+      expect(tool!.metadata!.displayArgsType).toContain("account_id: string");
       expect(tool!.metadata!.displayArgsType).not.toContain("...");
-      expect(tool!.metadata!.displayReturnsType).toContain("result?: { id?: string }");
+      expect(tool!.metadata!.displayReturnsType).toContain('result?: { id?: components["schemas"]["access_uuid"] }');
       expect(tool!.metadata!.displayReturnsType).not.toContain("num...");
     },
     300_000,
   );
 
   test(
-    "cloudflare: add access application type hints diverge from openapi-typescript canonical types",
+    "cloudflare: add access application keeps compact display hints for large strict types",
     async () => {
       const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
 
@@ -541,19 +494,11 @@ describe("real-world OpenAPI specs", () => {
 
       expect(tool).toBeDefined();
       expect(prepared.dts).toBeDefined();
-
-      const comparison = compareStrictHintsToOpenApiTypes(tool!, "cloudflare", prepared.dts!);
-
-      // Reproduces the current mismatch between fallback strict hints and generated operation types.
-      expect(comparison.ok).toBe(false);
-      expect(
-        comparison.errors.some((error) => error.includes("allowed_methods") || error.includes("target_criteria")),
-      ).toBe(true);
-
-      // Ensure UI/discovery hints remain compact even when strict hints are very large.
       expect(tool!.metadata!.displayArgsType).toContain("account_id");
       expect(tool!.metadata!.displayArgsType!.length).toBeLessThan(240);
-      expect(tool!.metadata!.argsType!.length).toBeGreaterThan(8_000);
+      expect(tool!.metadata!.argsType!.length).toBeGreaterThan(1_000);
+      expect(tool!.metadata!.argsType).toContain('components["schemas"]["access_saas_props"]');
+      expect(tool!.metadata!.argsType).not.toContain("unknown | unknown");
     },
     300_000,
   );

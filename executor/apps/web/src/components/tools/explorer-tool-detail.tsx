@@ -20,8 +20,8 @@ export function ToolDetail({
   loading?: boolean;
 }) {
   const insetLeft = depth * 20 + 8 + 16 + 8;
-  const argsType = tool.argsType?.trim() || tool.strictArgsType;
-  const returnsType = tool.returnsType?.trim() || tool.strictReturnsType;
+  const argsType = tool.strictArgsType?.trim() || tool.argsType?.trim();
+  const returnsType = tool.strictReturnsType?.trim() || tool.returnsType?.trim();
   const hasDetails = Boolean(tool.description || argsType || returnsType);
 
   return (

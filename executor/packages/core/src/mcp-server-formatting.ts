@@ -1,5 +1,5 @@
 import { Result } from "better-result";
-import { generateToolInventory } from "./typechecker";
+import { generateToolInventory } from "./declaration-generation";
 import type { TaskRecord, ToolDescriptor } from "./types";
 
 function asCodeBlock(language: string, value: string): string {
