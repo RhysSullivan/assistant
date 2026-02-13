@@ -1,4 +1,5 @@
 name: Release Executor
+run-name: "${{ format('release {0}', inputs.version || inputs.release_type) }}"
 
 on:
   workflow_dispatch:
@@ -21,7 +22,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: executor-release
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version || inputs.release_type }}
   cancel-in-progress: false
 
 jobs:
@@ -140,6 +141,12 @@ jobs:
           make_latest: true
           fail_on_unmatched_files: true
           files: |
-            executor/dist/release/executor-*.tar.gz
-            executor/dist/release/executor-web-*.tar.gz
+            executor/dist/release/executor-linux-x64.tar.gz
+            executor/dist/release/executor-linux-arm64.tar.gz
+            executor/dist/release/executor-darwin-x64.tar.gz
+            executor/dist/release/executor-darwin-arm64.tar.gz
+            executor/dist/release/executor-web-linux-x64.tar.gz
+            executor/dist/release/executor-web-linux-arm64.tar.gz
+            executor/dist/release/executor-web-darwin-x64.tar.gz
+            executor/dist/release/executor-web-darwin-arm64.tar.gz
             executor/dist/release/checksums.txt

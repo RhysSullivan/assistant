@@ -115,11 +115,21 @@ async function generateOpenApiDts(spec: Record<string, unknown>): Promise<string
   }
 }
 
+export interface PrepareOpenApiSpecOptions {
+  includeDts?: boolean;
+  profile?: "full" | "inventory";
+}
+
 export async function prepareOpenApiSpec(
   spec: string | Record<string, unknown>,
   sourceName = "openapi",
+  options: PrepareOpenApiSpecOptions = {},
 ): Promise<PreparedOpenApiSpec> {
   const parser = createSwaggerParserAdapter(SwaggerParser);
+  const includeDts = options.includeDts ?? true;
+  const profile = options.profile ?? (includeDts ? "full" : "inventory");
+  const shouldGenerateDts = includeDts && profile === "full";
+  const shouldBundle = profile === "full";
 
   const warnings: string[] = [];
 
@@ -136,12 +146,18 @@ export async function prepareOpenApiSpec(
   }
 
   let bundled: Record<string, unknown>;
-  const dtsPromise = generateOpenApiDts(parsed);
-  try {
-    bundled = (await parser.bundle(parsed)) as Record<string, unknown>;
-  } catch (bundleError) {
-    const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
-    warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
+  const dtsPromise = shouldGenerateDts
+    ? generateOpenApiDts(parsed)
+    : Promise.resolve<string | null>(null);
+  if (shouldBundle) {
+    try {
+      bundled = (await parser.bundle(parsed)) as Record<string, unknown>;
+    } catch (bundleError) {
+      const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
+      warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
+      bundled = parsed;
+    }
+  } else {
     bundled = parsed;
   }
   const dts = await dtsPromise;
@@ -161,8 +177,14 @@ export async function prepareOpenApiSpec(
       asRecord(asRecord(bundled.components).schemas),
       asRecord(asRecord(bundled.components).responses),
       asRecord(asRecord(bundled.components).requestBodies),
+      {
+        includeSchemas: profile === "full",
+        includeTypeHints: profile === "full",
+        includeParameterSchemas: profile === "full",
+      },
     ),
     dts: dts ?? undefined,
+    dtsStatus: shouldGenerateDts ? (dts ? "ready" : "failed") : "skipped",
     ...(inferredAuth ? { inferredAuth } : {}),
     warnings,
   };

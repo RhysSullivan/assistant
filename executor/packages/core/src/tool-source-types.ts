@@ -55,6 +55,7 @@ export interface PreparedOpenApiSpec {
   servers: string[];
   paths: Record<string, unknown>;
   dts?: string;
+  dtsStatus?: "ready" | "failed" | "skipped";
   inferredAuth?: OpenApiAuth;
   warnings: string[];
 }

@@ -13,6 +13,12 @@ import {
 } from "./openapi-schema-hints";
 import { asRecord } from "./utils";
 
+export interface CompactOpenApiPathsOptions {
+  includeSchemas?: boolean;
+  includeTypeHints?: boolean;
+  includeParameterSchemas?: boolean;
+}
+
 export function compactOpenApiPaths(
   pathsValue: unknown,
   operationTypeIds: Set<string>,
@@ -20,6 +26,7 @@ export function compactOpenApiPaths(
   componentSchemas?: Record<string, unknown>,
   componentResponses?: Record<string, unknown>,
   componentRequestBodies?: Record<string, unknown>,
+  options: CompactOpenApiPathsOptions = {},
 ): Record<string, unknown> {
   const paths = asRecord(pathsValue);
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
@@ -28,6 +35,9 @@ export function compactOpenApiPaths(
   const compSchemas = componentSchemas ? asRecord(componentSchemas) : {};
   const compResponses = componentResponses ? asRecord(componentResponses) : {};
   const compRequestBodies = componentRequestBodies ? asRecord(componentRequestBodies) : {};
+  const includeSchemas = options.includeSchemas ?? true;
+  const includeTypeHints = options.includeTypeHints ?? true;
+  const includeParameterSchemas = options.includeParameterSchemas ?? true;
 
   const resolveParam = (entry: Record<string, unknown>): Record<string, unknown> => {
     if (typeof entry.$ref === "string") {
@@ -51,7 +61,7 @@ export function compactOpenApiPaths(
         name: String(entry.name),
         in: String(entry.in),
         required: Boolean(entry.required),
-        schema: parameterSchemaFromEntry(entry),
+        schema: includeParameterSchemas ? parameterSchemaFromEntry(entry) : {},
       }));
   };
 
@@ -68,7 +78,7 @@ export function compactOpenApiPaths(
       if (Object.keys(operation).length === 0) continue;
 
       const operationIdRaw = String(operation.operationId ?? `${method}_${pathTemplate}`);
-      const hasGeneratedTypes = operationTypeIds.has(operationIdRaw);
+      const hasGeneratedTypes = includeTypeHints && operationTypeIds.has(operationIdRaw);
 
       const compactOperation: Record<string, unknown> = {};
       if (Array.isArray(operation.tags) && operation.tags.length > 0) {
@@ -89,23 +99,26 @@ export function compactOpenApiPaths(
         compactOperation.parameters = operationParameters;
       }
 
-      const requestBody = resolveRequestBodyRef(asRecord(operation.requestBody), compRequestBodies);
-      const requestBodyContent = asRecord(requestBody.content);
-      const rawRequestBodySchema = getPreferredContentSchema(requestBodyContent);
-      const requestBodySchema = resolveSchemaRef(rawRequestBodySchema, compSchemas);
-
-      const responses = asRecord(operation.responses);
+      let requestBodySchema: Record<string, unknown> = {};
       let responseSchema: Record<string, unknown> = {};
       let responseStatus = "";
-      for (const [status, responseValue] of Object.entries(responses)) {
-        if (!status.startsWith("2")) continue;
-        responseStatus = status;
-        const resolvedResponse = resolveResponseRef(asRecord(responseValue), compResponses);
-        responseSchema = resolveSchemaRef(
-          getPreferredResponseSchema(resolvedResponse),
-          compSchemas,
-        );
-        if (Object.keys(responseSchema).length > 0) break;
+      if (includeSchemas || hasGeneratedTypes) {
+        const requestBody = resolveRequestBodyRef(asRecord(operation.requestBody), compRequestBodies);
+        const requestBodyContent = asRecord(requestBody.content);
+        const rawRequestBodySchema = getPreferredContentSchema(requestBodyContent);
+        requestBodySchema = resolveSchemaRef(rawRequestBodySchema, compSchemas);
+
+        const responses = asRecord(operation.responses);
+        for (const [status, responseValue] of Object.entries(responses)) {
+          if (!status.startsWith("2")) continue;
+          responseStatus = status;
+          const resolvedResponse = resolveResponseRef(asRecord(responseValue), compResponses);
+          responseSchema = resolveSchemaRef(
+            getPreferredResponseSchema(resolvedResponse),
+            compSchemas,
+          );
+          if (Object.keys(responseSchema).length > 0) break;
+        }
       }
 
       if (hasGeneratedTypes) {
@@ -121,7 +134,7 @@ export function compactOpenApiPaths(
         if (previewKeys.length > 0) {
           compactOperation._argPreviewKeys = [...new Set(previewKeys)];
         }
-      } else {
+      } else if (includeSchemas) {
         if (Object.keys(requestBodySchema).length > 0) {
           compactOperation.requestBody = {
             content: {

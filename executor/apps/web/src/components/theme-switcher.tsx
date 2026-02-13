@@ -14,7 +14,7 @@ export function ThemeSwitcher() {
   ] as const;
 
   return (
-    <div className="flex items-center gap-0.5 rounded-full border border-border bg-muted/50 p-0.5">
+    <div className="flex items-center gap-0.5">
       {options.map((option) => (
         <button
           key={option.value}

@@ -34,6 +34,10 @@ export interface WorkspaceToolsResult {
   dtsStorageIds: DtsStorageEntry[];
 }
 
+interface GetWorkspaceToolsOptions {
+  includeDts?: boolean;
+}
+
 export interface WorkspaceToolInventory {
   tools: ToolDescriptor[];
   warnings: string[];
@@ -97,9 +101,15 @@ function mergeToolsWithCatalog(externalTools: Iterable<ToolDefinition>): Map<str
   return merged;
 }
 
-export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<WorkspaceToolsResult> {
+export async function getWorkspaceTools(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  options: GetWorkspaceToolsOptions = {},
+): Promise<WorkspaceToolsResult> {
+  const includeDts = options.includeDts ?? false;
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
+  const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
 
   try {
@@ -116,8 +126,12 @@ export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspa
         const merged = mergeToolsWithCatalog(restored);
 
         const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
-
-        return { tools: merged, warnings: snapshot.warnings, dtsStorageIds };
+        const hasCachedDts = dtsStorageIds.length > 0;
+        if (includeDts && hasOpenApiSource && !hasCachedDts) {
+          // Continue into rebuild path to generate missing DTS.
+        } else {
+          return { tools: merged, warnings: snapshot.warnings, dtsStorageIds };
+        }
       }
     }
   } catch (error) {
@@ -136,7 +150,7 @@ export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspa
     }
   }
 
-  const loadedSources = await Promise.all(configs.map((config) => loadSourceArtifact(ctx, config)));
+  const loadedSources = await Promise.all(configs.map((config) => loadSourceArtifact(ctx, config, { includeDts })));
   const externalArtifacts = loadedSources
     .map((loaded) => loaded.artifact)
     .filter((artifact): artifact is CompiledToolSourceArtifact => Boolean(artifact));
@@ -206,9 +220,11 @@ export async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspa
 export async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+  options: { includeDts?: boolean } = {},
 ): Promise<WorkspaceToolInventory> {
+  const includeDts = options.includeDts ?? false;
   const [result, policies] = await Promise.all([
-    getWorkspaceTools(ctx, context.workspaceId),
+    getWorkspaceTools(ctx, context.workspaceId, { includeDts }),
     ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
   ]);
   const typedPolicies = policies as AccessPolicyRecord[];
@@ -228,14 +244,16 @@ export async function loadWorkspaceToolInventoryForContext(
 export async function listToolsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+  options: { includeDts?: boolean } = {},
 ): Promise<ToolDescriptor[]> {
-  const inventory = await loadWorkspaceToolInventoryForContext(ctx, context);
+  const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
   return inventory.tools;
 }
 
 export async function listToolsWithWarningsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+  options: { includeDts?: boolean } = {},
 ): Promise<{
   tools: ToolDescriptor[];
   warnings: string[];
@@ -243,7 +261,7 @@ export async function listToolsWithWarningsForContext(
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
 }> {
-  const inventory = await loadWorkspaceToolInventoryForContext(ctx, context);
+  const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
   const dtsUrls = await loadDtsUrls(ctx, inventory.dtsStorageIds);
 
   return {
@@ -283,6 +301,7 @@ export async function loadWorkspaceDtsStorageIds(
 ): Promise<DtsStorageEntry[]> {
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
+  const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
 
   try {
@@ -291,13 +310,16 @@ export async function loadWorkspaceDtsStorageIds(
       signature,
     });
     if (cacheEntry) {
-      return (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
+      const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
+      if (dtsStorageIds.length > 0 || !hasOpenApiSource) {
+        return dtsStorageIds;
+      }
     }
   } catch {
     // Fall through to a full rebuild path.
   }
 
-  const rebuilt = await getWorkspaceTools(ctx, workspaceId);
+  const rebuilt = await getWorkspaceTools(ctx, workspaceId, { includeDts: true });
   return rebuilt.dtsStorageIds;
 }
 

@@ -45,7 +45,7 @@ export const listToolsWithWarnings = action({
       workspaceId: args.workspaceId,
       actorId: canonicalActorId,
       clientId: args.clientId,
-    });
+    }, { includeDts: false });
   },
 });
 
@@ -79,7 +79,7 @@ export const listToolsInternal = internalAction({
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ToolDescriptor[]> => {
-    return await listToolsForContext(ctx, args);
+    return await listToolsForContext(ctx, args, { includeDts: false });
   },
 });
 
@@ -99,7 +99,7 @@ export const listToolsWithWarningsInternal = internalAction({
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
   }> => {
-    return await listToolsWithWarningsForContext(ctx, args);
+    return await listToolsWithWarningsForContext(ctx, args, { includeDts: false });
   },
 });
 

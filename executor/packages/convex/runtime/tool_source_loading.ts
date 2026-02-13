@@ -121,7 +121,15 @@ async function loadCachedOpenApiSpec(
   ctx: ActionCtx,
   specUrl: string,
   sourceName: string,
+  includeDts: boolean,
 ): Promise<PreparedOpenApiSpec> {
+  const getDtsStatus = (prepared: PreparedOpenApiSpec): "ready" | "failed" | "skipped" => {
+    if (prepared.dtsStatus) {
+      return prepared.dtsStatus;
+    }
+    return prepared.dts ? "ready" : "failed";
+  };
+
   try {
     const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
       specUrl,
@@ -133,7 +141,10 @@ async function loadCachedOpenApiSpec(
       const blob = await ctx.storage.get(entry.storageId);
       if (blob) {
         const json = await blob.text();
-        return JSON.parse(json) as PreparedOpenApiSpec;
+        const prepared = JSON.parse(json) as PreparedOpenApiSpec;
+        if (!includeDts || getDtsStatus(prepared) !== "skipped") {
+          return prepared;
+        }
       }
     }
   } catch (error) {
@@ -141,7 +152,7 @@ async function loadCachedOpenApiSpec(
     console.warn(`[executor] OpenAPI cache read failed for '${sourceName}': ${message}`);
   }
 
-  const prepared = await prepareOpenApiSpec(specUrl, sourceName);
+  const prepared = await prepareOpenApiSpec(specUrl, sourceName, { includeDts });
 
   try {
     const json = JSON.stringify(prepared);
@@ -164,10 +175,13 @@ async function loadCachedOpenApiSpec(
 export async function loadSourceArtifact(
   ctx: ActionCtx,
   source: ExternalToolSourceConfig,
+  options: { includeDts?: boolean } = {},
 ): Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[] }> {
+  const includeDts = options.includeDts ?? true;
+
   if (source.type === "openapi" && typeof source.spec === "string") {
     try {
-      const prepared = await loadCachedOpenApiSpec(ctx, source.spec, source.name);
+      const prepared = await loadCachedOpenApiSpec(ctx, source.spec, source.name, includeDts);
       const artifact = compileOpenApiToolSourceFromPrepared(source, prepared);
       const warnings = (prepared.warnings ?? []).map(
         (warning) => `Source '${source.name}': ${warning}`,

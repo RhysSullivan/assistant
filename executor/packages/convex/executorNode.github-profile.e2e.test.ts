@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
+import { api } from "./_generated/api";
 import { internal } from "./_generated/api";
 import schema from "./schema";
 
@@ -10,6 +11,7 @@ function setup() {
   return convexTest(schema, {
     "./database.ts": () => import("./database"),
     "./executorNode.ts": () => import("./executorNode"),
+    "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./workspaceToolCache.ts": () => import("./workspaceToolCache"),
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
     "./_generated/api.js": () => import("./_generated/api.js"),
@@ -53,8 +55,14 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   expect(cold.tools.length).toBe(warm.tools.length);
   expect(cold.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
   expect(warm.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
-  expect(Object.keys(cold.dtsUrls).length).toBeGreaterThan(0);
-  expect(Object.keys(warm.dtsUrls).length).toBeGreaterThan(0);
+  expect(Object.keys(cold.dtsUrls).length).toBe(0);
+  expect(Object.keys(warm.dtsUrls).length).toBe(0);
+
+  const dts = await t.action(api.executorNode.listToolDtsUrls, {
+    workspaceId: session.workspaceId,
+    sessionId: session.sessionId,
+  });
+  expect(Object.keys(dts.dtsUrls).length).toBeGreaterThan(0);
 
   expect(coldMs).toBeLessThan(12_000);
   expect(coldMs).toBeGreaterThan(warmMs * 3);
