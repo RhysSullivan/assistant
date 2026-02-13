@@ -18,9 +18,10 @@ type TaskListItemProps = {
   task: TaskRecord;
   selected: boolean;
   onClick: () => void;
+  runtimeLabel?: string;
 };
 
-export function TaskListItem({ task, selected, onClick }: TaskListItemProps) {
+export function TaskListItem({ task, selected, onClick, runtimeLabel = task.runtimeId }: TaskListItemProps) {
   return (
     <button
       onClick={onClick}
@@ -39,7 +40,7 @@ export function TaskListItem({ task, selected, onClick }: TaskListItemProps) {
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-[10px] font-mono text-muted-foreground">
-            {task.runtimeId}
+            {runtimeLabel}
           </span>
           <span className="text-[10px] text-muted-foreground">
             {formatDate(task.createdAt)}

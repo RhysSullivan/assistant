@@ -19,6 +19,7 @@ import type {
   TaskRecord,
   PendingApprovalRecord,
 } from "@/lib/types";
+import { getTaskRuntimeLabel } from "@/lib/runtime-display";
 // ── Tasks View ──
 
 export function TasksView() {
@@ -34,6 +35,13 @@ export function TasksView() {
   );
   const tasksLoading = !!context && tasks === undefined;
   const taskItems = tasks ?? [];
+
+  const runtimeTargets = useQuery(
+    convexApi.workspace.listRuntimeTargets,
+    context ? {} : "skip",
+  );
+
+  const runtimeItems = runtimeTargets ?? [];
 
   const approvals = useQuery(
     convexApi.workspace.listPendingApprovals,
@@ -124,6 +132,7 @@ export function TasksView() {
                         key={task.id}
                         task={task}
                         selected={task.id === selectedId}
+                        runtimeLabel={getTaskRuntimeLabel(task.runtimeId, runtimeItems)}
                         onClick={() => selectTask(task.id)}
                       />
                     ))}
@@ -138,6 +147,7 @@ export function TasksView() {
                   task={selectedTask}
                   workspaceId={context.workspaceId}
                   sessionId={context?.sessionId}
+                  runtimeLabel={getTaskRuntimeLabel(selectedTask.runtimeId, runtimeItems)}
                   pendingApprovals={selectedTaskApprovals}
                   onClose={() => selectTask(null)}
                 />

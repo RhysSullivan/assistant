@@ -3,11 +3,19 @@ import { Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TaskStatusBadge } from "@/components/status-badge";
-import type { TaskRecord } from "@/lib/types";
+import type { RuntimeTargetDescriptor, TaskRecord } from "@/lib/types";
 import { formatTime } from "@/lib/format";
+import { getTaskRuntimeLabel } from "@/lib/runtime-display";
 
-function RecentTaskRow({ task }: { task: TaskRecord }) {
+function RecentTaskRow({
+  task,
+  runtimeTargets,
+}: {
+  task: TaskRecord;
+  runtimeTargets?: RuntimeTargetDescriptor[];
+}) {
   const navigate = useNavigate();
+  const runtimeLabel = getTaskRuntimeLabel(task.runtimeId, runtimeTargets);
 
   return (
     <button
@@ -17,7 +25,7 @@ function RecentTaskRow({ task }: { task: TaskRecord }) {
       <div className="flex-1 min-w-0">
         <span className="text-sm font-mono text-foreground truncate block">{task.id}</span>
         <span className="text-[11px] text-muted-foreground">
-          {task.runtimeId} &middot; {formatTime(task.createdAt)}
+          {runtimeLabel} &middot; {formatTime(task.createdAt)}
         </span>
       </div>
       <TaskStatusBadge status={task.status} />
@@ -25,7 +33,13 @@ function RecentTaskRow({ task }: { task: TaskRecord }) {
   );
 }
 
-export function DashboardRecentTasksCard({ recentTasks }: { recentTasks: TaskRecord[] }) {
+export function DashboardRecentTasksCard({
+  recentTasks,
+  runtimeTargets,
+}: {
+  recentTasks: TaskRecord[];
+  runtimeTargets?: RuntimeTargetDescriptor[];
+}) {
   const navigate = useNavigate();
 
   return (
@@ -55,7 +69,7 @@ export function DashboardRecentTasksCard({ recentTasks }: { recentTasks: TaskRec
         ) : (
           <div className="space-y-0.5">
             {recentTasks.map((task) => (
-              <RecentTaskRow key={task.id} task={task} />
+              <RecentTaskRow key={task.id} task={task} runtimeTargets={runtimeTargets} />
             ))}
           </div>
         )}

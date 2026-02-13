@@ -41,12 +41,14 @@ export function TaskDetail({
   workspaceId,
   sessionId,
   pendingApprovals,
+  runtimeLabel,
   onClose,
 }: {
   task: TaskRecord;
   workspaceId: Id<"workspaces">;
   sessionId?: string;
   pendingApprovals: PendingApprovalRecord[];
+  runtimeLabel?: string;
   onClose: () => void;
 }) {
   const resolveApproval = useMutation(convexApi.executor.resolveApproval);
@@ -112,7 +114,7 @@ export function TaskDetail({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "Status", value: <TaskStatusBadge status={liveTask.status} /> },
-            { label: "Runtime", value: <span className="font-mono text-xs">{liveTask.runtimeId}</span> },
+            { label: "Runtime", value: <span className="font-mono text-xs">{runtimeLabel ?? liveTask.runtimeId}</span> },
             { label: "Duration", value: <span className="font-mono text-xs">{duration}</span> },
             {
               label: "Exit Code",

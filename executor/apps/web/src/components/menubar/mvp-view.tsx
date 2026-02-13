@@ -8,8 +8,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { convexApi } from "@/lib/convex-api";
 import { useSession } from "@/lib/session-context";
+import type { RuntimeTargetDescriptor, TaskRecord } from "@/lib/types";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
-import type { TaskRecord } from "@/lib/types";
+import { getTaskRuntimeLabel } from "@/lib/runtime-display";
 
 export function MenubarMvpView() {
   const navigate = useNavigate();
@@ -34,6 +35,13 @@ export function MenubarMvpView() {
   );
   const tasksLoading = Boolean(context) && tasks === undefined;
   const recentTasks = (tasks ?? []).slice(0, 8) as TaskRecord[];
+
+  const runtimeTargets = useQuery(
+    convexApi.workspace.listRuntimeTargets,
+    context ? {} : "skip",
+  );
+
+  const runtimeTargetItems = runtimeTargets ?? [];
 
   if (sessionLoading) {
     return (
@@ -130,7 +138,9 @@ export function MenubarMvpView() {
               >
                 <span className="min-w-0">
                   <span className="block truncate text-[11px] font-mono text-foreground">{task.id}</span>
-                  <span className="block truncate text-[10px] text-muted-foreground">{task.runtimeId}</span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    {getTaskRuntimeLabel(task.runtimeId, runtimeTargetItems)}
+                  </span>
                 </span>
                 <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
                   {task.status}
