@@ -1,9 +1,12 @@
 import { useNavigate } from "react-router";
 import { Clock } from "lucide-react";
+import { useQuery } from "convex/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TaskStatusBadge } from "@/components/status-badge";
-import type { RuntimeTargetDescriptor, TaskRecord } from "@/lib/types";
+import type { TaskRecord } from "@/lib/types";
+import { convexApi } from "@/lib/convex-api";
+import { useSession } from "@/lib/session-context";
 import { formatTime } from "@/lib/format";
 import { getTaskRuntimeLabel } from "@/lib/runtime-display";
 
@@ -12,7 +15,7 @@ function RecentTaskRow({
   runtimeTargets,
 }: {
   task: TaskRecord;
-  runtimeTargets?: RuntimeTargetDescriptor[];
+  runtimeTargets: Parameters<typeof getTaskRuntimeLabel>[1];
 }) {
   const navigate = useNavigate();
   const runtimeLabel = getTaskRuntimeLabel(task.runtimeId, runtimeTargets);
@@ -38,9 +41,15 @@ export function DashboardRecentTasksCard({
   runtimeTargets,
 }: {
   recentTasks: TaskRecord[];
-  runtimeTargets?: RuntimeTargetDescriptor[];
+  runtimeTargets?: Parameters<typeof getTaskRuntimeLabel>[1];
 }) {
   const navigate = useNavigate();
+  const { context } = useSession();
+  const runtimeTargetsFromWorkspace = useQuery(
+    convexApi.workspace.listRuntimeTargets,
+    context ? {} : "skip",
+  );
+  const runtimeTargetItems = runtimeTargets ?? runtimeTargetsFromWorkspace ?? [];
 
   return (
     <Card className="bg-card border-border">
@@ -69,7 +78,7 @@ export function DashboardRecentTasksCard({
         ) : (
           <div className="space-y-0.5">
             {recentTasks.map((task) => (
-              <RecentTaskRow key={task.id} task={task} runtimeTargets={runtimeTargets} />
+              <RecentTaskRow key={task.id} task={task} runtimeTargets={runtimeTargetItems} />
             ))}
           </div>
         )}

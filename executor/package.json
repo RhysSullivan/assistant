@@ -25,6 +25,7 @@
     "web": "bun run executor.ts web",
     "deploy": "bunx convex deploy",
     "codegen": "bunx convex codegen",
+    "test:e2e:install": "bun test scripts/e2e/install.e2e.test.ts",
     "build:binary": "bun build executor.ts --compile --outfile dist/executor",
     "build:release": "bun run scripts/release/build-release.ts"
   },
