@@ -4,26 +4,34 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   buildPendingCookieName,
   decodePendingCookieValue,
+  encodePopupResultCookieValue,
+  MCP_OAUTH_RESULT_COOKIE,
   McpPopupOAuthProvider,
-  oauthPopupResultHtml,
+  type McpOAuthPopupResult,
 } from "@/lib/mcp-oauth-provider";
 
-function popupHtmlResponse(payload: {
-  ok: boolean;
-  sourceUrl?: string;
-  accessToken?: string;
-  refreshToken?: string;
-  scope?: string;
-  expiresIn?: number;
-  error?: string;
-}): NextResponse {
-  return new NextResponse(oauthPopupResultHtml(payload), {
-    status: payload.ok ? 200 : 400,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-    },
+function popupResultRedirect(
+  request: NextRequest,
+  pendingCookieName: string | null,
+  payload: McpOAuthPopupResult,
+): NextResponse {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
+  const origin = host && proto ? `${proto}://${host}` : request.nextUrl.origin;
+  const response = NextResponse.redirect(`${origin}/mcp/oauth/complete`);
+  response.cookies.set({
+    name: MCP_OAUTH_RESULT_COOKIE,
+    value: encodePopupResultCookieValue(payload),
+    httpOnly: true,
+    secure: request.nextUrl.protocol === "https:",
+    sameSite: "lax",
+    maxAge: 2 * 60,
+    path: "/",
   });
+  if (pendingCookieName) {
+    response.cookies.delete(pendingCookieName);
+  }
+  return response;
 }
 
 export async function GET(request: NextRequest) {
@@ -32,7 +40,7 @@ export async function GET(request: NextRequest) {
   const error = request.nextUrl.searchParams.get("error")?.trim();
 
   if (!state) {
-    return popupHtmlResponse({ ok: false, error: "Missing OAuth state" });
+    return popupResultRedirect(request, null, { ok: false, error: "Missing OAuth state" });
   }
 
   const cookieName = buildPendingCookieName(state);
@@ -40,30 +48,28 @@ export async function GET(request: NextRequest) {
   const pending = rawPending ? decodePendingCookieValue(rawPending) : null;
 
   if (!pending) {
-    const response = popupHtmlResponse({ ok: false, error: "OAuth session expired. Try connecting again." });
-    response.cookies.delete(cookieName);
-    return response;
+    return popupResultRedirect(request, cookieName, {
+      ok: false,
+      error: "OAuth session expired. Try connecting again.",
+    });
   }
 
   if (error) {
-    const response = popupHtmlResponse({ ok: false, error: `OAuth error: ${error}` });
-    response.cookies.delete(cookieName);
-    return response;
+    return popupResultRedirect(request, cookieName, { ok: false, error: `OAuth error: ${error}` });
   }
 
   if (!code) {
-    const response = popupHtmlResponse({ ok: false, error: "Missing OAuth authorization code" });
-    response.cookies.delete(cookieName);
-    return response;
+    return popupResultRedirect(request, cookieName, {
+      ok: false,
+      error: "Missing OAuth authorization code",
+    });
   }
 
   let sourceUrl: URL;
   try {
     sourceUrl = new URL(pending.sourceUrl);
   } catch {
-    const response = popupHtmlResponse({ ok: false, error: "Invalid MCP source URL" });
-    response.cookies.delete(cookieName);
-    return response;
+    return popupResultRedirect(request, cookieName, { ok: false, error: "Invalid MCP source URL" });
   }
 
   const provider = new McpPopupOAuthProvider({
@@ -79,23 +85,22 @@ export async function GET(request: NextRequest) {
       authorizationCode: code,
     });
   } catch (finishError) {
-    const response = popupHtmlResponse({
+    return popupResultRedirect(request, cookieName, {
       ok: false,
       error: finishError instanceof Error ? finishError.message : "Failed to finish OAuth",
     });
-    response.cookies.delete(cookieName);
-    return response;
   }
 
   const tokens = provider.getTokens();
   const accessToken = tokens?.access_token?.trim() ?? "";
   if (!accessToken) {
-    const response = popupHtmlResponse({ ok: false, error: "OAuth completed without an access token" });
-    response.cookies.delete(cookieName);
-    return response;
+    return popupResultRedirect(request, cookieName, {
+      ok: false,
+      error: "OAuth completed without an access token",
+    });
   }
 
-  const response = popupHtmlResponse({
+  return popupResultRedirect(request, cookieName, {
     ok: true,
     sourceUrl: pending.sourceUrl,
     accessToken,
@@ -103,6 +108,4 @@ export async function GET(request: NextRequest) {
     scope: tokens?.scope,
     expiresIn: typeof tokens?.expires_in === "number" ? tokens.expires_in : undefined,
   });
-  response.cookies.delete(cookieName);
-  return response;
 }

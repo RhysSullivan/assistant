@@ -14,7 +14,18 @@ export type McpOAuthPending = {
   clientInformation?: OAuthClientInformationMixed;
 };
 
+export type McpOAuthPopupResult = {
+  ok: boolean;
+  sourceUrl?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  scope?: string;
+  expiresIn?: number;
+  error?: string;
+};
+
 const COOKIE_PREFIX = "executor_mcp_oauth_";
+export const MCP_OAUTH_RESULT_COOKIE = "executor_mcp_oauth_result";
 
 export function buildPendingCookieName(state: string): string {
   return `${COOKIE_PREFIX}${state}`;
@@ -46,6 +57,32 @@ export function decodePendingCookieValue(raw: string): McpOAuthPending | null {
       redirectUrl: parsed.redirectUrl,
       ...(typeof parsed.codeVerifier === "string" ? { codeVerifier: parsed.codeVerifier } : {}),
       ...(parsed.clientInformation ? { clientInformation: parsed.clientInformation } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function encodePopupResultCookieValue(result: McpOAuthPopupResult): string {
+  return Buffer.from(JSON.stringify(result), "utf8").toString("base64url");
+}
+
+export function decodePopupResultCookieValue(raw: string): McpOAuthPopupResult | null {
+  try {
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    const parsed = JSON.parse(decoded) as Partial<McpOAuthPopupResult>;
+    if (typeof parsed.ok !== "boolean") {
+      return null;
+    }
+
+    return {
+      ok: parsed.ok,
+      ...(typeof parsed.sourceUrl === "string" ? { sourceUrl: parsed.sourceUrl } : {}),
+      ...(typeof parsed.accessToken === "string" ? { accessToken: parsed.accessToken } : {}),
+      ...(typeof parsed.refreshToken === "string" ? { refreshToken: parsed.refreshToken } : {}),
+      ...(typeof parsed.scope === "string" ? { scope: parsed.scope } : {}),
+      ...(typeof parsed.expiresIn === "number" ? { expiresIn: parsed.expiresIn } : {}),
+      ...(typeof parsed.error === "string" ? { error: parsed.error } : {}),
     };
   } catch {
     return null;
@@ -138,56 +175,4 @@ export class McpPopupOAuthProvider implements OAuthClientProvider {
   getTokens(): OAuthTokens | undefined {
     return this.tokenValue;
   }
-}
-
-export function oauthPopupResultHtml(payload: {
-  ok: boolean;
-  sourceUrl?: string;
-  accessToken?: string;
-  refreshToken?: string;
-  scope?: string;
-  expiresIn?: number;
-  error?: string;
-}): string {
-  const message = payload.ok
-    ? {
-        type: "executor:mcp-oauth-result",
-        ok: true,
-        sourceUrl: payload.sourceUrl,
-        payload: {
-          accessToken: payload.accessToken,
-          ...(payload.refreshToken ? { refreshToken: payload.refreshToken } : {}),
-          ...(payload.scope ? { scope: payload.scope } : {}),
-          ...(typeof payload.expiresIn === "number" ? { expiresIn: payload.expiresIn } : {}),
-        },
-      }
-    : {
-        type: "executor:mcp-oauth-result",
-        ok: false,
-        error: payload.error ?? "OAuth failed",
-      };
-
-  const serialized = JSON.stringify(message);
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>MCP OAuth</title>
-  </head>
-  <body>
-    <script>
-      (function () {
-        const msg = ${serialized};
-        try {
-          if (window.opener) {
-            window.opener.postMessage(msg, window.location.origin);
-          }
-        } finally {
-          window.close();
-        }
-      })();
-    </script>
-    <p>You can close this window.</p>
-  </body>
-</html>`;
 }

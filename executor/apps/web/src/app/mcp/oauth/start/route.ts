@@ -5,8 +5,10 @@ import {
   buildPendingCookieName,
   createOAuthState,
   encodePendingCookieValue,
+  encodePopupResultCookieValue,
+  MCP_OAUTH_RESULT_COOKIE,
   McpPopupOAuthProvider,
-  oauthPopupResultHtml,
+  type McpOAuthPopupResult,
 } from "@/lib/mcp-oauth-provider";
 
 function getExternalOrigin(request: NextRequest): string {
@@ -18,27 +20,36 @@ function getExternalOrigin(request: NextRequest): string {
   return request.nextUrl.origin;
 }
 
-function badPopupResponse(message: string): NextResponse {
-  return new NextResponse(oauthPopupResultHtml({ ok: false, error: message }), {
-    status: 400,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-    },
+function popupResultRedirect(request: NextRequest, payload: McpOAuthPopupResult): NextResponse {
+  const externalOrigin = getExternalOrigin(request);
+  const response = NextResponse.redirect(`${externalOrigin}/mcp/oauth/complete`);
+  response.cookies.set({
+    name: MCP_OAUTH_RESULT_COOKIE,
+    value: encodePopupResultCookieValue(payload),
+    httpOnly: true,
+    secure: request.nextUrl.protocol === "https:",
+    sameSite: "lax",
+    maxAge: 2 * 60,
+    path: "/",
   });
+  return response;
+}
+
+function badPopupResponse(request: NextRequest, message: string): NextResponse {
+  return popupResultRedirect(request, { ok: false, error: message });
 }
 
 export async function GET(request: NextRequest) {
   const sourceUrlRaw = request.nextUrl.searchParams.get("sourceUrl")?.trim() ?? "";
   if (!sourceUrlRaw) {
-    return badPopupResponse("Missing sourceUrl");
+    return badPopupResponse(request, "Missing sourceUrl");
   }
 
   let sourceUrl: URL;
   try {
     sourceUrl = new URL(sourceUrlRaw);
   } catch {
-    return badPopupResponse("Invalid sourceUrl");
+    return badPopupResponse(request, "Invalid sourceUrl");
   }
 
   const state = createOAuthState();
@@ -53,37 +64,28 @@ export async function GET(request: NextRequest) {
     authResult = await auth(provider, { serverUrl: sourceUrl });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start OAuth flow";
-    return badPopupResponse(message);
+    return badPopupResponse(request, message);
   }
 
   if (authResult === "AUTHORIZED") {
     const tokens = provider.getTokens();
     const accessToken = tokens?.access_token?.trim() ?? "";
     if (!accessToken) {
-      return badPopupResponse("OAuth flow completed without an access token");
+      return badPopupResponse(request, "OAuth flow completed without an access token");
     }
-    return new NextResponse(
-      oauthPopupResultHtml({
-        ok: true,
-        sourceUrl: sourceUrl.toString(),
-        accessToken,
-        refreshToken: tokens?.refresh_token,
-        scope: tokens?.scope,
-        expiresIn: typeof tokens?.expires_in === "number" ? tokens.expires_in : undefined,
-      }),
-      {
-        status: 200,
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-store",
-        },
-      },
-    );
+    return popupResultRedirect(request, {
+      ok: true,
+      sourceUrl: sourceUrl.toString(),
+      accessToken,
+      refreshToken: tokens?.refresh_token,
+      scope: tokens?.scope,
+      expiresIn: typeof tokens?.expires_in === "number" ? tokens.expires_in : undefined,
+    });
   }
 
   const authorizationUrl = provider.getAuthorizationUrl();
   if (!authorizationUrl) {
-    return badPopupResponse("Server did not request an OAuth authorization step");
+    return badPopupResponse(request, "Server did not request an OAuth authorization step");
   }
 
   const pendingCookie = encodePendingCookieValue(provider.toPending(sourceUrl.toString()));
