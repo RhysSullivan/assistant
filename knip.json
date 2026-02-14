@@ -1,0 +1,31 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignoreIssues": {
+    "executor/packages/core/src/**/*.ts": [
+      "types"
+    ]
+  },
+  "workspaces": {
+    "executor/packages/convex": {
+      "entry": [
+        "*.ts"
+      ],
+      "ignore": [
+        "_generated/server.d.ts"
+      ]
+    },
+    "executor/packages/core": {
+      "entry": [
+        "src/function-builders.ts",
+        "src/identity.ts",
+        "src/mcp-server.ts",
+        "src/tool-discovery.ts",
+        "src/tool-sources.ts",
+        "src/managed-runtime.ts",
+        "src/slug.ts",
+        "../convex/**/*.ts",
+        "../../executor.ts"
+      ]
+    }
+  }
+}

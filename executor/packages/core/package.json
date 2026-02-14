@@ -9,6 +9,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "better-result": "^2.7.0",
+    "graphql": "^16.12.0"
+  },
   "devDependencies": {
     "typescript": "^5.9.3"
   }

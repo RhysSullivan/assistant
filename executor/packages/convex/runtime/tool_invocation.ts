@@ -12,7 +12,8 @@ import type {
   ToolCallRequest,
   ToolRunContext,
 } from "../../core/src/types";
-import { asPayload, describeError } from "../../core/src/utils";
+import { describeError } from "../../core/src/utils";
+import { asPayload } from "../lib/object";
 import { getToolDecision, isToolAllowedForTask } from "./policy";
 import { baseTools } from "./workspace_tools";
 import { publishTaskEvent } from "./events";

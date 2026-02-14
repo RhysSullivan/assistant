@@ -5,7 +5,7 @@ import { internal } from "../_generated/api";
 import { resolveCredentialPayload } from "../../core/src/credential-providers";
 import { APPROVAL_DENIED_PREFIX } from "../../core/src/execution-constants";
 import type { CredentialScope, ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../core/src/types";
-import { asPayload } from "../../core/src/utils";
+import { asPayload } from "../lib/object";
 
 export async function resolveCredentialHeaders(
   ctx: ActionCtx,
