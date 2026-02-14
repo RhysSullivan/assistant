@@ -3,6 +3,7 @@ export interface CatalogCollectionItem {
   name: string;
   summary: string;
   specUrl: string;
+  sourceType?: "mcp" | "openapi" | "graphql";
   originUrl?: string;
   providerName: string;
   logoUrl?: string;
@@ -13,6 +14,19 @@ export interface CatalogCollectionItem {
 }
 
 export const HARD_CODED_CATALOG_ITEMS: CatalogCollectionItem[] = [
+  {
+    id: "deepwiki-mcp",
+    name: "DeepWiki MCP",
+    summary: "Read repository docs and ask questions through DeepWiki via MCP.",
+    specUrl: "https://mcp.deepwiki.com/mcp",
+    sourceType: "mcp",
+    originUrl: "https://deepwiki.com",
+    providerName: "DeepWiki",
+    categories: "developer-tools",
+    version: "latest",
+    rank: 0,
+    addedAt: "2026-02-14",
+  },
   {
     id: "github-rest",
     name: "GitHub REST API",

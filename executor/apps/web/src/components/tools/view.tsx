@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 import {
-  Globe,
+  Plus,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -159,28 +159,21 @@ export function ToolsView({
         </TabsContent>
 
         <TabsContent value="catalog" className="mt-4 min-h-0">
-          <Card className="bg-card border-border min-h-0 flex flex-col">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                  Tools
-                  <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
-                    {loadingTools ? "..." : tools.length}
-                  </span>
-                </CardTitle>
-                <div className="flex items-center gap-2">
-                  {activeSource ? (
-                    <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => setSelectedSource(null)}>
-                      Clear source filter
-                    </Button>
-                  ) : null}
-                  <AddSourceDialog
-                    existingSourceNames={new Set(sourceItems.map((s) => s.name))}
-                  />
+          <Card className="bg-card border-border min-h-0 flex flex-col pt-4 gap-3">
+            {activeSource ? (
+              <CardHeader className="pb-1">
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px]"
+                    onClick={() => setSelectedSource(null)}
+                  >
+                    Clear source filter
+                  </Button>
                 </div>
-              </div>
-            </CardHeader>
+              </CardHeader>
+            ) : null}
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
               {sourcesLoading ? (
                 <div className="space-y-2">
@@ -225,6 +218,21 @@ export function ToolsView({
                   initialSource={initialSource}
                   activeSource={activeSource}
                   onActiveSourceChange={setSelectedSource}
+                  addSourceAction={
+                    <AddSourceDialog
+                        existingSourceNames={new Set(sourceItems.map((s) => s.name))}
+                        trigger={
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="h-8 text-[11px]"
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1.5" />
+                            Add Source
+                          </Button>
+                        }
+                    />
+                  }
                 />
               </div>
             </CardContent>

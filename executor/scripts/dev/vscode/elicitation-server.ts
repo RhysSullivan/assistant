@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { z } from "zod";
 
 type Runtime = {
   server: McpServer;
@@ -9,6 +8,7 @@ type Runtime = {
 };
 
 const runtimes = new Map<string, Runtime>();
+const DEFAULT_APPROVAL_MESSAGE = "Approve this operation?";
 
 function createRuntime(): Runtime {
   const server = new McpServer(
@@ -20,11 +20,14 @@ function createRuntime(): Runtime {
     "request_approval",
     {
       description: "Prompts the MCP client for approval using form elicitation.",
-      inputSchema: {
-        message: z.string().default("Approve this operation?"),
-      },
+      inputSchema: {},
     },
-    async ({ message }) => {
+    async (input) => {
+      const message =
+        typeof (input as { message?: unknown }).message === "string"
+          ? (input as { message: string }).message
+          : DEFAULT_APPROVAL_MESSAGE;
+
       const capabilities = server.server.getClientCapabilities?.();
       console.log("[elicitation-demo] client capabilities:", JSON.stringify(capabilities ?? {}));
 

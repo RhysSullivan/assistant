@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useDeferredValue, useEffect } from "react";
+import { type ReactNode, useState, useMemo, useCallback, useRef, useDeferredValue, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   collectGroupKeys,
@@ -44,6 +44,7 @@ interface ToolExplorerProps {
   activeSource?: string | null;
   onActiveSourceChange?: (source: string | null) => void;
   showSourceSidebar?: boolean;
+  addSourceAction?: ReactNode;
 }
 
 export function ToolExplorer({
@@ -57,6 +58,7 @@ export function ToolExplorer({
   activeSource,
   onActiveSourceChange,
   showSourceSidebar = true,
+  addSourceAction,
 }: ToolExplorerProps) {
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput);
@@ -190,6 +192,14 @@ export function ToolExplorer({
   const flatTools = useMemo(() => {
     return flatToolsForView(searchedTools, viewMode);
   }, [searchedTools, viewMode]);
+
+  const sourceByName = useMemo(() => {
+    const map = new Map<string, ToolSourceRecord>();
+    for (const source of stableSources) {
+      map.set(source.name, source);
+    }
+    return map;
+  }, [stableSources]);
 
   const autoExpandedKeys = useMemo(() => {
     return autoExpandedKeysForSearch(search, filteredTools, viewMode);
@@ -370,7 +380,7 @@ export function ToolExplorer({
       <div
         className={cn(
           "flex-1 min-w-0 flex flex-col",
-          showSourceSidebar ? "pl-0 lg:pl-4" : "pl-0",
+          "pl-0",
         )}
       >
         <ToolExplorerToolbar
@@ -385,6 +395,7 @@ export function ToolExplorer({
           showSourceSidebar={showSourceSidebar}
           activeSource={resolvedActiveSource}
           sourceOptions={sourceOptions}
+          addSourceAction={addSourceAction}
           selectedToolCount={selectedToolCount}
           onSearchChange={setSearchInput}
           onClearSearch={() => setSearchInput("")}
@@ -438,6 +449,7 @@ export function ToolExplorer({
                     onSelectTool={toggleSelectTool}
                     onExpandedChange={maybeLoadToolDetails}
                     detailLoadingPaths={loadingDetailPaths}
+                    source={group.type === "source" ? sourceByName.get(group.label) : undefined}
                     search={search}
                   />
                 ))}

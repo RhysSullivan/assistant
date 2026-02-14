@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Server, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useMutation } from "convex/react";
-import Image from "next/image";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,12 +18,12 @@ import { displaySourceName } from "@/lib/tool/source-utils";
 import {
   compactEndpointLabel,
   formatSourceAuthBadge,
-  getSourceFavicon,
   readSourceAuth,
   sourceAuthProfileForSource,
   sourceEndpointLabel,
 } from "@/lib/tools/source-helpers";
 import { AddSourceDialog } from "./add/source-dialog";
+import { SourceFavicon } from "./source-favicon";
 import {
   OpenApiQualityDetails,
   SourceQualitySummary,
@@ -72,8 +71,6 @@ export function SourceCard({
     }
   };
 
-  const TypeIcon = source.type === "mcp" ? Server : Globe;
-  const favicon = getSourceFavicon(source);
   const inferredProfile = sourceAuthProfileForSource(source, sourceAuthProfiles);
   const authBadge = formatSourceAuthBadge(source, inferredProfile);
   const auth = readSourceAuth(source, inferredProfile);
@@ -92,19 +89,7 @@ export function SourceCard({
       )}
     >
       <div className="mt-0.5 h-9 w-9 rounded-md bg-muted/80 flex items-center justify-center shrink-0 overflow-hidden">
-        {favicon ? (
-          <Image
-            src={favicon}
-            alt=""
-            width={20}
-            height={20}
-            className="w-5 h-5"
-            loading="lazy"
-            unoptimized
-          />
-        ) : (
-          <TypeIcon className="h-4 w-4 text-muted-foreground" />
-        )}
+        <SourceFavicon source={source} iconClassName="h-4 w-4 text-muted-foreground" imageClassName="w-5 h-5" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 min-w-0">

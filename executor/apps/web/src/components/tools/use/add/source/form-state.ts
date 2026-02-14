@@ -179,17 +179,20 @@ export function useAddSourceFormState({
 
   const handleCatalogAdd = (item: CatalogCollectionItem) => {
     const name = withUniqueSourceName(catalogSourceName(item), getTakenSourceNames());
-    const defaultBaseUrl = deriveBaseUrlFromEndpoint(item.specUrl);
+    const sourceType: SourceType = item.sourceType === "graphql" || item.sourceType === "mcp" || item.sourceType === "openapi"
+      ? item.sourceType
+      : "openapi";
+    const defaultBaseUrl = sourceType === "openapi" ? deriveBaseUrlFromEndpoint(item.specUrl) : "";
     form.reset({
       ...createDefaultFormValues(),
-      type: "openapi",
+      type: sourceType,
       name,
       endpoint: item.specUrl,
       baseUrl: defaultBaseUrl,
     });
     patchUiWithAuthRevision(setUi, {
       view: "custom",
-      openApiBaseUrlOptions: defaultBaseUrl ? [defaultBaseUrl] : [],
+      openApiBaseUrlOptions: sourceType === "openapi" && defaultBaseUrl ? [defaultBaseUrl] : [],
       authManuallyEdited: false,
     });
   };

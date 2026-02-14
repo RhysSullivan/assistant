@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Play, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -81,7 +81,7 @@ export function TasksView() {
         description="Task activity first, with an advanced editor when you need it"
       >
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setActiveTab("runner")}>
-          Advanced runner
+          Editor
         </Button>
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => navigate("/approvals")}>
           <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
@@ -96,7 +96,7 @@ export function TasksView() {
             <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">{taskItems.length}</span>
           </TabsTrigger>
           <TabsTrigger value="runner" className="text-xs data-[state=active]:bg-background">
-            Runner (Advanced)
+            Editor
           </TabsTrigger>
         </TabsList>
 
@@ -165,28 +165,7 @@ export function TasksView() {
         </TabsContent>
 
         <TabsContent value="runner" className="mt-4">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <TaskComposer />
-            <Card className="bg-card border-border">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Play className="h-4 w-4 text-terminal-green" />
-                  Before you run
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-3 text-xs text-muted-foreground">
-                <p>
-                  This editor is the advanced path for direct code execution. Most day-to-day work happens in Activity.
-                </p>
-                <p>
-                  New runs appear in Task History, and any gated tool calls can be approved inline from the selected task.
-                </p>
-                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setActiveTab("activity")}>
-                  Back to activity view
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+          <TaskComposer />
         </TabsContent>
       </Tabs>
     </div>

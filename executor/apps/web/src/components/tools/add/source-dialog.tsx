@@ -91,7 +91,7 @@ export function AddSourceDialog({
 
   const handleCatalogAdd = (item: CatalogCollectionItem) => {
     if (!item.specUrl.trim()) {
-      toast.error("Missing OpenAPI spec URL for this API source");
+      toast.error("Missing endpoint URL for this source");
       return;
     }
     form.handleCatalogAdd(item);
