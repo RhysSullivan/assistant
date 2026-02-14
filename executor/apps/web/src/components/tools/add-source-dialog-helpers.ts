@@ -63,12 +63,14 @@ export function createCustomSourceConfig({
   type,
   endpoint,
   baseUrl,
+  auth,
   mcpTransport,
   actorId,
 }: {
   type: SourceType;
   endpoint: string;
   baseUrl: string;
+  auth?: Record<string, unknown>;
   mcpTransport: "auto" | "streamable-http" | "sse";
   actorId?: string;
 }): Record<string, unknown> {
@@ -83,8 +85,16 @@ export function createCustomSourceConfig({
   }
 
   if (type === "graphql") {
-    return { endpoint };
+    return {
+      endpoint,
+      ...(auth ? { auth } : {}),
+    };
   }
 
-  return { spec: endpoint, ...(baseUrl ? { baseUrl } : {}) };
+  return {
+    spec: endpoint,
+    specUrl: endpoint,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(auth ? { auth } : {}),
+  };
 }

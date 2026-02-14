@@ -1,6 +1,7 @@
 import { ChevronRight, Plus } from "lucide-react";
 import Image from "next/image";
 import { Streamdown } from "streamdown";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +27,6 @@ export function CatalogViewSection({
   catalogSort,
   onCatalogSortChange,
   visibleCatalogItems,
-  addingCatalogId,
   onSwitchToCustom,
   onAddCatalog,
 }: {
@@ -35,7 +35,6 @@ export function CatalogViewSection({
   catalogSort: SourceCatalogSort;
   onCatalogSortChange: (value: SourceCatalogSort) => void;
   visibleCatalogItems: CatalogCollectionItem[];
-  addingCatalogId: string | null;
   onSwitchToCustom: () => void;
   onAddCatalog: (item: CatalogCollectionItem) => void;
 }) {
@@ -119,9 +118,8 @@ export function CatalogViewSection({
                 size="sm"
                 className="h-7 px-2 text-[11px]"
                 onClick={() => onAddCatalog(item)}
-                disabled={Boolean(addingCatalogId)}
               >
-                {addingCatalogId === item.id ? "Adding..." : "Add"}
+                Use
               </Button>
             </div>
           </div>
@@ -140,44 +138,58 @@ export function CatalogViewSection({
 export function CustomViewSection({
   type,
   onTypeChange,
+  typeDisabled = false,
   endpoint,
   onEndpointChange,
   name,
   onNameChange,
   baseUrl,
+  baseUrlOptions,
   onBaseUrlChange,
   mcpTransport,
   onMcpTransportChange,
   submitting,
+  submittingLabel,
   submitDisabled,
+  submitLabel,
+  showBackToCatalog = true,
   onBackToCatalog,
   onSubmit,
+  children,
 }: {
   type: SourceType;
   onTypeChange: (value: SourceType) => void;
+  typeDisabled?: boolean;
   endpoint: string;
   onEndpointChange: (value: string) => void;
   name: string;
   onNameChange: (value: string) => void;
   baseUrl: string;
+  baseUrlOptions: string[];
   onBaseUrlChange: (value: string) => void;
   mcpTransport: "auto" | "streamable-http" | "sse";
   onMcpTransportChange: (value: "auto" | "streamable-http" | "sse") => void;
   submitting: boolean;
+  submittingLabel?: string;
   submitDisabled: boolean;
-  onBackToCatalog: () => void;
+  submitLabel?: string;
+  showBackToCatalog?: boolean;
+  onBackToCatalog?: () => void;
   onSubmit: () => void;
+  children?: ReactNode;
 }) {
   return (
     <div className="space-y-3">
-      <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onBackToCatalog}>
-        <ChevronRight className="h-3.5 w-3.5 mr-1 rotate-180" />
-        Back to API list
-      </Button>
+      {showBackToCatalog && onBackToCatalog ? (
+        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onBackToCatalog}>
+          <ChevronRight className="h-3.5 w-3.5 mr-1 rotate-180" />
+          Back to API list
+        </Button>
+      ) : null}
 
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">Type</Label>
-        <Select value={type} onValueChange={(value) => onTypeChange(value as SourceType)}>
+        <Select value={type} onValueChange={(value) => onTypeChange(value as SourceType)} disabled={typeDisabled}>
           <SelectTrigger className="h-8 text-xs bg-background">
             <SelectValue />
           </SelectTrigger>
@@ -215,9 +227,17 @@ export function CustomViewSection({
           <Input
             value={baseUrl}
             onChange={(event) => onBaseUrlChange(event.target.value)}
+            list={baseUrlOptions.length > 0 ? "openapi-base-url-options" : undefined}
             placeholder="https://api.example.com"
             className="h-8 text-xs font-mono bg-background"
           />
+          {baseUrlOptions.length > 0 ? (
+            <datalist id="openapi-base-url-options">
+              {baseUrlOptions.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+          ) : null}
         </div>
       )}
 
@@ -240,8 +260,10 @@ export function CustomViewSection({
         </div>
       )}
 
+      {children}
+
       <Button onClick={onSubmit} disabled={submitDisabled} className="w-full h-9" size="sm">
-        {submitting ? "Adding..." : "Add Source"}
+        {submitting ? submittingLabel ?? "Adding..." : submitLabel ?? "Add Source"}
       </Button>
     </div>
   );

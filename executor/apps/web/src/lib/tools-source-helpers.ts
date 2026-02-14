@@ -16,7 +16,7 @@ const RAW_HOSTS = new Set([
   "raw.github.com",
 ]);
 
-export function faviconForUrl(url: string | undefined | null): string | null {
+function faviconForUrl(url: string | undefined | null): string | null {
   if (!url) return null;
   try {
     const domain = new URL(url).hostname;
@@ -34,13 +34,18 @@ export function getSourceFavicon(source: ToolSourceRecord): string | null {
     return faviconForUrl((source.config.endpoint as string) ?? null);
   }
   const spec = source.config.spec as string | undefined;
+  const specUrl = source.config.specUrl as string | undefined;
   if (typeof spec === "string" && spec.startsWith("postman:")) {
     return null;
   }
   const baseUrl = source.config.baseUrl as string | undefined;
   const collectionUrl = source.config.collectionUrl as string | undefined;
-  const specUrl = typeof spec === "string" && spec.startsWith("http") ? spec : null;
-  return faviconForUrl(baseUrl ?? collectionUrl ?? specUrl);
+  const resolvedSpecUrl = typeof specUrl === "string" && specUrl.startsWith("http")
+    ? specUrl
+    : typeof spec === "string" && spec.startsWith("http")
+      ? spec
+      : null;
+  return faviconForUrl(baseUrl ?? collectionUrl ?? resolvedSpecUrl);
 }
 
 export function sourceEndpointLabel(source: ToolSourceRecord): string {
@@ -48,12 +53,17 @@ export function sourceEndpointLabel(source: ToolSourceRecord): string {
   if (source.type === "graphql") return (source.config.endpoint as string) ?? "";
 
   const spec = source.config.spec;
+  const specUrl = source.config.specUrl;
   if (typeof spec === "string" && spec.startsWith("postman:")) {
     const uid = spec.slice("postman:".length).trim();
     if (uid.length > 0) {
       return `catalog:${uid}`;
     }
     return "catalog:collection";
+  }
+
+  if (typeof specUrl === "string" && specUrl.length > 0) {
+    return specUrl;
   }
 
   return (source.config.spec as string) ?? "";
@@ -94,7 +104,7 @@ export function sourceAuthProfileForSource(
   return undefined;
 }
 
-export function normalizeSourceAuthProfile(profile: SourceAuthProfile | undefined): {
+function normalizeSourceAuthProfile(profile: SourceAuthProfile | undefined): {
   type: SourceAuthType;
   mode?: SourceAuthMode;
   header?: string;
@@ -261,7 +271,7 @@ export function inferNameFromUrl(url: string): string {
   }
 }
 
-export function sanitizeSourceName(value: string): string {
+function sanitizeSourceName(value: string): string {
   const slug = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

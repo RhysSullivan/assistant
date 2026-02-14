@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { z } from "zod";
 import type { McpExecutorService, ApprovalPrompt } from "./mcp-server-contracts";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -162,7 +163,7 @@ function createRunCodeTool(
 // Input schema — when context is bound, workspace fields aren't needed
 // ---------------------------------------------------------------------------
 
-const FULL_INPUT = {
+const FULL_INPUT = z.object({
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
@@ -171,14 +172,14 @@ const FULL_INPUT = {
   sessionId: z.string().optional(),
   waitForResult: z.boolean().optional(),
   resultTimeoutMs: z.number().int().min(100).max(900_000).optional(),
-} as const;
+}) as unknown as AnySchema;
 
-const BOUND_INPUT = {
+const BOUND_INPUT = z.object({
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
   metadata: z.record(z.string(), z.any()).optional(),
-} as const;
+}) as unknown as AnySchema;
 
 // ---------------------------------------------------------------------------
 // MCP server factory
@@ -193,8 +194,13 @@ async function createMcpServer(
     { capabilities: { tools: {} } },
   );
   const onApprovalPrompt = createMcpApprovalPrompt(mcp);
+  const registerTool = mcp.registerTool as (
+    name: string,
+    config: { description: string; inputSchema: AnySchema },
+    cb: ReturnType<typeof createRunCodeTool>,
+  ) => void;
 
-  mcp.registerTool(
+  registerTool(
     "run_code",
     {
       description: buildRunCodeDescription(),

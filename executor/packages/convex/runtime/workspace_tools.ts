@@ -23,12 +23,12 @@ import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from
 
 const baseTools = new Map<string, ToolDefinition>();
 
-export interface DtsStorageEntry {
+interface DtsStorageEntry {
   sourceKey: string;
   storageId: Id<"_storage">;
 }
 
-export interface WorkspaceToolsResult {
+interface WorkspaceToolsResult {
   tools: Map<string, ToolDefinition>;
   warnings: string[];
   dtsStorageIds: DtsStorageEntry[];
@@ -56,7 +56,7 @@ interface GetWorkspaceToolsOptions {
   skipCacheRead?: boolean;
 }
 
-export interface WorkspaceToolInventory {
+interface WorkspaceToolInventory {
   tools: ToolDescriptor[];
   warnings: string[];
   dtsStorageIds: DtsStorageEntry[];
@@ -388,7 +388,7 @@ export async function getWorkspaceTools(
   };
 }
 
-export async function loadWorkspaceToolInventoryForContext(
+async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {

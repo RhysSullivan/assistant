@@ -5,7 +5,7 @@ import { api } from "@executor/convex/_generated/api";
 import type { Id } from "@executor/convex/_generated/dataModel";
 import { createFileLinkStore, type LinkedMcpContext } from "./link-store";
 
-export interface ServerOptions {
+interface ServerOptions {
   readonly executorUrl: string;
   readonly convexUrl: string;
   readonly context?: string;

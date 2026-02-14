@@ -28,78 +28,6 @@ export declare const api: {
       any
     >;
   };
-  anonymousOauth: {
-    consumeAuthorizationCode: FunctionReference<
-      "mutation",
-      "public",
-      { code: string; internalSecret: string },
-      any
-    >;
-    countAuthorizationCodes: FunctionReference<
-      "query",
-      "public",
-      { internalSecret: string },
-      any
-    >;
-    getActiveSigningKey: FunctionReference<
-      "query",
-      "public",
-      { internalSecret: string },
-      any
-    >;
-    getClient: FunctionReference<
-      "query",
-      "public",
-      { clientId: string; internalSecret: string },
-      any
-    >;
-    purgeExpiredAuthorizationCodes: FunctionReference<
-      "mutation",
-      "public",
-      { internalSecret: string; now: number },
-      any
-    >;
-    registerClient: FunctionReference<
-      "mutation",
-      "public",
-      {
-        clientId: string;
-        clientName?: string;
-        internalSecret: string;
-        redirectUris: Array<string>;
-      },
-      any
-    >;
-    storeAuthorizationCode: FunctionReference<
-      "mutation",
-      "public",
-      {
-        actorId: string;
-        clientId: string;
-        code: string;
-        codeChallenge: string;
-        codeChallengeMethod: string;
-        createdAt: number;
-        expiresAt: number;
-        internalSecret: string;
-        redirectUri: string;
-        tokenClaims?: any;
-      },
-      any
-    >;
-    storeSigningKey: FunctionReference<
-      "mutation",
-      "public",
-      {
-        algorithm: string;
-        internalSecret: string;
-        keyId: string;
-        privateKeyJwk: any;
-        publicKeyJwk: any;
-      },
-      any
-    >;
-  };
   app: {
     getClientConfig: FunctionReference<"query", "public", {}, any>;
     getCurrentAccount: FunctionReference<
@@ -625,18 +553,6 @@ export declare const internal: {
       { sessionId?: string },
       any
     >;
-    consumeAnonymousOauthAuthorizationCode: FunctionReference<
-      "mutation",
-      "internal",
-      { code: string },
-      any
-    >;
-    countAnonymousOauthAuthorizationCodes: FunctionReference<
-      "query",
-      "internal",
-      {},
-      any
-    >;
     createApproval: FunctionReference<
       "mutation",
       "internal",
@@ -720,18 +636,6 @@ export declare const internal: {
         status: "completed" | "failed" | "denied";
         taskId: string;
       },
-      any
-    >;
-    getActiveAnonymousOauthSigningKey: FunctionReference<
-      "query",
-      "internal",
-      {},
-      any
-    >;
-    getAnonymousOauthClient: FunctionReference<
-      "query",
-      "internal",
-      { clientId: string },
       any
     >;
     getApproval: FunctionReference<
@@ -835,71 +739,6 @@ export declare const internal: {
       { taskId: string },
       any
     >;
-    oauth: {
-      consumeAnonymousOauthAuthorizationCode: FunctionReference<
-        "mutation",
-        "internal",
-        { code: string },
-        any
-      >;
-      countAnonymousOauthAuthorizationCodes: FunctionReference<
-        "query",
-        "internal",
-        {},
-        any
-      >;
-      getActiveAnonymousOauthSigningKey: FunctionReference<
-        "query",
-        "internal",
-        {},
-        any
-      >;
-      getAnonymousOauthClient: FunctionReference<
-        "query",
-        "internal",
-        { clientId: string },
-        any
-      >;
-      purgeExpiredAnonymousOauthAuthorizationCodes: FunctionReference<
-        "mutation",
-        "internal",
-        { now: number },
-        any
-      >;
-      registerAnonymousOauthClient: FunctionReference<
-        "mutation",
-        "internal",
-        { clientId: string; clientName?: string; redirectUris: Array<string> },
-        any
-      >;
-      storeAnonymousOauthAuthorizationCode: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          actorId: string;
-          clientId: string;
-          code: string;
-          codeChallenge: string;
-          codeChallengeMethod: string;
-          createdAt: number;
-          expiresAt: number;
-          redirectUri: string;
-          tokenClaims?: any;
-        },
-        any
-      >;
-      storeAnonymousOauthSigningKey: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          algorithm: string;
-          keyId: string;
-          privateKeyJwk: any;
-          publicKeyJwk: any;
-        },
-        any
-      >;
-    };
     policies: {
       listAccessPolicies: FunctionReference<
         "query",
@@ -923,18 +762,6 @@ export declare const internal: {
         any
       >;
     };
-    purgeExpiredAnonymousOauthAuthorizationCodes: FunctionReference<
-      "mutation",
-      "internal",
-      { now: number },
-      any
-    >;
-    registerAnonymousOauthClient: FunctionReference<
-      "mutation",
-      "internal",
-      { clientId: string; clientName?: string; redirectUris: Array<string> },
-      any
-    >;
     resolveApproval: FunctionReference<
       "mutation",
       "internal",
@@ -961,33 +788,6 @@ export declare const internal: {
       "mutation",
       "internal",
       { approvalId: string; callId: string; taskId: string },
-      any
-    >;
-    storeAnonymousOauthAuthorizationCode: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        actorId: string;
-        clientId: string;
-        code: string;
-        codeChallenge: string;
-        codeChallengeMethod: string;
-        createdAt: number;
-        expiresAt: number;
-        redirectUri: string;
-        tokenClaims?: any;
-      },
-      any
-    >;
-    storeAnonymousOauthSigningKey: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        algorithm: string;
-        keyId: string;
-        privateKeyJwk: any;
-        publicKeyJwk: any;
-      },
       any
     >;
     task_events: {

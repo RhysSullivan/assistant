@@ -40,13 +40,3 @@ export {
   deleteToolSource,
 } from "./database/tool_sources";
 export { createTaskEvent, listTaskEvents } from "./database/task_events";
-export {
-  getActiveAnonymousOauthSigningKey,
-  storeAnonymousOauthSigningKey,
-  registerAnonymousOauthClient,
-  getAnonymousOauthClient,
-  storeAnonymousOauthAuthorizationCode,
-  consumeAnonymousOauthAuthorizationCode,
-  purgeExpiredAnonymousOauthAuthorizationCodes,
-  countAnonymousOauthAuthorizationCodes,
-} from "./database/oauth";

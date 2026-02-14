@@ -23,9 +23,8 @@ import {
   readSourceAuth,
   sourceAuthProfileForSource,
   sourceEndpointLabel,
-  sourceKeyForSource,
 } from "@/lib/tools-source-helpers";
-import { ConfigureSourceAuthDialog } from "./source-auth-dialog";
+import { AddSourceDialog } from "./add-source-dialog";
 import {
   OpenApiQualityDetails,
   SourceQualitySummary,
@@ -36,19 +35,19 @@ export function SourceCard({
   quality,
   qualityLoading,
   credentialStats,
+  existingSourceNames,
   sourceAuthProfiles,
   selected = false,
   onFocusSource,
-  onConnectSource,
 }: {
   source: ToolSourceRecord;
   quality?: OpenApiSourceQuality;
   qualityLoading?: boolean;
   credentialStats: { workspaceCount: number; actorCount: number };
+  existingSourceNames: Set<string>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
   selected?: boolean;
   onFocusSource?: (sourceName: string) => void;
-  onConnectSource?: (sourceKey: string) => void;
 }) {
   const { context } = useSession();
   const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
@@ -75,13 +74,12 @@ export function SourceCard({
 
   const TypeIcon = source.type === "mcp" ? Server : Globe;
   const favicon = getSourceFavicon(source);
-  const sourceKey = sourceKeyForSource(source) ?? "";
   const inferredProfile = sourceAuthProfileForSource(source, sourceAuthProfiles);
   const authBadge = formatSourceAuthBadge(source, inferredProfile);
   const auth = readSourceAuth(source, inferredProfile);
   const hasAuthConfigured = auth.type !== "none";
-  const sourceCanConnect = sourceKey.length > 0 && hasAuthConfigured;
-  const totalCredentials = credentialStats.workspaceCount + credentialStats.actorCount;
+  const hasAnyCredential = credentialStats.workspaceCount + credentialStats.actorCount > 0;
+  const sourceCanConfigure = source.type === "openapi" || source.type === "graphql";
   const prettyName = displaySourceName(source.name);
   const compactEndpoint = compactEndpointLabel(source);
   const showTypeSummary = source.type === "openapi" && (quality || qualityLoading);
@@ -137,12 +135,12 @@ export function SourceCard({
               variant="outline"
               className={cn(
                 "text-[9px] uppercase tracking-wide",
-                totalCredentials > 0
+                hasAnyCredential
                   ? "text-terminal-green border-terminal-green/30"
                   : "text-terminal-amber border-terminal-amber/30",
               )}
             >
-              {totalCredentials > 0 ? "connections ready" : "connection needed"}
+              {hasAnyCredential ? "connections ready" : "connection needed"}
             </Badge>
           )}
         </div>
@@ -165,21 +163,17 @@ export function SourceCard({
             {selected ? "Viewing" : "View tools"}
           </Button>
         ) : null}
-        {sourceCanConnect && onConnectSource ? (
-          <Button
-            variant="default"
-            size="sm"
-            className="h-7 text-[11px]"
-            onClick={() => onConnectSource(sourceKey)}
-          >
-            Connect
-          </Button>
+        {sourceCanConfigure ? (
+          <AddSourceDialog
+            existingSourceNames={existingSourceNames}
+            sourceToEdit={source}
+            trigger={(
+              <Button variant="outline" size="sm" className="h-7 text-[11px]">
+                Edit API
+              </Button>
+            )}
+          />
         ) : null}
-        <ConfigureSourceAuthDialog
-          source={source}
-          inferredProfile={inferredProfile}
-          onAuthSaved={onConnectSource}
-        />
         <Button
           variant="ghost"
           size="icon"

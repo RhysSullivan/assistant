@@ -24,7 +24,6 @@ import type {
 } from "@/lib/types";
 import {
   credentialStatsForSource,
-  sourceKeyForSource,
   toolSourceLabelForSource,
 } from "@/lib/tools-source-helpers";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
@@ -81,8 +80,11 @@ export function ToolsView({
     refreshingTools,
     loadToolDetails,
   } = useWorkspaceTools(context ?? null, { includeDetails: false, includeDtsUrls: false });
-  const selectedSourceRecord = selectedSource
-    ? sourceItems.find((source) => source.name === selectedSource) ?? null
+  const activeSource = selectedSource && sourceItems.some((source) => source.name === selectedSource)
+    ? selectedSource
+    : null;
+  const selectedSourceRecord = activeSource
+    ? sourceItems.find((source) => source.name === activeSource) ?? null
     : null;
 
   const openConnectionCreate = (sourceKey?: string) => {
@@ -162,7 +164,7 @@ export function ToolsView({
                   </span>
                 </CardTitle>
                 <div className="flex items-center gap-2">
-                  {selectedSource ? (
+                  {activeSource ? (
                     <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => setSelectedSource(null)}>
                       Clear source filter
                     </Button>
@@ -171,17 +173,13 @@ export function ToolsView({
                     existingSourceNames={new Set(sourceItems.map((s) => s.name))}
                     onSourceAdded={(source) => {
                       setSelectedSource(source.name);
-                      const sourceKey = sourceKeyForSource(source);
-                      if (sourceKey) {
-                        openConnectionCreate(sourceKey);
-                      }
                     }}
                   />
                 </div>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                {selectedSource
-                  ? `Filtering and managing ${selectedSource}.`
+                {activeSource
+                  ? `Filtering and managing ${activeSource}.`
                   : "Source management and tool inventory are unified here."}
               </p>
             </CardHeader>
@@ -210,10 +208,10 @@ export function ToolsView({
                     quality={sourceQuality[toolSourceLabelForSource(selectedSourceRecord)]}
                     qualityLoading={selectedSourceRecord.type === "openapi" && !sourceQuality[toolSourceLabelForSource(selectedSourceRecord)] && refreshingTools}
                     credentialStats={credentialStatsForSource(selectedSourceRecord, credentialItems)}
+                    existingSourceNames={new Set(sourceItems.map((s) => s.name))}
                     sourceAuthProfiles={sourceAuthProfiles}
                     selected
                     onFocusSource={setSelectedSource}
-                    onConnectSource={openConnectionCreate}
                   />
                 </div>
               ) : null}
@@ -227,7 +225,7 @@ export function ToolsView({
                   onLoadToolDetails={loadToolDetails}
                   warnings={warnings}
                   initialSource={initialSource}
-                  activeSource={selectedSource}
+                  activeSource={activeSource}
                   onActiveSourceChange={setSelectedSource}
                 />
               </div>

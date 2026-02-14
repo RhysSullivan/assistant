@@ -94,8 +94,12 @@ export function useWorkspaceTools(
     enabled: !!context,
     refetchInterval: (query) => {
       const data = query.state.data as WorkspaceToolsQueryResult | undefined;
-      const hasPendingSource = (data?.warnings ?? []).some((warning) => warning.includes("still loading"));
-      return hasPendingSource ? 2_000 : false;
+      const warnings = data?.warnings ?? [];
+      const hasPendingSource = warnings.some((warning) => warning.includes("still loading"));
+      const hasStaleInventory = warnings.some((warning) =>
+        warning.includes("showing previous results while refreshing"),
+      );
+      return hasPendingSource || hasStaleInventory ? 2_000 : false;
     },
     placeholderData: (previousData) => previousData,
   });

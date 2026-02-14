@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Play, Send } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -40,23 +40,15 @@ export function TaskComposer() {
   const createTask = useMutation(convexApi.executor.createTask);
   const { tools, dtsUrls, loadingTools, loadingTypes } = useWorkspaceTools(context ?? null);
   const runtimeTargets = useMemo(() => runtimes ?? [], [runtimes]);
-
-  useEffect(() => {
-    if (runtimeTargets.length === 0) {
-      return;
-    }
-    if (!runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)) {
-      setRuntimeId(runtimeTargets[0]!.id);
-    }
-  }, [runtimeId, runtimeTargets]);
+  const effectiveRuntimeId = runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)
+    ? runtimeId
+    : runtimeTargets[0]?.id ?? "";
 
   const handleSubmit = async () => {
     if (!context || !code.trim()) return;
     setSubmitting(true);
     try {
-      const selectedRuntimeId = runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)
-        ? runtimeId
-        : undefined;
+      const selectedRuntimeId = effectiveRuntimeId || undefined;
       const data = await createTask({
         code,
         runtimeId: selectedRuntimeId,
@@ -92,7 +84,7 @@ export function TaskComposer() {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Runtime</Label>
-            <Select value={runtimeId} onValueChange={setRuntimeId}>
+            <Select value={effectiveRuntimeId} onValueChange={setRuntimeId}>
               <SelectTrigger className="h-8 text-xs font-mono bg-background">
                 <SelectValue />
               </SelectTrigger>

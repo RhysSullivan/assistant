@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@assistant/server": "workspace:*",
-    "@elysiajs/eden": "latest",
     "discord.js": "^14.25.1"
   },
   "devDependencies": {

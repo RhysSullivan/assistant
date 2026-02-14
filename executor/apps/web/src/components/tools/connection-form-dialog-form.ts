@@ -122,7 +122,7 @@ export function useConnectionFormDialogForm({
     scope,
     actorId,
     connectionMode,
-    existingConnectionId,
+    existingConnectionId: rawExistingConnectionId,
     tokenValue,
     apiKeyValue,
     basicUsername,
@@ -133,6 +133,15 @@ export function useConnectionFormDialogForm({
     () => compatibleConnections(connectionOptions, scope, actorId),
     [actorId, connectionOptions, scope],
   );
+  const existingConnectionId = useMemo(() => {
+    if (!rawExistingConnectionId) {
+      return "";
+    }
+
+    return compatibleConnectionOptions.some((connection) => connection.id === rawExistingConnectionId)
+      ? rawExistingConnectionId
+      : "";
+  }, [compatibleConnectionOptions, rawExistingConnectionId]);
   const selectedAuth = useMemo(
     () => sourceAuthForKey(sourceOptions, sourceKey, sourceAuthProfiles),
     [sourceAuthProfiles, sourceKey, sourceOptions],
@@ -141,15 +150,6 @@ export function useConnectionFormDialogForm({
     () => selectedAuthBadge(selectedAuth.type, selectedAuth.mode),
     [selectedAuth.mode, selectedAuth.type],
   );
-
-  useEffect(() => {
-    if (!existingConnectionId) {
-      return;
-    }
-    if (!compatibleConnectionOptions.some((connection) => connection.id === existingConnectionId)) {
-      dispatch({ type: "patch", patch: { existingConnectionId: "" } });
-    }
-  }, [compatibleConnectionOptions, existingConnectionId]);
 
   useEffect(() => {
     if (!open) {

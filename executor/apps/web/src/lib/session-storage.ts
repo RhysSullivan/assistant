@@ -47,7 +47,7 @@ export function readWorkspaceByAccount() {
   }
 }
 
-export function writeWorkspaceByAccount(value: Record<string, Id<"workspaces">>) {
+function writeWorkspaceByAccount(value: Record<string, Id<"workspaces">>) {
   localStorage.setItem(ACTIVE_WORKSPACE_BY_ACCOUNT_KEY, JSON.stringify(value));
 }
 

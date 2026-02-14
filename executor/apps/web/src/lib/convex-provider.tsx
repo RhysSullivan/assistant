@@ -29,10 +29,6 @@ export function useWorkosAuthState() {
   return useContext(WorkosAuthContext);
 }
 
-export function useWorkosAuthLoading() {
-  return useWorkosAuthState().loading;
-}
-
 function useConvexAuthFromWorkos() {
   const { loading: authLoading, user } = useWorkosAuth();
   const { loading: tokenLoading, getAccessToken } = useAccessToken();

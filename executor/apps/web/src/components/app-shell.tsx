@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Suspense, useState } from "react";
+import { Link, Navigate, useLocation } from "react-router";
 import { ExternalLink, Github, LayoutDashboard, ListTodo, ShieldCheck, Wrench, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -137,33 +137,18 @@ function MobileHeader() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const pathname = location.pathname;
-  const navigate = useNavigate();
   const { loading, organizations, organizationsLoading, isSignedInToWorkos } = useSession();
 
   const onOnboardingRoute = pathname.startsWith("/onboarding");
   const needsOnboarding = isSignedInToWorkos && !organizationsLoading && organizations.length === 0;
 
-  useEffect(() => {
-    if (loading || organizationsLoading) {
-      return;
-    }
+  if (!loading && !organizationsLoading && needsOnboarding && !onOnboardingRoute) {
+    return <Navigate to="/onboarding" replace />;
+  }
 
-    if (needsOnboarding && !onOnboardingRoute) {
-      navigate("/onboarding", { replace: true });
-      return;
-    }
-
-    if (!needsOnboarding && onOnboardingRoute && organizations.length > 0) {
-      navigate("/", { replace: true });
-    }
-  }, [
-    loading,
-    organizationsLoading,
-    needsOnboarding,
-    onOnboardingRoute,
-    organizations.length,
-    navigate,
-  ]);
+  if (!loading && !organizationsLoading && !needsOnboarding && onOnboardingRoute && organizations.length > 0) {
+    return <Navigate to="/" replace />;
+  }
 
   if (isSignedInToWorkos && organizationsLoading && !onOnboardingRoute) {
     return (

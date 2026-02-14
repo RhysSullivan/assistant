@@ -5,26 +5,26 @@ import type { ActionCtx } from "../_generated/server";
 export const MCP_PATH = "/mcp";
 export const MCP_ANONYMOUS_PATH = "/mcp/anonymous";
 
-export type McpAuthConfig = {
+type McpAuthConfig = {
   enabled: boolean;
   authorizationServer: string | null;
   jwks: ReturnType<typeof createRemoteJWKSet> | null;
 };
 
-export type VerifiedMcpToken = { provider: "workos"; subject: string };
+type VerifiedMcpToken = { provider: "workos"; subject: string };
 
-export type ParsedMcpContext = {
+type ParsedMcpContext = {
   workspaceId?: Id<"workspaces">;
   actorId?: string;
   clientId?: string;
   sessionId?: string;
 };
 
-export function parseWorkspaceId(raw: string): Id<"workspaces"> {
+function parseWorkspaceId(raw: string): Id<"workspaces"> {
   return raw as Id<"workspaces">;
 }
 
-export function getMcpAuthorizationServer(): string | null {
+function getMcpAuthorizationServer(): string | null {
   return process.env.MCP_AUTHORIZATION_SERVER
     ?? process.env.MCP_AUTHORIZATION_SERVER_URL
     ?? process.env.WORKOS_AUTHKIT_ISSUER
@@ -137,7 +137,7 @@ export async function verifyMcpToken(
         }
       }
     } catch {
-      // Fall through to anonymous-token verification.
+      // Token did not verify against configured auth server.
     }
   }
 

@@ -44,7 +44,7 @@ type ListJson = Record<string, ListEntry>;
 // Exported types
 // ---------------------------------------------------------------------------
 
-export interface CatalogItem {
+interface CatalogItem {
   id: string;
   name: string;
   summary: string;
