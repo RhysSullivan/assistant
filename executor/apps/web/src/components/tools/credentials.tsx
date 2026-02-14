@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { KeyRound, Plus } from "lucide-react";
-import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,9 +17,9 @@ import {
   providerLabel,
 } from "@/lib/credentials/source-helpers";
 import {
-  getSourceFavicon,
   sourceForCredentialKey,
 } from "@/lib/tools/source-helpers";
+import { SourceFavicon } from "./source-favicon";
 
 export function CredentialsPanel({
   sources,
@@ -120,58 +119,52 @@ export function CredentialsPanel({
                 return null;
               }
               const firstSource = sourceForCredentialKey(sources, representative.sourceKey);
-              const favicon = firstSource ? getSourceFavicon(firstSource) : null;
-
               return (
                 <div
                   key={connection.id}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40"
                 >
                     <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-                      {favicon ? (
-                        <Image
-                          src={favicon}
-                          alt=""
-                          width={20}
-                          height={20}
-                          className="w-5 h-5"
-                          loading="lazy"
-                          unoptimized
+                      {firstSource ? (
+                        <SourceFavicon
+                          source={firstSource}
+                          iconClassName="h-4 w-4 text-muted-foreground"
+                          imageClassName="w-5 h-5"
                         />
                       ) : (
-                      <KeyRound className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                      <span className="text-sm font-medium">{connectionDisplayName(sources, connection)}</span>
-                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                        {connection.scope}
-                      </Badge>
-                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                        {providerLabel(connection.provider)}
-                      </Badge>
-                      {connection.scope === "actor" && connection.actorId && (
-                        <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                          {connection.actorId}
-                        </span>
+                        <KeyRound className="h-4 w-4 text-muted-foreground" />
                       )}
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Linked to {connection.sourceKeys.size} API{connection.sourceKeys.size === 1 ? "" : "s"} - {storageCopy}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Updated {new Date(connection.updatedAt).toLocaleString()}
-                    </p>
-                  </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-[11px]"
-                      onClick={() => onEditConnection(representative)}
-                    >
-                      Edit
-                    </Button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                        <span className="text-sm font-medium">{connectionDisplayName(sources, connection)}</span>
+                        <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                          {connection.scope}
+                        </Badge>
+                        <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                          {providerLabel(connection.provider)}
+                        </Badge>
+                        {connection.scope === "actor" && connection.actorId && (
+                          <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                            {connection.actorId}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Linked to {connection.sourceKeys.size} API{connection.sourceKeys.size === 1 ? "" : "s"} - {storageCopy}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Updated {new Date(connection.updatedAt).toLocaleString()}
+                      </p>
+                    </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px]"
+                    onClick={() => onEditConnection(representative)}
+                  >
+                    Edit
+                  </Button>
                 </div>
               );
             })}

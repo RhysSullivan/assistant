@@ -7,6 +7,7 @@ import {
   FolderTree,
   List,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +43,7 @@ interface ToolExplorerToolbarProps {
   onGroupByChange: (mode: GroupBy) => void;
   onFilterApprovalChange: (filter: FilterApproval) => void;
   onSourceSelect: (source: string | null) => void;
+  addSourceAction?: ReactNode;
   onSelectAll: () => void;
   onClearSelection: () => void;
   onExpandAll: () => void;
@@ -67,6 +69,7 @@ export function ToolExplorerToolbar({
   onGroupByChange,
   onFilterApprovalChange,
   onSourceSelect,
+  addSourceAction,
   onSelectAll,
   onClearSelection,
   onExpandAll,
@@ -244,8 +247,10 @@ export function ToolExplorerToolbar({
                 {src}
               </DropdownMenuCheckboxItem>
             ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+        {addSourceAction ? <div className="ml-auto">{addSourceAction}</div> : null}
       </div>
 
       {selectedToolCount > 0 && (
@@ -282,15 +287,15 @@ export function ToolExplorerToolbar({
         </div>
       )}
 
-      <div className="flex items-center justify-between pb-1.5">
-        <span className="text-[10px] font-mono text-muted-foreground/50">
-          {hasSearch
-            ? `${resultCount} results`
-            : loadingInventory
-              ? "Loading tool inventory..."
-              : `${filteredToolCount} tools`}
-          {activeSource && ` in ${activeSource}`}
-        </span>
+      <div className="flex items-center justify-end pb-1.5">
+        {hasSearch ? (
+          <span className="text-[10px] font-mono text-muted-foreground/50">
+            {resultCount} results
+            {activeSource && ` in ${activeSource}`}
+          </span>
+        ) : loadingInventory ? (
+          <span className="text-[10px] font-mono text-muted-foreground/50">Loading tool inventory...</span>
+        ) : null}
         {viewMode === "tree" && (
           <div className="flex gap-1">
             <button

@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { toolOperation, type ToolGroup } from "@/lib/tool/explorer-grouping";
 import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
 import { SelectableToolRow, ToolLoadingRows } from "./explorer-rows";
+import { SourceFavicon } from "./source-favicon";
 
 export function GroupNode({
   group,
@@ -34,6 +35,7 @@ export function GroupNode({
   onExpandedChange,
   detailLoadingPaths,
   search,
+  source,
 }: {
   group: ToolGroup;
   depth: number;
@@ -45,6 +47,7 @@ export function GroupNode({
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoadingPaths?: Set<string>;
   search: string;
+  source?: ToolSourceRecord;
 }) {
   const isExpanded = expandedKeys.has(group.key);
   const isSource = group.type === "source";
@@ -53,12 +56,13 @@ export function GroupNode({
     typeof group.loadingPlaceholderCount === "number" &&
     group.loadingPlaceholderCount > 0;
   const isGroupSelected = selectedKeys.has(group.key);
-  const SourceIcon =
-    group.sourceType === "mcp"
-      ? Server
+  const sourceTypeFallback: ToolSourceRecord["type"] = source
+    ? source.type
+    : group.sourceType === "mcp"
+      ? "mcp"
       : group.sourceType === "graphql"
-        ? Layers
-        : Globe;
+        ? "graphql"
+        : "openapi";
 
   const hasNestedGroups =
     group.children.length > 0 && "key" in group.children[0];
@@ -103,7 +107,19 @@ export function GroupNode({
 
           {isSource && (
             <div className="h-5 w-5 rounded bg-muted/60 flex items-center justify-center shrink-0">
-              <SourceIcon className="h-3 w-3 text-muted-foreground" />
+              {source ? (
+                <SourceFavicon
+                  source={source}
+                  iconClassName="h-3 w-3 text-muted-foreground"
+                  imageClassName="w-full h-full object-contain"
+                />
+              ) : (
+                sourceTypeFallback === "mcp"
+                  ? <Server className="h-3 w-3 text-muted-foreground" />
+                  : sourceTypeFallback === "graphql"
+                    ? <Layers className="h-3 w-3 text-muted-foreground" />
+                    : <Globe className="h-3 w-3 text-muted-foreground" />
+              )}
             </div>
           )}
 
@@ -248,7 +264,7 @@ export function SourceSidebar({
   const groups = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; type: string; count: number; isLoading: boolean; warningCount: number }
+      { name: string; type: string; count: number; isLoading: boolean; warningCount: number; source?: ToolSourceRecord }
     >();
 
     for (const source of sources) {
@@ -270,6 +286,7 @@ export function SourceSidebar({
         count,
         isLoading,
         warningCount,
+        source,
       });
     }
 
@@ -316,7 +333,6 @@ export function SourceSidebar({
         </button>
 
         {groups.map((g) => {
-          const Icon = g.type === "mcp" ? Server : Globe;
           return (
             <button
               key={g.name}
@@ -328,7 +344,15 @@ export function SourceSidebar({
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/20",
               )}
             >
-              <Icon className="h-3 w-3 shrink-0" />
+              {g.source ? (
+                <SourceFavicon
+                  source={g.source}
+                  iconClassName="h-3 w-3 text-muted-foreground"
+                  imageClassName="w-3 h-3"
+                />
+              ) : (
+                <Layers className="h-3 w-3 shrink-0" />
+              )}
               <span className="font-mono font-medium truncate">{g.name}</span>
               <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">
                 {g.warningCount > 0 ? (

@@ -19,33 +19,50 @@ const RAW_HOSTS = new Set([
 function faviconForUrl(url: string | undefined | null): string | null {
   if (!url) return null;
   try {
-    const domain = new URL(url).hostname;
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+    const hostname = new URL(url).hostname;
+    const parsed = parseDomain(hostname);
+    const domain = parsed.domain ?? hostname;
+
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
   } catch {
     return null;
   }
 }
 
-export function getSourceFavicon(source: ToolSourceRecord): string | null {
+function sourceFaviconSourceUrl(source: ToolSourceRecord): string | null {
+  const parseOrigin = (value: unknown): string | null => {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return null;
+    }
+    try {
+      return new URL(value).origin;
+    } catch {
+      return null;
+    }
+  };
+
   if (source.type === "mcp") {
-    return faviconForUrl((source.config.url as string) ?? null);
+    return parseOrigin(source.config.url);
   }
   if (source.type === "graphql") {
-    return faviconForUrl((source.config.endpoint as string) ?? null);
+    return parseOrigin(source.config.endpoint);
   }
+
   const spec = source.config.spec as string | undefined;
   const specUrl = source.config.specUrl as string | undefined;
   if (typeof spec === "string" && spec.startsWith("postman:")) {
     return null;
   }
-  const baseUrl = source.config.baseUrl as string | undefined;
-  const collectionUrl = source.config.collectionUrl as string | undefined;
-  const resolvedSpecUrl = typeof specUrl === "string" && specUrl.startsWith("http")
-    ? specUrl
-    : typeof spec === "string" && spec.startsWith("http")
-      ? spec
-      : null;
-  return faviconForUrl(baseUrl ?? collectionUrl ?? resolvedSpecUrl);
+
+  return parseOrigin(source.config.baseUrl)
+    ?? parseOrigin(source.config.collectionUrl)
+    ?? parseOrigin(specUrl)
+    ?? parseOrigin(spec);
+}
+
+export function getSourceFavicon(source: ToolSourceRecord): string | null {
+  const sourceUrl = sourceFaviconSourceUrl(source);
+  return sourceUrl ? faviconForUrl(sourceUrl) : null;
 }
 
 export function sourceEndpointLabel(source: ToolSourceRecord): string {
