@@ -16,7 +16,7 @@ const RAW_HOSTS = new Set([
   "raw.github.com",
 ]);
 
-function faviconForUrl(url: string | undefined | null): string | null {
+export function getSourceFaviconUrl(url: string | undefined | null): string | null {
   if (!url) return null;
   try {
     const hostname = new URL(url).hostname;
@@ -62,7 +62,7 @@ function sourceFaviconSourceUrl(source: ToolSourceRecord): string | null {
 
 export function getSourceFavicon(source: ToolSourceRecord): string | null {
   const sourceUrl = sourceFaviconSourceUrl(source);
-  return sourceUrl ? faviconForUrl(sourceUrl) : null;
+  return sourceUrl ? getSourceFaviconUrl(sourceUrl) : null;
 }
 
 export function sourceEndpointLabel(source: ToolSourceRecord): string {

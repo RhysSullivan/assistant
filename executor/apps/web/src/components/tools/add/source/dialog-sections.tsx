@@ -1,5 +1,4 @@
 import { ChevronRight, Plus } from "lucide-react";
-import Image from "next/image";
 import { Streamdown } from "streamdown";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +19,7 @@ import {
   type SourceCatalogSort,
   type SourceType,
 } from "./dialog-helpers";
+import { SourceFavicon } from "../../source-favicon";
 
 export function CatalogViewSection({
   catalogQuery,
@@ -86,15 +86,18 @@ export function CatalogViewSection({
             key={item.id}
             className="w-full max-w-full overflow-hidden flex items-start gap-2 px-2 py-2 rounded-md border border-border/50"
           >
-            {item.logoUrl && (
-              <Image
+            {item.logoUrl ? (
+              <img
                 src={item.logoUrl}
                 alt=""
-                width={20}
-                height={20}
                 className="w-5 h-5 rounded shrink-0 mt-0.5 object-contain"
-                loading="lazy"
-                unoptimized
+              />
+            ) : (
+              <SourceFavicon
+                sourceUrl={item.originUrl || item.specUrl}
+                fallbackType={item.sourceType ?? "openapi"}
+                iconClassName="h-5 w-5 text-muted-foreground"
+                imageClassName="w-5 h-5 rounded object-contain"
               />
             )}
             <div className="flex-1 min-w-0 w-0 overflow-hidden">

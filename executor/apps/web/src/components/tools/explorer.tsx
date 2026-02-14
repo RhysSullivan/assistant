@@ -380,7 +380,7 @@ export function ToolExplorer({
       <div
         className={cn(
           "flex-1 min-w-0 flex flex-col",
-          "pl-0",
+          showSourceSidebar ? "pl-2 lg:pl-3" : "pl-0",
         )}
       >
         <ToolExplorerToolbar
