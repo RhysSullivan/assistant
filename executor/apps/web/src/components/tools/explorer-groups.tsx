@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { toolOperation, type ToolGroup } from "@/lib/tool-explorer-grouping";
+import { toolOperation, type ToolGroup } from "@/lib/tool/explorer-grouping";
 import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
 import { SelectableToolRow, ToolLoadingRows } from "./explorer-rows";
 
@@ -224,9 +224,25 @@ export function SourceSidebar({
     }
     return counts;
   }, [warnings]);
+  const warningMessagesBySource = useMemo(() => {
+    const messages: Record<string, string[]> = {};
+    for (const warning of warnings) {
+      const source = warning.match(/source '([^']+)'/i)?.[1];
+      if (!source) {
+        continue;
+      }
+      messages[source] ??= [];
+      messages[source].push(warning);
+    }
+    return messages;
+  }, [warnings]);
   const totalSourceWarningCount = useMemo(
     () => Object.values(warningCountsBySource).reduce((sum, count) => sum + count, 0),
     [warningCountsBySource],
+  );
+  const activeSourceWarnings = useMemo(
+    () => (activeSource ? warningMessagesBySource[activeSource] ?? [] : []),
+    [activeSource, warningMessagesBySource],
   );
 
   const groups = useMemo(() => {
@@ -336,6 +352,21 @@ export function SourceSidebar({
             </button>
           );
         })}
+
+        {activeSource && activeSourceWarnings.length > 0 ? (
+          <div className="mt-2 rounded-md border border-terminal-amber/30 bg-terminal-amber/5 px-2 py-2">
+            <p className="text-[10px] font-mono text-terminal-amber/90">
+              {activeSourceWarnings.length} warning{activeSourceWarnings.length !== 1 ? "s" : ""}
+            </p>
+            <div className="mt-1.5 space-y-1">
+              {activeSourceWarnings.map((warning, index) => (
+                <p key={`${activeSource}-${index}`} className="text-[10px] leading-4 text-muted-foreground">
+                  {warning}
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

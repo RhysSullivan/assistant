@@ -5,11 +5,11 @@ import { useQuery } from "convex/react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
-import { DashboardPendingApprovalsCard } from "@/components/dashboard/pending-approvals-card";
+import { DashboardPendingApprovalsCard } from "@/components/dashboard/pending/approvals-card";
 import { McpSetupCard } from "@/components/tools/setup-card";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
-import { workspaceQueryArgs } from "@/lib/workspace-query-args";
+import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 
 export function DashboardView() {
   const { context, loading: sessionLoading } = useSession();

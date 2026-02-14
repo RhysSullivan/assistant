@@ -1,7 +1,7 @@
 "use node";
 
 import type { ActionCtx } from "../_generated/server";
-import { parseGraphqlOperationPaths } from "../../core/src/graphql-operation-paths";
+import { parseGraphqlOperationPaths } from "../../core/src/graphql/operation-paths";
 import type { AccessPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../core/src/types";
 import { getDecisionForContext, getToolDecision } from "./policy";
 import { resolveAliasedToolPath, resolveClosestToolPath, suggestToolPaths, toPreferredToolPath } from "./tool_paths";

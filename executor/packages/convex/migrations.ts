@@ -1,6 +1,6 @@
 import { Migrations } from "@convex-dev/migrations";
-import type { Id } from "./_generated/dataModel";
-import type { DataModel } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel.d.ts";
+import type { DataModel } from "./_generated/dataModel.d.ts";
 import { components } from "./_generated/api";
 
 const migrations = new Migrations<DataModel>(components.migrations);

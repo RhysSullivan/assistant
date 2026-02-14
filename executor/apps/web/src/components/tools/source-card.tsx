@@ -15,7 +15,7 @@ import type {
   ToolSourceRecord,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { displaySourceName } from "@/lib/tool-source-utils";
+import { displaySourceName } from "@/lib/tool/source-utils";
 import {
   compactEndpointLabel,
   formatSourceAuthBadge,
@@ -23,12 +23,12 @@ import {
   readSourceAuth,
   sourceAuthProfileForSource,
   sourceEndpointLabel,
-} from "@/lib/tools-source-helpers";
-import { AddSourceDialog } from "./add-source-dialog";
+} from "@/lib/tools/source-helpers";
+import { AddSourceDialog } from "./add/source-dialog";
 import {
   OpenApiQualityDetails,
   SourceQualitySummary,
-} from "./source-quality-details";
+} from "./source/quality-details";
 
 export function SourceCard({
   source,

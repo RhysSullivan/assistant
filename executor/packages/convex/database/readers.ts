@@ -1,4 +1,4 @@
-import type { Doc } from "../_generated/dataModel";
+import type { Doc } from "../_generated/dataModel.d.ts";
 import type { QueryCtx } from "../_generated/server";
 import { normalizeSourceAuthFingerprint } from "./mappers";
 import { asRecord } from "../lib/object";

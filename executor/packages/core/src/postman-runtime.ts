@@ -1,6 +1,6 @@
 import { asStringRecord, detectJsonContentType, findUnresolvedPostmanTemplateKeys, interpolatePostmanTemplate, stringifyTemplateValue } from "./postman-utils";
 import { asRecord } from "./utils";
-import type { PostmanRequestBody } from "./postman-collection-utils";
+import type { PostmanRequestBody } from "./postman/collection-utils";
 
 export interface PostmanSerializedRunSpec {
   kind: "postman";

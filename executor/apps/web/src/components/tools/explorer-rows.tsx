@@ -13,8 +13,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ToolDescriptor } from "@/lib/types";
-import { CopyButton } from "./explorer-copy-button";
-import { ToolDetail } from "./explorer-tool-detail";
+import { CopyButton } from "./explorer/copy-button";
+import { ToolDetail } from "./explorer/tool-detail";
 
 const ToolRow = memo(function ToolRow({
   tool,

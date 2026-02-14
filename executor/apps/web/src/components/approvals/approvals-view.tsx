@@ -20,9 +20,9 @@ import { useMutation, useQuery } from "convex/react";
 import type { PendingApprovalRecord } from "@/lib/types";
 import { toast } from "sonner";
 import { formatTimeAgo } from "@/lib/format";
-import { FormattedCodeBlock } from "@/components/formatted-code-block";
-import { formatApprovalInput } from "@/lib/approval-input-format";
-import { workspaceQueryArgs } from "@/lib/workspace-query-args";
+import { FormattedCodeBlock } from "@/components/formatted/code-block";
+import { formatApprovalInput } from "@/lib/approval/input-format";
+import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 
 function ApprovalCard({
   approval,

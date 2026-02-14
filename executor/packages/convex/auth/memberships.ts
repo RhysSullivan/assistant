@@ -1,4 +1,4 @@
-import type { Doc } from "../_generated/dataModel";
+import type { Doc } from "../_generated/dataModel.d.ts";
 import type {
   AccountId,
   DbCtx,

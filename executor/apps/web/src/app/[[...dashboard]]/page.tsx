@@ -1,4 +1,4 @@
-import { StaticAppShell } from "@/components/static-app-shell";
+import { StaticAppShell } from "@/components/static/app-shell";
 
 export default function DashboardRoutesPage() {
   return <StaticAppShell />;

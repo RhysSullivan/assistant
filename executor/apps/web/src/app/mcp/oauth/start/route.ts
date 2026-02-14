@@ -2,8 +2,8 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { getExternalOrigin, isExternalHttps } from "@/lib/mcp-oauth-request";
-import { parseMcpSourceUrl } from "@/lib/mcp-oauth-url";
+import { getExternalOrigin, isExternalHttps } from "@/lib/mcp/oauth-request";
+import { parseMcpSourceUrl } from "@/lib/mcp/oauth-url";
 import {
   buildPendingCookieName,
   createOAuthState,
@@ -12,7 +12,7 @@ import {
   MCP_OAUTH_RESULT_COOKIE,
   McpPopupOAuthProvider,
   type McpOAuthPopupResult,
-} from "@/lib/mcp-oauth-provider";
+} from "@/lib/mcp/oauth-provider";
 
 function popupResultRedirect(request: NextRequest, payload: McpOAuthPopupResult): NextResponse {
   const externalOrigin = getExternalOrigin(request);

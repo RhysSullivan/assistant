@@ -10,7 +10,7 @@ import { ApprovalNotifier } from "@/components/approval-notifier";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { WorkspaceSelector } from "@/components/workspace-selector";
 import { SessionInfo } from "@/components/session-info";
-import { NoOrganizationModal } from "@/components/no-organization-modal";
+import { NoOrganizationModal } from "@/components/no/organization-modal";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [

@@ -1,4 +1,4 @@
-import type { Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel.d.ts";
 import { upsertOrganizationMembership } from "./memberships";
 import {
   buildPersonalWorkspaceSlugSeed,

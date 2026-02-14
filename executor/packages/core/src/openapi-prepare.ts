@@ -2,8 +2,8 @@ import SwaggerParser from "@apidevtools/swagger-parser";
 import openapiTS, { astToString } from "openapi-typescript";
 import { inferOpenApiAuth } from "./openapi-auth";
 import { compactOpenApiPaths } from "./openapi-compaction";
-import { extractOperationIdsFromDts } from "./openapi-schema-hints";
-import type { PreparedOpenApiSpec } from "./tool-source-types";
+import { extractOperationIdsFromDts } from "./openapi/schema-hints";
+import type { PreparedOpenApiSpec } from "./tool/source-types";
 import { asRecord } from "./utils";
 
 interface SwaggerParserAdapter {

@@ -1,7 +1,7 @@
 "use node";
 
 import type { ActionCtx } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel.d.ts";
 import { internal } from "../_generated/api";
 import { actorIdForAccount } from "../../core/src/identity";
 

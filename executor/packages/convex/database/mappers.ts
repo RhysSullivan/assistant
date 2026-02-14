@@ -1,4 +1,4 @@
-import type { Doc } from "../_generated/dataModel";
+import type { Doc } from "../_generated/dataModel.d.ts";
 import { asRecord } from "../lib/object";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
 

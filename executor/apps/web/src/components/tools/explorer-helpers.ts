@@ -1,5 +1,5 @@
 import type { ToolDescriptor } from "@/lib/types";
-import type { ToolGroup } from "@/lib/tool-explorer-grouping";
+import type { ToolGroup } from "@/lib/tool/explorer-grouping";
 
 export function findToolsInGroupByKey(
   groups: ToolGroup[],

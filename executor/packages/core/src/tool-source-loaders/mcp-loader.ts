@@ -1,15 +1,15 @@
 "use node";
 
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
-import { jsonSchemaTypeHintFallback } from "../openapi-schema-hints";
-import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool-source-auth";
-import { callMcpToolWithReconnect } from "../tool-source-execution";
-import { sanitizeSegment } from "../tool-path-utils";
-import type { McpToolSourceConfig } from "../tool-source-types";
+import { jsonSchemaTypeHintFallback } from "../openapi/schema-hints";
+import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
+import { callMcpToolWithReconnect } from "../tool/source-execution";
+import { sanitizeSegment } from "../tool/path-utils";
+import type { McpToolSourceConfig } from "../tool/source-types";
 import { compactArgTypeHint, compactReturnTypeHint } from "../type-hints";
 import type { ToolDefinition } from "../types";
 import { asRecord } from "../utils";
-import type { SerializedTool } from "../tool-source-serialization";
+import type { SerializedTool } from "../tool/source-serialization";
 
 export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition[]> {
   const queryParams = config.queryParams

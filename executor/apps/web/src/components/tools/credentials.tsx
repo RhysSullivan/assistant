@@ -16,11 +16,11 @@ import type {
 import {
   connectionDisplayName,
   providerLabel,
-} from "@/lib/credentials-source-helpers";
+} from "@/lib/credentials/source-helpers";
 import {
   getSourceFavicon,
   sourceForCredentialKey,
-} from "@/lib/tools-source-helpers";
+} from "@/lib/tools/source-helpers";
 
 export function CredentialsPanel({
   sources,

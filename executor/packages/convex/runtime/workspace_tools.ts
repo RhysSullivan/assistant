@@ -2,7 +2,7 @@
 
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel.d.ts";
 import { createCatalogTools, createDiscoverTool } from "../../core/src/tool-discovery";
 import {
   materializeCompiledToolSource,
@@ -10,7 +10,7 @@ import {
   type CompiledToolSourceArtifact,
   type WorkspaceToolSnapshot,
 } from "../../core/src/tool-sources";
-import type { ExternalToolSourceConfig } from "../../core/src/tool-source-types";
+import type { ExternalToolSourceConfig } from "../../core/src/tool/source-types";
 import type {
   AccessPolicyRecord,
   OpenApiSourceQuality,

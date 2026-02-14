@@ -3,13 +3,13 @@
 import { loadGraphqlTools } from "./tool-source-loaders/graphql-loader";
 import { loadMcpTools } from "./tool-source-loaders/mcp-loader";
 import { loadOpenApiTools } from "./tool-source-loaders/openapi-loader";
-import { buildOpenApiToolsFromPrepared } from "./openapi-tool-builder";
-import { rehydrateTools, serializeTools, type SerializedTool } from "./tool-source-serialization";
+import { buildOpenApiToolsFromPrepared } from "./openapi/tool-builder";
+import { rehydrateTools, serializeTools, type SerializedTool } from "./tool/source-serialization";
 import type {
   ExternalToolSourceConfig,
   OpenApiToolSourceConfig,
   PreparedOpenApiSpec,
-} from "./tool-source-types";
+} from "./tool/source-types";
 import type { ToolDefinition } from "./types";
 
 export type {
@@ -19,11 +19,11 @@ export type {
   OpenApiAuth,
   OpenApiToolSourceConfig,
   PreparedOpenApiSpec,
-} from "./tool-source-types";
+} from "./tool/source-types";
 export { prepareOpenApiSpec } from "./openapi-prepare";
-export { parseGraphqlOperationPaths } from "./graphql-operation-paths";
-export { rehydrateTools, serializeTools, type SerializedTool } from "./tool-source-serialization";
-export { buildOpenApiToolsFromPrepared } from "./openapi-tool-builder";
+export { parseGraphqlOperationPaths } from "./graphql/operation-paths";
+export { rehydrateTools, serializeTools, type SerializedTool } from "./tool/source-serialization";
+export { buildOpenApiToolsFromPrepared } from "./openapi/tool-builder";
 
 export interface CompiledToolSourceArtifact {
   version: "v1";

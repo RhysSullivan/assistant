@@ -10,7 +10,7 @@ import {
   resolveSchemaRef,
   responseTypeHintFromSchema,
   type OpenApiParameterHint,
-} from "./openapi-schema-hints";
+} from "./openapi/schema-hints";
 import { asRecord } from "./utils";
 
 export interface CompactOpenApiPathsOptions {

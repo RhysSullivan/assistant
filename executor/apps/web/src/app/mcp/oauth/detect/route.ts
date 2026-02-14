@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { Result } from "better-result";
 import { discoverOAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
-import { parseMcpSourceUrl } from "@/lib/mcp-oauth-url";
+import { parseMcpSourceUrl } from "@/lib/mcp/oauth-url";
 
 type DetectResponse = {
   oauth: boolean;

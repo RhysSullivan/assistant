@@ -13,9 +13,9 @@ import { ToolExplorer } from "@/components/tools/explorer";
 import { TaskComposer } from "@/components/tasks/task-composer";
 import { AddSourceDialog, SourceCard } from "@/components/tools/sources";
 import { CredentialsPanel } from "@/components/tools/credentials";
-import { ConnectionFormDialog } from "@/components/tools/connection-form-dialog";
+import { ConnectionFormDialog } from "@/components/tools/connection/form-dialog";
 import { useSession } from "@/lib/session-context";
-import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
+import { useWorkspaceTools } from "@/hooks/use/workspace-tools";
 import { useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type {
@@ -25,9 +25,9 @@ import type {
 import {
   credentialStatsForSource,
   toolSourceLabelForSource,
-} from "@/lib/tools-source-helpers";
-import { sourceLabel } from "@/lib/tool-source-utils";
-import { workspaceQueryArgs } from "@/lib/workspace-query-args";
+} from "@/lib/tools/source-helpers";
+import { sourceLabel } from "@/lib/tool/source-utils";
+import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 
 type ToolsTab = "catalog" | "credentials" | "editor";
 
@@ -123,7 +123,7 @@ export function ToolsView({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6">
+    <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title="Tools"
         description="Run tasks, manage sources, auth, connections, and available tools"
@@ -164,7 +164,7 @@ export function ToolsView({
               <div className="flex items-center justify-between gap-3">
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground" />
-                  Tools + Sources
+                  Tools
                   <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
                     {loadingTools ? "..." : tools.length}
                   </span>
@@ -180,11 +180,6 @@ export function ToolsView({
                   />
                 </div>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                {activeSource
-                  ? `Filtering and managing ${activeSource}.`
-                  : "Source management and tool inventory are unified here."}
-              </p>
             </CardHeader>
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
               {sourcesLoading ? (

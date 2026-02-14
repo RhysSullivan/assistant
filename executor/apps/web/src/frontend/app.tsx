@@ -6,7 +6,7 @@ import { ApprovalsView } from "@/components/approvals/approvals-view";
 import { DashboardView } from "@/components/dashboard/view";
 import { MenubarMvpView } from "@/components/menubar/mvp-view";
 import { OnboardingView } from "@/components/organization/onboarding-view";
-import { OrganizationSettingsView } from "@/components/organization/organization-settings-view";
+import { OrganizationSettingsView } from "@/components/organization/organization/settings-view";
 import { TasksView } from "@/components/tasks/tasks-view";
 import { ToolsView } from "@/components/tools/view";
 

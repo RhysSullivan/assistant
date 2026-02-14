@@ -4,8 +4,8 @@ import {
   buildSourceTree,
   toolNamespace,
   type ToolGroup,
-} from "@/lib/tool-explorer-grouping";
-import { sourceLabel } from "@/lib/tool-source-utils";
+} from "@/lib/tool/explorer-grouping";
+import { sourceLabel } from "@/lib/tool/source-utils";
 import type { ToolDescriptor } from "@/lib/types";
 import type { ToolSourceRecord } from "@/lib/types";
 import type { GroupBy, ViewMode } from "./explorer-toolbar";

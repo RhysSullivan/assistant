@@ -10,11 +10,11 @@ import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TaskDetail } from "@/components/tasks/task-detail";
 import { TaskComposer } from "@/components/tasks/task-composer";
-import { TaskListItem } from "@/components/tasks/task-list-item";
+import { TaskListItem } from "@/components/tasks/task/list-item";
 import { useSession } from "@/lib/session-context";
 import { useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
-import { workspaceQueryArgs } from "@/lib/workspace-query-args";
+import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 import type {
   TaskRecord,
   PendingApprovalRecord,

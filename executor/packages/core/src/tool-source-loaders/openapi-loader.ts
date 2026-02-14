@@ -1,7 +1,7 @@
 "use node";
 
-import { buildOpenApiToolsFromPrepared } from "../openapi-tool-builder";
-import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool-source-auth";
+import { buildOpenApiToolsFromPrepared } from "../openapi/tool-builder";
+import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
 import {
   buildPostmanToolPath,
   extractPostmanBody,
@@ -9,14 +9,14 @@ import {
   extractPostmanQueryEntries,
   extractPostmanVariableMap,
   resolvePostmanFolderPath,
-} from "../postman-collection-utils";
+} from "../postman/collection-utils";
 import { executePostmanRequest, type PostmanSerializedRunSpec } from "../postman-runtime";
 import { prepareOpenApiSpec } from "../openapi-prepare";
-import type { OpenApiToolSourceConfig } from "../tool-source-types";
+import type { OpenApiToolSourceConfig } from "../tool/source-types";
 import { compactArgTypeHint, compactReturnTypeHint } from "../type-hints";
 import type { ToolDefinition } from "../types";
 import { asRecord } from "../utils";
-import type { SerializedTool } from "../tool-source-serialization";
+import type { SerializedTool } from "../tool/source-serialization";
 
 const POSTMAN_SPEC_PREFIX = "postman:";
 const DEFAULT_POSTMAN_PROXY_URL = "https://www.postman.com/_api/ws/proxy";

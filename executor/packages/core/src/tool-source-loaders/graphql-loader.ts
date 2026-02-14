@@ -8,14 +8,14 @@ import {
   selectGraphqlFieldEnvelope,
   type GqlSchema,
   type GqlType,
-} from "../graphql-field-tools";
+} from "../graphql/field-tools";
 import {
   executeGraphqlRequest,
   type GraphqlExecutionEnvelope,
-} from "../tool-source-execution";
-import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool-source-auth";
-import { sanitizeSegment } from "../tool-path-utils";
-import type { GraphqlToolSourceConfig } from "../tool-source-types";
+} from "../tool/source-execution";
+import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
+import { sanitizeSegment } from "../tool/path-utils";
+import type { GraphqlToolSourceConfig } from "../tool/source-types";
 import { compactArgTypeHint } from "../type-hints";
 import type { ToolDefinition } from "../types";
 import { asRecord } from "../utils";

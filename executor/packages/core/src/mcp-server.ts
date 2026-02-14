@@ -2,11 +2,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { z } from "zod";
-import type { McpExecutorService, ApprovalPrompt } from "./mcp-server-contracts";
-import type { Id } from "../../convex/_generated/dataModel";
-import { waitForTerminalTask, createMcpApprovalPrompt } from "./mcp-server-approval";
-import { buildRunCodeDescription, summarizeTask } from "./mcp-server-formatting";
-import { getTaskTerminalState, textContent } from "./mcp-server-utils";
+import type { McpExecutorService, ApprovalPrompt } from "./mcp/server-contracts";
+import type { Id } from "../../convex/_generated/dataModel.d.ts";
+import { waitForTerminalTask, createMcpApprovalPrompt } from "./mcp/server-approval";
+import { buildRunCodeDescription, summarizeTask } from "./mcp/server-formatting";
+import { getTaskTerminalState, textContent } from "./mcp/server-utils";
 
 // ---------------------------------------------------------------------------
 // Workspace context (optional, from query params)

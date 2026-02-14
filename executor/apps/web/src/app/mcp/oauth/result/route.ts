@@ -4,7 +4,7 @@ import {
   decodePopupResultCookieValue,
   MCP_OAUTH_RESULT_COOKIE,
   type McpOAuthPopupResult,
-} from "@/lib/mcp-oauth-provider";
+} from "@/lib/mcp/oauth-provider";
 
 type PopupMessage =
   | {

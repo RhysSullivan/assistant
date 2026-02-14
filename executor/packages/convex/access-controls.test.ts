@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { api } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel.d.ts";
 import schema from "./schema";
 
 // ---------------------------------------------------------------------------

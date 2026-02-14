@@ -10,13 +10,13 @@ import {
   BASE_ENVIRONMENT_DTS,
   OPENAPI_HELPER_TYPES,
   generateToolsDts,
-} from "./code-editor-types";
+} from "./code/editor-types";
 import {
   CODE_EDITOR_OPTIONS,
   configureJavascriptDefaults,
   defineExecutorThemes,
   setDiagnosticsOptions,
-} from "./code-editor-monaco";
+} from "./code/editor-monaco";
 
 interface CodeEditorProps {
   value: string;

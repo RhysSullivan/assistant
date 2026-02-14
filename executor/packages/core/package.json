@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./openapi-helper-types": "./src/openapi-helper-types.ts"
+    "./openapi-helper-types": "./src/openapi/helper-types.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

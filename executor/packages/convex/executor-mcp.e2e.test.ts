@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel.d.ts";
 import schema from "./schema";
 
 function setup() {

@@ -20,7 +20,7 @@ import {
   resolveActiveWorkspaceId,
   type WorkosAccount,
   type WorkspaceListItem,
-} from "@/lib/session-context-derivation";
+} from "@/lib/session/context-derivation";
 import {
   clearSessionStorage,
   persistActiveWorkspaceId,

@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback, useRef, useDeferredValue, useEffect } f
 import { cn } from "@/lib/utils";
 import {
   collectGroupKeys,
-} from "@/lib/tool-explorer-grouping";
+} from "@/lib/tool/explorer-grouping";
 import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
 import { findToolsInGroupByKey } from "./explorer-helpers";
 import {
@@ -18,7 +18,7 @@ import {
   treeGroupsForView,
   type FilterApproval,
 } from "./explorer-derived";
-import { sourceLabel } from "@/lib/tool-source-utils";
+import { sourceLabel } from "@/lib/tool/source-utils";
 import {
   EmptyState,
   LoadingState,

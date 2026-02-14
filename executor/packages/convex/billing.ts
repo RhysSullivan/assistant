@@ -1,6 +1,6 @@
 import { StripeSubscriptions } from "@convex-dev/stripe";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel.d.ts";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { action } from "./_generated/server";

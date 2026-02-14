@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { ensureProjectBootstrapped, waitForBackendReady } from "./managed-runtime-bootstrap";
-import { backendArgs, ensureConfig, runtimeInfo } from "./managed-runtime-info";
-import { ensureBackendBinary, ensureNodeRuntime, ensureWebBundle } from "./managed-runtime-installation";
-import { runProcess } from "./managed-runtime-process";
+import { ensureProjectBootstrapped, waitForBackendReady } from "./managed/runtime-bootstrap";
+import { backendArgs, ensureConfig, runtimeInfo } from "./managed/runtime-info";
+import { ensureBackendBinary, ensureNodeRuntime, ensureWebBundle } from "./managed/runtime-installation";
+import { runProcess } from "./managed/runtime-process";
 
 export interface ManagedRuntimeConfig {
   instanceName: string;

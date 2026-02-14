@@ -3,7 +3,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { checkBootstrapHealth } from "./packages/core/src/managed-runtime-bootstrap";
+import { checkBootstrapHealth } from "./packages/core/src/managed/runtime-bootstrap";
 import { managedRuntimeDiagnostics, runManagedBackend, runManagedWeb } from "./packages/core/src/managed-runtime";
 
 interface InstallPaths {

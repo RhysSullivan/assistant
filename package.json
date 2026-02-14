@@ -30,7 +30,7 @@
     "typecheck:executor": "bunx tsc --noEmit -p executor/tsconfig.json",
     "typecheck:assistant": "bunx tsc --noEmit -p assistant/packages/server/tsconfig.json && bunx tsc --noEmit -p assistant/packages/bot/tsconfig.json",
     "knip": "bunx knip --config knip.json",
-    "db:clear:executor": "bun with-env bun run executor/scripts/dev/wipe-convex-db.ts",
+    "db:clear:executor": "bun with-env bun run executor/scripts/dev/wipe/convex-db.ts",
     "convex:codegen": "bunx --cwd executor convex codegen"
   },
   "dependencies": {

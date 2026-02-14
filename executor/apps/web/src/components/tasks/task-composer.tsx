@@ -19,7 +19,7 @@ import { CodeEditor } from "@/components/tasks/code-editor";
 import { convexApi } from "@/lib/convex-api";
 import { useSession } from "@/lib/session-context";
 import type { RuntimeTargetDescriptor } from "@/lib/types";
-import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
+import { useWorkspaceTools } from "@/hooks/use/workspace-tools";
 
 const DEFAULT_CODE = `// Example: discover tools and return matching tool names
 const found = await tools.discover({

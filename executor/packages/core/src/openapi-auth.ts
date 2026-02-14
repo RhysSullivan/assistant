@@ -1,4 +1,4 @@
-import type { OpenApiAuth } from "./tool-source-types";
+import type { OpenApiAuth } from "./tool/source-types";
 import { asRecord } from "./utils";
 
 export function inferOpenApiAuth(spec: Record<string, unknown>): OpenApiAuth | undefined {

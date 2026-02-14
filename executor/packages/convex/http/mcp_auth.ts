@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel.d.ts";
 import type { ActionCtx } from "../_generated/server";
 
 export const MCP_PATH = "/mcp";

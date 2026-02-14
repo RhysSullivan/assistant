@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Id } from "../../convex/_generated/dataModel";
+import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { createCatalogTools, createDiscoverTool } from "./tool-discovery";
 import type { ToolDefinition } from "./types";
 

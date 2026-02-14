@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type { PendingApprovalRecord } from "@/lib/types";
-import { workspaceQueryArgs } from "@/lib/workspace-query-args";
+import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 
 export function ApprovalNotifier() {
   const navigate = useNavigate();

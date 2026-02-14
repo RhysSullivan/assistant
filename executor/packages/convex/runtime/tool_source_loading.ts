@@ -2,7 +2,7 @@
 
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel.d.ts";
 import {
   compileExternalToolSource,
   compileOpenApiToolSourceFromPrepared,
@@ -10,7 +10,7 @@ import {
   type CompiledToolSourceArtifact,
 } from "../../core/src/tool-sources";
 import { resolveCredentialPayload } from "../../core/src/credential-providers";
-import { buildStaticAuthHeaders } from "../../core/src/tool-source-auth";
+import { buildStaticAuthHeaders } from "../../core/src/tool/source-auth";
 import type {
   ExternalToolSourceConfig,
   GraphqlToolSourceConfig,
@@ -18,7 +18,7 @@ import type {
   OpenApiAuth,
   OpenApiToolSourceConfig,
   PreparedOpenApiSpec,
-} from "../../core/src/tool-source-types";
+} from "../../core/src/tool/source-types";
 import type { ToolSourceRecord } from "../../core/src/types";
 import { asPayload } from "../lib/object";
 

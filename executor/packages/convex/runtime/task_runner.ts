@@ -2,9 +2,9 @@
 
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { InProcessExecutionAdapter } from "../../core/src/adapters/in-process-execution-adapter";
+import { InProcessExecutionAdapter } from "../../core/src/adapters/in/process/execution-adapter";
 import { APPROVAL_DENIED_PREFIX } from "../../core/src/execution-constants";
-import { dispatchCodeWithCloudflareWorkerLoader } from "../../core/src/runtimes/cloudflare-worker-loader-runtime";
+import { dispatchCodeWithCloudflareWorkerLoader } from "../../core/src/runtimes/cloudflare/worker/loader-runtime";
 import {
   CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
   isCloudflareWorkerLoaderConfigured,

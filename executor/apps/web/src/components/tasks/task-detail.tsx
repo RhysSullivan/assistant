@@ -9,9 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { TaskStatusBadge } from "@/components/status-badge";
-import { FormattedCodeBlock } from "@/components/formatted-code-block";
+import { FormattedCodeBlock } from "@/components/formatted/code-block";
 import { convexApi } from "@/lib/convex-api";
-import { formatApprovalInput } from "@/lib/approval-input-format";
+import { formatApprovalInput } from "@/lib/approval/input-format";
 import { cn } from "@/lib/utils";
 import type { TaskRecord, PendingApprovalRecord } from "@/lib/types";
 

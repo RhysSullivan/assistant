@@ -174,13 +174,13 @@ function buildSteps(selected: StepId[]): DeployStep[] {
     cloudflare: {
       id: "cloudflare",
       name: "Cloudflare Runtime",
-      command: ["bun", "run", "scripts/prod/setup-prod-cloudflare.ts", "--deploy", "--no-doctor"],
+      command: ["bun", "run", "scripts/prod/setup/prod-cloudflare.ts", "--deploy", "--no-doctor"],
       cwd: EXECUTOR_ROOT,
     },
     env: {
       id: "env",
       name: "Convex Env Sync",
-      command: ["bun", "run", "scripts/prod/setup-prod-env.ts", "--from-env", "--strict"],
+      command: ["bun", "run", "scripts/prod/setup/prod-env.ts", "--from-env", "--strict"],
       cwd: EXECUTOR_ROOT,
     },
     convex: {

@@ -1,5 +1,5 @@
 import { type AuthKit } from "@convex-dev/workos-authkit";
-import type { DataModel, Doc } from "../_generated/dataModel";
+import type { DataModel, Doc } from "../_generated/dataModel.d.ts";
 import type { MutationCtx } from "../_generated/server";
 import { upsertWorkosAccount } from "./accounts";
 import {

@@ -1,4 +1,4 @@
-import type { Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel.d.ts";
 import type { MutationCtx } from "./_generated/server";
 import { authedMutation } from "../core/src/function-builders";
 
