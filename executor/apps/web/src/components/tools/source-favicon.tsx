@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { Layers, Globe, Server } from "lucide-react";
 import Image from "next/image";
 import type { ToolSourceRecord } from "@/lib/types";
-import { getSourceFavicon } from "@/lib/tools/source-helpers";
+import { getSourceFavicon, getSourceFaviconUrl } from "@/lib/tools/source-helpers";
 
 interface SourceFaviconProps {
-  source: ToolSourceRecord;
+  source?: ToolSourceRecord;
+  sourceUrl?: string;
   iconClassName?: string;
   imageClassName?: string;
   imageSize?: number;
@@ -26,12 +27,17 @@ function DefaultSourceIcon({ type, className }: { type: ToolSourceRecord["type"]
 
 export function SourceFavicon({
   source,
+  sourceUrl,
   iconClassName = "h-4 w-4 text-muted-foreground",
   imageClassName,
   imageSize = 20,
   fallbackType,
 }: SourceFaviconProps) {
-  const sourceFavicon = getSourceFavicon(source);
+  const sourceFavicon = sourceUrl
+    ? getSourceFaviconUrl(sourceUrl)
+    : source
+      ? getSourceFavicon(source)
+      : null;
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -39,7 +45,8 @@ export function SourceFavicon({
   }, [sourceFavicon]);
 
   if (!sourceFavicon || failed) {
-    return <DefaultSourceIcon type={fallbackType ?? source.type} className={iconClassName} />;
+    const sourceType = fallbackType ?? source?.type ?? "openapi";
+    return <DefaultSourceIcon type={sourceType} className={iconClassName} />;
   }
 
   return (
