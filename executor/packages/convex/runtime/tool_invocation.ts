@@ -76,7 +76,9 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       );
     }
 
-    const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+    const payload = typeof input === "string"
+      ? { query: input }
+      : (input && typeof input === "object" ? (input as Record<string, unknown>) : {});
     const isAllowed = (path: string, approval: ToolDefinition["approval"]) =>
       getDecisionForContext(
         { path, approval, description: "", run: async () => null } as ToolDefinition,
@@ -133,7 +135,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
             description: entry.description,
             input: normalizeHint(entry.displayInput, "{}"),
             output: normalizeHint(entry.displayOutput, "unknown"),
-            requiredKeys: entry.requiredInputKeys ?? [],
+            // required keys are encoded in the `input` type hint
           };
         });
 
@@ -165,7 +167,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         description,
         input: normalizeHint(entry.displayInput, "{}"),
         output: normalizeHint(entry.displayOutput, "unknown"),
-        requiredKeys: entry.requiredInputKeys ?? [],
+        // required keys are encoded in the `input` type hint
       };
     });
 

@@ -31,7 +31,7 @@ export function generateToolInventory(tools: ToolDescriptor[]): string {
     "",
     "Prefer one broad lookup over many small ones: use `tools.catalog.namespaces({})` and `tools.catalog.tools({ namespace?, query?, compact: false, depth: 2, limit: 20 })` first.",
     "Then use `tools.discover({ query, depth?, limit?, compact? })` when you need ranking. It returns `{ bestPath, results, total }` (not an array).",
-    "Prefer `bestPath` when present; each result includes `{ path, input, output, requiredKeys }` to help you form a correct call.",
+    "Prefer `bestPath` when present; each result includes `{ path, input, output }` to help you form a correct call.",
     "For migration/ETL tasks: discover once, then execute in small batches and return compact summaries (counts, IDs, top-N samples).",
     "Never shadow the global `tools` object (do NOT write `const tools = ...`).",
     "Then call tools directly using the returned path.",

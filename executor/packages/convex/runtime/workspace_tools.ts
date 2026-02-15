@@ -359,13 +359,6 @@ function normalizeHint(type?: string): string {
   return type && type.trim().length > 0 ? type : "unknown";
 }
 
-function isEmptyObjectSchema(schema: Record<string, unknown>): boolean {
-  if (Object.keys(schema).length === 0) return true;
-  const props = schema.properties && typeof schema.properties === "object" ? schema.properties as Record<string, unknown> : {};
-  const required = Array.isArray(schema.required) ? schema.required : [];
-  return Object.keys(props).length === 0 && required.length === 0;
-}
-
 async function buildWorkspaceToolRegistry(
   ctx: ActionCtx,
   args: {
@@ -405,12 +398,13 @@ async function buildWorkspaceToolRegistry(
       ? st.typing!.previewInputKeys!.filter((v): v is string => typeof v === "string")
       : buildPreviewKeys(inputSchema as any);
 
-    const displayInput = normalizeHint(
-      isEmptyObjectSchema(inputSchema as any) ? "{}" : jsonSchemaTypeHintFallback(inputSchema),
-    );
-    const displayOutput = normalizeHint(
-      Object.keys(outputSchema as any).length === 0 ? "unknown" : jsonSchemaTypeHintFallback(outputSchema),
-    );
+    const displayInput = Object.keys(inputSchema as any).length === 0
+      ? "{}"
+      : normalizeHint(jsonSchemaTypeHintFallback(inputSchema));
+
+    const displayOutput = Object.keys(outputSchema as any).length === 0
+      ? "unknown"
+      : normalizeHint(jsonSchemaTypeHintFallback(outputSchema));
 
     const typedRef = st.typing?.typedRef && st.typing.typedRef.kind === "openapi_operation"
       ? {
@@ -485,24 +479,8 @@ async function buildWorkspaceToolRegistry(
   return { buildId };
 }
 
-async function maybeBuildWorkspaceToolRegistry(
-  ctx: ActionCtx,
-  args: {
-    workspaceId: Id<"workspaces">;
-    registrySignature: string;
-    serializedTools: SerializedTool[];
-  },
-): Promise<void> {
-  const state = await ctx.runQuery(internal.toolRegistry.getState, { workspaceId: args.workspaceId }) as
-    | null
-    | { signature: string; readyBuildId?: string };
-
-  if (state?.readyBuildId && state.signature === args.registrySignature) {
-    return;
-  }
-
-  await buildWorkspaceToolRegistry(ctx, args);
-}
+// No implicit "ensure"/backfill on reads: the registry is built alongside the
+// workspace tool snapshot during rebuilds.
 
 export async function getWorkspaceTools(
   ctx: ActionCtx,
@@ -534,7 +512,7 @@ export async function getWorkspaceTools(
   traceStep("listToolSources", listSourcesStartedAt);
   const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
-  const registrySignature = `toolreg_v1|${signature}`;
+  const registrySignature = `toolreg_v2|${signature}`;
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
       includeDts,
       sourceTimeoutMs: sourceTimeoutMs ?? null,
@@ -563,17 +541,6 @@ export async function getWorkspaceTools(
         const typesStorageId = cacheEntry.typesStorageId as Id<"_storage"> | undefined;
         if (cacheEntry.isFresh) {
           if (typesStorageId) {
-            // Registry is derived from the cached snapshot. Keep it in sync.
-            try {
-              await maybeBuildWorkspaceToolRegistry(ctx, {
-                workspaceId,
-                registrySignature,
-                serializedTools: snapshot.externalArtifacts.flatMap((artifact) => artifact.tools),
-              });
-            } catch (error) {
-              const msg = error instanceof Error ? error.message : String(error);
-              console.warn(`[executor] workspace tool registry build failed for '${workspaceId}': ${msg}`);
-            }
             return {
               tools: merged,
               warnings: snapshot.warnings,
@@ -706,7 +673,7 @@ export async function getWorkspaceTools(
 
     // Build a per-tool registry for fast discover + invocation.
     const registryStartedAt = Date.now();
-    await maybeBuildWorkspaceToolRegistry(ctx, {
+    await buildWorkspaceToolRegistry(ctx, {
       workspaceId,
       registrySignature,
       serializedTools: externalArtifacts.flatMap((artifact) => artifact.tools),
