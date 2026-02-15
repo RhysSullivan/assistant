@@ -101,19 +101,14 @@ baseTools.set("discover", {
     "Search available tools by keyword. Returns preferred path aliases, signature hints, and ready-to-copy call examples. Compact mode is enabled by default.",
   typing: {
     inputSchema: {
-      anyOf: [
-        { type: "string" },
-        {
-          type: "object",
-          properties: {
-            query: { type: "string" },
-            depth: { type: "number" },
-            limit: { type: "number" },
-            compact: { type: "boolean" },
-          },
-          required: ["query"],
-        },
-      ],
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        depth: { type: "number" },
+        limit: { type: "number" },
+        compact: { type: "boolean" },
+      },
+      required: ["query"],
     },
     outputSchema: {
       type: "object",
