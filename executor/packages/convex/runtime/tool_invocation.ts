@@ -68,7 +68,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     ]);
     const enabledSources = sources.filter((source) => source.enabled);
     const signature = sourceSignature(task.workspaceId, enabledSources);
-    const expectedSignature = `toolreg_v1|${signature}`;
+    const expectedSignature = `toolreg_v2|${signature}`;
     const buildId = state?.readyBuildId;
     if (!buildId || state.signature !== expectedSignature) {
       throw new Error(

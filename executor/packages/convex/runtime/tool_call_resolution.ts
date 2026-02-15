@@ -77,7 +77,7 @@ async function resolveRegistryBuildId(
 
   const enabledSources = sources.filter((source) => source.enabled);
   const signature = sourceSignature(workspaceId, enabledSources);
-  const expectedSignature = `toolreg_v1|${signature}`;
+  const expectedSignature = `toolreg_v2|${signature}`;
   const buildId = state?.readyBuildId;
 
   if (!buildId || state.signature !== expectedSignature) {
