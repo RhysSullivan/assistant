@@ -258,6 +258,12 @@ export interface ToolTyping {
   inputSchema?: JsonSchema;
   /** JSON Schema describing the tool output payload. */
   outputSchema?: JsonSchema;
+  /**
+   * Optional human-readable type hints derived from schema/OpenAPI.
+   * Used for discover/catalog outputs and UI signatures.
+   */
+  inputHint?: string;
+  outputHint?: string;
   /** Required top-level keys for quick validation and examples. */
   requiredInputKeys?: string[];
   /** Preview keys for UI/examples (required keys first, then common keys). */

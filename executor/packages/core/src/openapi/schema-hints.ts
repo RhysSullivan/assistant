@@ -3,6 +3,18 @@ import { asRecord } from "../utils";
 type JsonSchema = Record<string, unknown>;
 const COMPONENT_REF_INLINE_DEPTH = 2;
 
+function isSmallInlineableComponentSchema(schema: Record<string, unknown>): boolean {
+  const shape = schema as JsonSchema;
+  const type = typeof shape.type === "string" ? shape.type : undefined;
+  const props = asRecord(shape.properties);
+  const propCount = Object.keys(props).length;
+  if (type !== "object" && propCount === 0) return false;
+  if (propCount === 0) return false;
+  if (propCount > 8) return false;
+  if (Array.isArray(shape.oneOf) || Array.isArray(shape.anyOf) || Array.isArray(shape.allOf)) return false;
+  return true;
+}
+
 export type OpenApiParameterHint = {
   name: string;
   required: boolean;
@@ -396,19 +408,18 @@ export function jsonSchemaTypeHintFallback(
     const prefix = "#/components/schemas/";
     if (ref.startsWith(prefix)) {
       const key = ref.slice(prefix.length);
-      if (depth >= COMPONENT_REF_INLINE_DEPTH) {
-        return formatComponentSchemaRefType(key);
-      }
-      if (seenRefs.has(ref)) {
-        return "unknown";
-      }
       const resolved = componentSchemas ? asRecord(componentSchemas[key]) : {};
-      if (Object.keys(resolved).length > 0) {
+      const canInline = Object.keys(resolved).length > 0
+        && !seenRefs.has(ref)
+        && (depth < COMPONENT_REF_INLINE_DEPTH || isSmallInlineableComponentSchema(resolved));
+
+      if (canInline) {
         const nextSeen = new Set(seenRefs);
         nextSeen.add(ref);
         return jsonSchemaTypeHintFallback(resolved, depth + 1, componentSchemas, nextSeen);
       }
 
+      // Fall back to a stable named reference.
       return formatComponentSchemaRefType(key);
     }
   }

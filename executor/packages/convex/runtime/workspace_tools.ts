@@ -398,13 +398,17 @@ async function buildWorkspaceToolRegistry(
       ? st.typing!.previewInputKeys!.filter((v): v is string => typeof v === "string")
       : buildPreviewKeys(inputSchema as any);
 
-    const displayInput = Object.keys(inputSchema as any).length === 0
-      ? "{}"
-      : normalizeHint(jsonSchemaTypeHintFallback(inputSchema));
+    const displayInput = typeof st.typing?.inputHint === "string" && st.typing.inputHint.trim().length > 0
+      ? st.typing.inputHint.trim()
+      : (Object.keys(inputSchema as any).length === 0
+        ? "{}"
+        : normalizeHint(jsonSchemaTypeHintFallback(inputSchema)));
 
-    const displayOutput = Object.keys(outputSchema as any).length === 0
-      ? "unknown"
-      : normalizeHint(jsonSchemaTypeHintFallback(outputSchema));
+    const displayOutput = typeof st.typing?.outputHint === "string" && st.typing.outputHint.trim().length > 0
+      ? st.typing.outputHint.trim()
+      : (Object.keys(outputSchema as any).length === 0
+        ? "unknown"
+        : normalizeHint(jsonSchemaTypeHintFallback(outputSchema)));
 
     const typedRef = st.typing?.typedRef && st.typing.typedRef.kind === "openapi_operation"
       ? {

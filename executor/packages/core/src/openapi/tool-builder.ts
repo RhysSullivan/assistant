@@ -78,6 +78,12 @@ export function buildOpenApiToolsFromPrepared(
 
       const inputSchema = asRecord(operation._inputSchema);
       const outputSchema = asRecord(operation._outputSchema);
+      const inputHint = typeof operation._argsTypeHint === "string" && operation._argsTypeHint.trim().length > 0
+        ? operation._argsTypeHint.trim()
+        : undefined;
+      const outputHint = typeof operation._returnsTypeHint === "string" && operation._returnsTypeHint.trim().length > 0
+        ? operation._returnsTypeHint.trim()
+        : undefined;
       const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
       const previewInputKeys = Array.isArray(operation._previewInputKeys)
         ? operation._previewInputKeys.filter((value): value is string => typeof value === "string")
@@ -111,6 +117,8 @@ export function buildOpenApiToolsFromPrepared(
         typing: {
           ...(Object.keys(inputSchema).length > 0 ? { inputSchema } : {}),
           ...(Object.keys(outputSchema).length > 0 ? { outputSchema } : {}),
+          ...(inputHint ? { inputHint } : {}),
+          ...(outputHint ? { outputHint } : {}),
           ...(requiredInputKeys.length > 0 ? { requiredInputKeys } : {}),
           ...(previewInputKeys.length > 0 ? { previewInputKeys } : {}),
           typedRef,

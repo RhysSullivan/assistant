@@ -78,3 +78,25 @@ test("jsonSchemaTypeHintFallback parenthesizes union inside intersection", () =>
   expect(hint).toContain("& (");
   expect(hint).toContain("| ");
 });
+
+test("jsonSchemaTypeHintFallback inlines small component schema refs at depth threshold", () => {
+  const componentSchemas = {
+    Pagination: {
+      type: "object",
+      properties: {
+        count: { type: "number" },
+        next: { type: "number", nullable: true },
+        prev: { type: "number", nullable: true },
+      },
+      required: ["count", "next", "prev"],
+    },
+  };
+
+  const hint = jsonSchemaTypeHintFallback(
+    { $ref: "#/components/schemas/Pagination" },
+    2,
+    componentSchemas,
+  );
+  expect(hint).toContain("count");
+  expect(hint).not.toContain("components[\"schemas\"][\"Pagination\"]");
+});
