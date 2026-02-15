@@ -224,11 +224,155 @@ function joinUnion(parts: string[]): string {
     .join(" | ");
 }
 
+function isObjectSchema(schema: JsonSchema): boolean {
+  const type = typeof schema.type === "string" ? schema.type : undefined;
+  if (type === "object") return true;
+  return Object.keys(asRecord(schema.properties)).length > 0;
+}
+
+function subsetKeys(left: string[], right: string[]): boolean {
+  const rightSet = new Set(right);
+  for (const key of left) {
+    if (!rightSet.has(key)) return false;
+  }
+  return true;
+}
+
+function tryCollapseSimpleObjectUnion(
+  variants: JsonSchema[],
+  depth: number,
+  componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): string | null {
+  if (variants.length !== 2) return null;
+  const left = variants[0]!;
+  const right = variants[1]!;
+  if (!isObjectSchema(left) || !isObjectSchema(right)) return null;
+
+  const leftProps = asRecord(left.properties);
+  const rightProps = asRecord(right.properties);
+  const leftKeys = Object.keys(leftProps);
+  const rightKeys = Object.keys(rightProps);
+  if (leftKeys.length === 0 || rightKeys.length === 0) return null;
+
+  // Only collapse the simplest case: one object is a strict subset of the other
+  // and they differ by exactly one additional property.
+  const leftSubRight = subsetKeys(leftKeys, rightKeys);
+  const rightSubLeft = subsetKeys(rightKeys, leftKeys);
+  if (!leftSubRight && !rightSubLeft) return null;
+
+  const sup = leftSubRight ? right : left;
+  const sub = leftSubRight ? left : right;
+  const supProps = asRecord(sup.properties);
+  const subProps = asRecord(sub.properties);
+  const supKeys = Object.keys(supProps);
+  const subKeys = Object.keys(subProps);
+  const extraKeys = supKeys.filter((k) => !subKeys.includes(k));
+  if (extraKeys.length !== 1) return null;
+
+  // Shared keys must have identical type hints.
+  for (const key of subKeys) {
+    const supHint = jsonSchemaTypeHintFallback(supProps[key], depth + 1, componentSchemas, seenRefs);
+    const subHint = jsonSchemaTypeHintFallback(subProps[key], depth + 1, componentSchemas, seenRefs);
+    if (supHint !== subHint) return null;
+  }
+
+  const requiredSup = new Set((Array.isArray(sup.required) ? sup.required : []).filter((v): v is string => typeof v === "string"));
+  const requiredSub = new Set((Array.isArray(sub.required) ? sub.required : []).filter((v): v is string => typeof v === "string"));
+  const requiredBoth = new Set<string>();
+  for (const key of subKeys) {
+    if (requiredSup.has(key) && requiredSub.has(key)) {
+      requiredBoth.add(key);
+    }
+  }
+
+  const inner = supKeys
+    .map((key) => {
+      const hint = jsonSchemaTypeHintFallback(supProps[key], depth + 1, componentSchemas, seenRefs);
+      return `${formatTsPropertyKey(key)}${requiredBoth.has(key) ? "" : "?"}: ${hint}`;
+    })
+    .join("; ");
+
+  return `{ ${inner} }`;
+}
+
+function intersectKeys(variants: Array<Record<string, unknown>>): string[] {
+  if (variants.length === 0) return [];
+  const sets = variants.map((props) => new Set(Object.keys(props)));
+  const [first, ...rest] = sets;
+  if (!first) return [];
+  const out: string[] = [];
+  for (const key of first) {
+    if (rest.every((set) => set.has(key))) {
+      out.push(key);
+    }
+  }
+  return out;
+}
+
+function tryFactorCommonObjectFields(
+  variants: JsonSchema[],
+  depth: number,
+  componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): string | null {
+  if (variants.length < 2) return null;
+  if (!variants.every(isObjectSchema)) return null;
+
+  const propsList = variants.map((v) => asRecord(v.properties));
+  const commonKeys = intersectKeys(propsList);
+  if (commonKeys.length === 0) return null;
+
+  const commonEntries: Array<{ key: string; hint: string; required: boolean }> = [];
+  for (const key of commonKeys) {
+    const hints = variants.map((v) => jsonSchemaTypeHintFallback(asRecord(v.properties)[key], depth + 1, componentSchemas, seenRefs));
+    const firstHint = hints[0];
+    if (!firstHint || hints.some((h) => h !== firstHint)) continue;
+
+    const requiredEverywhere = variants.every((v) => {
+      const req = Array.isArray(v.required) ? v.required : [];
+      return req.includes(key);
+    });
+    commonEntries.push({ key, hint: firstHint, required: requiredEverywhere });
+  }
+
+  if (commonEntries.length === 0) return null;
+
+  const commonProps = new Set(commonEntries.map((e) => e.key));
+  const residualSchemas: JsonSchema[] = [];
+  for (const variant of variants) {
+    const props = asRecord(variant.properties);
+    const residualProps = Object.fromEntries(Object.entries(props).filter(([key]) => !commonProps.has(key)));
+    const req = Array.isArray(variant.required) ? variant.required : [];
+    const residualRequired = req.filter((key) => typeof key === "string" && !commonProps.has(key));
+    residualSchemas.push({
+      type: "object",
+      properties: residualProps,
+      ...(residualRequired.length > 0 ? { required: residualRequired } : {}),
+    } as unknown as JsonSchema);
+  }
+
+  // If factoring doesn't reduce anything, bail.
+  const reduces = residualSchemas.some((s) => Object.keys(asRecord(s.properties)).length > 0);
+  if (!reduces) return null;
+
+  const commonInner = commonEntries
+    .map((e) => `${formatTsPropertyKey(e.key)}${e.required ? "" : "?"}: ${e.hint}`)
+    .join("; ");
+  const commonType = `{ ${commonInner} }`;
+
+  const residualType = joinUnion(residualSchemas.map((s) => jsonSchemaTypeHintFallback(s, depth + 1, componentSchemas, seenRefs)));
+  if (residualType === "unknown") return commonType;
+
+  return `${commonType} & (${residualType})`;
+}
+
 function joinIntersection(parts: string[]): string {
   const expanded = parts.flatMap((part) => splitTopLevelBy(part, "&"));
   const unique = dedupeTypeParts(expanded).filter((part) => part !== "unknown");
   if (unique.length === 0) return "unknown";
-  return unique.length === 1 ? unique[0]! : unique.join(" & ");
+  const wrapped = unique.map((part) => (part.includes(" | ") ? `(${part})` : part));
+  return wrapped.length === 1 ? wrapped[0]! : wrapped.join(" & ");
 }
 
 function maybeParenthesizeArrayElement(typeHint: string): string {
@@ -276,11 +420,41 @@ export function jsonSchemaTypeHintFallback(
 
   const oneOf = Array.isArray(shape.oneOf) ? shape.oneOf : undefined;
   if (oneOf && oneOf.length > 0) {
+    const collapsed = tryCollapseSimpleObjectUnion(
+      oneOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (collapsed) return collapsed;
+
+    const factored = tryFactorCommonObjectFields(
+      oneOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (factored) return factored;
     return joinUnion(oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
   }
 
   const anyOf = Array.isArray(shape.anyOf) ? shape.anyOf : undefined;
   if (anyOf && anyOf.length > 0) {
+    const collapsed = tryCollapseSimpleObjectUnion(
+      anyOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (collapsed) return collapsed;
+
+    const factored = tryFactorCommonObjectFields(
+      anyOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (factored) return factored;
     return joinUnion(anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
   }
 
