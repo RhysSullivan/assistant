@@ -76,11 +76,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       );
     }
 
-    const payload = (input && typeof input === "object" && !Array.isArray(input))
-      ? (input as Record<string, unknown>)
-      : (typeof input === "string")
-        ? ({ query: input } satisfies Record<string, unknown>)
-        : {};
+    const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
     const isAllowed = (path: string, approval: ToolDefinition["approval"]) =>
       getDecisionForContext(
         { path, approval, description: "", run: async () => null } as ToolDefinition,
@@ -88,22 +84,9 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         typedPolicies,
       ) !== "deny";
 
-    const formatSignature = (inputHint: string | undefined, outputHint: string | undefined) => {
-      const args = (inputHint && inputHint.trim().length > 0) ? inputHint.trim() : "{}";
-      const out = (outputHint && outputHint.trim().length > 0) ? outputHint.trim() : "unknown";
-      return `(input: ${args}): Promise<${out}>`;
-    };
-
-    const buildExampleCall = (path: string, previewKeys?: string[]) => {
-      const keys = Array.isArray(previewKeys) ? previewKeys : [];
-      if (keys.length === 0) {
-        return `await tools.${path}({});`;
-      }
-      const snippet = keys
-        .slice(0, 5)
-        .map((key) => `${key}: ...`)
-        .join(", ");
-      return `await tools.${path}({ ${snippet} });`;
+    const normalizeHint = (value: unknown, fallback: string) => {
+      const str = typeof value === "string" ? value.trim() : "";
+      return str.length > 0 ? str : fallback;
     };
 
     if (toolPath === "catalog.namespaces") {
@@ -145,19 +128,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           const preferredPath = entry.preferredPath ?? entry.path;
           return {
             path: preferredPath,
-            aliases: entry.aliases ?? [],
             source: entry.source,
             approval: entry.approval,
             description: entry.description,
-            signatureInfo: {
-              input: entry.displayInput,
-              output: entry.displayOutput,
-              requiredKeys: entry.requiredInputKeys ?? [],
-              previewKeys: entry.previewInputKeys ?? [],
-            },
-            signatureText: formatSignature(entry.displayInput, entry.displayOutput),
-            canonicalSignature: formatSignature(entry.displayInput, entry.displayOutput),
-            exampleCall: buildExampleCall(preferredPath, entry.previewInputKeys),
+            input: normalizeHint(entry.displayInput, "{}"),
+            output: normalizeHint(entry.displayOutput, "unknown"),
+            requiredKeys: entry.requiredInputKeys ?? [],
           };
         });
 
@@ -184,19 +160,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       const description = compact ? String(entry.description ?? "").split("\n")[0] : entry.description;
       return {
         path: preferredPath,
-        aliases: entry.aliases ?? [],
         source: entry.source,
         approval: entry.approval,
         description,
-        signature: formatSignature(entry.displayInput, entry.displayOutput),
-        canonicalSignature: formatSignature(entry.displayInput, entry.displayOutput),
-        signatureInfo: {
-          input: entry.displayInput,
-          output: entry.displayOutput,
-          requiredKeys: entry.requiredInputKeys ?? [],
-          previewKeys: entry.previewInputKeys ?? [],
-        },
-        exampleCall: buildExampleCall(preferredPath, entry.previewInputKeys),
+        input: normalizeHint(entry.displayInput, "{}"),
+        output: normalizeHint(entry.displayOutput, "unknown"),
+        requiredKeys: entry.requiredInputKeys ?? [],
       };
     });
 
