@@ -22,6 +22,7 @@ import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecy
 import { assertPersistedCallRunnable, resolveCredentialHeaders } from "./tool_call_credentials";
 import { getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
 import { sourceSignature } from "./tool_source_loading";
+import { toConvexId } from "../adapters/contracts";
 
 function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
@@ -48,23 +49,24 @@ async function denyToolCallForApproval(
 
 export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
   const { toolPath, input, callId } = call;
+  const convexWorkspaceId = toConvexId<"workspaces">(task.workspaceId);
   const persistedCall = (await ctx.runMutation(internal.database.upsertToolCallRequested, {
     taskId: task.id,
     callId,
-    workspaceId: task.workspaceId,
+    workspaceId: convexWorkspaceId,
     toolPath,
   })) as ToolCallRecord;
   assertPersistedCallRunnable(persistedCall, callId);
 
-  const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: task.workspaceId });
+  const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: convexWorkspaceId });
   const typedPolicies = policies as AccessPolicyRecord[];
 
   // Fast system tools are handled server-side from the registry.
   if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools") {
     const toolRegistry = internal.toolRegistry;
     const [state, sources] = await Promise.all([
-      ctx.runQuery(toolRegistry.getState, { workspaceId: task.workspaceId }) as Promise<null | { signature: string; readyBuildId?: string }>,
-      ctx.runQuery(internal.database.listToolSources, { workspaceId: task.workspaceId }) as Promise<Array<{ id: string; updatedAt: number; enabled: boolean }>>,
+      ctx.runQuery(toolRegistry.getState, { workspaceId: convexWorkspaceId }) as Promise<null | { signature: string; readyBuildId?: string }>,
+      ctx.runQuery(internal.database.listToolSources, { workspaceId: convexWorkspaceId }) as Promise<Array<{ id: string; updatedAt: number; enabled: boolean }>>,
     ]);
     const enabledSources = sources.filter((source) => source.enabled);
     const signature = sourceSignature(task.workspaceId, enabledSources);
@@ -94,7 +96,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     if (toolPath === "catalog.namespaces") {
       const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 200)));
       const namespaces = await ctx.runQuery(toolRegistry.listNamespaces, {
-        workspaceId: task.workspaceId,
+        workspaceId: convexWorkspaceId,
         buildId,
         limit,
       }) as Array<{ namespace: string; toolCount: number; samplePaths: string[] }>;
@@ -108,14 +110,14 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
       const raw = query
         ? await ctx.runQuery(toolRegistry.searchTools, {
-            workspaceId: task.workspaceId,
+            workspaceId: convexWorkspaceId,
             buildId,
             query,
             limit,
           })
         : namespace
           ? await ctx.runQuery(toolRegistry.listToolsByNamespace, {
-              workspaceId: task.workspaceId,
+              workspaceId: convexWorkspaceId,
               buildId,
               namespace,
               limit,
@@ -147,7 +149,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     const limit = Math.max(1, Math.min(50, Number(payload.limit ?? 8)));
     const compact = payload.compact === false ? false : true;
     const hits = await ctx.runQuery(toolRegistry.searchTools, {
-      workspaceId: task.workspaceId,
+      workspaceId: convexWorkspaceId,
       buildId,
       query,
       limit: Math.max(limit * 2, limit),

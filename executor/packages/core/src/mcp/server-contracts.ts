@@ -7,7 +7,7 @@ import type {
   TaskRecord,
   ToolDescriptor,
 } from "../types";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../types";
 
 export interface McpExecutorService {
   createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }>;

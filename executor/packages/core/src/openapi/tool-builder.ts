@@ -126,7 +126,11 @@ export function buildOpenApiToolsFromPrepared(
         credential: credentialSpec,
         _runSpec: runSpec,
         run: async (input: unknown, context) => {
-          return await executeOpenApiRequest(runSpec, input, context.credential?.headers);
+          const result = await executeOpenApiRequest(runSpec, input, context.credential?.headers);
+          if (result.isErr()) {
+            throw result.error;
+          }
+          return result.value;
         },
       };
       tools.push(tool);

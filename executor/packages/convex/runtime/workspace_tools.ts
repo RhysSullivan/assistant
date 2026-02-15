@@ -12,6 +12,14 @@ import {
   type CompiledToolSourceArtifact,
   type WorkspaceToolSnapshot,
 } from "../../core/src/tool-sources";
+import {
+  computeSourceAuthProfiles,
+  getPathAliases,
+  mergeTools,
+  normalizeHint,
+  preferredToolPath,
+  truncateToolsForActionResult,
+} from "../../core/src/tool-discovery/workspace-tools";
 import type { SerializedTool } from "../../core/src/tool/source-serialization";
 import type { ExternalToolSourceConfig } from "../../core/src/tool/source-types";
 import type {
@@ -213,151 +221,7 @@ interface WorkspaceToolInventory {
   debug: WorkspaceToolsDebug;
 }
 
-const MAX_TOOLS_IN_ACTION_RESULT = 8_000;
-
-function truncateToolsForActionResult(
-  tools: ToolDescriptor[],
-  warnings: string[],
-): { tools: ToolDescriptor[]; warnings: string[] } {
-  if (tools.length <= MAX_TOOLS_IN_ACTION_RESULT) {
-    return { tools, warnings };
-  }
-
-  return {
-    tools: tools.slice(0, MAX_TOOLS_IN_ACTION_RESULT),
-    warnings: [
-      ...warnings,
-      `Tool inventory truncated to ${MAX_TOOLS_IN_ACTION_RESULT} of ${tools.length} tools (Convex array limit). Use source filters or targeted lookups to narrow results.`,
-    ],
-  };
-}
-
-function computeSourceAuthProfiles(tools: Map<string, ToolDefinition>): Record<string, SourceAuthProfile> {
-  const profiles: Record<string, SourceAuthProfile> = {};
-
-  for (const tool of tools.values()) {
-    const credential = tool.credential;
-    if (!credential) continue;
-
-    const sourceKey = credential.sourceKey;
-    const current = profiles[sourceKey];
-    if (!current) {
-      profiles[sourceKey] = {
-        type: credential.authType,
-        mode: credential.mode,
-        ...(credential.authType === "apiKey" && credential.headerName
-          ? { header: credential.headerName }
-          : {}),
-        inferred: true,
-      };
-      continue;
-    }
-
-    if (current.type !== credential.authType || current.mode !== credential.mode) {
-      profiles[sourceKey] = {
-        type: "mixed",
-        inferred: true,
-      };
-    }
-  }
-
-  return profiles;
-}
-
-function mergeTools(externalTools: Iterable<ToolDefinition>): Map<string, ToolDefinition> {
-  const merged = new Map<string, ToolDefinition>();
-
-  for (const tool of baseTools.values()) {
-    merged.set(tool.path, tool);
-  }
-
-  for (const tool of externalTools) {
-    merged.set(tool.path, tool);
-  }
-  return merged;
-}
-
-function tokenizePathSegment(value: string): string[] {
-  const normalized = value
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
-    .toLowerCase();
-
-  return normalized
-    .split(/[^a-z0-9]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-}
-
-const GENERIC_NAMESPACE_SUFFIXES = new Set([
-  "api",
-  "apis",
-  "openapi",
-  "sdk",
-  "service",
-  "services",
-]);
-
-function simplifyNamespaceSegment(segment: string): string {
-  const tokens = tokenizePathSegment(segment);
-  if (tokens.length === 0) return segment;
-
-  const collapsed: string[] = [];
-  for (const token of tokens) {
-    if (collapsed[collapsed.length - 1] === token) continue;
-    collapsed.push(token);
-  }
-
-  while (collapsed.length > 1) {
-    const last = collapsed[collapsed.length - 1];
-    if (!last || !GENERIC_NAMESPACE_SUFFIXES.has(last)) break;
-    collapsed.pop();
-  }
-
-  return collapsed.join("_");
-}
-
-function preferredToolPath(path: string): string {
-  const segments = path.split(".").filter(Boolean);
-  if (segments.length === 0) return path;
-
-  const simplifiedNamespace = simplifyNamespaceSegment(segments[0]!);
-  if (!simplifiedNamespace || simplifiedNamespace === segments[0]) {
-    return path;
-  }
-
-  return [simplifiedNamespace, ...segments.slice(1)].join(".");
-}
-
-function toCamelSegment(segment: string): string {
-  return segment.replace(/_+([a-z0-9])/g, (_m, char: string) => char.toUpperCase());
-}
-
-function getPathAliases(path: string): string[] {
-  const segments = path.split(".").filter(Boolean);
-  if (segments.length === 0) return [];
-
-  const canonicalPath = path;
-  const publicPath = preferredToolPath(path);
-
-  const aliases = new Set<string>();
-  const publicSegments = publicPath.split(".").filter(Boolean);
-  const camelPath = publicSegments.map(toCamelSegment).join(".");
-  const compactPath = publicSegments.map((segment) => segment.replace(/[_-]/g, "")).join(".");
-  const lowerPath = publicPath.toLowerCase();
-
-  if (publicPath !== canonicalPath) aliases.add(publicPath);
-  if (camelPath !== publicPath) aliases.add(camelPath);
-  if (compactPath !== publicPath) aliases.add(compactPath);
-  if (lowerPath !== publicPath) aliases.add(lowerPath);
-
-  return [...aliases].slice(0, 4);
-}
-
-
-function normalizeHint(type?: string): string {
-  return type && type.trim().length > 0 ? type : "unknown";
-}
+// pure helpers moved to core/src/tool-discovery/workspace-tools
 
 async function buildWorkspaceToolRegistry(
   ctx: ActionCtx,
@@ -539,7 +403,7 @@ export async function getWorkspaceTools(
       if (blob) {
         const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
         const restored = materializeWorkspaceSnapshot(snapshot);
-        const merged = mergeTools(restored);
+        const merged = mergeTools(baseTools.values(), restored);
         traceStep("cacheHydrate", cacheHydrateStartedAt);
 
         const typesStorageId = cacheEntry.typesStorageId as Id<"_storage"> | undefined;
@@ -650,7 +514,7 @@ export async function getWorkspaceTools(
   const timedOutSources = loadedSources
     .filter((loaded) => loaded.timedOut)
     .map((loaded) => loaded.sourceName);
-  const merged = mergeTools(externalTools);
+  const merged = mergeTools(baseTools.values(), externalTools);
 
   let typesStorageId: Id<"_storage"> | undefined;
   try {

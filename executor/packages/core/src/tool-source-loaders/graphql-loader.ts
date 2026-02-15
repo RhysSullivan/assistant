@@ -236,13 +236,17 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
       if (!query.trim()) {
         throw new Error("GraphQL query string is required");
       }
-      return await executeGraphqlRequest(
+      const result = await executeGraphqlRequest(
         config.endpoint,
         authHeaders,
         query,
         variables,
         context.credential?.headers,
       );
+      if (result.isErr()) {
+        throw result.error;
+      }
+      return result.value;
     },
   } as ToolDefinition & { _graphqlSource: string });
 

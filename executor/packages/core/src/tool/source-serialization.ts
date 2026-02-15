@@ -128,7 +128,11 @@ export function rehydrateTools(
       return {
         ...base,
         run: async (input: unknown, context) => {
-          return await executeOpenApiRequest(runSpec, input, context.credential?.headers);
+          const result = await executeOpenApiRequest(runSpec, input, context.credential?.headers);
+          if (result.isErr()) {
+            throw result.error;
+          }
+          return result.value;
         },
       };
     }
@@ -192,7 +196,11 @@ export function rehydrateTools(
             throw new Error("GraphQL query string is required");
           }
           const variables = payload.variables;
-          return await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
+          const result = await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
+          if (result.isErr()) {
+            throw result.error;
+          }
+          return result.value;
         },
       };
     }
@@ -211,8 +219,11 @@ export function rehydrateTools(
             variables = normalizeGraphqlFieldVariables(argNames ?? [], payload);
           }
 
-          const envelope = await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
-          return selectGraphqlFieldEnvelope(envelope, operationName);
+          const result = await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
+          if (result.isErr()) {
+            throw result.error;
+          }
+          return selectGraphqlFieldEnvelope(result.value, operationName);
         },
       };
     }

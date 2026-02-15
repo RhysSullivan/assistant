@@ -287,17 +287,34 @@ export async function checkBootstrapHealth(info: ManagedRuntimeInfo): Promise<Bo
       console.warn(`[executor] could not seed WORKOS_CLIENT_ID in local backend env: ${detail}`);
     }
 
-    const check = await runManagedConvexCli(info, projectDir, ["run", "app:getClientConfig"], envFilePath, {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const candidates = [
+      // Legacy name (top-level module) — historically used by bootstrap checks.
+      "app:getClientConfig",
+      // New name (direct declaration under rpcs/).
+      "rpcs/public/app:getClientConfig",
+    ];
 
-    if (check.exitCode === 0) {
-      return { state: "ready", projectDir };
+    const failures: string[] = [];
+
+    for (const fn of candidates) {
+      const check = await runManagedConvexCli(info, projectDir, ["run", fn], envFilePath, {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      if (check.exitCode === 0) {
+        return { state: "ready", projectDir };
+      }
+
+      const detail = check.stderr.trim() || check.stdout.trim() || `exit ${check.exitCode}`;
+      failures.push(`${fn}: ${detail}`);
     }
 
-    const detail = check.stderr.trim() || check.stdout.trim() || `exit ${check.exitCode}`;
-    return { state: "missing_functions", projectDir, detail };
+    return {
+      state: "missing_functions",
+      projectDir,
+      detail: failures.join("\n"),
+    };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return { state: "check_failed", projectDir, detail };

@@ -4,11 +4,16 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { parseGraphqlOperationPaths } from "../../core/src/graphql/operation-paths";
 import type { AccessPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../core/src/types";
+import {
+  pickBestToolHitByPath,
+  unknownToolErrorMessage,
+} from "../../core/src/tool-discovery/tool-call-resolution";
 import { rehydrateTools, type SerializedTool } from "../../core/src/tool/source-serialization";
 import { getDecisionForContext, getToolDecision } from "./policy";
-import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
+import { normalizeToolPathForLookup } from "./tool_paths";
 import { baseTools } from "./workspace_tools";
 import { sourceSignature } from "./tool_source_loading";
+import { toConvexId } from "../adapters/contracts";
 
 export function getGraphqlDecision(
   task: TaskRecord,
@@ -70,9 +75,10 @@ async function resolveRegistryBuildId(
   ctx: ActionCtx,
   workspaceId: TaskRecord["workspaceId"],
 ): Promise<string> {
+  const convexWorkspaceId = toConvexId<"workspaces">(workspaceId);
   const [state, sources] = await Promise.all([
-    ctx.runQuery(internal.toolRegistry.getState, { workspaceId }) as Promise<null | { signature: string; readyBuildId?: string }>,
-    ctx.runQuery(internal.database.listToolSources, { workspaceId }) as Promise<Array<{ id: string; updatedAt: number; enabled: boolean }>>,
+    ctx.runQuery(internal.toolRegistry.getState, { workspaceId: convexWorkspaceId }) as Promise<null | { signature: string; readyBuildId?: string }>,
+    ctx.runQuery(internal.database.listToolSources, { workspaceId: convexWorkspaceId }) as Promise<Array<{ id: string; updatedAt: number; enabled: boolean }>>,
   ]);
 
   const enabledSources = sources.filter((source) => source.enabled);
@@ -97,21 +103,12 @@ async function suggestFromRegistry(
 ): Promise<string[]> {
   const term = toolPath.split(".").filter(Boolean).join(" ");
   const hits = await ctx.runQuery(internal.toolRegistry.searchTools, {
-    workspaceId,
+    workspaceId: toConvexId<"workspaces">(workspaceId),
     buildId,
     query: term,
     limit: 3,
   }) as Array<{ preferredPath: string }>;
   return hits.map((hit) => hit.preferredPath);
-}
-
-function unknownToolErrorMessage(toolPath: string, suggestions: string[]): string {
-  const suggestionText = suggestions.length > 0
-    ? `\nDid you mean: ${suggestions.map((path) => `tools.${path}`).join(", ")}`
-    : "";
-  const queryHint = toolPath.split(".").filter(Boolean).join(" ");
-  const discoverHint = `\nTry: const found = await tools.discover({ query: "${queryHint}", compact: true, depth: 1, limit: 12 });`;
-  return `Unknown tool: ${toolPath}${suggestionText}${discoverHint}`;
 }
 
 export async function resolveToolForCall(
@@ -131,7 +128,7 @@ export async function resolveToolForCall(
 
   let resolvedToolPath = toolPath;
   let entry = await ctx.runQuery(internal.toolRegistry.getToolByPath, {
-    workspaceId: task.workspaceId,
+    workspaceId: toConvexId<"workspaces">(task.workspaceId),
     buildId,
     path: toolPath,
   }) as null | { path: string; serializedToolJson: string };
@@ -139,17 +136,17 @@ export async function resolveToolForCall(
   if (!entry) {
     const normalized = normalizeToolPathForLookup(toolPath);
     const hits = await ctx.runQuery(internal.toolRegistry.getToolsByNormalizedPath, {
-      workspaceId: task.workspaceId,
+      workspaceId: toConvexId<"workspaces">(task.workspaceId),
       buildId,
       normalizedPath: normalized,
       limit: 5,
     }) as Array<{ path: string; serializedToolJson: string }>;
 
     if (hits.length > 0) {
-      // Prefer exact match on preferred path formatting, otherwise shortest canonical path.
-      const exact = hits.find((hit) => toPreferredToolPath(hit.path) === toPreferredToolPath(toolPath));
-      entry = exact ?? hits.sort((a, b) => a.path.length - b.path.length || a.path.localeCompare(b.path))[0]!;
-      resolvedToolPath = entry.path;
+      entry = pickBestToolHitByPath(hits, toolPath);
+      if (entry) {
+        resolvedToolPath = entry.path;
+      }
     }
   }
 

@@ -1,6 +1,6 @@
-// ── Shared types (inlined from @executor/contracts) ──────────────────────────
+// ── Shared domain types (Convex-agnostic) ───────────────────────────────────
 
-import type { Id } from "../../convex/_generated/dataModel.d.ts";
+export type Id<TableName extends string = string> = string;
 
 export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
 export type ApprovalStatus = "pending" | "approved" | "denied";

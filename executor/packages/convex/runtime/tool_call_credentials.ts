@@ -6,6 +6,7 @@ import { resolveCredentialPayload } from "../../core/src/credential-providers";
 import { APPROVAL_DENIED_PREFIX } from "../../core/src/execution-constants";
 import type { CredentialScope, ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../core/src/types";
 import { asPayload } from "../lib/object";
+import { toConvexId } from "../adapters/contracts";
 
 export async function resolveCredentialHeaders(
   ctx: ActionCtx,
@@ -13,7 +14,7 @@ export async function resolveCredentialHeaders(
   task: TaskRecord,
 ): Promise<ResolvedToolCredential | null> {
   const record = await ctx.runQuery(internal.database.resolveCredential, {
-    workspaceId: task.workspaceId,
+    workspaceId: toConvexId<"workspaces">(task.workspaceId),
     sourceKey: spec.sourceKey,
     scope: spec.mode as CredentialScope,
     actorId: task.actorId,

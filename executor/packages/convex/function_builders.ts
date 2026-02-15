@@ -1,13 +1,12 @@
 import { v } from "convex/values";
 import { customMutation, customQuery } from "convex-helpers/server/customFunctions";
-import { internalQuery, mutation, query } from "../../convex/_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import {
-  canManageBilling,
   getOrganizationMembership,
-  isAdminRole,
   requireWorkspaceAccessForRequest,
   resolveAccountForRequest,
 } from "./identity";
+import { canManageBilling, isAdminRole } from "../core/src/identity";
 
 type WorkspaceAccessOptions = {
   requireAdmin?: boolean;

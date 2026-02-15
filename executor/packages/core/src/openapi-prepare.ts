@@ -1,3 +1,5 @@
+"use node";
+
 import SwaggerParser from "@apidevtools/swagger-parser";
 import openapiTS, { astToString } from "openapi-typescript";
 import { inferOpenApiAuth } from "./openapi-auth";
