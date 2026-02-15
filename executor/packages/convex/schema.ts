@@ -444,6 +444,8 @@ export default defineSchema({
     buildId: v.string(),
     path: v.string(),
     preferredPath: v.string(),
+    namespace: v.string(),
+    normalizedPath: v.string(),
     aliases: v.array(v.string()),
     description: v.string(),
     approval: toolApprovalMode,
@@ -463,22 +465,25 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_workspace_build_path", ["workspaceId", "buildId", "path"])
+    .index("by_workspace_build_normalized", ["workspaceId", "buildId", "normalizedPath"])
+    .index("by_workspace_build_namespace", ["workspaceId", "buildId", "namespace"])
     .index("by_workspace_build", ["workspaceId", "buildId"])
     .searchIndex("search_text", {
       searchField: "searchText",
       filterFields: ["workspaceId", "buildId"],
     }),
 
-  // Alias -> canonical path mapping for registry lookups.
-  workspaceToolAliases: defineTable({
+  // Precomputed namespace summaries for fast catalog.namespaces.
+  workspaceToolNamespaces: defineTable({
     workspaceId: v.id("workspaces"),
     buildId: v.string(),
-    alias: v.string(),
-    path: v.string(),
+    namespace: v.string(),
+    toolCount: v.number(),
+    samplePaths: v.array(v.string()),
     createdAt: v.number(),
   })
-    .index("by_workspace_build_alias", ["workspaceId", "buildId", "alias"])
-    .index("by_workspace_build", ["workspaceId", "buildId"]),
+    .index("by_workspace_build", ["workspaceId", "buildId"])
+    .index("by_workspace_build_namespace", ["workspaceId", "buildId", "namespace"]),
 
   // Anonymous session linkage.
   // Used to map an unauthenticated/anonymous actor to a backing `accounts` row and a

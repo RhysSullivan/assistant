@@ -12,6 +12,7 @@ function setup() {
     "./executorNode.ts": () => import("./executorNode"),
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./workspaceToolCache.ts": () => import("./workspaceToolCache"),
+    "./toolRegistry.ts": () => import("./toolRegistry"),
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });

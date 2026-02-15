@@ -3,14 +3,16 @@
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel.d.ts";
-import { createCatalogTools, createDiscoverTool } from "../../core/src/tool-discovery";
 import { buildWorkspaceTypeBundle } from "../../core/src/tool-typing/typebundle";
+import { jsonSchemaTypeHintFallback } from "../../core/src/openapi/schema-hints";
+import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../core/src/tool-typing/schema-utils";
 import {
   materializeCompiledToolSource,
   materializeWorkspaceSnapshot,
   type CompiledToolSourceArtifact,
   type WorkspaceToolSnapshot,
 } from "../../core/src/tool-sources";
+import { serializeTools } from "../../core/src/tool/source-serialization";
 import type { ExternalToolSourceConfig } from "../../core/src/tool/source-types";
 import type {
   AccessPolicyRecord,
@@ -21,6 +23,7 @@ import type {
 } from "../../core/src/types";
 import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_descriptors";
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
+import { normalizeToolPathForLookup } from "./tool_paths";
 
 const baseTools = new Map<string, ToolDefinition>();
 
@@ -85,6 +88,91 @@ baseTools.set("admin.delete_data", {
   },
   run: async () => {
     return { ok: true };
+  },
+});
+
+// System tools (discover/catalog) are resolved server-side.
+// Their execution is handled in the Convex tool invocation pipeline.
+baseTools.set("discover", {
+  path: "discover",
+  source: "system",
+  approval: "auto",
+  description:
+    "Search available tools by keyword. Returns preferred path aliases, signature hints, and ready-to-copy call examples. Compact mode is enabled by default.",
+  typing: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        depth: { type: "number" },
+        limit: { type: "number" },
+        compact: { type: "boolean" },
+      },
+      required: ["query"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        bestPath: {},
+        results: { type: "array" },
+        total: { type: "number" },
+      },
+      required: ["bestPath", "results", "total"],
+    },
+  },
+  run: async () => {
+    throw new Error("discover is handled by the server tool invocation pipeline");
+  },
+});
+
+baseTools.set("catalog.namespaces", {
+  path: "catalog.namespaces",
+  source: "system",
+  approval: "auto",
+  description: "List available tool namespaces with counts and sample callable paths.",
+  typing: {
+    inputSchema: { type: "object", properties: {} },
+    outputSchema: {
+      type: "object",
+      properties: {
+        namespaces: { type: "array" },
+        total: { type: "number" },
+      },
+      required: ["namespaces", "total"],
+    },
+  },
+  run: async () => {
+    throw new Error("catalog.namespaces is handled by the server tool invocation pipeline");
+  },
+});
+
+baseTools.set("catalog.tools", {
+  path: "catalog.tools",
+  source: "system",
+  approval: "auto",
+  description: "List tools with typed signatures. Supports namespace and query filters in one call.",
+  typing: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string" },
+        query: { type: "string" },
+        depth: { type: "number" },
+        limit: { type: "number" },
+        compact: { type: "boolean" },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        results: { type: "array" },
+        total: { type: "number" },
+      },
+      required: ["results", "total"],
+    },
+  },
+  run: async () => {
+    throw new Error("catalog.tools is handled by the server tool invocation pipeline");
   },
 });
 
@@ -176,27 +264,227 @@ function computeSourceAuthProfiles(tools: Map<string, ToolDefinition>): Record<s
   return profiles;
 }
 
-function mergeToolsWithCatalog(externalTools: Iterable<ToolDefinition>): Map<string, ToolDefinition> {
+function mergeTools(externalTools: Iterable<ToolDefinition>): Map<string, ToolDefinition> {
   const merged = new Map<string, ToolDefinition>();
 
   for (const tool of baseTools.values()) {
-    if (tool.path === "discover") continue;
     merged.set(tool.path, tool);
   }
 
   for (const tool of externalTools) {
-    if (tool.path === "discover") continue;
     merged.set(tool.path, tool);
   }
-
-  const catalogTools = createCatalogTools([...merged.values()]);
-  for (const tool of catalogTools) {
-    merged.set(tool.path, tool);
-  }
-
-  const discover = createDiscoverTool([...merged.values()]);
-  merged.set(discover.path, discover);
   return merged;
+}
+
+function tokenizePathSegment(value: string): string[] {
+  const normalized = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .toLowerCase();
+
+  return normalized
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+const GENERIC_NAMESPACE_SUFFIXES = new Set([
+  "api",
+  "apis",
+  "openapi",
+  "sdk",
+  "service",
+  "services",
+]);
+
+function simplifyNamespaceSegment(segment: string): string {
+  const tokens = tokenizePathSegment(segment);
+  if (tokens.length === 0) return segment;
+
+  const collapsed: string[] = [];
+  for (const token of tokens) {
+    if (collapsed[collapsed.length - 1] === token) continue;
+    collapsed.push(token);
+  }
+
+  while (collapsed.length > 1) {
+    const last = collapsed[collapsed.length - 1];
+    if (!last || !GENERIC_NAMESPACE_SUFFIXES.has(last)) break;
+    collapsed.pop();
+  }
+
+  return collapsed.join("_");
+}
+
+function preferredToolPath(path: string): string {
+  const segments = path.split(".").filter(Boolean);
+  if (segments.length === 0) return path;
+
+  const simplifiedNamespace = simplifyNamespaceSegment(segments[0]!);
+  if (!simplifiedNamespace || simplifiedNamespace === segments[0]) {
+    return path;
+  }
+
+  return [simplifiedNamespace, ...segments.slice(1)].join(".");
+}
+
+function toCamelSegment(segment: string): string {
+  return segment.replace(/_+([a-z0-9])/g, (_m, char: string) => char.toUpperCase());
+}
+
+function getPathAliases(path: string): string[] {
+  const segments = path.split(".").filter(Boolean);
+  if (segments.length === 0) return [];
+
+  const canonicalPath = path;
+  const publicPath = preferredToolPath(path);
+
+  const aliases = new Set<string>();
+  const publicSegments = publicPath.split(".").filter(Boolean);
+  const camelPath = publicSegments.map(toCamelSegment).join(".");
+  const compactPath = publicSegments.map((segment) => segment.replace(/[_-]/g, "")).join(".");
+  const lowerPath = publicPath.toLowerCase();
+
+  if (publicPath !== canonicalPath) aliases.add(publicPath);
+  if (camelPath !== publicPath) aliases.add(camelPath);
+  if (compactPath !== publicPath) aliases.add(compactPath);
+  if (lowerPath !== publicPath) aliases.add(lowerPath);
+
+  return [...aliases].slice(0, 4);
+}
+
+
+function normalizeHint(type?: string): string {
+  return type && type.trim().length > 0 ? type : "unknown";
+}
+
+function isEmptyObjectSchema(schema: Record<string, unknown>): boolean {
+  if (Object.keys(schema).length === 0) return true;
+  const props = schema.properties && typeof schema.properties === "object" ? schema.properties as Record<string, unknown> : {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  return Object.keys(props).length === 0 && required.length === 0;
+}
+
+async function buildWorkspaceToolRegistry(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    signature: string;
+    tools: ToolDefinition[];
+  },
+): Promise<{ buildId: string }> {
+  const buildId = `toolreg_${crypto.randomUUID()}`;
+  await ctx.runMutation(internal.toolRegistry.beginBuild, {
+    workspaceId: args.workspaceId,
+    signature: args.signature,
+    buildId,
+  });
+
+  const serialized = serializeTools(args.tools);
+
+  const entries = serialized.map((st) => {
+    if (st.path === "discover" || st.path.startsWith("catalog.")) {
+      return null;
+    }
+    const preferredPath = preferredToolPath(st.path);
+    const aliases = getPathAliases(st.path);
+    const namespace = (preferredPath.split(".")[0] ?? "default").toLowerCase();
+    const normalizedPath = normalizeToolPathForLookup(st.path);
+    const searchText = `${st.path} ${preferredPath} ${aliases.join(" ")} ${st.description} ${st.source ?? ""}`.toLowerCase();
+
+    const inputSchema = (st.typing?.inputSchema && typeof st.typing.inputSchema === "object")
+      ? st.typing.inputSchema
+      : {};
+    const outputSchema = (st.typing?.outputSchema && typeof st.typing.outputSchema === "object")
+      ? st.typing.outputSchema
+      : {};
+
+    const requiredInputKeys = Array.isArray(st.typing?.requiredInputKeys)
+      ? st.typing!.requiredInputKeys!.filter((v): v is string => typeof v === "string")
+      : extractTopLevelRequiredKeys(inputSchema as any);
+    const previewInputKeys = Array.isArray(st.typing?.previewInputKeys)
+      ? st.typing!.previewInputKeys!.filter((v): v is string => typeof v === "string")
+      : buildPreviewKeys(inputSchema as any);
+
+    const displayInput = normalizeHint(
+      isEmptyObjectSchema(inputSchema as any) ? "{}" : jsonSchemaTypeHintFallback(inputSchema),
+    );
+    const displayOutput = normalizeHint(
+      Object.keys(outputSchema as any).length === 0 ? "unknown" : jsonSchemaTypeHintFallback(outputSchema),
+    );
+
+    const typedRef = st.typing?.typedRef && st.typing.typedRef.kind === "openapi_operation"
+      ? {
+          kind: "openapi_operation" as const,
+          sourceKey: st.typing.typedRef.sourceKey,
+          operationId: st.typing.typedRef.operationId,
+        }
+      : undefined;
+
+    return {
+      path: st.path,
+      preferredPath,
+      namespace,
+      normalizedPath,
+      aliases,
+      description: st.description,
+      approval: st.approval,
+      source: st.source,
+      searchText,
+      displayInput,
+      displayOutput,
+      requiredInputKeys,
+      previewInputKeys,
+      typedRef,
+      serializedToolJson: JSON.stringify(st),
+    };
+  });
+
+  const filteredEntries = entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  const namespaceMap = new Map<string, { toolCount: number; samplePaths: string[] }>();
+  for (const entry of filteredEntries) {
+    const current = namespaceMap.get(entry.namespace) ?? { toolCount: 0, samplePaths: [] };
+    current.toolCount += 1;
+    if (current.samplePaths.length < 6) {
+      current.samplePaths.push(entry.preferredPath);
+    }
+    namespaceMap.set(entry.namespace, current);
+  }
+
+  const namespaces = [...namespaceMap.entries()]
+    .map(([namespace, meta]) => ({
+      namespace,
+      toolCount: meta.toolCount,
+      samplePaths: [...meta.samplePaths].sort((a, b) => a.localeCompare(b)).slice(0, 3),
+    }))
+    .sort((a, b) => a.namespace.localeCompare(b.namespace));
+
+  const TOOL_BATCH = 100;
+  for (let i = 0; i < filteredEntries.length; i += TOOL_BATCH) {
+    await ctx.runMutation(internal.toolRegistry.putToolsBatch, {
+      workspaceId: args.workspaceId,
+      buildId,
+      tools: filteredEntries.slice(i, i + TOOL_BATCH),
+    });
+  }
+
+  const NS_BATCH = 100;
+  for (let i = 0; i < namespaces.length; i += NS_BATCH) {
+    await ctx.runMutation(internal.toolRegistry.putNamespacesBatch, {
+      workspaceId: args.workspaceId,
+      buildId,
+      namespaces: namespaces.slice(i, i + NS_BATCH),
+    });
+  }
+
+  await ctx.runMutation(internal.toolRegistry.finishBuild, {
+    workspaceId: args.workspaceId,
+    buildId,
+  });
+
+  return { buildId };
 }
 
 export async function getWorkspaceTools(
@@ -251,7 +539,7 @@ export async function getWorkspaceTools(
       if (blob) {
         const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
         const restored = materializeWorkspaceSnapshot(snapshot);
-        const merged = mergeToolsWithCatalog(restored);
+        const merged = mergeTools(restored);
         traceStep("cacheHydrate", cacheHydrateStartedAt);
 
         const typesStorageId = cacheEntry.typesStorageId as Id<"_storage"> | undefined;
@@ -362,7 +650,7 @@ export async function getWorkspaceTools(
   const timedOutSources = loadedSources
     .filter((loaded) => loaded.timedOut)
     .map((loaded) => loaded.sourceName);
-  const merged = mergeToolsWithCatalog(externalTools);
+  const merged = mergeTools(externalTools);
 
   let typesStorageId: Id<"_storage"> | undefined;
   try {
@@ -386,6 +674,15 @@ export async function getWorkspaceTools(
 
     const snapshotWriteStartedAt = Date.now();
     const allTools = [...merged.values()];
+
+    // Build a per-tool registry for fast discover + invocation.
+    const registryStartedAt = Date.now();
+    await buildWorkspaceToolRegistry(ctx, {
+      workspaceId,
+      signature,
+      tools: allTools,
+    });
+    traceStep("toolRegistryWrite", registryStartedAt);
 
     // Build and store a workspace-wide Monaco type bundle.
     const openApiDtsBySource: Record<string, string> = {};

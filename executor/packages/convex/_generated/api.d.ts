@@ -280,7 +280,7 @@ export declare const api: {
     bootstrapAnonymousSession: FunctionReference<
       "mutation",
       "public",
-      { sessionId?: string },
+      { actorId?: string; sessionId?: string },
       any
     >;
     deleteToolSource: FunctionReference<
@@ -1215,6 +1215,115 @@ export declare const internal: {
         specUrl: string;
         storageId: Id<"_storage">;
         version: string;
+      },
+      any
+    >;
+  };
+  toolRegistry: {
+    beginBuild: FunctionReference<
+      "mutation",
+      "internal",
+      { buildId: string; signature: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    finishBuild: FunctionReference<
+      "mutation",
+      "internal",
+      { buildId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getState: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getToolByPath: FunctionReference<
+      "query",
+      "internal",
+      { buildId: string; path: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getToolsByNormalizedPath: FunctionReference<
+      "query",
+      "internal",
+      {
+        buildId: string;
+        limit: number;
+        normalizedPath: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    listNamespaces: FunctionReference<
+      "query",
+      "internal",
+      { buildId: string; limit: number; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    listToolsByNamespace: FunctionReference<
+      "query",
+      "internal",
+      {
+        buildId: string;
+        limit: number;
+        namespace: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    putNamespacesBatch: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        buildId: string;
+        namespaces: Array<{
+          namespace: string;
+          samplePaths: Array<string>;
+          toolCount: number;
+        }>;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    putToolsBatch: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        buildId: string;
+        tools: Array<{
+          aliases: Array<string>;
+          approval: "auto" | "required";
+          description: string;
+          displayInput?: string;
+          displayOutput?: string;
+          namespace: string;
+          normalizedPath: string;
+          path: string;
+          preferredPath: string;
+          previewInputKeys?: Array<string>;
+          requiredInputKeys?: Array<string>;
+          searchText: string;
+          serializedToolJson: string;
+          source?: string;
+          typedRef?: {
+            kind: "openapi_operation";
+            operationId: string;
+            sourceKey: string;
+          };
+        }>;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    searchTools: FunctionReference<
+      "query",
+      "internal",
+      {
+        buildId: string;
+        limit: number;
+        query: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
