@@ -50,6 +50,7 @@ interface ToolExplorerProps {
   sourceDialogMeta?: Record<string, SourceDialogMeta>;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
   existingSourceNames?: Set<string>;
+  onSourceDeleted?: (sourceName: string) => void;
 }
 
 export function ToolExplorer({
@@ -67,6 +68,7 @@ export function ToolExplorer({
   sourceDialogMeta,
   sourceAuthProfiles,
   existingSourceNames,
+  onSourceDeleted,
 }: ToolExplorerProps) {
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput);
@@ -390,6 +392,7 @@ export function ToolExplorer({
           sourceDialogMeta={sourceDialogMeta}
           sourceAuthProfiles={sourceAuthProfiles}
           existingSourceNames={sidebarExistingSourceNames}
+          onSourceDeleted={onSourceDeleted}
         />
       ) : null}
 

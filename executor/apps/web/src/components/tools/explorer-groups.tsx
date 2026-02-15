@@ -230,6 +230,7 @@ export function SourceSidebar({
   sourceDialogMeta,
   existingSourceNames,
   sourceAuthProfiles,
+  onSourceDeleted,
 }: {
   sources: ToolSourceRecord[];
   sourceCounts: Record<string, number>;
@@ -240,6 +241,7 @@ export function SourceSidebar({
   sourceDialogMeta?: Record<string, SourceDialogMeta>;
   existingSourceNames: Set<string>;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
+  onSourceDeleted?: (sourceName: string) => void;
 }) {
   const warningCountsBySource = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -349,6 +351,7 @@ export function SourceSidebar({
                   sourceToEdit={g.source}
                   sourceDialogMeta={editMeta}
                   sourceAuthProfiles={sourceAuthProfiles}
+                  onSourceDeleted={onSourceDeleted}
                   trigger={
                     <Button
                       variant="ghost"

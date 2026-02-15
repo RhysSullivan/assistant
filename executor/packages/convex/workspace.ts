@@ -23,34 +23,28 @@ export const bootstrapAnonymousSession = mutation({
     actorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    const requestedSessionId = args.sessionId?.trim();
-    const requestedActorId = args.actorId?.trim();
-    const isAnonymousIdentityRequest = Boolean(identity && isAnonymousIdentity(identity));
+    const identity = await ctx.auth.getUserIdentity().catch(() => null);
+    const requestedSessionId = args.sessionId?.trim() || undefined;
+    const requestedActorId = args.actorId?.trim() || undefined;
 
-    if (!isAnonymousIdentityRequest && identity) {
-      throw new Error("Anonymous auth token is required");
+    if (identity && !isAnonymousIdentity(identity)) {
+      throw new Error("Cannot bootstrap an anonymous session while authenticated");
     }
 
-    const actorId = isAnonymousIdentityRequest
-      ? identity!.subject
-      : requestedActorId;
-
+    const actorId = identity ? identity.subject : requestedActorId;
     if (actorId && !actorId.startsWith("anon_")) {
-      throw new Error("Anonymous token subject must use anon_* actor ids");
+      throw new Error("actorId must be an anonymous actor (anon_*)");
     }
 
-    if (!actorId && !requestedSessionId) {
-      throw new Error("Anonymous auth token is required");
-    }
-
-    const sessionId = actorId
-      ? `anon_session_${actorId}`
+    // Allow unauthenticated callers to bootstrap a fresh anonymous session.
+    // The internal mutation will generate ids when not provided.
+    const sessionId = identity
+      ? (requestedSessionId ?? `anon_session_${actorId}`)
       : requestedSessionId;
 
     return await ctx.runMutation(internal.database.bootstrapAnonymousSession, {
-      sessionId,
-      actorId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(actorId ? { actorId } : {}),
       clientId: "web",
     });
   },

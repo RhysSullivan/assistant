@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Plus,
 } from "lucide-react";
@@ -103,6 +103,10 @@ export function ToolsView({
     && (sourceItems.some((source) => source.name === selectedSource) || toolSourceNames.has(selectedSource))
     ? selectedSource
     : null;
+
+  const handleSourceDeleted = useCallback((sourceName: string) => {
+    setSelectedSource((current) => (current === sourceName ? null : current));
+  }, []);
   const openConnectionCreate = (sourceKey?: string) => {
     setConnectionDialogEditing(null);
     setConnectionDialogSourceKey(sourceKey ?? null);
@@ -196,6 +200,7 @@ export function ToolsView({
                   sourceDialogMeta={sourceDialogMeta}
                   sourceAuthProfiles={sourceAuthProfiles}
                   existingSourceNames={existingSourceNames}
+                  onSourceDeleted={handleSourceDeleted}
                   onLoadToolDetails={loadToolDetails}
                   warnings={warnings}
                   initialSource={initialSource}
