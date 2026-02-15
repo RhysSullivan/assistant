@@ -76,7 +76,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       );
     }
 
-    const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+    const payload = (input && typeof input === "object" && !Array.isArray(input))
+      ? (input as Record<string, unknown>)
+      : (typeof input === "string")
+        ? ({ query: input } satisfies Record<string, unknown>)
+        : {};
     const isAllowed = (path: string, approval: ToolDefinition["approval"]) =>
       getDecisionForContext(
         { path, approval, description: "", run: async () => null } as ToolDefinition,
