@@ -144,21 +144,19 @@ export async function runQueuedTask(
       };
     }
 
-    const runtimeResult = await (async () => {
-      const adapter = new InProcessExecutionAdapter({
-        runId: args.taskId,
-        invokeTool: async (call) => await invokeTool(ctx, running, call),
-      });
+    const adapter = new InProcessExecutionAdapter({
+      runId: args.taskId,
+      invokeTool: async (call) => await invokeTool(ctx, running, call),
+    });
 
-      return await runCodeWithAdapter(
-        {
-          taskId: args.taskId,
-          code: running.code,
-          timeoutMs: running.timeoutMs,
-        },
-        adapter,
-      );
-    })();
+    const runtimeResult = await runCodeWithAdapter(
+      {
+        taskId: args.taskId,
+        code: running.code,
+        timeoutMs: running.timeoutMs,
+      },
+      adapter,
+    );
 
     const finished = await markTaskFinished(ctx, {
       taskId: args.taskId,
