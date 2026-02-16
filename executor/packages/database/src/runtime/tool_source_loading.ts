@@ -29,6 +29,33 @@ const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 /** Cache version - bump when tool snapshot/registry/type-hint semantics change. */
 const TOOL_SOURCE_CACHE_VERSION = "v25";
 
+function toPreparedOpenApiSpec(value: unknown): PreparedOpenApiSpec | null {
+  const record = asPayload(value);
+  if (!Array.isArray(record.servers)) {
+    return null;
+  }
+  if (!record.paths || typeof record.paths !== "object" || Array.isArray(record.paths)) {
+    return null;
+  }
+
+  const servers = record.servers.filter((entry): entry is string => typeof entry === "string");
+  const warnings = Array.isArray(record.warnings)
+    ? record.warnings.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const dtsStatus =
+    record.dtsStatus === "ready" || record.dtsStatus === "failed" || record.dtsStatus === "skipped"
+      ? record.dtsStatus
+      : undefined;
+
+  return {
+    servers,
+    paths: asPayload(record.paths),
+    warnings,
+    dts: typeof record.dts === "string" ? record.dts : undefined,
+    dtsStatus,
+  };
+}
+
 export function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
@@ -235,9 +262,12 @@ async function loadCachedOpenApiSpec(
       const blob = await ctx.storage.get(entry.storageId);
       if (blob) {
         const json = await blob.text();
-        const prepared = JSON.parse(json) as PreparedOpenApiSpec;
-        if (!includeDts || getDtsStatus(prepared) !== "skipped") {
-          return prepared;
+        const parsedResult = Result.try(() => JSON.parse(json));
+        if (parsedResult.isOk()) {
+          const prepared = toPreparedOpenApiSpec(parsedResult.value);
+          if (prepared && (!includeDts || getDtsStatus(prepared) !== "skipped")) {
+            return prepared;
+          }
         }
       }
     }
