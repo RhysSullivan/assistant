@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
 type DbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
 type BillingAccessCtx = QueryCtx & {
   account: Doc<"accounts">;
-  actorMembership: Doc<"organizationMembers">;
+  accountMembership: Doc<"organizationMembers">;
   organizationId: Id<"organizations">;
 };
 
@@ -41,7 +41,7 @@ export async function getBillingAccessForRequestHandler(ctx: BillingAccessCtx) {
     .unique();
 
   return {
-    role: ctx.actorMembership.role,
+    role: ctx.accountMembership.role,
     email: ctx.account.email,
     organizationName: organization.name,
     billableMembers,

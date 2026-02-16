@@ -135,7 +135,7 @@ export function AddSourceDialog({
     sourceToEdit,
     existingSourceNames,
     credentialItems,
-    actorId: context?.actorId,
+    accountId: context?.accountId,
   });
 
   const handleOpenChange = (isOpen: boolean) => {

@@ -8,8 +8,7 @@ import { v } from "convex/values";
 // - Some tables use a *domain id* string (eg `task_<uuid>`, `approval_<uuid>`) in addition
 //   to Convex's built-in `_id`. When present, the domain id is what gets referenced across
 //   systems and in logs; `_id` stays internal to Convex.
-// - `actorId` is an external-ish identifier and is intentionally a string in some tables.
-//   It can be an `accounts._id` string or an `anon_<uuid>` value.
+// - `accountId` links rows to `accounts` where identity context is needed.
 //
 // The small validators below act like enums for schema fields.
 // Note: Some of these are duplicated as request validators under `executor/packages/database/convex/database/validators.ts`
@@ -251,7 +250,6 @@ export default defineSchema({
     runtimeId: v.string(),
     workspaceId: v.id("workspaces"),
     accountId: v.optional(v.id("accounts")),
-    actorId: v.optional(v.string()), // account._id or anon_<uuid>
     clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
     status: taskStatus,
     timeoutMs: v.number(),
@@ -326,7 +324,7 @@ export default defineSchema({
     .index("by_task_sequence", ["taskId", "sequence"]),
 
   // Workspace + organization access policy rules used by the approval / tool firewall.
-  // Rules can target specific actors and clients, and can match tool paths either exactly
+  // Rules can target specific accounts and clients, and can match tool paths either exactly
   // or with a glob pattern.
   accessPolicies: defineTable({
     policyId: v.string(), // domain ID: policy_<uuid>
@@ -352,7 +350,7 @@ export default defineSchema({
   // Stored credentials for tool sources.
   //
   // A single credential "connection" (credentialId) can have multiple rows to support
-  // different bindings (workspace-wide and per-actor), and can be owned by either a
+  // different bindings (workspace-wide and per-account), and can be owned by either a
   // workspace or an organization.
   // `bindingId` exists as a stable handle
   // for UI/API operations that need an id before the connection id is known.
@@ -509,17 +507,16 @@ export default defineSchema({
     .index("by_workspace_build", ["workspaceId", "buildId"]),
 
   // Anonymous session linkage.
-  // Used to map an unauthenticated/anonymous actor to a backing `accounts` row and a
+  // Used to map an unauthenticated/anonymous account to a backing `accounts` row and a
   // `workspaceMembers` user entry.
   //
   // Primary access patterns:
   // - Resolve by session id.
-  // - Resolve by (workspaceId, actorId) to find an existing session.
+  // - Resolve by (workspaceId, accountId) to find an existing session.
   // - List sessions for an account.
   anonymousSessions: defineTable({
     sessionId: v.string(), // domain ID: anon_session_<uuid> or mcp_<uuid>
     workspaceId: v.id("workspaces"),
-    actorId: v.string(), // anon_<uuid>
     clientId: v.string(), // client label: "web", "mcp", etc.
     accountId: v.id("accounts"),
     userId: v.id("workspaceMembers"),
@@ -527,6 +524,6 @@ export default defineSchema({
     lastSeenAt: v.number(),
   })
     .index("by_session_id", ["sessionId"])
-    .index("by_workspace_actor", ["workspaceId", "actorId"])
+    .index("by_workspace_account", ["workspaceId", "accountId"])
     .index("by_account", ["accountId"]),
 });

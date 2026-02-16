@@ -58,9 +58,11 @@ function resolveMcpOrigin(windowOrigin: string): string {
 export function McpSetupCard({
   workspaceId,
   sessionId,
+  accountId,
 }: {
   workspaceId?: string;
   sessionId?: string;
+  accountId?: string;
 }) {
   const [selectedProviderId, setSelectedProviderId] = useState(MCP_PROVIDERS[0]?.id ?? "claude-code");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -85,10 +87,10 @@ export function McpSetupCard({
 
   const isAnonymousSession = isAnonymousSessionId(sessionId);
 
-  const anonymousTokenQuery = useTanstackQuery<{ accessToken: string; actorId: string; expiresAtMs: number } | null>({
-    queryKey: ["mcp-anonymous-token", sessionId],
+  const anonymousTokenQuery = useTanstackQuery<{ accessToken: string; accountId: string; expiresAtMs: number } | null>({
+    queryKey: ["mcp-anonymous-token", sessionId, accountId],
     queryFn: async () => {
-      const token = await getAnonymousAuthToken();
+      const token = await getAnonymousAuthToken(false, accountId);
       return token;
     },
     enabled: isAnonymousSession,

@@ -63,12 +63,12 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
   );
 
   const memberItems: OrganizationMemberListItem[] = members?.items ?? [];
-  const actorMembership = memberItems.find((member: { accountId?: string; role?: string }) =>
+  const accountMembership = memberItems.find((member: { accountId?: string; role?: string }) =>
     context ? member.accountId === context.accountId : false,
   );
-  const actorRole = actorMembership?.role ?? null;
-  const canManageMembers = actorRole === "owner" || actorRole === "admin";
-  const canManageBilling = actorRole === "owner" || actorRole === "admin" || actorRole === "billing_admin";
+  const accountRole = accountMembership?.role ?? null;
+  const canManageMembers = accountRole === "owner" || accountRole === "admin";
+  const canManageBilling = accountRole === "owner" || accountRole === "admin" || accountRole === "billing_admin";
 
   const updateRole = useMutation(convexApi.organizationMembers.updateRole);
   const updateBillable = useMutation(convexApi.organizationMembers.updateBillable);

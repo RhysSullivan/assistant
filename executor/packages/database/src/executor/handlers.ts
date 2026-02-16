@@ -1,12 +1,11 @@
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import type { ActionCtx, MutationCtx } from "../../convex/_generated/server";
-import { actorIdForAccount } from "../../../core/src/identity";
 import { defaultRuntimeId, isKnownRuntimeId, isRuntimeEnabled } from "../../../core/src/runtimes/runtime-catalog";
 import type { ApprovalRecord, TaskExecutionOutcome, TaskRecord } from "../../../core/src/types";
 import {
-  assertMatchesCanonicalActorId,
-  canonicalActorIdForWorkspaceAccess,
-} from "../auth/actor_identity";
+  assertMatchesCanonicalAccountId,
+  canonicalAccountIdForWorkspaceAccess,
+} from "../auth/account_identity";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
 import { createTaskEvent } from "../task/events";
 import { markTaskFinished } from "../task/finish";
@@ -42,7 +41,6 @@ async function createTaskDocument(
     metadata?: Record<string, any>;
     workspaceId: Id<"workspaces">;
     accountId?: Id<"accounts">;
-    actorId: string;
     clientId?: string;
   },
 ): Promise<TaskRecord> {
@@ -82,8 +80,7 @@ async function createTaskInternal(
     runtimeId?: string;
     metadata?: Record<string, any>;
     workspaceId: Id<"workspaces">;
-    accountId?: Id<"accounts">;
-    actorId: string;
+    accountId: Id<"accounts">;
     clientId?: string;
     scheduleAfterCreate?: boolean;
   },
@@ -101,8 +98,7 @@ async function createTaskRecord(
     runtimeId?: string;
     metadata?: unknown;
     workspaceId: Id<"workspaces">;
-    accountId?: Id<"accounts">;
-    actorId: string;
+    accountId: Id<"accounts">;
     clientId?: string;
     scheduleAfterCreate?: boolean;
   },
@@ -128,7 +124,6 @@ async function createTaskRecord(
     metadata: toMetadata(args.metadata),
     workspaceId: args.workspaceId,
     accountId: args.accountId,
-    actorId: args.actorId,
     clientId: args.clientId,
   });
 
@@ -143,7 +138,6 @@ async function createTaskRecord(
       timeoutMs: task.timeoutMs,
       workspaceId: task.workspaceId,
       accountId: task.accountId,
-      actorId: task.actorId,
       clientId: task.clientId,
       createdAt: task.createdAt,
     },
@@ -232,7 +226,7 @@ export async function createTaskHandler(
     metadata?: unknown;
     workspaceId: Id<"workspaces">;
     sessionId?: string;
-    actorId?: string;
+    accountId?: Id<"accounts">;
     clientId?: string;
     waitForResult?: boolean;
   },
@@ -242,8 +236,8 @@ export async function createTaskHandler(
     sessionId: args.sessionId,
   });
 
-  const canonicalActorId = canonicalActorIdForWorkspaceAccess(access);
-  assertMatchesCanonicalActorId(args.actorId, canonicalActorId);
+  const canonicalAccountId = canonicalAccountIdForWorkspaceAccess(access);
+  assertMatchesCanonicalAccountId(args.accountId, canonicalAccountId);
 
   const waitForResult = args.waitForResult ?? false;
   const created = await createTaskInternal(ctx, internal, {
@@ -252,8 +246,7 @@ export async function createTaskHandler(
     runtimeId: args.runtimeId,
     metadata: toMetadata(args.metadata),
     workspaceId: args.workspaceId,
-    accountId: access.accountId,
-    actorId: canonicalActorId,
+    accountId: canonicalAccountId,
     clientId: args.clientId,
     scheduleAfterCreate: !waitForResult,
   });
@@ -291,8 +284,7 @@ export async function createTaskInternalHandler(
     runtimeId?: string;
     metadata?: unknown;
     workspaceId: Id<"workspaces">;
-    accountId?: Id<"accounts">;
-    actorId: string;
+    accountId: Id<"accounts">;
     clientId?: string;
     scheduleAfterCreate?: boolean;
   },
@@ -302,7 +294,7 @@ export async function createTaskInternalHandler(
 
 export async function resolveApprovalHandler(
   ctx: MutationCtx & {
-    account: { _id: string; provider: string; providerAccountId: string };
+    account: { _id: Id<"accounts">; provider: string; providerAccountId: string };
     workspaceId: Id<"workspaces">;
   },
   internal: Internal,
@@ -313,13 +305,13 @@ export async function resolveApprovalHandler(
     reason?: string;
   },
 ): Promise<{ approval: ApprovalRecord; task: TaskRecord } | null> {
-  const canonicalActorId = actorIdForAccount(ctx.account);
-  assertMatchesCanonicalActorId(args.reviewerId, canonicalActorId, "reviewerId");
+  const canonicalAccountId = ctx.account._id;
+  assertMatchesCanonicalAccountId(args.reviewerId, canonicalAccountId, "reviewerId");
 
   return await resolveApprovalRecord(ctx, internal, {
     ...args,
     workspaceId: ctx.workspaceId,
-    reviewerId: canonicalActorId,
+    reviewerId: canonicalAccountId,
   });
 }
 

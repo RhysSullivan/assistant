@@ -47,7 +47,7 @@ export function SourceCard({
   source: ToolSourceRecord;
   quality?: OpenApiSourceQuality;
   qualityLoading?: boolean;
-  credentialStats: { workspaceCount: number; actorCount: number };
+  credentialStats: { workspaceCount: number; accountCount: number };
   existingSourceNames: Set<string>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
   selected?: boolean;
@@ -80,7 +80,7 @@ export function SourceCard({
   const authBadge = formatSourceAuthBadge(source, inferredProfile);
   const auth = readSourceAuth(source, inferredProfile);
   const hasAuthConfigured = auth.type !== "none";
-  const hasAnyCredential = credentialStats.workspaceCount + credentialStats.actorCount > 0;
+  const hasAnyCredential = credentialStats.workspaceCount + credentialStats.accountCount > 0;
   const sourceCanConfigure = source.type === "openapi" || source.type === "graphql";
   const prettyName = displaySourceName(source.name);
   const compactEndpoint = compactEndpointLabel(source);

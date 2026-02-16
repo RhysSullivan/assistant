@@ -57,7 +57,7 @@ test("agent calls Claude, runs code via MCP, returns result", async () => {
   const agent = createAgent({
     executorUrl: `http://127.0.0.1:${server.port}`,
     workspaceId: "ws_test",
-    actorId: "actor_test",
+    accountId: "account_test",
   });
 
   const result = await agent.run("What is the current server time?", (event) => {
@@ -82,7 +82,7 @@ test("agent responds without tool calls for simple questions", async () => {
   const agent = createAgent({
     executorUrl: `http://127.0.0.1:${server.port}`,
     workspaceId: "ws_test",
-    actorId: "actor_test",
+    accountId: "account_test",
   });
 
   const result = await agent.run("Say hello. Do not run any code.");

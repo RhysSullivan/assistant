@@ -98,7 +98,7 @@ export async function getReadyRegistryBuildIdResult(
   ctx: Pick<ActionCtx, "runQuery" | "runAction">,
   args: {
     workspaceId: Id<"workspaces">;
-    actorId?: string;
+    accountId?: Id<"accounts">;
     clientId?: string;
     refreshOnStale?: boolean;
   },
@@ -111,7 +111,7 @@ export async function getReadyRegistryBuildIdResult(
   if (args.refreshOnStale) {
     await ctx.runAction(internal.executorNode.listToolsWithWarningsInternal, {
       workspaceId: args.workspaceId,
-      actorId: args.actorId,
+      accountId: args.accountId,
       clientId: args.clientId,
     });
 
@@ -130,7 +130,7 @@ export async function getReadyRegistryBuildId(
   ctx: Pick<ActionCtx, "runQuery" | "runAction">,
   args: {
     workspaceId: Id<"workspaces">;
-    actorId?: string;
+    accountId?: Id<"accounts">;
     clientId?: string;
     refreshOnStale?: boolean;
   },

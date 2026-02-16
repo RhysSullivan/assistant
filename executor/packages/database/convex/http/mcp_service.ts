@@ -17,11 +17,17 @@ export function createMcpExecutorService(ctx: ActionCtx) {
       runtimeId?: string;
       metadata?: Record<string, unknown>;
       workspaceId: Id<"workspaces">;
-      actorId: string;
+      accountId: Id<"accounts">;
       clientId?: string;
     }): Promise<{ task: TaskRecord }> => {
       const taskInput = {
-        ...input,
+        code: input.code,
+        timeoutMs: input.timeoutMs,
+        runtimeId: input.runtimeId,
+        metadata: input.metadata,
+        workspaceId: input.workspaceId,
+        accountId: input.accountId,
+        clientId: input.clientId,
         scheduleAfterCreate: false,
       };
       return await ctx.runMutation(internal.executor.createTaskInternal, taskInput);
@@ -42,13 +48,17 @@ export function createMcpExecutorService(ctx: ActionCtx) {
       return await ctx.runMutation(internal.database.bootstrapAnonymousSession, { sessionId });
     },
     listTools: async (
-      toolContext?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+      toolContext?: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; clientId?: string },
     ): Promise<ToolDescriptor[]> => {
       if (!toolContext) {
         return [];
       }
 
-      return await ctx.runAction(internal.executorNode.listToolsInternal, { ...toolContext });
+      return await ctx.runAction(internal.executorNode.listToolsInternal, {
+        workspaceId: toolContext.workspaceId,
+        accountId: toolContext.accountId,
+        clientId: toolContext.clientId,
+      });
     },
     listPendingApprovals: async (workspaceId: Id<"workspaces">): Promise<PendingApprovalRecord[]> => {
       return await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId });

@@ -11,7 +11,6 @@ export function mapAnonymousContext(doc: Doc<"anonymousSessions">) {
   return {
     sessionId: doc.sessionId,
     workspaceId: doc.workspaceId,
-    actorId: doc.actorId,
     clientId: doc.clientId,
     accountId: doc.accountId,
     userId: doc.userId,

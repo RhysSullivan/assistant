@@ -70,7 +70,7 @@ export function ConnectionFormDialog({
     ownerScopeType,
     scopePreset,
     scope,
-    actorId,
+    accountId,
     connectionMode,
     existingConnectionKey,
     tokenValue,
@@ -84,7 +84,7 @@ export function ConnectionFormDialog({
     selectedAuth,
     authBadge,
     setScopePreset,
-    setActorId,
+    setAccountId,
     setConnectionMode,
     setExistingConnectionKey,
     setTokenValue,
@@ -100,7 +100,7 @@ export function ConnectionFormDialog({
     sources,
     credentials,
     sourceAuthProfiles,
-    actorIdFallback: context?.actorId,
+    accountIdFallback: context?.accountId,
   });
 
   const storageCopy = clientConfig?.authProviderMode === "workos"
@@ -125,8 +125,8 @@ export function ConnectionFormDialog({
       toast.error("Choose an API source");
       return;
     }
-    if (scope === "actor" && !actorId.trim()) {
-      toast.error("User ID is required for personal credentials");
+    if (scope === "account" && !accountId.trim()) {
+      toast.error("Account ID is required for personal credentials");
       return;
     }
 
@@ -191,7 +191,7 @@ export function ConnectionFormDialog({
         sessionId: context.sessionId,
         sourceKey: sourceKey.trim(),
         scope,
-        ...(scope === "actor" ? { actorId: actorId.trim() } : {}),
+        ...(scope === "account" ? { accountId: accountId.trim() } : {}),
         secretJson: secretResult.secretJson,
       });
 
@@ -284,11 +284,11 @@ export function ConnectionFormDialog({
 
           {scopePreset === "only_me" && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">User ID</Label>
+              <Label className="text-xs text-muted-foreground">Account ID</Label>
               <Input
-                value={actorId}
-                onChange={(e) => setActorId(e.target.value)}
-                placeholder="actor_123"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                placeholder="account_123"
                 className="h-8 text-xs font-mono bg-background"
               />
             </div>

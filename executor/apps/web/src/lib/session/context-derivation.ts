@@ -80,12 +80,9 @@ export function buildAccountWorkspaceContext(
     return null;
   }
 
-  const actorId = account.provider === "workos" ? account._id : account.providerAccountId;
-
   return {
     sessionId,
     workspaceId: activeWorkspace.id,
-    actorId,
     clientId: "web",
     accountId: account._id,
     userId: account._id,

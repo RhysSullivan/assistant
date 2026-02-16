@@ -10,7 +10,7 @@ const task: TaskRecord = {
   timeoutMs: 30_000,
   metadata: {},
   workspaceId: "workspace_1" as TaskRecord["workspaceId"],
-  actorId: "actor_1",
+  accountId: "account_1" as TaskRecord["accountId"],
   clientId: "client_1",
   createdAt: 1,
   updatedAt: 1,

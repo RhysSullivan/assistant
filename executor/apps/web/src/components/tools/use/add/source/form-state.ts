@@ -31,7 +31,7 @@ export { existingCredentialMatchesAuthType } from "../../../add/source/form-util
 type SharingScope = "only_me" | "workspace" | "organization";
 
 function sharingScopeFromValues(values: Pick<SourceFormValues, "ownerScopeType" | "authScope">): SharingScope {
-  if (values.authScope === "actor") {
+  if (values.authScope === "account") {
     return "only_me";
   }
   return values.ownerScopeType === "organization" ? "organization" : "workspace";
@@ -43,7 +43,7 @@ function applySharingScope(
 ): void {
   if (value === "only_me") {
     form.setValue("ownerScopeType", "workspace", { shouldDirty: true, shouldTouch: true });
-    form.setValue("authScope", "actor", { shouldDirty: true, shouldTouch: true });
+    form.setValue("authScope", "account", { shouldDirty: true, shouldTouch: true });
     return;
   }
 
@@ -92,13 +92,13 @@ export function useAddSourceFormState({
   sourceToEdit,
   existingSourceNames,
   credentialItems,
-  actorId,
+  accountId,
 }: {
   open: boolean;
   sourceToEdit?: ToolSourceRecord;
   existingSourceNames: Set<string>;
   credentialItems: CredentialRecord[];
-  actorId?: string;
+  accountId?: string;
 }) {
   const editing = Boolean(sourceToEdit);
   const editingSourceKey = sourceToEdit ? sourceKeyForSource(sourceToEdit) : null;
@@ -122,16 +122,16 @@ export function useAddSourceFormState({
       .filter((credential) => credential.sourceKey === editingSourceKey)
       .filter((credential) => (credential.ownerScopeType ?? "workspace") === values.ownerScopeType)
       .filter((credential) => {
-        if (credential.scope !== values.authScope) {
+        if (credential.scopeType !== values.authScope) {
           return false;
         }
-        if (values.authScope === "actor") {
-          return credential.actorId === actorId;
+        if (values.authScope === "account") {
+          return credential.accountId === accountId;
         }
         return true;
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
-  }, [actorId, credentialItems, editingSourceKey, values.authScope, values.ownerScopeType]);
+  }, [accountId, credentialItems, editingSourceKey, values.authScope, values.ownerScopeType]);
 
   const hasPersistedMcpBearerToken = useMemo(() => {
     if (values.type !== "mcp" || values.authType !== "bearer") {

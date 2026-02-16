@@ -33,7 +33,7 @@ export interface TaskRecord {
   timeoutMs: number;
   metadata: Record<string, unknown>;
   workspaceId: string;
-  actorId?: string;
+  accountId?: Id<"accounts">;
   clientId?: string;
   createdAt: number;
   updatedAt: number;
@@ -90,7 +90,7 @@ export interface CredentialRecord {
   id: string;
   bindingId?: string;
   scopeType: CredentialScopeType;
-  accountId?: string;
+  accountId?: Id<"accounts">;
   organizationId?: string;
   workspaceId?: string;
   sourceKey: string;
@@ -152,10 +152,9 @@ export interface OpenApiSourceQuality {
 export interface AnonymousContext {
   sessionId: string;
   workspaceId: Id<"workspaces">;
-  actorId: string;
   clientId: string;
-  accountId: string;
-  userId: string;
+  accountId: Id<"accounts">;
+  userId: Id<"accounts">;
   createdAt: number;
   lastSeenAt: number;
 }
@@ -170,7 +169,7 @@ export interface CreateTaskRequest {
   timeoutMs?: number;
   metadata?: Record<string, unknown>;
   workspaceId: string;
-  actorId: string;
+  accountId: string;
   clientId?: string;
 }
 

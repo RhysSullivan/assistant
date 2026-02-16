@@ -40,8 +40,5 @@ export function isAnonymousIdentity(identity: { subject?: unknown; provider?: un
   if (!identity || typeof identity.subject !== "string") {
     return false;
   }
-  if (identity.subject.startsWith("anon_")) {
-    return true;
-  }
   return identity.provider === "anonymous";
 }

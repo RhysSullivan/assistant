@@ -5,7 +5,7 @@ import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
 
 const sourceAuthSchema = z.object({
   type: z.string().optional(),
-  mode: z.enum(["workspace", "actor"]).optional(),
+  mode: z.enum(["workspace", "account", "organization", "static"]).optional(),
   header: z.string().optional(),
 });
 
@@ -25,7 +25,7 @@ export function normalizeSourceAuthFingerprint(value: unknown): string {
   const parsedAuth = sourceAuthSchema.safeParse(value);
   const auth = parsedAuth.success ? parsedAuth.data : {};
   const type = (auth.type ?? "none").trim();
-  const mode = auth.mode === "actor" ? "actor" : "workspace";
+  const mode = auth.mode ?? "workspace";
   const header = (auth.header ?? "").trim().toLowerCase();
   return stableStringify({
     type: type || "none",
@@ -61,7 +61,6 @@ export function mapTask(doc: Doc<"tasks">) {
     metadata,
     workspaceId: doc.workspaceId,
     accountId: doc.accountId,
-    actorId: doc.actorId,
     clientId: doc.clientId,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,

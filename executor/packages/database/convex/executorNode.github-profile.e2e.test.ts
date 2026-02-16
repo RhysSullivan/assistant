@@ -34,7 +34,7 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   const coldStart = performance.now();
   const cold = await t.action(internal.executorNode.listToolsWithWarningsInternal, {
     workspaceId: session.workspaceId,
-    actorId: session.actorId,
+    accountId: session.accountId,
     clientId: session.clientId,
   });
   const coldMs = performance.now() - coldStart;
@@ -42,7 +42,7 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   const warmStart = performance.now();
   const warm = await t.action(internal.executorNode.listToolsWithWarningsInternal, {
     workspaceId: session.workspaceId,
-    actorId: session.actorId,
+    accountId: session.accountId,
     clientId: session.clientId,
   });
   const warmMs = performance.now() - warmStart;

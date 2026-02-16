@@ -20,7 +20,7 @@ interface ChatIdentity {
 
 interface ResolvedExecutorContext {
   readonly workspaceId: Id<"workspaces">;
-  readonly actorId?: string;
+  readonly accountId?: string;
   readonly sessionId?: string;
   readonly clientId?: string;
   readonly mcpAccessToken?: string;
@@ -59,7 +59,7 @@ export function createApp(options: ServerOptions) {
     if (linked?.provider === "workos" && linked.accessToken) {
       return {
         workspaceId: linked.workspaceId,
-        actorId: linked.actorId,
+        accountId: linked.accountId,
         sessionId: linked.sessionId,
         clientId: linked.clientId ?? defaultClientId,
         mcpAccessToken: linked.accessToken,
@@ -79,7 +79,7 @@ export function createApp(options: ServerOptions) {
       await linkStore.set(key, {
         provider: "anonymous",
         workspaceId: anonymous.workspaceId,
-        actorId: anonymous.actorId,
+        accountId: anonymous.accountId,
         sessionId: anonymous.sessionId,
         clientId,
         linkedAt: linked.linkedAt,
@@ -88,7 +88,7 @@ export function createApp(options: ServerOptions) {
 
     return {
       workspaceId: anonymous.workspaceId,
-      actorId: anonymous.actorId,
+      accountId: anonymous.accountId,
       sessionId: anonymous.sessionId,
       clientId,
       linked: linked?.provider === "anonymous",
@@ -99,7 +99,7 @@ export function createApp(options: ServerOptions) {
   function toPublicContext(context: ResolvedExecutorContext) {
     return {
       workspaceId: context.workspaceId,
-      actorId: context.actorId,
+      accountId: context.accountId,
       sessionId: context.sessionId,
       clientId: context.clientId,
       linked: context.linked,
@@ -144,7 +144,7 @@ export function createApp(options: ServerOptions) {
           const link: LinkedMcpContext = {
             provider: "workos",
             workspaceId: body.workspaceId as Id<"workspaces">,
-            actorId: body.actorId?.trim() || undefined,
+            accountId: body.accountId?.trim() || undefined,
             sessionId: body.sessionId?.trim() || undefined,
             accessToken: body.accessToken.trim(),
             clientId,
@@ -163,7 +163,7 @@ export function createApp(options: ServerOptions) {
         const link: LinkedMcpContext = {
           provider: "anonymous",
           workspaceId: anonymous.workspaceId,
-          actorId: anonymous.actorId,
+          accountId: anonymous.accountId,
           sessionId: anonymous.sessionId,
           clientId,
           linkedAt,
@@ -178,7 +178,7 @@ export function createApp(options: ServerOptions) {
           userId: t.String({ minLength: 1 }),
           provider: providerSchema,
           workspaceId: t.Optional(t.String({ minLength: 1 })),
-          actorId: t.Optional(t.String({ minLength: 1 })),
+          accountId: t.Optional(t.String({ minLength: 1 })),
           sessionId: t.Optional(t.String({ minLength: 1 })),
           accessToken: t.Optional(t.String({ minLength: 1 })),
           clientId: t.Optional(t.String({ minLength: 1 })),
@@ -211,7 +211,7 @@ export function createApp(options: ServerOptions) {
         const agent = createAgent({
           executorUrl: options.executorUrl,
           workspaceId: context.workspaceId,
-          actorId: context.actorId,
+          accountId: context.accountId,
           sessionId: context.sessionId,
           clientId: context.clientId,
           mcpAccessToken: context.mcpAccessToken,

@@ -18,7 +18,7 @@ export type ConnectionOption = {
   id: string;
   ownerScopeType: OwnerScopeType;
   scope: CredentialScope;
-  actorId?: string;
+  accountId?: string;
   sourceKeys: Set<string>;
   updatedAt: number;
 };
@@ -47,14 +47,14 @@ export function buildConnectionOptions(credentials: CredentialRecord[]): Connect
       existing.sourceKeys.add(credential.sourceKey);
       existing.updatedAt = Math.max(existing.updatedAt, credential.updatedAt);
     } else {
-      grouped.set(groupKey, {
-        key: groupKey,
-        id: credential.id,
-        ownerScopeType,
-        scope: credential.scope,
-        actorId: credential.actorId,
-        sourceKeys: new Set([credential.sourceKey]),
-        updatedAt: credential.updatedAt,
+        grouped.set(groupKey, {
+          key: groupKey,
+          id: credential.id,
+          ownerScopeType,
+          scope: credential.scopeType,
+          accountId: credential.accountId,
+          sourceKeys: new Set([credential.sourceKey]),
+          updatedAt: credential.updatedAt,
       });
     }
   }
@@ -66,7 +66,7 @@ export function compatibleConnections(
   options: ConnectionOption[],
   ownerScopeType: OwnerScopeType,
   scope: CredentialScope,
-  actorId: string,
+  accountId: string,
 ): ConnectionOption[] {
   return options.filter((connection) => {
     if (connection.ownerScopeType !== ownerScopeType) {
@@ -75,8 +75,8 @@ export function compatibleConnections(
     if (connection.scope !== scope) {
       return false;
     }
-    if (scope === "actor") {
-      return connection.actorId === actorId.trim();
+    if (scope === "account") {
+      return connection.accountId === accountId.trim();
     }
     return true;
   });
@@ -95,5 +95,5 @@ export function selectedAuthBadge(type: SourceAuthType, mode?: CredentialScope):
       : type === "basic"
         ? "Basic"
         : "Bearer";
-  return `${authLabel} (${mode === "actor" ? "per-user" : "workspace"})`;
+  return `${authLabel} (${mode === "account" ? "per-user" : "workspace"})`;
 }

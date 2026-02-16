@@ -204,7 +204,7 @@ export function waitForTerminalTask(
           approvalId: approval.id,
           decision: decision.decision,
           reason: decision.reason,
-          reviewerId: approvalContext.actorId,
+          reviewerId: approvalContext.accountId,
         });
         seenApprovalIds.add(approval.id);
       }

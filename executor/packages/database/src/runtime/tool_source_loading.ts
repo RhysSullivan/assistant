@@ -227,7 +227,6 @@ async function resolveMcpDiscoveryHeaders(
   source: McpToolSourceConfig,
   workspaceId: Id<"workspaces">,
   accountId?: Id<"accounts">,
-  actorId?: string,
 ): Promise<{ headers: Record<string, string>; warnings: string[] }> {
   const auth = source.auth;
   if (!auth || auth.type === "none") {
@@ -364,7 +363,7 @@ async function loadCachedOpenApiSpec(
 export async function loadSourceArtifact(
   ctx: ActionCtx,
   source: ExternalToolSourceConfig,
-  options: { includeDts?: boolean; workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; actorId?: string },
+  options: { includeDts?: boolean; workspaceId: Id<"workspaces">; accountId?: Id<"accounts"> },
 ): Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[]; openApiDts?: string; openApiSourceKey?: string }> {
   const includeDts = options.includeDts ?? true;
 
@@ -399,7 +398,6 @@ export async function loadSourceArtifact(
       source,
       options.workspaceId,
       options.accountId,
-      options.actorId,
     );
     preWarnings.push(...resolved.warnings);
     sourceForCompile = {

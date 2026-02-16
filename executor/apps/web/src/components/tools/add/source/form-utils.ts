@@ -36,7 +36,7 @@ export function createDefaultFormValues(): SourceFormValues {
     baseUrl: "",
     mcpTransport: "auto",
     authType: "none",
-    authScope: "actor",
+    authScope: "account",
     apiKeyHeader: "x-api-key",
     tokenValue: "",
     apiKeyValue: "",

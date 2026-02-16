@@ -27,7 +27,7 @@ type FormState = {
   toolPathPattern: string;
   matchType: "glob" | "exact";
   decision: "allow" | "require_approval" | "deny";
-  actorId: string;
+  accountId: string;
   clientId: string;
   priority: string;
 };
@@ -38,7 +38,7 @@ function defaultFormState(): FormState {
     toolPathPattern: "*",
     matchType: "glob",
     decision: "require_approval",
-    actorId: "",
+    accountId: "",
     clientId: "",
     priority: "100",
   };
@@ -87,7 +87,7 @@ export function PoliciesPanel() {
         toolPathPattern: pattern,
         matchType: form.matchType,
         decision: form.decision,
-        actorId: form.actorId.trim() || undefined,
+        accountId: form.accountId.trim() || undefined,
         clientId: form.clientId.trim() || undefined,
         priority,
       });
@@ -181,11 +181,11 @@ export function PoliciesPanel() {
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Actor (optional)</Label>
+              <Label className="text-xs text-muted-foreground">Account (optional)</Label>
               <Input
-                value={form.actorId}
-                onChange={(event) => setForm((current) => ({ ...current, actorId: event.target.value }))}
-                placeholder="anon_123 or account id"
+                value={form.accountId}
+                onChange={(event) => setForm((current) => ({ ...current, accountId: event.target.value }))}
+                placeholder="account_123"
                 className="h-8 text-xs font-mono bg-background"
               />
             </div>
@@ -245,10 +245,10 @@ export function PoliciesPanel() {
                   </Badge>
                 </div>
                 <p className="text-[11px] font-mono mt-1 break-all">{policy.toolPathPattern}</p>
-                {(policy.actorId || policy.clientId) ? (
+                {(policy.targetAccountId || policy.clientId) ? (
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    {policy.actorId ? `actor=${policy.actorId}` : ""}
-                    {policy.actorId && policy.clientId ? " · " : ""}
+                    {policy.targetAccountId ? `account=${policy.targetAccountId}` : ""}
+                    {policy.targetAccountId && policy.clientId ? " · " : ""}
                     {policy.clientId ? `client=${policy.clientId}` : ""}
                   </p>
                 ) : null}

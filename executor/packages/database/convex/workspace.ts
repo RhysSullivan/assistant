@@ -18,7 +18,7 @@ import {
 export const bootstrapAnonymousSession = mutation({
   args: {
     sessionId: v.optional(v.string()),
-    actorId: v.optional(v.string()),
+    accountId: v.optional(v.string()),
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {

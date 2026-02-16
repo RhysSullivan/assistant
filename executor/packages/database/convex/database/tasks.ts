@@ -15,7 +15,6 @@ export const createTask = internalMutation({
     metadata: v.optional(jsonObjectValidator),
     workspaceId: v.id("workspaces"),
     accountId: v.optional(v.id("accounts")),
-    actorId: v.string(),
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -34,7 +33,6 @@ export const createTask = internalMutation({
       runtimeId: args.runtimeId,
       workspaceId: args.workspaceId,
       accountId: args.accountId,
-      actorId: args.actorId?.trim() || undefined,
       clientId: args.clientId?.trim() || undefined,
       status: "queued",
       timeoutMs: args.timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS,

@@ -48,13 +48,14 @@ async function seedAccount(t: ReturnType<typeof setup>, key: string): Promise<Id
 test("task lifecycle supports queue, run, and complete", async () => {
   const t = setup();
   const wsId = await seedWorkspace(t, "ws_1");
+  const accountId = await seedAccount(t, "account_1");
 
   const created = await t.mutation(internal.database.createTask, {
     id: "task_1",
     code: "console.log('hello')",
     runtimeId: "local-bun",
     workspaceId: wsId,
-    actorId: "actor_1",
+    accountId,
     clientId: "web",
   });
 
@@ -84,13 +85,14 @@ test("task lifecycle supports queue, run, and complete", async () => {
 test("approval lifecycle tracks pending and resolution", async () => {
   const t = setup();
   const wsId = await seedWorkspace(t, "ws_2");
+  const accountId = await seedAccount(t, "account_2");
 
   await t.mutation(internal.database.createTask, {
     id: "task_2",
     code: "await tools.admin.delete_data({ id: 'x' })",
     runtimeId: "local-bun",
     workspaceId: wsId,
-    actorId: "actor_2",
+    accountId,
     clientId: "web",
   });
 
@@ -123,7 +125,6 @@ test("anonymous bootstrap links guest account membership", async () => {
   const first = await t.mutation(internal.database.bootstrapAnonymousSession, {});
   expect(first.sessionId).toContain("anon_session_");
   expect(first.workspaceId.length).toBeGreaterThan(0);
-  expect(first.actorId).toContain("anon_");
   expect(first.accountId).toBeDefined();
   expect(first.userId).toBeDefined();
 
@@ -152,7 +153,7 @@ test("bootstrap ignores non-MCP caller-provided session id", async () => {
 
   expect(again.sessionId).toBe(seeded.sessionId);
   expect(again.workspaceId).toBe(seeded.workspaceId);
-  expect(again.actorId).toBe(seeded.actorId);
+  expect(again.accountId).toBe(seeded.accountId);
 });
 
 test("bootstrap honors MCP caller-provided session id", async () => {
@@ -170,7 +171,7 @@ test("bootstrap honors MCP caller-provided session id", async () => {
 
   expect(again.sessionId).toBe("mcp_assistant-discord-dev");
   expect(again.workspaceId).toBe(seeded.workspaceId);
-  expect(again.actorId).toBe(seeded.actorId);
+  expect(again.accountId).toBe(seeded.accountId);
 });
 
 test("credentials persist provider and resolve by scope", async () => {
@@ -188,17 +189,17 @@ test("credentials persist provider and resolve by scope", async () => {
   expect(workspaceCredential.provider).toBe("local-convex");
 
   const accountId = await seedAccount(t, "cred-account");
-  const actorCredential = await t.mutation(internal.database.upsertCredential, {
+  const accountCredential = await t.mutation(internal.database.upsertCredential, {
     workspaceId: wsId,
     sourceKey: "openapi:github",
     scopeType: "account",
     accountId,
     provider: "workos-vault",
-    secretJson: { objectId: "secret_actor_github" },
+    secretJson: { objectId: "secret_account_github" },
   });
 
-  expect(actorCredential.provider).toBe("workos-vault");
-  expect(actorCredential.accountId).toBe(accountId);
+  expect(accountCredential.provider).toBe("workos-vault");
+  expect(accountCredential.accountId).toBe(accountId);
 
   const resolvedWorkspace = await t.query(internal.database.resolveCredential, {
     workspaceId: wsId,

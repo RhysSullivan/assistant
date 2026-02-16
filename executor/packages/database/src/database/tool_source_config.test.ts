@@ -76,6 +76,6 @@ test("normalizeToolSourceConfig validates auth mode for apiKey auth", () => {
 
   expect(result.isErr()).toBe(true);
   if (result.isErr()) {
-    expect(result.error.message).toBe("Tool source auth.mode must be 'static', 'workspace', or 'actor'");
+    expect(result.error.message).toBe("Tool source auth.mode must be 'static', 'account', 'workspace', or 'organization'");
   }
 });

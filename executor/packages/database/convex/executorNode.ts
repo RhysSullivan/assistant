@@ -9,7 +9,7 @@ import type {
   OpenApiSourceQuality,
   SourceAuthProfile,
 } from "../../core/src/types";
-import { requireCanonicalActor } from "../src/runtime/actor_auth";
+import { requireCanonicalAccount } from "../src/runtime/account_auth";
 import { safeRunAfter } from "../src/lib/scheduler";
 import {
   listToolsForContext,
@@ -23,7 +23,7 @@ import { jsonObjectValidator } from "../src/database/validators";
 export const listToolsWithWarnings = action({
   args: {
     workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
+    accountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()),
     sessionId: v.optional(v.string()),
     includeDetails: v.optional(v.boolean()),
@@ -41,16 +41,15 @@ export const listToolsWithWarnings = action({
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
     debug: WorkspaceToolsDebug;
   }> => {
-    const access = await requireCanonicalActor(ctx, {
+    const access = await requireCanonicalAccount(ctx, {
       workspaceId: args.workspaceId,
       sessionId: args.sessionId,
-      actorId: args.actorId,
+      accountId: args.accountId,
     });
 
     const inventory = await listToolsWithWarningsForContext(ctx, {
       workspaceId: args.workspaceId,
       accountId: access.accountId,
-      actorId: access.actorId,
       clientId: args.clientId,
     }, {
       includeDetails: args.includeDetails ?? true,
@@ -64,7 +63,7 @@ export const listToolsWithWarnings = action({
       try {
         await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
           workspaceId: args.workspaceId,
-          actorId: access.actorId,
+          accountId: access.accountId,
           clientId: args.clientId,
         });
       } catch {
@@ -79,7 +78,7 @@ export const listToolsWithWarnings = action({
 export const listToolsInternal = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
+    accountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ToolDescriptor[]> => {
@@ -90,7 +89,7 @@ export const listToolsInternal = internalAction({
 export const listToolsWithWarningsInternal = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
+    accountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()),
   },
   handler: async (

@@ -91,18 +91,18 @@ export const organizationQuery = customQuery(query, {
   },
   input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
-    const actorMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
+    const accountMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
 
-    if (!actorMembership || actorMembership.status !== "active") {
+    if (!accountMembership || accountMembership.status !== "active") {
       throw new Error("You are not a member of this organization");
     }
 
-    ensureOrganizationRole(actorMembership.role, options);
+    ensureOrganizationRole(accountMembership.role, options);
 
     return {
       ctx: {
         account,
-        actorMembership,
+        accountMembership,
         organizationId: args.organizationId,
       },
       args: {},
@@ -117,18 +117,18 @@ export const organizationMutation = customMutation(mutation, {
   },
   input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
-    const actorMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
+    const accountMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
 
-    if (!actorMembership || actorMembership.status !== "active") {
+    if (!accountMembership || accountMembership.status !== "active") {
       throw new Error("You are not a member of this organization");
     }
 
-    ensureOrganizationRole(actorMembership.role, options);
+    ensureOrganizationRole(accountMembership.role, options);
 
     return {
       ctx: {
         account,
-        actorMembership,
+        accountMembership,
         organizationId: args.organizationId,
       },
       args: {},
@@ -183,18 +183,18 @@ export const internalOrganizationQuery = customQuery(internalQuery, {
   },
   input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
-    const actorMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
+    const accountMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
 
-    if (!actorMembership || actorMembership.status !== "active") {
+    if (!accountMembership || accountMembership.status !== "active") {
       throw new Error("You are not a member of this organization");
     }
 
-    ensureOrganizationRole(actorMembership.role, options);
+    ensureOrganizationRole(accountMembership.role, options);
 
     return {
       ctx: {
         account,
-        actorMembership,
+        accountMembership,
         organizationId: args.organizationId,
       },
       args: {},

@@ -25,14 +25,14 @@ type UseConnectionFormDialogFormParams = {
   sources: ToolSourceRecord[];
   credentials: CredentialRecord[];
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  actorIdFallback?: string;
+  accountIdFallback?: string;
 };
 
 type FormState = {
   sourceKey: string;
   ownerScopeType: OwnerScopeType;
   scope: CredentialScope;
-  actorId: string;
+  accountId: string;
   connectionMode: ConnectionMode;
   existingConnectionKey: string;
   tokenValue: string;
@@ -45,7 +45,7 @@ type FormState = {
 type SharingScope = "only_me" | "workspace" | "organization";
 
 function sharingScopeFromValues(values: Pick<FormState, "ownerScopeType" | "scope">): SharingScope {
-  if (values.scope === "actor") {
+  if (values.scope === "account") {
     return "only_me";
   }
   return values.ownerScopeType === "organization" ? "organization" : "workspace";
@@ -53,7 +53,7 @@ function sharingScopeFromValues(values: Pick<FormState, "ownerScopeType" | "scop
 
 function applySharingScope(scope: SharingScope): Pick<FormState, "ownerScopeType" | "scope"> {
   if (scope === "only_me") {
-    return { ownerScopeType: "workspace", scope: "actor" };
+    return { ownerScopeType: "workspace", scope: "account" };
   }
   if (scope === "organization") {
     return { ownerScopeType: "organization", scope: "workspace" };
@@ -77,20 +77,20 @@ function initialFormState({
   initialSourceKey,
   sourceOptions,
   sourceAuthProfiles,
-  actorIdFallback,
+  accountIdFallback,
 }: {
   editing: CredentialRecord | null;
   initialSourceKey?: string | null;
   sourceOptions: ReturnType<typeof buildSourceOptions>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  actorIdFallback?: string;
+  accountIdFallback?: string;
 }): FormState {
   if (editing) {
     return {
       sourceKey: editing.sourceKey,
       ownerScopeType: editing.ownerScopeType ?? "workspace",
-      scope: editing.scope,
-      actorId: editing.actorId ?? actorIdFallback ?? "",
+      scope: editing.scopeType,
+      accountId: editing.accountId ?? accountIdFallback ?? "",
       connectionMode: "new",
       existingConnectionKey: `${editing.ownerScopeType ?? "workspace"}:${editing.id}`,
       tokenValue: "",
@@ -107,8 +107,8 @@ function initialFormState({
   return {
     sourceKey: resolvedSourceKey,
     ownerScopeType: "workspace",
-    scope: "actor",
-    actorId: actorIdFallback ?? "",
+    scope: "account",
+    accountId: accountIdFallback ?? "",
     connectionMode: "new",
     existingConnectionKey: "",
     tokenValue: "",
@@ -126,7 +126,7 @@ export function useConnectionFormDialogForm({
   sources,
   credentials,
   sourceAuthProfiles,
-  actorIdFallback,
+  accountIdFallback,
 }: UseConnectionFormDialogFormParams) {
   const sourceOptions = useMemo(() => buildSourceOptions(sources), [sources]);
   const connectionOptions = useMemo(() => buildConnectionOptions(credentials), [credentials]);
@@ -137,7 +137,7 @@ export function useConnectionFormDialogForm({
       initialSourceKey,
       sourceOptions,
       sourceAuthProfiles,
-      actorIdFallback,
+      accountIdFallback,
     }),
   );
 
@@ -145,7 +145,7 @@ export function useConnectionFormDialogForm({
     sourceKey,
     ownerScopeType,
     scope,
-    actorId,
+    accountId,
     connectionMode,
     existingConnectionKey: rawExistingConnectionKey,
     tokenValue,
@@ -155,8 +155,8 @@ export function useConnectionFormDialogForm({
     customHeadersText,
   } = form;
   const compatibleConnectionOptions = useMemo(
-    () => compatibleConnections(connectionOptions, ownerScopeType, scope, actorId),
-    [actorId, connectionOptions, ownerScopeType, scope],
+    () => compatibleConnections(connectionOptions, ownerScopeType, scope, accountId),
+    [accountId, connectionOptions, ownerScopeType, scope],
   );
   const existingConnectionKey = useMemo(() => {
     if (!rawExistingConnectionKey) {
@@ -190,7 +190,7 @@ export function useConnectionFormDialogForm({
           initialSourceKey,
           sourceOptions,
           sourceAuthProfiles,
-          actorIdFallback,
+          accountIdFallback,
         }),
       });
       return;
@@ -203,10 +203,10 @@ export function useConnectionFormDialogForm({
         initialSourceKey,
         sourceOptions,
         sourceAuthProfiles,
-        actorIdFallback,
+        accountIdFallback,
       }),
     });
-  }, [actorIdFallback, editing, initialSourceKey, open, sourceAuthProfiles, sourceOptions]);
+  }, [accountIdFallback, editing, initialSourceKey, open, sourceAuthProfiles, sourceOptions]);
 
   const handleSourceKeyChange = (nextSourceKey: string) => {
     const patch: Partial<FormState> = { sourceKey: nextSourceKey };
@@ -220,8 +220,8 @@ export function useConnectionFormDialogForm({
     });
   };
 
-  const setActorId = (nextActorId: string) => {
-    dispatch({ type: "patch", patch: { actorId: nextActorId } });
+  const setAccountId = (nextAccountId: string) => {
+    dispatch({ type: "patch", patch: { accountId: nextAccountId } });
   };
 
   const setConnectionMode = (nextMode: ConnectionMode) => {
@@ -257,7 +257,7 @@ export function useConnectionFormDialogForm({
     ownerScopeType,
     scopePreset,
     scope,
-    actorId,
+    accountId,
     connectionMode,
     existingConnectionKey,
     tokenValue,
@@ -271,7 +271,7 @@ export function useConnectionFormDialogForm({
     selectedAuth,
     authBadge,
     setScopePreset,
-    setActorId,
+    setAccountId,
     setConnectionMode,
     setExistingConnectionKey,
     setTokenValue,

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel.d.ts";
 import { internalMutation } from "../_generated/server";
 import { ensureAnonymousIdentity } from "../../src/database/anonymous";
 import { mapAnonymousContext } from "../../src/database/readers";
@@ -6,18 +7,14 @@ import { mapAnonymousContext } from "../../src/database/readers";
 export const bootstrapAnonymousSession = internalMutation({
   args: {
     sessionId: v.optional(v.string()),
-    actorId: v.optional(v.string()),
+    accountId: v.optional(v.string()),
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     const requestedSessionId = args.sessionId?.trim() || "";
-    const requestedActorId = args.actorId?.trim() || "";
+    const requestedAccountId = args.accountId?.trim() || "";
     const clientId = args.clientId?.trim() || "web";
-
-    if (requestedActorId && !requestedActorId.startsWith("anon_")) {
-      throw new Error("actorId must be an anonymous actor");
-    }
 
     const allowRequestedSessionId = requestedSessionId.startsWith("mcp_")
       || requestedSessionId.startsWith("anon_session_");
@@ -32,12 +29,11 @@ export const bootstrapAnonymousSession = internalMutation({
         const identity = await ensureAnonymousIdentity(ctx, {
           sessionId,
           workspaceId: existing.workspaceId,
-          actorId: requestedActorId || existing.actorId,
+          accountId: requestedAccountId || existing.accountId,
           timestamp: now,
         });
 
         await ctx.db.patch(existing._id, {
-          actorId: requestedActorId || existing.actorId,
           clientId,
           workspaceId: identity.workspaceId,
           accountId: identity.accountId,
@@ -62,18 +58,16 @@ export const bootstrapAnonymousSession = internalMutation({
     const sessionId = allowRequestedSessionId
       ? requestedSessionId as string
       : generatedSessionId;
-    const actorId = requestedActorId || `anon_${crypto.randomUUID()}`;
 
     const identity = await ensureAnonymousIdentity(ctx, {
       sessionId,
-      actorId,
+      accountId: requestedAccountId || undefined,
       timestamp: now,
     });
 
     await ctx.db.insert("anonymousSessions", {
       sessionId,
       workspaceId: identity.workspaceId,
-      actorId,
       clientId,
       accountId: identity.accountId,
       userId: identity.userId,
@@ -96,20 +90,17 @@ export const bootstrapAnonymousSession = internalMutation({
 export const ensureAnonymousMcpSession = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
-    actorId: v.string(),
+    accountId: v.string(),
   },
   handler: async (ctx, args) => {
-    const actorId = args.actorId.trim();
-    if (!actorId.startsWith("anon_")) {
-      throw new Error("Anonymous actorId is required");
+    const accountId = args.accountId.trim();
+    if (!accountId) {
+      throw new Error("Anonymous accountId is required");
     }
 
-    const account = await ctx.db
-      .query("accounts")
-      .withIndex("by_provider", (q) => q.eq("provider", "anonymous").eq("providerAccountId", actorId))
-      .unique();
-    if (!account) {
-      throw new Error("Anonymous actor is not recognized");
+    const account = await ctx.db.get(accountId as Id<"accounts">);
+    if (!account || account.provider !== "anonymous") {
+      throw new Error("Anonymous account is not recognized");
     }
 
     const membership = await ctx.db
@@ -117,13 +108,13 @@ export const ensureAnonymousMcpSession = internalMutation({
       .withIndex("by_workspace_account", (q) => q.eq("workspaceId", args.workspaceId).eq("accountId", account._id))
       .unique();
     if (!membership || membership.status !== "active") {
-      throw new Error("Anonymous actor does not have workspace access");
+      throw new Error("Anonymous account does not have workspace access");
     }
 
     const now = Date.now();
     const existingSessions = await ctx.db
       .query("anonymousSessions")
-      .withIndex("by_workspace_actor", (q) => q.eq("workspaceId", args.workspaceId).eq("actorId", actorId))
+      .withIndex("by_workspace_account", (q) => q.eq("workspaceId", args.workspaceId).eq("accountId", account._id))
       .collect();
     const existing = existingSessions.find((session) => session.sessionId.startsWith("mcp_"))
       ?? existingSessions[0]
@@ -151,7 +142,6 @@ export const ensureAnonymousMcpSession = internalMutation({
     await ctx.db.insert("anonymousSessions", {
       sessionId,
       workspaceId: args.workspaceId,
-      actorId,
       clientId: "mcp",
       accountId: account._id,
       userId: membership._id,

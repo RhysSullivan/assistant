@@ -9,7 +9,7 @@ import type { Id } from "@executor/database/convex/_generated/dataModel";
 
 interface WorkspaceContext {
   workspaceId: Id<"workspaces">;
-  actorId?: string;
+  accountId?: string;
   clientId?: string;
   sessionId?: string;
 }
@@ -42,7 +42,7 @@ interface UseWorkspaceToolsOptions {
 
 type ListToolsWithWarningsAction = (args: {
   workspaceId: Id<"workspaces">;
-  actorId?: string;
+  accountId?: string;
   clientId?: string;
   sessionId?: string;
   includeDetails?: boolean;
@@ -79,7 +79,7 @@ export function useWorkspaceTools(
     queryKey: [
       "workspace-tools-inventory",
       context?.workspaceId,
-      context?.actorId,
+      context?.accountId,
       context?.clientId,
       includeDetails,
       toolSources,
@@ -96,7 +96,7 @@ export function useWorkspaceTools(
       }
       return await listToolsWithWarnings({
         workspaceId: context.workspaceId,
-        ...(context.actorId && { actorId: context.actorId }),
+        ...(context.accountId && { accountId: context.accountId }),
         ...(context.clientId && { clientId: context.clientId }),
         ...(context.sessionId && { sessionId: context.sessionId }),
         includeDetails,
@@ -130,7 +130,7 @@ export function useWorkspaceTools(
 
       const detailedInventory = await listToolsWithWarnings({
         workspaceId: context.workspaceId,
-        ...(context.actorId && { actorId: context.actorId }),
+        ...(context.accountId && { accountId: context.accountId }),
         ...(context.clientId && { clientId: context.clientId }),
         ...(context.sessionId && { sessionId: context.sessionId }),
         includeDetails: true,
@@ -155,7 +155,7 @@ export function useWorkspaceTools(
 
   useEffect(() => {
     detailsCacheRef.current.clear();
-  }, [context?.workspaceId, context?.actorId, context?.clientId, context?.sessionId]);
+  }, [context?.workspaceId, context?.accountId, context?.clientId, context?.sessionId]);
 
   useEffect(() => {
     if (!inventoryData || !includeDetails) {

@@ -43,6 +43,11 @@ export async function resolveAccountForRequest(
   const identity = await ctx.auth.getUserIdentity();
   if (identity) {
     if (isAnonymousIdentity(identity)) {
+      const anonymousById = await ctx.db.get(identity.subject as Id<"accounts">);
+      if (anonymousById?.provider === "anonymous") {
+        return anonymousById;
+      }
+
       const anonymousAccount = await ctx.db
         .query("accounts")
         .withIndex("by_provider", (q) => q.eq("provider", "anonymous").eq("providerAccountId", identity.subject))
@@ -143,6 +148,6 @@ export function canManageBilling(role: string): boolean {
   return role === "owner" || role === "billing_admin";
 }
 
-export function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
+export function accountIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
   return account.provider === "anonymous" ? account.providerAccountId : account._id;
 }

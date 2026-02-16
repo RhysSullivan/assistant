@@ -1,4 +1,4 @@
-import type { Doc } from "../../convex/_generated/dataModel.d.ts";
+import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx } from "../../convex/_generated/server";
 import { slugify } from "../../../core/src/identity";
 import { ensureUniqueSlug } from "../../../core/src/slug";
@@ -21,7 +21,7 @@ export async function ensureAnonymousIdentity(
   params: {
     sessionId: string;
     workspaceId?: Doc<"workspaces">["_id"];
-    actorId: string;
+    accountId?: string;
     timestamp: number;
   },
 ) {
@@ -29,16 +29,21 @@ export async function ensureAnonymousIdentity(
   const anonymousWorkspaceName = "Anonymous Workspace";
   const now = params.timestamp;
 
-  let account = await ctx.db
-    .query("accounts")
-    .withIndex("by_provider", (q) => q.eq("provider", "anonymous").eq("providerAccountId", params.actorId))
-    .unique();
+  const requestedAccountId = params.accountId?.trim() || "";
+  let account = requestedAccountId
+    ? await ctx.db.get(requestedAccountId as Id<"accounts">)
+    : null;
+
+  if (account && account.provider !== "anonymous") {
+    throw new Error("accountId must reference an anonymous account");
+  }
 
   if (!account) {
+    const providerAccountId = `anon_${crypto.randomUUID().replace(/-/g, "")}`;
     const accountId = await ctx.db.insert("accounts", {
       provider: "anonymous",
-      providerAccountId: params.actorId,
-      email: `${params.actorId}@guest.executor.local`,
+      providerAccountId,
+      email: `${providerAccountId}@guest.executor.local`,
       name: "Guest User",
       status: "active",
       createdAt: now,

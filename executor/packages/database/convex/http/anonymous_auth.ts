@@ -8,7 +8,7 @@ import {
 } from "../../src/auth/anonymous";
 
 type AnonymousTokenBody = {
-  actorId?: string;
+  accountId?: string;
 };
 
 type AnonymousTokenConfig = {
@@ -56,25 +56,22 @@ function noStoreHeaders(extra?: Record<string, string>) {
   };
 }
 
-function parseAnonymousActorId(raw: unknown): string | null {
+function parseAnonymousAccountId(raw: unknown): string | null {
   if (typeof raw !== "string") {
     return null;
   }
-  const actorId = raw.trim();
-  if (!actorId) {
+  const accountId = raw.trim();
+  if (!accountId) {
     return null;
   }
-  if (!/^anon_[a-zA-Z0-9_-]{8,}$/.test(actorId)) {
-    throw new Error("actorId must match anon_<id>");
-  }
-  return actorId;
+  return accountId;
 }
 
-async function readActorIdFromRequest(request: Request): Promise<string | null> {
+async function readAccountIdFromRequest(request: Request): Promise<string | null> {
   const url = new URL(request.url);
-  const queryActorId = url.searchParams.get("actorId");
-  if (queryActorId) {
-    return parseAnonymousActorId(queryActorId);
+  const queryAccountId = url.searchParams.get("accountId");
+  if (queryAccountId) {
+    return parseAnonymousAccountId(queryAccountId);
   }
 
   if (request.method !== "POST") {
@@ -87,10 +84,10 @@ async function readActorIdFromRequest(request: Request): Promise<string | null> 
   }
 
   const body = (await request.json()) as AnonymousTokenBody;
-  return parseAnonymousActorId(body.actorId);
+  return parseAnonymousAccountId(body.accountId);
 }
 
-function createActorId(): string {
+function createAccountId(): string {
   return `anon_${crypto.randomUUID().replace(/-/g, "")}`;
 }
 
@@ -135,7 +132,7 @@ export const anonymousTokenHandler = httpAction(async (_ctx, request) => {
   }
 
   try {
-    const actorId = (await readActorIdFromRequest(request)) ?? createActorId();
+    const accountId = (await readAccountIdFromRequest(request)) ?? createAccountId();
     const nowSeconds = Math.floor(Date.now() / 1000);
     const expiresAtSeconds = nowSeconds + config.tokenTtlSeconds;
     const signingKey = await loadSigningKey(config.privateKeyPem);
@@ -143,7 +140,7 @@ export const anonymousTokenHandler = httpAction(async (_ctx, request) => {
     const accessToken = await new SignJWT({ provider: "anonymous" })
       .setProtectedHeader({ alg: "ES256", kid: config.keyId, typ: "JWT" })
       .setIssuer(config.issuer)
-      .setSubject(actorId)
+      .setSubject(accountId)
       .setAudience(config.audience)
       .setIssuedAt(nowSeconds)
       .setNotBefore(nowSeconds - 5)
@@ -154,7 +151,7 @@ export const anonymousTokenHandler = httpAction(async (_ctx, request) => {
       {
         tokenType: "Bearer",
         accessToken,
-        actorId,
+        accountId,
         expiresAtMs: expiresAtSeconds * 1000,
       },
       {

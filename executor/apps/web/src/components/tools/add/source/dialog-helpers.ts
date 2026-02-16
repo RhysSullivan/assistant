@@ -6,7 +6,7 @@ import {
 export type SourceCatalogSort = "popular" | "recent";
 export type SourceType = "mcp" | "openapi" | "graphql";
 
-const DEFAULT_MCP_ACTOR_QUERY_PARAM_KEY = "userId";
+const DEFAULT_MCP_ACCOUNT_QUERY_PARAM_KEY = "accountId";
 
 export function getVisibleCatalogItems(
   query: string,
@@ -65,22 +65,22 @@ export function createCustomSourceConfig({
   baseUrl,
   auth,
   mcpTransport,
-  actorId,
+  accountId,
 }: {
   type: SourceType;
   endpoint: string;
   baseUrl: string;
   auth?: Record<string, unknown>;
   mcpTransport: "auto" | "streamable-http" | "sse";
-  actorId?: string;
+  accountId?: string;
 }): Record<string, unknown> {
   if (type === "mcp") {
     return {
       url: endpoint,
       ...(auth ? { auth } : {}),
       ...(mcpTransport !== "auto" ? { transport: mcpTransport } : {}),
-      ...(actorId
-        ? { queryParams: { [DEFAULT_MCP_ACTOR_QUERY_PARAM_KEY]: actorId } }
+      ...(accountId
+        ? { queryParams: { [DEFAULT_MCP_ACCOUNT_QUERY_PARAM_KEY]: accountId } }
         : {}),
     };
   }

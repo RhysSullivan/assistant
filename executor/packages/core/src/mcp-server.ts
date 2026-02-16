@@ -14,7 +14,7 @@ import { getTaskTerminalState, textContent } from "./mcp/server-utils";
 
 export interface McpWorkspaceContext {
   workspaceId: Id<"workspaces">;
-  actorId: string;
+  accountId: Id<"accounts">;
   clientId?: string;
   sessionId?: string;
 }
@@ -48,7 +48,7 @@ function createRunCodeTool(
     const requestedTimeoutMs = input.timeoutMs ?? 300_000;
 
     // Resolve context: bound context takes priority, then input, then anonymous
-    let context: { workspaceId: Id<"workspaces">; actorId: string; clientId?: string; sessionId?: string };
+    let context: { workspaceId: Id<"workspaces">; accountId: Id<"accounts">; clientId?: string; sessionId?: string };
 
     if (boundContext) {
       context = { ...boundContext, sessionId: input.sessionId ?? boundContext.sessionId };
@@ -57,7 +57,7 @@ function createRunCodeTool(
       const anonymous = await service.bootstrapAnonymousContext(seededSessionId);
       context = {
         workspaceId: anonymous.workspaceId,
-        actorId: anonymous.actorId,
+        accountId: anonymous.accountId,
         clientId: input.clientId ?? anonymous.clientId,
         sessionId: anonymous.sessionId,
       };
@@ -69,7 +69,7 @@ function createRunCodeTool(
       runtimeId: input.runtimeId,
       metadata: input.metadata,
       workspaceId: context.workspaceId,
-      actorId: context.actorId,
+      accountId: context.accountId,
       clientId: context.clientId,
     });
 
@@ -81,7 +81,7 @@ function createRunCodeTool(
           taskId: created.task.id,
           status: created.task.status,
           workspaceId: context.workspaceId,
-          actorId: context.actorId,
+          accountId: context.accountId,
           sessionId: context.sessionId,
         },
       };
@@ -109,7 +109,7 @@ function createRunCodeTool(
           error: task.error,
           result,
           workspaceId: context.workspaceId,
-          actorId: context.actorId,
+          accountId: context.accountId,
           sessionId: context.sessionId,
         },
         ...(isError ? { isError: true } : {}),
@@ -123,7 +123,7 @@ function createRunCodeTool(
       context.workspaceId,
       waitTimeoutMs,
       onApprovalPrompt,
-      { workspaceId: context.workspaceId, actorId: context.actorId },
+      { workspaceId: context.workspaceId, accountId: context.accountId },
     );
 
     if (!task) {
@@ -136,7 +136,7 @@ function createRunCodeTool(
     if (!getTaskTerminalState(task.status)) {
       return {
         content: [textContent(`Task ${task.id} is still ${task.status}`)],
-        structuredContent: { taskId: task.id, status: task.status, workspaceId: context.workspaceId, actorId: context.actorId, sessionId: context.sessionId },
+        structuredContent: { taskId: task.id, status: task.status, workspaceId: context.workspaceId, accountId: context.accountId, sessionId: context.sessionId },
       };
     }
 
@@ -151,7 +151,7 @@ function createRunCodeTool(
         error: task.error,
         result: task.result,
         workspaceId: context.workspaceId,
-        actorId: context.actorId,
+        accountId: context.accountId,
         sessionId: context.sessionId,
       },
       ...(isError ? { isError: true } : {}),

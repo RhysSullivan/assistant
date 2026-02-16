@@ -15,7 +15,7 @@ export interface McpExecutorService {
   getTask(taskId: string, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null>;
   subscribe(taskId: string, workspaceId: Id<"workspaces">, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;
-  listTools(context?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
+  listTools(context?: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; clientId?: string }): Promise<ToolDescriptor[]>;
   listPendingApprovals?(workspaceId: Id<"workspaces">): Promise<PendingApprovalRecord[]>;
   resolveApproval?(input: {
     workspaceId: Id<"workspaces">;
@@ -33,7 +33,7 @@ export interface ApprovalPromptDecision {
 
 export interface ApprovalPromptContext {
   workspaceId: Id<"workspaces">;
-  actorId: string;
+  accountId: Id<"accounts">;
 }
 
 export type ApprovalPrompt = (

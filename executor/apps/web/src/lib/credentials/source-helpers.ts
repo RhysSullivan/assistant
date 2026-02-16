@@ -51,7 +51,7 @@ export function connectionDisplayName(
     scope: CredentialScope;
     ownerScopeType?: OwnerScopeType;
     sourceKeys: Set<string>;
-    actorId?: string;
+    accountId?: string;
   },
 ): string {
   const sourceNames = [...connection.sourceKeys]
@@ -63,9 +63,9 @@ export function connectionDisplayName(
   const extraCount = Math.max(sourceNames.length - 1, 0);
   const base = extraCount > 0 ? `${primary} +${extraCount}` : primary;
 
-  if (connection.scope === "actor") {
-    if (connection.actorId) {
-      return `${base} personal (${connection.actorId})`;
+  if (connection.scope === "account") {
+    if (connection.accountId) {
+      return `${base} personal (${connection.accountId})`;
     }
     return `${base} personal`;
   }

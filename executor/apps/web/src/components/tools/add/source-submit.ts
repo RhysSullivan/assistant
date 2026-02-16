@@ -27,7 +27,7 @@ type UpsertCredentialFn = (args: {
   ownerScopeType?: OwnerScopeType;
   sourceKey: string;
   scope: CredentialScope;
-  actorId?: AnonymousContext["actorId"];
+  accountId?: AnonymousContext["accountId"];
   secretJson: Record<string, unknown>;
 }) => Promise<unknown>;
 
@@ -104,7 +104,7 @@ export async function saveSourceWithCredentials({
     baseUrl: form.baseUrl,
     auth: authConfig,
     mcpTransport: form.mcpTransport,
-    actorId: context.actorId,
+    accountId: context.accountId,
   });
 
   const created = await upsertToolSource({
@@ -125,8 +125,8 @@ export async function saveSourceWithCredentials({
       throw new Error("Failed to resolve source key for credentials");
     }
 
-    if (form.authScope === "actor" && !context.actorId) {
-      throw new Error("Actor credentials require an authenticated actor");
+    if (form.authScope === "account" && !context.accountId) {
+      throw new Error("Account credentials require an authenticated account");
     }
 
     const enteredCredential = form.hasCredentialInput();
@@ -147,7 +147,7 @@ export async function saveSourceWithCredentials({
         ownerScopeType: form.ownerScopeType,
         sourceKey,
         scope: form.authScope,
-        ...(form.authScope === "actor" ? { actorId: context.actorId } : {}),
+        ...(form.authScope === "account" ? { accountId: context.accountId } : {}),
         secretJson: secret.value,
       });
       linkedCredential = true;
@@ -168,7 +168,7 @@ export async function saveSourceWithCredentials({
         ownerScopeType: form.ownerScopeType,
         sourceKey,
         scope: form.authScope,
-        ...(form.authScope === "actor" ? { actorId: context.actorId } : {}),
+        ...(form.authScope === "account" ? { accountId: context.accountId } : {}),
         secretJson: legacySecret,
       });
       linkedCredential = true;

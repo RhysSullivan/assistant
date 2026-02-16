@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const anonymousTokenRequestSchema = z.object({
-  actorId: z.string().trim().min(1).optional(),
+  accountId: z.string().trim().min(1).optional(),
 });
 
 function toSiteUrl(convexUrl?: string): string | null {
@@ -51,11 +51,11 @@ export async function POST(request: NextRequest) {
     return noStoreJson({ error: "Convex site URL is not configured" }, 500);
   }
 
-  let body: { actorId?: string } = {};
+  let body: { accountId?: string } = {};
   try {
     const parsed = anonymousTokenRequestSchema.safeParse(await request.json());
-    if (parsed.success && parsed.data.actorId) {
-      body.actorId = parsed.data.actorId;
+    if (parsed.success && parsed.data.accountId) {
+      body.accountId = parsed.data.accountId;
     }
   } catch {
     body = {};

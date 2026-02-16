@@ -185,7 +185,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools") {
       const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
         workspaceId: task.workspaceId,
-        actorId: task.actorId,
+        accountId: task.accountId,
         clientId: task.clientId,
         refreshOnStale: true,
       });
@@ -442,7 +442,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     const context: ToolRunContext = {
       taskId: task.id,
       workspaceId: task.workspaceId,
-      actorId: task.actorId,
+      accountId: task.accountId,
       clientId: task.clientId,
       credential,
       // Tool visibility is enforced server-side; runtime tool implementations don't use this.

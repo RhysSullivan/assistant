@@ -7,7 +7,7 @@ import type {
 } from "@/lib/types";
 
 export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
-export type SourceAuthMode = "workspace" | "actor";
+export type SourceAuthMode = "workspace" | "account" | "organization";
 
 const RAW_HOSTS = new Set([
   "raw.githubusercontent.com",
@@ -158,7 +158,10 @@ function normalizeSourceAuthProfile(profile: SourceAuthProfile | undefined): {
           ? "bearer"
           : "none";
 
-  const mode = profile.mode === "actor" ? "actor" : profile.mode === "workspace" ? "workspace" : undefined;
+  const mode =
+    profile.mode === "account" || profile.mode === "workspace" || profile.mode === "organization"
+      ? profile.mode
+      : undefined;
   const header = typeof profile.header === "string" && profile.header.trim().length > 0
     ? profile.header.trim()
     : undefined;
@@ -193,8 +196,9 @@ export function readSourceAuth(
       : inferred.type;
 
   const mode =
-    auth && typeof auth.mode === "string" && (auth.mode === "workspace" || auth.mode === "actor")
-      ? (auth.mode as SourceAuthMode)
+    auth && typeof auth.mode === "string"
+      && (auth.mode === "workspace" || auth.mode === "account" || auth.mode === "organization")
+      ? auth.mode as SourceAuthMode
       : inferred.mode;
 
   const header = auth && typeof auth.header === "string" && auth.header.trim().length > 0
@@ -222,27 +226,27 @@ export function formatSourceAuthBadge(source: ToolSourceRecord, inferredProfile?
         : auth.type === "basic"
           ? "Basic"
           : "Auth";
-  return `${authLabel} · ${mode === "actor" ? "user" : "workspace"}`;
+  return `${authLabel} · ${mode === "account" ? "user" : "workspace"}`;
 }
 
 export function credentialStatsForSource(source: ToolSourceRecord, credentials: CredentialRecord[]): {
   workspaceCount: number;
-  actorCount: number;
+  accountCount: number;
 } {
   const sourceKey = sourceKeyForSource(source);
   if (!sourceKey) {
-    return { workspaceCount: 0, actorCount: 0 };
+    return { workspaceCount: 0, accountCount: 0 };
   }
 
   let workspaceCount = 0;
-  let actorCount = 0;
+  let accountCount = 0;
   for (const credential of credentials) {
     if (credential.sourceKey !== sourceKey) continue;
-    if (credential.scope === "workspace") workspaceCount += 1;
-    if (credential.scope === "actor") actorCount += 1;
+    if (credential.scopeType === "workspace") workspaceCount += 1;
+    if (credential.scopeType === "account") accountCount += 1;
   }
 
-  return { workspaceCount, actorCount };
+  return { workspaceCount, accountCount };
 }
 
 export function formatQualityPercent(value: number): string {

@@ -15,7 +15,7 @@ type VerifiedMcpToken = { provider: "workos"; subject: string };
 
 type ParsedMcpContext = {
   workspaceId?: Id<"workspaces">;
-  actorId?: string;
+  accountId?: string;
   clientId?: string;
   sessionId?: string;
 };
@@ -147,11 +147,11 @@ export async function verifyMcpToken(
 export function parseMcpContext(url: URL): ParsedMcpContext | undefined {
   const raw = url.searchParams.get("workspaceId");
   const workspaceId = raw ? parseWorkspaceId(raw) : undefined;
-  const actorId = url.searchParams.get("actorId") ?? undefined;
+  const accountId = url.searchParams.get("accountId") ?? undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const sessionId = url.searchParams.get("sessionId") ?? undefined;
-  if (!workspaceId && !actorId && !clientId && !sessionId) {
+  if (!workspaceId && !accountId && !clientId && !sessionId) {
     return undefined;
   }
-  return { workspaceId, actorId, clientId, sessionId };
+  return { workspaceId, accountId, clientId, sessionId };
 }

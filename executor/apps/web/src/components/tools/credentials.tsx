@@ -43,12 +43,12 @@ export function CredentialsPanel({
     : "Stored locally on this machine";
 
   const connectionOptions = useMemo(() => {
-    const grouped = new Map<string, {
+      const grouped = new Map<string, {
       key: string;
       id: string;
       ownerScopeType: OwnerScopeType;
       scope: CredentialScope;
-      actorId?: string;
+      accountId?: string;
       provider: "local-convex" | "workos-vault";
       sourceKeys: Set<string>;
       updatedAt: number;
@@ -66,8 +66,8 @@ export function CredentialsPanel({
           key: groupKey,
           id: credential.id,
           ownerScopeType,
-          scope: credential.scope,
-          actorId: credential.actorId,
+          scope: credential.scopeType,
+          accountId: credential.accountId,
           provider: credential.provider,
           sourceKeys: new Set([credential.sourceKey]),
           updatedAt: credential.updatedAt,
@@ -156,9 +156,9 @@ export function CredentialsPanel({
                         <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
                           {providerLabel(connection.provider)}
                         </Badge>
-                        {connection.scope === "actor" && connection.actorId && (
+                        {connection.scope === "account" && connection.accountId && (
                           <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                            {connection.actorId}
+                            {connection.accountId}
                           </span>
                         )}
                       </div>

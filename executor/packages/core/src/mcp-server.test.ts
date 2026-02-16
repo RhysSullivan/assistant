@@ -22,7 +22,7 @@ class FakeMcpService {
       timeoutMs: input.timeoutMs ?? 15_000,
       metadata: input.metadata ?? {},
       workspaceId: input.workspaceId,
-      actorId: input.actorId,
+      accountId: input.accountId,
       clientId: input.clientId,
       createdAt: now,
       updatedAt: now,
@@ -52,7 +52,7 @@ class FakeMcpService {
     return { task: queued };
   }
 
-  async getTask(taskId: string, workspaceId?: string): Promise<TaskRecord | null> {
+  async getTask(taskId: string, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null> {
     const task = this.tasks.get(taskId) ?? null;
     if (!task) return null;
     if (workspaceId && task.workspaceId !== workspaceId) return null;
@@ -71,10 +71,9 @@ class FakeMcpService {
     const context: AnonymousContext = {
       sessionId: sessionId ?? `anon_session_${crypto.randomUUID()}`,
       workspaceId: `ws_${crypto.randomUUID()}` as Id<"workspaces">,
-      actorId: `anon_${crypto.randomUUID()}`,
       clientId: "mcp",
-      accountId: `account_${crypto.randomUUID()}`,
-      userId: `user_${crypto.randomUUID()}`,
+      accountId: `account_${crypto.randomUUID()}` as Id<"accounts">,
+      userId: `member_${crypto.randomUUID()}` as Id<"workspaceMembers">,
       createdAt: now,
       lastSeenAt: now,
     };
@@ -89,7 +88,7 @@ class FakeMcpService {
     return () => { set.delete(listener); };
   }
 
-  async listTools(_context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]> {
+  async listTools(_context?: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; clientId?: string }): Promise<ToolDescriptor[]> {
     return [
       { path: "utils.get_time", description: "Get the current time", approval: "auto" },
     ];
@@ -132,8 +131,8 @@ test("run_code MCP tool returns terminal task result", async () => {
       name: "run_code",
       arguments: {
         code: "console.log('hello from mcp')",
-        workspaceId: "ws_test",
-        actorId: "actor_test",
+        workspaceId: "ws_test" as Id<"workspaces">,
+        accountId: "account_test" as Id<"accounts">,
         clientId: "assistant",
       },
     })) as {
@@ -197,7 +196,7 @@ test("run_code MCP tool bootstraps anonymous context when workspace is omitted",
     expect(result.isError).toBeUndefined();
     const structured = result.structuredContent;
     expect(typeof structured?.workspaceId).toBe("string");
-    expect(typeof structured?.actorId).toBe("string");
+    expect(typeof structured?.accountId).toBe("string");
     expect(structured?.sessionId).toBe("mcp_session_test");
   });
 });

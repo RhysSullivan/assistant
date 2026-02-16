@@ -37,7 +37,6 @@ export interface TaskRecord {
   metadata: Record<string, unknown>;
   workspaceId: Id<"workspaces">;
   accountId?: Id<"accounts">;
-  actorId?: string;
   clientId?: string;
   createdAt: number;
   updatedAt: number;
@@ -169,10 +168,9 @@ export interface OpenApiSourceQuality {
 export interface AnonymousContext {
   sessionId: string;
   workspaceId: Id<"workspaces">;
-  actorId: string;
   clientId: string;
-  accountId: string;
-  userId: string;
+  accountId: Id<"accounts">;
+  userId: Id<"workspaceMembers">;
   createdAt: number;
   lastSeenAt: number;
 }
@@ -185,7 +183,7 @@ export interface CreateTaskInput {
   runtimeId?: string;
   metadata?: Record<string, unknown>;
   workspaceId: Id<"workspaces">;
-  actorId: string;
+  accountId: Id<"accounts">;
   clientId?: string;
 }
 
@@ -255,7 +253,7 @@ export interface ResolvedToolCredential {
 export interface ToolRunContext {
   taskId: string;
   workspaceId: Id<"workspaces">;
-  actorId?: string;
+  accountId?: Id<"accounts">;
   clientId?: string;
   credential?: ResolvedToolCredential;
   isToolAllowed: (toolPath: string) => boolean;

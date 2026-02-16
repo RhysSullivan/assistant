@@ -103,7 +103,7 @@ export declare const api: {
       "action",
       "public",
       {
-        actorId?: string;
+        accountId?: Id<"accounts">;
         clientId?: string;
         code: string;
         metadata?: Record<string, any>;
@@ -134,7 +134,7 @@ export declare const api: {
       "action",
       "public",
       {
-        actorId?: string;
+        accountId?: Id<"accounts">;
         clientId?: string;
         includeDetails?: boolean;
         includeSourceMeta?: boolean;
@@ -280,7 +280,7 @@ export declare const api: {
     bootstrapAnonymousSession: FunctionReference<
       "mutation",
       "public",
-      { actorId?: string; clientId?: string; sessionId?: string },
+      { accountId?: string; clientId?: string; sessionId?: string },
       any
     >;
     deleteToolSource: FunctionReference<
@@ -476,13 +476,13 @@ export declare const internal: {
       bootstrapAnonymousSession: FunctionReference<
         "mutation",
         "internal",
-        { actorId?: string; clientId?: string; sessionId?: string },
+        { accountId?: string; clientId?: string; sessionId?: string },
         any
       >;
       ensureAnonymousMcpSession: FunctionReference<
         "mutation",
         "internal",
-        { actorId: string; workspaceId: Id<"workspaces"> },
+        { accountId: string; workspaceId: Id<"workspaces"> },
         any
       >;
     };
@@ -540,7 +540,7 @@ export declare const internal: {
     bootstrapAnonymousSession: FunctionReference<
       "mutation",
       "internal",
-      { actorId?: string; clientId?: string; sessionId?: string },
+      { accountId?: string; clientId?: string; sessionId?: string },
       any
     >;
     createApproval: FunctionReference<
@@ -559,7 +559,6 @@ export declare const internal: {
       "internal",
       {
         accountId?: Id<"accounts">;
-        actorId: string;
         clientId?: string;
         code: string;
         id: string;
@@ -625,7 +624,7 @@ export declare const internal: {
     ensureAnonymousMcpSession: FunctionReference<
       "mutation",
       "internal",
-      { actorId: string; workspaceId: Id<"workspaces"> },
+      { accountId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     finishToolCall: FunctionReference<
@@ -819,7 +818,6 @@ export declare const internal: {
         "internal",
         {
           accountId?: Id<"accounts">;
-          actorId: string;
           clientId?: string;
           code: string;
           id: string;
@@ -1012,8 +1010,7 @@ export declare const internal: {
       "mutation",
       "internal",
       {
-        accountId?: Id<"accounts">;
-        actorId: string;
+        accountId: Id<"accounts">;
         clientId?: string;
         code: string;
         metadata?: Record<string, any>;
@@ -1052,13 +1049,21 @@ export declare const internal: {
     listToolsInternal: FunctionReference<
       "action",
       "internal",
-      { actorId?: string; clientId?: string; workspaceId: Id<"workspaces"> },
+      {
+        accountId?: Id<"accounts">;
+        clientId?: string;
+        workspaceId: Id<"workspaces">;
+      },
       any
     >;
     listToolsWithWarningsInternal: FunctionReference<
       "action",
       "internal",
-      { actorId?: string; clientId?: string; workspaceId: Id<"workspaces"> },
+      {
+        accountId?: Id<"accounts">;
+        clientId?: string;
+        workspaceId: Id<"workspaces">;
+      },
       any
     >;
     runTask: FunctionReference<"action", "internal", { taskId: string }, any>;
@@ -1382,7 +1387,7 @@ export declare const internal: {
     getWorkspaceAccessForAnonymousSubject: FunctionReference<
       "query",
       "internal",
-      { actorId: string; workspaceId: Id<"workspaces"> },
+      { accountId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     getWorkspaceAccessForRequest: FunctionReference<

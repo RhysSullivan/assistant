@@ -85,7 +85,7 @@ async function deleteWorkspaceData(
 
   const anonymousSessions = await ctx.db
     .query("anonymousSessions")
-    .withIndex("by_workspace_actor", (q) => q.eq("workspaceId", workspaceId))
+    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const session of anonymousSessions) {
     await ctx.db.delete(session._id);

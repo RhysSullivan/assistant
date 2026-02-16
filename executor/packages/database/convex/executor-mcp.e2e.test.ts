@@ -60,9 +60,9 @@ function readAccessToken(body: AnonymousTokenResponse): string | null {
 
 async function getAnonymousAccessToken(
   t: ReturnType<typeof setup>,
-  actorId: string,
+  accountId: string,
 ): Promise<string | null> {
-  const resp = await t.fetch(`/auth/anonymous/token?actorId=${encodeURIComponent(actorId)}`);
+  const resp = await t.fetch(`/auth/anonymous/token?accountId=${encodeURIComponent(accountId)}`);
   const body = await resp.json().catch(() => ({} as AnonymousTokenResponse)) as AnonymousTokenResponse;
   if (resp.status === 503) {
     const msg = readErrorMessage(body);
@@ -84,7 +84,7 @@ async function getAnonymousAccessToken(
 async function createMcpTransport(
   t: ReturnType<typeof setup>,
   workspaceId: string,
-  actorId: string,
+  accountId: string,
   sessionId: string,
   clientId = "e2e",
 ) {
@@ -97,10 +97,10 @@ async function createMcpTransport(
   }
   url.searchParams.set("clientId", clientId);
 
-  const anonymousToken = isAnonymousSession ? await getAnonymousAccessToken(t, actorId) : null;
+  const anonymousToken = isAnonymousSession ? await getAnonymousAccessToken(t, accountId) : null;
   if (isAnonymousSession && !anonymousToken) {
     // Legacy fallback for local/test when anonymous auth isn't configured.
-    url.searchParams.set("actorId", actorId);
+    url.searchParams.set("accountId", accountId);
   }
 
   return new StreamableHTTPClientTransport(url, {
@@ -154,7 +154,7 @@ test("MCP run_code survives delayed approval and completes", async () => {
   const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
 
   const client = new Client({ name: "executor-e2e", version: "0.0.1" }, { capabilities: {} });
-  const transport = await createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-approval-delay");
+  const transport = await createMcpTransport(t, session.workspaceId, session.accountId, session.sessionId, "e2e-approval-delay");
 
   try {
     await client.connect(transport);
@@ -205,7 +205,7 @@ test("MCP run_code returns denied after approval denial", async () => {
   const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
 
   const client = new Client({ name: "executor-e2e", version: "0.0.1" }, { capabilities: {} });
-  const transport = await createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-deny");
+  const transport = await createMcpTransport(t, session.workspaceId, session.accountId, session.sessionId, "e2e-deny");
 
   try {
     await client.connect(transport);

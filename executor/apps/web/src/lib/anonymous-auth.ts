@@ -1,11 +1,11 @@
 export type AnonymousAuthToken = {
   accessToken: string;
-  actorId: string;
+  accountId: string;
   expiresAtMs: number;
 };
 
 const TOKEN_STORAGE_KEY = "executor_anonymous_access_token";
-const ACTOR_STORAGE_KEY = "executor_anonymous_actor_id";
+const ACCOUNT_STORAGE_KEY = "executor_anonymous_account_id";
 const EXPIRES_STORAGE_KEY = "executor_anonymous_token_expires_at";
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 
@@ -27,35 +27,35 @@ function writeStorageValue(key: string, value: string) {
   localStorage.setItem(key, value);
 }
 
-export function clearAnonymousAuth(options?: { clearActor?: boolean }) {
+export function clearAnonymousAuth(options?: { clearAccount?: boolean }) {
   if (!canUseStorage()) {
     return;
   }
 
   localStorage.removeItem(TOKEN_STORAGE_KEY);
-  if (options?.clearActor) {
-    localStorage.removeItem(ACTOR_STORAGE_KEY);
+  if (options?.clearAccount) {
+    localStorage.removeItem(ACCOUNT_STORAGE_KEY);
   }
   localStorage.removeItem(EXPIRES_STORAGE_KEY);
 }
 
 function persistAnonymousAuth(token: AnonymousAuthToken) {
   writeStorageValue(TOKEN_STORAGE_KEY, token.accessToken);
-  writeStorageValue(ACTOR_STORAGE_KEY, token.actorId);
+  writeStorageValue(ACCOUNT_STORAGE_KEY, token.accountId);
   writeStorageValue(EXPIRES_STORAGE_KEY, String(token.expiresAtMs));
 }
 
-function readStoredActorId(): string | null {
-  const raw = readStorageValue(ACTOR_STORAGE_KEY);
+function readStoredAccountId(): string | null {
+  const raw = readStorageValue(ACCOUNT_STORAGE_KEY);
   return raw && raw.trim().length > 0 ? raw.trim() : null;
 }
 
 export function readStoredAnonymousAuthToken(): AnonymousAuthToken | null {
   const accessToken = readStorageValue(TOKEN_STORAGE_KEY);
-  const actorId = readStoredActorId();
+  const accountId = readStoredAccountId();
   const expiresAtRaw = readStorageValue(EXPIRES_STORAGE_KEY);
 
-  if (!accessToken || !actorId || !expiresAtRaw) {
+  if (!accessToken || !accountId || !expiresAtRaw) {
     return null;
   }
 
@@ -72,18 +72,18 @@ export function readStoredAnonymousAuthToken(): AnonymousAuthToken | null {
 
   return {
     accessToken,
-    actorId,
+    accountId,
     expiresAtMs,
   };
 }
 
-async function requestAnonymousAuthToken(actorId?: string): Promise<AnonymousAuthToken> {
+async function requestAnonymousAuthToken(accountId?: string): Promise<AnonymousAuthToken> {
   const response = await fetch("/api/auth/anonymous-token", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ actorId }),
+    body: JSON.stringify({ accountId }),
   });
 
   if (!response.ok) {
@@ -93,13 +93,13 @@ async function requestAnonymousAuthToken(actorId?: string): Promise<AnonymousAut
 
   const payload = await response.json() as {
     accessToken?: unknown;
-    actorId?: unknown;
+    accountId?: unknown;
     expiresAtMs?: unknown;
   };
 
   if (
     typeof payload.accessToken !== "string"
-    || typeof payload.actorId !== "string"
+    || typeof payload.accountId !== "string"
     || typeof payload.expiresAtMs !== "number"
   ) {
     throw new Error("Anonymous token response was malformed");
@@ -107,21 +107,24 @@ async function requestAnonymousAuthToken(actorId?: string): Promise<AnonymousAut
 
   return {
     accessToken: payload.accessToken,
-    actorId: payload.actorId,
+    accountId: payload.accountId,
     expiresAtMs: payload.expiresAtMs,
   };
 }
 
-export async function getAnonymousAuthToken(forceRefresh = false): Promise<AnonymousAuthToken> {
+export async function getAnonymousAuthToken(
+  forceRefresh = false,
+  requestedAccountId?: string,
+): Promise<AnonymousAuthToken> {
   if (!forceRefresh) {
     const stored = readStoredAnonymousAuthToken();
-    if (stored) {
+    if (stored && (!requestedAccountId || stored.accountId === requestedAccountId)) {
       return stored;
     }
   }
 
-  const actorId = readStoredActorId() ?? undefined;
-  const fresh = await requestAnonymousAuthToken(actorId);
+  const accountId = requestedAccountId ?? readStoredAccountId() ?? undefined;
+  const fresh = await requestAnonymousAuthToken(accountId);
   persistAnonymousAuth(fresh);
   return fresh;
 }

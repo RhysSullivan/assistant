@@ -35,7 +35,7 @@ function createRuntimeAdapter(
         const context: ToolRunContext = {
           taskId: call.runId,
           workspaceId: "ws_test" as Id<"workspaces">,
-          actorId: "actor_test",
+          accountId: "account_test" as Id<"accounts">,
           clientId: "web",
           isToolAllowed: () => true,
         };

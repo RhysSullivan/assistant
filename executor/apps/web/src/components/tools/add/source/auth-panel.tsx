@@ -24,7 +24,7 @@ export type SourceAuthPanelEditableField =
 type SharingScope = "only_me" | "workspace" | "organization";
 
 function sharingScopeFromModel(model: Pick<SourceAuthPanelModel, "ownerScopeType" | "authScope">): SharingScope {
-  if (model.authScope === "actor") {
+  if (model.authScope === "account") {
     return "only_me";
   }
   return model.ownerScopeType === "organization" ? "organization" : "workspace";

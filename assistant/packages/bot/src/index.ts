@@ -43,7 +43,7 @@ const LINK_MODAL_ID = "assistant_link_workos_modal";
 const LINK_OPEN_MODAL_BUTTON_ID = "assistant_link_workos_open_modal";
 const LINK_FIELD_WORKSPACE = "workspace_id";
 const LINK_FIELD_TOKEN = "access_token";
-const LINK_FIELD_ACTOR = "actor_id";
+const LINK_FIELD_ACCOUNT = "account_id";
 
 const slashCommands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder()
@@ -153,7 +153,7 @@ async function getContext(identity: ChatIdentity) {
   return data.context;
 }
 
-async function linkWorkos(identity: ChatIdentity, workspaceId: string, accessToken: string, actorId?: string) {
+async function linkWorkos(identity: ChatIdentity, workspaceId: string, accessToken: string, accountId?: string) {
   const data = await unwrap(
     api.api.context.link.post({
       platform: identity.platform,
@@ -161,7 +161,7 @@ async function linkWorkos(identity: ChatIdentity, workspaceId: string, accessTok
       provider: "workos",
       workspaceId,
       accessToken,
-      actorId,
+      accountId,
     }),
   );
   return data.context;
@@ -203,14 +203,14 @@ async function runPrompt(identity: ChatIdentity, prompt: string) {
 function contextLabel(context: {
   source: string;
   workspaceId: string;
-  actorId?: string;
+  accountId?: string;
   sessionId?: string;
   hasAccessToken: boolean;
 }) {
   return [
     `source=${context.source}`,
     `workspace=${context.workspaceId}`,
-    context.actorId ? `actor=${context.actorId}` : undefined,
+    context.accountId ? `account=${context.accountId}` : undefined,
     context.sessionId ? `session=${context.sessionId}` : undefined,
     context.hasAccessToken ? "auth=token" : "auth=session",
   ]
@@ -237,9 +237,9 @@ function createWorkosLinkModal() {
     .setRequired(true)
     .setPlaceholder("Paste MCP bearer token");
 
-  const actorInput = new TextInputBuilder()
-    .setCustomId(LINK_FIELD_ACTOR)
-    .setLabel("Actor ID (optional)")
+  const accountInput = new TextInputBuilder()
+    .setCustomId(LINK_FIELD_ACCOUNT)
+    .setLabel("Account ID (optional)")
     .setStyle(TextInputStyle.Short)
     .setRequired(false)
     .setPlaceholder("Optional override");
@@ -247,7 +247,7 @@ function createWorkosLinkModal() {
   modal.addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(workspaceInput),
     new ActionRowBuilder<TextInputBuilder>().addComponents(tokenInput),
-    new ActionRowBuilder<TextInputBuilder>().addComponents(actorInput),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(accountInput),
   );
 
   return modal;
@@ -435,8 +435,8 @@ bot.on("interactionCreate", async (interaction) => {
       const identity = identityFromUser(interaction.user.id);
       const workspaceId = interaction.fields.getTextInputValue(LINK_FIELD_WORKSPACE).trim();
       const accessToken = interaction.fields.getTextInputValue(LINK_FIELD_TOKEN).trim();
-      const actorRaw = interaction.fields.getTextInputValue(LINK_FIELD_ACTOR).trim();
-      const actorId = actorRaw.length > 0 ? actorRaw : undefined;
+      const accountRaw = interaction.fields.getTextInputValue(LINK_FIELD_ACCOUNT).trim();
+      const accountId = accountRaw.length > 0 ? accountRaw : undefined;
 
       if (!workspaceId || !accessToken) {
         await interaction.reply({
@@ -447,7 +447,7 @@ bot.on("interactionCreate", async (interaction) => {
       }
 
       await interaction.deferReply({ ephemeral: true });
-      const context = await linkWorkos(identity, workspaceId, accessToken, actorId);
+      const context = await linkWorkos(identity, workspaceId, accessToken, accountId);
       await interaction.editReply(`Linked WorkOS context: ${contextLabel(context)}`);
       return;
     }

@@ -27,7 +27,6 @@ function createMcpHandler(mode: McpEndpointMode) {
     const requestedContext = parseMcpContext(url);
 
     const hasAnonymousContextHint = isAnonymousSessionId(requestedContext?.sessionId)
-      || requestedContext?.actorId?.startsWith("anon_")
       || false;
 
     if (mode === "default" && hasAnonymousContextHint) {
@@ -50,7 +49,7 @@ function createMcpHandler(mode: McpEndpointMode) {
           }
 
           const anonymousAuthConfigured = isAnonymousAuthConfigured();
-          if (anonymousAuthConfigured && (requestedContext?.sessionId || requestedContext?.actorId)) {
+          if (anonymousAuthConfigured && (requestedContext?.sessionId || requestedContext?.accountId)) {
             return Response.json(
               {
                 error:
@@ -64,24 +63,24 @@ function createMcpHandler(mode: McpEndpointMode) {
           if (identity && isAnonymousIdentity(identity)) {
             const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForAnonymousSubject, {
               workspaceId,
-              actorId: identity.subject,
+              accountId: identity.subject,
             });
 
             context = {
               workspaceId,
-              actorId: access.actorId,
+              accountId: access.accountId,
               clientId: requestedContext?.clientId,
             };
-          } else if (!anonymousAuthConfigured && requestedContext?.actorId) {
-            // Local/test fallback: allow query-param actorId when anonymous auth isn't configured.
+          } else if (!anonymousAuthConfigured && requestedContext?.accountId) {
+            // Local/test fallback: allow query-param accountId when anonymous auth isn't configured.
             const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForAnonymousSubject, {
               workspaceId,
-              actorId: requestedContext.actorId,
+              accountId: requestedContext.accountId,
             });
 
             context = {
               workspaceId,
-              actorId: access.actorId,
+              accountId: access.accountId,
               clientId: requestedContext?.clientId,
             };
           } else {
@@ -128,7 +127,7 @@ function createMcpHandler(mode: McpEndpointMode) {
 
             context = {
               workspaceId,
-              actorId: access.actorId,
+              accountId: access.accountId,
               clientId: requestedContext?.clientId,
             };
           } else {
@@ -150,7 +149,7 @@ function createMcpHandler(mode: McpEndpointMode) {
 
             context = {
               workspaceId,
-              actorId: access.actorId,
+              accountId: access.accountId,
               clientId: requestedContext?.clientId,
               sessionId: requestedContext?.sessionId,
             };

@@ -77,7 +77,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 export interface AgentOptions {
   readonly executorUrl: string;
   readonly workspaceId: string;
-  readonly actorId?: string;
+  readonly accountId?: string;
   readonly clientId?: string;
   readonly sessionId?: string;
   readonly mcpAccessToken?: string;
@@ -152,7 +152,7 @@ export function createAgent(options: AgentOptions) {
   const {
     executorUrl,
     workspaceId,
-    actorId,
+    accountId,
     clientId,
     sessionId,
     mcpAccessToken,
@@ -196,7 +196,7 @@ export function createAgent(options: AgentOptions) {
       emit({ type: "status", message: "Connecting..." });
       const mcpUrl = new URL(`${executorBaseUrl}/mcp`);
       mcpUrl.searchParams.set("workspaceId", workspaceId);
-      if (actorId) mcpUrl.searchParams.set("actorId", actorId);
+      if (accountId) mcpUrl.searchParams.set("accountId", accountId);
       if (clientId) mcpUrl.searchParams.set("clientId", clientId);
       if (sessionId) mcpUrl.searchParams.set("sessionId", sessionId);
 

@@ -175,7 +175,7 @@ export async function resolveToolForCall(
 
   const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
     workspaceId: task.workspaceId,
-    actorId: task.actorId,
+    accountId: task.accountId,
     clientId: task.clientId,
     refreshOnStale: true,
   });

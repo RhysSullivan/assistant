@@ -178,7 +178,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const resetWorkspace = useCallback(async () => {
     clearSessionStorage();
-    clearAnonymousAuth({ clearActor: true });
+    clearAnonymousAuth({ clearAccount: true });
     setStoredSessionId(null);
     setActiveWorkspaceId(null);
     setManualGuestContext(null);

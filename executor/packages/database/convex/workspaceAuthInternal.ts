@@ -1,11 +1,11 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
 import {
-  actorIdForAccount,
   requireWorkspaceAccessForAccount,
   resolveAccountForRequest,
   resolveWorkosAccountBySubject,
 } from "../../core/src/identity";
+import type { Id } from "./_generated/dataModel.d.ts";
 
 export const getWorkspaceAccessForRequest = internalQuery({
   args: {
@@ -25,7 +25,6 @@ export const getWorkspaceAccessForRequest = internalQuery({
       accountId: account._id,
       provider: account.provider,
       providerAccountId: account.providerAccountId,
-      actorId: actorIdForAccount(account),
       role: access.workspaceMembership.role,
     };
   },
@@ -49,7 +48,6 @@ export const getWorkspaceAccessForWorkosSubject = internalQuery({
       accountId: account._id,
       provider: account.provider,
       providerAccountId: account.providerAccountId,
-      actorId: actorIdForAccount(account),
       role: access.workspaceMembership.role,
     };
   },
@@ -58,20 +56,17 @@ export const getWorkspaceAccessForWorkosSubject = internalQuery({
 export const getWorkspaceAccessForAnonymousSubject = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),
-    actorId: v.string(),
+    accountId: v.string(),
   },
   handler: async (ctx, args) => {
-    const actorId = args.actorId.trim();
-    if (!actorId.startsWith("anon_")) {
-      throw new Error("Anonymous actorId is required");
+    const accountId = args.accountId.trim();
+    if (!accountId) {
+      throw new Error("Anonymous accountId is required");
     }
 
-    const account = await ctx.db
-      .query("accounts")
-      .withIndex("by_provider", (q) => q.eq("provider", "anonymous").eq("providerAccountId", actorId))
-      .unique();
-    if (!account) {
-      throw new Error("Anonymous actor is not recognized");
+    const account = await ctx.db.get(accountId as Id<"accounts">);
+    if (!account || account.provider !== "anonymous") {
+      throw new Error("Anonymous account is not recognized");
     }
 
     const access = await requireWorkspaceAccessForAccount(ctx, args.workspaceId, account);
@@ -81,7 +76,6 @@ export const getWorkspaceAccessForAnonymousSubject = internalQuery({
       accountId: account._id,
       provider: account.provider,
       providerAccountId: account.providerAccountId,
-      actorId: actorIdForAccount(account),
       role: access.workspaceMembership.role,
     };
   },

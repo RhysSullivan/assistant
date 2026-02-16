@@ -26,7 +26,7 @@ const TOOL = {
 export const listToolsInternal = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
+    accountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()),
   },
   handler: async () => {
@@ -37,7 +37,7 @@ export const listToolsInternal = internalAction({
 export const listToolsWithWarningsInternal = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
+    accountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()),
   },
   handler: async () => {

@@ -63,6 +63,7 @@ export function DashboardView() {
             <McpSetupCard
               workspaceId={context?.workspaceId}
               sessionId={context?.sessionId}
+              accountId={context?.accountId}
             />
           </CardContent>
         </Card>
