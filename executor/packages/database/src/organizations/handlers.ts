@@ -2,6 +2,11 @@ import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
 import { getOrganizationMembership, slugify } from "../../../core/src/identity";
 import { ensureUniqueSlug } from "../../../core/src/slug";
+import {
+  mapOrganizationRoleToWorkspaceRole,
+  upsertOrganizationMembership,
+} from "../auth/memberships";
+import { seedWorkspaceMembersFromOrganization } from "../auth/workspace_membership_projection";
 
 type WorkspaceSummary = {
   id: Id<"workspaces">;
@@ -64,15 +69,13 @@ export async function createOrganizationHandler(ctx: unknown, args: { name: stri
     updatedAt: now,
   });
 
-  await typedCtx.db.insert("organizationMembers", {
+  await upsertOrganizationMembership(typedCtx, {
     organizationId,
     accountId: account._id,
     role: "owner",
     status: "active",
     billable: true,
-    joinedAt: now,
-    createdAt: now,
-    updatedAt: now,
+    now,
   });
 
   const workspaceId = await typedCtx.db.insert("workspaces", {
@@ -82,6 +85,13 @@ export async function createOrganizationHandler(ctx: unknown, args: { name: stri
     createdByAccountId: account._id,
     createdAt: now,
     updatedAt: now,
+  });
+
+  await seedWorkspaceMembersFromOrganization(typedCtx, {
+    organizationId,
+    workspaceId,
+    now,
+    mapRole: mapOrganizationRoleToWorkspaceRole,
   });
 
   const organization = await typedCtx.db.get(organizationId);

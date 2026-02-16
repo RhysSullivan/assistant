@@ -1,6 +1,10 @@
 import { WorkOS } from "@workos-inc/node";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import type { ActionCtx } from "../../convex/_generated/server";
+import {
+  assertMatchesCanonicalActorId,
+  canonicalActorIdForWorkspaceAccess,
+} from "../auth/actor_identity";
 import { asRecord } from "../lib/object";
 
 type Internal = typeof import("../../convex/_generated/api").internal;
@@ -170,12 +174,9 @@ export async function upsertCredentialHandler(
     workspaceId: args.workspaceId,
     sessionId: args.sessionId,
   });
-  const canonicalActorId = access.provider === "anonymous"
-    ? access.providerAccountId
-    : access.accountId;
-
-  if (args.scope === "actor" && args.actorId && args.actorId !== canonicalActorId) {
-    throw new Error("actorId must match the authenticated workspace actor");
+  const canonicalActorId = canonicalActorIdForWorkspaceAccess(access);
+  if (args.scope === "actor") {
+    assertMatchesCanonicalActorId(args.actorId, canonicalActorId);
   }
 
   const actorId = normalizedActorId(args.scope, args.actorId ?? canonicalActorId);

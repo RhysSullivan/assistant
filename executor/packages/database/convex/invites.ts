@@ -13,6 +13,7 @@ import {
   workosEnabled,
 } from "../src/invites/workos";
 import { normalizePersonalOrganizationName } from "../src/invites/normalize";
+import { safeRunAfter } from "../src/lib/scheduler";
 
 const organizationRoleValidator = v.union(
   v.literal("owner"),
@@ -99,7 +100,7 @@ export const create = organizationMutation({
       updatedAt: now,
     });
 
-    await ctx.scheduler.runAfter(0, internal.invites.deliverWorkosInvite, {
+    await safeRunAfter(ctx.scheduler, 0, internal.invites.deliverWorkosInvite, {
       inviteId,
       inviterWorkosUserId,
       expiresInDays: args.expiresInDays,
@@ -216,7 +217,7 @@ export const revoke = organizationMutation({
     });
 
     if (invite.providerInviteId) {
-      await ctx.scheduler.runAfter(0, internal.invites.revokeWorkosInvite, {
+      await safeRunAfter(ctx.scheduler, 0, internal.invites.revokeWorkosInvite, {
         inviteId: invite._id as Id<"invites">,
         providerInviteId: String(invite.providerInviteId),
       });

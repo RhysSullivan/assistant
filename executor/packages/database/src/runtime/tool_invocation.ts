@@ -21,7 +21,7 @@ import { publishTaskEvent } from "./events";
 import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecycle";
 import { assertPersistedCallRunnable, resolveCredentialHeaders } from "./tool_call_credentials";
 import { getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
-import { sourceSignature } from "./tool_source_loading";
+import { getReadyRegistryBuildId } from "./tool_registry_state";
 
 function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
@@ -62,19 +62,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
   // Fast system tools are handled server-side from the registry.
   if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools") {
     const toolRegistry = internal.toolRegistry;
-    const [state, sources] = await Promise.all([
-      ctx.runQuery(toolRegistry.getState, { workspaceId: task.workspaceId }) as Promise<null | { signature: string; readyBuildId?: string }>,
-      ctx.runQuery(internal.database.listToolSources, { workspaceId: task.workspaceId }) as Promise<Array<{ id: string; updatedAt: number; enabled: boolean }>>,
-    ]);
-    const enabledSources = sources.filter((source) => source.enabled);
-    const signature = sourceSignature(task.workspaceId, enabledSources);
-    const expectedSignature = `toolreg_v2|${signature}`;
-    const buildId = state?.readyBuildId;
-    if (!buildId || state.signature !== expectedSignature) {
-      throw new Error(
-        "Tool registry is not ready (or is stale). Open Tools to refresh, or call listToolsWithWarnings to rebuild.",
-      );
-    }
+    const buildId = await getReadyRegistryBuildId(ctx, {
+      workspaceId: task.workspaceId,
+      actorId: task.actorId,
+      clientId: task.clientId,
+      refreshOnStale: true,
+    });
 
     const payload = typeof input === "string"
       ? { query: input }

@@ -194,21 +194,18 @@ export default defineSchema({
   //
   // Primary access patterns:
   // - Resolve by organization.
-  // - (Potential/expected) resolve by Stripe customer id in webhook reconciliation.
   billingCustomers: defineTable({
     organizationId: v.id("organizations"),
     stripeCustomerId: v.string(), // external Stripe customer ID
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_org", ["organizationId"])
-    .index("by_stripe_customer_id", ["stripeCustomerId"]),
+    .index("by_org", ["organizationId"]),
 
   // Stripe subscription state for an organization.
   //
   // Primary access patterns:
   // - List subscriptions for an org.
-  // - (Potential/expected) resolve by subscription id and filter by status.
   billingSubscriptions: defineTable({
     organizationId: v.id("organizations"),
     stripeSubscriptionId: v.string(), // external Stripe subscription ID
@@ -221,9 +218,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_org", ["organizationId"])
-    .index("by_org_status", ["organizationId", "status"])
-    .index("by_stripe_subscription_id", ["stripeSubscriptionId"]),
+    .index("by_org", ["organizationId"]),
 
   // Seat syncing bookkeeping (eg Stripe per-seat quantity).
   // Stored separately from subscription records so sync logic can be retried/idempotent.
@@ -294,7 +289,6 @@ export default defineSchema({
   // Primary access patterns:
   // - Get a specific call by (taskId, callId).
   // - List calls for a task ordered by creation time.
-  // - (Potential/expected) resolve via approval id to tie approvals to tool call rows.
   toolCalls: defineTable({
     taskId: v.string(),
     callId: v.string(),
@@ -309,8 +303,7 @@ export default defineSchema({
   })
     .index("by_task_call", ["taskId", "callId"])
     .index("by_task_created", ["taskId", "createdAt"])
-    .index("by_workspace_created", ["workspaceId", "createdAt"])
-    .index("by_approval_id", ["approvalId"]),
+    .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
   // Append-only event log for a task.
   // `sequence` is monotonically increasing per task (used for ordered replay).
@@ -482,8 +475,7 @@ export default defineSchema({
     samplePaths: v.array(v.string()),
     createdAt: v.number(),
   })
-    .index("by_workspace_build", ["workspaceId", "buildId"])
-    .index("by_workspace_build_namespace", ["workspaceId", "buildId", "namespace"]),
+    .index("by_workspace_build", ["workspaceId", "buildId"]),
 
   // Anonymous session linkage.
   // Used to map an unauthenticated/anonymous actor to a backing `accounts` row and a

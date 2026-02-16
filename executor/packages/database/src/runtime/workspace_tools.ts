@@ -23,6 +23,7 @@ import type {
 } from "../../../core/src/types";
 import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_descriptors";
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
+import { registrySignatureForWorkspace } from "./tool_registry_state";
 import { normalizeToolPathForLookup } from "./tool_paths";
 
 const baseTools = new Map<string, ToolDefinition>();
@@ -516,7 +517,7 @@ export async function getWorkspaceTools(
   traceStep("listToolSources", listSourcesStartedAt);
   const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
-  const registrySignature = `toolreg_v2|${signature}`;
+  const registrySignature = registrySignatureForWorkspace(workspaceId, sources);
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
       includeDts,
       sourceTimeoutMs: sourceTimeoutMs ?? null,

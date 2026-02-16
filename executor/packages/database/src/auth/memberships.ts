@@ -1,13 +1,12 @@
-import type { Doc } from "../../convex/_generated/dataModel.d.ts";
 import type {
   AccountId,
   DbCtx,
   OrganizationId,
   OrganizationMemberStatus,
   OrganizationRole,
-  WorkspaceId,
   WorkspaceMemberRole,
 } from "./types";
+import { projectOrganizationMembershipToWorkspaceMembers } from "./workspace_membership_projection";
 
 export function mapOrganizationRoleToWorkspaceRole(role: OrganizationRole): WorkspaceMemberRole {
   if (role === "owner") {
@@ -28,13 +27,14 @@ export async function upsertOrganizationMembership(
     status: OrganizationMemberStatus;
     billable: boolean;
     invitedByAccountId?: AccountId;
+    workosOrgMembershipId?: string;
     now: number;
   },
 ) {
   const existing = await ctx.db
     .query("organizationMembers")
     .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
-    .unique();
+    .first();
 
   if (existing) {
     await ctx.db.patch(existing._id, {
@@ -42,56 +42,32 @@ export async function upsertOrganizationMembership(
       status: args.status,
       billable: args.billable,
       invitedByAccountId: args.invitedByAccountId,
+      workosOrgMembershipId: args.workosOrgMembershipId,
       joinedAt: args.status === "active" ? (existing.joinedAt ?? args.now) : existing.joinedAt,
       updatedAt: args.now,
     });
-    return;
+  } else {
+    await ctx.db.insert("organizationMembers", {
+      organizationId: args.organizationId,
+      accountId: args.accountId,
+      role: args.role,
+      status: args.status,
+      billable: args.billable,
+      invitedByAccountId: args.invitedByAccountId,
+      workosOrgMembershipId: args.workosOrgMembershipId,
+      joinedAt: args.status === "active" ? args.now : undefined,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
   }
 
-  await ctx.db.insert("organizationMembers", {
+  await projectOrganizationMembershipToWorkspaceMembers(ctx, {
     organizationId: args.organizationId,
     accountId: args.accountId,
-    role: args.role,
+    role: mapOrganizationRoleToWorkspaceRole(args.role),
     status: args.status,
-    billable: args.billable,
-    invitedByAccountId: args.invitedByAccountId,
-    joinedAt: args.status === "active" ? args.now : undefined,
-    createdAt: args.now,
-    updatedAt: args.now,
-  });
-}
-
-export async function ensureWorkspaceMembership(
-  ctx: DbCtx,
-  args: {
-    workspaceId: WorkspaceId;
-    accountId: AccountId;
-    role: WorkspaceMemberRole;
-    now: number;
-  },
-) {
-  const existing = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", args.workspaceId).eq("accountId", args.accountId))
-    .unique();
-
-  if (existing) {
-    if (existing.status === "active") {
-      await ctx.db.patch(existing._id, {
-        role: args.role,
-        updatedAt: args.now,
-      });
-    }
-    return;
-  }
-
-  await ctx.db.insert("workspaceMembers", {
-    workspaceId: args.workspaceId,
-    accountId: args.accountId,
-    role: args.role,
-    status: "active",
-    createdAt: args.now,
-    updatedAt: args.now,
+    now: args.now,
+    workosOrgMembershipId: args.workosOrgMembershipId,
   });
 }
 
@@ -122,10 +98,6 @@ export async function markPendingInvitesAcceptedByEmail(
       updatedAt: args.acceptedAt,
     });
   }
-}
-
-export function deriveWorkspaceMembershipRole(workosRoleSlug?: string): Doc<"workspaceMembers">["role"] {
-  return workosRoleSlug === "admin" ? "admin" : "member";
 }
 
 export function deriveOrganizationMembershipState(status?: string): OrganizationMemberStatus {

@@ -3,6 +3,10 @@ import type { ActionCtx, MutationCtx } from "../../convex/_generated/server";
 import { actorIdForAccount } from "../../../core/src/identity";
 import { defaultRuntimeId, isKnownRuntimeId, isRuntimeEnabled } from "../../../core/src/runtimes/runtime-catalog";
 import type { ApprovalRecord, TaskExecutionOutcome, TaskRecord } from "../../../core/src/types";
+import {
+  assertMatchesCanonicalActorId,
+  canonicalActorIdForWorkspaceAccess,
+} from "../auth/actor_identity";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
 import { createTaskEvent } from "../task/events";
 import { markTaskFinished } from "../task/finish";
@@ -164,15 +168,8 @@ export async function createTaskHandler(
     sessionId: args.sessionId,
   });
 
-  const canonicalActorId = actorIdForAccount({
-    _id: access.accountId,
-    provider: access.provider,
-    providerAccountId: access.providerAccountId,
-  });
-
-  if (args.actorId && args.actorId !== canonicalActorId) {
-    throw new Error("actorId must match the authenticated workspace actor");
-  }
+  const canonicalActorId = canonicalActorIdForWorkspaceAccess(access);
+  assertMatchesCanonicalActorId(args.actorId, canonicalActorId);
 
   const waitForResult = args.waitForResult ?? false;
   const created = await ctx.runMutation(internal.executor.createTaskInternal, {
@@ -243,9 +240,7 @@ export async function resolveApprovalHandler(
   };
 
   const canonicalActorId = actorIdForAccount(typedCtx.account);
-  if (args.reviewerId && args.reviewerId !== canonicalActorId) {
-    throw new Error("reviewerId must match the authenticated workspace actor");
-  }
+  assertMatchesCanonicalActorId(args.reviewerId, canonicalActorId, "reviewerId");
 
   return await resolveApprovalRecord(typedCtx, internal, {
     ...args,

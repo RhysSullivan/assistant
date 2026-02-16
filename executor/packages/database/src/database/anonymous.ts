@@ -2,9 +2,7 @@ import type { Doc } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx } from "../../convex/_generated/server";
 import { slugify } from "../../../core/src/identity";
 import { ensureUniqueSlug } from "../../../core/src/slug";
-
-type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
-type OrganizationMemberStatus = "active" | "pending" | "removed";
+import { upsertOrganizationMembership } from "../auth/memberships";
 
 async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName, "workspace");
@@ -17,44 +15,6 @@ async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseNa
   });
 }
 
-async function upsertOrganizationMembership(
-  ctx: Pick<MutationCtx, "db">,
-  args: {
-    organizationId: Doc<"organizations">["_id"];
-    accountId: Doc<"accounts">["_id"];
-    role: OrganizationRole;
-    status: OrganizationMemberStatus;
-    billable: boolean;
-    now: number;
-  },
-) {
-  const existing = await ctx.db
-    .query("organizationMembers")
-    .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
-    .unique();
-
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      role: args.role,
-      status: args.status,
-      billable: args.billable,
-      joinedAt: args.status === "active" ? (existing.joinedAt ?? args.now) : existing.joinedAt,
-      updatedAt: args.now,
-    });
-    return;
-  }
-
-  await ctx.db.insert("organizationMembers", {
-    organizationId: args.organizationId,
-    accountId: args.accountId,
-    role: args.role,
-    status: args.status,
-    billable: args.billable,
-    joinedAt: args.status === "active" ? args.now : undefined,
-    createdAt: args.now,
-    updatedAt: args.now,
-  });
-}
 
 export async function ensureAnonymousIdentity(
   ctx: MutationCtx,
@@ -136,7 +96,7 @@ export async function ensureAnonymousIdentity(
   let user = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
-    .unique();
+    .first();
 
   if (!user) {
     const userId = await ctx.db.insert("workspaceMembers", {

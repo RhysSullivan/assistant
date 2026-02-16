@@ -20,6 +20,7 @@ import type {
   PreparedOpenApiSpec,
 } from "../../../core/src/tool/source-types";
 import type { ToolSourceRecord } from "../../../core/src/types";
+import { normalizeToolSourceConfig } from "../database/tool_source_config";
 import { asPayload } from "../lib/object";
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
@@ -40,40 +41,15 @@ export function normalizeExternalToolSource(raw: {
   name: string;
   config: Record<string, unknown>;
 }): ExternalToolSourceConfig {
-  const config = raw.config;
+  const config = normalizeToolSourceConfig(raw.type, raw.config);
 
   if (raw.type === "mcp") {
-    if (typeof config.url !== "string" || config.url.trim().length === 0) {
-      throw new Error(`MCP source '${raw.name}' missing url`);
-    }
-
-    if (
-      config.transport !== undefined
-      && config.transport !== "sse"
-      && config.transport !== "streamable-http"
-    ) {
-      throw new Error(`MCP source '${raw.name}' has invalid transport`);
-    }
-
-    if (config.queryParams !== undefined) {
-      const queryParams = config.queryParams;
-      if (!queryParams || typeof queryParams !== "object" || Array.isArray(queryParams)) {
-        throw new Error(`MCP source '${raw.name}' queryParams must be an object`);
-      }
-
-      for (const value of Object.values(queryParams as Record<string, unknown>)) {
-        if (typeof value !== "string") {
-          throw new Error(`MCP source '${raw.name}' queryParams values must be strings`);
-        }
-      }
-    }
-
     const result: McpToolSourceConfig = {
       type: "mcp",
       name: raw.name,
       sourceId: raw.id,
       sourceKey: `source:${raw.id}`,
-      url: config.url,
+      url: String(config.url),
       auth: config.auth as McpToolSourceConfig["auth"],
       transport: config.transport as McpToolSourceConfig["transport"],
       queryParams: config.queryParams as McpToolSourceConfig["queryParams"],
@@ -84,16 +60,12 @@ export function normalizeExternalToolSource(raw: {
   }
 
   if (raw.type === "graphql") {
-    if (typeof config.endpoint !== "string" || config.endpoint.trim().length === 0) {
-      throw new Error(`GraphQL source '${raw.name}' missing endpoint`);
-    }
-
     const result: GraphqlToolSourceConfig = {
       type: "graphql",
       name: raw.name,
       sourceId: raw.id,
       sourceKey: `source:${raw.id}`,
-      endpoint: config.endpoint,
+      endpoint: String(config.endpoint),
       schema: config.schema as GraphqlToolSourceConfig["schema"],
       auth: config.auth as GraphqlToolSourceConfig["auth"],
       defaultQueryApproval: config.defaultQueryApproval as GraphqlToolSourceConfig["defaultQueryApproval"],
@@ -103,17 +75,12 @@ export function normalizeExternalToolSource(raw: {
     return result;
   }
 
-  const spec = config.spec;
-  if (typeof spec !== "string" && (typeof spec !== "object" || spec === null)) {
-    throw new Error(`OpenAPI source '${raw.name}' missing spec`);
-  }
-
   const result: OpenApiToolSourceConfig = {
     type: "openapi",
     name: raw.name,
     sourceId: raw.id,
     sourceKey: `source:${raw.id}`,
-    spec: spec as OpenApiToolSourceConfig["spec"],
+    spec: config.spec as OpenApiToolSourceConfig["spec"],
     baseUrl: config.baseUrl as OpenApiToolSourceConfig["baseUrl"],
     auth: config.auth as OpenApiToolSourceConfig["auth"],
     defaultReadApproval: config.defaultReadApproval as OpenApiToolSourceConfig["defaultReadApproval"],

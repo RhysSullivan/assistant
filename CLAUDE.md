@@ -33,13 +33,16 @@ Run from repo root unless noted.
 
 ### Main quality commands
 
-- `bun run test` - runs executor + assistant test suites.
+- `bun run test` - runs executor fast suite + assistant tests.
 - `bun run typecheck` - runs executor + assistant TypeScript checks.
 - `bun run knip` - dead-code/unused-export scan.
 
 ### Package-specific quality commands
 
-- `bun run test:executor` - `bun test --cwd executor`.
+- `bun run test:executor` - executor fast/normal tests (`bun run --cwd executor test`).
+- `bun run test:executor:integration` - executor integration tests (`bun run --cwd executor test:integration`).
+- `bun run test:executor:e2e` - executor e2e tests (`bun run --cwd executor test:e2e`).
+- `bun run test:executor:all` - all executor tests (`bun run --cwd executor test:all`).
 - `bun run test:assistant` - assistant tests (`assistant/packages/core/src`).
 - `bun run typecheck:executor` - `tsc --noEmit -p executor/tsconfig.json`.
 - `bun run typecheck:assistant` - checks server + bot tsconfig files.
@@ -135,8 +138,17 @@ Run from repo root unless noted.
 
 - Use `bun:test` (`import { test, expect } from "bun:test"`).
 - Keep tests close to code with `.test.ts` / `.e2e.test.ts` naming.
+- Keep scheduler behavior test-safe by default; do not require `DISABLE_CONVEX_SCHEDULER=1` to run the normal fast suite.
 - When changing Convex auth/access logic, add/adjust permission tests in `executor/packages/convex/access-controls.test.ts`.
 - When changing tool discovery/typing behavior, update tests in `executor/packages/core/src/*.test.ts`.
+
+## User Preferences (Observed)
+
+- Preserve local/cloud parity: prefer the same architecture and runtime behavior in both environments.
+- Reduce complexity by enforcing write-time invariants over read-time repair (`ensure*` backfills should be minimal and clearly scoped).
+- For greenfield iterations, prefer clearing/resetting the DB over adding one-off migrations.
+- Keep default feedback loops fast: split tests into fast, integration, and e2e buckets and make fast the default.
+- Favor practical simplification over theoretical abstractions when refactoring data models and auth flows.
 
 ## Generated/Build Artifacts
 

@@ -1,10 +1,34 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel.d.ts";
 import schema from "./schema";
+
+let previousAnonymousAuthPrivateKeyPem: string | undefined;
+let previousAnonymousAuthPublicKeyPem: string | undefined;
+
+beforeAll(() => {
+  previousAnonymousAuthPrivateKeyPem = process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
+  previousAnonymousAuthPublicKeyPem = process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM;
+  delete process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
+  delete process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM;
+});
+
+afterAll(() => {
+  if (previousAnonymousAuthPrivateKeyPem === undefined) {
+    delete process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
+  } else {
+    process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM = previousAnonymousAuthPrivateKeyPem;
+  }
+
+  if (previousAnonymousAuthPublicKeyPem === undefined) {
+    delete process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM;
+  } else {
+    process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM = previousAnonymousAuthPublicKeyPem;
+  }
+});
 
 function setup() {
   return convexTest(schema, {

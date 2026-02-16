@@ -1,4 +1,3 @@
-import { Result } from "better-result";
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
 import { executePostmanRequest, type PostmanSerializedRunSpec } from "../postman-runtime";
 import { normalizeGraphqlFieldVariables, selectGraphqlFieldEnvelope } from "../graphql/field-tools";
@@ -129,7 +128,11 @@ export function rehydrateTools(
       return {
         ...base,
         run: async (input: unknown, context) => {
-          return await executeOpenApiRequest(runSpec, input, context.credential?.headers);
+          const response = await executeOpenApiRequest(runSpec, input, context.credential?.headers);
+          if (response.isErr()) {
+            throw new Error(response.error.message);
+          }
+          return response.value;
         },
       };
     }
@@ -193,7 +196,11 @@ export function rehydrateTools(
             throw new Error("GraphQL query string is required");
           }
           const variables = payload.variables;
-          return await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
+          const response = await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
+          if (response.isErr()) {
+            throw new Error(response.error.message);
+          }
+          return response.value;
         },
       };
     }
@@ -220,10 +227,10 @@ export function rehydrateTools(
             context.credential?.headers,
           );
           if (envelopeResult.isErr()) {
-            return envelopeResult;
+            throw new Error(envelopeResult.error.message);
           }
 
-          return Result.ok(selectGraphqlFieldEnvelope(envelopeResult.value, operationName));
+          return selectGraphqlFieldEnvelope(envelopeResult.value, operationName);
         },
       };
     }

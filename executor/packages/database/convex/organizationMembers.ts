@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { getOrganizationMembership } from "../../core/src/identity";
 import { organizationMutation, organizationQuery } from "../../core/src/function-builders";
+import { upsertOrganizationMembership } from "../src/auth/memberships";
+import { safeRunAfter } from "../src/lib/scheduler";
 
 const organizationRoleValidator = v.union(
   v.literal("owner"),
@@ -52,9 +54,15 @@ export const updateRole = organizationMutation({
       throw new Error("Organization member not found");
     }
 
-    await ctx.db.patch(membership._id, {
+    await upsertOrganizationMembership(ctx, {
+      organizationId: ctx.organizationId,
+      accountId: args.accountId,
       role: args.role,
-      updatedAt: Date.now(),
+      status: membership.status,
+      billable: membership.billable,
+      invitedByAccountId: membership.invitedByAccountId,
+      workosOrgMembershipId: membership.workosOrgMembershipId,
+      now: Date.now(),
     });
 
     return { ok: true };
@@ -81,7 +89,7 @@ export const updateBillable = organizationMutation({
     const nextVersion = await ctx.runMutation(internal.billingInternal.bumpSeatSyncVersion, {
       organizationId: ctx.organizationId,
     });
-    await ctx.scheduler.runAfter(0, internal.billingSync.syncSeatQuantity, {
+    await safeRunAfter(ctx.scheduler, 0, internal.billingSync.syncSeatQuantity, {
       organizationId: ctx.organizationId,
       expectedVersion: nextVersion,
     });
@@ -101,15 +109,21 @@ export const remove = organizationMutation({
       throw new Error("Organization member not found");
     }
 
-    await ctx.db.patch(membership._id, {
+    await upsertOrganizationMembership(ctx, {
+      organizationId: ctx.organizationId,
+      accountId: args.accountId,
+      role: membership.role,
       status: "removed",
-      updatedAt: Date.now(),
+      billable: false,
+      invitedByAccountId: membership.invitedByAccountId,
+      workosOrgMembershipId: membership.workosOrgMembershipId,
+      now: Date.now(),
     });
 
     const nextVersion = await ctx.runMutation(internal.billingInternal.bumpSeatSyncVersion, {
       organizationId: ctx.organizationId,
     });
-    await ctx.scheduler.runAfter(0, internal.billingSync.syncSeatQuantity, {
+    await safeRunAfter(ctx.scheduler, 0, internal.billingSync.syncSeatQuantity, {
       organizationId: ctx.organizationId,
       expectedVersion: nextVersion,
     });

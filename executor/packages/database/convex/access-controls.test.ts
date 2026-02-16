@@ -116,7 +116,7 @@ async function addOrgMember(
 ) {
   const now = Date.now();
   return await t.run(async (ctx) => {
-    return await ctx.db.insert("organizationMembers", {
+    const membershipId = await ctx.db.insert("organizationMembers", {
       organizationId: opts.organizationId,
       accountId: opts.accountId,
       role: opts.role,
@@ -126,6 +126,38 @@ async function addOrgMember(
       createdAt: now,
       updatedAt: now,
     });
+
+    const role = opts.role === "owner" || opts.role === "admin" ? opts.role : "member";
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_organization_created", (q) => q.eq("organizationId", opts.organizationId))
+      .collect();
+
+    for (const workspace of workspaces) {
+      const existing = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", opts.accountId))
+        .first();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          role,
+          status: opts.status ?? "active",
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.insert("workspaceMembers", {
+          workspaceId: workspace._id,
+          accountId: opts.accountId,
+          role,
+          status: opts.status ?? "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
+    return membershipId;
   });
 }
 
@@ -143,6 +175,20 @@ async function addWorkspaceMember(
 ) {
   const now = Date.now();
   return await t.run(async (ctx) => {
+    const existing = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_account", (q) => q.eq("workspaceId", opts.workspaceId).eq("accountId", opts.accountId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        role: opts.role,
+        status: opts.status ?? "active",
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+
     return await ctx.db.insert("workspaceMembers", {
       workspaceId: opts.workspaceId,
       accountId: opts.accountId,
@@ -262,7 +308,7 @@ describe("workspace access controls", () => {
     expect(tasks).toEqual([]);
   });
 
-  test("org member without explicit workspace membership can read tasks", async () => {
+  test("org membership projection grants workspace read access", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "ws-owner-org-fallback" });
     const member = await seedUser(t, { subject: "ws-member-org-fallback" });

@@ -3,7 +3,10 @@
 import type { ActionCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { internal } from "../../convex/_generated/api";
-import { actorIdForAccount } from "../../../core/src/identity";
+import {
+  assertMatchesCanonicalActorId,
+  canonicalActorIdForWorkspaceAccess,
+} from "../auth/actor_identity";
 
 export async function requireCanonicalActor(
   ctx: ActionCtx,
@@ -17,13 +20,7 @@ export async function requireCanonicalActor(
     workspaceId: args.workspaceId,
     sessionId: args.sessionId,
   });
-  const canonicalActorId = actorIdForAccount({
-    _id: access.accountId,
-    provider: access.provider,
-    providerAccountId: access.providerAccountId,
-  });
-  if (args.actorId && args.actorId !== canonicalActorId) {
-    throw new Error("actorId must match the authenticated workspace actor");
-  }
+  const canonicalActorId = canonicalActorIdForWorkspaceAccess(access);
+  assertMatchesCanonicalActorId(args.actorId, canonicalActorId);
   return canonicalActorId;
 }

@@ -5,8 +5,8 @@ import {
   mapSource,
   normalizeSourceAuthFingerprint,
 } from "../../src/database/mappers";
+import { normalizeToolSourceConfig } from "../../src/database/tool_source_config";
 import { toolSourceTypeValidator } from "../../src/database/validators";
-import { asRecord } from "../../src/lib/object";
 
 export const upsertToolSource = internalMutation({
   args: {
@@ -20,7 +20,7 @@ export const upsertToolSource = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
-    const config = asRecord(args.config);
+    const config = normalizeToolSourceConfig(args.type, args.config);
     const specHash = computeSourceSpecHash(args.type, config);
     const authFingerprint = normalizeSourceAuthFingerprint(config.auth);
     const [existing, conflict] = await Promise.all([

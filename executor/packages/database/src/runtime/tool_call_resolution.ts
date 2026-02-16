@@ -6,9 +6,9 @@ import { parseGraphqlOperationPaths } from "../../../core/src/graphql/operation-
 import type { AccessPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../../core/src/types";
 import { rehydrateTools, type SerializedTool } from "../../../core/src/tool/source-serialization";
 import { getDecisionForContext, getToolDecision } from "./policy";
+import { getReadyRegistryBuildId } from "./tool_registry_state";
 import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
 import { baseTools } from "./workspace_tools";
-import { sourceSignature } from "./tool_source_loading";
 
 export function getGraphqlDecision(
   task: TaskRecord,
@@ -66,29 +66,6 @@ export function getGraphqlDecision(
   return { decision: worstDecision, effectivePaths: fieldPaths };
 }
 
-async function resolveRegistryBuildId(
-  ctx: ActionCtx,
-  workspaceId: TaskRecord["workspaceId"],
-): Promise<string> {
-  const [state, sources] = await Promise.all([
-    ctx.runQuery(internal.toolRegistry.getState, { workspaceId }) as Promise<null | { signature: string; readyBuildId?: string }>,
-    ctx.runQuery(internal.database.listToolSources, { workspaceId }) as Promise<Array<{ id: string; updatedAt: number; enabled: boolean }>>,
-  ]);
-
-  const enabledSources = sources.filter((source) => source.enabled);
-  const signature = sourceSignature(workspaceId, enabledSources);
-  const expectedSignature = `toolreg_v2|${signature}`;
-  const buildId = state?.readyBuildId;
-
-  if (!buildId || state.signature !== expectedSignature) {
-    throw new Error(
-      "Tool registry is not ready (or is stale). Open Tools to refresh, or call listToolsWithWarnings to rebuild.",
-    );
-  }
-
-  return buildId;
-}
-
 async function suggestFromRegistry(
   ctx: ActionCtx,
   workspaceId: TaskRecord["workspaceId"],
@@ -127,7 +104,12 @@ export async function resolveToolForCall(
     return { tool: builtin, resolvedToolPath: toolPath };
   }
 
-  const buildId = await resolveRegistryBuildId(ctx, task.workspaceId);
+  const buildId = await getReadyRegistryBuildId(ctx, {
+    workspaceId: task.workspaceId,
+    actorId: task.actorId,
+    clientId: task.clientId,
+    refreshOnStale: true,
+  });
 
   let resolvedToolPath = toolPath;
   let entry = await ctx.runQuery(internal.toolRegistry.getToolByPath, {

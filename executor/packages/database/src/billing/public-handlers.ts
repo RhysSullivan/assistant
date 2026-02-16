@@ -2,6 +2,7 @@ import type { StripeSubscriptions } from "@convex-dev/stripe";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../../convex/_generated/server";
 import { canManageBilling, isAdminRole } from "../../../core/src/identity";
+import { safeRunAfter } from "../lib/scheduler";
 
 type Internal = typeof import("../../convex/_generated/api").internal;
 type Components = typeof import("../../convex/_generated/api").components;
@@ -209,7 +210,7 @@ export async function retrySeatSyncHandler(
     organizationId: typedCtx.organizationId,
   });
 
-  await typedCtx.scheduler.runAfter(0, internal.billingSync.syncSeatQuantity, {
+  await safeRunAfter(typedCtx.scheduler, 0, internal.billingSync.syncSeatQuantity, {
     organizationId: typedCtx.organizationId,
     expectedVersion: nextVersion,
   });

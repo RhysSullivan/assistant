@@ -2,6 +2,11 @@ import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
 import { getOrganizationMembership, slugify } from "../../../core/src/identity";
 import { ensureUniqueSlug } from "../../../core/src/slug";
+import {
+  mapOrganizationRoleToWorkspaceRole,
+  upsertOrganizationMembership,
+} from "../auth/memberships";
+import { seedWorkspaceMembersFromOrganization } from "../auth/workspace_membership_projection";
 
 type WorkspaceResult = {
   id: Id<"workspaces">;
@@ -175,15 +180,13 @@ export async function createWorkspaceHandler(
       updatedAt: now,
     });
 
-    await typedCtx.db.insert("organizationMembers", {
+    await upsertOrganizationMembership(typedCtx, {
       organizationId,
       accountId: account._id,
       role: "owner",
       status: "active",
       billable: true,
-      joinedAt: now,
-      createdAt: now,
-      updatedAt: now,
+      now,
     });
   }
 
@@ -208,6 +211,13 @@ export async function createWorkspaceHandler(
   if (!workspace) {
     throw new Error("Failed to create workspace");
   }
+
+  await seedWorkspaceMembersFromOrganization(typedCtx, {
+    organizationId,
+    workspaceId,
+    now,
+    mapRole: mapOrganizationRoleToWorkspaceRole,
+  });
 
   await cleanupEmptyStarterWorkspace(typedCtx, organizationId, workspaceId);
 

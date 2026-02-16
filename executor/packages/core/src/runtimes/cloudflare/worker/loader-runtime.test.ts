@@ -3,6 +3,7 @@ import { dispatchCodeWithCloudflareWorkerLoader } from "./loader-runtime";
 
 let fakeHostServer: ReturnType<typeof Bun.serve>;
 let fakeCallbackServer: ReturnType<typeof Bun.serve>;
+let previousConvexUrl: string | undefined;
 
 const AUTH_TOKEN = "test-sandbox-token";
 const CALLBACK_TOKEN = "test-callback-token";
@@ -19,6 +20,8 @@ type HostRequestBody = {
 let lastHostRequestBody: HostRequestBody | null = null;
 
 beforeAll(() => {
+  previousConvexUrl = process.env.CONVEX_URL;
+
   fakeCallbackServer = Bun.serve({
     port: 0,
     fetch: () => Response.json({ ok: true }),
@@ -44,6 +47,7 @@ beforeAll(() => {
 
   process.env.CLOUDFLARE_SANDBOX_RUN_URL = `http://127.0.0.1:${fakeHostServer.port}/v1/runs`;
   process.env.CLOUDFLARE_SANDBOX_AUTH_TOKEN = AUTH_TOKEN;
+  delete process.env.CONVEX_URL;
   process.env.CONVEX_SITE_URL = `http://127.0.0.1:${fakeCallbackServer.port}`;
   process.env.EXECUTOR_INTERNAL_TOKEN = CALLBACK_TOKEN;
   process.env.CLOUDFLARE_SANDBOX_REQUEST_TIMEOUT_MS = "10000";
@@ -54,6 +58,11 @@ afterAll(() => {
   fakeCallbackServer?.stop(true);
   delete process.env.CLOUDFLARE_SANDBOX_RUN_URL;
   delete process.env.CLOUDFLARE_SANDBOX_AUTH_TOKEN;
+  if (previousConvexUrl === undefined) {
+    delete process.env.CONVEX_URL;
+  } else {
+    process.env.CONVEX_URL = previousConvexUrl;
+  }
   delete process.env.CONVEX_SITE_URL;
   delete process.env.EXECUTOR_INTERNAL_TOKEN;
   delete process.env.CLOUDFLARE_SANDBOX_REQUEST_TIMEOUT_MS;
