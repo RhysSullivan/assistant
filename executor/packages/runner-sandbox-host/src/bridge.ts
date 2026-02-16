@@ -2,7 +2,6 @@ import { Result } from "better-result";
 import { api } from "@executor/database/convex/_generated/api";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import type {
-  BridgeEntrypointContext,
   BridgeProps,
   ToolCallResult,
   WorkerEntrypointExports,
@@ -10,9 +9,15 @@ import type {
 
 const APPROVAL_SUBSCRIPTION_TIMEOUT_MS = 10 * 60 * 1000;
 
+function asObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
 function isBridgeProps(value: unknown): value is BridgeProps {
-  if (!value || typeof value !== "object") return false;
-  const props = value as Partial<BridgeProps>;
+  const props = asObject(value);
   return (
     typeof props.callbackConvexUrl === "string"
     && typeof props.callbackInternalSecret === "string"
@@ -20,33 +25,46 @@ function isBridgeProps(value: unknown): value is BridgeProps {
   );
 }
 
+function isToolCallResult(value: unknown): value is ToolCallResult {
+  const record = asObject(value);
+  if (record.ok === true) {
+    return true;
+  }
+
+  if (record.ok === false) {
+    return record.kind === "pending" || record.kind === "denied" || record.kind === "failed";
+  }
+
+  return false;
+}
+
 export function getBridgePropsFromContext(ctx: unknown): BridgeProps {
-  if (!ctx || typeof ctx !== "object") {
+  const context = asObject(ctx);
+  if (Object.keys(context).length === 0) {
     throw new Error("WorkerEntrypoint context is unavailable");
   }
 
-  const maybeContext = ctx as Partial<BridgeEntrypointContext>;
-  if (!isBridgeProps(maybeContext.props)) {
+  if (!isBridgeProps(context.props)) {
     throw new Error("ToolBridge props are missing or invalid");
   }
 
-  return maybeContext.props;
+  return context.props;
 }
 
 export function getEntrypointExports(ctx: ExecutionContext): WorkerEntrypointExports {
-  const maybeCtx = ctx as ExecutionContext & { exports?: unknown };
-  const exportsValue = maybeCtx.exports;
+  const context = asObject(ctx);
+  const exportsValue = context.exports;
 
   if (!exportsValue || typeof exportsValue !== "object") {
     throw new Error("Execution context exports are unavailable");
   }
 
-  const maybeExports = exportsValue as Partial<WorkerEntrypointExports>;
-  if (typeof maybeExports.ToolBridge !== "function") {
+  const exportsObject = asObject(exportsValue);
+  if (typeof exportsObject.ToolBridge !== "function") {
     throw new Error("Execution context ToolBridge export is unavailable");
   }
 
-  return { ToolBridge: maybeExports.ToolBridge };
+  return { ToolBridge: exportsObject.ToolBridge as WorkerEntrypointExports["ToolBridge"] };
 }
 
 function createConvexClient(callbackConvexUrl: string): ConvexHttpClient {
@@ -136,7 +154,11 @@ export async function callToolWithBridge(
       return { ok: false, kind: "failed", error: `Tool callback failed: ${message}` };
     }
 
-    const result = response.value as ToolCallResult;
+    const result = response.value;
+    if (!isToolCallResult(result)) {
+      return { ok: false, kind: "failed", error: "Tool callback returned invalid result payload" };
+    }
+
     if (!result.ok && result.kind === "pending") {
       if (!result.approvalId) {
         return { ok: false, kind: "failed", error: "Approval pending without approvalId" };
