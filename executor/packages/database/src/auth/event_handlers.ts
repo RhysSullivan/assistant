@@ -16,6 +16,7 @@ import {
 } from "./memberships";
 import { ensureUniqueOrganizationSlug } from "./naming";
 import { seedWorkspaceMembersFromOrganization } from "./workspace_membership_projection";
+import { asPayload } from "../lib/object";
 
 type WorkosMembershipEventData = {
   id: string;
@@ -27,6 +28,30 @@ type WorkosMembershipEventData = {
   status?: string;
 };
 
+type ResolvedMembershipTarget = {
+  account: Doc<"accounts"> | null;
+  organization: Doc<"organizations"> | null;
+  fallbackRole?: Doc<"workspaceMembers">["role"];
+};
+
+function parseMembershipEventData(value: unknown): WorkosMembershipEventData | null {
+  const record = asPayload(value);
+  if (typeof record.id !== "string" || record.id.trim().length === 0) {
+    return null;
+  }
+
+  const role = asPayload(record.role);
+  return {
+    id: record.id,
+    user_id: typeof record.user_id === "string" ? record.user_id : undefined,
+    userId: typeof record.userId === "string" ? record.userId : undefined,
+    organization_id: typeof record.organization_id === "string" ? record.organization_id : undefined,
+    organizationId: typeof record.organizationId === "string" ? record.organizationId : undefined,
+    role: typeof role.slug === "string" ? { slug: role.slug } : undefined,
+    status: typeof record.status === "string" ? record.status : undefined,
+  };
+}
+
 function deriveOrganizationRoleFromWorkosSlug(workosRoleSlug?: string): Doc<"organizationMembers">["role"] {
   return workosRoleSlug === "admin" ? "admin" : "member";
 }
@@ -34,7 +59,7 @@ function deriveOrganizationRoleFromWorkosSlug(workosRoleSlug?: string): Doc<"org
 async function resolveMembershipAccountAndOrganization(
   ctx: Pick<MutationCtx, "db">,
   data: WorkosMembershipEventData,
-) {
+): Promise<ResolvedMembershipTarget> {
   const workosUserId = data.user_id ?? data.userId;
   const workosOrgId = data.organization_id ?? data.organizationId;
 
@@ -48,7 +73,6 @@ async function resolveMembershipAccountAndOrganization(
       return {
         account,
         organization,
-        fallbackRole: undefined as Doc<"workspaceMembers">["role"] | undefined,
       };
     }
   }
@@ -61,7 +85,6 @@ async function resolveMembershipAccountAndOrganization(
     return {
       account: null,
       organization: null,
-      fallbackRole: undefined as Doc<"workspaceMembers">["role"] | undefined,
     };
   }
 
@@ -251,7 +274,10 @@ export const workosEventHandlers = {
 
   "organization_membership.created": async (ctx, event) => {
     const now = Date.now();
-    const data = event.data as WorkosMembershipEventData;
+    const data = parseMembershipEventData(event.data);
+    if (!data) {
+      return;
+    }
     const { account, organization } = await resolveMembershipAccountAndOrganization(ctx, data);
     if (!account || !organization) return;
 
@@ -279,7 +305,10 @@ export const workosEventHandlers = {
 
   "organization_membership.updated": async (ctx, event) => {
     const now = Date.now();
-    const data = event.data as WorkosMembershipEventData;
+    const data = parseMembershipEventData(event.data);
+    if (!data) {
+      return;
+    }
     const { account, organization } = await resolveMembershipAccountAndOrganization(ctx, data);
 
     if (!account || !organization) {
@@ -310,7 +339,10 @@ export const workosEventHandlers = {
 
   "organization_membership.deleted": async (ctx, event) => {
     const now = Date.now();
-    const data = event.data as WorkosMembershipEventData;
+    const data = parseMembershipEventData(event.data);
+    if (!data) {
+      return;
+    }
     const { account, organization, fallbackRole } = await resolveMembershipAccountAndOrganization(ctx, data);
     if (!account || !organization) {
       return;
