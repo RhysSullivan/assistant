@@ -30,12 +30,7 @@ export async function safeRunAfter(
   }
 
   try {
-    const runAfter = scheduler.runAfter as (
-      delayMs: number,
-      functionReference: Parameters<SchedulerLike["runAfter"]>[1],
-      ...args: unknown[]
-    ) => Promise<unknown>;
-    await runAfter(delayMs, functionReference, ...args);
+    await scheduler.runAfter(delayMs, functionReference, ...args);
     return true;
   } catch {
     // Best effort only.
