@@ -9,6 +9,7 @@ import {
 } from "./tool-discovery/formatting";
 import { buildIndex, getTopLevelNamespace, listIndexForContext } from "./tool-discovery/indexing";
 import { chooseBestPath, deriveIntentPhrase, extractNamespaceHints, scoreEntry } from "./tool-discovery/ranking";
+import { asRecord } from "./utils";
 
 export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
   const index = buildIndex(tools);
@@ -68,7 +69,7 @@ export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
       outputSchema: { type: "object", properties: { results: { type: "array" }, total: { type: "number" } }, required: ["results", "total"] },
     },
     run: async (input: unknown, context) => {
-      const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+      const payload = asRecord(input);
       const namespaceFilter = String(payload.namespace ?? "").trim().toLowerCase();
       const query = String(payload.query ?? "").trim().toLowerCase();
       const depth = Math.max(0, Math.min(2, Number(payload.depth ?? 1)));
@@ -155,7 +156,7 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
       },
     },
     run: async (input: unknown, context) => {
-      const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+      const payload = asRecord(input);
       const query = String(payload.query ?? "").trim().toLowerCase();
       const depth = Math.max(0, Math.min(2, Number(payload.depth ?? 1)));
       const limit = Math.max(1, Math.min(50, Number(payload.limit ?? 8)));
