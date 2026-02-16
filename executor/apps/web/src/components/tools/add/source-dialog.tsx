@@ -113,7 +113,7 @@ export function AddSourceDialog({
   const credentialsLoading = Boolean(context) && credentials === undefined;
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [sourceOAuthBusy, setSourceOAuthBusy] = useState(false);
+  const [mcpOAuthBusy, setMcpOAuthBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const sourceDialogHeader = sourceToEdit ? "Edit Tool Source" : "Add Tool Source";
@@ -218,30 +218,20 @@ export function AddSourceDialog({
     setOpen(false);
   };
 
-  const sourceOAuthConnectUrl = (): string => {
-    if (form.type === "openapi") {
-      return form.baseUrl.trim() || form.endpoint.trim();
-    }
-
-    return form.endpoint.trim();
-  };
-
-  const handleSourceOAuthConnect = async () => {
-    if (form.type !== "mcp" && form.type !== "openapi") {
+  const handleMcpOAuthConnect = async () => {
+    if (form.type !== "mcp") {
       return;
     }
-
-    const endpoint = sourceOAuthConnectUrl();
+    const endpoint = form.endpoint.trim();
     if (!endpoint) {
-      const fieldName = form.type === "openapi" ? "spec or API base URL" : "endpoint URL";
-      toast.error(`Enter a ${fieldName} first`);
+      toast.error("Enter an MCP endpoint URL first");
       return;
     }
     const initiatedEndpoint = normalizeEndpoint(endpoint);
 
-    setSourceOAuthBusy(true);
+    setMcpOAuthBusy(true);
     const oauthResult = await Result.tryPromise(() => startMcpOAuthPopup(endpoint));
-    setSourceOAuthBusy(false);
+    setMcpOAuthBusy(false);
 
     if (!oauthResult.isOk()) {
       toast.error(resultErrorMessage(oauthResult.error, "Failed to connect OAuth"));
@@ -254,7 +244,7 @@ export function AddSourceDialog({
       return;
     }
 
-    const currentEndpoint = normalizeEndpoint(sourceOAuthConnectUrl());
+    const currentEndpoint = normalizeEndpoint(form.endpoint);
     if (currentEndpoint !== initiatedEndpoint) {
       toast.error("Endpoint changed while OAuth was running. Please reconnect OAuth.");
       return;
@@ -264,7 +254,7 @@ export function AddSourceDialog({
       form.handleAuthTypeChange("bearer");
     }
     form.handleAuthFieldChange("tokenValue", oauthResult.value.accessToken);
-    form.markSourceOAuthLinked(initiatedEndpoint);
+    form.markMcpOAuthLinked(initiatedEndpoint);
     toast.success("OAuth linked successfully.");
   };
 
@@ -455,10 +445,10 @@ export function AddSourceDialog({
                   specStatus: form.specStatus,
                   inferredSpecAuth: form.inferredSpecAuth,
                   specError: form.specError,
-                  sourceOAuthStatus: form.sourceOAuthStatus,
-                  sourceOAuthDetail: form.sourceOAuthDetail,
-                  sourceOAuthAuthorizationServers: form.sourceOAuthAuthorizationServers,
-                  sourceOAuthConnected: form.sourceOAuthConnected,
+                  mcpOAuthStatus: form.mcpOAuthStatus,
+                  mcpOAuthDetail: form.mcpOAuthDetail,
+                  mcpOAuthAuthorizationServers: form.mcpOAuthAuthorizationServers,
+                  mcpOAuthConnected: form.mcpOAuthConnected,
                   authType: form.authType,
                   scopeType: form.scopeType,
                   authScope: form.authScope,
@@ -472,8 +462,8 @@ export function AddSourceDialog({
                 onAuthTypeChange={form.handleAuthTypeChange}
                 onScopeChange={form.handleScopePresetChange}
                 onFieldChange={form.handleAuthFieldChange}
-                onSourceOAuthConnect={form.type === "mcp" || form.type === "openapi" ? handleSourceOAuthConnect : undefined}
-                sourceOAuthBusy={sourceOAuthBusy}
+                onMcpOAuthConnect={form.type === "mcp" ? handleMcpOAuthConnect : undefined}
+                mcpOAuthBusy={mcpOAuthBusy}
               />
             </CustomViewSection>
           )}

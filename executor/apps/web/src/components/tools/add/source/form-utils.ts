@@ -53,7 +53,7 @@ export type AddSourceUiState = {
   locallyReservedNames: string[];
   authManuallyEdited: boolean;
   authRevision: number;
-  sourceOAuthLinkedEndpoint: string | null;
+  mcpOAuthLinkedEndpoint: string | null;
 };
 
 export function createDefaultUiState(view: SourceDialogView = "catalog"): AddSourceUiState {
@@ -65,7 +65,7 @@ export function createDefaultUiState(view: SourceDialogView = "catalog"): AddSou
     locallyReservedNames: [],
     authManuallyEdited: false,
     authRevision: 0,
-    sourceOAuthLinkedEndpoint: null,
+    mcpOAuthLinkedEndpoint: null,
   };
 }
 
