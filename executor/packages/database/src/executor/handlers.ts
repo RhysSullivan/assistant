@@ -33,7 +33,8 @@ async function createTaskDocument(
     clientId?: string;
   },
 ): Promise<TaskRecord> {
-  return await ctx.runMutation(internal.database.createTask, args) as TaskRecord;
+  const task: TaskRecord = await ctx.runMutation(internal.database.createTask, args);
+  return task;
 }
 
 async function resolveApprovalDocument(
@@ -46,7 +47,8 @@ async function resolveApprovalDocument(
     reason?: string;
   },
 ): Promise<ApprovalRecord | null> {
-  return await ctx.runMutation(internal.database.resolveApproval, args) as ApprovalRecord | null;
+  const approval: ApprovalRecord | null = await ctx.runMutation(internal.database.resolveApproval, args);
+  return approval;
 }
 
 async function getTaskById(
@@ -54,7 +56,8 @@ async function getTaskById(
   internal: Internal,
   taskId: string,
 ): Promise<TaskRecord | null> {
-  return await ctx.runQuery(internal.database.getTask, { taskId }) as TaskRecord | null;
+  const task: TaskRecord | null = await ctx.runQuery(internal.database.getTask, { taskId });
+  return task;
 }
 
 async function createTaskInternal(
@@ -71,7 +74,8 @@ async function createTaskInternal(
     scheduleAfterCreate?: boolean;
   },
 ): Promise<{ task: TaskRecord }> {
-  return await ctx.runMutation(internal.executor.createTaskInternal, args) as { task: TaskRecord };
+  const created: { task: TaskRecord } = await ctx.runMutation(internal.executor.createTaskInternal, args);
+  return created;
 }
 
 async function createTaskRecord(
