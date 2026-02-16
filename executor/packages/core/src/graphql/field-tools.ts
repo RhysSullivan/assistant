@@ -1,6 +1,6 @@
 import type { GraphqlExecutionEnvelope } from "../tool/source-execution";
 
-interface GqlTypeRef {
+export interface GqlTypeRef {
   kind: string;
   name: string | null;
   ofType?: GqlTypeRef | null;

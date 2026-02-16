@@ -45,24 +45,37 @@ function setup() {
   });
 }
 
+type AnonymousTokenResponse = {
+  error?: unknown;
+  accessToken?: unknown;
+};
+
+function readErrorMessage(body: AnonymousTokenResponse): string {
+  return typeof body.error === "string" ? body.error : "";
+}
+
+function readAccessToken(body: AnonymousTokenResponse): string | null {
+  return typeof body.accessToken === "string" && body.accessToken.length > 0 ? body.accessToken : null;
+}
+
 async function getAnonymousAccessToken(
   t: ReturnType<typeof setup>,
   actorId: string,
 ): Promise<string | null> {
   const resp = await t.fetch(`/auth/anonymous/token?actorId=${encodeURIComponent(actorId)}`);
-  const body = await resp.json().catch(() => ({} as Record<string, unknown>));
+  const body = await resp.json().catch(() => ({} as AnonymousTokenResponse)) as AnonymousTokenResponse;
   if (resp.status === 503) {
-    const msg = typeof (body as any).error === "string" ? (body as any).error : "";
+    const msg = readErrorMessage(body);
     if (msg.toLowerCase().includes("not configured")) {
       return null;
     }
   }
   if (!resp.ok) {
-    const msg = typeof (body as any).error === "string" ? (body as any).error : `HTTP ${resp.status}`;
+    const msg = readErrorMessage(body) || `HTTP ${resp.status}`;
     throw new Error(`Failed to issue anonymous token: ${msg}`);
   }
-  const token = (body as any).accessToken;
-  if (typeof token !== "string" || token.length === 0) {
+  const token = readAccessToken(body);
+  if (!token) {
     throw new Error("Anonymous token response missing accessToken");
   }
   return token;

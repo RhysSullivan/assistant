@@ -45,6 +45,21 @@ function wrapDtsInNamespace(namespace: string, rawDts: string): string {
   return `declare namespace ${namespace} {\n${indentBlock(stripped, 2)}\n}`;
 }
 
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+type GraphqlTypeRef = {
+  kind?: unknown;
+  ofType?: unknown;
+  name?: unknown;
+};
+
+type GraphqlArg = {
+  name?: unknown;
+  type?: unknown;
+};
+
 type NamespaceNode = {
   children: Map<string, NamespaceNode>;
   tools: AgentToolSignature[];
@@ -218,15 +233,17 @@ async function fetchGraphqlSchema(endpoint: string): Promise<Record<string, unkn
   return schema as Record<string, unknown>;
 }
 
-function gqlUnwrapNamedType(ref: any): string | null {
-  if (!ref || typeof ref !== "object") return null;
-  if (ref.kind === "NON_NULL" && ref.ofType) return gqlUnwrapNamedType(ref.ofType);
-  if (ref.kind === "LIST" && ref.ofType) return gqlUnwrapNamedType(ref.ofType);
-  return typeof ref.name === "string" ? ref.name : null;
+function gqlUnwrapNamedType(ref: unknown): string | null {
+  const record = asObject(ref);
+  if (!record) return null;
+  if (record.kind === "NON_NULL" && record.ofType) return gqlUnwrapNamedType(record.ofType);
+  if (record.kind === "LIST" && record.ofType) return gqlUnwrapNamedType(record.ofType);
+  return typeof record.name === "string" ? record.name : null;
 }
 
-function gqlIsNonNull(ref: any): boolean {
-  return Boolean(ref && typeof ref === "object" && ref.kind === "NON_NULL");
+function gqlIsNonNull(ref: unknown): boolean {
+  const record = asObject(ref);
+  return Boolean(record && record.kind === "NON_NULL");
 }
 
 function gqlScalarToJsonSchemaType(name: string): Record<string, unknown> {
@@ -247,7 +264,7 @@ function gqlScalarToJsonSchemaType(name: string): Record<string, unknown> {
   }
 }
 
-function buildGraphqlArgsSchema(fieldArgs: any[]): Record<string, unknown> {
+function buildGraphqlArgsSchema(fieldArgs: GraphqlArg[]): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   for (const arg of fieldArgs) {
@@ -280,7 +297,19 @@ async function startLocalMcpServer(): Promise<{ url: string; stop: () => Promise
         { capabilities: { tools: {} } },
       );
 
-      mcp.registerTool(
+      const registerToolImpl = mcp.registerTool as unknown as (
+        name: string,
+        config: { description: string; inputSchema: unknown },
+        handler: () => Promise<{ content: Array<{ type: "text"; text: string }> }>,
+      ) => void;
+
+      const registerTool = (
+        name: string,
+        config: { description: string; inputSchema: unknown },
+        handler: () => Promise<{ content: Array<{ type: "text"; text: string }> }>,
+      ) => registerToolImpl.call(mcp, name, config, handler);
+
+      registerTool(
         "create_issue",
         {
           description: "Create an issue in a repository (fixture).",
@@ -296,7 +325,7 @@ async function startLocalMcpServer(): Promise<{ url: string; stop: () => Promise
               state: { type: "string", enum: ["open", "closed"] },
             },
             required: ["owner", "repo", "title"],
-          } as unknown as any,
+          },
         },
         async () => {
           return { content: [{ type: "text" as const, text: "ok" }] };
@@ -386,15 +415,28 @@ describe("agent signature -> monaco typebundle (exploration)", () => {
       const countriesEndpoint = "https://countries.trevorblades.com/";
       const gqlSchema = await fetchGraphqlSchema(countriesEndpoint);
       const types = Array.isArray(gqlSchema.types) ? gqlSchema.types : [];
-      const queryTypeName = (gqlSchema.queryType as any)?.name as string | undefined;
+      const queryTypeName = (() => {
+        const queryType = asObject(gqlSchema.queryType);
+        return typeof queryType?.name === "string" ? queryType.name : undefined;
+      })();
       expect(typeof queryTypeName).toBe("string");
 
-      const queryType = types.find((t: any) => t && t.name === queryTypeName);
-      const fields = Array.isArray((queryType as any)?.fields) ? (queryType as any).fields : [];
-      const countryField = fields.find((f: any) => f && f.name === "country");
+      const queryType = types.find((candidate) => {
+        const item = asObject(candidate);
+        return typeof item?.name === "string" && item.name === queryTypeName;
+      });
+      const queryTypeRecord = asObject(queryType);
+      const fields = Array.isArray(queryTypeRecord?.fields) ? queryTypeRecord.fields : [];
+      const countryField = fields.find((candidate) => {
+        const item = asObject(candidate);
+        return typeof item?.name === "string" && item.name === "country";
+      });
       expect(countryField).toBeDefined();
 
-      const gqlArgsSchema = buildGraphqlArgsSchema(countryField.args);
+      const countryFieldRecord = asObject(countryField);
+      const gqlArgsSchema = buildGraphqlArgsSchema(
+        Array.isArray(countryFieldRecord?.args) ? countryFieldRecord.args as GraphqlArg[] : [],
+      );
       const gqlSignature: AgentToolSignature = {
         path: "countries.query.country",
         description: "GraphQL query helper (fixture from real schema).",
@@ -413,19 +455,34 @@ describe("agent signature -> monaco typebundle (exploration)", () => {
 
       // --- MCP (real server instance) ---
       const mcp = await startLocalMcpServer();
-      let mcpTool: any;
+      let mcpTool: { description?: unknown; inputSchema?: unknown } | null = null;
       try {
         const conn = await connectMcp(`${mcp.url}/mcp`, undefined, "streamable-http");
         try {
           const listed = await conn.client.listTools();
-          const tools = Array.isArray((listed as any).tools) ? (listed as any).tools : [];
-          mcpTool = tools.find((t: any) => t && t.name === "create_issue");
+          const listedRecord = asObject(listed);
+          const tools = Array.isArray(listedRecord?.tools) ? listedRecord.tools : [];
+          const found = tools.find((candidate) => {
+            const item = asObject(candidate);
+            return typeof item?.name === "string" && item.name === "create_issue";
+          });
+          const foundRecord = asObject(found);
+          if (foundRecord) {
+            mcpTool = {
+              description: foundRecord.description,
+              inputSchema: foundRecord.inputSchema,
+            };
+          }
           expect(mcpTool).toBeDefined();
         } finally {
           await conn.close();
         }
       } finally {
         await mcp.stop();
+      }
+
+      if (!mcpTool) {
+        throw new Error("MCP fixture did not return create_issue tool");
       }
 
       const mcpSignature: AgentToolSignature = {
@@ -464,7 +521,7 @@ describe("agent signature -> monaco typebundle (exploration)", () => {
           if (name === fileName) {
             return ts.createSourceFile(name, bundle, languageVersion, true, ts.ScriptKind.TS);
           }
-          return undefined as any;
+          return undefined;
         },
         writeFile: () => {},
         getDefaultLibFileName: () => "lib.d.ts",
