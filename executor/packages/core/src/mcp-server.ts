@@ -163,7 +163,11 @@ function createRunCodeTool(
 // Input schema — when context is bound, workspace fields aren't needed
 // ---------------------------------------------------------------------------
 
-const FULL_INPUT = z.object({
+function toAnySchema(schema: unknown): AnySchema {
+  return schema as unknown as AnySchema;
+}
+
+const FULL_INPUT = toAnySchema(z.object({
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
@@ -172,14 +176,14 @@ const FULL_INPUT = z.object({
   sessionId: z.string().optional(),
   waitForResult: z.boolean().optional(),
   resultTimeoutMs: z.number().int().min(100).max(900_000).optional(),
-}) as unknown as AnySchema;
+}));
 
-const BOUND_INPUT = z.object({
+const BOUND_INPUT = toAnySchema(z.object({
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
   metadata: z.record(z.string(), z.any()).optional(),
-}) as unknown as AnySchema;
+}));
 
 // ---------------------------------------------------------------------------
 // MCP server factory
@@ -191,7 +195,16 @@ async function createMcpServer(
 ): Promise<McpServer> {
   const mcp = new McpServer(
     { name: "executor", version: "0.1.0" },
-    { capabilities: { tools: {}, elicitation: { form: {} } } as any },
+    {
+      capabilities: {
+        tools: {},
+        experimental: {
+          elicitation: {
+            form: {},
+          },
+        },
+      },
+    },
   );
   const onApprovalPrompt = createMcpApprovalPrompt(mcp);
   const registerTool = (mcp.registerTool as (

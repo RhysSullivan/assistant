@@ -8,8 +8,7 @@ const DIAGNOSTIC_CODES_TO_IGNORE = [
 ];
 
 export function setDiagnosticsOptions(monaco: Monaco, suppressSemantic: boolean) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ts = (monaco.languages as any).typescript;
+  const ts = monaco.languages.typescript;
   ts.javascriptDefaults.setDiagnosticsOptions({
     noSemanticValidation: suppressSemantic,
     noSyntaxValidation: false,
@@ -18,8 +17,7 @@ export function setDiagnosticsOptions(monaco: Monaco, suppressSemantic: boolean)
 }
 
 export function configureJavascriptDefaults(monaco: Monaco, suppressSemantic: boolean) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ts = (monaco.languages as any).typescript;
+  const ts = monaco.languages.typescript;
 
   setDiagnosticsOptions(monaco, suppressSemantic);
 

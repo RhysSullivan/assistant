@@ -87,7 +87,7 @@ describe("cloudflare worker loader dispatch", () => {
     }
 
     expect(lastHostRequestBody).not.toBeNull();
-    const requestBody = lastHostRequestBody as unknown as HostRequestBody;
+    const requestBody = lastHostRequestBody!;
     expect(requestBody.callback.convexUrl).toContain(String(fakeCallbackServer.port));
     expect(requestBody.callback.internalSecret).toBe(CALLBACK_TOKEN);
   });
@@ -109,7 +109,7 @@ describe("cloudflare worker loader dispatch", () => {
 
     expect(result.ok).toBe(true);
     expect(lastHostRequestBody).not.toBeNull();
-    const requestBody = lastHostRequestBody as unknown as HostRequestBody;
+    const requestBody = lastHostRequestBody!;
     expect(requestBody.code.includes("interface User")).toBe(false);
     expect(requestBody.code.includes("const user")).toBe(true);
   });

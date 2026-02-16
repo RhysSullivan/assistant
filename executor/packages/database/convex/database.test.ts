@@ -57,9 +57,9 @@ test("task lifecycle supports queue, run, and complete", async () => {
   const secondRun = await t.mutation(internal.database.markTaskRunning, { taskId: "task_1" });
   expect(secondRun).toBeNull();
 
-  const finished = await t.mutation(internal.database.markTaskFinished as any, {
+  const finished = await t.mutation(internal.database.markTaskFinished, {
     taskId: "task_1",
-    status: "completed",
+    status: "completed" as const,
     exitCode: 0,
   });
   expect(finished?.status).toBe("completed");

@@ -1,5 +1,28 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
+import type { Id } from "./_generated/dataModel.d.ts";
+
+function readLegacyDtsStorageIds(entry: unknown): Id<"_storage">[] {
+  if (!entry || typeof entry !== "object") {
+    return [];
+  }
+
+  const raw = Reflect.get(entry, "dtsStorageIds");
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const ids: Id<"_storage">[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const storageId = Reflect.get(item, "storageId");
+    if (typeof storageId === "string" && storageId.length > 0) {
+      ids.push(storageId as Id<"_storage">);
+    }
+  }
+
+  return ids;
+}
 
 /**
  * Look up a cached workspace tool snapshot by workspace ID.
@@ -51,13 +74,8 @@ export const putEntry = internalMutation({
     if (existing) {
       // Delete old main snapshot blob
       await ctx.storage.delete(existing.storageId).catch(() => {});
-      const legacy = (existing as any).dtsStorageIds as Array<{ storageId?: string }> | undefined;
-      if (Array.isArray(legacy)) {
-        for (const entry of legacy) {
-          if (entry && typeof entry.storageId === "string") {
-            await ctx.storage.delete(entry.storageId as any).catch(() => {});
-          }
-        }
+      for (const legacyStorageId of readLegacyDtsStorageIds(existing)) {
+        await ctx.storage.delete(legacyStorageId).catch(() => {});
       }
       if (existing.typesStorageId) {
         await ctx.storage.delete(existing.typesStorageId).catch(() => {});

@@ -621,7 +621,7 @@ function tryFactorCommonObjectFields(
       type: "object",
       properties: residualProps,
       ...(residualRequired.length > 0 ? { required: residualRequired } : {}),
-    } as unknown as JsonSchema);
+    });
   }
 
   // If factoring doesn't reduce anything, bail.
@@ -748,7 +748,7 @@ function tryFactorPartialCommonObjectFields(
       type: "object",
       properties: residualProps,
       ...(residualRequired.length > 0 ? { required: residualRequired } : {}),
-    } as unknown as JsonSchema);
+    });
   }
 
   // If factoring doesn't actually remove anything useful, bail.

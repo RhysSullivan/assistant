@@ -9,6 +9,28 @@ const LEGACY_GUEST_NAME = "Guest Workspace";
 const ANONYMOUS_ORGANIZATION_NAME = "Anonymous Organization";
 const ANONYMOUS_WORKSPACE_NAME = "Anonymous Workspace";
 
+function readLegacyDtsStorageIds(entry: unknown): Id<"_storage">[] {
+  if (!entry || typeof entry !== "object") {
+    return [];
+  }
+
+  const raw = Reflect.get(entry, "dtsStorageIds");
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const ids: Id<"_storage">[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const storageId = Reflect.get(item, "storageId");
+    if (typeof storageId === "string" && storageId.length > 0) {
+      ids.push(storageId as Id<"_storage">);
+    }
+  }
+
+  return ids;
+}
+
 async function isAnonymousCreator(
   ctx: { db: { get: (id: Id<"accounts">) => Promise<{ provider: string } | null> } },
   accountId: Id<"accounts"> | undefined,
@@ -115,18 +137,17 @@ export const cleanupAccessPolicyEmptyStringSentinels = migrations.define({
 export const cleanupWorkspaceToolCacheLegacyDtsStorageIds = migrations.define({
   table: "workspaceToolCache",
   migrateOne: async (ctx, entry) => {
-    const legacy = (entry as any).dtsStorageIds as Array<{ storageId?: string }> | undefined;
-    if (!Array.isArray(legacy) || legacy.length === 0) {
-      if ((entry as any).dtsStorageIds !== undefined) {
+    const legacyIds = readLegacyDtsStorageIds(entry);
+    const hasLegacyField = entry && typeof entry === "object" && Reflect.has(entry, "dtsStorageIds");
+    if (legacyIds.length === 0) {
+      if (hasLegacyField) {
         return { dtsStorageIds: undefined };
       }
       return;
     }
 
-    for (const dts of legacy) {
-      if (dts && typeof dts.storageId === "string") {
-        await ctx.storage.delete(dts.storageId as any).catch(() => {});
-      }
+    for (const storageId of legacyIds) {
+      await ctx.storage.delete(storageId).catch(() => {});
     }
 
     return { dtsStorageIds: undefined };

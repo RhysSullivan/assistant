@@ -40,6 +40,16 @@ interface UseWorkspaceToolsOptions {
   includeDetails?: boolean;
 }
 
+type ListToolsWithWarningsAction = (args: {
+  workspaceId: Id<"workspaces">;
+  actorId?: string;
+  clientId?: string;
+  sessionId?: string;
+  includeDetails?: boolean;
+  includeSourceMeta?: boolean;
+  toolPaths?: string[];
+}) => Promise<WorkspaceToolsQueryResult>;
+
 /**
  * Fetches tool metadata from a Convex action, cached by TanStack Query.
  *
@@ -52,7 +62,7 @@ export function useWorkspaceTools(
 ) {
   const includeDetails = options.includeDetails ?? true;
   const listToolsWithWarningsRaw = useAction(convexApi.executorNode.listToolsWithWarnings);
-  const listToolsWithWarnings = listToolsWithWarningsRaw as unknown as (args: Record<string, unknown>) => Promise<WorkspaceToolsQueryResult>;
+  const listToolsWithWarnings = listToolsWithWarningsRaw as ListToolsWithWarningsAction;
   const detailsCacheRef = useRef<Map<string, ToolDescriptor>>(new Map());
 
   // Watch tool sources reactively so we invalidate when sources change

@@ -16,6 +16,7 @@ import type { SerializedTool } from "../../../core/src/tool/source-serialization
 import type { ExternalToolSourceConfig } from "../../../core/src/tool/source-types";
 import type {
   AccessPolicyRecord,
+  JsonSchema,
   OpenApiSourceQuality,
   SourceAuthProfile,
   ToolDefinition,
@@ -360,6 +361,13 @@ function normalizeHint(type?: string): string {
   return type && type.trim().length > 0 ? type : "unknown";
 }
 
+function asJsonSchema(value: unknown): JsonSchema {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as JsonSchema;
+}
+
 async function buildWorkspaceToolRegistry(
   ctx: ActionCtx,
   args: {
@@ -385,29 +393,25 @@ async function buildWorkspaceToolRegistry(
     const normalizedPath = normalizeToolPathForLookup(st.path);
     const searchText = `${st.path} ${preferredPath} ${aliases.join(" ")} ${st.description} ${st.source ?? ""}`.toLowerCase();
 
-    const inputSchema = (st.typing?.inputSchema && typeof st.typing.inputSchema === "object")
-      ? st.typing.inputSchema
-      : {};
-    const outputSchema = (st.typing?.outputSchema && typeof st.typing.outputSchema === "object")
-      ? st.typing.outputSchema
-      : {};
+    const inputSchema = asJsonSchema(st.typing?.inputSchema);
+    const outputSchema = asJsonSchema(st.typing?.outputSchema);
 
     const requiredInputKeys = Array.isArray(st.typing?.requiredInputKeys)
       ? st.typing!.requiredInputKeys!.filter((v): v is string => typeof v === "string")
-      : extractTopLevelRequiredKeys(inputSchema as any);
+      : extractTopLevelRequiredKeys(inputSchema);
     const previewInputKeys = Array.isArray(st.typing?.previewInputKeys)
       ? st.typing!.previewInputKeys!.filter((v): v is string => typeof v === "string")
-      : buildPreviewKeys(inputSchema as any);
+      : buildPreviewKeys(inputSchema);
 
     const displayInput = typeof st.typing?.inputHint === "string" && st.typing.inputHint.trim().length > 0
       ? st.typing.inputHint.trim()
-      : (Object.keys(inputSchema as any).length === 0
+      : (Object.keys(inputSchema).length === 0
         ? "{}"
         : normalizeHint(jsonSchemaTypeHintFallback(inputSchema)));
 
     const displayOutput = typeof st.typing?.outputHint === "string" && st.typing.outputHint.trim().length > 0
       ? st.typing.outputHint.trim()
-      : (Object.keys(outputSchema as any).length === 0
+      : (Object.keys(outputSchema).length === 0
         ? "unknown"
         : normalizeHint(jsonSchemaTypeHintFallback(outputSchema)));
 

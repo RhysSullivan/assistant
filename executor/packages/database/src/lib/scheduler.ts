@@ -1,6 +1,6 @@
-type SchedulerLike = {
-  runAfter: (delayMs: number, functionReference: any, args: any) => Promise<any>;
-};
+import type { MutationCtx } from "../../convex/_generated/server";
+
+type SchedulerLike = Pick<MutationCtx, "scheduler">["scheduler"];
 
 function isTestProcess(): boolean {
   if (process.env.NODE_ENV === "test") {
@@ -22,15 +22,20 @@ export function isSchedulerDisabled(): boolean {
 export async function safeRunAfter(
   scheduler: SchedulerLike | undefined,
   delayMs: number,
-  functionReference: any,
-  args: any,
+  functionReference: Parameters<SchedulerLike["runAfter"]>[1],
+  ...args: unknown[]
 ): Promise<boolean> {
   if (!scheduler || isSchedulerDisabled()) {
     return false;
   }
 
   try {
-    await scheduler.runAfter(delayMs, functionReference, args);
+    const runAfter = scheduler.runAfter as (
+      delayMs: number,
+      functionReference: Parameters<SchedulerLike["runAfter"]>[1],
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await runAfter(delayMs, functionReference, ...args);
     return true;
   } catch {
     // Best effort only.

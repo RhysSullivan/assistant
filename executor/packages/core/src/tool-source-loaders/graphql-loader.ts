@@ -6,6 +6,7 @@ import {
   selectGraphqlFieldEnvelope,
   type GqlSchema,
   type GqlType,
+  type GqlTypeRef,
 } from "../graphql/field-tools";
 import {
   executeGraphqlRequest,
@@ -54,12 +55,6 @@ const INTROSPECTION_QUERY = `
   }
 `;
 
-function unwrapNonNull(ref: { kind: string; ofType?: unknown } | null | undefined): unknown {
-  if (!ref || typeof ref !== "object") return ref;
-  if (ref.kind === "NON_NULL" && ref.ofType) return unwrapNonNull(ref.ofType as any);
-  return ref;
-}
-
 function schemaForNamedScalar(name: string): Record<string, unknown> {
   switch (name) {
     case "String":
@@ -84,20 +79,20 @@ function schemaForNamedScalar(name: string): Record<string, unknown> {
 }
 
 function schemaForTypeRef(
-  ref: { kind: string; name: string | null; ofType?: unknown } | null | undefined,
+  ref: GqlTypeRef | null | undefined,
   typeMap: Map<string, GqlType>,
   depth = 0,
 ): Record<string, unknown> {
   if (!ref || typeof ref !== "object") return {};
 
   if (ref.kind === "NON_NULL" && ref.ofType) {
-    return schemaForTypeRef(ref.ofType as any, typeMap, depth);
+    return schemaForTypeRef(ref.ofType, typeMap, depth);
   }
 
   if (ref.kind === "LIST" && ref.ofType) {
     return {
       type: "array",
-      items: schemaForTypeRef(ref.ofType as any, typeMap, depth),
+      items: schemaForTypeRef(ref.ofType, typeMap, depth),
     };
   }
 
@@ -114,13 +109,10 @@ function schemaForTypeRef(
     const required: string[] = [];
     for (const field of resolved.inputFields) {
       if (!field?.name) continue;
-      props[field.name] = schemaForTypeRef(field.type as any, typeMap, depth + 1);
-      const unwrapped = unwrapNonNull(field.type as any) as any;
-      if ((field.type as any)?.kind === "NON_NULL") {
+      props[field.name] = schemaForTypeRef(field.type, typeMap, depth + 1);
+      if (field.type?.kind === "NON_NULL") {
         required.push(field.name);
       }
-      // Prevent unused variable lint: unwrapped is kept for future enhancements.
-      void unwrapped;
     }
     return {
       type: "object",
@@ -133,7 +125,7 @@ function schemaForTypeRef(
 }
 
 function buildArgsObjectSchema(
-  args: Array<{ name: string; type: unknown }>,
+  args: Array<{ name: string; type: GqlTypeRef }>,
   typeMap: Map<string, GqlType>,
 ): Record<string, unknown> {
   const props: Record<string, unknown> = {};
@@ -142,8 +134,8 @@ function buildArgsObjectSchema(
   for (const arg of args) {
     const name = typeof arg?.name === "string" ? arg.name : "";
     if (!name) continue;
-    props[name] = schemaForTypeRef(arg.type as any, typeMap);
-    if ((arg.type as any)?.kind === "NON_NULL") {
+    props[name] = schemaForTypeRef(arg.type, typeMap);
+    if (arg.type?.kind === "NON_NULL") {
       required.push(name);
     }
   }
@@ -267,7 +259,7 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
 
       const fieldPath = `${sourceName}.${operationType}.${sanitizeSegment(field.name)}`;
       const approval = config.overrides?.[field.name]?.approval ?? defaultApproval;
-      const inputSchema = buildArgsObjectSchema(field.args as any, typeMap);
+      const inputSchema = buildArgsObjectSchema(field.args, typeMap);
       const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
       const previewInputKeys = buildPreviewKeys(inputSchema);
 

@@ -37,8 +37,10 @@ async function runSandboxBash(
 
 function isSandboxStoppedError(error: unknown): boolean {
   if (!error) return false;
-  const anyErr = error as any;
-  const status = typeof anyErr?.response?.status === "number" ? anyErr.response.status : null;
+  const record = error && typeof error === "object" ? error as Record<string, unknown> : null;
+  const response = record?.response;
+  const responseRecord = response && typeof response === "object" ? response as Record<string, unknown> : null;
+  const status = typeof responseRecord?.status === "number" ? responseRecord.status : null;
   if (status === 410) return true;
 
   const message = error instanceof Error ? error.message : String(error);

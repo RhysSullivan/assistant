@@ -27,6 +27,16 @@ function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
 }
 
+type RegistryToolEntry = {
+  path: string;
+  preferredPath?: string;
+  source?: string;
+  approval: ToolDefinition["approval"];
+  description?: string;
+  displayInput?: string;
+  displayOutput?: string;
+};
+
 async function denyToolCallForApproval(
   ctx: ActionCtx,
   args: {
@@ -115,7 +125,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
             })
           : [];
 
-      const results = (raw as Array<any>)
+      const results = (raw as RegistryToolEntry[])
         .filter((entry) => !namespace || String(entry.preferredPath ?? entry.path ?? "").toLowerCase().startsWith(`${namespace}.`))
         .filter((entry) => isAllowed(entry.path, entry.approval))
         .slice(0, limit)
@@ -144,7 +154,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       buildId,
       query,
       limit: Math.max(limit * 2, limit),
-    }) as Array<any>;
+    }) as RegistryToolEntry[];
 
     const filtered = hits
       .filter((entry) => isAllowed(entry.path, entry.approval))
