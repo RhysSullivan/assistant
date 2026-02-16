@@ -44,39 +44,44 @@ async function upsertRequestedToolCall(
   ctx: ActionCtx,
   args: { taskId: string; callId: string; workspaceId: TaskRecord["workspaceId"]; toolPath: string },
 ): Promise<ToolCallRecord> {
-  return await ctx.runMutation(internal.database.upsertToolCallRequested, args) as ToolCallRecord;
+  const persistedCall: ToolCallRecord = await ctx.runMutation(internal.database.upsertToolCallRequested, args);
+  return persistedCall;
 }
 
 async function listWorkspaceAccessPolicies(
   ctx: ActionCtx,
   workspaceId: TaskRecord["workspaceId"],
 ): Promise<AccessPolicyRecord[]> {
-  return await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId }) as AccessPolicyRecord[];
+  const policies: AccessPolicyRecord[] = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId });
+  return policies;
 }
 
 async function listRegistryNamespaces(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; limit: number },
 ): Promise<Array<{ namespace: string; toolCount: number; samplePaths: string[] }>> {
-  return await ctx.runQuery(internal.toolRegistry.listNamespaces, args) as Array<{
+  const namespaces: Array<{
     namespace: string;
     toolCount: number;
     samplePaths: string[];
-  }>;
+  }> = await ctx.runQuery(internal.toolRegistry.listNamespaces, args);
+  return namespaces;
 }
 
 async function searchRegistryTools(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
 ): Promise<RegistryToolEntry[]> {
-  return await ctx.runQuery(internal.toolRegistry.searchTools, args) as RegistryToolEntry[];
+  const entries: RegistryToolEntry[] = await ctx.runQuery(internal.toolRegistry.searchTools, args);
+  return entries;
 }
 
 async function listRegistryToolsByNamespace(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; namespace: string; limit: number },
 ): Promise<RegistryToolEntry[]> {
-  return await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, args) as RegistryToolEntry[];
+  const entries: RegistryToolEntry[] = await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, args);
+  return entries;
 }
 
 async function denyToolCallForApproval(

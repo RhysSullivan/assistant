@@ -21,14 +21,16 @@ async function searchRegistryEntries(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
 ): Promise<Array<{ preferredPath: string }>> {
-  return await ctx.runQuery(internal.toolRegistry.searchTools, args) as Array<{ preferredPath: string }>;
+  const entries: Array<{ preferredPath: string }> = await ctx.runQuery(internal.toolRegistry.searchTools, args);
+  return entries;
 }
 
 async function getRegistryToolByPath(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; path: string },
 ): Promise<RegistrySerializedToolEntry | null> {
-  return await ctx.runQuery(internal.toolRegistry.getToolByPath, args) as RegistrySerializedToolEntry | null;
+  const entry: RegistrySerializedToolEntry | null = await ctx.runQuery(internal.toolRegistry.getToolByPath, args);
+  return entry;
 }
 
 async function getRegistryToolsByNormalizedPath(
@@ -40,7 +42,8 @@ async function getRegistryToolsByNormalizedPath(
     limit: number;
   },
 ): Promise<RegistrySerializedToolEntry[]> {
-  return await ctx.runQuery(internal.toolRegistry.getToolsByNormalizedPath, args) as RegistrySerializedToolEntry[];
+  const entries: RegistrySerializedToolEntry[] = await ctx.runQuery(internal.toolRegistry.getToolsByNormalizedPath, args);
+  return entries;
 }
 
 export function getGraphqlDecision(

@@ -20,16 +20,18 @@ import { markTaskFinished } from "../task/finish";
 import { invokeTool } from "./tool_invocation";
 
 async function getTaskById(ctx: ActionCtx, taskId: string): Promise<TaskRecord | null> {
-  return await ctx.runQuery(internal.database.getTask, { taskId }) as TaskRecord | null;
+  const task: TaskRecord | null = await ctx.runQuery(internal.database.getTask, { taskId });
+  return task;
 }
 
 async function markTaskRunning(
   ctx: ActionCtx,
   taskId: string,
 ): Promise<TaskRecord | null> {
-  return await ctx.runMutation(internal.database.markTaskRunning, {
+  const runningTask: TaskRecord | null = await ctx.runMutation(internal.database.markTaskRunning, {
     taskId,
-  }) as TaskRecord | null;
+  });
+  return runningTask;
 }
 
 async function markTaskFailedAndPublish(

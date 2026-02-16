@@ -543,12 +543,12 @@ export async function getWorkspaceTools(
       const cacheHydrateStartedAt = Date.now();
       const blob = await ctx.storage.get(cacheEntry.storageId);
       if (blob) {
-        const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
+        const snapshot: WorkspaceToolSnapshot = JSON.parse(await blob.text());
         const restored = materializeWorkspaceSnapshot(snapshot);
         const merged = mergeTools(restored);
         traceStep("cacheHydrate", cacheHydrateStartedAt);
 
-        const typesStorageId = cacheEntry.typesStorageId as Id<"_storage"> | undefined;
+        const typesStorageId: Id<"_storage"> | undefined = cacheEntry.typesStorageId;
         if (cacheEntry.isFresh) {
           if (typesStorageId) {
             return {
@@ -774,7 +774,7 @@ async function loadWorkspaceToolInventoryForContext(
     }),
     ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
   ]);
-  const typedPolicies = policies as AccessPolicyRecord[];
+  const typedPolicies: AccessPolicyRecord[] = policies;
   const descriptorsStartedAt = Date.now();
   const tools = listVisibleToolDescriptors(result.tools, context, typedPolicies, {
     includeDetails,
