@@ -152,11 +152,10 @@ async function toWorkspaceResult(
 }
 
 export async function createWorkspaceHandler(
-  ctx: unknown,
+  ctx: AuthedCtx,
   args: { name: string; organizationId?: Id<"organizations">; iconStorageId?: Id<"_storage"> },
 ) {
-  const typedCtx = ctx as AuthedCtx;
-  const account = typedCtx.account;
+  const account = ctx.account;
   const name = args.name.trim();
   if (name.length < 2) {
     throw new Error("Workspace name must be at least 2 characters");
@@ -164,14 +163,14 @@ export async function createWorkspaceHandler(
 
   let organizationId = args.organizationId;
   if (organizationId) {
-    const membership = await getOrganizationMembership(typedCtx, organizationId, account._id);
+    const membership = await getOrganizationMembership(ctx, organizationId, account._id);
     if (!membership || membership.status !== "active") {
       throw new Error("You are not a member of this organization");
     }
   } else {
     const now = Date.now();
-    const organizationSlug = await ensureUniqueOrganizationSlug(typedCtx, name);
-    organizationId = await typedCtx.db.insert("organizations", {
+    const organizationSlug = await ensureUniqueOrganizationSlug(ctx, name);
+    organizationId = await ctx.db.insert("organizations", {
       slug: organizationSlug,
       name,
       status: "active",
@@ -180,7 +179,7 @@ export async function createWorkspaceHandler(
       updatedAt: now,
     });
 
-    await upsertOrganizationMembership(typedCtx, {
+    await upsertOrganizationMembership(ctx, {
       organizationId,
       accountId: account._id,
       role: "owner",
@@ -195,9 +194,9 @@ export async function createWorkspaceHandler(
   }
 
   const now = Date.now();
-  const slug = await ensureUniqueWorkspaceSlug(typedCtx, organizationId, name);
+  const slug = await ensureUniqueWorkspaceSlug(ctx, organizationId, name);
 
-  const workspaceId = await typedCtx.db.insert("workspaces", {
+  const workspaceId = await ctx.db.insert("workspaces", {
     organizationId,
     slug,
     name,
@@ -207,46 +206,45 @@ export async function createWorkspaceHandler(
     updatedAt: now,
   });
 
-  const workspace = await typedCtx.db.get(workspaceId);
+  const workspace = await ctx.db.get(workspaceId);
   if (!workspace) {
     throw new Error("Failed to create workspace");
   }
 
-  await seedWorkspaceMembersFromOrganization(typedCtx, {
+  await seedWorkspaceMembersFromOrganization(ctx, {
     organizationId,
     workspaceId,
     now,
     mapRole: mapOrganizationRoleToWorkspaceRole,
   });
 
-  await cleanupEmptyStarterWorkspace(typedCtx, organizationId, workspaceId);
+  await cleanupEmptyStarterWorkspace(ctx, organizationId, workspaceId);
 
-  return await toWorkspaceResult(typedCtx, workspace);
+  return await toWorkspaceResult(ctx, workspace);
 }
 
-export async function listWorkspacesHandler(ctx: unknown, args: { organizationId?: Id<"organizations"> }) {
-  const typedCtx = ctx as OptionalAccountCtx;
-  const account = typedCtx.account;
+export async function listWorkspacesHandler(ctx: OptionalAccountCtx, args: { organizationId?: Id<"organizations"> }) {
+  const account = ctx.account;
   if (!account) {
     return [];
   }
 
   const organizationId = args.organizationId;
   if (organizationId) {
-    const membership = await getOrganizationMembership(typedCtx, organizationId, account._id);
+    const membership = await getOrganizationMembership(ctx, organizationId, account._id);
     if (!membership || membership.status !== "active") {
       return [];
     }
 
-    const docs = await typedCtx.db
+    const docs = await ctx.db
       .query("workspaces")
       .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
       .collect();
-    const filteredDocs = await filterDisplayWorkspaces(typedCtx, docs);
-    return await Promise.all(filteredDocs.map(async (workspace) => await toWorkspaceResult(typedCtx, workspace)));
+    const filteredDocs = await filterDisplayWorkspaces(ctx, docs);
+    return await Promise.all(filteredDocs.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
   }
 
-  const memberships = await typedCtx.db
+  const memberships = await ctx.db
     .query("organizationMembers")
     .withIndex("by_account", (q) => q.eq("accountId", account._id))
     .collect();
@@ -255,21 +253,20 @@ export async function listWorkspacesHandler(ctx: unknown, args: { organizationId
   const allWorkspaces: WorkspaceResult[] = [];
 
   for (const membership of activeMemberships) {
-    const docs = await typedCtx.db
+    const docs = await ctx.db
       .query("workspaces")
       .withIndex("by_organization_created", (q) => q.eq("organizationId", membership.organizationId))
       .collect();
-    const filteredDocs = await filterDisplayWorkspaces(typedCtx, docs);
+    const filteredDocs = await filterDisplayWorkspaces(ctx, docs);
     for (const workspace of filteredDocs) {
-      allWorkspaces.push(await toWorkspaceResult(typedCtx, workspace));
+      allWorkspaces.push(await toWorkspaceResult(ctx, workspace));
     }
   }
 
   return Array.from(new Map(allWorkspaces.map((workspace) => [workspace.id, workspace])).values());
 }
 
-export async function generateWorkspaceIconUploadUrlHandler(ctx: unknown) {
-  const typedCtx = ctx as AuthedCtx;
-  void typedCtx.account;
-  return await typedCtx.storage.generateUploadUrl();
+export async function generateWorkspaceIconUploadUrlHandler(ctx: AuthedCtx) {
+  void ctx.account;
+  return await ctx.storage.generateUploadUrl();
 }

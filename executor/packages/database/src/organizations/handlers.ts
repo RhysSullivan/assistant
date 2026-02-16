@@ -50,17 +50,16 @@ async function mapWorkspaceWithIcon(
   };
 }
 
-export async function createOrganizationHandler(ctx: unknown, args: { name: string }) {
-  const typedCtx = ctx as AuthedCtx;
-  const account = typedCtx.account;
+export async function createOrganizationHandler(ctx: AuthedCtx, args: { name: string }) {
+  const account = ctx.account;
   const name = args.name.trim();
   if (name.length < 2) {
     throw new Error("Organization name must be at least 2 characters");
   }
 
   const now = Date.now();
-  const slug = await ensureUniqueOrganizationSlug(typedCtx, name);
-  const organizationId = await typedCtx.db.insert("organizations", {
+  const slug = await ensureUniqueOrganizationSlug(ctx, name);
+  const organizationId = await ctx.db.insert("organizations", {
     slug,
     name,
     status: "active",
@@ -69,7 +68,7 @@ export async function createOrganizationHandler(ctx: unknown, args: { name: stri
     updatedAt: now,
   });
 
-  await upsertOrganizationMembership(typedCtx, {
+  await upsertOrganizationMembership(ctx, {
     organizationId,
     accountId: account._id,
     role: "owner",
@@ -78,7 +77,7 @@ export async function createOrganizationHandler(ctx: unknown, args: { name: stri
     now,
   });
 
-  const workspaceId = await typedCtx.db.insert("workspaces", {
+  const workspaceId = await ctx.db.insert("workspaces", {
     organizationId,
     slug: "default",
     name: "Default Workspace",
@@ -87,15 +86,15 @@ export async function createOrganizationHandler(ctx: unknown, args: { name: stri
     updatedAt: now,
   });
 
-  await seedWorkspaceMembersFromOrganization(typedCtx, {
+  await seedWorkspaceMembersFromOrganization(ctx, {
     organizationId,
     workspaceId,
     now,
     mapRole: mapOrganizationRoleToWorkspaceRole,
   });
 
-  const organization = await typedCtx.db.get(organizationId);
-  const workspace = await typedCtx.db.get(workspaceId);
+  const organization = await ctx.db.get(organizationId);
+  const workspace = await ctx.db.get(workspaceId);
   if (!organization || !workspace) {
     throw new Error("Failed to create organization");
   }
@@ -108,18 +107,17 @@ export async function createOrganizationHandler(ctx: unknown, args: { name: stri
       status: organization.status,
       createdAt: organization.createdAt,
     },
-    workspace: await mapWorkspaceWithIcon(typedCtx, workspace),
+    workspace: await mapWorkspaceWithIcon(ctx, workspace),
   };
 }
 
-export async function listOrganizationsMineHandler(ctx: unknown) {
-  const typedCtx = ctx as OptionalAccountCtx;
-  const account = typedCtx.account;
+export async function listOrganizationsMineHandler(ctx: OptionalAccountCtx) {
+  const account = ctx.account;
   if (!account) {
     return [];
   }
 
-  const memberships = await typedCtx.db
+  const memberships = await ctx.db
     .query("organizationMembers")
     .withIndex("by_account", (q) => q.eq("accountId", account._id))
     .collect();
@@ -128,7 +126,7 @@ export async function listOrganizationsMineHandler(ctx: unknown) {
     memberships
       .filter((membership) => membership.status === "active")
       .map(async (membership) => {
-        const org = await typedCtx.db.get(membership.organizationId);
+        const org = await ctx.db.get(membership.organizationId);
         if (!org) {
           return null;
         }
@@ -146,22 +144,21 @@ export async function listOrganizationsMineHandler(ctx: unknown) {
   return organizations.filter((org): org is NonNullable<typeof org> => org !== null);
 }
 
-export async function getNavigationStateHandler(ctx: unknown) {
-  const typedCtx = ctx as OptionalAccountCtx;
-  const account = typedCtx.account;
+export async function getNavigationStateHandler(ctx: OptionalAccountCtx) {
+  const account = ctx.account;
   const organizations: Array<{ id: Id<"organizations">; name: string; slug: string; status: string; role: string }> = [];
   const workspaces: WorkspaceSummary[] = [];
 
   if (!account) {
-    if (typedCtx.sessionId) {
-      const anonymousSession = await typedCtx.db
+    if (ctx.sessionId) {
+      const anonymousSession = await ctx.db
         .query("anonymousSessions")
-        .withIndex("by_session_id", (q) => q.eq("sessionId", typedCtx.sessionId as string))
+        .withIndex("by_session_id", (q) => q.eq("sessionId", ctx.sessionId))
         .unique();
       if (anonymousSession?.workspaceId) {
-        const workspace = await typedCtx.db.get(anonymousSession.workspaceId);
+        const workspace = await ctx.db.get(anonymousSession.workspaceId);
         if (workspace) {
-          workspaces.push(await mapWorkspaceWithIcon(typedCtx, workspace));
+          workspaces.push(await mapWorkspaceWithIcon(ctx, workspace));
         }
       }
     }
@@ -174,7 +171,7 @@ export async function getNavigationStateHandler(ctx: unknown) {
     };
   }
 
-  const memberships = await typedCtx.db
+  const memberships = await ctx.db
     .query("organizationMembers")
     .withIndex("by_account", (q) => q.eq("accountId", account._id))
     .collect();
@@ -182,7 +179,7 @@ export async function getNavigationStateHandler(ctx: unknown) {
   const activeMemberships = memberships.filter((membership) => membership.status === "active");
 
   for (const membership of activeMemberships) {
-    const org = await typedCtx.db.get(membership.organizationId);
+    const org = await ctx.db.get(membership.organizationId);
     if (!org) {
       continue;
     }
@@ -195,12 +192,12 @@ export async function getNavigationStateHandler(ctx: unknown) {
       role: membership.role,
     });
 
-    const orgWorkspaces = await typedCtx.db
+    const orgWorkspaces = await ctx.db
       .query("workspaces")
       .withIndex("by_organization_created", (q) => q.eq("organizationId", org._id))
       .collect();
     for (const workspace of orgWorkspaces) {
-      workspaces.push(await mapWorkspaceWithIcon(typedCtx, workspace));
+      workspaces.push(await mapWorkspaceWithIcon(ctx, workspace));
     }
   }
 
@@ -217,16 +214,15 @@ export async function getNavigationStateHandler(ctx: unknown) {
 }
 
 export async function getOrganizationAccessHandler(
-  ctx: unknown,
+  ctx: OptionalAccountCtx,
   args: { organizationId: Id<"organizations"> },
 ) {
-  const typedCtx = ctx as OptionalAccountCtx;
-  const account = typedCtx.account;
+  const account = ctx.account;
   if (!account) {
     return null;
   }
 
-  const membership = await getOrganizationMembership(typedCtx, args.organizationId, account._id);
+  const membership = await getOrganizationMembership(ctx, args.organizationId, account._id);
   if (!membership || membership.status !== "active") {
     return null;
   }
@@ -240,21 +236,20 @@ export async function getOrganizationAccessHandler(
 }
 
 export async function resolveWorkosOrganizationIdHandler(
-  ctx: unknown,
+  ctx: OptionalAccountCtx,
   args: { organizationId: Id<"organizations"> },
 ) {
-  const typedCtx = ctx as OptionalAccountCtx;
-  const account = typedCtx.account;
+  const account = ctx.account;
   if (!account) {
     return null;
   }
 
-  const membership = await getOrganizationMembership(typedCtx, args.organizationId, account._id);
+  const membership = await getOrganizationMembership(ctx, args.organizationId, account._id);
   if (!membership || membership.status !== "active") {
     return null;
   }
 
-  const organization = await typedCtx.db.get(args.organizationId);
+  const organization = await ctx.db.get(args.organizationId);
   if (!organization || organization.status !== "active") {
     return null;
   }

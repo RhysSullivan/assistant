@@ -8,6 +8,14 @@ type Internal = typeof import("../../convex/_generated/api").internal;
 type Components = typeof import("../../convex/_generated/api").components;
 
 type DbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
+type BillingSummaryCtx = QueryCtx & {
+  organizationId: Id<"organizations">;
+  runQuery: QueryCtx["runQuery"];
+};
+type RetrySeatSyncCtx = MutationCtx & {
+  organizationId: Id<"organizations">;
+  scheduler: MutationCtx["scheduler"];
+};
 
 function canAccessBilling(role: string): boolean {
   return isAdminRole(role) || canManageBilling(role);
@@ -31,29 +39,24 @@ async function getSeatState(ctx: DbCtx, organizationId: Id<"organizations">) {
 }
 
 export async function getBillingSummaryHandler(
-  ctx: unknown,
+  ctx: BillingSummaryCtx,
   components: Components,
 ) {
-  const typedCtx = ctx as QueryCtx & {
-    organizationId: Id<"organizations">;
-    runQuery: QueryCtx["runQuery"];
-  };
-
-  const billableMembers = await getBillableSeatCount(typedCtx, typedCtx.organizationId);
-  const seatState = await getSeatState(typedCtx, typedCtx.organizationId);
-  const customer = await typedCtx.db
+  const billableMembers = await getBillableSeatCount(ctx, ctx.organizationId);
+  const seatState = await getSeatState(ctx, ctx.organizationId);
+  const customer = await ctx.db
     .query("billingCustomers")
-    .withIndex("by_org", (q) => q.eq("organizationId", typedCtx.organizationId))
+    .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
     .unique();
 
-  const subscription = await typedCtx.runQuery(components.stripe.public.getSubscriptionByOrgId, {
-    orgId: String(typedCtx.organizationId),
+  const subscription = await ctx.runQuery(components.stripe.public.getSubscriptionByOrgId, {
+    orgId: String(ctx.organizationId),
   });
 
   const syncStatus = seatState?.syncError ? "error" : seatState?.lastSyncAt ? "ok" : "pending";
 
   return {
-    organizationId: String(typedCtx.organizationId),
+    organizationId: String(ctx.organizationId),
     customer: customer
       ? {
           stripeCustomerId: customer.stripeCustomerId,
@@ -198,20 +201,15 @@ export async function createCustomerPortalHandler(
 }
 
 export async function retrySeatSyncHandler(
-  ctx: unknown,
+  ctx: RetrySeatSyncCtx,
   internal: Internal,
 ) {
-  const typedCtx = ctx as MutationCtx & {
-    organizationId: Id<"organizations">;
-    scheduler: MutationCtx["scheduler"];
-  };
-
-  const nextVersion = await typedCtx.runMutation(internal.billingInternal.bumpSeatSyncVersion, {
-    organizationId: typedCtx.organizationId,
+  const nextVersion = await ctx.runMutation(internal.billingInternal.bumpSeatSyncVersion, {
+    organizationId: ctx.organizationId,
   });
 
-  await safeRunAfter(typedCtx.scheduler, 0, internal.billingSync.syncSeatQuantity, {
-    organizationId: typedCtx.organizationId,
+  await safeRunAfter(ctx.scheduler, 0, internal.billingSync.syncSeatQuantity, {
+    organizationId: ctx.organizationId,
     expectedVersion: nextVersion,
   });
 

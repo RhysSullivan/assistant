@@ -2,6 +2,11 @@ import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
 
 type DbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
+type BillingAccessCtx = QueryCtx & {
+  account: Doc<"accounts">;
+  actorMembership: Doc<"organizationMembers">;
+  organizationId: Id<"organizations">;
+};
 
 async function getBillableSeatCount(ctx: DbCtx, organizationId: Id<"organizations">): Promise<number> {
   const members = await ctx.db
@@ -23,27 +28,21 @@ async function getSeatState(
     .unique();
 }
 
-export async function getBillingAccessForRequestHandler(ctx: unknown) {
-  const typedCtx = ctx as QueryCtx & {
-    account: Doc<"accounts">;
-    actorMembership: Doc<"organizationMembers">;
-    organizationId: Id<"organizations">;
-  };
-
-  const organization = await typedCtx.db.get(typedCtx.organizationId);
+export async function getBillingAccessForRequestHandler(ctx: BillingAccessCtx) {
+  const organization = await ctx.db.get(ctx.organizationId);
   if (!organization) {
     return null;
   }
 
-  const billableMembers = await getBillableSeatCount(typedCtx, typedCtx.organizationId);
-  const customer = await typedCtx.db
+  const billableMembers = await getBillableSeatCount(ctx, ctx.organizationId);
+  const customer = await ctx.db
     .query("billingCustomers")
-    .withIndex("by_org", (q) => q.eq("organizationId", typedCtx.organizationId))
+    .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
     .unique();
 
   return {
-    role: typedCtx.actorMembership.role,
-    email: typedCtx.account.email,
+    role: ctx.actorMembership.role,
+    email: ctx.account.email,
     organizationName: organization.name,
     billableMembers,
     customerId: customer?.stripeCustomerId ?? null,
