@@ -6,6 +6,11 @@ export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_
 export type ApprovalStatus = "pending" | "approved" | "denied";
 export type ToolCallStatus = "requested" | "pending_approval" | "completed" | "failed" | "denied";
 export type PolicyDecision = "allow" | "require_approval" | "deny";
+export type PolicyScopeType = "organization" | "workspace";
+export type PolicyMatchType = "glob" | "exact";
+export type PolicyEffect = "allow" | "deny";
+export type PolicyApprovalMode = "inherit" | "auto" | "required";
+export type OwnerScopeType = "organization" | "workspace";
 export type CredentialScope = "workspace" | "actor";
 export type CredentialProvider = "local-convex" | "workos-vault";
 export type ToolApprovalMode = "auto" | "required";
@@ -87,20 +92,31 @@ export interface ToolCallRecord {
 
 export interface AccessPolicyRecord {
   id: string;
-  workspaceId: Id<"workspaces">;
-  actorId?: string;
+  scopeType?: PolicyScopeType;
+  organizationId?: Id<"organizations">;
+  workspaceId?: Id<"workspaces">;
+  targetActorId?: string;
   clientId?: string;
-  toolPathPattern: string;
-  decision: PolicyDecision;
+  resourceType?: "tool_path";
+  resourcePattern?: string;
+  matchType?: PolicyMatchType;
+  effect?: PolicyEffect;
+  approvalMode?: PolicyApprovalMode;
   priority: number;
   createdAt: number;
   updatedAt: number;
+  // Legacy aliases retained for callers that still expect v1 fields.
+  actorId?: string;
+  toolPathPattern: string;
+  decision: PolicyDecision;
 }
 
 export interface CredentialRecord {
   id: string;
   bindingId?: string;
-  workspaceId: Id<"workspaces">;
+  ownerScopeType?: OwnerScopeType;
+  organizationId?: Id<"organizations">;
+  workspaceId?: Id<"workspaces">;
   sourceKey: string;
   scope: CredentialScope;
   actorId?: string;
@@ -114,10 +130,14 @@ export interface CredentialRecord {
 
 export interface ToolSourceRecord {
   id: string;
-  workspaceId: Id<"workspaces">;
+  ownerScopeType?: OwnerScopeType;
+  organizationId?: Id<"organizations">;
+  workspaceId?: Id<"workspaces">;
   name: string;
   type: ToolSourceType;
   config: Record<string, unknown>;
+  specHash?: string;
+  authFingerprint?: string;
   enabled: boolean;
   createdAt: number;
   updatedAt: number;

@@ -6,9 +6,14 @@ import { inferOpenApiAuth } from "./openapi-auth";
 import { compactOpenApiPaths } from "./openapi-compaction";
 import { extractOperationIdsFromDts } from "./openapi/schema-hints";
 import type { PreparedOpenApiSpec } from "./tool/source-types";
-import { asRecord } from "./utils";
+import { toPlainObject } from "./utils";
 
 const unknownRecordSchema = z.record(z.unknown());
+
+const openApiDocumentSchema = z.object({
+  openapi: z.string().optional(),
+  swagger: z.string().optional(),
+}).catchall(z.unknown());
 
 interface SwaggerParserAdapter {
   bundle(spec: unknown): Promise<unknown>;
@@ -41,16 +46,13 @@ function toRecordResult(value: unknown, label: string): Result<Record<string, un
   return Result.ok(parsed.data);
 }
 
-function describeResultError(error: unknown): string {
-  const cause = asRecord(error).cause;
-  if (cause instanceof Error) {
-    return cause.message;
-  }
-  if (typeof cause === "string" && cause.trim().length > 0) {
-    return cause;
+function toOpenApiTsInput(spec: Record<string, unknown>): Parameters<typeof openapiTS>[0] {
+  const parsed = openApiDocumentSchema.safeParse(spec);
+  if (!parsed.success) {
+    throw new Error(`OpenAPI document is invalid: ${parsed.error.message}`);
   }
 
-  return error instanceof Error ? error.message : String(error);
+  return parsed.data as Parameters<typeof openapiTS>[0] & Record<string, unknown>;
 }
 
 function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string, unknown> | null {
@@ -62,7 +64,9 @@ function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string
     let target: unknown = spec;
     for (const segment of segments) {
       if (target && typeof target === "object") {
-        target = asRecord(target)[segment];
+        const targetRecord = toPlainObject(target);
+        if (!targetRecord) return false;
+        target = targetRecord[segment];
       } else {
         return false;
       }
@@ -73,11 +77,12 @@ function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string
   function hasBrokenDiscriminators(obj: unknown): boolean {
     if (Array.isArray(obj)) return obj.some(hasBrokenDiscriminators);
     if (obj && typeof obj === "object") {
-      const record = asRecord(obj);
+      const record = toPlainObject(obj);
+      if (!record) return false;
       if (record.discriminator && typeof record.discriminator === "object") {
-        const disc = asRecord(record.discriminator);
+        const disc = toPlainObject(record.discriminator) ?? {};
         if (disc.mapping && typeof disc.mapping === "object") {
-          const mapping = asRecord(disc.mapping);
+          const mapping = toPlainObject(disc.mapping) ?? {};
           if (Object.values(mapping).some((ref) => typeof ref === "string" && !refExists(ref))) {
             return true;
           }
@@ -93,13 +98,14 @@ function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string
   function walk(obj: unknown): unknown {
     if (Array.isArray(obj)) return obj.map(walk);
     if (obj && typeof obj === "object") {
-      const record = asRecord(obj);
+      const record = toPlainObject(obj);
+      if (!record) return obj;
       const clone: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(record)) {
         if (key === "discriminator" && typeof value === "object" && value !== null) {
-          const disc = asRecord(value);
+          const disc = toPlainObject(value) ?? {};
           if (disc.mapping && typeof disc.mapping === "object") {
-            const mapping = asRecord(disc.mapping);
+            const mapping = toPlainObject(disc.mapping) ?? {};
             const hasBroken = Object.values(mapping).some(
               (ref) => typeof ref === "string" && !refExists(ref),
             );
@@ -127,7 +133,7 @@ function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string
 
 async function generateOpenApiDts(spec: Record<string, unknown>): Promise<string | null> {
   try {
-    const ast = await openapiTS(spec as never, { silent: true });
+    const ast = await openapiTS(toOpenApiTsInput(spec), { silent: true });
     return astToString(ast);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -135,7 +141,7 @@ async function generateOpenApiDts(spec: Record<string, unknown>): Promise<string
     if (patched) {
       console.warn(`[executor] openapi-typescript failed, retrying with patched spec: ${msg}`);
       try {
-        const ast = await openapiTS(patched as never, { silent: true });
+        const ast = await openapiTS(toOpenApiTsInput(patched), { silent: true });
         return astToString(ast);
       } catch (retryError) {
         const retryMsg = retryError instanceof Error ? retryError.message : String(retryError);
@@ -168,13 +174,15 @@ export async function prepareOpenApiSpec(
 
   let parsed: Record<string, unknown>;
   if (typeof spec === "string") {
-    const parsedResult = await Result.tryPromise(() => parser.parse(spec));
-    if (parsedResult.isErr()) {
-      const msg = describeResultError(parsedResult.error);
+    let parsedValue: unknown;
+    try {
+      parsedValue = await parser.parse(spec);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${msg}`);
     }
 
-    const parsedRecord = toRecordResult(parsedResult.value, `Parsed OpenAPI source '${sourceName}'`);
+    const parsedRecord = toRecordResult(parsedValue, `Parsed OpenAPI source '${sourceName}'`);
     if (parsedRecord.isErr()) {
       throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${parsedRecord.error.message}`);
     }
@@ -184,18 +192,23 @@ export async function prepareOpenApiSpec(
     parsed = spec;
   }
 
-  let bundled: Record<string, unknown>;
+  let bundled: Record<string, unknown> = parsed;
   const dtsPromise = shouldGenerateDts
     ? generateOpenApiDts(parsed)
     : Promise.resolve<string | null>(null);
   if (shouldBundle) {
-    const bundleResult = await Result.tryPromise(() => parser.bundle(parsed));
-    if (bundleResult.isErr()) {
-      const bundleMessage = describeResultError(bundleResult.error);
+    let bundledValue: unknown;
+    try {
+      bundledValue = await parser.bundle(parsed);
+    } catch (error) {
+      const bundleMessage = error instanceof Error ? error.message : String(error);
       warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
       bundled = parsed;
-    } else {
-      const bundledRecord = toRecordResult(bundleResult.value, `Bundled OpenAPI source '${sourceName}'`);
+      bundledValue = undefined;
+    }
+
+    if (bundledValue !== undefined) {
+      const bundledRecord = toRecordResult(bundledValue, `Bundled OpenAPI source '${sourceName}'`);
       if (bundledRecord.isErr()) {
         warnings.push(`OpenAPI bundle returned non-object payload for '${sourceName}', using parse-only mode`);
         bundled = parsed;
@@ -203,8 +216,6 @@ export async function prepareOpenApiSpec(
         bundled = bundledRecord.value;
       }
     }
-  } else {
-    bundled = parsed;
   }
   const dts = await dtsPromise;
 
@@ -215,17 +226,17 @@ export async function prepareOpenApiSpec(
   return {
     servers: servers
       .map((server) => {
-        const value = asRecord(server).url;
+        const value = toPlainObject(server)?.url;
         return typeof value === "string" ? value : "";
       })
       .filter((url) => url.length > 0),
     paths: compactOpenApiPaths(
       bundled.paths,
       operationTypeIds,
-      asRecord(asRecord(bundled.components).parameters),
-      asRecord(asRecord(bundled.components).schemas),
-      asRecord(asRecord(bundled.components).responses),
-      asRecord(asRecord(bundled.components).requestBodies),
+      toPlainObject(toPlainObject(bundled.components)?.parameters) ?? {},
+      toPlainObject(toPlainObject(bundled.components)?.schemas) ?? {},
+      toPlainObject(toPlainObject(bundled.components)?.responses) ?? {},
+      toPlainObject(toPlainObject(bundled.components)?.requestBodies) ?? {},
       {
         includeSchemas: profile === "full",
         includeTypeHints: true,

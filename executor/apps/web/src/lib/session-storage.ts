@@ -1,8 +1,15 @@
 import type { Id } from "@executor/database/convex/_generated/dataModel";
+import { z } from "zod";
 
 const SESSION_KEY = "executor_session_id";
 const ACTIVE_WORKSPACE_KEY = "executor_active_workspace_id";
 const ACTIVE_WORKSPACE_BY_ACCOUNT_KEY = "executor_active_workspace_by_account";
+
+const workspaceByAccountSchema = z.record(z.string());
+
+function isWorkspaceId(value: string): value is Id<"workspaces"> {
+  return value.trim().length > 0;
+}
 
 export function readStoredSessionId() {
   if (typeof window === "undefined") {
@@ -17,7 +24,12 @@ export function readStoredActiveWorkspaceId() {
     return null;
   }
 
-  return localStorage.getItem(ACTIVE_WORKSPACE_KEY) as Id<"workspaces"> | null;
+  const stored = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+  if (!stored || !isWorkspaceId(stored)) {
+    return null;
+  }
+
+  return stored;
 }
 
 export function persistSessionId(sessionId: string) {
@@ -33,18 +45,50 @@ export function clearSessionStorage() {
   localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
 }
 
-export function readWorkspaceByAccount() {
-  const raw = localStorage.getItem(ACTIVE_WORKSPACE_BY_ACCOUNT_KEY);
-  if (!raw) {
-    return {} as Record<string, Id<"workspaces">>;
+export function readWorkspaceByAccount(): Record<string, Id<"workspaces">> {
+  if (typeof window === "undefined") {
+    return {};
   }
 
+  const raw = localStorage.getItem(ACTIVE_WORKSPACE_BY_ACCOUNT_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  let parsedJson: unknown;
   try {
-    const parsed = JSON.parse(raw) as Record<string, Id<"workspaces">>;
-    return parsed ?? {};
+    parsedJson = JSON.parse(raw);
   } catch {
     return {};
   }
+
+  const parsedMap = workspaceByAccountSchema.safeParse(parsedJson);
+  if (!parsedMap.success) {
+    return {};
+  }
+
+  let changed = false;
+  const cleaned: Record<string, Id<"workspaces">> = {};
+  for (const [accountIdRaw, workspaceIdRaw] of Object.entries(parsedMap.data)) {
+    const accountId = accountIdRaw.trim();
+    const workspaceId = workspaceIdRaw.trim();
+    if (!accountId || !isWorkspaceId(workspaceId)) {
+      changed = true;
+      continue;
+    }
+
+    if (accountId !== accountIdRaw || workspaceId !== workspaceIdRaw) {
+      changed = true;
+    }
+
+    cleaned[accountId] = workspaceId;
+  }
+
+  if (changed) {
+    writeWorkspaceByAccount(cleaned);
+  }
+
+  return cleaned;
 }
 
 function writeWorkspaceByAccount(value: Record<string, Id<"workspaces">>) {

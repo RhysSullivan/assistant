@@ -30,7 +30,6 @@ import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
 import { registrySignatureForWorkspace } from "./tool_registry_state";
 import { normalizeToolPathForLookup } from "./tool_paths";
-import { asPayload } from "../lib/object";
 
 const baseTools = new Map<string, ToolDefinition>();
 
@@ -38,6 +37,33 @@ const adminAnnouncementInputSchema = z.object({
   channel: z.string().optional(),
   message: z.string().optional(),
 });
+
+const actorScopedMcpAuthSchema = z.object({
+  mode: z.literal("actor"),
+});
+
+const toolHintSchema = z.object({
+  inputHint: z.string().optional(),
+  outputHint: z.string().optional(),
+  requiredInputKeys: z.array(z.string()).optional(),
+  previewInputKeys: z.array(z.string()).optional(),
+});
+
+const payloadRecordSchema = z.record(z.unknown());
+
+function toInputPayload(value: unknown): Record<string, unknown> {
+  const parsed = payloadRecordSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  return value === undefined ? {} : { value };
+}
+
+function toJsonSchema(value: unknown): JsonSchema {
+  const parsed = payloadRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 async function listWorkspaceToolSources(
   ctx: ActionCtx,
@@ -56,17 +82,23 @@ async function listWorkspaceAccessPolicies(
 }
 
 async function parseWorkspaceToolSnapshotFromBlob(blob: Blob): Promise<Result<WorkspaceToolSnapshot, Error>> {
-  const textResult = await Result.tryPromise(async () => await blob.text());
-  if (textResult.isErr()) {
-    return Result.err(new Error(`Failed to read cache blob: ${textResult.error.message}`));
+  let text: string;
+  try {
+    text = await blob.text();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Result.err(new Error(`Failed to read cache blob: ${message}`));
   }
 
-  const jsonResult = Result.try(() => JSON.parse(textResult.value));
-  if (jsonResult.isErr()) {
-    return Result.err(new Error(`Failed to parse cache JSON: ${jsonResult.error.message}`));
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Result.err(new Error(`Failed to parse cache JSON: ${message}`));
   }
 
-  return parseWorkspaceToolSnapshot(jsonResult.value);
+  return parseWorkspaceToolSnapshot(parsedJson);
 }
 
 // Minimal built-in tools used by tests/demos.
@@ -98,7 +130,7 @@ baseTools.set("admin.send_announcement", {
     },
   },
   run: async (input: unknown) => {
-    const parsedInput = adminAnnouncementInputSchema.safeParse(asPayload(input));
+    const parsedInput = adminAnnouncementInputSchema.safeParse(toInputPayload(input));
     const channel = parsedInput.success ? (parsedInput.data.channel ?? "") : "";
     const message = parsedInput.success ? (parsedInput.data.message ?? "") : "";
     return { ok: true, channel, message };
@@ -401,13 +433,6 @@ function normalizeHint(type?: string): string {
   return type && type.trim().length > 0 ? type : "unknown";
 }
 
-function asJsonSchema(value: unknown): JsonSchema {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  return asPayload(value);
-}
-
 async function buildWorkspaceToolRegistry(
   ctx: ActionCtx,
   args: {
@@ -433,24 +458,24 @@ async function buildWorkspaceToolRegistry(
     const normalizedPath = normalizeToolPathForLookup(st.path);
     const searchText = `${st.path} ${preferredPath} ${aliases.join(" ")} ${st.description} ${st.source ?? ""}`.toLowerCase();
 
-    const inputSchema = asJsonSchema(st.typing?.inputSchema);
-    const outputSchema = asJsonSchema(st.typing?.outputSchema);
+    const inputSchema = toJsonSchema(st.typing?.inputSchema);
+    const outputSchema = toJsonSchema(st.typing?.outputSchema);
+    const parsedTyping = toolHintSchema.safeParse(st.typing);
+    const typing = parsedTyping.success ? parsedTyping.data : {};
 
-    const requiredInputKeys = Array.isArray(st.typing?.requiredInputKeys)
-      ? st.typing!.requiredInputKeys!.filter((v): v is string => typeof v === "string")
-      : extractTopLevelRequiredKeys(inputSchema);
-    const previewInputKeys = Array.isArray(st.typing?.previewInputKeys)
-      ? st.typing!.previewInputKeys!.filter((v): v is string => typeof v === "string")
-      : buildPreviewKeys(inputSchema);
+    const requiredInputKeys = typing.requiredInputKeys ?? extractTopLevelRequiredKeys(inputSchema);
+    const previewInputKeys = typing.previewInputKeys ?? buildPreviewKeys(inputSchema);
+    const inputHint = typing.inputHint?.trim();
+    const outputHint = typing.outputHint?.trim();
 
-    const displayInput = typeof st.typing?.inputHint === "string" && st.typing.inputHint.trim().length > 0
-      ? st.typing.inputHint.trim()
+    const displayInput = inputHint && inputHint.length > 0
+      ? inputHint
       : (Object.keys(inputSchema).length === 0
         ? "{}"
         : normalizeHint(jsonSchemaTypeHintFallback(inputSchema)));
 
-    const displayOutput = typeof st.typing?.outputHint === "string" && st.typing.outputHint.trim().length > 0
-      ? st.typing.outputHint.trim()
+    const displayOutput = outputHint && outputHint.length > 0
+      ? outputHint
       : (Object.keys(outputSchema).length === 0
         ? "unknown"
         : normalizeHint(jsonSchemaTypeHintFallback(outputSchema)));
@@ -525,6 +550,11 @@ async function buildWorkspaceToolRegistry(
     buildId,
   });
 
+  await ctx.runMutation(internal.toolRegistry.pruneBuilds, {
+    workspaceId: args.workspaceId,
+    maxRetainedBuilds: 2,
+  });
+
   return { buildId };
 }
 
@@ -553,8 +583,9 @@ export async function getWorkspaceTools(
     if (source.type !== "mcp") {
       return false;
     }
-    const auth = asPayload(source.config.auth);
-    return auth?.mode === "actor";
+
+    const auth = actorScopedMcpAuthSchema.safeParse(source.config.auth);
+    return auth.success;
   });
   const skipCacheRead = (options.skipCacheRead ?? false) || hasActorScopedMcpSource;
   const skipCacheWrite = hasActorScopedMcpSource;
@@ -670,6 +701,7 @@ export async function getWorkspaceTools(
       timedOut: boolean;
       sourceName: string;
       openApiDts?: string;
+      openApiSourceKey?: string;
     }>((resolve) => {
       timer = setTimeout(() => {
         resolve({
@@ -678,6 +710,7 @@ export async function getWorkspaceTools(
           timedOut: true,
           sourceName: config.name,
           openApiDts: undefined,
+          openApiSourceKey: config.type === "openapi" ? (config.sourceKey ?? `openapi:${config.name}`) : undefined,
         });
       }, sourceTimeoutMs);
     });
@@ -739,7 +772,8 @@ export async function getWorkspaceTools(
     const openApiDtsBySource: Record<string, string> = {};
     for (const loaded of loadedSources) {
       if (loaded.openApiDts && loaded.openApiDts.trim().length > 0) {
-        openApiDtsBySource[`openapi:${loaded.sourceName}`] = loaded.openApiDts;
+        const sourceKey = loaded.openApiSourceKey ?? `openapi:${loaded.sourceName}`;
+        openApiDtsBySource[sourceKey] = loaded.openApiDts;
       }
     }
     const typeBundle = buildWorkspaceTypeBundle({

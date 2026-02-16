@@ -8,12 +8,14 @@ import { jsonObjectValidator } from "../src/database/validators";
 
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProviderValidator = v.union(v.literal("local-convex"), v.literal("workos-vault"));
+const ownerScopeTypeValidator = v.union(v.literal("organization"), v.literal("workspace"));
 
 export const upsertCredential = action({
   args: {
     id: v.optional(v.string()),
     workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
+    ownerScopeType: v.optional(ownerScopeTypeValidator),
     sourceKey: v.string(),
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),

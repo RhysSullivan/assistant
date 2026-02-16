@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   buildOpenApiArgPreviewKeys,
   buildOpenApiInputSchema,
@@ -6,7 +7,6 @@ import {
   jsonSchemaTypeHintFallback,
   responseTypeHintFromSchema,
 } from "./schema-hints";
-import { z } from "zod";
 import { buildOpenApiToolPath } from "./tool-path";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
 import { executeOpenApiRequest } from "../tool/source-execution";
@@ -14,7 +14,7 @@ import type { OpenApiToolSourceConfig, PreparedOpenApiSpec } from "../tool/sourc
 import type { ToolDefinition } from "../types";
 import type { ToolTypedRef } from "../types";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
-import { asRecord } from "../utils";
+import { toPlainObject } from "../utils";
 import type { SerializedTool } from "../tool/source-serialization";
 
 type OpenApiOperationParameter = {
@@ -24,11 +24,29 @@ type OpenApiOperationParameter = {
   schema: Record<string, unknown>;
 };
 
-const recordArraySchema = z.array(z.record(z.unknown()));
+const stringArraySchema = z.array(z.string());
+const nonEmptyTrimmedStringSchema = z.string().transform((value) => value.trim()).refine((value) => value.length > 0);
 
-function asRecordArray(value: unknown): Record<string, unknown>[] {
-  const parsed = recordArraySchema.safeParse(value);
-  return parsed.success ? parsed.data : [];
+function toRecordOrEmpty(value: unknown): Record<string, unknown> {
+  return toPlainObject(value) ?? {};
+}
+
+function parseNonEmptyTrimmedString(value: unknown): string | undefined {
+  const parsed = nonEmptyTrimmedStringSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function toRecordArray(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+
+  const entries: Array<Record<string, unknown>> = [];
+  for (const item of value) {
+    const record = toPlainObject(item);
+    if (record) {
+      entries.push(record);
+    }
+  }
+  return entries;
 }
 
 function buildOpenApiOperationParameters(
@@ -37,12 +55,12 @@ function buildOpenApiOperationParameters(
 ): OpenApiOperationParameter[] {
   return [
     ...sharedParameters,
-    ...asRecordArray(operation.parameters),
+    ...toRecordArray(operation.parameters),
   ].map((entry) => ({
     name: String(entry.name ?? ""),
     in: String(entry.in ?? "query"),
     required: Boolean(entry.required),
-    schema: asRecord(entry.schema),
+    schema: toRecordOrEmpty(entry.schema),
   }));
 }
 
@@ -60,7 +78,7 @@ export function buildOpenApiToolsFromPrepared(
   const sourceLabel = `openapi:${config.name}`;
   const credentialSourceKey = getCredentialSourceKey(config);
   const credentialSpec = buildCredentialSpec(credentialSourceKey, effectiveAuth);
-  const paths = asRecord(prepared.paths);
+  const paths = toRecordOrEmpty(prepared.paths);
   const tools: ToolDefinition[] = [];
 
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
@@ -68,11 +86,11 @@ export function buildOpenApiToolsFromPrepared(
   const usedToolPaths = new Set<string>();
 
   for (const [pathTemplate, pathValue] of Object.entries(paths)) {
-    const pathObject = asRecord(pathValue);
-    const sharedParameters = asRecordArray(pathObject.parameters);
+    const pathObject = toRecordOrEmpty(pathValue);
+    const sharedParameters = toRecordArray(pathObject.parameters);
 
     for (const method of methods) {
-      const operation = asRecord(pathObject[method]);
+      const operation = toRecordOrEmpty(pathObject[method]);
       if (Object.keys(operation).length === 0) continue;
 
       const tags = Array.isArray(operation.tags) ? operation.tags : [];
@@ -80,22 +98,19 @@ export function buildOpenApiToolsFromPrepared(
       const operationIdRaw = String(operation.operationId ?? `${method}_${pathTemplate}`);
       const parameters = buildOpenApiOperationParameters(sharedParameters, operation);
 
-      const inputSchema = asRecord(operation._inputSchema);
-      const outputSchema = asRecord(operation._outputSchema);
-      const inputHint = typeof operation._argsTypeHint === "string" && operation._argsTypeHint.trim().length > 0
-        ? operation._argsTypeHint.trim()
-        : undefined;
-      const outputHint = typeof operation._returnsTypeHint === "string" && operation._returnsTypeHint.trim().length > 0
-        ? operation._returnsTypeHint.trim()
-        : undefined;
+      const inputSchema = toRecordOrEmpty(operation._inputSchema);
+      const outputSchema = toRecordOrEmpty(operation._outputSchema);
+      const inputHint = parseNonEmptyTrimmedString(operation._argsTypeHint);
+      const outputHint = parseNonEmptyTrimmedString(operation._returnsTypeHint);
       const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
-      const previewInputKeys = Array.isArray(operation._previewInputKeys)
-        ? operation._previewInputKeys.filter((value): value is string => typeof value === "string")
+      const parsedPreviewInputKeys = stringArraySchema.safeParse(operation._previewInputKeys);
+      const previewInputKeys = parsedPreviewInputKeys.success
+        ? parsedPreviewInputKeys.data
         : buildPreviewKeys(inputSchema);
 
       const typedRef: ToolTypedRef = {
         kind: "openapi_operation",
-        sourceKey: sourceLabel,
+        sourceKey: config.sourceKey ?? sourceLabel,
         operationId: operationIdRaw,
       };
 

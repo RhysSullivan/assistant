@@ -56,7 +56,12 @@ const toolCallStatus = v.union(
   v.literal("denied"),
 );
 const toolApprovalMode = v.union(v.literal("auto"), v.literal("required"));
-const policyDecision = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
+const policyScopeType = v.union(v.literal("organization"), v.literal("workspace"));
+const policyResourceType = v.literal("tool_path");
+const policyMatchType = v.union(v.literal("glob"), v.literal("exact"));
+const policyEffect = v.union(v.literal("allow"), v.literal("deny"));
+const policyApprovalMode = v.union(v.literal("inherit"), v.literal("auto"), v.literal("required"));
+const ownerScopeType = v.union(v.literal("organization"), v.literal("workspace"));
 const credentialScope = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProvider = v.union(
   v.literal("local-convex"),
@@ -319,36 +324,46 @@ export default defineSchema({
   })
     .index("by_task_sequence", ["taskId", "sequence"]),
 
-  // Workspace access policy rules used by the approval / tool firewall.
-  // `toolPathPattern` is matched against tool paths and combined with actor/client selectors.
-  // Higher `priority` wins when multiple policies match.
+  // Workspace + organization access policy rules used by the approval / tool firewall.
+  // Rules can target specific actors and clients, and can match tool paths either exactly
+  // or with a glob pattern.
   accessPolicies: defineTable({
     policyId: v.string(), // domain ID: policy_<uuid>
-    workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()), // account._id or anon_<uuid>
+    scopeType: policyScopeType,
+    organizationId: v.id("organizations"),
+    workspaceId: v.optional(v.id("workspaces")),
+    targetActorId: v.optional(v.string()), // account._id or anon_<uuid>
     clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
-    toolPathPattern: v.string(),
-    decision: policyDecision,
+    resourceType: policyResourceType,
+    resourcePattern: v.string(),
+    matchType: policyMatchType,
+    effect: policyEffect,
+    approvalMode: policyApprovalMode,
     priority: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_policy_id", ["policyId"])
-    .index("by_workspace_created", ["workspaceId", "createdAt"]),
+    .index("by_workspace_created", ["workspaceId", "createdAt"])
+    .index("by_organization_created", ["organizationId", "createdAt"]),
 
   // Stored credentials for tool sources.
   //
   // A single credential "connection" (credentialId) can have multiple rows to support
-  // different bindings (workspace-wide and per-actor). `bindingId` exists as a stable handle
+  // different bindings (workspace-wide and per-actor), and can be owned by either a
+  // workspace or an organization.
+  // `bindingId` exists as a stable handle
   // for UI/API operations that need an id before the connection id is known.
   //
   // Primary access patterns:
-  // - Resolve by (workspaceId, sourceKey, scopeKey).
-  // - List all credentials in workspace by createdAt.
+  // - Resolve by (workspaceId|organizationId, sourceKey, scopeKey).
+  // - List effective credentials for a workspace by createdAt.
   sourceCredentials: defineTable({
     bindingId: v.string(), // domain ID: bind_<uuid>
     credentialId: v.string(), // domain ID: conn_<uuid>
-    workspaceId: v.id("workspaces"),
+    ownerScopeType: ownerScopeType,
+    organizationId: v.id("organizations"),
+    workspaceId: v.optional(v.id("workspaces")),
     sourceKey: v.string(),
     scope: credentialScope,
     scopeKey: v.string(), // "workspace" or actor:<actorId>
@@ -361,21 +376,30 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_workspace_created", ["workspaceId", "createdAt"])
+    .index("by_organization_created", ["organizationId", "createdAt"])
+    .index("by_organization_owner_created", ["organizationId", "ownerScopeType", "createdAt"])
     .index("by_workspace_source_scope_key", ["workspaceId", "sourceKey", "scopeKey"])
+    .index("by_organization_source_scope_key", ["organizationId", "sourceKey", "scopeKey"])
+    .index("by_organization_owner_source_scope_key", ["organizationId", "ownerScopeType", "sourceKey", "scopeKey"])
     .index("by_workspace_credential", ["workspaceId", "credentialId"])
+    .index("by_organization_credential", ["organizationId", "credentialId"])
+    .index("by_organization_owner_credential", ["organizationId", "ownerScopeType", "credentialId"])
+    .index("by_organization_source", ["organizationId", "sourceKey"])
     .index("by_binding_id", ["bindingId"]),
 
-  // Configured tool sources for a workspace (MCP servers, OpenAPI sources, GraphQL sources).
+  // Configured tool sources for a workspace/organization (MCP servers, OpenAPI sources, GraphQL sources).
   // `specHash` enables cache invalidation when the definition changes.
   // `authFingerprint` is used to determine whether cached tool materialization is still valid.
   //
   // Primary access patterns:
   // - Resolve by domain source id.
-  // - List sources by workspace, sorted by updatedAt.
-  // - Enforce name uniqueness per workspace.
+  // - List effective sources by workspace, sorted by updatedAt.
+  // - Enforce name uniqueness per owner scope.
   toolSources: defineTable({
     sourceId: v.string(), // domain ID: src_<uuid>
-    workspaceId: v.id("workspaces"),
+    ownerScopeType: ownerScopeType,
+    organizationId: v.id("organizations"),
+    workspaceId: v.optional(v.id("workspaces")),
     name: v.string(),
     type: toolSourceType,
     config: jsonObject,
@@ -387,7 +411,11 @@ export default defineSchema({
   })
     .index("by_source_id", ["sourceId"])
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
-    .index("by_workspace_name", ["workspaceId", "name"]),
+    .index("by_organization_updated", ["organizationId", "updatedAt"])
+    .index("by_organization_owner_updated", ["organizationId", "ownerScopeType", "updatedAt"])
+    .index("by_workspace_name", ["workspaceId", "name"])
+    .index("by_organization_name", ["organizationId", "name"])
+    .index("by_organization_owner_name", ["organizationId", "ownerScopeType", "name"]),
 
   // Cached OpenAPI spec blobs stored in Convex storage.
   // (specUrl, version) uniquely identifies a stored spec payload.

@@ -18,14 +18,15 @@ import {
   decodeToolCallControlSignal,
   ToolCallControlError,
 } from "../../../core/src/tool-call-control";
-import { asPayload } from "../lib/object";
 import { getToolDecision, getDecisionForContext } from "./policy";
 import { baseTools } from "./workspace_tools";
 import { publishTaskEvent } from "./events";
 import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecycle";
-import { resolveCredentialHeaders, validatePersistedCallRunnable } from "./tool_call_credentials";
+import { resolveCredentialHeadersResult, validatePersistedCallRunnable } from "./tool_call_credentials";
 import { getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
-import { getReadyRegistryBuildId } from "./tool_registry_state";
+import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
+
+const payloadRecordSchema = z.record(z.unknown());
 
 function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
@@ -40,18 +41,6 @@ type RegistryToolEntry = {
   displayInput?: string;
   displayOutput?: string;
 };
-
-const accessPolicyRecordSchema = z.object({
-  id: z.string(),
-  workspaceId: z.custom<TaskRecord["workspaceId"]>(),
-  actorId: z.string().optional(),
-  clientId: z.string().optional(),
-  toolPathPattern: z.string(),
-  decision: z.enum(["allow", "require_approval", "deny"]),
-  priority: z.number(),
-  createdAt: z.number(),
-  updatedAt: z.number(),
-});
 
 const registryNamespaceSchema = z.object({
   namespace: z.string(),
@@ -85,6 +74,15 @@ const discoverInputSchema = z.object({
   compact: z.boolean().optional(),
 });
 
+function toInputPayload(value: unknown): Record<string, unknown> {
+  const parsed = payloadRecordSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  return value === undefined ? {} : { value };
+}
+
 async function upsertRequestedToolCall(
   ctx: ActionCtx,
   args: { taskId: string; callId: string; workspaceId: TaskRecord["workspaceId"]; toolPath: string },
@@ -98,8 +96,7 @@ async function listWorkspaceAccessPolicies(
   workspaceId: TaskRecord["workspaceId"],
 ): Promise<AccessPolicyRecord[]> {
   const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId });
-  const parsed = z.array(accessPolicyRecordSchema).safeParse(policies);
-  return parsed.success ? parsed.data : [];
+  return policies as AccessPolicyRecord[];
 }
 
 async function listRegistryNamespaces(
@@ -183,16 +180,20 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
     // Fast system tools are handled server-side from the registry.
     if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools") {
-      const buildId = await getReadyRegistryBuildId(ctx, {
+      const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
         workspaceId: task.workspaceId,
         actorId: task.actorId,
         clientId: task.clientId,
         refreshOnStale: true,
       });
+      if (buildIdResult.isErr()) {
+        throw buildIdResult.error;
+      }
+      const buildId = buildIdResult.value;
 
       const payload = typeof input === "string"
         ? { query: input }
-        : asPayload(input);
+        : toInputPayload(input);
       const isAllowed = (path: string, approval: ToolDefinition["approval"]) => {
         const policyProbeTool: ToolDefinition = {
           path,
@@ -339,7 +340,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
     let credential: ResolvedToolCredential | undefined;
     if (tool.credential) {
-      const resolved = await resolveCredentialHeaders(ctx, tool.credential, task);
+      const credentialResult = await resolveCredentialHeadersResult(ctx, tool.credential, task);
+      if (credentialResult.isErr()) {
+        throw credentialResult.error;
+      }
+
+      const resolved = credentialResult.value;
       if (!resolved) {
         throw new Error(`Missing credential for source '${tool.credential.sourceKey}' (${tool.credential.mode} scope)`);
       }
@@ -402,7 +408,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           taskId: task.id,
           callId,
           toolPath: approval.toolPath,
-          input: asPayload(approval.input),
+          input: toInputPayload(approval.input),
           createdAt: approval.createdAt,
         });
       }

@@ -1,4 +1,6 @@
+import { Result } from "better-result";
 import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 import type { CredentialScope, SourceAuthType } from "@/lib/types";
 
 type SupportedAuthType = Exclude<SourceAuthType, "none" | "mixed">;
@@ -15,11 +17,36 @@ type OpenApiInspectionResult = {
   inferredAuth: InferredSpecAuth;
 };
 
-function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
+const recordSchema = z.record(z.unknown());
+
+const securityRequirementSchema = z.record(z.array(z.unknown()).optional());
+
+const securitySchemeSchema = z.object({
+  type: z.string().optional(),
+  scheme: z.string().optional(),
+  in: z.string().optional(),
+  name: z.string().optional(),
+});
+
+function toRecordValue(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
+
+function parseObjectFromText(text: string, format: "json" | "yaml"): Record<string, unknown> | null {
+  const parsed = format === "json"
+    ? Result.try(() => JSON.parse(text))
+    : Result.try(() => parseYaml(text));
+  if (parsed.isErr()) {
+    return null;
   }
-  return value as Record<string, unknown>;
+
+  const parsedRecord = recordSchema.safeParse(parsed.value);
+  if (!parsedRecord.success || Object.keys(parsedRecord.data).length === 0) {
+    return null;
+  }
+
+  return parsedRecord.data;
 }
 
 function parseOpenApiPayload(raw: string, sourceUrl: string, contentType: string): Record<string, unknown> {
@@ -27,40 +54,34 @@ function parseOpenApiPayload(raw: string, sourceUrl: string, contentType: string
   const loweredUrl = sourceUrl.toLowerCase();
   const preferJson = loweredContentType.includes("json") || loweredUrl.endsWith(".json");
 
-  const tryJson = () => asRecord(JSON.parse(raw));
-  const tryYaml = () => asRecord(parseYaml(raw));
+  const primary = preferJson
+    ? parseObjectFromText(raw, "json")
+    : parseObjectFromText(raw, "yaml");
+  const fallback = preferJson
+    ? parseObjectFromText(raw, "yaml")
+    : parseObjectFromText(raw, "json");
+  const parsed = primary ?? fallback;
 
-  const parsed = preferJson
-    ? (() => {
-        try {
-          return tryJson();
-        } catch {
-          return tryYaml();
-        }
-      })()
-    : (() => {
-        try {
-          return tryYaml();
-        } catch {
-          return tryJson();
-        }
-      })();
-
-  if (Object.keys(parsed).length === 0) {
+  if (!parsed) {
     throw new Error("Spec payload is empty or not an object");
   }
 
   return parsed;
 }
 
-function normalizeAuthScheme(scheme: Record<string, unknown>): {
+function normalizeAuthScheme(scheme: unknown): {
   type: SupportedAuthType;
   header?: string;
 } | null {
-  const type = String(scheme.type ?? "").toLowerCase();
+  const parsedScheme = securitySchemeSchema.safeParse(scheme);
+  if (!parsedScheme.success) {
+    return null;
+  }
+
+  const type = (parsedScheme.data.type ?? "").toLowerCase();
 
   if (type === "http") {
-    const httpScheme = String(scheme.scheme ?? "").toLowerCase();
+    const httpScheme = (parsedScheme.data.scheme ?? "").toLowerCase();
     if (httpScheme === "bearer") {
       return { type: "bearer" };
     }
@@ -71,8 +92,8 @@ function normalizeAuthScheme(scheme: Record<string, unknown>): {
   }
 
   if (type === "apikey") {
-    const location = String(scheme.in ?? "").toLowerCase();
-    const header = typeof scheme.name === "string" ? scheme.name.trim() : "";
+    const location = (parsedScheme.data.in ?? "").toLowerCase();
+    const header = (parsedScheme.data.name ?? "").trim();
     if (location === "header" && header.length > 0) {
       return { type: "apiKey", header };
     }
@@ -87,23 +108,26 @@ function normalizeAuthScheme(scheme: Record<string, unknown>): {
 }
 
 function inferSecuritySchemaAuth(spec: Record<string, unknown>): InferredSpecAuth {
-  const components = asRecord(spec.components);
-  const securitySchemes = asRecord(components.securitySchemes);
+  const components = toRecordValue(spec.components);
+  const securitySchemes = toRecordValue(components.securitySchemes);
   const schemeNames = Object.keys(securitySchemes);
   if (schemeNames.length === 0) {
     return { type: "none", inferred: true };
   }
 
   const globalSecurity = Array.isArray(spec.security)
-    ? spec.security.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    ? spec.security.flatMap((entry) => {
+      const parsed = securityRequirementSchema.safeParse(entry);
+      return parsed.success ? [parsed.data] : [];
+    })
     : [];
   const referencedSchemeNames = globalSecurity.flatMap((entry) => Object.keys(entry));
   const candidateNames = referencedSchemeNames.length > 0
-    ? [...new Set(referencedSchemeNames.filter((name) => typeof securitySchemes[name] === "object"))]
+    ? [...new Set(referencedSchemeNames.filter((name) => Object.prototype.hasOwnProperty.call(securitySchemes, name)))]
     : schemeNames;
 
   const normalized = candidateNames
-    .map((name) => normalizeAuthScheme(asRecord(securitySchemes[name])))
+    .map((name) => normalizeAuthScheme(securitySchemes[name]))
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
   if (normalized.length === 0) {

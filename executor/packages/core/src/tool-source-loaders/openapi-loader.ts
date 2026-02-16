@@ -1,6 +1,5 @@
 "use node";
 
-import { Result } from "better-result";
 import { z } from "zod";
 import { buildOpenApiToolsFromPrepared } from "../openapi/tool-builder";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
@@ -16,7 +15,7 @@ import { executePostmanRequest, type PostmanSerializedRunSpec } from "../postman
 import { prepareOpenApiSpec } from "../openapi-prepare";
 import type { OpenApiToolSourceConfig } from "../tool/source-types";
 import type { ToolDefinition } from "../types";
-import { asRecord } from "../utils";
+import { toPlainObject } from "../utils";
 import type { SerializedTool } from "../tool/source-serialization";
 
 const POSTMAN_SPEC_PREFIX = "postman:";
@@ -28,6 +27,29 @@ const postmanCollectionResponseSchema = z.object({
     folders: z.array(z.record(z.unknown())).optional(),
     variables: z.unknown().optional(),
   }).optional(),
+});
+
+const postmanFolderSchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  folder: z.string().optional(),
+});
+
+const postmanRequestSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().optional(),
+  method: z.string().optional(),
+  url: z.string(),
+  folder: z.string().optional(),
+  pathVariableData: z.unknown().optional(),
+  pathVariables: z.unknown().optional(),
+  headerData: z.unknown().optional(),
+  headers: z.unknown().optional(),
+  queryParams: z.unknown().optional(),
+  queryParam: z.unknown().optional(),
+  bodyData: z.unknown().optional(),
+  body: z.unknown().optional(),
+  description: z.string().optional(),
 });
 
 function parsePostmanCollectionUid(spec: string): string | null {
@@ -67,14 +89,15 @@ async function loadPostmanCollectionTools(
     throw new Error(`Failed to fetch API collection ${collectionUid}: HTTP ${response.status} ${text.slice(0, 300)}`);
   }
 
-  const responseJsonResult = await Result.tryPromise(() => response.json());
-  if (responseJsonResult.isErr()) {
-    const cause = responseJsonResult.error.cause;
-    const message = cause instanceof Error ? cause.message : String(cause);
+  let responseJson: unknown;
+  try {
+    responseJson = await response.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to parse API collection ${collectionUid}: ${message}`);
   }
 
-  const parsedCollection = postmanCollectionResponseSchema.safeParse(responseJsonResult.value);
+  const parsedCollection = postmanCollectionResponseSchema.safeParse(responseJson);
   if (!parsedCollection.success) {
     throw new Error(`Invalid API collection response for ${collectionUid}: ${parsedCollection.error.message}`);
   }
@@ -87,11 +110,14 @@ async function loadPostmanCollectionTools(
 
   const folderById = new Map<string, { name: string; parentId?: string }>();
   for (const folder of folders) {
-    const id = typeof folder.id === "string" ? folder.id : "";
-    if (!id) continue;
-    const name = typeof folder.name === "string" && folder.name.trim().length > 0 ? folder.name : "folder";
-    const parentId = typeof folder.folder === "string" ? folder.folder : undefined;
-    folderById.set(id, { name, parentId });
+    const parsedFolder = postmanFolderSchema.safeParse(folder);
+    if (!parsedFolder.success) continue;
+
+    const id = parsedFolder.data.id;
+    const name = parsedFolder.data.name && parsedFolder.data.name.trim().length > 0
+      ? parsedFolder.data.name
+      : "folder";
+    folderById.set(id, { name, parentId: parsedFolder.data.folder });
   }
 
   const sourceLabel = `catalog:${config.name}`;
@@ -115,29 +141,32 @@ async function loadPostmanCollectionTools(
   const tools: ToolDefinition[] = [];
 
   for (const request of requests) {
-    const methodRaw = typeof request.method === "string" ? request.method.toLowerCase() : "get";
+    const parsedRequest = postmanRequestSchema.safeParse(request);
+    if (!parsedRequest.success) continue;
+
+    const methodRaw = (parsedRequest.data.method ?? "get").toLowerCase();
     const method = methodRaw.length > 0 ? methodRaw : "get";
-    const url = typeof request.url === "string" ? request.url : "";
+    const url = parsedRequest.data.url;
     if (!url) continue;
 
-    const requestId = typeof request.id === "string" ? request.id : "";
-    const requestName = typeof request.name === "string" && request.name.trim().length > 0
-      ? request.name.trim()
+    const requestId = parsedRequest.data.id ?? "";
+    const requestName = parsedRequest.data.name && parsedRequest.data.name.trim().length > 0
+      ? parsedRequest.data.name.trim()
       : requestId || `${method.toUpperCase()} request`;
-    const folderId = typeof request.folder === "string" ? request.folder : undefined;
+    const folderId = parsedRequest.data.folder;
     const folderPath = resolvePostmanFolderPath(folderId, folderById);
     const requestVariables = {
       ...collectionVariables,
-      ...extractPostmanVariableMap(request.pathVariableData),
+      ...extractPostmanVariableMap(parsedRequest.data.pathVariableData ?? parsedRequest.data.pathVariables),
     };
 
     const runSpec: PostmanSerializedRunSpec = {
       kind: "postman",
       method,
       url,
-      headers: extractPostmanHeaderMap(request.headerData),
-      queryParams: extractPostmanQueryEntries(request.queryParams),
-      body: extractPostmanBody(request),
+      headers: extractPostmanHeaderMap(parsedRequest.data.headerData ?? parsedRequest.data.headers),
+      queryParams: extractPostmanQueryEntries(parsedRequest.data.queryParams ?? parsedRequest.data.queryParam),
+      body: extractPostmanBody(parsedRequest.data.bodyData ?? parsedRequest.data.body),
       variables: requestVariables,
       authHeaders,
     };
@@ -152,8 +181,8 @@ async function loadPostmanCollectionTools(
       path: buildPostmanToolPath(config.name, requestName, folderPath, usedPaths),
       source: sourceLabel,
       approval,
-      description: typeof request.description === "string" && request.description.trim().length > 0
-        ? request.description
+      description: parsedRequest.data.description && parsedRequest.data.description.trim().length > 0
+        ? parsedRequest.data.description
         : `${method.toUpperCase()} ${url}`,
       typing: {
         inputSchema,
@@ -163,7 +192,7 @@ async function loadPostmanCollectionTools(
       credential: credentialSpec,
       _runSpec: runSpec,
       run: async (input: unknown, context) => {
-        const payloadRecord = asRecord(input);
+        const payloadRecord = toPlainObject(input) ?? {};
         return await executePostmanRequest(runSpec, payloadRecord, context.credential?.headers);
       },
     };

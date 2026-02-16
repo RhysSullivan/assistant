@@ -2,7 +2,6 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { getTaskDoc, mapTaskEvent } from "../../src/database/readers";
 import { jsonObjectValidator } from "../../src/database/validators";
-import { asRecord } from "../../src/lib/object";
 
 export const createTaskEvent = internalMutation({
   args: {
@@ -30,7 +29,7 @@ export const createTaskEvent = internalMutation({
       taskId: args.taskId,
       eventName: args.eventName,
       type: args.type,
-      payload: asRecord(args.payload),
+      payload: args.payload,
       createdAt,
     });
 

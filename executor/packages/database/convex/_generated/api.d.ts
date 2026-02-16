@@ -88,9 +88,10 @@ export declare const api: {
       {
         actorId?: string;
         id?: string;
+        ownerScopeType?: "organization" | "workspace";
         provider?: "local-convex" | "workos-vault";
         scope: "workspace" | "actor";
-        secretJson: any;
+        secretJson: Record<string, any>;
         sessionId?: string;
         sourceKey: string;
         workspaceId: Id<"workspaces">;
@@ -106,7 +107,7 @@ export declare const api: {
         actorId?: string;
         clientId?: string;
         code: string;
-        metadata?: any;
+        metadata?: Record<string, any>;
         runtimeId?: string;
         sessionId?: string;
         timeoutMs?: number;
@@ -268,7 +269,7 @@ export declare const api: {
       "public",
       {
         callId: string;
-        input?: any;
+        input?: Record<string, any>;
         internalSecret: string;
         runId: string;
         toolPath: string;
@@ -336,10 +337,14 @@ export declare const api: {
       "public",
       {
         actorId?: string;
+        approvalMode?: "inherit" | "auto" | "required";
         clientId?: string;
-        decision: "allow" | "require_approval" | "deny";
+        decision?: "allow" | "require_approval" | "deny";
+        effect?: "allow" | "deny";
         id?: string;
+        matchType?: "glob" | "exact";
         priority?: number;
+        scopeType?: "organization" | "workspace";
         sessionId?: string;
         toolPathPattern: string;
         workspaceId: Id<"workspaces">;
@@ -352,10 +357,11 @@ export declare const api: {
       {
         actorId?: string;
         id?: string;
-        overridesJson?: any;
+        overridesJson?: Record<string, any>;
+        ownerScopeType?: "organization" | "workspace";
         provider?: "local-convex" | "workos-vault";
         scope: "workspace" | "actor";
-        secretJson: any;
+        secretJson: Record<string, any>;
         sessionId?: string;
         sourceKey: string;
         workspaceId: Id<"workspaces">;
@@ -366,10 +372,11 @@ export declare const api: {
       "mutation",
       "public",
       {
-        config: any;
+        config: Record<string, any>;
         enabled?: boolean;
         id?: string;
         name: string;
+        ownerScopeType?: "organization" | "workspace";
         sessionId?: string;
         type: "mcp" | "openapi" | "graphql";
         workspaceId: Id<"workspaces">;
@@ -486,7 +493,12 @@ export declare const internal: {
       createApproval: FunctionReference<
         "mutation",
         "internal",
-        { id: string; input?: any; taskId: string; toolPath: string },
+        {
+          id: string;
+          input?: Record<string, any>;
+          taskId: string;
+          toolPath: string;
+        },
         any
       >;
       getApproval: FunctionReference<
@@ -537,7 +549,12 @@ export declare const internal: {
     createApproval: FunctionReference<
       "mutation",
       "internal",
-      { id: string; input?: any; taskId: string; toolPath: string },
+      {
+        id: string;
+        input?: Record<string, any>;
+        taskId: string;
+        toolPath: string;
+      },
       any
     >;
     createTask: FunctionReference<
@@ -548,7 +565,7 @@ export declare const internal: {
         clientId?: string;
         code: string;
         id: string;
-        metadata?: any;
+        metadata?: Record<string, any>;
         runtimeId: string;
         timeoutMs?: number;
         workspaceId: Id<"workspaces">;
@@ -558,7 +575,12 @@ export declare const internal: {
     createTaskEvent: FunctionReference<
       "mutation",
       "internal",
-      { eventName: string; payload: any; taskId: string; type: string },
+      {
+        eventName: string;
+        payload: Record<string, any>;
+        taskId: string;
+        type: string;
+      },
       any
     >;
     credentials: {
@@ -586,10 +608,11 @@ export declare const internal: {
         {
           actorId?: string;
           id?: string;
-          overridesJson?: any;
+          overridesJson?: Record<string, any>;
+          ownerScopeType?: "organization" | "workspace";
           provider?: "local-convex" | "workos-vault";
           scope: "workspace" | "actor";
-          secretJson: any;
+          secretJson: Record<string, any>;
           sourceKey: string;
           workspaceId: Id<"workspaces">;
         },
@@ -733,11 +756,17 @@ export declare const internal: {
         "internal",
         {
           actorId?: string;
+          approvalMode?: "inherit" | "auto" | "required";
           clientId?: string;
-          decision: "allow" | "require_approval" | "deny";
+          decision?: "allow" | "require_approval" | "deny";
+          effect?: "allow" | "deny";
           id?: string;
+          matchType?: "glob" | "exact";
           priority?: number;
-          toolPathPattern: string;
+          resourcePattern?: string;
+          scopeType?: "organization" | "workspace";
+          targetActorId?: string;
+          toolPathPattern?: string;
           workspaceId: Id<"workspaces">;
         },
         any
@@ -775,7 +804,12 @@ export declare const internal: {
       createTaskEvent: FunctionReference<
         "mutation",
         "internal",
-        { eventName: string; payload: any; taskId: string; type: string },
+        {
+          eventName: string;
+          payload: Record<string, any>;
+          taskId: string;
+          type: string;
+        },
         any
       >;
       listTaskEvents: FunctionReference<
@@ -794,7 +828,7 @@ export declare const internal: {
           clientId?: string;
           code: string;
           id: string;
-          metadata?: any;
+          metadata?: Record<string, any>;
           runtimeId: string;
           timeoutMs?: number;
           workspaceId: Id<"workspaces">;
@@ -897,10 +931,11 @@ export declare const internal: {
         "mutation",
         "internal",
         {
-          config: any;
+          config: Record<string, any>;
           enabled?: boolean;
           id?: string;
           name: string;
+          ownerScopeType?: "organization" | "workspace";
           type: "mcp" | "openapi" | "graphql";
           workspaceId: Id<"workspaces">;
         },
@@ -912,11 +947,17 @@ export declare const internal: {
       "internal",
       {
         actorId?: string;
+        approvalMode?: "inherit" | "auto" | "required";
         clientId?: string;
-        decision: "allow" | "require_approval" | "deny";
+        decision?: "allow" | "require_approval" | "deny";
+        effect?: "allow" | "deny";
         id?: string;
+        matchType?: "glob" | "exact";
         priority?: number;
-        toolPathPattern: string;
+        resourcePattern?: string;
+        scopeType?: "organization" | "workspace";
+        targetActorId?: string;
+        toolPathPattern?: string;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -927,10 +968,11 @@ export declare const internal: {
       {
         actorId?: string;
         id?: string;
-        overridesJson?: any;
+        overridesJson?: Record<string, any>;
+        ownerScopeType?: "organization" | "workspace";
         provider?: "local-convex" | "workos-vault";
         scope: "workspace" | "actor";
-        secretJson: any;
+        secretJson: Record<string, any>;
         sourceKey: string;
         workspaceId: Id<"workspaces">;
       },
@@ -951,10 +993,11 @@ export declare const internal: {
       "mutation",
       "internal",
       {
-        config: any;
+        config: Record<string, any>;
         enabled?: boolean;
         id?: string;
         name: string;
+        ownerScopeType?: "organization" | "workspace";
         type: "mcp" | "openapi" | "graphql";
         workspaceId: Id<"workspaces">;
       },
@@ -981,7 +1024,7 @@ export declare const internal: {
         actorId: string;
         clientId?: string;
         code: string;
-        metadata?: any;
+        metadata?: Record<string, any>;
         runtimeId?: string;
         scheduleAfterCreate?: boolean;
         timeoutMs?: number;
@@ -1006,7 +1049,12 @@ export declare const internal: {
     handleExternalToolCall: FunctionReference<
       "action",
       "internal",
-      { callId: string; input?: any; runId: string; toolPath: string },
+      {
+        callId: string;
+        input?: Record<string, any>;
+        runId: string;
+        toolPath: string;
+      },
       any
     >;
     listToolsInternal: FunctionReference<
@@ -1256,6 +1304,12 @@ export declare const internal: {
         namespace: string;
         workspaceId: Id<"workspaces">;
       },
+      any
+    >;
+    pruneBuilds: FunctionReference<
+      "mutation",
+      "internal",
+      { maxRetainedBuilds?: number; workspaceId: Id<"workspaces"> },
       any
     >;
     putNamespacesBatch: FunctionReference<

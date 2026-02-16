@@ -1,4 +1,5 @@
 import { components } from "../../convex/_generated/api";
+import { z } from "zod";
 import type { RunQueryCtx } from "./types";
 
 type WorkosProfile = {
@@ -8,17 +9,20 @@ type WorkosProfile = {
   profilePictureUrl?: string | null;
 };
 
+const nonEmptyTrimmedStringSchema = z.string().transform((value) => value.trim()).refine((value) => value.length > 0);
+
 function deriveFallbackUserLabel(workosUserId: string): string {
   return `User ${workosUserId.slice(-6)}`;
 }
 
 function getIdentityString(identity: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
-    const value = identity[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
+    const parsedValue = nonEmptyTrimmedStringSchema.safeParse(identity[key]);
+    if (parsedValue.success) {
+      return parsedValue.data;
     }
   }
+
   return undefined;
 }
 

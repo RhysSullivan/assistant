@@ -8,12 +8,18 @@ import { sanitizeSegment } from "../tool/path-utils";
 import type { McpToolSourceConfig } from "../tool/source-types";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import type { ToolDefinition } from "../types";
-import { asRecord } from "../utils";
 import type { SerializedTool } from "../tool/source-serialization";
 
 const listedToolsResponseSchema = z.object({
   tools: z.array(z.record(z.unknown())).optional(),
 });
+
+const recordSchema = z.record(z.unknown());
+
+function coerceRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 function extractListedTools(value: unknown): Record<string, unknown>[] {
   const parsed = listedToolsResponseSchema.safeParse(value);
@@ -68,8 +74,8 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
 
   return tools.map((tool) => {
     const toolName = String(tool.name ?? "tool");
-    const inputSchema = asRecord(tool.inputSchema);
-    const outputSchema = asRecord(tool.outputSchema);
+    const inputSchema = coerceRecord(tool.inputSchema);
+    const outputSchema = coerceRecord(tool.outputSchema);
     const previewInputKeys = buildPreviewKeys(inputSchema).filter((key) => key.length > 0);
     const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
     return {
@@ -93,7 +99,7 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
         toolName,
       },
       run: async (input: unknown, context) => {
-        const payload = asRecord(input);
+        const payload = coerceRecord(input);
         const result = await callToolWithReconnect(toolName, payload, context.credential?.headers);
         return extractMcpResult(result);
       },

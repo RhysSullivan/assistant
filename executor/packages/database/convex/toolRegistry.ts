@@ -176,6 +176,68 @@ export const finishBuild = internalMutation({
   },
 });
 
+export const pruneBuilds = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    maxRetainedBuilds: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const maxRetainedBuilds = Math.max(1, Math.min(10, Math.floor(args.maxRetainedBuilds ?? 2)));
+    const state = await ctx.db
+      .query("workspaceToolRegistryState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+
+    const protectedBuildIds = new Set<string>();
+    if (state?.readyBuildId) protectedBuildIds.add(state.readyBuildId);
+    if (state?.buildingBuildId) protectedBuildIds.add(state.buildingBuildId);
+
+    const toolEntries = await ctx.db
+      .query("workspaceToolRegistry")
+      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+
+    const namespaceEntries = await ctx.db
+      .query("workspaceToolNamespaces")
+      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+
+    const latestCreatedAtByBuild = new Map<string, number>();
+    for (const entry of toolEntries) {
+      const current = latestCreatedAtByBuild.get(entry.buildId) ?? 0;
+      if (entry.createdAt > current) {
+        latestCreatedAtByBuild.set(entry.buildId, entry.createdAt);
+      }
+    }
+    for (const entry of namespaceEntries) {
+      const current = latestCreatedAtByBuild.get(entry.buildId) ?? 0;
+      if (entry.createdAt > current) {
+        latestCreatedAtByBuild.set(entry.buildId, entry.createdAt);
+      }
+    }
+
+    const buildIdsByRecency = [...latestCreatedAtByBuild.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([buildId]) => buildId);
+
+    const retained = new Set<string>(buildIdsByRecency.slice(0, maxRetainedBuilds));
+    for (const protectedBuildId of protectedBuildIds) {
+      retained.add(protectedBuildId);
+    }
+
+    for (const entry of toolEntries) {
+      if (!retained.has(entry.buildId)) {
+        await ctx.db.delete(entry._id);
+      }
+    }
+    for (const entry of namespaceEntries) {
+      if (!retained.has(entry.buildId)) {
+        await ctx.db.delete(entry._id);
+      }
+    }
+  },
+});
+
 export const getToolByPath = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),

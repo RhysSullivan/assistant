@@ -1,10 +1,49 @@
 import { sanitizeSegment, sanitizeSnakeSegment } from "../tool/path-utils";
 import { stringifyTemplateValue } from "../postman-utils";
-import { asRecord } from "../utils";
+import { z } from "zod";
 
 export type PostmanRequestBody =
   | { kind: "urlencoded"; entries: Array<{ key: string; value: string }> }
   | { kind: "raw"; text: string };
+
+const postmanKeyValueEntrySchema = z.object({
+  key: z.coerce.string(),
+  value: z.unknown().optional(),
+  disabled: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+});
+
+const postmanBodySchema = z.object({
+  mode: z.string().optional(),
+  urlencoded: z.array(postmanKeyValueEntrySchema).optional(),
+  raw: z.string().optional(),
+  dataMode: z.string().optional(),
+  data: z.array(postmanKeyValueEntrySchema).optional(),
+  rawModeData: z.string().optional(),
+});
+
+function parseKeyValueEntries(value: unknown): Array<z.infer<typeof postmanKeyValueEntrySchema>> {
+  const parsed = z.array(postmanKeyValueEntrySchema).safeParse(value);
+  return parsed.success ? parsed.data : [];
+}
+
+function isDisabled(entry: z.infer<typeof postmanKeyValueEntrySchema>): boolean {
+  return entry.disabled === true || entry.enabled === false;
+}
+
+function toNormalizedEntry(
+  entry: z.infer<typeof postmanKeyValueEntrySchema>,
+): { key: string; value: string } | null {
+  const key = entry.key.trim();
+  if (!key || isDisabled(entry)) {
+    return null;
+  }
+
+  return {
+    key,
+    value: stringifyTemplateValue(entry.value),
+  };
+}
 
 export function buildPostmanToolPath(
   sourceName: string,
@@ -48,57 +87,63 @@ export function resolvePostmanFolderPath(
 }
 
 export function extractPostmanVariableMap(value: unknown): Record<string, string> {
-  if (!Array.isArray(value)) return {};
   const result: Record<string, string> = {};
-  for (const entry of value) {
-    const record = asRecord(entry);
-    const key = typeof record.key === "string" ? record.key.trim() : "";
-    if (!key) continue;
-    if (record.disabled === true) continue;
-    result[key] = stringifyTemplateValue(record.value);
+  for (const entry of parseKeyValueEntries(value)) {
+    const normalized = toNormalizedEntry(entry);
+    if (!normalized) continue;
+    result[normalized.key] = normalized.value;
   }
   return result;
 }
 
 export function extractPostmanHeaderMap(value: unknown): Record<string, string> {
-  if (!Array.isArray(value)) return {};
   const result: Record<string, string> = {};
-  for (const entry of value) {
-    const record = asRecord(entry);
-    const key = typeof record.key === "string" ? record.key.trim() : "";
-    if (!key || record.disabled === true) continue;
-    result[key] = stringifyTemplateValue(record.value);
+  for (const entry of parseKeyValueEntries(value)) {
+    const normalized = toNormalizedEntry(entry);
+    if (!normalized) continue;
+    result[normalized.key] = normalized.value;
   }
   return result;
 }
 
 export function extractPostmanQueryEntries(value: unknown): Array<{ key: string; value: string }> {
-  if (!Array.isArray(value)) return [];
   const entries: Array<{ key: string; value: string }> = [];
-  for (const entry of value) {
-    const record = asRecord(entry);
-    const key = typeof record.key === "string" ? record.key.trim() : "";
-    if (!key || record.disabled === true) continue;
-    entries.push({ key, value: stringifyTemplateValue(record.value) });
+  for (const entry of parseKeyValueEntries(value)) {
+    const normalized = toNormalizedEntry(entry);
+    if (!normalized) continue;
+    entries.push(normalized);
   }
   return entries;
 }
 
-export function extractPostmanBody(record: Record<string, unknown>): PostmanRequestBody | undefined {
-  const dataMode = typeof record.dataMode === "string" ? record.dataMode.toLowerCase() : "";
-  if (dataMode === "urlencoded" && Array.isArray(record.data)) {
-    const entries: Array<{ key: string; value: string }> = [];
-    for (const item of record.data) {
-      const entry = asRecord(item);
-      const key = typeof entry.key === "string" ? entry.key.trim() : "";
-      if (!key || entry.disabled === true) continue;
-      entries.push({ key, value: stringifyTemplateValue(entry.value) });
-    }
+export function extractPostmanBody(value: unknown): PostmanRequestBody | undefined {
+  const parsedBody = postmanBodySchema.safeParse(value);
+  if (!parsedBody.success) return undefined;
+
+  const body = parsedBody.data;
+  const mode = (body.mode ?? body.dataMode ?? "").trim().toLowerCase();
+
+  if (mode === "urlencoded") {
+    const rawEntries = body.urlencoded ?? body.data ?? [];
+    const entries = rawEntries
+      .map((entry) => toNormalizedEntry(entry))
+      .filter((entry): entry is { key: string; value: string } => Boolean(entry));
     return entries.length > 0 ? { kind: "urlencoded", entries } : undefined;
   }
 
-  if (typeof record.rawModeData === "string" && record.rawModeData.length > 0) {
-    return { kind: "raw", text: record.rawModeData };
+  if (mode === "raw") {
+    const rawText = body.raw ?? body.rawModeData ?? "";
+    if (rawText.trim().length > 0) {
+      return { kind: "raw", text: rawText };
+    }
+  }
+
+  if ((body.rawModeData ?? "").trim().length > 0) {
+    return { kind: "raw", text: body.rawModeData ?? "" };
+  }
+
+  if ((body.raw ?? "").trim().length > 0) {
+    return { kind: "raw", text: body.raw ?? "" };
   }
 
   return undefined;

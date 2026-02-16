@@ -5,6 +5,7 @@
  * round-trip with functional `run` methods.
  */
 import { test, expect, describe } from "bun:test";
+import { z } from "zod";
 import type { Id } from "../../../database/convex/_generated/dataModel";
 import {
   prepareOpenApiSpec,
@@ -19,6 +20,12 @@ import {
 import type { ToolDefinition } from "../types";
 
 const TEST_WORKSPACE_ID = "w" as Id<"workspaces">;
+
+const unknownRecordSchema = z.record(z.unknown());
+const graphqlBodySchema = z.object({
+  query: z.string().optional(),
+  variables: z.unknown().optional(),
+});
 
 function makeBaseTools(): Map<string, ToolDefinition> {
   return new Map([
@@ -36,7 +43,8 @@ function makeBaseTools(): Map<string, ToolDefinition> {
           previewInputKeys: ["message"],
         },
         run: async (input: unknown) => {
-          const payload = input as Record<string, unknown>;
+          const parsedPayload = unknownRecordSchema.safeParse(input);
+          const payload = parsedPayload.success ? parsedPayload.data : {};
           return payload.message;
         },
       },
@@ -338,7 +346,8 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ query: string; variables: unknown }> = [];
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body ?? "{}")) as { query?: string; variables?: unknown };
+      const parsedBody = graphqlBodySchema.safeParse(JSON.parse(String(init?.body ?? "{}")));
+      const body = parsedBody.success ? parsedBody.data : {};
       calls.push({ query: body.query ?? "", variables: body.variables });
 
       if ((body.query ?? "").includes("teams")) {
@@ -359,14 +368,19 @@ describe("serializeTools + rehydrateTools round-trip", () => {
         { query: "query viewer { viewer { id } }" },
         { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
       );
+      const rawStringResult = await rawTool!.run(
+        "query viewer { viewer { id } }",
+        { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+      );
       const teamsResult = await teamsTool!.run(
         {},
         { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
       );
 
       expect(rawResult).toEqual({ data: { viewer: { id: "user_1" } }, errors: [] });
+      expect(rawStringResult).toEqual({ data: { viewer: { id: "user_1" } }, errors: [] });
       expect(teamsResult).toEqual({ data: [{ id: "team_1", name: "Core" }], errors: [] });
-      expect(calls.length).toBe(2);
+      expect(calls.length).toBe(3);
     } finally {
       globalThis.fetch = originalFetch;
     }

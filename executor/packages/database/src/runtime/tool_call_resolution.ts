@@ -7,9 +7,8 @@ import { internal } from "../../convex/_generated/api";
 import { parseGraphqlOperationPaths } from "../../../core/src/graphql/operation-paths";
 import type { AccessPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../../core/src/types";
 import { parseSerializedTool, rehydrateTools } from "../../../core/src/tool/source-serialization";
-import { asPayload } from "../lib/object";
 import { getDecisionForContext, getToolDecision } from "./policy";
-import { getReadyRegistryBuildId } from "./tool_registry_state";
+import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
 import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
 import { baseTools } from "./workspace_tools";
 
@@ -26,6 +25,24 @@ const registrySerializedToolEntrySchema = z.object({
   path: z.string(),
   serializedToolJson: z.string(),
 });
+
+const graphqlDecisionInputSchema = z.union([
+  z.string(),
+  z.object({ query: z.string().optional() }).catchall(z.unknown()),
+]);
+
+function getGraphqlQueryFromInput(input: unknown): string {
+  const parsedInput = graphqlDecisionInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return "";
+  }
+
+  if (typeof parsedInput.data === "string") {
+    return parsedInput.data;
+  }
+
+  return parsedInput.data.query ?? "";
+}
 
 async function searchRegistryEntries(
   ctx: ActionCtx,
@@ -66,9 +83,12 @@ export function getGraphqlDecision(
   workspaceTools: Map<string, ToolDefinition> | undefined,
   policies: AccessPolicyRecord[],
 ): { decision: PolicyDecision; effectivePaths: string[] } {
-  const sourceName = tool._graphqlSource!;
-  const payload = asPayload(input);
-  const queryString = typeof payload.query === "string" ? payload.query : "";
+  const sourceName = tool._graphqlSource;
+  if (!sourceName) {
+    return { decision: getToolDecision(task, tool, policies), effectivePaths: [tool.path] };
+  }
+
+  const queryString = getGraphqlQueryFromInput(input);
 
   if (!queryString.trim()) {
     return { decision: getToolDecision(task, tool, policies), effectivePaths: [tool.path] };
@@ -153,12 +173,16 @@ export async function resolveToolForCall(
     return Result.ok({ tool: builtin, resolvedToolPath: toolPath });
   }
 
-  const buildId = await getReadyRegistryBuildId(ctx, {
+  const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
     workspaceId: task.workspaceId,
     actorId: task.actorId,
     clientId: task.clientId,
     refreshOnStale: true,
   });
+  if (buildIdResult.isErr()) {
+    return Result.err(buildIdResult.error);
+  }
+  const buildId = buildIdResult.value;
 
   let resolvedToolPath = toolPath;
   let entry = await getRegistryToolByPath(ctx, {
@@ -179,8 +203,12 @@ export async function resolveToolForCall(
     if (hits.length > 0) {
       // Prefer exact match on preferred path formatting, otherwise shortest canonical path.
       const exact = hits.find((hit) => toPreferredToolPath(hit.path) === toPreferredToolPath(toolPath));
-      entry = exact ?? hits.sort((a, b) => a.path.length - b.path.length || a.path.localeCompare(b.path))[0]!;
-      resolvedToolPath = entry.path;
+      const shortest = [...hits]
+        .sort((a, b) => a.path.length - b.path.length || a.path.localeCompare(b.path))[0];
+      entry = exact ?? shortest ?? null;
+      if (entry) {
+        resolvedToolPath = entry.path;
+      }
     }
   }
 
@@ -189,15 +217,16 @@ export async function resolveToolForCall(
     return Result.err(new Error(unknownToolErrorMessage(toolPath, suggestions)));
   }
 
-  const serializedResult = Result.try(() => {
-    return JSON.parse(entry.serializedToolJson);
-  });
-  if (serializedResult.isErr()) {
+  let parsedSerialized: unknown;
+  try {
+    parsedSerialized = JSON.parse(entry.serializedToolJson);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     return Result.err(
-      new Error(`Failed to parse tool registry entry '${resolvedToolPath}': ${serializedResult.error.message}`),
+      new Error(`Failed to parse tool registry entry '${resolvedToolPath}': ${message}`),
     );
   }
-  const serialized = parseSerializedTool(serializedResult.value);
+  const serialized = parseSerializedTool(parsedSerialized);
   if (serialized.isErr()) {
     return Result.err(
       new Error(`Failed to parse tool registry entry '${resolvedToolPath}': ${serialized.error.message}`),

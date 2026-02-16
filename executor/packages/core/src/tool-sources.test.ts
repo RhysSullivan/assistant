@@ -448,6 +448,87 @@ test("postman collection specs load and execute request tools", async () => {
   }
 });
 
+test("postman collection supports v2 body modes", async () => {
+  const upstream = Bun.serve({
+    port: 0,
+    fetch: async (req) => {
+      const url = new URL(req.url);
+      if (req.method === "POST" && url.pathname === "/submit") {
+        return Response.json({
+          ok: true,
+          body: await req.text(),
+          contentType: req.headers.get("content-type"),
+          token: req.headers.get("x-token"),
+        });
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+
+  const proxy = Bun.serve({
+    port: 0,
+    fetch: async (req) => {
+      const body = (await req.json()) as { service?: string; method?: string; path?: string };
+      if (body.service === "sync" && body.method === "GET" && body.path === "/collection/123-v2-body?populate=true") {
+        return Response.json({
+          data: {
+            name: "Demo v2 body collection",
+            variables: [{ key: "token", value: "Bearer v2-token" }],
+            requests: [
+              {
+                id: "request_submit",
+                name: "Submit payload",
+                method: "POST",
+                url: `http://127.0.0.1:${upstream.port}/submit`,
+                headerData: [{ key: "x-token", value: "{{token}}" }],
+                body: {
+                  mode: "urlencoded",
+                  urlencoded: [
+                    { key: "itemId", value: "{{itemId}}" },
+                    { key: "count", value: 2 },
+                  ],
+                },
+              },
+            ],
+          },
+        });
+      }
+      return Response.json({ error: "unknown request" }, { status: 400 });
+    },
+  });
+
+  try {
+    const { tools, warnings } = await loadExternalTools([
+      {
+        type: "openapi",
+        name: "postman-v2-body",
+        spec: "postman:123-v2-body",
+        postmanProxyUrl: `http://127.0.0.1:${proxy.port}`,
+      },
+    ]);
+
+    expect(warnings).toHaveLength(0);
+    expect(tools).toHaveLength(1);
+
+    const result = await tools[0]!.run(
+      {
+        variables: { itemId: "xyz" },
+      },
+      { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      body: "itemId=xyz&count=2",
+      contentType: "application/x-www-form-urlencoded",
+      token: "Bearer v2-token",
+    });
+  } finally {
+    proxy.stop(true);
+    upstream.stop(true);
+  }
+});
+
 test("parseGraphqlOperationPaths handles aliases and fragments", async () => {
   const parsed = parseGraphqlOperationPaths(
     "linear",
@@ -708,6 +789,7 @@ test("graphql helper tools generate valid selection sets and envelope responses"
     const batchResult = await batchTool!.run({ input: { issues: ["one"] } }, context);
     const batchResultDoubleWrapped = await batchTool!.run({ input: { input: { issues: ["two"] } } }, context);
     const rawResult = await rawTool!.run({ query: "query { teams { totalCount } }" }, context);
+    const rawStringResult = await rawTool!.run("query { teams { totalCount } }", context);
 
     expect(teamsResult).toEqual({
       data: {
@@ -731,6 +813,15 @@ test("graphql helper tools generate valid selection sets and envelope responses"
       errors: [],
     });
     expect(rawResult).toEqual({
+      data: {
+        teams: {
+          totalCount: 1,
+          nodes: [{ id: "team_1", name: "Core" }],
+        },
+      },
+      errors: [],
+    });
+    expect(rawStringResult).toEqual({
       data: {
         teams: {
           totalCount: 1,

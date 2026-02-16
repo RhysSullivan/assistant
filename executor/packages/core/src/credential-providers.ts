@@ -1,10 +1,13 @@
 "use node";
 
-import { WorkOS } from "@workos-inc/node";
 import { Result } from "better-result";
 import { z } from "zod";
+import {
+  createWorkosClient,
+  parseWorkosVaultReference,
+  withWorkosVaultRetryResult,
+} from "./credentials/workos-vault";
 import type { CredentialProvider, CredentialRecord } from "./types";
-import { asRecord } from "./utils";
 
 type CredentialPayload = Record<string, unknown>;
 
@@ -18,67 +21,31 @@ type VaultObjectReader = (input: VaultReadInput) => Promise<string>;
 type ProviderResolver = (
   record: Pick<CredentialRecord, "provider" | "secretJson">,
   readVaultObject: VaultObjectReader,
-) => Promise<CredentialPayload | null>;
+) => Promise<Result<CredentialPayload | null, Error>>;
 
-const workosVaultSecretConfigSchema = z.object({
-  objectId: z.string().optional(),
-  id: z.string().optional(),
-  apiKey: z.string().optional(),
-});
+const recordSchema = z.record(z.unknown());
 
-function resolveWorkosApiKey(explicitApiKey?: string): string {
-  const candidate =
-    explicitApiKey?.trim() ||
-    process.env.WORKOS_API_KEY?.trim() ||
-    "";
+function coerceRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
-  if (!candidate) {
+const envSecretKeySchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+
+async function defaultReadVaultObject(input: VaultReadInput): Promise<string> {
+  const workosResult = createWorkosClient(input.apiKey);
+  if (workosResult.isErr()) {
     throw new Error("WorkOS Vault provider requires WORKOS_API_KEY");
   }
 
-  return candidate;
-}
-
-function isRetryableVaultError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("not yet ready") ||
-    message.includes("can be retried") ||
-    (message.includes("kek") && message.includes("ready"))
-  );
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function withVaultRetry<T>(operation: () => Promise<T>): Promise<T> {
-  const maxAttempts = 5;
-  let delayMs = 250;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (!isRetryableVaultError(error) || attempt === maxAttempts) {
-        throw error;
-      }
-      await sleep(delayMs);
-      delayMs *= 2;
-    }
-  }
-
-  throw new Error("Unreachable retry state");
-}
-
-async function defaultReadVaultObject(input: VaultReadInput): Promise<string> {
-  const workos = new WorkOS(resolveWorkosApiKey(input.apiKey));
-  const object = await withVaultRetry(async () => {
-    return await workos.vault.readObject({ id: input.objectId });
+  const readResult = await withWorkosVaultRetryResult(async () => {
+    return await workosResult.value.vault.readObject({ id: input.objectId });
   });
+  if (readResult.isErr()) {
+    throw readResult.error;
+  }
+
+  const object = readResult.value;
   const value = typeof object.value === "string" ? object.value : "";
   if (!value.trim()) {
     throw new Error(`WorkOS Vault object '${input.objectId}' returned an empty value`);
@@ -92,41 +59,91 @@ function parseSecretValue(raw: string): CredentialPayload {
     return {};
   }
 
-  const parsedJson = Result.try(() => JSON.parse(value));
-  if (parsedJson.isOk()) {
-    const parsed = parsedJson.value;
-    const asObject = asRecord(parsed);
+  try {
+    const parsed = JSON.parse(value);
+    const asObject = coerceRecord(parsed);
     if (Object.keys(asObject).length > 0) {
       return asObject;
     }
+  } catch {
+    // Continue with env-style and token fallback parsing.
+  }
+
+  const envStyleResult = parseEnvStyleSecret(value);
+  if (envStyleResult) {
+    return envStyleResult;
   }
 
   return { token: value };
 }
 
+function stripWrappingQuotes(value: string): string {
+  if (value.length < 2) {
+    return value;
+  }
+
+  const startsWithSingle = value.startsWith("'") && value.endsWith("'");
+  const startsWithDouble = value.startsWith('"') && value.endsWith('"');
+  return startsWithSingle || startsWithDouble ? value.slice(1, -1) : value;
+}
+
+function parseEnvStyleSecret(raw: string): CredentialPayload | null {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const parsedPayload: CredentialPayload = {};
+  for (const line of lines) {
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      return null;
+    }
+
+    const keyRaw = line.slice(0, separatorIndex).trim();
+    const keyResult = envSecretKeySchema.safeParse(keyRaw);
+    if (!keyResult.success) {
+      return null;
+    }
+
+    const valueRaw = line.slice(separatorIndex + 1).trim();
+    parsedPayload[keyResult.data] = stripWrappingQuotes(valueRaw);
+  }
+
+  return Object.keys(parsedPayload).length > 0 ? parsedPayload : null;
+}
+
 async function resolveLocalConvex(
   record: Pick<CredentialRecord, "secretJson">,
-): Promise<CredentialPayload | null> {
-  return asRecord(record.secretJson);
+): Promise<Result<CredentialPayload | null, Error>> {
+  return Result.ok(coerceRecord(record.secretJson));
 }
 
 async function resolveWorkosVault(
   record: Pick<CredentialRecord, "secretJson">,
   readVaultObject: VaultObjectReader,
-): Promise<CredentialPayload | null> {
-  const parsedConfig = workosVaultSecretConfigSchema.safeParse(asRecord(record.secretJson));
-  const config = parsedConfig.success ? parsedConfig.data : {};
-  const objectId = config.objectId?.trim() || config.id?.trim() || "";
+): Promise<Result<CredentialPayload | null, Error>> {
+  const parsedReference = parseWorkosVaultReference(coerceRecord(record.secretJson));
+  const objectId = parsedReference.objectId ?? "";
 
   if (!objectId) {
-    throw new Error(
-      "Encrypted credential is missing its secure reference. Re-save this credential in the dashboard.",
+    return Result.err(
+      new Error("Encrypted credential is missing its secure reference. Re-save this credential in the dashboard."),
     );
   }
-  const apiKey = config.apiKey?.trim() || undefined;
+  const apiKey = parsedReference.apiKey;
 
-  const raw = await readVaultObject({ objectId, apiKey });
-  return parseSecretValue(raw);
+  const rawResult = await Result.tryPromise(async () => {
+    return await readVaultObject({ objectId, apiKey });
+  });
+  if (rawResult.isErr()) {
+    return Result.err(new Error(rawResult.error.message));
+  }
+
+  return Result.ok(parseSecretValue(rawResult.value));
 }
 
 const providers: Record<CredentialProvider, ProviderResolver> = {
@@ -138,10 +155,22 @@ export async function resolveCredentialPayload(
   record: Pick<CredentialRecord, "provider" | "secretJson">,
   options?: { readVaultObject?: VaultObjectReader },
 ): Promise<CredentialPayload | null> {
+  const resolved = await resolveCredentialPayloadResult(record, options);
+  if (resolved.isErr()) {
+    throw resolved.error;
+  }
+
+  return resolved.value;
+}
+
+export async function resolveCredentialPayloadResult(
+  record: Pick<CredentialRecord, "provider" | "secretJson">,
+  options?: { readVaultObject?: VaultObjectReader },
+): Promise<Result<CredentialPayload | null, Error>> {
   const provider = record.provider;
   const resolver = providers[provider];
   if (!resolver) {
-    throw new Error(`Unsupported credential provider: ${provider}`);
+    return Result.err(new Error(`Unsupported credential provider: ${provider}`));
   }
 
   return await resolver(record, options?.readVaultObject ?? defaultReadVaultObject);

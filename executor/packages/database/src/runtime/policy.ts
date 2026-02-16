@@ -7,19 +7,53 @@ import type {
   ToolDefinition,
 } from "../../../core/src/types";
 
-function matchesToolPath(pattern: string, toolPath: string): boolean {
+function matchesToolPath(pattern: string, toolPath: string, matchType: "glob" | "exact" = "glob"): boolean {
+  if (matchType === "exact") {
+    return pattern === toolPath;
+  }
+
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
   const regex = new RegExp(`^${escaped}$`);
   return regex.test(toolPath);
 }
 
-function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientId?: string): number {
+function policySpecificity(
+  policy: AccessPolicyRecord,
+  context: { workspaceId: string; actorId?: string; clientId?: string },
+): number {
+  const scopeType = policy.scopeType ?? (policy.workspaceId ? "workspace" : "organization");
+  const targetActorId = policy.targetActorId ?? policy.actorId;
+  const resourcePattern = policy.resourcePattern ?? policy.toolPathPattern ?? "*";
+  const matchType = policy.matchType ?? "glob";
+
   let score = 0;
-  if (policy.actorId && actorId && policy.actorId === actorId) score += 4;
-  if (policy.clientId && clientId && policy.clientId === clientId) score += 2;
-  score += Math.max(1, policy.toolPathPattern.replace(/\*/g, "").length);
+  if (scopeType === "workspace" && policy.workspaceId === context.workspaceId) score += 16;
+  if (targetActorId && context.actorId && targetActorId === context.actorId) score += 64;
+  if (policy.clientId && context.clientId && policy.clientId === context.clientId) score += 4;
+  if (matchType === "exact") score += 3;
+  score += Math.max(1, resourcePattern.replace(/\*/g, "").length);
   score += policy.priority;
   return score;
+}
+
+function resolvePolicyDecision(policy: AccessPolicyRecord, defaultDecision: PolicyDecision): PolicyDecision {
+  const effect = policy.effect ?? (policy.decision === "deny" ? "deny" : "allow");
+  const approvalMode = policy.approvalMode
+    ?? (policy.decision === "require_approval" ? "required" : policy.decision === "allow" ? "auto" : "inherit");
+
+  if (effect === "deny") {
+    return "deny";
+  }
+
+  if (approvalMode === "required") {
+    return "require_approval";
+  }
+
+  if (approvalMode === "auto") {
+    return "allow";
+  }
+
+  return defaultDecision;
 }
 
 export function getDecisionForContext(
@@ -34,17 +68,24 @@ export function getDecisionForContext(
   const defaultDecision: PolicyDecision = tool.approval === "required" ? "require_approval" : "allow";
   const candidates = policies
     .filter((policy) => {
-      if (policy.actorId && policy.actorId !== context.actorId) return false;
+      const scopeType = policy.scopeType ?? (policy.workspaceId ? "workspace" : "organization");
+      const targetActorId = policy.targetActorId ?? policy.actorId;
+      const resourcePattern = policy.resourcePattern ?? policy.toolPathPattern;
+      const matchType = policy.matchType ?? "glob";
+
+      if (!resourcePattern) return false;
+      if (scopeType === "workspace" && policy.workspaceId !== context.workspaceId) return false;
+      if (targetActorId && targetActorId !== context.actorId) return false;
       if (policy.clientId && policy.clientId !== context.clientId) return false;
-      return matchesToolPath(policy.toolPathPattern, tool.path);
+      return matchesToolPath(resourcePattern, tool.path, matchType);
     })
     .sort(
       (a, b) =>
-        policySpecificity(b, context.actorId, context.clientId)
-        - policySpecificity(a, context.actorId, context.clientId),
+        policySpecificity(b, context)
+        - policySpecificity(a, context),
     );
 
-  return candidates[0]?.decision ?? defaultDecision;
+  return candidates[0] ? resolvePolicyDecision(candidates[0], defaultDecision) : defaultDecision;
 }
 
 export function getToolDecision(

@@ -1,6 +1,10 @@
 import type { OpenApiAuth } from "./tool/source-types";
 import { z } from "zod";
-import { asRecord } from "./utils";
+import { toPlainObject } from "./utils";
+
+function toRecordOrEmpty(value: unknown): Record<string, unknown> {
+  return toPlainObject(value) ?? {};
+}
 
 const securityRequirementSchema = z.record(z.array(z.unknown()).optional());
 
@@ -12,8 +16,8 @@ const securitySchemeSchema = z.object({
 });
 
 export function inferOpenApiAuth(spec: Record<string, unknown>): OpenApiAuth | undefined {
-  const components = asRecord(spec.components);
-  const securitySchemes = asRecord(components.securitySchemes);
+  const components = toRecordOrEmpty(spec.components);
+  const securitySchemes = toRecordOrEmpty(components.securitySchemes);
   if (Object.keys(securitySchemes).length === 0) {
     return undefined;
   }

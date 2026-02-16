@@ -1,6 +1,12 @@
-import { asRecord } from "./utils";
+import { z } from "zod";
 
 const POSTMAN_TEMPLATE_PATTERN = /\{\{([^{}]+)\}\}/g;
+const recordSchema = z.record(z.unknown());
+
+function coerceRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 export function stringifyTemplateValue(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -29,7 +35,7 @@ export function findUnresolvedPostmanTemplateKeys(value: string): string[] {
 
 export function asStringRecord(value: unknown): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(asRecord(value))) {
+  for (const [key, entry] of Object.entries(coerceRecord(value))) {
     result[key] = stringifyTemplateValue(entry);
   }
   return result;

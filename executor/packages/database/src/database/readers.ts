@@ -1,7 +1,11 @@
 import type { Doc } from "../../convex/_generated/dataModel.d.ts";
 import type { QueryCtx } from "../../convex/_generated/server";
+import { z } from "zod";
 import { normalizeSourceAuthFingerprint } from "./mappers";
-import { asRecord } from "../lib/object";
+
+const toolSourceConfigSchema = z.object({
+  auth: z.unknown().optional(),
+});
 
 export function mapAnonymousContext(doc: Doc<"anonymousSessions">) {
   return {
@@ -69,9 +73,20 @@ export async function computeBoundAuthFingerprint(
     .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
     .unique();
 
-  if (!source || source.workspaceId !== workspaceId) {
+  const workspace = await ctx.db.get(workspaceId);
+  if (!source || !workspace) {
     return normalizeSourceAuthFingerprint({ type: "none" });
   }
 
-  return normalizeSourceAuthFingerprint(asRecord(source.config).auth);
+  if (source.organizationId && source.organizationId !== workspace.organizationId) {
+    return normalizeSourceAuthFingerprint({ type: "none" });
+  }
+
+  const workspaceOwned = source.ownerScopeType === "workspace" || (!source.ownerScopeType && Boolean(source.workspaceId));
+  if (workspaceOwned && source.workspaceId !== workspaceId) {
+    return normalizeSourceAuthFingerprint({ type: "none" });
+  }
+
+  const parsedConfig = toolSourceConfigSchema.safeParse(source.config);
+  return normalizeSourceAuthFingerprint(parsedConfig.success ? parsedConfig.data.auth : undefined);
 }

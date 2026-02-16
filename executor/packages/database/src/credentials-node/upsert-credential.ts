@@ -1,15 +1,42 @@
-import { WorkOS } from "@workos-inc/node";
+import { Result } from "better-result";
+import { z } from "zod";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import type { ActionCtx } from "../../convex/_generated/server";
+import {
+  createWorkosClient,
+  extractWorkosVaultObjectId,
+  withWorkosVaultRetryResult,
+} from "../../../core/src/credentials/workos-vault";
 import {
   assertMatchesCanonicalActorId,
   canonicalActorIdForWorkspaceAccess,
 } from "../auth/actor_identity";
-import { asRecord } from "../lib/object";
 
 type Internal = typeof import("../../convex/_generated/api").internal;
 
 type SecretBackend = "local-convex" | "workos-vault";
+
+const recordSchema = z.record(z.unknown());
+
+const secretPayloadSchema = z.object({
+  __headers: z.record(z.unknown()).optional(),
+}).catchall(z.unknown());
+
+const listedCredentialSchema = z.object({
+  id: z.string().optional(),
+  bindingId: z.string().optional(),
+  ownerScopeType: z.enum(["organization", "workspace"]).optional(),
+  scope: z.enum(["workspace", "actor"]).optional(),
+  actorId: z.string().optional(),
+  secretJson: z.record(z.unknown()).optional(),
+});
+
+type ListedCredential = z.infer<typeof listedCredentialSchema>;
+
+function toRecordValue(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 function normalizedActorId(scope: "workspace" | "actor", actorId?: string): string {
   if (scope !== "actor") return "";
@@ -28,32 +55,38 @@ function configuredSecretBackend(): SecretBackend {
   return process.env.WORKOS_API_KEY?.trim() ? "workos-vault" : "local-convex";
 }
 
-function extractObjectId(secretJson: Record<string, unknown>): string | null {
-  const candidate =
-    (typeof secretJson.objectId === "string" ? secretJson.objectId : "") ||
-    (typeof secretJson.id === "string" ? secretJson.id : "");
-  const trimmed = candidate.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function extractHeaderOverrides(secretJson: Record<string, unknown>): {
   cleanSecret: Record<string, unknown>;
   overridesJson: Record<string, unknown>;
 } {
-  const rawHeaders = asRecord(secretJson.__headers);
+  const parsedSecret = secretPayloadSchema.safeParse(secretJson);
+  const normalizedSecret = parsedSecret.success ? parsedSecret.data : {};
+  const rawHeaders = toRecordValue(normalizedSecret.__headers);
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(rawHeaders)) {
-    if (!name) continue;
+    const headerName = name.trim();
+    if (!headerName) continue;
     const text = typeof value === "string" ? value.trim() : String(value ?? "").trim();
     if (!text) continue;
-    headers[name.trim()] = text;
+    headers[headerName] = text;
   }
 
-  const { __headers: _headers, ...rest } = secretJson;
+  const { __headers: _headers, ...rest } = normalizedSecret;
   return {
-    cleanSecret: asRecord(rest),
+    cleanSecret: toRecordValue(rest),
     overridesJson: Object.keys(headers).length > 0 ? { headers } : {},
   };
+}
+
+function parseListedCredentials(value: unknown): ListedCredential[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    const parsed = listedCredentialSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 function buildVaultObjectName(args: {
@@ -71,56 +104,6 @@ function buildVaultObjectName(args: {
   return `executor-conn-${args.workspaceId.slice(0, 24)}-${sourceSegment}-${actorSegment.slice(0, 24)}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-function workosClient(): WorkOS {
-  const key = process.env.WORKOS_API_KEY?.trim();
-  if (!key) {
-    throw new Error("Encrypted storage requires WORKOS_API_KEY");
-  }
-  return new WorkOS(key);
-}
-
-function isRetryableVaultError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("not yet ready") ||
-    message.includes("can be retried") ||
-    (message.includes("kek") && message.includes("ready"))
-  );
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function withVaultRetry<T>(operation: () => Promise<T>): Promise<T> {
-  const maxAttempts = 10;
-  const maxDelayMs = 10_000;
-  let delayMs = 500;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (!isRetryableVaultError(error)) {
-        throw error;
-      }
-      if (attempt === maxAttempts) {
-        throw new Error(
-          "Encrypted storage is still initializing in WorkOS. Please wait about 60 seconds and retry.",
-        );
-      }
-      await sleep(delayMs);
-      delayMs = Math.min(delayMs * 2, maxDelayMs);
-    }
-  }
-
-  throw new Error("Unreachable retry state");
-}
-
 async function upsertVaultObject(args: {
   workspaceId: string;
   sourceKey: string;
@@ -128,22 +111,36 @@ async function upsertVaultObject(args: {
   actorId: string;
   existingObjectId: string | null;
   payload: Record<string, unknown>;
-}): Promise<string> {
-  const workos = workosClient();
+}): Promise<Result<string, Error>> {
+  const workosResult = createWorkosClient();
+  if (workosResult.isErr()) {
+    return Result.err(workosResult.error);
+  }
+
+  const workos = workosResult.value;
   const value = JSON.stringify(args.payload);
 
   if (args.existingObjectId) {
     const objectId: string = args.existingObjectId;
-    const updated = await withVaultRetry(async () => {
+    const updatedResult = await withWorkosVaultRetryResult(async () => {
       return await workos.vault.updateObject({
         id: objectId,
         value,
       });
+    }, {
+      maxAttempts: 10,
+      initialDelayMs: 500,
+      maxDelayMs: 10_000,
+      exhaustionErrorMessage: "Encrypted storage is still initializing in WorkOS. Please wait about 60 seconds and retry.",
     });
-    return updated.id;
+    if (updatedResult.isErr()) {
+      return Result.err(updatedResult.error);
+    }
+
+    return Result.ok(updatedResult.value.id);
   }
 
-  const created = await withVaultRetry(async () => {
+  const createdResult = await withWorkosVaultRetryResult(async () => {
     return await workos.vault.createObject({
       name: buildVaultObjectName(args),
       value,
@@ -151,9 +148,17 @@ async function upsertVaultObject(args: {
         workspace_id: args.workspaceId,
       },
     });
+  }, {
+    maxAttempts: 10,
+    initialDelayMs: 500,
+    maxDelayMs: 10_000,
+    exhaustionErrorMessage: "Encrypted storage is still initializing in WorkOS. Please wait about 60 seconds and retry.",
   });
+  if (createdResult.isErr()) {
+    return Result.err(createdResult.error);
+  }
 
-  return created.id;
+  return Result.ok(createdResult.value.id);
 }
 
 export async function upsertCredentialHandler(
@@ -163,6 +168,7 @@ export async function upsertCredentialHandler(
     id?: string;
     workspaceId: Id<"workspaces">;
     sessionId?: string;
+    ownerScopeType?: "organization" | "workspace";
     sourceKey: string;
     scope: "workspace" | "actor";
     actorId?: string;
@@ -180,7 +186,8 @@ export async function upsertCredentialHandler(
   }
 
   const actorId = normalizedActorId(args.scope, args.actorId ?? canonicalActorId);
-  const rawSubmittedSecret = asRecord(args.secretJson);
+  const ownerScopeType = args.ownerScopeType ?? "workspace";
+  const rawSubmittedSecret = toRecordValue(args.secretJson);
   const { cleanSecret: submittedSecret, overridesJson } = extractHeaderOverrides(rawSubmittedSecret);
 
   const existingBinding = await ctx.runQuery(internal.database.resolveCredential, {
@@ -190,34 +197,36 @@ export async function upsertCredentialHandler(
     ...(args.scope === "actor" ? { actorId } : {}),
   });
 
-  const allCredentials: Array<Record<string, unknown>> = await ctx.runQuery(internal.database.listCredentials, {
+  const allCredentialsRaw = await ctx.runQuery(internal.database.listCredentials, {
     workspaceId: args.workspaceId,
   });
+  const allCredentials = parseListedCredentials(allCredentialsRaw);
   const requestedId = args.id?.trim();
   const existingConnection = requestedId
     ? allCredentials.find((credential) => {
-      const id = String(credential.id ?? "");
-      const bindingId = String(credential.bindingId ?? "");
+      const id = (credential.id ?? "").trim();
+      const bindingId = (credential.bindingId ?? "").trim();
       if (id !== requestedId && bindingId !== requestedId) return false;
-      if (String(credential.scope ?? "") !== args.scope) return false;
+      if ((credential.ownerScopeType ?? "workspace") !== ownerScopeType) return false;
+      if (credential.scope !== args.scope) return false;
       if (args.scope === "actor") {
-        return String(credential.actorId ?? "") === actorId;
+        return (credential.actorId ?? "").trim() === actorId;
       }
       return true;
     }) ?? allCredentials.find((credential) => {
-      const id = String(credential.id ?? "");
-      const bindingId = String(credential.bindingId ?? "");
+      const id = (credential.id ?? "").trim();
+      const bindingId = (credential.bindingId ?? "").trim();
       return id === requestedId || bindingId === requestedId;
     })
     : null;
-  const connectionId = String(existingConnection?.id ?? requestedId ?? "").trim() || undefined;
+  const connectionId = (existingConnection?.id ?? requestedId ?? "").trim() || undefined;
 
   const backend = configuredSecretBackend();
 
   if (backend === "local-convex") {
     const finalSecret = Object.keys(submittedSecret).length > 0
       ? submittedSecret
-      : asRecord(existingConnection?.secretJson ?? existingBinding?.secretJson);
+      : toRecordValue(existingConnection?.secretJson ?? existingBinding?.secretJson);
     if (Object.keys(finalSecret).length === 0) {
       throw new Error("Credential values are required");
     }
@@ -225,6 +234,7 @@ export async function upsertCredentialHandler(
     return await ctx.runMutation(internal.database.upsertCredential, {
       id: connectionId,
       workspaceId: args.workspaceId,
+      ownerScopeType,
       sourceKey: args.sourceKey,
       scope: args.scope,
       ...(args.scope === "actor" ? { actorId } : {}),
@@ -234,18 +244,18 @@ export async function upsertCredentialHandler(
     });
   }
 
-  const submittedObjectId = extractObjectId(submittedSecret);
+  const submittedObjectId = extractWorkosVaultObjectId(submittedSecret);
   if (submittedObjectId && /^gh[opu]_/.test(submittedObjectId)) {
     throw new Error("Encrypted storage value looks like a GitHub token. Paste the token in the token field.");
   }
 
-  const existingObjectId = extractObjectId(
-    asRecord(existingConnection?.secretJson ?? existingBinding?.secretJson),
+  const existingObjectId = extractWorkosVaultObjectId(
+    toRecordValue(existingConnection?.secretJson ?? existingBinding?.secretJson),
   );
 
   let finalObjectId = submittedObjectId;
   if (!finalObjectId && Object.keys(submittedSecret).length > 0) {
-    finalObjectId = await upsertVaultObject({
+    const upsertResult = await upsertVaultObject({
       workspaceId: args.workspaceId,
       sourceKey: args.sourceKey,
       scope: args.scope,
@@ -253,6 +263,10 @@ export async function upsertCredentialHandler(
       existingObjectId,
       payload: submittedSecret,
     });
+    if (upsertResult.isErr()) {
+      throw upsertResult.error;
+    }
+    finalObjectId = upsertResult.value;
   }
 
   if (!finalObjectId && existingObjectId) {
@@ -266,6 +280,7 @@ export async function upsertCredentialHandler(
   return await ctx.runMutation(internal.database.upsertCredential, {
     id: connectionId,
     workspaceId: args.workspaceId,
+    ownerScopeType,
     sourceKey: args.sourceKey,
     scope: args.scope,
     ...(args.scope === "actor" ? { actorId } : {}),

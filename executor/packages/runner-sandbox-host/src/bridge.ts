@@ -1,6 +1,7 @@
 import { Result } from "better-result";
 import { api } from "@executor/database/convex/_generated/api";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
+import { z } from "zod";
 import type {
   BridgeEntrypointContext,
   BridgeProps,
@@ -10,33 +11,41 @@ import type {
 
 const APPROVAL_SUBSCRIPTION_TIMEOUT_MS = 10 * 60 * 1000;
 
+const bridgePropsSchema: z.ZodType<BridgeProps> = z.object({
+  callbackConvexUrl: z.string(),
+  callbackInternalSecret: z.string(),
+  taskId: z.string(),
+});
+
+const toolCallResultSchema: z.ZodType<ToolCallResult> = z.union([
+  z.object({ ok: z.literal(true), value: z.unknown().optional() }),
+  z.object({
+    ok: z.literal(false),
+    kind: z.literal("pending"),
+    approvalId: z.string(),
+    error: z.string().optional(),
+    retryAfterMs: z.number().optional(),
+  }),
+  z.object({
+    ok: z.literal(false),
+    kind: z.enum(["denied", "failed"]),
+    error: z.string().optional(),
+    approvalId: z.string().optional(),
+    retryAfterMs: z.number().optional(),
+  }),
+]);
+
+const recordSchema = z.record(z.unknown());
+
+function hasToolBridgeExport(
+  value: Record<string, unknown>,
+): value is { ToolBridge: WorkerEntrypointExports["ToolBridge"] } {
+  return typeof value.ToolBridge === "function";
+}
+
 function asObject(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
-function isBridgeProps(value: unknown): value is BridgeProps {
-  const props = asObject(value);
-  return (
-    typeof props.callbackConvexUrl === "string"
-    && typeof props.callbackInternalSecret === "string"
-    && typeof props.taskId === "string"
-  );
-}
-
-function isToolCallResult(value: unknown): value is ToolCallResult {
-  const record = asObject(value);
-  if (record.ok === true) {
-    return true;
-  }
-
-  if (record.ok === false) {
-    return record.kind === "pending" || record.kind === "denied" || record.kind === "failed";
-  }
-
-  return false;
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
 }
 
 export function getBridgePropsFromContext(
@@ -47,11 +56,12 @@ export function getBridgePropsFromContext(
     throw new Error("WorkerEntrypoint context is unavailable");
   }
 
-  if (!isBridgeProps(context.props)) {
+  const parsedProps = bridgePropsSchema.safeParse(context.props);
+  if (!parsedProps.success) {
     throw new Error("ToolBridge props are missing or invalid");
   }
 
-  return context.props;
+  return parsedProps.data;
 }
 
 export function getEntrypointExports(ctx: ExecutionContext): WorkerEntrypointExports {
@@ -63,11 +73,11 @@ export function getEntrypointExports(ctx: ExecutionContext): WorkerEntrypointExp
   }
 
   const exportsObject = asObject(exportsValue);
-  if (typeof exportsObject.ToolBridge !== "function") {
+  if (!hasToolBridgeExport(exportsObject)) {
     throw new Error("Execution context ToolBridge export is unavailable");
   }
 
-  return { ToolBridge: exportsObject.ToolBridge as WorkerEntrypointExports["ToolBridge"] };
+  return { ToolBridge: exportsObject.ToolBridge };
 }
 
 function createConvexClient(callbackConvexUrl: string): ConvexHttpClient {
@@ -157,16 +167,13 @@ export async function callToolWithBridge(
       return { ok: false, kind: "failed", error: `Tool callback failed: ${message}` };
     }
 
-    const result = response.value;
-    if (!isToolCallResult(result)) {
+    const parsedResult = toolCallResultSchema.safeParse(response.value);
+    if (!parsedResult.success) {
       return { ok: false, kind: "failed", error: "Tool callback returned invalid result payload" };
     }
+    const result = parsedResult.data;
 
     if (!result.ok && result.kind === "pending") {
-      if (!result.approvalId) {
-        return { ok: false, kind: "failed", error: "Approval pending without approvalId" };
-      }
-
       const approvalId = result.approvalId;
       const wait = await Result.tryPromise(() => waitForApprovalUpdate(props, approvalId));
       if (wait.isErr()) {

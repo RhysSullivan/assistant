@@ -1,8 +1,8 @@
+import { z } from "zod";
 import type { ToolDefinition } from "../types";
 import { jsonSchemaTypeHintFallback } from "../openapi/schema-hints";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import { sanitizeJsonSchemaForConvex } from "../tool-typing/convex-sanitize";
-import { asRecord } from "../utils";
 import type { DiscoverIndexEntry } from "./types";
 
 const GENERIC_NAMESPACE_SUFFIXES = new Set([
@@ -14,13 +14,21 @@ const GENERIC_NAMESPACE_SUFFIXES = new Set([
   "services",
 ]);
 
+const recordSchema = z.record(z.unknown());
+const stringArraySchema = z.array(z.string());
+
+function coerceRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
+
 function normalizeHint(type?: string): string {
   return type && type.trim().length > 0 ? type : "unknown";
 }
 
 function isEmptyObjectSchema(schema: Record<string, unknown>): boolean {
   if (Object.keys(schema).length === 0) return true;
-  const props = asRecord(schema.properties);
+  const props = coerceRecord(schema.properties);
   const required = Array.isArray(schema.required) ? schema.required : [];
   return Object.keys(props).length === 0 && required.length === 0;
 }
@@ -104,18 +112,21 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
       const preferredPath = preferredToolPath(tool.path);
       const aliases = getPathAliases(tool.path);
       const searchText = `${tool.path} ${preferredPath} ${aliases.join(" ")} ${tool.description} ${tool.source ?? ""}`.toLowerCase();
+      const typing = tool.typing;
 
-      const inputSchema = asRecord(tool.typing?.inputSchema);
-      const outputSchema = asRecord(tool.typing?.outputSchema);
+      const inputSchema = coerceRecord(typing?.inputSchema);
+      const outputSchema = coerceRecord(typing?.outputSchema);
 
       const safeInputSchema = sanitizeJsonSchemaForConvex(inputSchema);
       const safeOutputSchema = sanitizeJsonSchemaForConvex(outputSchema);
 
-      const requiredInputKeys = Array.isArray(tool.typing?.requiredInputKeys)
-        ? tool.typing!.requiredInputKeys!.filter((value): value is string => typeof value === "string")
+      const parsedRequiredInputKeys = stringArraySchema.safeParse(typing?.requiredInputKeys);
+      const requiredInputKeys = parsedRequiredInputKeys.success
+        ? parsedRequiredInputKeys.data
         : extractTopLevelRequiredKeys(inputSchema);
-      const previewInputKeys = Array.isArray(tool.typing?.previewInputKeys)
-        ? tool.typing!.previewInputKeys!.filter((value): value is string => typeof value === "string")
+      const parsedPreviewInputKeys = stringArraySchema.safeParse(typing?.previewInputKeys);
+      const previewInputKeys = parsedPreviewInputKeys.success
+        ? parsedPreviewInputKeys.data
         : buildPreviewKeys(inputSchema);
 
       const displayInputHint = normalizeHint(

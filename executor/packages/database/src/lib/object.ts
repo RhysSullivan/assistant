@@ -1,13 +1,12 @@
-export function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
+import { z } from "zod";
+
+const recordSchema = z.record(z.unknown());
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return recordSchema.safeParse(value).success;
 }
 
-export function asPayload(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object") {
-    return value as Record<string, unknown>;
-  }
-  return { value };
+export function toRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
 }

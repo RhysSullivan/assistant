@@ -1,12 +1,18 @@
 /**
- * Safely cast an unknown value to a Record<string, unknown>.
- * Returns an empty object for nullish, non-object, or array values.
+ * Runtime guard for plain object payloads.
  */
-export function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Convert a runtime value into a plain object record, or return undefined.
+ */
+export function toPlainObject(value: unknown): Record<string, unknown> | undefined {
+  return isPlainObject(value) ? value : undefined;
 }
 
 /**

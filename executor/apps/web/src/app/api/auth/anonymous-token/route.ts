@@ -1,5 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { z } from "zod";
+
+const anonymousTokenRequestSchema = z.object({
+  actorId: z.string().trim().min(1).optional(),
+});
 
 function toSiteUrl(convexUrl?: string): string | null {
   if (!convexUrl) {
@@ -48,9 +53,9 @@ export async function POST(request: NextRequest) {
 
   let body: { actorId?: string } = {};
   try {
-    const parsed = await request.json() as { actorId?: unknown };
-    if (typeof parsed.actorId === "string" && parsed.actorId.trim().length > 0) {
-      body.actorId = parsed.actorId.trim();
+    const parsed = anonymousTokenRequestSchema.safeParse(await request.json());
+    if (parsed.success && parsed.data.actorId) {
+      body.actorId = parsed.data.actorId;
     }
   } catch {
     body = {};
@@ -67,7 +72,7 @@ export async function POST(request: NextRequest) {
   });
 
   const text = await response.text();
-  let payload: unknown = null;
+  let payload: unknown;
   try {
     payload = JSON.parse(text);
   } catch {

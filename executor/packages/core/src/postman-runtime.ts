@@ -1,6 +1,5 @@
 import { asStringRecord, detectJsonContentType, findUnresolvedPostmanTemplateKeys, interpolatePostmanTemplate, stringifyTemplateValue } from "./postman-utils";
 import { z } from "zod";
-import { asRecord } from "./utils";
 import type { PostmanRequestBody } from "./postman/collection-utils";
 
 export interface PostmanSerializedRunSpec {
@@ -20,6 +19,13 @@ const postmanRuntimePayloadSchema = z.object({
   headers: z.record(z.unknown()).optional(),
   body: z.unknown().optional(),
 }).passthrough();
+
+const recordSchema = z.record(z.unknown());
+
+function coerceRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 export async function executePostmanRequest(
   runSpec: PostmanSerializedRunSpec,
@@ -55,7 +61,7 @@ export async function executePostmanRequest(
     }
   }
 
-  const queryOverrides = asRecord(normalizedPayload.query);
+  const queryOverrides = coerceRecord(normalizedPayload.query);
   for (const [key, value] of Object.entries(queryOverrides)) {
     if (!key || value === undefined || value === null) continue;
     url.searchParams.set(key, stringifyTemplateValue(value));
@@ -69,7 +75,7 @@ export async function executePostmanRequest(
   Object.assign(headers, runSpec.authHeaders);
   Object.assign(headers, credentialHeaders ?? {});
 
-  const headerOverrides = asRecord(normalizedPayload.headers);
+  const headerOverrides = coerceRecord(normalizedPayload.headers);
   for (const [name, value] of Object.entries(headerOverrides)) {
     if (!name || value === undefined || value === null) continue;
     headers[name] = stringifyTemplateValue(value);

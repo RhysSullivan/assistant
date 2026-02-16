@@ -10,7 +10,7 @@ import {
 } from "./tool-discovery/formatting";
 import { buildIndex, getTopLevelNamespace, listIndexForContext } from "./tool-discovery/indexing";
 import { chooseBestPath, deriveIntentPhrase, extractNamespaceHints, scoreEntry } from "./tool-discovery/ranking";
-import { asRecord } from "./utils";
+const recordSchema = z.record(z.unknown());
 
 const catalogToolsInputSchema = z.object({
   namespace: z.string().optional(),
@@ -87,8 +87,9 @@ export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
       outputSchema: { type: "object", properties: { results: { type: "array" }, total: { type: "number" } }, required: ["results", "total"] },
     },
     run: async (input: unknown, context) => {
-      const payload = asRecord(input);
-      const parsedInput = catalogToolsInputSchema.safeParse(payload);
+      const payload = recordSchema.safeParse(input);
+      const normalizedPayload = payload.success ? payload.data : {};
+      const parsedInput = catalogToolsInputSchema.safeParse(normalizedPayload);
       const namespaceFilter = (parsedInput.success ? (parsedInput.data.namespace ?? "") : "").trim().toLowerCase();
       const query = (parsedInput.success ? (parsedInput.data.query ?? "") : "").trim().toLowerCase();
       const depthValue = parsedInput.success ? parsedInput.data.depth : undefined;
@@ -177,8 +178,9 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
       },
     },
     run: async (input: unknown, context) => {
-      const payload = asRecord(input);
-      const parsedInput = discoverInputSchema.safeParse(payload);
+      const payload = recordSchema.safeParse(input);
+      const normalizedPayload = payload.success ? payload.data : {};
+      const parsedInput = discoverInputSchema.safeParse(normalizedPayload);
       const query = (parsedInput.success ? (parsedInput.data.query ?? "") : "").trim().toLowerCase();
       const depthValue = parsedInput.success ? parsedInput.data.depth : undefined;
       const depth = Math.max(0, Math.min(2, Number(depthValue ?? 1)));

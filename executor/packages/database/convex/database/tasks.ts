@@ -3,7 +3,6 @@ import { internalMutation, internalQuery } from "../_generated/server";
 import { mapTask } from "../../src/database/mappers";
 import { getTaskDoc } from "../../src/database/readers";
 import { completedTaskStatusValidator, jsonObjectValidator } from "../../src/database/validators";
-import { asRecord } from "../../src/lib/object";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../../src/task/constants";
 import { isTerminalTaskStatus } from "../../src/task/status";
 
@@ -25,6 +24,9 @@ export const createTask = internalMutation({
     }
 
     const now = Date.now();
+    const metadata = args.metadata === undefined
+      ? {}
+      : args.metadata;
     await ctx.db.insert("tasks", {
       taskId: args.id,
       code: args.code,
@@ -34,7 +36,7 @@ export const createTask = internalMutation({
       clientId: args.clientId?.trim() || undefined,
       status: "queued",
       timeoutMs: args.timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS,
-      metadata: asRecord(args.metadata),
+      metadata,
       createdAt: now,
       updatedAt: now,
     });

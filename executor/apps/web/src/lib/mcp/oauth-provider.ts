@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Result } from "better-result";
+import { z } from "zod";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformationMixed,
@@ -28,6 +29,44 @@ export type McpOAuthPopupResult = {
 const COOKIE_PREFIX = "executor_mcp_oauth_";
 export const MCP_OAUTH_RESULT_COOKIE = "executor_mcp_oauth_result";
 
+const pendingSchema = z.object({
+  state: z.string(),
+  sourceUrl: z.string(),
+  redirectUrl: z.string(),
+  codeVerifier: z.string().optional(),
+  clientInformation: z.custom<OAuthClientInformationMixed>().optional(),
+});
+
+const versionedPendingSchema = z.object({
+  version: z.literal(1),
+  pending: pendingSchema,
+});
+
+const popupResultSchema = z.object({
+  ok: z.boolean(),
+  sourceUrl: z.string().optional(),
+  accessToken: z.string().optional(),
+  refreshToken: z.string().optional(),
+  scope: z.string().optional(),
+  expiresIn: z.number().optional(),
+  error: z.string().optional(),
+});
+
+const versionedPopupResultSchema = z.object({
+  version: z.literal(1),
+  result: popupResultSchema,
+});
+
+function decodeCookieJson(raw: string): unknown | null {
+  const decodedResult = Result.try(() => Buffer.from(raw, "base64url").toString("utf8"));
+  if (decodedResult.isErr()) {
+    return null;
+  }
+
+  const parsedResult = Result.try(() => JSON.parse(decodedResult.value));
+  return parsedResult.isOk() ? parsedResult.value : null;
+}
+
 export function buildPendingCookieName(state: string): string {
   return `${COOKIE_PREFIX}${state}`;
 }
@@ -37,67 +76,41 @@ export function createOAuthState(): string {
 }
 
 export function encodePendingCookieValue(pending: McpOAuthPending): string {
-  return Buffer.from(JSON.stringify(pending), "utf8").toString("base64url");
+  return Buffer.from(JSON.stringify({ version: 1, pending }), "utf8").toString("base64url");
 }
 
 export function decodePendingCookieValue(raw: string): McpOAuthPending | null {
-  const decodedResult = Result.try(() => Buffer.from(raw, "base64url").toString("utf8"));
-  if (!decodedResult.isOk()) {
+  const decoded = decodeCookieJson(raw);
+  if (!decoded) {
     return null;
   }
 
-  const parsedResult = Result.try(() => JSON.parse(decodedResult.value) as Partial<McpOAuthPending>);
-  if (!parsedResult.isOk()) {
-    return null;
+  const versionedResult = versionedPendingSchema.safeParse(decoded);
+  if (versionedResult.success) {
+    return versionedResult.data.pending;
   }
 
-  const parsed = parsedResult.value;
-  if (
-    typeof parsed.state !== "string"
-    || typeof parsed.sourceUrl !== "string"
-    || typeof parsed.redirectUrl !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    state: parsed.state,
-    sourceUrl: parsed.sourceUrl,
-    redirectUrl: parsed.redirectUrl,
-    ...(typeof parsed.codeVerifier === "string" ? { codeVerifier: parsed.codeVerifier } : {}),
-    ...(parsed.clientInformation ? { clientInformation: parsed.clientInformation } : {}),
-  };
+  const legacyResult = pendingSchema.safeParse(decoded);
+  return legacyResult.success ? legacyResult.data : null;
 }
 
 export function encodePopupResultCookieValue(result: McpOAuthPopupResult): string {
-  return Buffer.from(JSON.stringify(result), "utf8").toString("base64url");
+  return Buffer.from(JSON.stringify({ version: 1, result }), "utf8").toString("base64url");
 }
 
 export function decodePopupResultCookieValue(raw: string): McpOAuthPopupResult | null {
-  const decodedResult = Result.try(() => Buffer.from(raw, "base64url").toString("utf8"));
-  if (!decodedResult.isOk()) {
+  const decoded = decodeCookieJson(raw);
+  if (!decoded) {
     return null;
   }
 
-  const parsedResult = Result.try(() => JSON.parse(decodedResult.value) as Partial<McpOAuthPopupResult>);
-  if (!parsedResult.isOk()) {
-    return null;
+  const versionedResult = versionedPopupResultSchema.safeParse(decoded);
+  if (versionedResult.success) {
+    return versionedResult.data.result;
   }
 
-  const parsed = parsedResult.value;
-  if (typeof parsed.ok !== "boolean") {
-    return null;
-  }
-
-  return {
-    ok: parsed.ok,
-    ...(typeof parsed.sourceUrl === "string" ? { sourceUrl: parsed.sourceUrl } : {}),
-    ...(typeof parsed.accessToken === "string" ? { accessToken: parsed.accessToken } : {}),
-    ...(typeof parsed.refreshToken === "string" ? { refreshToken: parsed.refreshToken } : {}),
-    ...(typeof parsed.scope === "string" ? { scope: parsed.scope } : {}),
-    ...(typeof parsed.expiresIn === "number" ? { expiresIn: parsed.expiresIn } : {}),
-    ...(typeof parsed.error === "string" ? { error: parsed.error } : {}),
-  };
+  const legacyResult = popupResultSchema.safeParse(decoded);
+  return legacyResult.success ? legacyResult.data : null;
 }
 
 export class McpPopupOAuthProvider implements OAuthClientProvider {

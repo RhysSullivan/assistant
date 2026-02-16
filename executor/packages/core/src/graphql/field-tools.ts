@@ -1,5 +1,12 @@
 import type { GraphqlExecutionEnvelope } from "../tool/source-execution";
-import { asRecord } from "../utils";
+import { z } from "zod";
+
+const recordSchema = z.record(z.unknown());
+
+function coerceRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 export interface GqlTypeRef {
   kind: string;
@@ -49,7 +56,7 @@ export function selectGraphqlFieldEnvelope(
   envelope: GraphqlExecutionEnvelope,
   operationName: string,
 ): GraphqlExecutionEnvelope {
-  const record = asRecord(envelope.data);
+  const record = coerceRecord(envelope.data);
   if (Object.prototype.hasOwnProperty.call(record, operationName)) {
     return {
       data: record[operationName],
@@ -82,7 +89,7 @@ export function normalizeGraphqlFieldVariables(
         && typeof value === "object"
         && !Array.isArray(value)
       ) {
-        const nested = asRecord(value);
+          const nested = coerceRecord(value);
         if (Object.keys(nested).length === 1 && Object.prototype.hasOwnProperty.call(nested, argName)) {
           return { [argName]: nested[argName] };
         }

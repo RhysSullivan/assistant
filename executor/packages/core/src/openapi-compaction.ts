@@ -11,7 +11,11 @@ import {
   responseTypeHintFromSchema,
   type OpenApiParameterHint,
 } from "./openapi/schema-hints";
-import { asRecord } from "./utils";
+import { toPlainObject } from "./utils";
+
+function toRecordOrEmpty(value: unknown): Record<string, unknown> {
+  return toPlainObject(value) ?? {};
+}
 
 export interface CompactOpenApiPathsOptions {
   includeSchemas?: boolean;
@@ -28,13 +32,13 @@ export function compactOpenApiPaths(
   componentRequestBodies?: Record<string, unknown>,
   options: CompactOpenApiPathsOptions = {},
 ): Record<string, unknown> {
-  const paths = asRecord(pathsValue);
+  const paths = toRecordOrEmpty(pathsValue);
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
   const compactPaths: Record<string, unknown> = {};
-  const compParams = componentParameters ? asRecord(componentParameters) : {};
-  const compSchemas = componentSchemas ? asRecord(componentSchemas) : {};
-  const compResponses = componentResponses ? asRecord(componentResponses) : {};
-  const compRequestBodies = componentRequestBodies ? asRecord(componentRequestBodies) : {};
+  const compParams = componentParameters ? toRecordOrEmpty(componentParameters) : {};
+  const compSchemas = componentSchemas ? toRecordOrEmpty(componentSchemas) : {};
+  const compResponses = componentResponses ? toRecordOrEmpty(componentResponses) : {};
+  const compRequestBodies = componentRequestBodies ? toRecordOrEmpty(componentRequestBodies) : {};
   const includeSchemas = options.includeSchemas ?? true;
   const includeTypeHints = options.includeTypeHints ?? true;
   const includeParameterSchemas = options.includeParameterSchemas ?? true;
@@ -45,7 +49,7 @@ export function compactOpenApiPaths(
       const prefix = "#/components/parameters/";
       if (ref.startsWith(prefix)) {
         const key = ref.slice(prefix.length);
-        const resolved = asRecord(compParams[key]);
+        const resolved = toRecordOrEmpty(compParams[key]);
         if (Object.keys(resolved).length > 0) return resolved;
       }
     }
@@ -55,7 +59,7 @@ export function compactOpenApiPaths(
   const normalizeParameters = (entries: unknown): Array<OpenApiParameterHint & { in: string }> => {
     if (!Array.isArray(entries)) return [];
     return entries
-      .map((entry) => resolveParam(asRecord(entry)))
+      .map((entry) => resolveParam(toRecordOrEmpty(entry)))
       .filter((entry) => typeof entry.name === "string" && typeof entry.in === "string")
       .map((entry) => ({
         name: String(entry.name),
@@ -66,7 +70,7 @@ export function compactOpenApiPaths(
   };
 
   for (const [pathTemplate, pathValue] of Object.entries(paths)) {
-    const pathObject = asRecord(pathValue);
+    const pathObject = toRecordOrEmpty(pathValue);
     const compactPathObject: Record<string, unknown> = {};
     const sharedParameters = normalizeParameters(pathObject.parameters);
     if (sharedParameters.length > 0) {
@@ -74,7 +78,7 @@ export function compactOpenApiPaths(
     }
 
     for (const method of methods) {
-      const operation = asRecord(pathObject[method]);
+      const operation = toRecordOrEmpty(pathObject[method]);
       if (Object.keys(operation).length === 0) continue;
 
       const operationIdRaw = String(operation.operationId ?? `${method}_${pathTemplate}`);
@@ -106,16 +110,16 @@ export function compactOpenApiPaths(
       // Always attempt to compute minimal input/output schemas. This keeps the
       // prepared spec compact while enabling schema-first tool signatures.
       if (includeSchemas || hasGeneratedTypes) {
-        const requestBody = resolveRequestBodyRef(asRecord(operation.requestBody), compRequestBodies);
-        const requestBodyContent = asRecord(requestBody.content);
+        const requestBody = resolveRequestBodyRef(toRecordOrEmpty(operation.requestBody), compRequestBodies);
+        const requestBodyContent = toRecordOrEmpty(requestBody.content);
         const rawRequestBodySchema = getPreferredContentSchema(requestBodyContent);
         requestBodySchema = resolveSchemaRef(rawRequestBodySchema, compSchemas);
 
-        const responses = asRecord(operation.responses);
+        const responses = toRecordOrEmpty(operation.responses);
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
           responseStatus = status;
-          const resolvedResponse = resolveResponseRef(asRecord(responseValue), compResponses);
+          const resolvedResponse = resolveResponseRef(toRecordOrEmpty(responseValue), compResponses);
           responseSchema = resolveSchemaRef(
             getPreferredResponseSchema(resolvedResponse),
             compSchemas,

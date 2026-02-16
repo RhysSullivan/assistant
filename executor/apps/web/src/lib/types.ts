@@ -5,8 +5,13 @@ import type { Id } from "@executor/database/convex/_generated/dataModel";
 export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
 export type ApprovalStatus = "pending" | "approved" | "denied";
 export type PolicyDecision = "allow" | "require_approval" | "deny";
+export type PolicyScopeType = "organization" | "workspace";
+export type PolicyMatchType = "glob" | "exact";
+export type PolicyEffect = "allow" | "deny";
+export type PolicyApprovalMode = "inherit" | "auto" | "required";
 export type CredentialScope = "workspace" | "actor";
 export type CredentialProvider = "local-convex" | "workos-vault";
+export type OwnerScopeType = "organization" | "workspace";
 export type ToolApprovalMode = "auto" | "required";
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
 
@@ -65,9 +70,17 @@ export interface TaskEventRecord {
 
 export interface AccessPolicyRecord {
   id: string;
-  workspaceId: string;
+  scopeType?: PolicyScopeType;
+  organizationId?: string;
+  workspaceId?: string;
+  targetActorId?: string;
   actorId?: string;
   clientId?: string;
+  resourceType?: "tool_path";
+  resourcePattern?: string;
+  matchType?: PolicyMatchType;
+  effect?: PolicyEffect;
+  approvalMode?: PolicyApprovalMode;
   toolPathPattern: string;
   decision: PolicyDecision;
   priority: number;
@@ -78,7 +91,9 @@ export interface AccessPolicyRecord {
 export interface CredentialRecord {
   id: string;
   bindingId?: string;
-  workspaceId: string;
+  ownerScopeType?: OwnerScopeType;
+  organizationId?: string;
+  workspaceId?: string;
   sourceKey: string;
   scope: CredentialScope;
   actorId?: string;
@@ -92,10 +107,14 @@ export interface CredentialRecord {
 
 export interface ToolSourceRecord {
   id: string;
-  workspaceId: string;
+  ownerScopeType?: OwnerScopeType;
+  organizationId?: string;
+  workspaceId?: string;
   name: string;
   type: ToolSourceType;
   config: Record<string, unknown>;
+  specHash?: string;
+  authFingerprint?: string;
   enabled: boolean;
   createdAt: number;
   updatedAt: number;

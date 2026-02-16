@@ -7,7 +7,6 @@ import type {
   OpenApiToolSourceConfig,
 } from "../../../core/src/tool/source-types";
 import type { ToolApprovalMode } from "../../../core/src/types";
-import { asRecord } from "../lib/object";
 
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
 
@@ -39,6 +38,8 @@ const overrideEntrySchema = z.object({
 });
 const unknownRecordSchema = z.record(z.unknown());
 const stringMapSchema = z.record(z.string());
+const trimmedStringSchema = z.string().transform((value) => value.trim());
+const nonEmptyTrimmedStringSchema = trimmedStringSchema.refine((value) => value.length > 0);
 const basicAuthSchema = z.object({
   mode: authModeSchema.optional(),
   username: z.string().optional(),
@@ -55,20 +56,24 @@ const apiKeyAuthSchema = z.object({
 });
 
 function optionalTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  const parsed = trimmedStringSchema.safeParse(value);
+  if (!parsed.success || parsed.data.length === 0) {
+    return undefined;
+  }
+
+  return parsed.data;
 }
 
 function requiredTrimmedString(
   value: unknown,
   fieldName: string,
 ): Result<string, Error> {
-  const trimmed = optionalTrimmedString(value);
-  if (!trimmed) {
+  const parsed = nonEmptyTrimmedStringSchema.safeParse(value);
+  if (!parsed.success) {
     return Result.err(new Error(`Tool source ${fieldName} is required`));
   }
-  return Result.ok(trimmed);
+
+  return Result.ok(parsed.data);
 }
 
 function normalizeStringMap(
@@ -151,7 +156,12 @@ function normalizeOverrides(
 function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
   if (value === undefined) return Result.ok(undefined);
 
-  const auth = asRecord(value);
+  const authRecord = unknownRecordSchema.safeParse(value);
+  if (!authRecord.success) {
+    return Result.err(new Error("Tool source auth.type is required when auth is provided"));
+  }
+
+  const auth = authRecord.data;
   const authType = optionalTrimmedString(auth.type);
   if (!authType) {
     return Result.err(new Error("Tool source auth.type is required when auth is provided"));
@@ -217,13 +227,9 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
 function normalizeSpec(
   value: unknown,
 ): Result<string | Record<string, unknown>, Error> {
-  const stringSpec = z.string().safeParse(value);
+  const stringSpec = nonEmptyTrimmedStringSchema.safeParse(value);
   if (stringSpec.success) {
-    const trimmed = stringSpec.data.trim();
-    if (!trimmed) {
-      return Result.err(new Error("Tool source spec is required"));
-    }
-    return Result.ok(trimmed);
+    return Result.ok(stringSpec.data);
   }
 
   const specObjectResult = unknownRecordSchema.safeParse(value);

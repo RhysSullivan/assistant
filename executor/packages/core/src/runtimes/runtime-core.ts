@@ -39,16 +39,22 @@ function sanitizeExecutionResult(value: unknown): unknown {
     return undefined;
   }
 
-  const serialized = Result.try(() => JSON.stringify(value));
-  if (serialized.isErr()) {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
     return String(value);
   }
 
-  if (serialized.value === undefined) {
+  if (serialized === undefined) {
     return null;
   }
 
-  return Result.try(() => JSON.parse(serialized.value)).unwrapOr(String(value));
+  try {
+    return JSON.parse(serialized);
+  } catch {
+    return String(value);
+  }
 }
 
 function createToolsProxy(

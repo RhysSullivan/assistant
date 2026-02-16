@@ -9,7 +9,6 @@ import type {
   McpExecutorService,
 } from "./server-contracts";
 import { getTaskTerminalState } from "./server-utils";
-import { asRecord } from "../utils";
 
 const elicitationResponseSchema = z.object({
   action: z.enum(["accept", "decline", "cancel"]),
@@ -17,6 +16,11 @@ const elicitationResponseSchema = z.object({
     decision: z.enum(["approved", "denied"]).optional(),
     reason: z.string().optional(),
   }).optional(),
+});
+
+const subscriptionEventPayloadSchema = z.object({
+  status: z.string().optional(),
+  pendingApprovalCount: z.coerce.number().optional(),
 });
 
 function formatApprovalInput(input: unknown, maxLength = 2000): string {
@@ -88,7 +92,7 @@ export function createMcpApprovalPrompt(mcp: McpServer): ApprovalPrompt {
     }
 
     const action = parsedResponse.data.action;
-    const content = asRecord(parsedResponse.data.content);
+    const content = parsedResponse.data.content;
 
     if (action !== "accept") {
       return {
@@ -99,12 +103,10 @@ export function createMcpApprovalPrompt(mcp: McpServer): ApprovalPrompt {
       };
     }
 
-    const selectedDecision = content.decision;
+    const selectedDecision = content?.decision;
     const decision = selectedDecision === "approved" ? "approved" : "denied";
-    const selectedReason = content.reason;
-    const reason = typeof selectedReason === "string" && selectedReason.trim().length > 0
-      ? selectedReason
-      : undefined;
+    const selectedReason = content?.reason?.trim();
+    const reason = selectedReason && selectedReason.length > 0 ? selectedReason : undefined;
 
     return { decision, reason };
   };
@@ -209,13 +211,13 @@ export function waitForTerminalTask(
     };
 
     unsubscribe = service.subscribe(taskId, workspaceId, (event) => {
-      const payload = asRecord(event.payload);
-      const type = typeof payload.status === "string" ? payload.status : undefined;
-      const pendingApprovalCount = typeof payload.pendingApprovalCount === "number"
-        ? payload.pendingApprovalCount
+      const parsedPayload = subscriptionEventPayloadSchema.safeParse(event.payload);
+      const type = parsedPayload.success ? parsedPayload.data.status : undefined;
+      const pendingApprovalCount = parsedPayload.success
+        ? (parsedPayload.data.pendingApprovalCount ?? 0)
         : 0;
 
-      if (typeof type === "string" && getTaskTerminalState(type)) {
+      if (type && getTaskTerminalState(type)) {
         void done();
         return;
       }

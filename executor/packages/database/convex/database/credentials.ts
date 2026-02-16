@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { z } from "zod";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { mapCredential } from "../../src/database/mappers";
 import { computeBoundAuthFingerprint } from "../../src/database/readers";
@@ -6,8 +7,15 @@ import {
   credentialProviderValidator,
   credentialScopeValidator,
   jsonObjectValidator,
+  ownerScopeTypeValidator,
 } from "../../src/database/validators";
-import { asRecord } from "../../src/lib/object";
+
+const recordSchema = z.record(z.unknown());
+
+function toRecordValue(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 function scopeKeyForCredential(scope: "workspace" | "actor", actorId?: string): string {
   if (scope === "workspace") {
@@ -26,6 +34,7 @@ export const upsertCredential = internalMutation({
   args: {
     id: v.optional(v.string()),
     workspaceId: v.id("workspaces"),
+    ownerScopeType: v.optional(ownerScopeTypeValidator),
     sourceKey: v.string(),
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
@@ -35,20 +44,39 @@ export const upsertCredential = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const ownerScopeType = args.ownerScopeType ?? "workspace";
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace not found: ${args.workspaceId}`);
+    }
+    const organizationId = workspace.organizationId;
+    const ownerWorkspaceId = ownerScopeType === "workspace" ? args.workspaceId : undefined;
+
     const actorId = args.scope === "actor" ? args.actorId?.trim() : undefined;
     const scopeKey = scopeKeyForCredential(args.scope, actorId);
-    const submittedSecret = asRecord(args.secretJson);
+    const submittedSecret = toRecordValue(args.secretJson);
     const hasSubmittedSecret = Object.keys(submittedSecret).length > 0;
 
-    const existing = await ctx.db
-      .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_key", (q) =>
-        q
-          .eq("workspaceId", args.workspaceId)
-          .eq("sourceKey", args.sourceKey)
-          .eq("scopeKey", scopeKey),
-      )
-      .unique();
+    const existing = ownerScopeType === "workspace"
+      ? await ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_workspace_source_scope_key", (q) =>
+          q
+            .eq("workspaceId", args.workspaceId)
+            .eq("sourceKey", args.sourceKey)
+            .eq("scopeKey", scopeKey),
+        )
+        .unique()
+      : await ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_organization_owner_source_scope_key", (q) =>
+          q
+            .eq("organizationId", organizationId)
+            .eq("ownerScopeType", "organization")
+            .eq("sourceKey", args.sourceKey)
+            .eq("scopeKey", scopeKey),
+        )
+        .unique();
 
     let requestedId = args.id?.trim() || "";
     if (requestedId.startsWith("bind_")) {
@@ -56,31 +84,42 @@ export const upsertCredential = internalMutation({
         .query("sourceCredentials")
         .withIndex("by_binding_id", (q) => q.eq("bindingId", requestedId))
         .unique();
-      if (binding && binding.workspaceId === args.workspaceId) {
+      const sameOwner = binding
+        && binding.organizationId === organizationId
+        && binding.ownerScopeType === ownerScopeType
+        && (ownerScopeType === "organization" || binding.workspaceId === args.workspaceId);
+      if (sameOwner) {
         requestedId = binding.credentialId;
       }
     }
 
     const connectionId = requestedId || existing?.credentialId || `conn_${crypto.randomUUID()}`;
 
-    const linkedRows = await ctx.db
-      .query("sourceCredentials")
-      .withIndex("by_workspace_credential", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("credentialId", connectionId),
-      )
-      .collect();
+    const linkedRows = ownerScopeType === "workspace"
+      ? await ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_workspace_credential", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("credentialId", connectionId),
+        )
+        .collect()
+      : await ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_organization_owner_credential", (q) =>
+          q.eq("organizationId", organizationId).eq("ownerScopeType", "organization").eq("credentialId", connectionId),
+        )
+        .collect();
     const exemplar = linkedRows[0] ?? existing ?? null;
 
     const provider = args.provider ?? exemplar?.provider ?? "local-convex";
-    const fallbackSecret = asRecord(exemplar?.secretJson);
+    const fallbackSecret = toRecordValue(exemplar?.secretJson);
     const finalSecret = hasSubmittedSecret ? submittedSecret : fallbackSecret;
     if (Object.keys(finalSecret).length === 0) {
       throw new Error("Credential values are required");
     }
 
     const overridesJson = args.overridesJson === undefined
-      ? asRecord(existing?.overridesJson)
-      : asRecord(args.overridesJson);
+      ? toRecordValue(existing?.overridesJson)
+      : toRecordValue(args.overridesJson);
 
     const boundAuthFingerprint = await computeBoundAuthFingerprint(
       ctx,
@@ -100,6 +139,9 @@ export const upsertCredential = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
+        ownerScopeType,
+        organizationId,
+        workspaceId: ownerWorkspaceId,
         credentialId: connectionId,
         provider,
         secretJson: finalSecret,
@@ -113,7 +155,9 @@ export const upsertCredential = internalMutation({
       await ctx.db.insert("sourceCredentials", {
         bindingId: `bind_${crypto.randomUUID()}`,
         credentialId: connectionId,
-        workspaceId: args.workspaceId,
+        ownerScopeType,
+        organizationId,
+        workspaceId: ownerWorkspaceId,
         sourceKey: args.sourceKey,
         scope: args.scope,
         scopeKey,
@@ -127,15 +171,26 @@ export const upsertCredential = internalMutation({
       });
     }
 
-    const updated = await ctx.db
-      .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_key", (q) =>
-        q
-          .eq("workspaceId", args.workspaceId)
-          .eq("sourceKey", args.sourceKey)
-          .eq("scopeKey", scopeKey),
-      )
-      .unique();
+    const updated = ownerScopeType === "workspace"
+      ? await ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_workspace_source_scope_key", (q) =>
+          q
+            .eq("workspaceId", args.workspaceId)
+            .eq("sourceKey", args.sourceKey)
+            .eq("scopeKey", scopeKey),
+        )
+        .unique()
+      : await ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_organization_owner_source_scope_key", (q) =>
+          q
+            .eq("organizationId", organizationId)
+            .eq("ownerScopeType", "organization")
+            .eq("sourceKey", args.sourceKey)
+            .eq("scopeKey", scopeKey),
+        )
+        .unique();
 
     if (!updated) {
       throw new Error("Failed to read upserted credential");
@@ -148,11 +203,30 @@ export const upsertCredential = internalMutation({
 export const listCredentials = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const docs = await ctx.db
-      .query("sourceCredentials")
-      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .collect();
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return [];
+    }
+
+    const [workspaceDocs, organizationDocs] = await Promise.all([
+      ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_workspace_created", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .collect(),
+      ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_organization_owner_created", (q) =>
+          q.eq("organizationId", workspace.organizationId).eq("ownerScopeType", "organization"),
+        )
+        .order("desc")
+        .collect(),
+    ]);
+
+    const docs = [...workspaceDocs, ...organizationDocs]
+      .filter((doc, index, entries) => entries.findIndex((candidate) => candidate.bindingId === doc.bindingId) === index)
+      .sort((a, b) => b.createdAt - a.createdAt);
+
     return docs.map(mapCredential);
   },
 });
@@ -181,35 +255,62 @@ export const resolveCredential = internalQuery({
     actorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (args.scope === "actor") {
-      const actorId = args.actorId?.trim() || "";
-      if (!actorId) {
-        return null;
-      }
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return null;
+    }
 
-      const actorDoc = await ctx.db
+    const workspaceScopeKey = scopeKeyForCredential("workspace");
+    const actorId = args.actorId?.trim() || "";
+    const actorScopeKey = actorId ? scopeKeyForCredential("actor", actorId) : null;
+
+    const tryWorkspaceOwned = async (scopeKey: string) => {
+      return await ctx.db
         .query("sourceCredentials")
         .withIndex("by_workspace_source_scope_key", (q) =>
           q
             .eq("workspaceId", args.workspaceId)
             .eq("sourceKey", args.sourceKey)
-            .eq("scopeKey", scopeKeyForCredential("actor", actorId)),
+            .eq("scopeKey", scopeKey),
         )
         .unique();
+    };
 
-      return actorDoc ? mapCredential(actorDoc) : null;
+    const tryOrganizationOwned = async (scopeKey: string) => {
+      return await ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_organization_owner_source_scope_key", (q) =>
+          q
+            .eq("organizationId", workspace.organizationId)
+            .eq("ownerScopeType", "organization")
+            .eq("sourceKey", args.sourceKey)
+            .eq("scopeKey", scopeKey),
+        )
+        .unique();
+    };
+
+    if (args.scope === "actor" && actorScopeKey) {
+      const workspaceActorDoc = await tryWorkspaceOwned(actorScopeKey);
+      if (workspaceActorDoc) {
+        return mapCredential(workspaceActorDoc as never);
+      }
+
+      const organizationActorDoc = await tryOrganizationOwned(actorScopeKey);
+      if (organizationActorDoc) {
+        return mapCredential(organizationActorDoc as never);
+      }
     }
 
-    const workspaceDoc = await ctx.db
-      .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_key", (q) =>
-        q
-          .eq("workspaceId", args.workspaceId)
-          .eq("sourceKey", args.sourceKey)
-          .eq("scopeKey", scopeKeyForCredential("workspace")),
-      )
-      .unique();
+    const workspaceDoc = await tryWorkspaceOwned(workspaceScopeKey);
+    if (workspaceDoc) {
+      return mapCredential(workspaceDoc as never);
+    }
 
-    return workspaceDoc ? mapCredential(workspaceDoc) : null;
+    const organizationDoc = await tryOrganizationOwned(workspaceScopeKey);
+    if (organizationDoc) {
+      return mapCredential(organizationDoc as never);
+    }
+
+    return null;
   },
 });

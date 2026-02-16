@@ -1,5 +1,12 @@
 import { Result, TaggedError } from "better-result";
-import { asRecord } from "../utils";
+import { z } from "zod";
+
+const recordSchema = z.record(z.unknown());
+
+function toRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 type OpenApiRequestErrorArgs = {
   status: number | null;
@@ -88,7 +95,7 @@ export async function executeOpenApiRequest(
   input: unknown,
   credentialHeaders?: Record<string, string>,
 ): Promise<Result<unknown, OpenApiRequestError>> {
-  const payload = asRecord(input);
+  const payload = toRecord(input);
   const readMethods = new Set(["get", "head", "options"]);
   const { url, bodyInput } = buildOpenApiUrl(
     runSpec.baseUrl,
@@ -154,7 +161,7 @@ export async function executeOpenApiRequest(
 function hasGraphqlData(data: unknown): boolean {
   if (data === null || data === undefined) return false;
   if (Array.isArray(data)) return data.length > 0;
-  if (typeof data === "object") return Object.keys(asRecord(data)).length > 0;
+  if (typeof data === "object") return Object.keys(toRecord(data)).length > 0;
   return true;
 }
 

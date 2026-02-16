@@ -1,5 +1,9 @@
 import type { JsonSchema } from "../types";
-import { asRecord } from "../utils";
+import { isPlainObject } from "../utils";
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return isPlainObject(value) ? value : {};
+}
 
 function uniq(values: string[]): string[] {
   return [...new Set(values.filter((v) => v.trim().length > 0))];
@@ -16,19 +20,19 @@ function collectTopLevelRequiredKeys(schema: Record<string, unknown>, out: strin
 
   const allOf = asUnknownArray(schema.allOf);
   for (const entry of allOf) {
-    const nested = asRecord(entry);
+    const nested = toRecord(entry);
     if (Object.keys(nested).length === 0) continue;
     collectTopLevelRequiredKeys(nested, out);
   }
 }
 
 function collectTopLevelPropertyKeys(schema: Record<string, unknown>, out: string[]): void {
-  const props = asRecord(schema.properties);
+  const props = toRecord(schema.properties);
   out.push(...Object.keys(props));
 
   const allOf = asUnknownArray(schema.allOf);
   for (const entry of allOf) {
-    const nested = asRecord(entry);
+    const nested = toRecord(entry);
     if (Object.keys(nested).length === 0) continue;
     collectTopLevelPropertyKeys(nested, out);
   }

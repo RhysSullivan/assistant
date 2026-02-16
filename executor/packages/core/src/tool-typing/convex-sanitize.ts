@@ -1,5 +1,9 @@
 import type { JsonSchema } from "../types";
-import { asRecord } from "../utils";
+import { isPlainObject } from "../utils";
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return isPlainObject(value) ? value : {};
+}
 
 function stripDollarKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -8,7 +12,7 @@ function stripDollarKeysDeep(value: unknown): unknown {
 
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(asRecord(value))) {
+    for (const [key, child] of Object.entries(toRecord(value))) {
       if (key.startsWith("$")) continue;
       out[key] = stripDollarKeysDeep(child);
     }

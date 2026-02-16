@@ -19,7 +19,6 @@ import { sanitizeSegment } from "../tool/path-utils";
 import type { GraphqlToolSourceConfig } from "../tool/source-types";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import type { ToolDefinition } from "../types";
-import { asRecord } from "../utils";
 
 const gqlTypeRefSchema: z.ZodType<GqlTypeRef> = z.lazy(() => z.object({
   kind: z.string(),
@@ -53,7 +52,7 @@ const gqlEnumValueSchema = z.object({
   description: z.string().nullable().optional().transform((value) => value ?? null),
 });
 
-const gqlTypeSchema: z.ZodType<GqlType> = z.object({
+const gqlTypeSchema = z.object({
   kind: z.string(),
   name: z.string(),
   fields: z.array(gqlFieldSchema).nullable().optional().transform((value) => value ?? null),
@@ -61,7 +60,7 @@ const gqlTypeSchema: z.ZodType<GqlType> = z.object({
   enumValues: z.array(gqlEnumValueSchema).nullable().optional().transform((value) => value ?? null),
 });
 
-const gqlSchemaSchema: z.ZodType<GqlSchema> = z.object({
+const gqlSchemaSchema = z.object({
   queryType: z.object({ name: z.string() }).nullable().optional().transform((value) => value ?? null),
   mutationType: z.object({ name: z.string() }).nullable().optional().transform((value) => value ?? null),
   types: z.array(gqlTypeSchema),
@@ -71,6 +70,59 @@ const gqlIntrospectionResponseSchema = z.object({
   data: z.object({ __schema: gqlSchemaSchema }).optional(),
   errors: z.array(z.unknown()).optional(),
 });
+
+const graphqlObjectInputSchema = z.object({
+  query: z.string().optional(),
+  variables: z.unknown().optional(),
+}).catchall(z.unknown());
+
+const graphqlToolInputSchema = z.union([
+  z.string(),
+  graphqlObjectInputSchema,
+]);
+
+const recordSchema = z.record(z.unknown());
+
+function coerceRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
+
+function normalizeGraphqlToolInput(value: unknown): {
+  payload: Record<string, unknown>;
+  query: string;
+  variables: unknown;
+  hasExplicitQuery: boolean;
+} {
+  const parsedInput = graphqlToolInputSchema.safeParse(value);
+  if (!parsedInput.success) {
+    const payload = coerceRecord(value);
+    return {
+      payload,
+      query: "",
+      variables: payload.variables,
+      hasExplicitQuery: false,
+    };
+  }
+
+  if (typeof parsedInput.data === "string") {
+    const query = parsedInput.data.trim();
+    return {
+      payload: { query: parsedInput.data },
+      query,
+      variables: undefined,
+      hasExplicitQuery: query.length > 0,
+    };
+  }
+
+  const query = (parsedInput.data.query ?? "").trim();
+  return {
+    payload: parsedInput.data,
+    query,
+    variables: parsedInput.data.variables,
+    hasExplicitQuery: query.length > 0,
+  };
+}
 
 const INTROSPECTION_QUERY = `
   query IntrospectionQuery {
@@ -220,7 +272,7 @@ function parseGraphqlIntrospectionSchema(payload: unknown): Result<GqlSchema, Er
 }
 
 function toGraphqlEnvelope(value: unknown): GraphqlExecutionEnvelope {
-  const payload = asRecord(value);
+  const payload = coerceRecord(value);
   return {
     data: Object.prototype.hasOwnProperty.call(payload, "data") ? payload.data : null,
     errors: Array.isArray(payload.errors) ? payload.errors : [],
@@ -248,15 +300,15 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
     throw new Error(`GraphQL introspection failed: HTTP ${introspectionResult.status}: ${text.slice(0, 300)}`);
   }
 
-  const introspectionJsonResult = await Result.tryPromise(() => introspectionResult.json());
-  if (introspectionJsonResult.isErr()) {
-    const message = introspectionJsonResult.error.cause instanceof Error
-      ? introspectionJsonResult.error.cause.message
-      : String(introspectionJsonResult.error.cause);
+  let introspectionJson: unknown;
+  try {
+    introspectionJson = await introspectionResult.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     throw new Error(`GraphQL introspection response parse failed: ${message}`);
   }
 
-  const schemaResult = parseGraphqlIntrospectionSchema(introspectionJsonResult.value);
+  const schemaResult = parseGraphqlIntrospectionSchema(introspectionJson);
   if (schemaResult.isErr()) {
     throw schemaResult.error;
   }
@@ -306,18 +358,15 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
       authHeaders,
     },
     run: async (input: unknown, context) => {
-      const payload = asRecord(input);
-      const query = String(payload.query ?? "");
-      const variables = payload.variables ?? undefined;
-
-      if (!query.trim()) {
+      const normalized = normalizeGraphqlToolInput(input);
+      if (!normalized.hasExplicitQuery) {
         throw new Error("GraphQL query string is required");
       }
       return await executeGraphqlRequest(
         config.endpoint,
         authHeaders,
-        query,
-        variables,
+        normalized.query,
+        normalized.variables,
         context.credential?.headers,
       );
     },
@@ -389,9 +438,9 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
         _pseudoTool: true,
         run: async (input: unknown, context) => {
           // If someone calls this directly, delegate to the main graphql tool
-          const payload = asRecord(input);
-          const hasExplicitQuery = typeof payload.query === "string" && payload.query.trim().length > 0;
-          if (!hasExplicitQuery) {
+          const normalized = normalizeGraphqlToolInput(input);
+          const payload = normalized.payload;
+          if (!normalized.hasExplicitQuery) {
             // Auto-build the query from the variables
             payload.query = buildFieldQuery(operationType, field.name, field.args, field.type, typeMap);
             if (payload.variables === undefined) {

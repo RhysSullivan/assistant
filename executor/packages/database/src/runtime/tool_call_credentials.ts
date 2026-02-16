@@ -1,38 +1,21 @@
 "use node";
 
 import { Result } from "better-result";
-import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
-import { resolveCredentialPayload } from "../../../core/src/credential-providers";
+import { resolveCredentialPayloadResult } from "../../../core/src/credential-providers";
+import {
+  buildCredentialAuthHeaders,
+  readCredentialOverrideHeaders,
+} from "../../../core/src/tool/source-auth";
 import type { ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../../core/src/types";
 import { ToolCallControlError } from "../../../core/src/tool-call-control";
-import { asPayload } from "../lib/object";
 
-const bearerSecretSchema = z.object({
-  token: z.coerce.string().optional(),
-});
-
-const apiKeySecretSchema = z.object({
-  headerName: z.coerce.string().optional(),
-  value: z.coerce.string().optional(),
-  token: z.coerce.string().optional(),
-});
-
-const basicSecretSchema = z.object({
-  username: z.coerce.string().optional(),
-  password: z.coerce.string().optional(),
-});
-
-const credentialOverrideHeadersSchema = z.object({
-  headers: z.record(z.coerce.string()).optional(),
-});
-
-export async function resolveCredentialHeaders(
-  ctx: ActionCtx,
+export async function resolveCredentialHeadersResult(
+  ctx: Pick<ActionCtx, "runQuery">,
   spec: ToolCredentialSpec,
   task: TaskRecord,
-): Promise<ResolvedToolCredential | null> {
+): Promise<Result<ResolvedToolCredential | null, Error>> {
   const record = await ctx.runQuery(internal.database.resolveCredential, {
     workspaceId: task.workspaceId,
     sourceKey: spec.sourceKey,
@@ -40,53 +23,55 @@ export async function resolveCredentialHeaders(
     actorId: task.actorId,
   });
 
-  const source = record
-    ? await resolveCredentialPayload(record)
-    : spec.staticSecretJson ?? null;
+  const sourceResult = record
+    ? await resolveCredentialPayloadResult(record)
+    : Result.ok(spec.staticSecretJson ?? null);
+  if (sourceResult.isErr()) {
+    return Result.err(
+      new Error(`Failed to resolve credential payload for '${spec.sourceKey}': ${sourceResult.error.message}`),
+    );
+  }
+
+  const source = sourceResult.value;
   if (!source) {
-    return null;
-  }
-  const sourcePayload = asPayload(source);
-
-  const headers: Record<string, string> = {};
-  if (spec.authType === "bearer") {
-    const parsedSecret = bearerSecretSchema.safeParse(sourcePayload);
-    const token = parsedSecret.success ? (parsedSecret.data.token ?? "").trim() : "";
-    if (token) headers.authorization = `Bearer ${token}`;
-  } else if (spec.authType === "apiKey") {
-    const parsedSecret = apiKeySecretSchema.safeParse(sourcePayload);
-    const headerName = spec.headerName
-      ?? (parsedSecret.success ? (parsedSecret.data.headerName ?? "x-api-key") : "x-api-key");
-    const value = parsedSecret.success
-      ? (parsedSecret.data.value ?? parsedSecret.data.token ?? "").trim()
-      : "";
-    if (value) headers[headerName] = value;
-  } else if (spec.authType === "basic") {
-    const parsedSecret = basicSecretSchema.safeParse(sourcePayload);
-    const username = parsedSecret.success ? (parsedSecret.data.username ?? "") : "";
-    const password = parsedSecret.success ? (parsedSecret.data.password ?? "") : "";
-    if (username || password) {
-      const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
-      headers.authorization = `Basic ${encoded}`;
-    }
+    return Result.ok(null);
   }
 
-  const bindingOverrides = credentialOverrideHeadersSchema.safeParse(record?.overridesJson ?? {});
-  const overrideHeaders = bindingOverrides.success ? (bindingOverrides.data.headers ?? {}) : {};
+  const headers = buildCredentialAuthHeaders(
+    {
+      authType: spec.authType,
+      headerName: spec.headerName,
+    },
+    source,
+  );
+
+  const overrideHeaders = readCredentialOverrideHeaders(record?.overridesJson);
   for (const [key, value] of Object.entries(overrideHeaders)) {
-    if (!key) continue;
     headers[key] = value;
   }
 
   if (Object.keys(headers).length === 0) {
-    return null;
+    return Result.ok(null);
   }
 
-  return {
+  return Result.ok({
     sourceKey: spec.sourceKey,
     mode: spec.mode,
     headers,
-  };
+  });
+}
+
+export async function resolveCredentialHeaders(
+  ctx: Pick<ActionCtx, "runQuery">,
+  spec: ToolCredentialSpec,
+  task: TaskRecord,
+): Promise<ResolvedToolCredential | null> {
+  const result = await resolveCredentialHeadersResult(ctx, spec, task);
+  if (result.isErr()) {
+    throw result.error;
+  }
+
+  return result.value;
 }
 
 export function validatePersistedCallRunnable(

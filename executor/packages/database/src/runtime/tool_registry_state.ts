@@ -1,5 +1,6 @@
 "use node";
 
+import { Result } from "better-result";
 import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
@@ -21,12 +22,6 @@ type RegistryState = {
   readyBuildId?: string;
 } | null;
 
-type ToolSourceState = {
-  id: string;
-  updatedAt: number;
-  enabled: boolean;
-};
-
 const registryStateSchema = z.object({
   signature: z.string(),
   readyBuildId: z.string().optional(),
@@ -34,9 +29,29 @@ const registryStateSchema = z.object({
 
 const toolSourceStateSchema = z.object({
   id: z.string(),
+  type: z.string().optional(),
+  ownerScopeType: z.string().optional(),
+  organizationId: z.string().optional(),
+  workspaceId: z.string().optional(),
+  specHash: z.string().optional(),
+  authFingerprint: z.string().optional(),
   updatedAt: z.number(),
   enabled: z.boolean().optional(),
-});
+}).transform((source) => ({
+  id: source.id,
+  type: source.type,
+  ownerScopeType: source.ownerScopeType,
+  organizationId: source.organizationId,
+  workspaceId: source.workspaceId,
+  specHash: source.specHash,
+  authFingerprint: source.authFingerprint,
+  updatedAt: source.updatedAt,
+  enabled: source.enabled !== false,
+}));
+
+type ToolSourceState = z.infer<typeof toolSourceStateSchema>;
+
+const toolSourceStateListSchema = z.array(toolSourceStateSchema);
 
 function toRegistryState(value: unknown): RegistryState {
   const parsed = registryStateSchema.safeParse(value);
@@ -51,23 +66,12 @@ function toRegistryState(value: unknown): RegistryState {
 }
 
 function toToolSourceStateList(value: unknown): ToolSourceState[] {
-  if (!Array.isArray(value)) {
+  const parsed = toolSourceStateListSchema.safeParse(value);
+  if (!parsed.success) {
     return [];
   }
 
-  const normalized: ToolSourceState[] = [];
-  for (const entry of value) {
-    const parsed = toolSourceStateSchema.safeParse(entry);
-    if (!parsed.success) continue;
-
-    normalized.push({
-      id: parsed.data.id,
-      updatedAt: parsed.data.updatedAt,
-      enabled: parsed.data.enabled !== false,
-    });
-  }
-
-  return normalized;
+  return parsed.data;
 }
 
 async function readRegistryState(
@@ -90,7 +94,7 @@ async function readRegistryState(
   };
 }
 
-export async function getReadyRegistryBuildId(
+export async function getReadyRegistryBuildIdResult(
   ctx: Pick<ActionCtx, "runQuery" | "runAction">,
   args: {
     workspaceId: Id<"workspaces">;
@@ -98,10 +102,10 @@ export async function getReadyRegistryBuildId(
     clientId?: string;
     refreshOnStale?: boolean;
   },
-): Promise<string> {
+): Promise<Result<string, Error>> {
   const initial = await readRegistryState(ctx, args.workspaceId);
   if (initial.isReady && initial.buildId) {
-    return initial.buildId;
+    return Result.ok(initial.buildId);
   }
 
   if (args.refreshOnStale) {
@@ -113,11 +117,28 @@ export async function getReadyRegistryBuildId(
 
     const refreshed = await readRegistryState(ctx, args.workspaceId);
     if (refreshed.isReady && refreshed.buildId) {
-      return refreshed.buildId;
+      return Result.ok(refreshed.buildId);
     }
   }
 
-  throw new Error(
-    "Tool registry is not ready (or is stale). Open Tools to refresh, or call listToolsWithWarnings to rebuild.",
+  return Result.err(
+    new Error("Tool registry is not ready (or is stale). Open Tools to refresh, or call listToolsWithWarnings to rebuild."),
   );
+}
+
+export async function getReadyRegistryBuildId(
+  ctx: Pick<ActionCtx, "runQuery" | "runAction">,
+  args: {
+    workspaceId: Id<"workspaces">;
+    actorId?: string;
+    clientId?: string;
+    refreshOnStale?: boolean;
+  },
+): Promise<string> {
+  const buildIdResult = await getReadyRegistryBuildIdResult(ctx, args);
+  if (buildIdResult.isErr()) {
+    throw buildIdResult.error;
+  }
+
+  return buildIdResult.value;
 }

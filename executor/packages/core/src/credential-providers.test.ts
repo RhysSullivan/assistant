@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resolveCredentialPayload } from "./credential-providers";
+import { resolveCredentialPayload, resolveCredentialPayloadResult } from "./credential-providers";
 
 test("local provider returns stored payload", async () => {
   const payload = await resolveCredentialPayload({
@@ -46,6 +46,23 @@ test("WorkOS Vault provider falls back to id key and raw token", async () => {
   expect(payload).toEqual({ token: "ghp_raw_token" });
 });
 
+test("WorkOS Vault provider parses env-style key/value payloads", async () => {
+  const payload = await resolveCredentialPayload(
+    {
+      provider: "workos-vault",
+      secretJson: { objectId: "secret_789" },
+    },
+    {
+      readVaultObject: async ({ objectId }) => {
+        expect(objectId).toBe("secret_789");
+        return "TOKEN=vault-token\nHEADER_NAME=\"x-api-key\"";
+      },
+    },
+  );
+
+  expect(payload).toEqual({ TOKEN: "vault-token", HEADER_NAME: "x-api-key" });
+});
+
 test("WorkOS Vault provider gives actionable error on missing reference", async () => {
   await expect(
     resolveCredentialPayload({
@@ -53,4 +70,16 @@ test("WorkOS Vault provider gives actionable error on missing reference", async 
       secretJson: {},
     }),
   ).rejects.toThrow("Re-save this credential");
+});
+
+test("resolveCredentialPayloadResult returns Err for missing WorkOS reference", async () => {
+  const result = await resolveCredentialPayloadResult({
+    provider: "workos-vault",
+    secretJson: {},
+  });
+
+  expect(result.isErr()).toBe(true);
+  if (result.isErr()) {
+    expect(result.error.message).toContain("Re-save this credential");
+  }
 });

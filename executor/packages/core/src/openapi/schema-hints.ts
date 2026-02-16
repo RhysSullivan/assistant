@@ -1,4 +1,8 @@
-import { asRecord } from "../utils";
+import { toPlainObject } from "../utils";
+
+function toRecordOrEmpty(value: unknown): Record<string, unknown> {
+  return toPlainObject(value) ?? {};
+}
 
 type JsonSchema = Record<string, unknown>;
 const COMPONENT_REF_INLINE_DEPTH = 2;
@@ -6,7 +10,7 @@ const COMPONENT_REF_INLINE_DEPTH = 2;
 function isSmallInlineableComponentSchema(schema: Record<string, unknown>): boolean {
   const shape = schema;
   const type = typeof shape.type === "string" ? shape.type : undefined;
-  const props = asRecord(shape.properties);
+  const props = toRecordOrEmpty(shape.properties);
   const propCount = Object.keys(props).length;
   if (type !== "object" && propCount === 0) return false;
   if (propCount === 0) return false;
@@ -38,18 +42,18 @@ export function getPreferredContentSchema(content: Record<string, unknown>): Rec
   const preferredKeys = ["application/json", "*/*"];
 
   for (const key of preferredKeys) {
-    const schema = asRecord(asRecord(content[key]).schema);
+    const schema = toRecordOrEmpty(toRecordOrEmpty(content[key]).schema);
     if (Object.keys(schema).length > 0) return schema;
   }
 
   for (const [key, value] of Object.entries(content)) {
     if (!key.includes("json")) continue;
-    const schema = asRecord(asRecord(value).schema);
+    const schema = toRecordOrEmpty(toRecordOrEmpty(value).schema);
     if (Object.keys(schema).length > 0) return schema;
   }
 
   for (const value of Object.values(content)) {
-    const schema = asRecord(asRecord(value).schema);
+    const schema = toRecordOrEmpty(toRecordOrEmpty(value).schema);
     if (Object.keys(schema).length > 0) return schema;
   }
 
@@ -57,12 +61,12 @@ export function getPreferredContentSchema(content: Record<string, unknown>): Rec
 }
 
 export function getPreferredResponseSchema(responseValue: Record<string, unknown>): Record<string, unknown> {
-  const contentSchema = getPreferredContentSchema(asRecord(responseValue.content));
+  const contentSchema = getPreferredContentSchema(toRecordOrEmpty(responseValue.content));
   if (Object.keys(contentSchema).length > 0) {
     return contentSchema;
   }
 
-  const schema = asRecord(responseValue.schema);
+  const schema = toRecordOrEmpty(responseValue.schema);
   if (Object.keys(schema).length > 0) {
     return schema;
   }
@@ -81,7 +85,7 @@ export function resolveSchemaRef(
   }
 
   const key = ref.slice(prefix.length);
-  const resolved = asRecord(componentSchemas[key]);
+  const resolved = toRecordOrEmpty(componentSchemas[key]);
   if (Object.keys(resolved).length === 0) {
     return schema;
   }
@@ -99,7 +103,7 @@ export function resolveRequestBodyRef(
   }
 
   const key = ref.slice(prefix.length);
-  const resolved = asRecord(componentRequestBodies[key]);
+  const resolved = toRecordOrEmpty(componentRequestBodies[key]);
   if (Object.keys(resolved).length === 0) {
     return requestBody;
   }
@@ -117,7 +121,7 @@ export function resolveResponseRef(
   }
 
   const key = ref.slice(prefix.length);
-  const resolved = asRecord(componentResponses[key]);
+  const resolved = toRecordOrEmpty(componentResponses[key]);
   if (Object.keys(resolved).length === 0) {
     return response;
   }
@@ -125,7 +129,7 @@ export function resolveResponseRef(
 }
 
 export function parameterSchemaFromEntry(entry: Record<string, unknown>): Record<string, unknown> {
-  const schema = asRecord(entry.schema);
+  const schema = toRecordOrEmpty(entry.schema);
   if (Object.keys(schema).length > 0) {
     return schema;
   }
@@ -139,7 +143,7 @@ export function parameterSchemaFromEntry(entry: Record<string, unknown>): Record
   if (Array.isArray(entry.enum) && entry.enum.length > 0) {
     fallback.enum = entry.enum;
   }
-  const items = asRecord(entry.items);
+  const items = toRecordOrEmpty(entry.items);
   if (Object.keys(items).length > 0) {
     fallback.items = items;
   }
@@ -239,13 +243,13 @@ function joinUnion(parts: string[]): string {
 function isObjectSchema(schema: JsonSchema): boolean {
   const type = typeof schema.type === "string" ? schema.type : undefined;
   if (type === "object") return true;
-  return Object.keys(asRecord(schema.properties)).length > 0;
+  return Object.keys(toRecordOrEmpty(schema.properties)).length > 0;
 }
 
 function isEmptyObjectSchema(schema: JsonSchema): boolean {
   const type = typeof schema.type === "string" ? schema.type : undefined;
   if (type !== "object") return false;
-  return Object.keys(asRecord(schema.properties)).length === 0;
+  return Object.keys(toRecordOrEmpty(schema.properties)).length === 0;
 }
 
 function isPlainScalarSchema(schema: JsonSchema): boolean {
@@ -279,7 +283,7 @@ function normalizeUnionSchemaVariants(variants: JsonSchema[]): JsonSchema[] {
   // Many real-world OpenAPI specs include `oneOf: [{type:"object"}, { ...specific... }]`
   // or even `oneOf: [{type:"string"}, { ...object... }, { ...object... }]`.
   // These broad scalar/empty-object variants add noise without helping the UI/LLM.
-  const hasNonEmptyObject = variants.some((v) => isObjectSchema(v) && Object.keys(asRecord(v.properties)).length > 0);
+  const hasNonEmptyObject = variants.some((v) => isObjectSchema(v) && Object.keys(toRecordOrEmpty(v.properties)).length > 0);
 
   let filtered = variants;
   if (hasNonEmptyObject) {
@@ -324,7 +328,7 @@ function repairMissingRequiredProperties(
   const requiredLists = variants.map((v) => new Set(
     (Array.isArray(v.required) ? v.required : []).filter((k): k is string => typeof k === "string"),
   ));
-  const propsLists = variants.map((v) => asRecord(v.properties));
+  const propsLists = variants.map((v) => toRecordOrEmpty(v.properties));
 
   const keysToConsider = new Set<string>();
   for (const req of requiredLists) {
@@ -342,7 +346,7 @@ function repairMissingRequiredProperties(
       if (!schema || typeof schema !== "object") continue;
       const hint = jsonSchemaTypeHintFallback(schema, depth + 1, componentSchemas, seenRefs);
       if (!hint || hint === "unknown") continue;
-      candidates.push({ hint, schema: asRecord(schema) });
+      candidates.push({ hint, schema: toRecordOrEmpty(schema) });
     }
 
     if (candidates.length === 0) continue;
@@ -416,8 +420,8 @@ function mergeDiscriminatedObjectUnionVariants(
 
   for (let i = 0; i < variants.length; i++) {
     const variant = variants[i]!;
-    const props = asRecord(variant.properties);
-    const discSchema = asRecord(props[discriminantKey]);
+    const props = toRecordOrEmpty(variant.properties);
+    const discSchema = toRecordOrEmpty(props[discriminantKey]);
     const disc = extractStringLiteralFromSchema(discSchema);
     if (!disc) {
       return variants;
@@ -479,8 +483,8 @@ function mergeDiscriminatedObjectUnionVariants(
     for (const member of group) used.add(member.idx);
 
     const base = group[0]!.schema;
-    const baseProps = asRecord(base.properties);
-    const discSchema = asRecord(baseProps[discriminantKey]);
+    const baseProps = toRecordOrEmpty(base.properties);
+    const discSchema = toRecordOrEmpty(baseProps[discriminantKey]);
     const discType = typeof discSchema.type === "string" ? discSchema.type : "string";
 
     const mergedDiscriminant: JsonSchema = {
@@ -521,8 +525,8 @@ function tryCollapseSimpleObjectUnion(
   const right = variants[1]!;
   if (!isObjectSchema(left) || !isObjectSchema(right)) return null;
 
-  const leftProps = asRecord(left.properties);
-  const rightProps = asRecord(right.properties);
+  const leftProps = toRecordOrEmpty(left.properties);
+  const rightProps = toRecordOrEmpty(right.properties);
   const leftKeys = Object.keys(leftProps);
   const rightKeys = Object.keys(rightProps);
   if (leftKeys.length === 0 || rightKeys.length === 0) return null;
@@ -535,8 +539,8 @@ function tryCollapseSimpleObjectUnion(
 
   const sup = leftSubRight ? right : left;
   const sub = leftSubRight ? left : right;
-  const supProps = asRecord(sup.properties);
-  const subProps = asRecord(sub.properties);
+  const supProps = toRecordOrEmpty(sup.properties);
+  const subProps = toRecordOrEmpty(sub.properties);
   const supKeys = Object.keys(supProps);
   const subKeys = Object.keys(subProps);
   const extraKeys = supKeys.filter((k) => !subKeys.includes(k));
@@ -591,13 +595,13 @@ function tryFactorCommonObjectFields(
   if (variants.length < 2) return null;
   if (!variants.every(isObjectSchema)) return null;
 
-  const propsList = variants.map((v) => asRecord(v.properties));
+  const propsList = variants.map((v) => toRecordOrEmpty(v.properties));
   const commonKeys = intersectKeys(propsList);
   if (commonKeys.length === 0) return null;
 
   const commonEntries: Array<{ key: string; hint: string; required: boolean }> = [];
   for (const key of commonKeys) {
-    const hints = variants.map((v) => jsonSchemaTypeHintFallback(asRecord(v.properties)[key], depth + 1, componentSchemas, seenRefs));
+    const hints = variants.map((v) => jsonSchemaTypeHintFallback(toRecordOrEmpty(v.properties)[key], depth + 1, componentSchemas, seenRefs));
     const firstHint = hints[0];
     if (!firstHint || hints.some((h) => h !== firstHint)) continue;
 
@@ -613,7 +617,7 @@ function tryFactorCommonObjectFields(
   const commonProps = new Set(commonEntries.map((e) => e.key));
   const residualSchemas: JsonSchema[] = [];
   for (const variant of variants) {
-    const props = asRecord(variant.properties);
+    const props = toRecordOrEmpty(variant.properties);
     const residualProps = Object.fromEntries(Object.entries(props).filter(([key]) => !commonProps.has(key)));
     const req = Array.isArray(variant.required) ? variant.required : [];
     const residualRequired = req.filter((key) => typeof key === "string" && !commonProps.has(key));
@@ -625,7 +629,7 @@ function tryFactorCommonObjectFields(
   }
 
   // If factoring doesn't reduce anything, bail.
-  const reduces = residualSchemas.some((s) => Object.keys(asRecord(s.properties)).length > 0);
+  const reduces = residualSchemas.some((s) => Object.keys(toRecordOrEmpty(s.properties)).length > 0);
   if (!reduces) return null;
 
   const commonInner = commonEntries
@@ -662,7 +666,7 @@ function tryFactorPartialCommonObjectFields(
   if (variants.length < 3) return null;
   if (!variants.every(isObjectSchema)) return null;
 
-  const propsList = variants.map((v) => asRecord(v.properties));
+  const propsList = variants.map((v) => toRecordOrEmpty(v.properties));
   const requiredList = variants.map((v) => new Set(
     (Array.isArray(v.required) ? v.required : []).filter((k): k is string => typeof k === "string"),
   ));
@@ -753,7 +757,7 @@ function tryFactorPartialCommonObjectFields(
 
   // If factoring doesn't actually remove anything useful, bail.
   const anyResidualHasProps = residualSchemas.some(
-    (s) => Object.keys(asRecord(s.properties)).length > 0,
+    (s) => Object.keys(toRecordOrEmpty(s.properties)).length > 0,
   );
   if (!anyResidualHasProps) return null;
 
@@ -788,13 +792,13 @@ export function jsonSchemaTypeHintFallback(
   if (!schema || typeof schema !== "object") return "unknown";
   if (depth > 12) return "unknown";
 
-  const shape = asRecord(schema);
+  const shape = toRecordOrEmpty(schema);
   if (typeof shape.$ref === "string") {
     const ref = shape.$ref;
     const prefix = "#/components/schemas/";
     if (ref.startsWith(prefix)) {
       const key = ref.slice(prefix.length);
-      const resolved = componentSchemas ? asRecord(componentSchemas[key]) : {};
+      const resolved = componentSchemas ? toRecordOrEmpty(componentSchemas[key]) : {};
       const canInline = Object.keys(resolved).length > 0
         && !seenRefs.has(ref)
         && (depth < COMPONENT_REF_INLINE_DEPTH || isSmallInlineableComponentSchema(resolved));
@@ -934,7 +938,7 @@ export function jsonSchemaTypeHintFallback(
     return `${maybeParenthesizeArrayElement(itemType)}[]`;
   }
 
-  const props = asRecord(shape.properties);
+  const props = toRecordOrEmpty(shape.properties);
   const additionalProperties = shape.additionalProperties;
   const requiredRaw = Array.isArray(shape.required) ? shape.required : [];
   const required = new Set(requiredRaw.filter((item): item is string => typeof item === "string"));
@@ -973,12 +977,12 @@ function collectTopLevelSchemaKeys(
 ): string[] {
   if (!schema || typeof schema !== "object") return [];
 
-  const record = asRecord(schema);
+  const record = toRecordOrEmpty(schema);
   const ref = typeof record.$ref === "string" ? record.$ref : "";
   if (ref.startsWith("#/components/schemas/")) {
     if (seenRefs.has(ref)) return [];
     const key = ref.slice("#/components/schemas/".length);
-    const resolved = componentSchemas ? asRecord(componentSchemas[key]) : {};
+    const resolved = componentSchemas ? toRecordOrEmpty(componentSchemas[key]) : {};
     if (Object.keys(resolved).length === 0) return [];
     const nextSeen = new Set(seenRefs);
     nextSeen.add(ref);
@@ -988,7 +992,7 @@ function collectTopLevelSchemaKeys(
   const keys: string[] = [];
   const seen = new Set<string>();
 
-  for (const key of Object.keys(asRecord(record.properties))) {
+  for (const key of Object.keys(toRecordOrEmpty(record.properties))) {
     pushUnique(keys, seen, key);
   }
 

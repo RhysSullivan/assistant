@@ -6,12 +6,13 @@ import {
   normalizeSourceAuthFingerprint,
 } from "../../src/database/mappers";
 import { normalizeToolSourceConfig } from "../../src/database/tool_source_config";
-import { jsonObjectValidator, toolSourceTypeValidator } from "../../src/database/validators";
+import { jsonObjectValidator, ownerScopeTypeValidator, toolSourceTypeValidator } from "../../src/database/validators";
 
 export const upsertToolSource = internalMutation({
   args: {
     id: v.optional(v.string()),
     workspaceId: v.id("workspaces"),
+    ownerScopeType: v.optional(ownerScopeTypeValidator),
     name: v.string(),
     type: toolSourceTypeValidator,
     config: jsonObjectValidator,
@@ -20,6 +21,14 @@ export const upsertToolSource = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
+    const ownerScopeType = args.ownerScopeType ?? "workspace";
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace not found: ${args.workspaceId}`);
+    }
+    const organizationId = workspace.organizationId;
+    const ownerWorkspaceId = ownerScopeType === "workspace" ? args.workspaceId : undefined;
+
     const configResult = normalizeToolSourceConfig(args.type, args.config);
     if (configResult.isErr()) {
       throw new Error(configResult.error.message);
@@ -32,19 +41,28 @@ export const upsertToolSource = internalMutation({
         .query("toolSources")
         .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
         .unique(),
-      ctx.db
-        .query("toolSources")
-        .withIndex("by_workspace_name", (q) => q.eq("workspaceId", args.workspaceId).eq("name", args.name))
-        .unique(),
+      ownerScopeType === "workspace"
+        ? ctx.db
+          .query("toolSources")
+          .withIndex("by_workspace_name", (q) => q.eq("workspaceId", args.workspaceId).eq("name", args.name))
+          .unique()
+        : ctx.db
+          .query("toolSources")
+          .withIndex("by_organization_owner_name", (q) =>
+            q.eq("organizationId", organizationId).eq("ownerScopeType", "organization").eq("name", args.name),
+          )
+          .unique(),
     ]);
 
     if (conflict && conflict.sourceId !== sourceId) {
-      throw new Error(`Tool source name '${args.name}' already exists in workspace ${args.workspaceId}`);
+      throw new Error(`Tool source name '${args.name}' already exists in this scope`);
     }
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        workspaceId: args.workspaceId,
+        ownerScopeType,
+        organizationId,
+        workspaceId: ownerWorkspaceId,
         name: args.name,
         type: args.type,
         config,
@@ -56,7 +74,9 @@ export const upsertToolSource = internalMutation({
     } else {
       await ctx.db.insert("toolSources", {
         sourceId,
-        workspaceId: args.workspaceId,
+        ownerScopeType,
+        organizationId,
+        workspaceId: ownerWorkspaceId,
         name: args.name,
         type: args.type,
         config,
@@ -82,11 +102,30 @@ export const upsertToolSource = internalMutation({
 export const listToolSources = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const docs = await ctx.db
-      .query("toolSources")
-      .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .collect();
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return [];
+    }
+
+    const [workspaceDocs, organizationDocs] = await Promise.all([
+      ctx.db
+        .query("toolSources")
+        .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .collect(),
+      ctx.db
+        .query("toolSources")
+        .withIndex("by_organization_owner_updated", (q) =>
+          q.eq("organizationId", workspace.organizationId).eq("ownerScopeType", "organization"),
+        )
+        .order("desc")
+        .collect(),
+    ]);
+
+    const docs = [...workspaceDocs, ...organizationDocs]
+      .filter((doc, index, entries) => entries.findIndex((candidate) => candidate.sourceId === doc.sourceId) === index)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+
     return docs.map(mapSource);
   },
 });
@@ -94,20 +133,29 @@ export const listToolSources = internalQuery({
 export const deleteToolSource = internalMutation({
   args: { workspaceId: v.id("workspaces"), sourceId: v.string() },
   handler: async (ctx, args) => {
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return false;
+    }
+
     const doc = await ctx.db
       .query("toolSources")
       .withIndex("by_source_id", (q) => q.eq("sourceId", args.sourceId))
       .unique();
 
-    if (!doc || doc.workspaceId !== args.workspaceId) {
+    if (!doc || doc.organizationId !== workspace.organizationId) {
+      return false;
+    }
+
+    if (doc.ownerScopeType === "workspace" && doc.workspaceId !== args.workspaceId) {
       return false;
     }
 
     const sourceKey = `source:${args.sourceId}`;
     const bindings = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_key", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("sourceKey", sourceKey),
+      .withIndex("by_organization_source", (q) =>
+        q.eq("organizationId", workspace.organizationId).eq("sourceKey", sourceKey),
       )
       .collect();
 

@@ -1,6 +1,13 @@
-import { Result } from "better-result";
+import { z } from "zod";
 import type { Env, RunRequest, RunResult } from "./types";
 import { getEntrypointExports } from "./bridge";
+
+const runResultSchema: z.ZodType<RunResult> = z.object({
+  status: z.enum(["completed", "failed", "timed_out", "denied"]),
+  result: z.unknown().optional(),
+  error: z.string().optional(),
+  exitCode: z.number().optional(),
+});
 
 /**
  * Build the user code module. The code is wrapped in an exported async
@@ -51,32 +58,42 @@ export async function executeSandboxRun(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  const response = await Result.tryPromise(() =>
-    entrypoint.fetch("http://sandbox.internal/run", {
+  let response: Response;
+  try {
+    response = await entrypoint.fetch("http://sandbox.internal/run", {
       method: "POST",
       signal: controller.signal,
-    }),
-  );
-
-  clearTimeout(timer);
-
-  if (response.isErr()) {
-    const cause = response.error.cause;
-    if (cause instanceof DOMException && cause.name === "AbortError") {
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error instanceof DOMException && error.name === "AbortError") {
       return {
         status: "timed_out",
         error: `Execution timed out after ${timeoutMs}ms`,
       };
     }
-    throw cause;
+    throw error;
   }
 
-  const body = await Result.tryPromise(() => response.value.json() as Promise<RunResult>);
-  if (body.isErr()) {
+  clearTimeout(timer);
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
     return {
       status: "failed",
       error: "Sandbox isolate returned invalid JSON",
     };
   }
-  return body.value;
+
+  const parsedBody = runResultSchema.safeParse(body);
+  if (!parsedBody.success) {
+    return {
+      status: "failed",
+      error: "Sandbox isolate returned invalid response payload",
+    };
+  }
+
+  return parsedBody.data;
 }

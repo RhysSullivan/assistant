@@ -5,7 +5,13 @@ import { callMcpToolWithReconnect, executeGraphqlRequest, executeOpenApiRequest 
 import { Result } from "better-result";
 import { z } from "zod";
 import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolTyping } from "../types";
-import { asRecord } from "../utils";
+
+const recordSchema = z.record(z.unknown());
+
+function toRecord(value: unknown): Record<string, unknown> {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 export interface SerializedTool {
   path: string;
@@ -124,21 +130,62 @@ const toolTypingSchema: z.ZodType<ToolTyping> = z.object({
 
 const toolCredentialSpecSchema: z.ZodType<ToolCredentialSpec> = z.object({
   sourceKey: z.string(),
-  mode: z.enum(["static", "workspace", "actor"]),
+  mode: z.enum(["workspace", "actor"]),
   authType: z.enum(["bearer", "apiKey", "basic"]),
   headerName: z.string().optional(),
   staticSecretJson: z.record(z.unknown()).optional(),
 });
 
-const graphqlRawInputSchema = z.object({
-  query: z.string(),
-  variables: z.unknown().optional(),
-});
-
-const graphqlFieldInputSchema = z.object({
+const graphqlObjectInputSchema = z.object({
   query: z.string().optional(),
   variables: z.unknown().optional(),
-}).passthrough();
+}).catchall(z.unknown());
+
+const graphqlInvocationInputSchema = z.union([
+  z.string(),
+  graphqlObjectInputSchema,
+]);
+
+const invalidSerializedToolFallbackSchema = z.object({
+  path: z.string().optional(),
+  source: z.string().optional(),
+});
+
+function normalizeGraphqlInvocationInput(input: unknown): {
+  payload: Record<string, unknown>;
+  query: string;
+  variables: unknown;
+  hasExplicitQuery: boolean;
+} {
+  const parsedInput = graphqlInvocationInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    const payload = toRecord(input);
+    return {
+      payload,
+      query: "",
+      variables: payload.variables,
+      hasExplicitQuery: false,
+    };
+  }
+
+  if (typeof parsedInput.data === "string") {
+    const query = parsedInput.data.trim();
+    return {
+      payload: { query: parsedInput.data },
+      query,
+      variables: undefined,
+      hasExplicitQuery: query.length > 0,
+    };
+  }
+
+  const query = (parsedInput.data.query ?? "").trim();
+  return {
+    payload: parsedInput.data,
+    query,
+    variables: parsedInput.data.variables,
+    hasExplicitQuery: query.length > 0,
+  };
+}
 
 const serializedRunSpecSchema = z.union([
   openApiRunSpecSchema,
@@ -229,16 +276,16 @@ export function rehydrateTools(
   return serialized.map((candidate, index) => {
     const parsed = parseSerializedTool(candidate);
     if (parsed.isErr()) {
-      const raw = asRecord(candidate);
-      const path = typeof raw.path === "string" && raw.path.trim().length > 0
-        ? raw.path
+      const fallback = invalidSerializedToolFallbackSchema.safeParse(candidate);
+      const path = fallback.success && fallback.data.path && fallback.data.path.trim().length > 0
+        ? fallback.data.path
         : `invalid_serialized_tool_${index + 1}`;
 
       return {
         path,
         description: "Invalid serialized tool definition",
         approval: "required",
-        source: typeof raw.source === "string" ? raw.source : undefined,
+        source: fallback.success ? fallback.data.source : undefined,
         run: async () => {
           throw new Error(`Invalid serialized tool '${path}': ${parsed.error.message}`);
         },
@@ -282,7 +329,7 @@ export function rehydrateTools(
       return {
         ...base,
         run: async (input: unknown, context) => {
-          const payload = asRecord(input);
+          const payload = toRecord(input);
           return await executePostmanRequest(runSpec, payload, context.credential?.headers);
         },
       };
@@ -305,7 +352,7 @@ export function rehydrateTools(
             () => connectMcp(url, queryParams, transport, mergedHeaders),
           );
 
-          const payload = asRecord(input);
+          const payload = toRecord(input);
           const result = await callMcpToolWithReconnect(
             () => conn.client.callTool({ name: toolName, arguments: payload }),
             async () => {
@@ -330,14 +377,17 @@ export function rehydrateTools(
       return {
         ...base,
         run: async (input: unknown, context) => {
-          const payload = asRecord(input);
-          const parsedInput = graphqlRawInputSchema.safeParse(payload);
-          const query = parsedInput.success ? parsedInput.data.query : "";
-          if (!query.trim()) {
+          const normalized = normalizeGraphqlInvocationInput(input);
+          if (!normalized.hasExplicitQuery) {
             throw new Error("GraphQL query string is required");
           }
-          const variables = parsedInput.success ? parsedInput.data.variables : undefined;
-          const response = await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
+          const response = await executeGraphqlRequest(
+            endpoint,
+            authHeaders,
+            normalized.query,
+            normalized.variables,
+            context.credential?.headers,
+          );
           if (response.isErr()) {
             throw new Error(response.error.message);
           }
@@ -351,15 +401,12 @@ export function rehydrateTools(
       return {
         ...base,
         run: async (input: unknown, context) => {
-          const payload = asRecord(input);
-          const parsedInput = graphqlFieldInputSchema.safeParse(payload);
-          const normalizedInput = parsedInput.success ? parsedInput.data : {};
-          const hasExplicitQuery = typeof normalizedInput.query === "string" && normalizedInput.query.trim().length > 0;
-          const query = hasExplicitQuery ? normalizedInput.query : queryTemplate;
+          const normalized = normalizeGraphqlInvocationInput(input);
+          const query = normalized.hasExplicitQuery ? normalized.query : queryTemplate;
 
-          let variables = normalizedInput.variables;
-          if (variables === undefined && !hasExplicitQuery) {
-            variables = normalizeGraphqlFieldVariables(argNames ?? [], payload);
+          let variables = normalized.variables;
+          if (variables === undefined && !normalized.hasExplicitQuery) {
+            variables = normalizeGraphqlFieldVariables(argNames ?? [], normalized.payload);
           }
 
           const envelopeResult = await executeGraphqlRequest(

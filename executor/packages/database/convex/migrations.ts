@@ -127,9 +127,11 @@ export const cleanupTaskEmptyStringSentinels = migrations.define({
 export const cleanupAccessPolicyEmptyStringSentinels = migrations.define({
   table: "accessPolicies",
   migrateOne: async (_ctx, policy) => {
+    const policyRecord = policy as Record<string, unknown>;
     const patch: Record<string, undefined> = {};
-    if (policy.actorId === "") patch.actorId = undefined;
-    if (policy.clientId === "") patch.clientId = undefined;
+    if (Reflect.get(policyRecord, "actorId") === "") patch["actorId"] = undefined;
+    if (Reflect.get(policyRecord, "targetActorId") === "") patch["targetActorId"] = undefined;
+    if (policy.clientId === "") patch["clientId"] = undefined;
     if (Object.keys(patch).length > 0) return patch;
   },
 });

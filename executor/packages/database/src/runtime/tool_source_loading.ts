@@ -11,8 +11,12 @@ import {
   prepareOpenApiSpec,
   type CompiledToolSourceArtifact,
 } from "../../../core/src/tool-sources";
-import { resolveCredentialPayload } from "../../../core/src/credential-providers";
-import { buildStaticAuthHeaders } from "../../../core/src/tool/source-auth";
+import { resolveCredentialPayloadResult } from "../../../core/src/credential-providers";
+import {
+  buildCredentialAuthHeaders,
+  buildStaticAuthHeaders,
+  readCredentialOverrideHeaders,
+} from "../../../core/src/tool/source-auth";
 import type {
   ExternalToolSourceConfig,
   GraphqlToolSourceConfig,
@@ -28,6 +32,7 @@ const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version - bump when tool snapshot/registry/type-hint semantics change. */
 const TOOL_SOURCE_CACHE_VERSION = "v25";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v1";
 
 const openApiAuthModeSchema = z.enum(["static", "workspace", "actor"]);
 
@@ -51,19 +56,6 @@ const openApiAuthSchema = z.union([
     value: z.string().optional(),
   }),
 ]);
-
-const bearerSecretSchema = z.object({ token: z.coerce.string().optional() });
-const apiKeySecretSchema = z.object({
-  value: z.coerce.string().optional(),
-  token: z.coerce.string().optional(),
-});
-const basicSecretSchema = z.object({
-  username: z.coerce.string().optional(),
-  password: z.coerce.string().optional(),
-});
-const credentialOverrideHeadersSchema = z.object({
-  headers: z.record(z.coerce.string()).optional(),
-});
 
 const preparedOpenApiSpecSchema = z.object({
   servers: z.array(z.string()),
@@ -99,9 +91,31 @@ function toPreparedOpenApiSpec(value: unknown): PreparedOpenApiSpec | null {
   };
 }
 
-export function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
+export function sourceSignature(
+  workspaceId: string,
+  sources: Array<{
+    id: string;
+    type?: string;
+    ownerScopeType?: string;
+    organizationId?: string;
+    workspaceId?: string;
+    specHash?: string;
+    authFingerprint?: string;
+    updatedAt: number;
+    enabled: boolean;
+  }>,
+): string {
   const parts = sources
-    .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
+    .map((source) => {
+      const type = source.type ?? "unknown";
+      const ownerScopeType = source.ownerScopeType ?? "workspace";
+      const org = source.organizationId ?? "";
+      const ws = source.workspaceId ?? "";
+      const specHash = source.specHash ?? "";
+      const authFingerprint = source.authFingerprint ?? "";
+      const enabled = source.enabled ? 1 : 0;
+      return `${source.id}:${type}:${ownerScopeType}:${org}:${ws}:${specHash}:${authFingerprint}:${source.updatedAt}:${enabled}`;
+    })
     .sort();
   return `${TOOL_SOURCE_CACHE_VERSION}|${workspaceId}|${parts.join(",")}`;
 }
@@ -189,36 +203,23 @@ export function normalizeExternalToolSource(raw: {
   return Result.ok(result);
 }
 
-function buildHeadersFromCredentialSecret(
-  auth: OpenApiAuth,
-  secret: Record<string, unknown>,
-): Record<string, string> {
-  if (auth.type === "bearer") {
-    const parsedSecret = bearerSecretSchema.safeParse(secret);
-    const token = parsedSecret.success ? (parsedSecret.data.token ?? "").trim() : "";
-    return token ? { authorization: `Bearer ${token}` } : {};
+function toCredentialHeaderSpec(auth: OpenApiAuth):
+  | { authType: "bearer" | "apiKey" | "basic"; headerName?: string }
+  | null {
+  if (auth.type === "none") {
+    return null;
   }
 
   if (auth.type === "apiKey") {
-    const parsedSecret = apiKeySecretSchema.safeParse(secret);
-    const value = parsedSecret.success
-      ? (parsedSecret.data.value ?? parsedSecret.data.token ?? "").trim()
-      : "";
-    return value ? { [auth.header]: value } : {};
+    return {
+      authType: "apiKey",
+      headerName: auth.header,
+    };
   }
 
-  if (auth.type === "basic") {
-    const parsedSecret = basicSecretSchema.safeParse(secret);
-    const username = parsedSecret.success ? (parsedSecret.data.username ?? "") : "";
-    const password = parsedSecret.success ? (parsedSecret.data.password ?? "") : "";
-    if (!username && !password) {
-      return {};
-    }
-    const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
-    return { authorization: `Basic ${encoded}` };
-  }
-
-  return {};
+  return {
+    authType: auth.type,
+  };
 }
 
 async function resolveMcpDiscoveryHeaders(
@@ -258,38 +259,41 @@ async function resolveMcpDiscoveryHeaders(
     };
   }
 
-  try {
-    const secret = await resolveCredentialPayload(record);
-    if (!secret) {
-      return {
-        headers: {},
-        warnings: [`Source '${source.name}': credential payload unavailable for MCP discovery`],
-      };
-    }
-
-    const headers = buildHeadersFromCredentialSecret(auth, secret);
-    const parsedOverrides = credentialOverrideHeadersSchema.safeParse(record.overridesJson ?? {});
-    const overrideHeaders = parsedOverrides.success ? (parsedOverrides.data.headers ?? {}) : {};
-    for (const [key, value] of Object.entries(overrideHeaders)) {
-      if (!key) continue;
-      headers[key] = value;
-    }
-
-    if (Object.keys(headers).length === 0) {
-      return {
-        headers: {},
-        warnings: [`Source '${source.name}': credential did not produce MCP auth headers for discovery`],
-      };
-    }
-
-    return { headers, warnings: [] };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  const secretResult = await resolveCredentialPayloadResult(record);
+  if (secretResult.isErr()) {
     return {
       headers: {},
-      warnings: [`Source '${source.name}': failed to resolve MCP credential for discovery: ${message}`],
+      warnings: [`Source '${source.name}': failed to resolve MCP credential for discovery: ${secretResult.error.message}`],
     };
   }
+
+  const secret = secretResult.value;
+  if (!secret) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': credential payload unavailable for MCP discovery`],
+    };
+  }
+
+  const authSpec = toCredentialHeaderSpec(auth);
+  if (!authSpec) {
+    return { headers: {}, warnings: [] };
+  }
+
+  const headers = buildCredentialAuthHeaders(authSpec, secret);
+  const overrideHeaders = readCredentialOverrideHeaders(record.overridesJson);
+  for (const [key, value] of Object.entries(overrideHeaders)) {
+    headers[key] = value;
+  }
+
+  if (Object.keys(headers).length === 0) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': credential did not produce MCP auth headers for discovery`],
+    };
+  }
+
+  return { headers, warnings: [] };
 }
 
 async function loadCachedOpenApiSpec(
@@ -308,7 +312,7 @@ async function loadCachedOpenApiSpec(
   try {
     const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
       specUrl,
-      version: TOOL_SOURCE_CACHE_VERSION,
+      version: OPENAPI_PREPARED_CACHE_VERSION,
       maxAgeMs: OPENAPI_SPEC_CACHE_TTL_MS,
     });
 
@@ -316,9 +320,15 @@ async function loadCachedOpenApiSpec(
       const blob = await ctx.storage.get(entry.storageId);
       if (blob) {
         const json = await blob.text();
-        const parsedResult = Result.try(() => JSON.parse(json));
-        if (parsedResult.isOk()) {
-          const prepared = toPreparedOpenApiSpec(parsedResult.value);
+        let parsedJson: unknown;
+        try {
+          parsedJson = JSON.parse(json);
+        } catch {
+          parsedJson = undefined;
+        }
+
+        if (parsedJson !== undefined) {
+          const prepared = toPreparedOpenApiSpec(parsedJson);
           if (prepared && (!includeDts || getDtsStatus(prepared) !== "skipped")) {
             return prepared;
           }
@@ -338,7 +348,7 @@ async function loadCachedOpenApiSpec(
     const storageId = await ctx.storage.store(blob);
     await ctx.runMutation(internal.openApiSpecCache.putEntry, {
       specUrl,
-      version: TOOL_SOURCE_CACHE_VERSION,
+      version: OPENAPI_PREPARED_CACHE_VERSION,
       storageId,
       sizeBytes: json.length,
     });
@@ -354,7 +364,7 @@ export async function loadSourceArtifact(
   ctx: ActionCtx,
   source: ExternalToolSourceConfig,
   options: { includeDts?: boolean; workspaceId: Id<"workspaces">; actorId?: string },
-): Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[]; openApiDts?: string }> {
+): Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[]; openApiDts?: string; openApiSourceKey?: string }> {
   const includeDts = options.includeDts ?? true;
 
   if (source.type === "openapi" && typeof source.spec === "string") {
@@ -364,7 +374,12 @@ export async function loadSourceArtifact(
       const warnings = (prepared.warnings ?? []).map(
         (warning) => `Source '${source.name}': ${warning}`,
       );
-      return { artifact, warnings, openApiDts: prepared.dts };
+      return {
+        artifact,
+        warnings,
+        openApiDts: prepared.dts,
+        openApiSourceKey: source.sourceKey ?? `openapi:${source.name}`,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

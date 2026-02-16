@@ -1,13 +1,20 @@
 import type { Doc } from "../../convex/_generated/dataModel.d.ts";
-import { asRecord } from "../lib/object";
+import { z } from "zod";
+import { isRecord } from "../lib/object";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
+
+const sourceAuthSchema = z.object({
+  type: z.string().optional(),
+  mode: z.enum(["workspace", "actor"]).optional(),
+  header: z.string().optional(),
+});
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
   }
-  if (value && typeof value === "object") {
-    const record = asRecord(value);
+  if (isRecord(value)) {
+    const record = value;
     const keys = Object.keys(record).sort();
     return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
   }
@@ -15,10 +22,11 @@ function stableStringify(value: unknown): string {
 }
 
 export function normalizeSourceAuthFingerprint(value: unknown): string {
-  const auth = asRecord(value);
-  const type = typeof auth.type === "string" ? auth.type.trim() : "none";
+  const parsedAuth = sourceAuthSchema.safeParse(value);
+  const auth = parsedAuth.success ? parsedAuth.data : {};
+  const type = (auth.type ?? "none").trim();
   const mode = auth.mode === "actor" ? "actor" : "workspace";
-  const header = typeof auth.header === "string" ? auth.header.trim().toLowerCase() : "";
+  const header = (auth.header ?? "").trim().toLowerCase();
   return stableStringify({
     type: type || "none",
     mode,
@@ -43,13 +51,14 @@ export function computeSourceSpecHash(type: "mcp" | "openapi" | "graphql", confi
 }
 
 export function mapTask(doc: Doc<"tasks">) {
+  const metadata = isRecord(doc.metadata) ? doc.metadata : {};
   return {
     id: doc.taskId,
     code: doc.code,
     runtimeId: doc.runtimeId,
     status: doc.status,
     timeoutMs: typeof doc.timeoutMs === "number" ? doc.timeoutMs : DEFAULT_TASK_TIMEOUT_MS,
-    metadata: asRecord(doc.metadata),
+    metadata,
     workspaceId: doc.workspaceId,
     actorId: doc.actorId,
     clientId: doc.clientId,
@@ -92,30 +101,64 @@ export function mapToolCall(doc: Doc<"toolCalls">) {
 }
 
 export function mapPolicy(doc: Doc<"accessPolicies">) {
+  const legacyDecision = typeof Reflect.get(doc as object, "decision") === "string"
+    ? String(Reflect.get(doc as object, "decision"))
+    : undefined;
+  const resourcePattern = doc.resourcePattern
+    || (typeof Reflect.get(doc as object, "toolPathPattern") === "string"
+      ? String(Reflect.get(doc as object, "toolPathPattern"))
+      : "*");
+  const scopeType = doc.scopeType ?? (doc.workspaceId ? "workspace" : "organization");
+  const targetActorId = doc.targetActorId
+    ?? (typeof Reflect.get(doc as object, "actorId") === "string"
+      ? String(Reflect.get(doc as object, "actorId"))
+      : undefined);
+  const effect = doc.effect ?? (legacyDecision === "deny" ? "deny" : "allow");
+  const approvalMode = doc.approvalMode
+    ?? (legacyDecision === "require_approval" ? "required" : legacyDecision === "allow" ? "auto" : "inherit");
+  const decision = effect === "deny"
+    ? "deny"
+    : approvalMode === "required"
+      ? "require_approval"
+      : "allow";
+
   return {
     id: doc.policyId,
+    scopeType,
+    organizationId: doc.organizationId,
     workspaceId: doc.workspaceId,
-    actorId: doc.actorId,
+    targetActorId,
     clientId: doc.clientId,
-    toolPathPattern: doc.toolPathPattern,
-    decision: doc.decision,
+    resourceType: doc.resourceType ?? "tool_path",
+    resourcePattern,
+    matchType: doc.matchType ?? "glob",
+    effect,
+    approvalMode,
     priority: doc.priority,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+    // Legacy aliases retained during transition.
+    actorId: targetActorId,
+    toolPathPattern: resourcePattern,
+    decision,
   };
 }
 
 export function mapCredential(doc: Doc<"sourceCredentials">) {
+  const secretJson = isRecord(doc.secretJson) ? doc.secretJson : {};
+  const overridesJson = isRecord(doc.overridesJson) ? doc.overridesJson : {};
   return {
     id: doc.credentialId,
     bindingId: doc.bindingId,
+    ownerScopeType: doc.ownerScopeType ?? (doc.workspaceId ? "workspace" : "organization"),
+    organizationId: doc.organizationId,
     workspaceId: doc.workspaceId,
     sourceKey: doc.sourceKey,
     scope: doc.scope,
     actorId: doc.actorId || undefined,
     provider: doc.provider,
-    secretJson: asRecord(doc.secretJson),
-    overridesJson: asRecord(doc.overridesJson),
+    secretJson,
+    overridesJson,
     boundAuthFingerprint: doc.boundAuthFingerprint,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -123,12 +166,15 @@ export function mapCredential(doc: Doc<"sourceCredentials">) {
 }
 
 export function mapSource(doc: Doc<"toolSources">) {
+  const config = isRecord(doc.config) ? doc.config : {};
   return {
     id: doc.sourceId,
+    ownerScopeType: doc.ownerScopeType ?? (doc.workspaceId ? "workspace" : "organization"),
+    organizationId: doc.organizationId,
     workspaceId: doc.workspaceId,
     name: doc.name,
     type: doc.type,
-    config: asRecord(doc.config),
+    config,
     specHash: doc.specHash,
     authFingerprint: doc.authFingerprint,
     enabled: Boolean(doc.enabled),

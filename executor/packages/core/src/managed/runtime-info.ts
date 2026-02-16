@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { Result } from "better-result";
 import { z } from "zod";
 
 import type { ManagedRuntimeConfig, ManagedRuntimeInfo } from "../managed-runtime";
@@ -151,10 +150,13 @@ export function runtimeInfo(): ManagedRuntimeInfo {
 export async function ensureConfig(info: ManagedRuntimeInfo): Promise<ManagedRuntimeConfig> {
   if (await pathExists(info.configPath)) {
     const raw = await fs.readFile(info.configPath, "utf8");
-    const parsedResult = Result.try(() => JSON.parse(raw));
-    const parsed = parsedResult.isOk()
-      ? parseManagedRuntimeConfig(parsedResult.value)
-      : null;
+    let parsedValue: unknown;
+    try {
+      parsedValue = JSON.parse(raw);
+    } catch {
+      parsedValue = null;
+    }
+    const parsed = parseManagedRuntimeConfig(parsedValue);
 
     if (!parsed) {
       const config = defaultConfig();

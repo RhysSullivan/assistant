@@ -135,6 +135,30 @@ async function deleteOrganizationData(
     await ctx.db.delete(seatState._id);
   }
 
+  const policyDocs = await ctx.db
+    .query("accessPolicies")
+    .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
+    .collect();
+  for (const policy of policyDocs) {
+    await ctx.db.delete(policy._id);
+  }
+
+  const credentialDocs = await ctx.db
+    .query("sourceCredentials")
+    .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
+    .collect();
+  for (const credential of credentialDocs) {
+    await ctx.db.delete(credential._id);
+  }
+
+  const toolSources = await ctx.db
+    .query("toolSources")
+    .withIndex("by_organization_updated", (q) => q.eq("organizationId", organizationId))
+    .collect();
+  for (const source of toolSources) {
+    await ctx.db.delete(source._id);
+  }
+
   const workspaces = await ctx.db
     .query("workspaces")
     .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))

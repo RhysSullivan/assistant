@@ -82,9 +82,10 @@ async function getConfiguredFunctionsPath(candidate: string): Promise<string | n
   try {
     const raw = await fs.readFile(path.join(candidate, "convex.json"), "utf8");
     const parsed = convexJsonSchema.safeParse(JSON.parse(raw));
-    if (!parsed.success || typeof parsed.data.functions !== "string") {
+    if (!parsed.success || !parsed.data.functions) {
       return null;
     }
+
     const value = parsed.data.functions.trim();
     return value.length > 0 ? value : null;
   } catch {

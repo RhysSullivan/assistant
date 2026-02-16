@@ -28,7 +28,7 @@ export interface EntrypointStub {
 export interface RunRequest {
   taskId: string;
   code: string;
-  timeoutMs: number;
+  timeoutMs?: number;
   callback: {
     convexUrl: string;
     internalSecret: string;
@@ -42,14 +42,25 @@ export interface RunResult {
   exitCode?: number;
 }
 
-export interface ToolCallResult {
-  ok: true | false;
-  value?: unknown;
-  error?: string;
-  kind?: "pending" | "denied" | "failed";
-  approvalId?: string;
-  retryAfterMs?: number;
-}
+export type ToolCallResult =
+  | {
+      ok: true;
+      value?: unknown;
+    }
+  | {
+      ok: false;
+      kind: "pending";
+      approvalId: string;
+      error?: string;
+      retryAfterMs?: number;
+    }
+  | {
+      ok: false;
+      kind: "denied" | "failed";
+      error?: string;
+      approvalId?: string;
+      retryAfterMs?: number;
+    };
 
 export interface BridgeProps {
   callbackConvexUrl: string;
