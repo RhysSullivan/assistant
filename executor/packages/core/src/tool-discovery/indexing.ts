@@ -2,6 +2,7 @@ import type { ToolDefinition } from "../types";
 import { jsonSchemaTypeHintFallback } from "../openapi/schema-hints";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import { sanitizeJsonSchemaForConvex } from "../tool-typing/convex-sanitize";
+import { asRecord } from "../utils";
 import type { DiscoverIndexEntry } from "./types";
 
 const GENERIC_NAMESPACE_SUFFIXES = new Set([
@@ -19,7 +20,7 @@ function normalizeHint(type?: string): string {
 
 function isEmptyObjectSchema(schema: Record<string, unknown>): boolean {
   if (Object.keys(schema).length === 0) return true;
-  const props = schema.properties && typeof schema.properties === "object" ? schema.properties as Record<string, unknown> : {};
+  const props = asRecord(schema.properties);
   const required = Array.isArray(schema.required) ? schema.required : [];
   return Object.keys(props).length === 0 && required.length === 0;
 }
