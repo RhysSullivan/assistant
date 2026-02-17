@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { generateKeyPairSync } from "node:crypto";
 import { z } from "zod";
 
 import type { ManagedRuntimeInfo } from "../managed-runtime";
@@ -36,6 +37,151 @@ const BOOTSTRAP_REQUIRED_DEPENDENCIES: BootstrapDependency[] = [
   { packageName: "better-result" },
   { packageName: "@modelcontextprotocol/sdk" },
 ];
+
+const managedAnonymousAuthEnvFileName = "managed-anonymous-auth.json";
+
+type ManagedAnonymousAuthEnv = {
+  ANONYMOUS_AUTH_PRIVATE_KEY_PEM: string;
+  ANONYMOUS_AUTH_PUBLIC_KEY_PEM: string;
+  MCP_API_KEY_SECRET: string;
+};
+
+function trimEnv(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value && value.length > 0 ? value : null;
+}
+
+function normalizePemForEnv(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\n/g, "\\n").trim();
+}
+
+function resolveAnonymousAuthFromProcessEnv(): ManagedAnonymousAuthEnv | null {
+  const privateKeyPem = trimEnv("ANONYMOUS_AUTH_PRIVATE_KEY_PEM");
+  const publicKeyPem = trimEnv("ANONYMOUS_AUTH_PUBLIC_KEY_PEM");
+  if (!privateKeyPem || !publicKeyPem) {
+    return null;
+  }
+
+  const apiKeySecret = trimEnv("MCP_API_KEY_SECRET") ?? privateKeyPem;
+  return {
+    ANONYMOUS_AUTH_PRIVATE_KEY_PEM: normalizePemForEnv(privateKeyPem),
+    ANONYMOUS_AUTH_PUBLIC_KEY_PEM: normalizePemForEnv(publicKeyPem),
+    MCP_API_KEY_SECRET: normalizePemForEnv(apiKeySecret),
+  };
+}
+
+async function readManagedAnonymousAuthEnv(info: ManagedRuntimeInfo): Promise<ManagedAnonymousAuthEnv | null> {
+  const filePath = path.join(info.rootDir, managedAnonymousAuthEnvFileName);
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as Partial<ManagedAnonymousAuthEnv>;
+
+    if (
+      typeof parsed.ANONYMOUS_AUTH_PRIVATE_KEY_PEM !== "string"
+      || typeof parsed.ANONYMOUS_AUTH_PUBLIC_KEY_PEM !== "string"
+      || typeof parsed.MCP_API_KEY_SECRET !== "string"
+    ) {
+      return null;
+    }
+
+    if (
+      parsed.ANONYMOUS_AUTH_PRIVATE_KEY_PEM.trim().length === 0
+      || parsed.ANONYMOUS_AUTH_PUBLIC_KEY_PEM.trim().length === 0
+      || parsed.MCP_API_KEY_SECRET.trim().length === 0
+    ) {
+      return null;
+    }
+
+    return {
+      ANONYMOUS_AUTH_PRIVATE_KEY_PEM: parsed.ANONYMOUS_AUTH_PRIVATE_KEY_PEM.trim(),
+      ANONYMOUS_AUTH_PUBLIC_KEY_PEM: parsed.ANONYMOUS_AUTH_PUBLIC_KEY_PEM.trim(),
+      MCP_API_KEY_SECRET: parsed.MCP_API_KEY_SECRET.trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function generateManagedAnonymousAuthEnv(): ManagedAnonymousAuthEnv {
+  const keyPair = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+    privateKeyEncoding: {
+      type: "pkcs8",
+      format: "pem",
+    },
+    publicKeyEncoding: {
+      type: "spki",
+      format: "pem",
+    },
+  });
+
+  const privateKeyPem = normalizePemForEnv(keyPair.privateKey);
+  return {
+    ANONYMOUS_AUTH_PRIVATE_KEY_PEM: privateKeyPem,
+    ANONYMOUS_AUTH_PUBLIC_KEY_PEM: normalizePemForEnv(keyPair.publicKey),
+    MCP_API_KEY_SECRET: normalizePemForEnv(trimEnv("MCP_API_KEY_SECRET") ?? privateKeyPem),
+  };
+}
+
+async function writeManagedAnonymousAuthEnv(info: ManagedRuntimeInfo, env: ManagedAnonymousAuthEnv): Promise<void> {
+  const filePath = path.join(info.rootDir, managedAnonymousAuthEnvFileName);
+  await fs.mkdir(info.rootDir, { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(env, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+async function resolveManagedAnonymousAuthEnv(info: ManagedRuntimeInfo): Promise<ManagedAnonymousAuthEnv> {
+  const fromProcess = resolveAnonymousAuthFromProcessEnv();
+  if (fromProcess) {
+    return fromProcess;
+  }
+
+  const fromDisk = await readManagedAnonymousAuthEnv(info);
+  if (fromDisk) {
+    if (trimEnv("MCP_API_KEY_SECRET")) {
+      return {
+        ...fromDisk,
+        MCP_API_KEY_SECRET: normalizePemForEnv(trimEnv("MCP_API_KEY_SECRET") ?? fromDisk.MCP_API_KEY_SECRET),
+      };
+    }
+    return fromDisk;
+  }
+
+  const generated = generateManagedAnonymousAuthEnv();
+  await writeManagedAnonymousAuthEnv(info, generated);
+  return generated;
+}
+
+async function seedManagedRuntimeEnvVars(
+  info: ManagedRuntimeInfo,
+  projectDir: string,
+  envFilePath: string,
+): Promise<void> {
+  const anonymousAuthEnv = await resolveManagedAnonymousAuthEnv(info);
+  const envEntries: Array<{ name: string; value: string }> = [
+    { name: "WORKOS_CLIENT_ID", value: "disabled" },
+    { name: "ANONYMOUS_AUTH_PRIVATE_KEY_PEM", value: anonymousAuthEnv.ANONYMOUS_AUTH_PRIVATE_KEY_PEM },
+    { name: "ANONYMOUS_AUTH_PUBLIC_KEY_PEM", value: anonymousAuthEnv.ANONYMOUS_AUTH_PUBLIC_KEY_PEM },
+    { name: "MCP_API_KEY_SECRET", value: anonymousAuthEnv.MCP_API_KEY_SECRET },
+  ];
+
+  for (const entry of envEntries) {
+    const seeded = await runManagedConvexCli(
+      info,
+      projectDir,
+      ["env", "set", entry.name, entry.value],
+      envFilePath,
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+
+    if (seeded.exitCode !== 0) {
+      const detail = seeded.stderr.trim() || seeded.stdout.trim() || "unknown error";
+      console.warn(`[executor] could not seed ${entry.name} in local backend env: ${detail}`);
+    }
+  }
+}
 
 async function generateSelfHostedAdminKey(info: ManagedRuntimeInfo): Promise<string> {
   const response = await fetch("https://api.convex.dev/api/local_deployment/generate_admin_key", {
@@ -281,20 +427,7 @@ export async function checkBootstrapHealth(info: ManagedRuntimeInfo): Promise<Bo
   const envFilePath = await writeBootstrapEnvFile(info, adminKey);
 
   try {
-    const ensureWorkosClientId = await runManagedConvexCli(
-      info,
-      projectDir,
-      ["env", "set", "WORKOS_CLIENT_ID", "disabled"],
-      envFilePath,
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    if (ensureWorkosClientId.exitCode !== 0) {
-      const detail = ensureWorkosClientId.stderr.trim() || ensureWorkosClientId.stdout.trim() || "unknown error";
-      console.warn(`[executor] could not seed WORKOS_CLIENT_ID in local backend env: ${detail}`);
-    }
+    await seedManagedRuntimeEnvVars(info, projectDir, envFilePath);
 
     const check = await runManagedConvexCli(info, projectDir, ["run", "app:getClientConfig"], envFilePath, {
       stdout: "pipe",
@@ -348,6 +481,8 @@ export async function ensureProjectBootstrapped(info: ManagedRuntimeInfo): Promi
   const envFilePath = await writeBootstrapEnvFile(info, adminKey);
 
   try {
+    await seedManagedRuntimeEnvVars(info, projectDir, envFilePath);
+
     console.log("[executor] bootstrapping Convex functions to local backend");
     const deploy = await runManagedConvexCli(
       info,
