@@ -13,6 +13,7 @@ function setup() {
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./toolRegistry.ts": () => import("./toolRegistry"),
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
+    "./runtimeNode.ts": () => import("./runtimeNode"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
 }
@@ -31,12 +32,18 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   });
 
   const coldStart = performance.now();
-  const cold = await t.action(internal.executorNode.listToolsWithWarningsInternal, {
+  const cold = await t.action(internal.executorNode.rebuildToolInventoryInternal, {
     workspaceId: session.workspaceId,
     accountId: session.accountId,
     clientId: session.clientId,
   });
   const coldMs = performance.now() - coldStart;
+
+  const ready = await t.action(internal.executorNode.listToolsWithWarningsInternal, {
+    workspaceId: session.workspaceId,
+    accountId: session.accountId,
+    clientId: session.clientId,
+  });
 
   const warmStart = performance.now();
   const warm = await t.action(internal.executorNode.listToolsWithWarningsInternal, {
@@ -47,17 +54,16 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   const warmMs = performance.now() - warmStart;
 
   console.log(
-    `github openapi convex-test profiling: cold=${coldMs.toFixed(0)}ms warm=${warmMs.toFixed(0)}ms tools=${cold.tools.length}`,
+    `github openapi convex-test profiling: cold=${coldMs.toFixed(0)}ms warm=${warmMs.toFixed(0)}ms tools=${ready.tools.length}`,
   );
 
-  expect(cold.tools.length).toBeGreaterThan(500);
-  expect(cold.tools.length).toBe(warm.tools.length);
-  expect(cold.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
+  expect(cold.rebuilt).toBe(true);
+  expect(ready.totalTools).toBeGreaterThan(500);
+  expect(ready.totalTools).toBe(warm.totalTools);
+  expect(ready.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
   expect(warm.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
-  expect(typeof cold.typesUrl).toBe("string");
-  expect(typeof warm.typesUrl).toBe("string");
-  expect(cold.typesUrl).toBe(warm.typesUrl);
-  expect(cold.inventoryStatus.state).toBe("ready");
+  expect(ready.typesUrl).toBe(warm.typesUrl);
+  expect(ready.inventoryStatus.state).toBe("ready");
   expect(warm.inventoryStatus.state).toBe("ready");
   expect(warm.inventoryStatus.readyToolCount).toBeGreaterThan(500);
 

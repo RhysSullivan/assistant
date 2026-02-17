@@ -122,12 +122,12 @@ async function withMcpClient<T>(
   }
 }
 
-test("run_code MCP tool returns terminal task result", async () => {
+test("execute MCP tool returns terminal task result", async () => {
   const service = new FakeMcpService();
 
   await withMcpClient(service, async (client) => {
     const result = (await client.callTool({
-      name: "run_code",
+      name: "execute",
       arguments: {
         code: "console.log('hello from mcp')",
         workspaceId: "ws_test" as Id<"workspaces">,
@@ -149,12 +149,12 @@ test("run_code MCP tool returns terminal task result", async () => {
   });
 });
 
-test("run_code MCP tool previews large returned result", async () => {
+test("execute MCP tool previews large returned result", async () => {
   const service = new FakeMcpService();
 
   await withMcpClient(service, async (client) => {
     const result = (await client.callTool({
-      name: "run_code",
+      name: "execute",
       arguments: {
         code: "console.log('large')",
         metadata: { largeResult: true },
@@ -177,12 +177,12 @@ test("run_code MCP tool previews large returned result", async () => {
   });
 });
 
-test("run_code MCP tool bootstraps anonymous context when workspace is omitted", async () => {
+test("execute MCP tool bootstraps anonymous context when workspace is omitted", async () => {
   const service = new FakeMcpService();
 
   await withMcpClient(service, async (client) => {
     const result = (await client.callTool({
-      name: "run_code",
+      name: "execute",
       arguments: {
         code: "console.log('anon')",
         sessionId: "mcp_session_test",
@@ -200,12 +200,12 @@ test("run_code MCP tool bootstraps anonymous context when workspace is omitted",
   });
 });
 
-test("run_code MCP tool does not gate on TypeScript errors", async () => {
+test("execute MCP tool does not gate on TypeScript errors", async () => {
   const service = new FakeMcpService();
 
   await withMcpClient(service, async (client) => {
     const result = (await client.callTool({
-      name: "run_code",
+      name: "execute",
       arguments: {
         code: "const value: string = 123; return value;",
       },

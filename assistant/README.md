@@ -4,7 +4,7 @@ Assistant-side code lives here.
 
 ## Packages
 
-- `packages/core`: agent loop that talks to executor over MCP and calls `run_code`.
+- `packages/core`: agent loop that talks to executor over MCP and calls `execute`.
 - `packages/server`: chat-facing API that resolves user identity to MCP context and runs prompts.
 - `packages/bot`: Discord bot with account-link commands.
 
@@ -15,7 +15,7 @@ Assistant-side code lives here.
 3. Server resolves MCP context per chat user:
    - default: deterministic anonymous `sessionId` via executor bootstrap;
    - linked: saved anonymous session or WorkOS bearer token.
-4. `@assistant/core` runs the prompt via MCP `run_code` and returns text.
+4. `@assistant/core` runs the prompt via MCP `execute` and returns text.
 5. Bot posts the response back to the thread.
 
 ## Link commands (Discord)

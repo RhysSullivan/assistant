@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { ToolExplorer } from "@/components/tools/explorer";
 import { TaskComposer } from "@/components/tasks/task-composer";
-import { AddSourceDialog } from "@/components/tools/sources";
+import { AddSourceDialog } from "@/components/tools/add/source-dialog";
 import { CredentialsPanel } from "@/components/tools/credentials";
 import { ConnectionFormDialog } from "@/components/tools/connection/form-dialog";
 import { PoliciesPanel } from "@/components/tools/policies";

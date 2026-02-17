@@ -5,7 +5,7 @@ import { z } from "zod";
 import { createAgent } from "./agent";
 
 /**
- * Mock MCP server that exposes run_code.
+ * Mock MCP server that exposes execute.
  * Actually executes nothing — just returns a canned stdout.
  */
 function createMockMcpServer() {
@@ -23,7 +23,7 @@ function createMockMcpServer() {
       );
 
       mcp.registerTool(
-        "run_code",
+        "execute",
         {
           description:
             'Execute TypeScript code in a sandbox.\n\nAvailable tools in the sandbox:\n  - tools.utils.get_time({}): { iso: string; unix: number } — Get the current server time',

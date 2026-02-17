@@ -1,7 +1,7 @@
 import type { ToolDescriptor } from "./types";
 
 /**
- * Generate the tool inventory text for the MCP run_code description.
+ * Generate the tool inventory text for the MCP execute description.
  * Includes full type signatures so the LLM can write correct code.
  */
 export function generateToolInventory(tools: ToolDescriptor[]): string {

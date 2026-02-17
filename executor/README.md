@@ -2,7 +2,7 @@
 
 Executor is a Convex-native execution platform for MCP-driven agents. It provides:
 
-- task execution (`run_code`) with tool invocation and approval gates
+- task execution (`execute`) with tool invocation and approval gates
 - workspace-scoped policy, credentials, and tool source management
 - MCP endpoints (Convex HTTP routes)
 - a Next.js web app for tasks, approvals, tools, members, and billing
@@ -22,7 +22,7 @@ Core components:
 
 Execution flow (high level):
 
-1. Client submits code via MCP `run_code`.
+1. Client submits code via MCP `execute`.
 2. `createTask` stores a queued task in Convex and schedules `runTask`.
 3. `runTask` runs code in the local runtime adapter and resolves tool calls.
 4. Tool policies can auto-allow, require approval, or deny.

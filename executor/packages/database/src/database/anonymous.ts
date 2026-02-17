@@ -103,7 +103,7 @@ export async function ensureAnonymousIdentity(
   });
 
   if (createdWorkspaceId) {
-    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
       workspaceId: createdWorkspaceId,
       accountId: account._id,
     });

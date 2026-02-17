@@ -1088,7 +1088,25 @@ export declare const internal: {
       },
       any
     >;
+    rebuildToolInventoryInternal: FunctionReference<
+      "action",
+      "internal",
+      {
+        accountId?: Id<"accounts">;
+        clientId?: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     runTask: FunctionReference<"action", "internal", { taskId: string }, any>;
+  };
+  executorRuntimeNode: {
+    dispatchCloudflareWorker: FunctionReference<
+      "action",
+      "internal",
+      { code: string; taskId: string; timeoutMs: number },
+      any
+    >;
   };
   invites: {
     deliverWorkosInvite: FunctionReference<
@@ -1179,12 +1197,6 @@ export declare const internal: {
       { source: Record<string, any> },
       any
     >;
-    dispatchCloudflareWorker: FunctionReference<
-      "action",
-      "internal",
-      { code: string; taskId: string; timeoutMs: number },
-      any
-    >;
     executeLocalVm: FunctionReference<
       "action",
       "internal",
@@ -1195,27 +1207,6 @@ export declare const internal: {
       "action",
       "internal",
       { includeDts?: boolean; sourceName: string; specUrl: string },
-      any
-    >;
-    readVaultObject: FunctionReference<
-      "action",
-      "internal",
-      { apiKey?: string; objectId: string },
-      any
-    >;
-    upsertCredential: FunctionReference<
-      "action",
-      "internal",
-      {
-        accountId?: Id<"accounts">;
-        id?: string;
-        provider?: "local-convex" | "workos-vault";
-        scopeType?: "account" | "organization" | "workspace";
-        secretJson: Record<string, any>;
-        sessionId?: string;
-        sourceKey: string;
-        workspaceId: Id<"workspaces">;
-      },
       any
     >;
   };

@@ -11,6 +11,7 @@ import {
   buildStaticAuthHeaders,
   readCredentialOverrideHeaders,
 } from "../../../core/src/tool/source-auth";
+import type { SerializedTool } from "../../../core/src/tool/source-serialization";
 import type {
   ExternalToolSourceConfig,
   GraphqlToolSourceConfig,
@@ -95,15 +96,54 @@ function compileOpenApiArtifactFromPrepared(
   prepared: PreparedOpenApiSpec,
 ): CompiledToolSourceArtifact {
   const tools = buildOpenApiToolsFromPrepared(source, prepared);
+  const includeSchemaPayload = prepared.dtsStatus === "ready";
+  const includeRefHints = includeSchemaPayload;
+  const serializedTools = serializeTools(tools).map((tool) =>
+    compactSerializedToolForRegistry(tool, { includeSchemaPayload })
+  );
+
   return {
     version: "v1",
     sourceType: source.type,
     sourceName: source.name,
     openApiSourceKey: source.sourceKey ?? `openapi:${source.name}`,
-    ...(prepared.refHintTable && Object.keys(prepared.refHintTable).length > 0
+    ...(includeRefHints && prepared.refHintTable && Object.keys(prepared.refHintTable).length > 0
       ? { openApiRefHintTable: prepared.refHintTable }
       : {}),
-    tools: serializeTools(tools),
+    tools: serializedTools,
+  };
+}
+
+function compactSerializedToolForRegistry(
+  tool: SerializedTool,
+  options: { includeSchemaPayload: boolean },
+): SerializedTool {
+  const includeSchemaPayload = options.includeSchemaPayload;
+
+  const compactTyping = tool.typing
+    ? {
+        ...tool.typing,
+        ...(includeSchemaPayload ? {} : {
+          inputSchema: undefined,
+          outputSchema: undefined,
+        }),
+      }
+    : undefined;
+
+  const compactRunSpec = tool.runSpec.kind === "openapi"
+    ? {
+        ...tool.runSpec,
+        parameters: tool.runSpec.parameters.map((parameter) => ({
+          ...parameter,
+          ...(includeSchemaPayload ? {} : { schema: {} }),
+        })),
+      }
+    : tool.runSpec;
+
+  return {
+    ...tool,
+    typing: compactTyping,
+    runSpec: compactRunSpec,
   };
 }
 
@@ -334,7 +374,19 @@ async function loadCachedOpenApiSpec(
     sourceName,
     includeDts,
   });
-  const prepared = toPreparedOpenApiSpec(preparedResponse);
+
+  let preparedPayload: unknown;
+  if (typeof preparedResponse === "string") {
+    try {
+      preparedPayload = JSON.parse(preparedResponse);
+    } catch {
+      preparedPayload = undefined;
+    }
+  } else {
+    preparedPayload = preparedResponse;
+  }
+
+  const prepared = toPreparedOpenApiSpec(preparedPayload);
   if (!prepared) {
     throw new Error(`Prepared OpenAPI payload for '${sourceName}' was invalid`);
   }

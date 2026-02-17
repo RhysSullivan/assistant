@@ -98,7 +98,7 @@ export const upsertToolSource = internalMutation({
       throw new Error(`Failed to read tool source ${sourceId}`);
     }
 
-    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
       workspaceId: args.workspaceId,
     });
 
@@ -170,7 +170,7 @@ export const deleteToolSource = internalMutation({
 
     await ctx.db.delete(doc._id);
 
-    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
       workspaceId: args.workspaceId,
     });
 

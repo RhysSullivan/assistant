@@ -6,7 +6,7 @@ export async function readWorkosVaultObjectViaAction(
   ctx: Pick<ActionCtx, "runAction">,
   input: VaultReadInput,
 ): Promise<string> {
-  return await ctx.runAction(internal.runtimeNode.readVaultObject, {
+  return await ctx.runAction(internal.credentialsNode.readVaultObject, {
     objectId: input.objectId,
     apiKey: input.apiKey,
   });

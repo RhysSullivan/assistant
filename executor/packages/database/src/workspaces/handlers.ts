@@ -222,7 +222,7 @@ export async function createWorkspaceHandler(
 
   await cleanupEmptyStarterWorkspace(ctx, organizationId, workspaceId);
 
-  await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+  await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
     workspaceId,
     accountId: account._id,
   });

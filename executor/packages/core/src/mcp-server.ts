@@ -20,7 +20,7 @@ export interface McpWorkspaceContext {
 }
 
 // ---------------------------------------------------------------------------
-// run_code tool handler
+// execute tool handler
 // ---------------------------------------------------------------------------
 
 function createRunCodeTool(
@@ -204,7 +204,7 @@ async function createMcpServer(
   );
   const onApprovalPrompt = createMcpApprovalPrompt(mcp);
   mcp.registerTool(
-    "run_code",
+    "execute",
     {
       description: buildRunCodeDescription(),
       inputSchema: context ? BOUND_INPUT : FULL_INPUT,

@@ -1,3 +1,5 @@
+"use node";
+
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import type {
@@ -105,8 +107,21 @@ export const listToolsWithWarningsInternal = internalAction({
     nextCursor?: string | null;
     totalTools: number;
   }> => {
-    await rebuildWorkspaceToolInventoryForContext(ctx, args);
     return await listToolsWithWarningsForContext(ctx, args);
+  },
+});
+
+export const rebuildToolInventoryInternal = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    accountId: v.optional(v.id("accounts")),
+    clientId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ rebuilt: boolean }> => {
+    const result = await rebuildWorkspaceToolInventoryForContext(ctx, args);
+    return {
+      rebuilt: result.rebuilt,
+    };
   },
 });
 

@@ -1,6 +1,7 @@
 import { Result } from "better-result";
 import { z } from "zod";
 import type { CredentialProvider, CredentialRecord } from "./types";
+import { parseWorkosVaultReference } from "./credentials/workos-vault";
 
 type CredentialPayload = Record<string, unknown>;
 
@@ -17,12 +18,6 @@ type ProviderResolver = (
 ) => Promise<Result<CredentialPayload | null, Error>>;
 
 const recordSchema = z.record(z.unknown());
-const workosVaultReferenceSchema = z.object({
-  objectId: z.string().optional(),
-  id: z.string().optional(),
-  apiKey: z.string().optional(),
-});
-
 function coerceRecord(value: unknown): Record<string, unknown> {
   const parsed = recordSchema.safeParse(value);
   return parsed.success ? parsed.data : {};
@@ -34,24 +29,6 @@ async function defaultReadVaultObject(input: VaultReadInput): Promise<string> {
   throw new Error(
     `WorkOS Vault reader unavailable for object '${input.objectId}'. Provide a readVaultObject option in this runtime.`,
   );
-}
-
-function parseWorkosVaultReference(value: unknown): {
-  objectId?: string;
-  apiKey?: string;
-} {
-  const parsed = workosVaultReferenceSchema.safeParse(value);
-  if (!parsed.success) {
-    return {};
-  }
-
-  const objectId = (parsed.data.objectId ?? parsed.data.id ?? "").trim();
-  const apiKey = (parsed.data.apiKey ?? "").trim();
-
-  return {
-    ...(objectId ? { objectId } : {}),
-    ...(apiKey ? { apiKey } : {}),
-  };
 }
 
 function parseSecretValue(raw: string): CredentialPayload {

@@ -84,6 +84,7 @@ export interface ToolInventoryStatus {
 interface GetWorkspaceToolsOptions {
   sourceTimeoutMs?: number;
   accountId?: Id<"accounts">;
+  includeDts?: boolean;
 }
 
 interface WorkspaceToolInventory {
@@ -98,6 +99,7 @@ interface WorkspaceToolInventory {
 }
 
 const MAX_TOOLS_IN_ACTION_RESULT = 8_000;
+const REGISTRY_BUILD_STALE_MS = 2 * 60_000;
 
 function truncateToolsForActionResult(
   tools: ToolDescriptor[],
@@ -643,7 +645,7 @@ export async function getWorkspaceTools(
   workspaceId: Id<"workspaces">,
   options: GetWorkspaceToolsOptions = {},
 ): Promise<WorkspaceToolsResult> {
-  const includeDts = true;
+  const includeDts = options.includeDts ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const accountId = options.accountId;
   const sources = (await listWorkspaceToolSources(ctx, workspaceId))
@@ -1208,11 +1210,56 @@ export async function listToolsForContext(
 export async function rebuildWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; clientId?: string },
-): Promise<WorkspaceToolsResult> {
-  return await getWorkspaceTools(ctx, context.workspaceId, {
+): Promise<{ rebuilt: boolean }> {
+  const [sources, state] = await Promise.all([
+    listWorkspaceToolSources(ctx, context.workspaceId),
+    ctx.runQuery(internal.toolRegistry.getState, {
+      workspaceId: context.workspaceId,
+    }),
+  ]);
+
+  const registrySignature = registrySignatureForWorkspace(
+    context.workspaceId,
+    sources.filter((source) => source.enabled),
+  );
+
+  const alreadyReady = Boolean(
+    state?.readyBuildId
+      && !state?.buildingBuildId
+      && state?.signature === registrySignature,
+  );
+  const alreadyBuildingTarget = Boolean(
+    state?.buildingBuildId
+      && state?.buildingSignature === registrySignature,
+  );
+  const buildingStartedAt = typeof state?.buildingStartedAt === "number"
+    ? state.buildingStartedAt
+    : undefined;
+  const staleBuildingTarget = Boolean(
+    alreadyBuildingTarget
+      && state?.buildingBuildId
+      && buildingStartedAt
+      && Date.now() - buildingStartedAt > REGISTRY_BUILD_STALE_MS,
+  );
+
+  if (alreadyReady || (alreadyBuildingTarget && !staleBuildingTarget)) {
+    return { rebuilt: false };
+  }
+
+  if (staleBuildingTarget && state?.buildingBuildId) {
+    await ctx.runMutation(internal.toolRegistry.failBuild, {
+      workspaceId: context.workspaceId,
+      buildId: state.buildingBuildId,
+      error: "Tool inventory build timed out; retrying",
+    });
+  }
+
+  await getWorkspaceTools(ctx, context.workspaceId, {
     accountId: context.accountId,
-    sourceTimeoutMs: 20_000,
+    includeDts: false,
   });
+
+  return { rebuilt: true };
 }
 
 export async function listToolsWithWarningsForContext(

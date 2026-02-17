@@ -222,7 +222,7 @@ export const regenerateToolInventory = workspaceMutation({
   requireAdmin: true,
   args: {},
   handler: async (ctx) => {
-    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
       workspaceId: ctx.workspaceId,
       accountId: ctx.account._id,
     });

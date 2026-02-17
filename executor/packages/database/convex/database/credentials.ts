@@ -239,7 +239,7 @@ export const upsertCredential = internalMutation({
       }
     }
 
-    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
       workspaceId: args.workspaceId,
       ...(scopeType === "account" && scopedAccountId ? { accountId: scopedAccountId } : {}),
     });

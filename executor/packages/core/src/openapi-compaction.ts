@@ -23,6 +23,7 @@ export interface CompactOpenApiPathsOptions {
   includeSchemas?: boolean;
   includeTypeHints?: boolean;
   includeParameterSchemas?: boolean;
+  resolveSchemaRefs?: boolean;
 }
 
 export function compactOpenApiPaths(
@@ -44,6 +45,7 @@ export function compactOpenApiPaths(
   const includeSchemas = options.includeSchemas ?? true;
   const includeTypeHints = options.includeTypeHints ?? true;
   const includeParameterSchemas = options.includeParameterSchemas ?? true;
+  const resolveSchemaRefs = options.resolveSchemaRefs ?? true;
   const referencedComponentRefKeys = new Set<string>();
 
   const resolveParam = (entry: Record<string, unknown>): Record<string, unknown> => {
@@ -110,23 +112,26 @@ export function compactOpenApiPaths(
       let requestBodySchema: Record<string, unknown> = {};
       let responseSchema: Record<string, unknown> = {};
       let responseStatus = "";
+      const shouldBuildSchemas = includeSchemas || hasGeneratedTypes || !resolveSchemaRefs;
       // Always attempt to compute minimal input/output schemas. This keeps the
       // prepared spec compact while enabling schema-first tool signatures.
-      if (includeSchemas || hasGeneratedTypes) {
+      if (shouldBuildSchemas) {
         const requestBody = resolveRequestBodyRef(toRecordOrEmpty(operation.requestBody), compRequestBodies);
         const requestBodyContent = toRecordOrEmpty(requestBody.content);
         const rawRequestBodySchema = getPreferredContentSchema(requestBodyContent);
-        requestBodySchema = resolveSchemaRef(rawRequestBodySchema, compSchemas);
+        requestBodySchema = resolveSchemaRefs
+          ? resolveSchemaRef(rawRequestBodySchema, compSchemas)
+          : toRecordOrEmpty(rawRequestBodySchema);
 
         const responses = toRecordOrEmpty(operation.responses);
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
           responseStatus = status;
           const resolvedResponse = resolveResponseRef(toRecordOrEmpty(responseValue), compResponses);
-          responseSchema = resolveSchemaRef(
-            getPreferredResponseSchema(resolvedResponse),
-            compSchemas,
-          );
+          const rawResponseSchema = getPreferredResponseSchema(resolvedResponse);
+          responseSchema = resolveSchemaRefs
+            ? resolveSchemaRef(rawResponseSchema, compSchemas)
+            : toRecordOrEmpty(rawResponseSchema);
           if (Object.keys(responseSchema).length > 0) break;
         }
       }

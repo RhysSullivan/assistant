@@ -114,7 +114,7 @@ export async function runQueuedTask(
     });
 
     if (running.runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID) {
-      const dispatchResult = await ctx.runAction(internal.runtimeNode.dispatchCloudflareWorker, {
+      const dispatchResult = await ctx.runAction(internal.executorRuntimeNode.dispatchCloudflareWorker, {
         taskId: args.taskId,
         code: running.code,
         timeoutMs: running.timeoutMs,

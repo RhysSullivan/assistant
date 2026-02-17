@@ -119,7 +119,7 @@ function toPiMessages(messages: Message[]): { systemPrompt?: string; piMessages:
         piMessages.push({ role: "assistant", content: [{ type: "text", text: msg.content }], api: "anthropic-messages", provider: "anthropic", model: "", usage: EMPTY_USAGE, stopReason: "stop", timestamp: Date.now() } satisfies PiAssistantMessage);
       }
     } else if (msg.role === "tool") {
-      piMessages.push({ role: "toolResult", toolCallId: msg.toolCallId!, toolName: "run_code", content: [{ type: "text", text: msg.content }], isError: false, timestamp: Date.now() } satisfies ToolResultMessage);
+      piMessages.push({ role: "toolResult", toolCallId: msg.toolCallId!, toolName: "execute", content: [{ type: "text", text: msg.content }], isError: false, timestamp: Date.now() } satisfies ToolResultMessage);
     }
   }
 
@@ -256,8 +256,8 @@ ${toolSection}
 
 ## Instructions
 
-- Use the \`run_code\` tool to execute TypeScript code
-- Write complete, self-contained scripts — do all work in a single run_code call when possible
+- Use the \`execute\` tool to execute TypeScript code
+- Write complete, self-contained scripts — do all work in a single execute call when possible
 - TypeScript syntax is allowed; prefer simple runnable scripts over heavy type scaffolding
 - The code runs in a sandbox — only \`tools.*\` calls are available (no fetch, require, import)
 - Handle errors with try/catch
@@ -287,7 +287,7 @@ ${toolSection}
           for (const tc of response.toolCalls) {
             toolCallCount++;
 
-            if (tc.name === "run_code" && tc.args["code"]) {
+            if (tc.name === "execute" && tc.args["code"]) {
               emit({ type: "code_generated", code: String(tc.args["code"]) });
             }
             emit({ type: "status", message: `Running ${tc.name}...` });
