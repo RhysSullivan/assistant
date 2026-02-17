@@ -40,6 +40,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install executor dependencies
+        run: bun install --cwd executor --frozen-lockfile
+
       - name: Resolve version
         id: version
         shell: bash
