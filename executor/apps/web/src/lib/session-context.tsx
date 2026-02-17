@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useMutation, useQuery as useConvexQuery } from "convex/react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
-import { anonymousDemoEnabled, workosEnabled } from "@/lib/auth-capabilities";
+import { workosEnabled } from "@/lib/auth-capabilities";
 import { useWorkosAuthState } from "@/lib/convex-provider";
 import { convexApi } from "@/lib/convex-api";
 import {
@@ -198,10 +198,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createAnonymousOrganization = useCallback(async () => {
-    if (!anonymousDemoEnabled) {
-      throw new Error("Anonymous organization creation is disabled");
-    }
-
     setRuntimeError(null);
     setCreatingAnonymousOrganization(true);
     try {

@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useSession } from "@/lib/session-context";
-import { anonymousDemoEnabled, workosEnabled } from "@/lib/auth-capabilities";
+import { workosEnabled } from "@/lib/auth-capabilities";
 
 const localSetupCommands = [
   "curl -fsSL https://executor.sh/install | bash",
@@ -85,13 +85,10 @@ export function NoOrganizationModal({ enabled }: { enabled: boolean }) {
             variant="outline"
             className="w-full"
             onClick={handleCreateAnonymousOrganization}
-            disabled={creatingAnonymousOrganization || !anonymousDemoEnabled}
+            disabled={creatingAnonymousOrganization}
           >
             {creatingAnonymousOrganization ? "Creating anonymous organization..." : "Create anonymous organization"}
           </Button>
-          {!anonymousDemoEnabled ? (
-            <p className="text-xs text-muted-foreground">Anonymous organization creation is disabled.</p>
-          ) : null}
           <div className="relative py-1">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-border/60" />
