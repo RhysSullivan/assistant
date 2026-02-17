@@ -18,13 +18,15 @@ export function registrySignatureForWorkspace(
 }
 
 type RegistryState = {
-  signature: string;
+  signature?: string;
   readyBuildId?: string;
+  buildingBuildId?: string;
 } | null;
 
 const registryStateSchema = z.object({
-  signature: z.string(),
+  signature: z.string().optional(),
   readyBuildId: z.string().optional(),
+  buildingBuildId: z.string().optional(),
 });
 
 const toolSourceStateSchema = z.object({
@@ -62,6 +64,7 @@ function toRegistryState(value: unknown): RegistryState {
   return {
     signature: parsed.data.signature,
     readyBuildId: parsed.data.readyBuildId,
+    buildingBuildId: parsed.data.buildingBuildId,
   };
 }
 
@@ -90,7 +93,7 @@ async function readRegistryState(
 
   return {
     buildId,
-    isReady: Boolean(buildId && state?.signature === expectedSignature),
+    isReady: Boolean(buildId && !state?.buildingBuildId && state?.signature === expectedSignature),
   };
 }
 

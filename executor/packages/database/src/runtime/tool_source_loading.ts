@@ -31,8 +31,8 @@ import { normalizeToolSourceConfig } from "../database/tool_source_config";
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version - bump when tool snapshot/registry/type-hint semantics change. */
-const TOOL_SOURCE_CACHE_VERSION = "v25";
-const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v1";
+const TOOL_SOURCE_CACHE_VERSION = "v26";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v2";
 
 const openApiAuthModeSchema = z.enum(["static", "account", "workspace", "organization"]);
 
