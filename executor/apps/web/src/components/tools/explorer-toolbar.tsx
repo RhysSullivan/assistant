@@ -71,8 +71,10 @@ export function ToolExplorerToolbar({
   onSelectAll,
   onClearSelection,
 }: ToolExplorerToolbarProps) {
+  const hasSelection = selectedToolCount > 0;
+
   return (
-    <div className="shrink-0">
+    <div className="shrink-0 relative">
       <div className="flex items-center gap-2 pb-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
@@ -249,8 +251,14 @@ export function ToolExplorerToolbar({
         {addSourceAction ? <div className="ml-auto">{addSourceAction}</div> : null}
       </div>
 
-      {selectedToolCount > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-md bg-primary/5 border border-primary/10">
+      <div
+        className={cn(
+          "absolute inset-x-0 top-full mt-2 transition-opacity duration-150 pointer-events-none",
+          hasSelection ? "opacity-100 pointer-events-auto" : "opacity-0",
+        )}
+        aria-hidden={!hasSelection}
+      >
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-primary/5 border border-primary/10">
           <span className="text-[12px] font-mono text-primary">
             {selectedToolCount} tool{selectedToolCount !== 1 ? "s" : ""} selected
           </span>
@@ -281,7 +289,7 @@ export function ToolExplorerToolbar({
             Set approval
           </Button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

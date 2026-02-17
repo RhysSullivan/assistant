@@ -316,6 +316,17 @@ export declare const api: {
       { sessionId?: string; sourceId: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    getToolDetails: FunctionReference<
+      "mutation",
+      "public",
+      {
+        clientId?: string;
+        sessionId?: string;
+        toolPaths: Array<string>;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     getToolInventoryProgress: FunctionReference<
       "query",
       "public",

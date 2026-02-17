@@ -103,6 +103,8 @@ interface WorkspaceToolInventory {
   totalTools: number;
 }
 
+export type ToolDetailDescriptor = Pick<ToolDescriptor, "path" | "description" | "typing" | "display">;
+
 const MAX_TOOLS_IN_ACTION_RESULT = 8_000;
 const REGISTRY_BUILD_STALE_MS = 2 * 60_000;
 
@@ -261,6 +263,15 @@ function toDescriptorFromRegistryEntry(
           },
         }
       : {}),
+  };
+}
+
+function toToolDetailDescriptor(tool: ToolDescriptor): ToolDetailDescriptor {
+  return {
+    path: tool.path,
+    description: tool.description,
+    ...(tool.typing ? { typing: tool.typing } : {}),
+    ...(tool.display ? { display: tool.display } : {}),
   };
 }
 
@@ -1325,6 +1336,96 @@ export async function listToolsForContext(
     fetchAll: true,
   });
   return inventory.tools;
+}
+
+export async function listToolDetailsForContext(
+  ctx: QueryRunnerCtx,
+  context: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; clientId?: string },
+  options: { toolPaths?: string[] } = {},
+): Promise<Record<string, ToolDetailDescriptor>> {
+  const requestedPaths = [...new Set((options.toolPaths ?? [])
+    .map((path) => path.trim())
+    .filter((path) => path.length > 0))];
+  if (requestedPaths.length === 0) {
+    return {};
+  }
+
+  const [registryState, policies] = await Promise.all([
+    ctx.runQuery(internal.toolRegistry.getState, {
+      workspaceId: context.workspaceId,
+    }),
+    listWorkspaceAccessPolicies(ctx, context.workspaceId, context.accountId),
+  ]);
+
+  const result: Record<string, ToolDetailDescriptor> = {};
+  const policyContext = {
+    workspaceId: context.workspaceId,
+    accountId: context.accountId,
+    clientId: context.clientId,
+  };
+
+  const basePaths = requestedPaths.filter((path) => baseTools.has(path));
+  if (basePaths.length > 0) {
+    const baseDescriptors = listVisibleToolDescriptors(baseTools, policyContext, policies, {
+      includeDetails: true,
+      toolPaths: basePaths,
+    });
+
+    for (const descriptor of baseDescriptors) {
+      result[descriptor.path] = toToolDetailDescriptor(descriptor);
+    }
+  }
+
+  const readyBuildId = registryState?.readyBuildId;
+  if (!readyBuildId) {
+    return result;
+  }
+
+  const openApiRefHintLookup = toOpenApiRefHintLookup(registryState?.openApiRefHintTables ?? []);
+  const registryPaths = requestedPaths.filter((path) => !baseTools.has(path));
+  const entries = await Promise.all(registryPaths.map((path) =>
+    ctx.runQuery(internal.toolRegistry.getToolByPath, {
+      workspaceId: context.workspaceId,
+      buildId: readyBuildId,
+      path,
+    })
+  ));
+
+  for (const entry of entries) {
+    if (!entry) {
+      continue;
+    }
+
+    const decision = getDecisionForContext(entry, policyContext, policies);
+    if (decision === "deny") {
+      continue;
+    }
+
+    const descriptor = toDescriptorFromRegistryEntry(
+      {
+        path: entry.path,
+        preferredPath: entry.preferredPath,
+        aliases: entry.aliases,
+        description: entry.description,
+        approval: decision === "require_approval" ? "required" : "auto",
+        source: entry.source,
+        displayInput: entry.displayInput,
+        displayOutput: entry.displayOutput,
+        requiredInputKeys: entry.requiredInputKeys,
+        previewInputKeys: entry.previewInputKeys,
+        serializedToolJson: entry.serializedToolJson,
+        typedRef: entry.typedRef,
+      },
+      {
+        includeDetails: true,
+        openApiRefHintLookup,
+      },
+    );
+
+    result[descriptor.path] = toToolDetailDescriptor(descriptor);
+  }
+
+  return result;
 }
 
 export async function rebuildWorkspaceToolInventoryForContext(

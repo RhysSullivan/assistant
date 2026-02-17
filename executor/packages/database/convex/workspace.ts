@@ -14,7 +14,10 @@ import {
   toolSourceTypeValidator,
 } from "../src/database/validators";
 import { safeRunAfter } from "../src/lib/scheduler";
-import { getWorkspaceInventoryProgressForContext } from "../src/runtime/workspace_tools";
+import {
+  getWorkspaceInventoryProgressForContext,
+  listToolDetailsForContext,
+} from "../src/runtime/workspace_tools";
 
 export const bootstrapAnonymousSession = customMutation({
   method: "POST",
@@ -211,6 +214,27 @@ export const getToolInventoryProgress = workspaceQuery({
   args: {},
   handler: async (ctx) => {
     return await getWorkspaceInventoryProgressForContext(ctx, ctx.workspaceId);
+  },
+});
+
+export const getToolDetails = workspaceMutation({
+  method: "POST",
+  args: {
+    toolPaths: v.array(v.string()),
+    clientId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await listToolDetailsForContext(
+      ctx,
+      {
+        workspaceId: ctx.workspaceId,
+        accountId: ctx.account._id,
+        clientId: args.clientId,
+      },
+      {
+        toolPaths: args.toolPaths,
+      },
+    );
   },
 });
 

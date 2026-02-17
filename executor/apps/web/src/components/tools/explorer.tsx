@@ -49,7 +49,7 @@ interface ToolExplorerProps {
   onLoadMoreToolsForSource?: (source: { source: string; sourceName: string }) => Promise<void>;
   loading?: boolean;
   loadingSources?: string[];
-  onLoadToolDetails?: (toolPaths: string[]) => Promise<Record<string, ToolDescriptor>>;
+  onLoadToolDetails?: (toolPaths: string[]) => Promise<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>;
   warnings?: string[];
   initialSource?: string | null;
   activeSource?: string | null;
@@ -105,7 +105,7 @@ export function ToolExplorer({
   );
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [filterApproval, setFilterApproval] = useState<FilterApproval>("all");
-  const [toolDetailsByPath, setToolDetailsByPath] = useState<Record<string, ToolDescriptor>>({});
+  const [toolDetailsByPath, setToolDetailsByPath] = useState<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>({});
   const [loadingDetailPaths, setLoadingDetailPaths] = useState<Set<string>>(new Set());
   const treeListRef = useRef<HTMLDivElement>(null);
   const flatListRef = useRef<HTMLDivElement>(null);

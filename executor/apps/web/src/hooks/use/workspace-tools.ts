@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAction, useQuery as useConvexQuery } from "convex/react";
+import { useAction, useMutation, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type { OpenApiSourceQuality, SourceAuthProfile, ToolDescriptor } from "@/lib/types";
 import type { Id } from "@executor/database/convex/_generated/dataModel";
@@ -42,6 +42,8 @@ interface UseWorkspaceToolsOptions {
   includeDetails?: boolean;
 }
 
+type ToolDetailDescriptor = Pick<ToolDescriptor, "path" | "description" | "display" | "typing">;
+
 type ListToolsWithWarningsAction = (args: {
   workspaceId: Id<"workspaces">;
   accountId?: string;
@@ -72,7 +74,8 @@ export function useWorkspaceTools(
   const includeDetails = options.includeDetails ?? true;
   const listToolsWithWarningsRaw = useAction(convexApi.executorNode.listToolsWithWarnings);
   const listToolsWithWarnings = listToolsWithWarningsRaw as ListToolsWithWarningsAction;
-  const detailsCacheRef = useRef<Map<string, ToolDescriptor>>(new Map());
+  const listToolDetails = useMutation(convexApi.workspace.getToolDetails);
+  const detailsCacheRef = useRef<Map<string, ToolDetailDescriptor>>(new Map());
 
   // Watch inventory progress reactively so we invalidate when generation state changes.
   const inventoryProgress = useConvexQuery(
@@ -125,7 +128,7 @@ export function useWorkspaceTools(
   const inventoryStatus = inventoryProgress?.inventoryStatus ?? inventoryData?.inventoryStatus;
   const tools = inventoryData?.tools ?? [];
 
-  const loadToolDetails = useCallback(async (toolPaths: string[]): Promise<Record<string, ToolDescriptor>> => {
+  const loadToolDetails = useCallback(async (toolPaths: string[]): Promise<Record<string, ToolDetailDescriptor>> => {
     const requested = [...new Set(toolPaths.filter((path) => path.length > 0))];
     if (requested.length === 0) {
       return {};
@@ -138,22 +141,19 @@ export function useWorkspaceTools(
         return {};
       }
 
-      const detailedInventory = await listToolsWithWarnings({
+      const detailsByPath = await listToolDetails({
         workspaceId: context.workspaceId,
-        ...(context.accountId && { accountId: context.accountId }),
+        sessionId: context.sessionId,
         ...(context.clientId && { clientId: context.clientId }),
-        ...(context.sessionId && { sessionId: context.sessionId }),
-        includeDetails: true,
-        includeSourceMeta: false,
         toolPaths: missing,
       });
 
-      for (const tool of detailedInventory.tools) {
+      for (const tool of Object.values(detailsByPath)) {
         cache.set(tool.path, tool);
       }
     }
 
-    const result: Record<string, ToolDescriptor> = {};
+    const result: Record<string, ToolDetailDescriptor> = {};
     for (const path of requested) {
       const tool = cache.get(path);
       if (tool) {
@@ -161,7 +161,7 @@ export function useWorkspaceTools(
       }
     }
     return result;
-  }, [context, listToolsWithWarnings]);
+  }, [context, listToolDetails]);
 
   useEffect(() => {
     detailsCacheRef.current.clear();
@@ -173,7 +173,12 @@ export function useWorkspaceTools(
     }
     const cache = detailsCacheRef.current;
     for (const tool of inventoryData.tools) {
-      cache.set(tool.path, tool);
+      cache.set(tool.path, {
+        path: tool.path,
+        description: tool.description,
+        ...(tool.display ? { display: tool.display } : {}),
+        ...(tool.typing ? { typing: tool.typing } : {}),
+      });
     }
   }, [inventoryData, includeDetails]);
 
