@@ -30,7 +30,7 @@ import { normalizeToolSourceConfig } from "../database/tool_source_config";
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
-/** Cache version - bump when tool snapshot/registry/type-hint semantics change. */
+/** Cache version - bump when registry build/type-hint semantics change. */
 const TOOL_SOURCE_CACHE_VERSION = "v26";
 const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v2";
 

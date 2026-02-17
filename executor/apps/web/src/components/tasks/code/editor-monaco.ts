@@ -1,6 +1,7 @@
 import type { EditorProps, Monaco } from "@monaco-editor/react";
 
 const DIAGNOSTIC_CODES_TO_IGNORE = [
+  1108,
   1375,
   1378,
   2307,

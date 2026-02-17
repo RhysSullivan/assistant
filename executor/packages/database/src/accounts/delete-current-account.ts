@@ -63,18 +63,6 @@ async function deleteWorkspaceData(
     await ctx.db.delete(source._id);
   }
 
-  const cachedToolsets = await ctx.db
-    .query("workspaceToolCache")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const cacheEntry of cachedToolsets) {
-    await ctx.storage.delete(cacheEntry.storageId).catch(() => {});
-    if (cacheEntry.typesStorageId) {
-      await ctx.storage.delete(cacheEntry.typesStorageId).catch(() => {});
-    }
-    await ctx.db.delete(cacheEntry._id);
-  }
-
   const workspaceMembers = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

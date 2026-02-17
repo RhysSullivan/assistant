@@ -53,6 +53,68 @@ function dedupeStrings(values: string[]): string[] {
   return unique;
 }
 
+function stripOuterObjectParens(typeHint: string): string {
+  let current = typeHint.trim();
+
+  while (current.startsWith("(") && current.endsWith(")")) {
+    let depth = 0;
+    let inSingle = false;
+    let inDouble = false;
+    let escaped = false;
+    let closesAtEnd = false;
+
+    for (let i = 0; i < current.length; i += 1) {
+      const char = current[i]!;
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\" && (inSingle || inDouble)) {
+        escaped = true;
+        continue;
+      }
+
+      if (!inDouble && char === "'") {
+        inSingle = !inSingle;
+        continue;
+      }
+
+      if (!inSingle && char === "\"") {
+        inDouble = !inDouble;
+        continue;
+      }
+
+      if (inSingle || inDouble) {
+        continue;
+      }
+
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        depth -= 1;
+      }
+
+      if (depth === 0 && i < current.length - 1) {
+        closesAtEnd = false;
+        break;
+      }
+      if (depth === 0 && i === current.length - 1) {
+        closesAtEnd = true;
+      }
+    }
+
+    if (!closesAtEnd || depth !== 0) {
+      break;
+    }
+
+    current = current.slice(1, -1).trim();
+  }
+
+  return current;
+}
+
 function normalizeSimpleUnion(typeExpression: string): string {
   const parts = splitTopLevelBy(typeExpression, "|")
     .map((part) => part.trim())
@@ -111,7 +173,8 @@ function normalizeIntersectionObjectHint(
   const keyToType = new Map<string, string>();
 
   for (const part of parts) {
-    const trimmed = part.trim();
+    const normalizedPart = stripOuterObjectParens(part);
+    const trimmed = normalizedPart.trim();
     if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
 
     const inner = trimmed.slice(1, -1);
@@ -223,7 +286,7 @@ export function compactArgKeysHint(keys: string[]): string {
 
 export function compactArgTypeHint(argsType: string): string {
   if (argsType === "{}") return "{}";
-  const normalized = argsType.replace(/\s+/g, " ").trim();
+  const normalized = stripOuterObjectParens(argsType.replace(/\s+/g, " ").trim());
 
   const flattenedIntersection = normalizeIntersectionObjectHint(normalized, { maxLength: 160 });
   if (flattenedIntersection) {
@@ -271,8 +334,8 @@ export function compactArgDisplayHint(argsType: string, argPreviewKeys: string[]
 }
 
 export function compactReturnTypeHint(returnsType: string): string {
-  const normalized = returnsType.replace(/\s+/g, " ").trim();
-  if (normalized.startsWith("{ data:") && normalized.includes("errors:")) {
+  const normalized = stripOuterObjectParens(returnsType.replace(/\s+/g, " ").trim());
+  if (normalized.includes("{ data:") && normalized.includes("errors:")) {
     return "{ data: ...; errors: unknown[] }";
   }
   const flattenedIntersection = normalizeIntersectionObjectHint(normalized, {

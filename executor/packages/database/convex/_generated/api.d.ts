@@ -1312,27 +1312,6 @@ export declare const internal: {
       any
     >;
   };
-  workspaceToolCache: {
-    getEntry: FunctionReference<
-      "query",
-      "internal",
-      { signature: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    putEntry: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        signature: string;
-        sizeBytes: number;
-        storageId: Id<"_storage">;
-        toolCount: number;
-        typesStorageId?: Id<"_storage">;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-  };
 };
 
 export declare const components: {

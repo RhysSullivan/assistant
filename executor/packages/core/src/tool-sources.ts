@@ -41,12 +41,6 @@ const compiledToolSourceArtifactSchema = z.object({
   tools: z.array(z.unknown()),
 });
 
-const workspaceToolSnapshotSchema = z.object({
-  version: z.literal("v2"),
-  externalArtifacts: z.array(z.unknown()),
-  warnings: z.array(z.string()),
-});
-
 export function parseCompiledToolSourceArtifact(value: unknown): Result<CompiledToolSourceArtifact, Error> {
   const parsedArtifact = compiledToolSourceArtifactSchema.safeParse(value);
   if (!parsedArtifact.success) {
@@ -67,28 +61,6 @@ export function parseCompiledToolSourceArtifact(value: unknown): Result<Compiled
     sourceType: parsedArtifact.data.sourceType,
     sourceName: parsedArtifact.data.sourceName,
     tools,
-  });
-}
-
-export function parseWorkspaceToolSnapshot(value: unknown): Result<WorkspaceToolSnapshot, Error> {
-  const parsedSnapshot = workspaceToolSnapshotSchema.safeParse(value);
-  if (!parsedSnapshot.success) {
-    return Result.err(new Error(parsedSnapshot.error.message));
-  }
-
-  const externalArtifacts: CompiledToolSourceArtifact[] = [];
-  for (const artifact of parsedSnapshot.data.externalArtifacts) {
-    const parsedArtifact = parseCompiledToolSourceArtifact(artifact);
-    if (parsedArtifact.isErr()) {
-      return Result.err(new Error(`Invalid workspace snapshot artifact: ${parsedArtifact.error.message}`));
-    }
-    externalArtifacts.push(parsedArtifact.value);
-  }
-
-  return Result.ok({
-    version: parsedSnapshot.data.version,
-    externalArtifacts,
-    warnings: parsedSnapshot.data.warnings,
   });
 }
 
@@ -152,21 +124,4 @@ export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Pr
 
   const tools = artifacts.flatMap((artifact) => materializeCompiledToolSource(artifact));
   return { tools, warnings };
-}
-
-// ── Workspace tool cache serialization ──────────────────────────────────────
-//
-// Serializes ToolDefinition[] (minus `run` closures) into a JSON-safe format.
-// On deserialization, `run` functions are reconstructed from stored metadata.
-
-export interface WorkspaceToolSnapshot {
-  version: "v2";
-  externalArtifacts: CompiledToolSourceArtifact[];
-  warnings: string[];
-}
-
-export function materializeWorkspaceSnapshot(
-  snapshot: WorkspaceToolSnapshot,
-): ToolDefinition[] {
-  return snapshot.externalArtifacts.flatMap((artifact) => materializeCompiledToolSource(artifact));
 }

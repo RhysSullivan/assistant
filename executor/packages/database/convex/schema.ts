@@ -426,27 +426,6 @@ export default defineSchema({
   })
     .index("by_spec_url_version", ["specUrl", "version"]),
 
-  // Cached, materialized tool catalog for a workspace.
-  // This stores large artifacts (compiled tool definitions and per-source .d.ts files)
-  // in `_storage` and keeps pointers + metadata here.
-  workspaceToolCache: defineTable({
-    workspaceId: v.id("workspaces"),
-    signature: v.string(),
-    storageId: v.id("_storage"),
-    /** Legacy per-source OpenAPI .d.ts blobs. No longer used; retained for safe schema upgrades. */
-    dtsStorageIds: v.optional(v.array(v.object({
-      sourceKey: v.string(),
-      storageId: v.id("_storage"),
-      sizeBytes: v.number(),
-    }))),
-    /** Workspace-wide Monaco type bundle (.d.ts) stored separately. */
-    typesStorageId: v.optional(v.id("_storage")),
-    toolCount: v.number(),
-    sizeBytes: v.number(),
-    createdAt: v.number(),
-  })
-    .index("by_workspace", ["workspaceId"]),
-
   // Workspace tool registry state.
   // Stores the currently "ready" build id for search + invocation.
   workspaceToolRegistryState: defineTable({

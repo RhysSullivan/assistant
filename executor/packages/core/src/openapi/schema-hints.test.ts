@@ -78,6 +78,31 @@ test("jsonSchemaTypeHintFallback parenthesizes union inside intersection", () =>
   expect(hint).toContain("| ");
 });
 
+test("jsonSchemaTypeHintFallback avoids unnecessary parens around object intersections", () => {
+  const hint = jsonSchemaTypeHintFallback({
+    allOf: [
+      {
+        type: "object",
+        properties: {
+          org: { type: "string" },
+        },
+        required: ["org"],
+      },
+      {
+        type: "object",
+        properties: {
+          enabled_repositories: {
+            enum: ["all", "selected", "none"],
+          },
+        },
+        required: ["enabled_repositories"],
+      },
+    ],
+  });
+
+  expect(hint).toBe('{ org: string } & { enabled_repositories: "all" | "selected" | "none" }');
+});
+
 test("jsonSchemaTypeHintFallback inlines small component schema refs at depth threshold", () => {
   const componentSchemas = {
     Pagination: {

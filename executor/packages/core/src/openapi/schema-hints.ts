@@ -240,6 +240,10 @@ function joinUnion(parts: string[]): string {
     .join(" | ");
 }
 
+function hasTopLevelUnion(typeHint: string): boolean {
+  return splitTopLevelBy(typeHint, "|").length > 1;
+}
+
 function isObjectSchema(schema: JsonSchema): boolean {
   const type = typeof schema.type === "string" ? schema.type : undefined;
   if (type === "object") return true;
@@ -773,7 +777,7 @@ function joinIntersection(parts: string[]): string {
   const expanded = parts.flatMap((part) => splitTopLevelBy(part, "&"));
   const unique = dedupeTypeParts(expanded).filter((part) => part !== "unknown");
   if (unique.length === 0) return "unknown";
-  const wrapped = unique.map((part) => (part.includes(" | ") ? `(${part})` : part));
+  const wrapped = unique.map((part) => (hasTopLevelUnion(part) ? `(${part})` : part));
   return wrapped.length === 1 ? wrapped[0]! : wrapped.join(" & ");
 }
 

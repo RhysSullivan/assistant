@@ -232,10 +232,9 @@ interface WorkspaceToolsResult {
 }
 
 export interface WorkspaceToolsDebug {
-  mode: "cache-fresh" | "cache-stale" | "rebuild" | "registry";
+  mode: "rebuild" | "registry";
   includeDts: boolean;
   sourceTimeoutMs: number | null;
-  skipCacheRead: boolean;
   sourceCount: number;
   normalizedSourceCount: number;
   cacheHit: boolean;
@@ -247,8 +246,6 @@ export interface WorkspaceToolsDebug {
 
 interface GetWorkspaceToolsOptions {
   sourceTimeoutMs?: number;
-  allowStaleOnMismatch?: boolean;
-  skipCacheRead?: boolean;
   accountId?: Id<"accounts">;
 }
 
@@ -693,19 +690,13 @@ export async function getWorkspaceTools(
   const accountId = options.accountId;
   const sources = (await listWorkspaceToolSources(ctx, workspaceId))
     .filter((source) => source.enabled);
-  const skipCacheRead = options.skipCacheRead ?? false;
   traceStep("listToolSources", listSourcesStartedAt);
   const registrySignature = registrySignatureForWorkspace(workspaceId, sources);
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
-      includeDts,
-      sourceTimeoutMs: sourceTimeoutMs ?? null,
-      skipCacheRead,
+    includeDts,
+    sourceTimeoutMs: sourceTimeoutMs ?? null,
     sourceCount: sources.length,
   };
-
-  if (skipCacheRead) {
-    trace.push("cacheEntryLookup=skipped");
-  }
 
   const configs: ExternalToolSourceConfig[] = [];
   const warnings: string[] = [];
@@ -876,7 +867,6 @@ async function getWorkspaceToolsFromRegistry(
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
     includeDts,
     sourceTimeoutMs: null,
-    skipCacheRead: false,
     sourceCount: sources.length,
   };
 
@@ -1032,9 +1022,6 @@ async function loadWorkspaceToolInventoryForContext(
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
     toolPaths?: string[];
-    sourceTimeoutMs?: number;
-    allowStaleOnMismatch?: boolean;
-    skipCacheRead?: boolean;
   } = {},
 ): Promise<WorkspaceToolInventory> {
   const includeDetails = options.includeDetails ?? true;
@@ -1119,9 +1106,6 @@ export async function listToolsForContext(
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
     toolPaths?: string[];
-    sourceTimeoutMs?: number;
-    allowStaleOnMismatch?: boolean;
-    skipCacheRead?: boolean;
   } = {},
 ): Promise<ToolDescriptor[]> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, {
@@ -1138,8 +1122,6 @@ export async function rebuildWorkspaceToolInventoryForContext(
   return await getWorkspaceTools(ctx, context.workspaceId, {
     accountId: context.accountId,
     sourceTimeoutMs: 20_000,
-    allowStaleOnMismatch: false,
-    skipCacheRead: false,
   });
 }
 
@@ -1150,9 +1132,6 @@ export async function listToolsWithWarningsForContext(
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
     toolPaths?: string[];
-    sourceTimeoutMs?: number;
-    allowStaleOnMismatch?: boolean;
-    skipCacheRead?: boolean;
   } = {},
 ): Promise<{
   tools: ToolDescriptor[];

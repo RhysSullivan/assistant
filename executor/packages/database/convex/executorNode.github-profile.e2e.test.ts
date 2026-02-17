@@ -11,7 +11,6 @@ function setup() {
     "./database.ts": () => import("./database"),
     "./executorNode.ts": () => import("./executorNode"),
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
-    "./workspaceToolCache.ts": () => import("./workspaceToolCache"),
     "./toolRegistry.ts": () => import("./toolRegistry"),
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
     "./_generated/api.js": () => import("./_generated/api.js"),
@@ -58,9 +57,9 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   expect(typeof cold.typesUrl).toBe("string");
   expect(typeof warm.typesUrl).toBe("string");
   expect(cold.typesUrl).toBe(warm.typesUrl);
-  expect(warm.debug.skipCacheRead).toBe(false);
   expect(warm.debug.cacheHit).toBe(true);
-  expect(warm.debug.mode).toBe("cache-fresh");
+  expect(warm.debug.cacheFresh).toBe(true);
+  expect(warm.debug.mode).toBe("registry");
 
   expect(coldMs).toBeLessThan(12_000);
   expect(coldMs).toBeGreaterThan(warmMs * 3);
