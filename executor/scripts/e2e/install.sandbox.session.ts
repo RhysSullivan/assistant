@@ -1,4 +1,5 @@
 import { Sandbox } from "@vercel/sandbox";
+import { generateKeyPairSync } from "node:crypto";
 
 type CommandResult = {
   exitCode: number;
@@ -30,6 +31,52 @@ function sandboxCredentials(): { token: string; teamId: string; projectId: strin
   }
 
   return {};
+}
+
+function normalizePemForEnv(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\n/g, "\\n").trim();
+}
+
+function resolveAnonymousAuthEnv(): {
+  privateKeyPem: string;
+  publicKeyPem: string;
+  apiKeySecret: string;
+  generated: boolean;
+} {
+  const privateFromEnv = process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM?.trim();
+  const publicFromEnv = process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM?.trim();
+  const apiKeyFromEnv = process.env.MCP_API_KEY_SECRET?.trim();
+
+  if (privateFromEnv && publicFromEnv) {
+    return {
+      privateKeyPem: normalizePemForEnv(privateFromEnv),
+      publicKeyPem: normalizePemForEnv(publicFromEnv),
+      apiKeySecret: apiKeyFromEnv && apiKeyFromEnv.length > 0 ? apiKeyFromEnv : normalizePemForEnv(privateFromEnv),
+      generated: false,
+    };
+  }
+
+  const keyPair = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+    privateKeyEncoding: {
+      type: "pkcs8",
+      format: "pem",
+    },
+    publicKeyEncoding: {
+      type: "spki",
+      format: "pem",
+    },
+  });
+
+  const privateKeyPem = normalizePemForEnv(keyPair.privateKey);
+  const publicKeyPem = normalizePemForEnv(keyPair.publicKey);
+
+  return {
+    privateKeyPem,
+    publicKeyPem,
+    apiKeySecret: apiKeyFromEnv && apiKeyFromEnv.length > 0 ? apiKeyFromEnv : privateKeyPem,
+    generated: true,
+  };
 }
 
 async function runSandboxBash(
@@ -104,6 +151,11 @@ try {
   console.log(`[sandbox] created: ${sandbox.sandboxId}`);
   console.log("[sandbox] running executor.sh install flow...");
 
+  const anonymousAuthEnv = resolveAnonymousAuthEnv();
+  if (anonymousAuthEnv.generated) {
+    console.log("[sandbox] generated ephemeral anonymous auth keys for this session");
+  }
+
   const install = await runSandboxBash(
     sandbox,
     [
@@ -122,6 +174,9 @@ try {
         EXECUTOR_BACKEND_PORT: String(backendPort),
         EXECUTOR_BACKEND_SITE_PORT: String(sitePort),
         EXECUTOR_WEB_PORT: String(webPort),
+        ANONYMOUS_AUTH_PRIVATE_KEY_PEM: anonymousAuthEnv.privateKeyPem,
+        ANONYMOUS_AUTH_PUBLIC_KEY_PEM: anonymousAuthEnv.publicKeyPem,
+        MCP_API_KEY_SECRET: anonymousAuthEnv.apiKeySecret,
       },
     },
   );
@@ -139,6 +194,7 @@ try {
   console.log(`Convex Site: ${convexSiteUrl}`);
   console.log(`MCP (auth): ${convexSiteUrl}/mcp`);
   console.log(`MCP (anonymous): ${convexSiteUrl}/mcp/anonymous`);
+  console.log("Tip: open Web UI and create an anonymous organization to get workspace context + API key.");
   console.log("");
   console.log("The sandbox is left running so you can test from your machine.");
   console.log("Stop it from Vercel when you are done, or wait for sandbox timeout.");
