@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppConvexProvider } from "@/lib/convex-provider";
 import { QueryProvider } from "@/lib/query-provider";
 import { SessionProvider } from "@/lib/session-context";
+import { AppErrorBoundary } from "@/components/app-error-boundary";
 import "./globals.css";
 
 const inter = Inter({
@@ -38,13 +39,15 @@ export default function RootLayout({
           enableSystem
           enableColorScheme
         >
-          <QueryProvider>
-            <AppConvexProvider>
-              <SessionProvider>
-                {children}
-              </SessionProvider>
-            </AppConvexProvider>
-          </QueryProvider>
+          <AppErrorBoundary>
+            <QueryProvider>
+              <AppConvexProvider>
+                <SessionProvider>
+                  {children}
+                </SessionProvider>
+              </AppConvexProvider>
+            </QueryProvider>
+          </AppErrorBoundary>
           <Toaster position="bottom-right" />
         </ThemeProvider>
       </body>

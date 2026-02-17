@@ -16,20 +16,25 @@ const convexJsonSchema = z.object({
   functions: z.string().optional(),
 });
 
-const BOOTSTRAP_REQUIRED_DEPENDENCIES = [
-  "convex",
-  "@convex-dev/migrations",
-  "@convex-dev/stripe",
-  "@convex-dev/workos-authkit",
-  "@apidevtools/swagger-parser",
-  "@workos-inc/node",
-  "convex-helpers",
-  "jose",
-  "openapi-typescript",
-  "zod",
-  "graphql",
-  "better-result",
-  "@modelcontextprotocol/sdk",
+type BootstrapDependency = {
+  packageName: string;
+  installSpecifier?: string;
+};
+
+const BOOTSTRAP_REQUIRED_DEPENDENCIES: BootstrapDependency[] = [
+  { packageName: "convex" },
+  { packageName: "@convex-dev/migrations" },
+  { packageName: "@convex-dev/stripe" },
+  { packageName: "@convex-dev/workos-authkit" },
+  { packageName: "@apidevtools/swagger-parser" },
+  { packageName: "@workos-inc/node" },
+  { packageName: "convex-helpers" },
+  { packageName: "jose" },
+  { packageName: "openapi-typescript" },
+  { packageName: "zod", installSpecifier: "zod@^3.25.0" },
+  { packageName: "graphql" },
+  { packageName: "better-result" },
+  { packageName: "@modelcontextprotocol/sdk" },
 ];
 
 async function generateSelfHostedAdminKey(info: ManagedRuntimeInfo): Promise<string> {
@@ -157,7 +162,7 @@ async function hasBootstrapDependencies(projectDir: string): Promise<boolean> {
   }
 
   for (const dependency of BOOTSTRAP_REQUIRED_DEPENDENCIES) {
-    const dependencyPath = path.join(nodeModulesDir, ...dependency.split("/"));
+    const dependencyPath = path.join(nodeModulesDir, ...dependency.packageName.split("/"));
     if (!(await pathExists(dependencyPath))) {
       return false;
     }
@@ -198,7 +203,7 @@ async function ensureProjectDependencies(info: ManagedRuntimeInfo, projectDir: s
       "--omit",
       "dev",
       "--ignore-scripts",
-      ...BOOTSTRAP_REQUIRED_DEPENDENCIES,
+      ...BOOTSTRAP_REQUIRED_DEPENDENCIES.map((dependency) => dependency.installSpecifier ?? dependency.packageName),
     ],
     { env, stdout: "pipe", stderr: "pipe" },
   );
