@@ -1,5 +1,3 @@
-"use node";
-
 // NOTE: The Vercel sandbox runtime (vercel-sandbox-runtime.ts) contains a JS
 // string version of similar logic, built from sandbox-fragments.ts. Changes to
 // the core helpers here (createToolsProxy, console proxy, execution

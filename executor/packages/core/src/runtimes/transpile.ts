@@ -1,5 +1,3 @@
-"use node";
-
 import { Result, TaggedError } from "better-result";
 
 // ---------------------------------------------------------------------------

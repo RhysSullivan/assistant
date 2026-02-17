@@ -1,5 +1,3 @@
-"use node";
-
 import { Result } from "better-result";
 import type { SandboxExecutionRequest } from "../../../types";
 import { getCloudflareWorkerLoaderConfig } from "../../runtime-catalog";

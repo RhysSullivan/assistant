@@ -1,5 +1,3 @@
-"use node";
-
 import { WorkOS } from "@workos-inc/node";
 import { Result } from "better-result";
 import { z } from "zod";

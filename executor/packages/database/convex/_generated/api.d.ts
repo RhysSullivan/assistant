@@ -1197,6 +1197,27 @@ export declare const internal: {
       { includeDts?: boolean; sourceName: string; specUrl: string },
       any
     >;
+    readVaultObject: FunctionReference<
+      "action",
+      "internal",
+      { apiKey?: string; objectId: string },
+      any
+    >;
+    upsertCredential: FunctionReference<
+      "action",
+      "internal",
+      {
+        accountId?: Id<"accounts">;
+        id?: string;
+        provider?: "local-convex" | "workos-vault";
+        scopeType?: "account" | "organization" | "workspace";
+        secretJson: Record<string, any>;
+        sessionId?: string;
+        sourceKey: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
   };
   toolRegistry: {
     beginBuild: FunctionReference<

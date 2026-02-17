@@ -1,5 +1,3 @@
-"use node";
-
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import { api } from "../../convex/_generated/api";

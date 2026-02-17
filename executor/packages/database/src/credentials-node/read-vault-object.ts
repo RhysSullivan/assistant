@@ -1,5 +1,3 @@
-"use node";
-
 import { createWorkosClient, withWorkosVaultRetryResult } from "../../../core/src/credentials/workos-vault";
 
 export async function readVaultObjectHandler(args: {

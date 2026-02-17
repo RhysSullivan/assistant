@@ -1,5 +1,3 @@
-"use node";
-
 import { Result } from "better-result";
 
 const MAX_CACHE_ENTRIES = 4000;
