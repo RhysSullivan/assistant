@@ -20,11 +20,14 @@ export function ToolDetail({
   loading?: boolean;
 }) {
   const insetLeft = depth * 20 + 8 + 16 + 8;
-  const inputHint = tool.display?.input?.trim();
-  const outputHint = tool.display?.output?.trim();
+  const description = tool.description?.trim() ?? "";
+  const inputHint = tool.display?.input?.trim() ?? "";
+  const outputHint = tool.display?.output?.trim() ?? "";
   const required = tool.typing?.requiredInputKeys ?? [];
-  const hasDetails = Boolean(tool.description || inputHint || outputHint || required.length > 0);
-  const showLoading = loading || !hasDetails;
+  const hasInputHint = inputHint.length > 0 && inputHint !== "{}" && inputHint.toLowerCase() !== "unknown";
+  const hasOutputHint = outputHint.length > 0 && outputHint.toLowerCase() !== "unknown";
+  const hasDetails = description.length > 0 || hasInputHint || hasOutputHint || required.length > 0;
+  const showLoading = Boolean(loading);
 
   return (
     <div className="space-y-2.5 pb-3 pt-1 pr-2" style={{ paddingLeft: insetLeft }}>
@@ -48,14 +51,18 @@ export function ToolDetail({
         </div>
       ) : null}
 
-      {tool.description && (
+      {description && (
         <div className="tool-description text-[12px] leading-relaxed text-muted-foreground">
-          <Streamdown plugins={{ code: codePlugin }}>{tool.description}</Streamdown>
+          <Streamdown plugins={{ code: codePlugin }}>{description}</Streamdown>
         </div>
       )}
 
-      {inputHint && <TypeSignature raw={inputHint} label="Arguments" />}
-      {outputHint && <TypeSignature raw={outputHint} label="Returns" />}
+      {hasInputHint && <TypeSignature raw={inputHint} label="Arguments" />}
+      {hasOutputHint && <TypeSignature raw={outputHint} label="Returns" />}
+
+      {!showLoading && !hasDetails ? (
+        <p className="text-[11px] text-muted-foreground/60">No description or type signatures available yet.</p>
+      ) : null}
     </div>
   );
 }

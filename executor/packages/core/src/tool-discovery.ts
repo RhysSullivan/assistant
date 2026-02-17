@@ -1,9 +1,6 @@
 import type { ToolDefinition } from "./types";
 import { z } from "zod";
 import {
-  compactDescriptionLine,
-} from "./type-hints";
-import {
   buildExampleCall,
   formatCanonicalSignature,
   formatSignature,
@@ -17,7 +14,6 @@ const catalogToolsInputSchema = z.object({
   query: z.string().optional(),
   depth: z.coerce.number().optional(),
   limit: z.coerce.number().optional(),
-  compact: z.boolean().optional(),
   includeSchemas: z.boolean().optional(),
 });
 
@@ -25,7 +21,6 @@ const discoverInputSchema = z.object({
   query: z.string().optional(),
   depth: z.coerce.number().optional(),
   limit: z.coerce.number().optional(),
-  compact: z.boolean().optional(),
   includeSchemas: z.boolean().optional(),
 });
 
@@ -92,7 +87,6 @@ export function createCatalogTools(tools: ToolDefinition[], options: DiscoveryBu
           query: { type: "string" },
           depth: { type: "number" },
           limit: { type: "number" },
-          compact: { type: "boolean" },
           includeSchemas: { type: "boolean" },
         },
       },
@@ -108,7 +102,6 @@ export function createCatalogTools(tools: ToolDefinition[], options: DiscoveryBu
       const depth = Math.max(0, Math.min(2, Number(depthValue ?? 1)));
       const limitValue = parsedInput.success ? parsedInput.data.limit : undefined;
       const limit = Math.max(1, Math.min(200, Number(limitValue ?? 50)));
-      const compact = parsedInput.success ? (parsedInput.data.compact ?? true) : true;
       const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
       const terms = query.length > 0 ? query.split(/\s+/).filter(Boolean) : [];
 
@@ -139,15 +132,15 @@ export function createCatalogTools(tools: ToolDefinition[], options: DiscoveryBu
           aliases: entry.aliases,
           source: entry.source,
           approval: entry.approval,
-          description: compact ? compactDescriptionLine(entry.description) : entry.description,
+          description: entry.description,
           signatureInfo: {
             input: entry.displayInputHint,
             output: entry.displayOutputHint,
             requiredKeys: entry.requiredInputKeys,
             previewKeys: entry.previewInputKeys,
-            ...(includeSchemas && !compact ? { inputSchema: entry.inputSchema, outputSchema: entry.outputSchema } : {}),
+            ...(includeSchemas ? { inputSchema: entry.inputSchema, outputSchema: entry.outputSchema } : {}),
           },
-          signatureText: formatSignature(entry, depth, compact),
+          signatureText: formatSignature(entry, depth),
           canonicalSignature: formatCanonicalSignature(entry),
           exampleCall: buildExampleCall(entry),
         };
@@ -172,7 +165,7 @@ export function createDiscoverTool(tools: ToolDefinition[], options: DiscoveryBu
     source: "system",
     approval: "auto",
     description:
-      "Search available tools by keyword. Returns preferred path aliases, signature hints, and ready-to-copy call examples. Compact mode is enabled by default.",
+      "Search available tools by keyword. Returns preferred path aliases, signature hints, and ready-to-copy call examples.",
     typing: {
       inputSchema: {
         type: "object",
@@ -180,7 +173,6 @@ export function createDiscoverTool(tools: ToolDefinition[], options: DiscoveryBu
           query: { type: "string" },
           depth: { type: "number" },
           limit: { type: "number" },
-          compact: { type: "boolean" },
           includeSchemas: { type: "boolean" },
         },
         required: ["query"],
@@ -204,7 +196,6 @@ export function createDiscoverTool(tools: ToolDefinition[], options: DiscoveryBu
       const depth = Math.max(0, Math.min(2, Number(depthValue ?? 1)));
       const limitValue = parsedInput.success ? parsedInput.data.limit : undefined;
       const limit = Math.max(1, Math.min(50, Number(limitValue ?? 8)));
-      const compact = parsedInput.success ? (parsedInput.data.compact ?? true) : true;
       const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
       const terms = query.length > 0 ? query.split(/\s+/).filter(Boolean) : [];
       const namespaces = new Set(index.map((entry) => getTopLevelNamespace(entry.path)).filter(Boolean));
@@ -232,15 +223,15 @@ export function createDiscoverTool(tools: ToolDefinition[], options: DiscoveryBu
           aliases: entry.aliases,
           source: entry.source,
           approval: entry.approval,
-          description: compact ? compactDescriptionLine(entry.description) : entry.description,
-          signature: formatSignature(entry, depth, compact),
+          description: entry.description,
+          signature: formatSignature(entry, depth),
           canonicalSignature: formatCanonicalSignature(entry),
           signatureInfo: {
             input: entry.displayInputHint,
             output: entry.displayOutputHint,
             requiredKeys: entry.requiredInputKeys,
             previewKeys: entry.previewInputKeys,
-            ...(includeSchemas && !compact ? { inputSchema: entry.inputSchema, outputSchema: entry.outputSchema } : {}),
+            ...(includeSchemas ? { inputSchema: entry.inputSchema, outputSchema: entry.outputSchema } : {}),
           },
           exampleCall: buildExampleCall(entry),
         };

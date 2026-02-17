@@ -266,4 +266,39 @@ describe("real-world OpenAPI specs", () => {
     },
     300_000,
   );
+
+  test(
+    "openai: create batch hints stay non-lossy in inventory mode",
+    async () => {
+      const openAiUrl = "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml";
+      const prepared = await prepareOpenApiSpec(openAiUrl, "openai", {
+        includeDts: false,
+        profile: "inventory",
+      });
+
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "openai",
+          spec: openAiUrl,
+          baseUrl: prepared.servers[0] || "https://api.openai.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find((t) => t.path === "openai.batch.create_batch");
+      expect(tool).toBeDefined();
+
+      const inputHint = tool!.typing?.inputHint ?? "";
+      const outputHint = tool!.typing?.outputHint ?? "";
+
+      expect(inputHint).toContain("input_file_id");
+      expect(inputHint).toContain("output_expires_after");
+      expect(outputHint).toContain("errors?: {");
+      expect(outputHint).toContain("message?: string");
+      expect(inputHint.includes("...")).toBe(false);
+      expect(outputHint.includes("...")).toBe(false);
+    },
+    300_000,
+  );
 });

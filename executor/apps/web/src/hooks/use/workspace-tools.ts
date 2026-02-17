@@ -44,6 +44,13 @@ interface UseWorkspaceToolsOptions {
 
 type ToolDetailDescriptor = Pick<ToolDescriptor, "path" | "description" | "display" | "typing">;
 
+type GetToolDetailsMutation = (args: {
+  workspaceId: Id<"workspaces">;
+  sessionId?: string;
+  clientId?: string;
+  toolPaths: string[];
+}) => Promise<Record<string, ToolDetailDescriptor>>;
+
 type ListToolsWithWarningsAction = (args: {
   workspaceId: Id<"workspaces">;
   accountId?: string;
@@ -71,10 +78,11 @@ export function useWorkspaceTools(
   context: WorkspaceContext | null,
   options: UseWorkspaceToolsOptions = {},
 ) {
-  const includeDetails = options.includeDetails ?? true;
+  const includeDetails = options.includeDetails ?? false;
   const listToolsWithWarningsRaw = useAction(convexApi.executorNode.listToolsWithWarnings);
   const listToolsWithWarnings = listToolsWithWarningsRaw as ListToolsWithWarningsAction;
-  const listToolDetails = useMutation(convexApi.workspace.getToolDetails);
+  const listToolDetailsRaw = useMutation(convexApi.workspace.getToolDetails);
+  const listToolDetails = listToolDetailsRaw as GetToolDetailsMutation;
   const detailsCacheRef = useRef<Map<string, ToolDetailDescriptor>>(new Map());
 
   // Watch inventory progress reactively so we invalidate when generation state changes.

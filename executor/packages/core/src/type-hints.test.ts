@@ -5,6 +5,9 @@ import {
   compactArgDisplayHint,
   compactDescriptionLine,
   compactReturnTypeHint,
+  displayArgTypeHint,
+  displayReturnTypeHint,
+  isLossyTypeHint,
   llmExpandedArgShapeHint,
   extractTopLevelTypeKeys,
 } from "./type-hints";
@@ -26,6 +29,15 @@ test("compactArgTypeHint flattens simple object intersections", async () => {
     "{ owner: string; repo: string; runner_id: number } & { labels: string[] }",
   );
   expect(compact).toBe("{ owner: string; repo: string; runner_id: number; labels: string[] }");
+});
+
+test("compactArgTypeHint keeps multiple top-level keys for wide intersections", async () => {
+  const compact = compactArgTypeHint(
+    '{ org: string } & { name: string; visibility?: "all" | "selected" | "private"; selected_repository_ids?: number[]; allows_public_repositories?: boolean; restricted_to_workflows?: boolean; selected_workflows?: string[] }',
+  );
+  expect(compact).toBe(
+    '{ org: string; name: string; visibility?: "all" | "selected" | "private"; selected_repository_ids?: number[]; allows_public_repositories?: boolean; restricted_to_workflows?: boolean; selected_workflows?: string[] }',
+  );
 });
 
 test("compactArgTypeHint handles parenthesized object intersections", async () => {
@@ -77,6 +89,11 @@ test("compactArgTypeHint dedupes trivial unions while preserving concrete types"
   expect(compact).toBe("{ app_id: string; account_id: string }");
 });
 
+test("displayArgTypeHint keeps verbose intersections when flattening is not possible", async () => {
+  const display = displayArgTypeHint('{ org: string } & ({ enabled_repositories: "all" | "selected" | "none" }) & string');
+  expect(display).toBe('{ org: string } & ({ enabled_repositories: "all" | "selected" | "none" }) & string');
+});
+
 test("compactArgDisplayHint uses preview keys when compacted to key-list", async () => {
   const argsType = `{ ${Array.from({ length: 20 }, (_, i) => `long_key_name_${i}: { nested: { nested: string } }`).join("; ")} }`;
   const compact = compactArgDisplayHint(argsType, ["owner", "repo", "cursor", "per_page"]);
@@ -122,6 +139,17 @@ test("compactReturnTypeHint truncates object-and-array intersections", async () 
 test("compactReturnTypeHint truncates huge trailing array hints", async () => {
   const compact = compactReturnTypeHint(`${"x".repeat(95)}[]`);
   expect(compact).toBe("Array<...>");
+});
+
+test("displayReturnTypeHint keeps full return envelopes", async () => {
+  const display = displayReturnTypeHint('{ data: { issue: { id: string; title: string } }; errors: unknown[] }');
+  expect(display).toBe('{ data: { issue: { id: string; title: string } }; errors: unknown[] }');
+});
+
+test("isLossyTypeHint detects truncated placeholder hints", async () => {
+  expect(isLossyTypeHint("{ org: ... }")).toBe(true);
+  expect(isLossyTypeHint("{ id: string; [key: string]: any }")).toBe(true);
+  expect(isLossyTypeHint("{ org: string; runner_id: number }")).toBe(false);
 });
 
 test("compactDescriptionLine trims to a single concise line", async () => {

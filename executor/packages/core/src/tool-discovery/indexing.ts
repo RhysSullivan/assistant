@@ -1,8 +1,11 @@
 import { z } from "zod";
 import type { ToolDefinition } from "../types";
 import {
+  displayArgTypeHint,
   compactArgTypeHintFromSchema,
+  displayReturnTypeHint,
   compactReturnTypeHintFromSchema,
+  isLossyTypeHint,
 } from "../type-hints";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import { sanitizeJsonSchemaForConvex } from "../tool-typing/convex-sanitize";
@@ -180,13 +183,21 @@ export function buildIndex(
 
       const typedInputHint = typeof typing?.inputHint === "string" ? typing.inputHint.trim() : "";
       const typedOutputHint = typeof typing?.outputHint === "string" ? typing.outputHint.trim() : "";
+      const useTypedInputHint = typedInputHint.length > 0
+        && !(isLossyTypeHint(typedInputHint) && !isEmptyObjectSchema(inputSchema));
+      const useTypedOutputHint = typedOutputHint.length > 0
+        && !(isLossyTypeHint(typedOutputHint) && Object.keys(outputSchema).length > 0);
 
-      const displayInputHint = typedInputHint || (
+      const displayInputHint = (useTypedInputHint
+        ? displayArgTypeHint(typedInputHint)
+        : "") || (
         isEmptyObjectSchema(inputSchema)
           ? "{}"
           : compactArgTypeHintFromSchema(inputSchema)
       );
-      const displayOutputHint = typedOutputHint || compactReturnTypeHintFromSchema(outputSchema);
+      const displayOutputHint = (useTypedOutputHint
+        ? displayReturnTypeHint(typedOutputHint)
+        : "") || compactReturnTypeHintFromSchema(outputSchema);
 
       return {
         path: tool.path,

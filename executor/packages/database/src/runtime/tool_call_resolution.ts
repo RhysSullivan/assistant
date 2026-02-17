@@ -154,7 +154,7 @@ function unknownToolErrorMessage(toolPath: string, suggestions: string[]): strin
     ? `\nDid you mean: ${suggestions.map((path) => `tools.${path}`).join(", ")}`
     : "";
   const queryHint = toolPath.split(".").filter(Boolean).join(" ");
-  const discoverHint = `\nTry: const found = await tools.discover({ query: "${queryHint}", compact: true, depth: 1, limit: 12 });`;
+  const discoverHint = `\nTry: const found = await tools.discover({ query: "${queryHint}", depth: 1, limit: 12 });`;
   return `Unknown tool: ${toolPath}${suggestionText}${discoverHint}`;
 }
 

@@ -4,8 +4,11 @@ import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { buildWorkspaceTypeBundle } from "../../../core/src/tool-typing/typebundle";
 import {
+  displayArgTypeHint,
   compactArgTypeHintFromSchema,
+  displayReturnTypeHint,
   compactReturnTypeHintFromSchema,
+  isLossyTypeHint,
 } from "../../../core/src/type-hints";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../../core/src/tool-typing/schema-utils";
 import {
@@ -106,6 +109,7 @@ interface WorkspaceToolInventory {
 export type ToolDetailDescriptor = Pick<ToolDescriptor, "path" | "description" | "typing" | "display">;
 
 const MAX_TOOLS_IN_ACTION_RESULT = 8_000;
+const MAX_TOOL_DETAILS_LOOKUP_PATHS = 100;
 const REGISTRY_BUILD_STALE_MS = 2 * 60_000;
 
 function truncateToolsForActionResult(
@@ -243,6 +247,40 @@ function toDescriptorFromRegistryEntry(
     ? resolveDescriptorRefHints(entry, openApiRefHintLookup)
     : { refHintKeys: [], refHints: {} };
 
+  const fallbackDisplayInput = displayArgTypeHint(entry.displayInput ?? "{}");
+  const fallbackDisplayOutput = displayReturnTypeHint(entry.displayOutput ?? "unknown");
+
+  let resolvedDisplayInput = fallbackDisplayInput;
+  let resolvedDisplayOutput = fallbackDisplayOutput;
+
+  if (entry.serializedToolJson) {
+    try {
+      const parsedJson = JSON.parse(entry.serializedToolJson);
+      const parsedSerializedTool = parseSerializedTool(parsedJson);
+      if (parsedSerializedTool.isOk()) {
+        const serializedTool = parsedSerializedTool.value;
+        const inputSchema = toJsonSchema(serializedTool.typing?.inputSchema);
+        const outputSchema = toJsonSchema(serializedTool.typing?.outputSchema);
+        const typedInputHint = serializedTool.typing?.inputHint?.trim();
+        const typedOutputHint = serializedTool.typing?.outputHint?.trim();
+        const hasInputSchema = Object.keys(inputSchema).length > 0;
+        const hasOutputSchema = Object.keys(outputSchema).length > 0;
+        const useTypedInputHint = Boolean(typedInputHint && (!isLossyTypeHint(typedInputHint) || !hasInputSchema));
+        const useTypedOutputHint = Boolean(typedOutputHint && (!isLossyTypeHint(typedOutputHint) || !hasOutputSchema));
+
+        resolvedDisplayInput = useTypedInputHint && typedInputHint
+          ? displayArgTypeHint(typedInputHint)
+          : (hasInputSchema ? compactArgTypeHintFromSchema(inputSchema) : fallbackDisplayInput);
+
+        resolvedDisplayOutput = useTypedOutputHint && typedOutputHint
+          ? displayReturnTypeHint(typedOutputHint)
+          : (hasOutputSchema ? compactReturnTypeHintFromSchema(outputSchema) : fallbackDisplayOutput);
+      }
+    } catch {
+      // Keep fallback display hints.
+    }
+  }
+
   return {
     path: entry.path,
     description: includeDetails ? entry.description : "",
@@ -258,8 +296,8 @@ function toDescriptorFromRegistryEntry(
             typedRef: entry.typedRef,
           },
           display: {
-            input: entry.displayInput,
-            output: entry.displayOutput,
+            input: resolvedDisplayInput,
+            output: resolvedDisplayOutput,
           },
         }
       : {}),
@@ -374,6 +412,10 @@ function computeOpenApiSourceQualityFromSerializedTools(
       const outputHint = typing?.outputHint?.trim();
       const inputSchema = toJsonSchema(typing?.inputSchema);
       const outputSchema = toJsonSchema(typing?.outputSchema);
+      const hasInputSchema = Object.keys(inputSchema).length > 0;
+      const hasOutputSchema = Object.keys(outputSchema).length > 0;
+      const useInputHint = Boolean(inputHint && (!isLossyTypeHint(inputHint) || !hasInputSchema));
+      const useOutputHint = Boolean(outputHint && (!isLossyTypeHint(outputHint) || !hasOutputSchema));
 
       return {
         path: tool.path,
@@ -381,11 +423,11 @@ function computeOpenApiSourceQualityFromSerializedTools(
         approval: tool.approval,
         source: tool.source,
         display: {
-          input: inputHint && inputHint.length > 0
-            ? inputHint
+          input: useInputHint && inputHint
+            ? displayArgTypeHint(inputHint)
             : compactArgTypeHintFromSchema(inputSchema),
-          output: outputHint && outputHint.length > 0
-            ? outputHint
+          output: useOutputHint && outputHint
+            ? displayReturnTypeHint(outputHint)
             : compactReturnTypeHintFromSchema(outputSchema),
         },
       };
@@ -551,13 +593,17 @@ async function buildWorkspaceToolRegistry(
       const previewInputKeys = typing.previewInputKeys ?? buildPreviewKeys(inputSchema);
       const inputHint = typing.inputHint?.trim();
       const outputHint = typing.outputHint?.trim();
+      const hasInputSchema = Object.keys(inputSchema).length > 0;
+      const hasOutputSchema = Object.keys(outputSchema).length > 0;
+      const useInputHint = Boolean(inputHint && (!isLossyTypeHint(inputHint) || !hasInputSchema));
+      const useOutputHint = Boolean(outputHint && (!isLossyTypeHint(outputHint) || !hasOutputSchema));
 
-      const displayInput = inputHint && inputHint.length > 0
-        ? inputHint
+      const displayInput = useInputHint && inputHint
+        ? displayArgTypeHint(inputHint)
         : compactArgTypeHintFromSchema(inputSchema);
 
-      const displayOutput = outputHint && outputHint.length > 0
-        ? outputHint
+      const displayOutput = useOutputHint && outputHint
+        ? displayReturnTypeHint(outputHint)
         : compactReturnTypeHintFromSchema(outputSchema);
 
       const typedRef = st.typing?.typedRef && st.typing.typedRef.kind === "openapi_operation"
@@ -1251,11 +1297,16 @@ async function loadWorkspaceToolInventoryForContext(
     fetchAll?: boolean;
   } = {},
 ): Promise<WorkspaceToolInventory> {
-  const includeDetails = options.includeDetails ?? true;
+  const requestedPaths = [...new Set((options.toolPaths ?? [])
+    .map((path) => path.trim())
+    .filter((path) => path.length > 0))];
+  const boundedRequestedPaths = requestedPaths.slice(0, MAX_TOOL_DETAILS_LOOKUP_PATHS);
+  const includeDetailsRequested = options.includeDetails ?? false;
+  const includeDetails = includeDetailsRequested && boundedRequestedPaths.length > 0;
   const includeSourceMeta = options.includeSourceMeta ?? true;
   const [result, policies] = await Promise.all([
     getWorkspaceToolsFromRegistry(ctx, context.workspaceId, {
-      toolPaths: options.toolPaths,
+      toolPaths: boundedRequestedPaths,
       source: options.source,
       sourceName: options.sourceName,
       cursor: options.cursor,
@@ -1266,20 +1317,30 @@ async function loadWorkspaceToolInventoryForContext(
     listWorkspaceAccessPolicies(ctx, context.workspaceId, context.accountId),
   ]);
 
+  const warnings = [...result.warnings];
+  if (includeDetailsRequested && requestedPaths.length === 0) {
+    warnings.push("Detailed tool signatures are only available for targeted tool path lookups.");
+  }
+  if (requestedPaths.length > MAX_TOOL_DETAILS_LOOKUP_PATHS) {
+    warnings.push(
+      `Tool detail lookup capped to ${MAX_TOOL_DETAILS_LOOKUP_PATHS} tool paths per request (requested ${requestedPaths.length}).`,
+    );
+  }
+
   const includeBaseTools = options.source || options.sourceName
     ? false
-    : options.toolPaths
+    : boundedRequestedPaths.length > 0
     ? true
     : Boolean(options.fetchAll || !options.cursor);
   const baseDescriptors = includeBaseTools
     ? listVisibleToolDescriptors(baseTools, context, policies, {
       includeDetails,
-      toolPaths: options.toolPaths,
+      toolPaths: boundedRequestedPaths,
     })
     : [];
   const registryDescriptors = listVisibleRegistryToolDescriptors(result.registryTools, context, policies, {
     includeDetails,
-    toolPaths: options.toolPaths,
+    toolPaths: boundedRequestedPaths,
     openApiRefHintLookup: result.openApiRefHintLookup,
   });
   const toolsByPath = new Map<string, ToolDescriptor>();
@@ -1299,10 +1360,7 @@ async function loadWorkspaceToolInventoryForContext(
     }
   }
 
-  const { tools: boundedTools, warnings: boundedWarnings } = truncateToolsForActionResult(
-    tools,
-    result.warnings,
-  );
+  const { tools: boundedTools, warnings: boundedWarnings } = truncateToolsForActionResult(tools, warnings);
 
   return {
     tools: boundedTools,
@@ -1332,6 +1390,7 @@ export async function listToolsForContext(
 ): Promise<ToolDescriptor[]> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, {
     ...options,
+    includeDetails: options.includeDetails ?? true,
     includeSourceMeta: options.includeSourceMeta ?? false,
     fetchAll: true,
   });
@@ -1349,6 +1408,7 @@ export async function listToolDetailsForContext(
   if (requestedPaths.length === 0) {
     return {};
   }
+  const boundedRequestedPaths = requestedPaths.slice(0, MAX_TOOL_DETAILS_LOOKUP_PATHS);
 
   const [registryState, policies] = await Promise.all([
     ctx.runQuery(internal.toolRegistry.getState, {
@@ -1364,7 +1424,7 @@ export async function listToolDetailsForContext(
     clientId: context.clientId,
   };
 
-  const basePaths = requestedPaths.filter((path) => baseTools.has(path));
+  const basePaths = boundedRequestedPaths.filter((path) => baseTools.has(path));
   if (basePaths.length > 0) {
     const baseDescriptors = listVisibleToolDescriptors(baseTools, policyContext, policies, {
       includeDetails: true,
@@ -1382,7 +1442,7 @@ export async function listToolDetailsForContext(
   }
 
   const openApiRefHintLookup = toOpenApiRefHintLookup(registryState?.openApiRefHintTables ?? []);
-  const registryPaths = requestedPaths.filter((path) => !baseTools.has(path));
+  const registryPaths = boundedRequestedPaths.filter((path) => !baseTools.has(path));
   const entries = await Promise.all(registryPaths.map((path) =>
     ctx.runQuery(internal.toolRegistry.getToolByPath, {
       workspaceId: context.workspaceId,

@@ -237,11 +237,11 @@ test("discover returns a shared top-level refHintTable for repeated refs", async
   expect(result.results[1]?.signatureInfo.refHints).toBeUndefined();
 });
 
-test("discover uses compact signatures by default and allows full mode", async () => {
+test("discover returns full signatures and descriptions", async () => {
   const tool = createDiscoverTool([
     {
       path: "linear.query.teams",
-      description: "All teams whose issues can be accessed by the user. Compact output should trim this long explanation before it reaches the trailing marker text to keep discover results concise for models. TRAILING_MARKER_TEXT",
+      description: "All teams whose issues can be accessed by the user. This long explanation should stay intact, including the trailing marker text. TRAILING_MARKER_TEXT",
       approval: "auto",
       source: "graphql:linear",
       typing: {
@@ -271,7 +271,7 @@ test("discover uses compact signatures by default and allows full mode", async (
     } satisfies ToolDefinition,
   ]);
 
-  const compactResult = await tool.run(
+  const result = await tool.run(
     { query: "linear teams", depth: 2 },
     { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
@@ -284,28 +284,11 @@ test("discover uses compact signatures by default and allows full mode", async (
     }>;
   };
 
-  const fullResult = await tool.run(
-    { query: "linear teams", depth: 2, compact: false },
-    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
-  ) as {
-    bestPath: string | null;
-    results: Array<{
-      description: string;
-      signature: string;
-      canonicalSignature: string;
-      signatureInfo: { previewKeys: string[] };
-    }>;
-  };
-
-  expect(compactResult.bestPath).toBe("linear.query.teams");
-  expect(fullResult.bestPath).toBe("linear.query.teams");
-  expect(compactResult.results[0]?.signature).toContain("Promise<");
-  expect(compactResult.results[0]?.signature).toContain("errors");
-  expect(compactResult.results[0]?.signatureInfo.previewKeys).toContain("filter");
-  expect(compactResult.results[0]?.description).not.toContain("TRAILING_MARKER_TEXT");
-
-  expect(fullResult.results[0]?.signature).toContain("Promise<");
-  expect(fullResult.results[0]?.description).toContain("TRAILING_MARKER_TEXT");
+  expect(result.bestPath).toBe("linear.query.teams");
+  expect(result.results[0]?.signature).toContain("Promise<");
+  expect(result.results[0]?.signature).toContain("errors");
+  expect(result.results[0]?.signatureInfo.previewKeys).toContain("filter");
+  expect(result.results[0]?.description).toContain("TRAILING_MARKER_TEXT");
 });
 
 test("discover compacts fallback intersection input hints", async () => {
@@ -350,7 +333,7 @@ test("discover compacts fallback intersection input hints", async () => {
   ]);
 
   const result = await tool.run(
-    { query: "add certificates", depth: 2, compact: false },
+    { query: "add certificates", depth: 2 },
     { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
     bestPath: string | null;
@@ -363,6 +346,70 @@ test("discover compacts fallback intersection input hints", async () => {
 
   expect(result.bestPath).toBe("certs.projects.add_certificates");
   expect(result.results[0]?.signatureInfo.input).toBe("{ project_id: string; certificate_ids: string[] }");
+});
+
+test("discover compacts typed intersection input hints", async () => {
+  const tool = createDiscoverTool([
+    {
+      path: "github.actions.add_custom_labels_to_self_hosted_runner_for_org",
+      description: "Add labels to runner",
+      approval: "required",
+      source: "openapi:github",
+      typing: {
+        inputHint: `{
+  org: string;
+  runner_id: number
+} & {
+  labels: string[]
+}`,
+      },
+      run: async () => ({ ok: true }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const result = await tool.run(
+    { query: "add custom labels", depth: 2 },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+  ) as {
+    bestPath: string | null;
+    results: Array<{
+      signatureInfo: {
+        input: string;
+      };
+    }>;
+  };
+
+  expect(result.bestPath).toBe("github.actions.add_custom_labels_to_self_hosted_runner_for_org");
+  expect(result.results[0]?.signatureInfo.input).toBe("{ org: string; runner_id: number; labels: string[] }");
+});
+
+test("discover depth 0 keeps full signatures", async () => {
+  const tool = createDiscoverTool([
+    {
+      path: "github.actions.add_custom_labels_to_self_hosted_runner_for_org",
+      description: "Add labels to runner",
+      approval: "required",
+      source: "openapi:github",
+      typing: {
+        inputHint: "{ org: string; runner_id: number; labels: string[] }",
+        outputHint: "{ total_count: number; labels: string[] }",
+      },
+      run: async () => ({ total_count: 1, labels: ["x64"] }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const result = await tool.run(
+    { query: "add custom labels", depth: 0 },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+  ) as {
+    results: Array<{
+      signature: string;
+    }>;
+  };
+
+  expect(result.results[0]?.signature).toBe(
+    "(input: { org: string; runner_id: number; labels: string[] }): Promise<{ total_count: number; labels: string[] }>",
+  );
 });
 
 test("discover returns null bestPath when there are no matches", async () => {
@@ -545,7 +592,7 @@ test("catalog tools list namespaces and typed signatures", async () => {
   expect(namespaces.namespaces.some((item) => item.namespace === "vercel" && item.toolCount >= 1)).toBe(true);
 
   const listed = await toolsTool!.run(
-    { namespace: "vercel", compact: false, depth: 2, limit: 10 },
+    { namespace: "vercel", depth: 2, limit: 10 },
     { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
     results: Array<{ path: string; aliases: string[]; signatureText: string; signatureInfo: { input: string; output: string } }>;

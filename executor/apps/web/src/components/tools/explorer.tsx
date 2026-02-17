@@ -95,6 +95,18 @@ export function ToolExplorer({
   inventoryState,
   inventoryError,
 }: ToolExplorerProps) {
+  const hasRenderableToolDetails = useCallback((tool: Pick<ToolDescriptor, "description" | "display" | "typing">) => {
+    const description = tool.description?.trim() ?? "";
+    const inputHint = tool.display?.input?.trim() ?? "";
+    const outputHint = tool.display?.output?.trim() ?? "";
+    const required = tool.typing?.requiredInputKeys ?? [];
+
+    const hasInputHint = inputHint.length > 0 && inputHint !== "{}" && inputHint.toLowerCase() !== "unknown";
+    const hasOutputHint = outputHint.length > 0 && outputHint.toLowerCase() !== "unknown";
+
+    return description.length > 0 || hasInputHint || hasOutputHint || required.length > 0;
+  }, []);
+
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput);
   const [viewMode, setViewMode] = useState<ViewMode>("tree");
@@ -149,8 +161,21 @@ export function ToolExplorer({
         set.add(sourceName);
       }
     }
+
+    if (set.size === 0 && loading && searchInput.length === 0 && filteredTools.length === 0) {
+      if (resolvedActiveSource) {
+        set.add(resolvedActiveSource);
+      } else {
+        for (const source of sources) {
+          if (source.enabled) {
+            set.add(source.name);
+          }
+        }
+      }
+    }
+
     return set;
-  }, [loadingSources, sourceLoadingMoreTools]);
+  }, [filteredTools.length, loading, loadingSources, resolvedActiveSource, searchInput.length, sourceLoadingMoreTools, sources]);
 
   const visibleLoadingSources = useMemo(() => {
     if (loadingSourceSet.size === 0) {
@@ -362,12 +387,7 @@ export function ToolExplorer({
       return;
     }
 
-    const hasDetails = Boolean(
-      tool.description
-      || tool.display?.input
-      || tool.display?.output
-      || (tool.typing?.requiredInputKeys?.length ?? 0) > 0,
-    );
+    const hasDetails = hasRenderableToolDetails(tool);
 
     if (hasDetails || toolDetailsByPath[tool.path]) {
       return;
@@ -396,7 +416,7 @@ export function ToolExplorer({
         return next;
       });
     }
-  }, [loadingDetailPaths, onLoadToolDetails, toolDetailsByPath]);
+  }, [hasRenderableToolDetails, loadingDetailPaths, onLoadToolDetails, toolDetailsByPath]);
 
   const flatLoadingRows = useMemo(() => {
     if (search.length > 0 || viewMode !== "flat") {

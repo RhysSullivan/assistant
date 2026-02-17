@@ -30,7 +30,7 @@ import {
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
-const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v3";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v5";
 
 const openApiAuthModeSchema = z.enum(["static", "account", "workspace", "organization"]);
 

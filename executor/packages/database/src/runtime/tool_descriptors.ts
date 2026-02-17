@@ -5,8 +5,11 @@ import type {
   ToolDescriptor,
 } from "../../../core/src/types";
 import {
+  displayArgTypeHint,
   compactArgTypeHintFromSchema,
+  displayReturnTypeHint,
   compactReturnTypeHintFromSchema,
+  isLossyTypeHint,
 } from "../../../core/src/type-hints";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../../core/src/tool-typing/schema-utils";
 import { getDecisionForContext } from "./policy";
@@ -19,6 +22,10 @@ function toToolDescriptor(
   const includeDetails = options.includeDetails ?? true;
   const inputHint = tool.typing?.inputHint?.trim();
   const outputHint = tool.typing?.outputHint?.trim();
+  const hasInputSchema = Object.keys(tool.typing?.inputSchema ?? {}).length > 0;
+  const hasOutputSchema = Object.keys(tool.typing?.outputSchema ?? {}).length > 0;
+  const useInputHint = Boolean(inputHint && (!isLossyTypeHint(inputHint) || !hasInputSchema));
+  const useOutputHint = Boolean(outputHint && (!isLossyTypeHint(outputHint) || !hasOutputSchema));
 
   return {
     path: tool.path,
@@ -37,11 +44,11 @@ function toToolDescriptor(
               }
             : undefined,
           display: {
-            input: inputHint && inputHint.length > 0
-              ? inputHint
+            input: useInputHint && inputHint
+              ? displayArgTypeHint(inputHint)
               : compactArgTypeHintFromSchema(tool.typing?.inputSchema ?? {}),
-            output: outputHint && outputHint.length > 0
-              ? outputHint
+            output: useOutputHint && outputHint
+              ? displayReturnTypeHint(outputHint)
               : compactReturnTypeHintFromSchema(tool.typing?.outputSchema ?? {}),
           },
         }
@@ -80,8 +87,14 @@ export function computeOpenApiSourceQuality(
       if (!hasInput) unknownArgsCount += 1;
       if (!hasOutput) unknownReturnsCount += 1;
       // Best-effort: count schema nodes that still include unknown-ish placeholders.
-      const inputHint = tool.typing?.inputHint?.trim() || compactArgTypeHintFromSchema(inputSchema);
-      const outputHint = tool.typing?.outputHint?.trim() || compactReturnTypeHintFromSchema(outputSchema);
+      const typedInputHint = tool.typing?.inputHint?.trim();
+      const typedOutputHint = tool.typing?.outputHint?.trim();
+      const inputHint = typedInputHint && (!isLossyTypeHint(typedInputHint) || !hasInput)
+        ? displayArgTypeHint(typedInputHint)
+        : compactArgTypeHintFromSchema(inputSchema);
+      const outputHint = typedOutputHint && (!isLossyTypeHint(typedOutputHint) || !hasOutput)
+        ? displayReturnTypeHint(typedOutputHint)
+        : compactReturnTypeHintFromSchema(outputSchema);
       if (inputHint.includes("unknown")) partialUnknownArgsCount += 1;
       if (outputHint.includes("unknown")) partialUnknownReturnsCount += 1;
     }

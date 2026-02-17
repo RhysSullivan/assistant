@@ -198,15 +198,15 @@ export function GroupNode({
                 />
               );
             })
-          : isLoading
-            ? (
-              <ToolLoadingRows
-                source={displayLabel}
-                count={group.loadingPlaceholderCount ?? 0}
-                depth={depth + 1}
-              />
-            )
-            : null}
+          : null}
+
+        {isLoading ? (
+          <ToolLoadingRows
+            source={displayLabel}
+            count={group.loadingPlaceholderCount ?? 3}
+            depth={depth + 1}
+          />
+        ) : null}
       </CollapsibleContent>
     </Collapsible>
   );

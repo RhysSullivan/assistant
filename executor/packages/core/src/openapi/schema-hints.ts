@@ -954,7 +954,7 @@ export function jsonSchemaTypeHintFallback(
       }
       return "Record<string, unknown>";
     }
-    const maxInlineProps = 12;
+    const maxInlineProps = 64;
     const isTruncated = propEntries.length > maxInlineProps;
     const inner = propEntries
       .slice(0, maxInlineProps)

@@ -188,20 +188,50 @@ export function ToolsView({
     toast.error(message, { id: INVENTORY_REGENERATION_TOAST_ID });
   }, []);
 
-  const toolSourceNames = useMemo(
+  const serverToolSourceNames = useMemo(
     () => new Set(tools.map((tool) => sourceLabel(tool.source))),
     [tools],
   );
 
   // Prune stale ops: if the server already reflects an add/remove, drop it.
   const optimisticOps = useMemo(
-    () => pruneStaleOps(rawOptimisticOps, serverSourceItems, toolSourceNames),
-    [rawOptimisticOps, serverSourceItems, toolSourceNames],
+    () => pruneStaleOps(rawOptimisticOps, serverSourceItems, serverToolSourceNames),
+    [rawOptimisticOps, serverSourceItems, serverToolSourceNames],
   );
 
   const sourceItems = useMemo(
     () => applyOptimisticOps(serverSourceItems, optimisticOps),
     [serverSourceItems, optimisticOps],
+  );
+
+  const visibleSourceNames = useMemo(
+    () => new Set(sourceItems.map((source) => source.name)),
+    [sourceItems],
+  );
+
+  const visibleTools = useMemo(
+    () => tools.filter((tool) => {
+      const sourceName = sourceLabel(tool.source);
+      return sourceName === "system" || sourceName === "built-in" || visibleSourceNames.has(sourceName);
+    }),
+    [tools, visibleSourceNames],
+  );
+
+  const toolSourceNames = useMemo(
+    () => {
+      const names = new Set<string>(["system", "built-in"]);
+      for (const source of sourceItems) {
+        names.add(source.name);
+      }
+      for (const tool of visibleTools) {
+        const sourceName = sourceLabel(tool.source);
+        if (sourceName === "system" || sourceName === "built-in") {
+          names.add(sourceName);
+        }
+      }
+      return names;
+    },
+    [sourceItems, visibleTools],
   );
 
   // Source names that are optimistically loading (just added, tools not fetched yet)
@@ -253,6 +283,38 @@ export function ToolsView({
     }
     return combined;
   }, [hasGlobalInventoryWarning, loadingSources, optimisticallyLoadingNames, sourceItems, toolSourceNames]);
+
+  const visibleLoadingSources = useMemo(
+    () => mergedLoadingSources.filter((name) =>
+      visibleSourceNames.has(name) || name === "system" || name === "built-in" || optimisticallyLoadingNames.includes(name)
+    ),
+    [mergedLoadingSources, optimisticallyLoadingNames, visibleSourceNames],
+  );
+
+  const visibleSourceCounts = useMemo(() => {
+    const sourceCounts = inventoryStatus?.sourceToolCounts;
+    if (!sourceCounts) {
+      return undefined;
+    }
+
+    const counts: Record<string, number> = {};
+    for (const [sourceName, rawCount] of Object.entries(sourceCounts)) {
+      const count =
+        typeof rawCount === "number"
+          ? rawCount
+          : typeof rawCount === "string"
+            ? Number(rawCount)
+            : Number.NaN;
+      if (!Number.isFinite(count)) {
+        continue;
+      }
+      if (visibleSourceNames.has(sourceName) || sourceName === "system" || sourceName === "built-in") {
+        counts[sourceName] = count;
+      }
+    }
+
+    return counts;
+  }, [inventoryStatus?.sourceToolCounts, visibleSourceNames]);
 
   const existingSourceNames = useMemo(() => new Set(sourceItems.map((source) => source.name)), [sourceItems]);
   const warningsBySource = useMemo(() => warningsBySourceName(warnings), [warnings]);
@@ -407,11 +469,11 @@ export function ToolsView({
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
               <div className="min-h-0 flex-1">
                 <ToolExplorer
-                  tools={tools}
+                  tools={visibleTools}
                   sources={sourceItems}
-                  loadingSources={mergedLoadingSources}
-                  sourceCountsOverride={inventoryStatus?.sourceToolCounts}
-                  totalTools={totalTools}
+                  loadingSources={visibleLoadingSources}
+                  sourceCountsOverride={visibleSourceCounts}
+                  totalTools={visibleTools.length}
                   hasMoreTools={hasMoreTools}
                   loadingMoreTools={loadingMoreTools}
                   onLoadMoreTools={loadMoreTools}
@@ -470,7 +532,7 @@ export function ToolsView({
 
         <TabsContent value="policies" className="mt-4">
           <PoliciesPanel
-            tools={tools}
+            tools={visibleTools}
             loadingTools={loadingTools}
           />
         </TabsContent>
@@ -485,7 +547,7 @@ export function ToolsView({
         sources={sourceItems}
         credentials={credentialItems}
         sourceAuthProfiles={sourceAuthProfiles}
-        loadingSourceNames={loadingSources}
+        loadingSourceNames={visibleLoadingSources}
       />
     </div>
   );

@@ -82,7 +82,7 @@ export const listToolsWithWarnings = customAction({
       accountId: access.accountId,
       clientId: args.clientId,
     }, {
-      includeDetails: args.includeDetails ?? true,
+      includeDetails: args.includeDetails ?? false,
       includeSourceMeta: args.includeSourceMeta ?? (args.toolPaths ? false : true),
       toolPaths: args.toolPaths,
       source: args.source,

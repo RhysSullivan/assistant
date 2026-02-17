@@ -254,18 +254,17 @@ export function extractTopLevelTypeKeys(typeHint: string): string[] {
 }
 
 function extractTopLevelTypeKeysFromExpression(typeHint: string): string[] {
-  const direct = extractTopLevelTypeKeys(typeHint);
-  if (direct.length > 0) return direct;
-
-  const fromIntersections = splitTopLevelBy(typeHint, "&")
-    .flatMap((part) => extractTopLevelTypeKeys(part));
-  if (fromIntersections.length > 0) {
-    return dedupeStrings(fromIntersections);
+  const fromIntersections = splitTopLevelBy(typeHint, "&");
+  if (fromIntersections.length > 1) {
+    return dedupeStrings(fromIntersections.flatMap((part) => extractTopLevelTypeKeys(part)));
   }
 
-  const fromUnions = splitTopLevelBy(typeHint, "|")
-    .flatMap((part) => extractTopLevelTypeKeys(part));
-  return dedupeStrings(fromUnions);
+  const fromUnions = splitTopLevelBy(typeHint, "|");
+  if (fromUnions.length > 1) {
+    return dedupeStrings(fromUnions.flatMap((part) => extractTopLevelTypeKeys(part)));
+  }
+
+  return extractTopLevelTypeKeys(typeHint);
 }
 
 export function compactArgKeysHint(keys: string[]): string {
@@ -290,7 +289,7 @@ export function compactArgTypeHint(argsType: string): string {
   if (argsType === "{}") return "{}";
   const normalized = stripOuterObjectParens(argsType.replace(/\s+/g, " ").trim());
 
-  const flattenedIntersection = normalizeIntersectionObjectHint(normalized, { maxLength: 160 });
+  const flattenedIntersection = normalizeIntersectionObjectHint(normalized, { maxLength: 280 });
   if (flattenedIntersection) {
     return flattenedIntersection;
   }
@@ -312,11 +311,38 @@ export function compactArgTypeHint(argsType: string): string {
   if (inlineObjectWithSimpleUnions) {
     return normalizeFlatObjectHint(normalized) ?? normalized;
   }
-  const keys = extractTopLevelTypeKeys(argsType);
-  if (keys.length > 0) {
-    return compactArgKeysHint(keys);
+  const hasTopLevelIntersection = splitTopLevelBy(normalized, "&").length > 1;
+  const hasTopLevelUnion = splitTopLevelBy(normalized, "|").length > 1;
+  if (!hasTopLevelIntersection && !hasTopLevelUnion) {
+    const keys = extractTopLevelTypeKeys(normalized);
+    if (keys.length > 0) {
+      return compactArgKeysHint(keys);
+    }
   }
   return truncateInline(argsType, 120);
+}
+
+export function displayArgTypeHint(argsType: string): string {
+  if (argsType === "{}") return "{}";
+  const normalized = stripOuterObjectParens(argsType.replace(/\s+/g, " ").trim());
+
+  const flattenedIntersection = normalizeIntersectionObjectHint(normalized, {
+    maxParts: 12,
+    maxKeys: 64,
+    maxLength: 4_000,
+  });
+  if (flattenedIntersection) {
+    return flattenedIntersection;
+  }
+
+  const inlineObject = normalized.startsWith("{")
+    && normalized.endsWith("}")
+    && !normalized.includes("&");
+  if (inlineObject) {
+    return normalizeFlatObjectHint(normalized) ?? normalized;
+  }
+
+  return normalized.length > 0 ? normalized : "unknown";
 }
 
 export function compactArgTypeHintFromSchema(
@@ -324,7 +350,7 @@ export function compactArgTypeHintFromSchema(
   componentSchemas?: Record<string, unknown>,
 ): string {
   if (Object.keys(inputSchema).length === 0) return "{}";
-  return compactArgTypeHint(jsonSchemaTypeHintFallback(inputSchema, 0, componentSchemas));
+  return displayArgTypeHint(jsonSchemaTypeHintFallback(inputSchema, 0, componentSchemas));
 }
 
 export function compactArgDisplayHint(argsType: string, argPreviewKeys: string[] = []): string {
@@ -370,13 +396,28 @@ export function compactReturnTypeHint(returnsType: string): string {
   return truncateInline(normalized, 130);
 }
 
+export function displayReturnTypeHint(returnsType: string): string {
+  const normalized = stripOuterObjectParens(returnsType.replace(/\s+/g, " ").trim());
+
+  const flattenedIntersection = normalizeIntersectionObjectHint(normalized, {
+    maxParts: 12,
+    maxKeys: 64,
+    maxLength: 8_000,
+  });
+  if (flattenedIntersection) {
+    return flattenedIntersection;
+  }
+
+  return normalized.length > 0 ? normalized : "unknown";
+}
+
 export function compactReturnTypeHintFromSchema(
   outputSchema: Record<string, unknown>,
   responseStatus = "",
   componentSchemas?: Record<string, unknown>,
 ): string {
   const rawHint = responseTypeHintFromSchema(outputSchema, responseStatus, componentSchemas);
-  return compactReturnTypeHint(rawHint);
+  return displayReturnTypeHint(rawHint);
 }
 
 export function llmExpandedArgShapeHint(argsType: string, argPreviewKeys: string[] = []): string {
@@ -418,4 +459,8 @@ export function llmExpandedReturnShapeHint(returnsType: string): string {
 export function compactDescriptionLine(description: string): string {
   const firstLine = description.split("\n")[0] ?? description;
   return truncateInline(firstLine, 180);
+}
+
+export function isLossyTypeHint(typeHint: string): boolean {
+  return typeHint.includes("...") || typeHint.includes("[key: string]: any");
 }
