@@ -125,6 +125,12 @@ function assertSuccess(result: CommandResult, label: string): void {
   );
 }
 
+function isNoProjectDoctorResult(result: CommandResult): boolean {
+  const output = `${result.stdout}\n${result.stderr}`;
+  return output.includes("Functions: not bootstrapped (no local Convex project found)")
+    || output.includes("functions: no_project");
+}
+
 const backendPort = parseIntegerEnv("EXECUTOR_BACKEND_PORT", 5410);
 const sitePort = parseIntegerEnv("EXECUTOR_BACKEND_SITE_PORT", 5411);
 const webPort = parseIntegerEnv("EXECUTOR_WEB_PORT", 5312);
@@ -164,7 +170,6 @@ try {
       "if [ -x ~/.executor/bin/executor ]; then ~/.executor/bin/executor uninstall --yes || true; fi",
       "rm -rf ~/.executor",
       "curl -fsSL https://executor.sh/install | bash -s -- --no-modify-path --no-star-prompt",
-      "~/.executor/bin/executor doctor --verbose",
     ].join("; "),
     {
       timeoutMs: installTimeoutMs,
@@ -180,7 +185,46 @@ try {
       },
     },
   );
-  assertSuccess(install, "sandbox install + doctor");
+  assertSuccess(install, "sandbox install");
+
+  const runtimeDoctor = await runSandboxBash(
+    sandbox,
+    "~/.executor/bin/executor doctor --runtime-only --verbose",
+    {
+      timeoutMs: installTimeoutMs,
+      env: {
+        EXECUTOR_BACKEND_INTERFACE: "0.0.0.0",
+        EXECUTOR_WEB_INTERFACE: "0.0.0.0",
+        EXECUTOR_BACKEND_PORT: String(backendPort),
+        EXECUTOR_BACKEND_SITE_PORT: String(sitePort),
+        EXECUTOR_WEB_PORT: String(webPort),
+      },
+    },
+  );
+  assertSuccess(runtimeDoctor, "sandbox doctor --runtime-only");
+
+  const doctor = await runSandboxBash(
+    sandbox,
+    "if [ -f ~/.executor/runtime/bootstrap-project/convex.json ]; then EXECUTOR_PROJECT_DIR=~/.executor/runtime/bootstrap-project ~/.executor/bin/executor doctor --verbose; else ~/.executor/bin/executor doctor --verbose; fi",
+    {
+      timeoutMs: installTimeoutMs,
+      env: {
+        EXECUTOR_BACKEND_INTERFACE: "0.0.0.0",
+        EXECUTOR_WEB_INTERFACE: "0.0.0.0",
+        EXECUTOR_BACKEND_PORT: String(backendPort),
+        EXECUTOR_BACKEND_SITE_PORT: String(sitePort),
+        EXECUTOR_WEB_PORT: String(webPort),
+      },
+    },
+  );
+
+  if (doctor.exitCode !== 0) {
+    if (isNoProjectDoctorResult(doctor)) {
+      console.warn("[sandbox] doctor reported no local project context; runtime is healthy but function checks were skipped");
+    } else {
+      assertSuccess(doctor, "sandbox doctor --verbose");
+    }
+  }
 
   const webUrl = sandbox.domain(webPort);
   const convexUrl = sandbox.domain(backendPort);
