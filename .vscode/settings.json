@@ -1,0 +1,32 @@
+{
+  "search.useIgnoreFiles": true,
+  "search.useGlobalIgnoreFiles": true,
+  "search.useParentIgnoreFiles": true,
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.next": true,
+    "**/out": true,
+    "**/coverage": true,
+    "**/.cache": true,
+    "**/.DS_Store": true,
+    "**/.idea": true,
+    "**/.wrangler": true,
+    "**/.turbo": true,
+    "**/.dev.pids": true,
+    "**/.vercel": true,
+    "**/coverage": true,
+    "**/*.env*": true,
+    "**/*.log": true,
+    "**/*.lcov": true,
+    "**/*.tgz": true,
+    "**/*.har": true,
+    "**/*.tsbuildinfo": true,
+    "**/convex_local_storage": true,
+    "**/convex_local_backend.sqlite3": true,
+    "**/sources/data/*.sqlite": true,
+    "**/sources/data/*.sqlite-shm": true,
+    "**/sources/data/*.sqlite-wal": true,
+    "**/.reference/**": true
+  }
+}

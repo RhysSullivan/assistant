@@ -11,7 +11,7 @@ function isTestProcess(): boolean {
     return true;
   }
 
-  const argv = process.argv.join(" ");
+  const argv = Array.isArray(process.argv) ? process.argv.join(" ") : "";
   return argv.includes(".test.ts");
 }
 
