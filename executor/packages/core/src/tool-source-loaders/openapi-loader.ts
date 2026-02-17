@@ -1,5 +1,3 @@
-"use node";
-
 import { z } from "zod";
 import { buildOpenApiToolsFromPrepared } from "../openapi/tool-builder";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";

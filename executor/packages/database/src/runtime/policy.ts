@@ -1,5 +1,3 @@
-"use node";
-
 import type {
   AccessPolicyRecord,
   PolicyDecision,

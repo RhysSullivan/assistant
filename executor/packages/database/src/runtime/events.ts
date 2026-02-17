@@ -1,5 +1,3 @@
-"use node";
-
 import type { ActionCtx } from "../../convex/_generated/server";
 import { createTaskEvent, type TaskEventName } from "../task/events";
 

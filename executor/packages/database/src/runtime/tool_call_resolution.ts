@@ -1,5 +1,3 @@
-"use node";
-
 import { Result } from "better-result";
 import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
@@ -10,7 +8,7 @@ import { parseSerializedTool, type SerializedTool } from "../../../core/src/tool
 import { getDecisionForContext, getToolDecision } from "./policy";
 import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
 import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
-import { baseTools } from "./workspace_tools";
+import { baseTools } from "./base_tools";
 
 type RegistrySerializedToolEntry = {
   path: string;

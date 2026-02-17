@@ -1,5 +1,3 @@
-"use node";
-
 import { Result } from "better-result";
 import { z } from "zod";
 import {

@@ -1,5 +1,3 @@
-"use node";
-
 import { Result } from "better-result";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
@@ -10,9 +8,10 @@ import {
 } from "../../../core/src/tool/source-auth";
 import type { ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../../core/src/types";
 import { ToolCallControlError } from "../../../core/src/tool-call-control";
+import { readWorkosVaultObjectViaAction } from "./workos_vault_reader";
 
 export async function resolveCredentialHeadersResult(
-  ctx: Pick<ActionCtx, "runQuery">,
+  ctx: Pick<ActionCtx, "runQuery" | "runAction">,
   spec: ToolCredentialSpec,
   task: TaskRecord,
 ): Promise<Result<ResolvedToolCredential | null, Error>> {
@@ -24,7 +23,9 @@ export async function resolveCredentialHeadersResult(
   });
 
   const sourceResult = record
-    ? await resolveCredentialPayloadResult(record)
+    ? await resolveCredentialPayloadResult(record, {
+      readVaultObject: async (input) => await readWorkosVaultObjectViaAction(ctx, input),
+    })
     : Result.ok(spec.staticSecretJson ?? null);
   if (sourceResult.isErr()) {
     return Result.err(
@@ -62,7 +63,7 @@ export async function resolveCredentialHeadersResult(
 }
 
 export async function resolveCredentialHeaders(
-  ctx: Pick<ActionCtx, "runQuery">,
+  ctx: Pick<ActionCtx, "runQuery" | "runAction">,
   spec: ToolCredentialSpec,
   task: TaskRecord,
 ): Promise<ResolvedToolCredential | null> {

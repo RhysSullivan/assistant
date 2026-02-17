@@ -1,5 +1,3 @@
-"use node";
-
 import type { ToolDefinition } from "../../../core/src/types";
 
 const GENERIC_NAMESPACE_SUFFIXES = new Set([

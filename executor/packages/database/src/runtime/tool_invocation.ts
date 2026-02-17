@@ -1,5 +1,3 @@
-"use node";
-
 import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
@@ -20,7 +18,7 @@ import {
   ToolCallControlError,
 } from "../../../core/src/tool-call-control";
 import { getToolDecision, getDecisionForContext } from "./policy";
-import { baseTools } from "./workspace_tools";
+import { baseTools } from "./base_tools";
 import { publishTaskEvent } from "./events";
 import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecycle";
 import { resolveCredentialHeadersResult, validatePersistedCallRunnable } from "./tool_call_credentials";

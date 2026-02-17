@@ -1,11 +1,9 @@
-"use node";
-
 import { Result } from "better-result";
 import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { internal } from "../../convex/_generated/api";
-import { sourceSignature } from "./tool_source_loading";
+import { sourceSignature } from "./tool_source_signature";
 
 export const TOOL_REGISTRY_SIGNATURE_PREFIX = "toolreg_v2|";
 

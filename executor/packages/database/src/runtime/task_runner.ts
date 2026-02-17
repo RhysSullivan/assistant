@@ -1,9 +1,5 @@
-"use node";
-
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
-import { InProcessExecutionAdapter } from "../../../core/src/adapters/in/process/execution-adapter";
-import { dispatchCodeWithCloudflareWorkerLoader } from "../../../core/src/runtimes/cloudflare/worker/loader-runtime";
 import { decodeToolCallControlSignal } from "../../../core/src/tool-call-control";
 import {
   CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
@@ -11,13 +7,11 @@ import {
   isKnownRuntimeId,
   isRuntimeEnabled,
 } from "../../../core/src/runtimes/runtime-catalog";
-import { runCodeWithAdapter } from "../../../core/src/runtimes/runtime-core";
 import type { TaskExecutionOutcome, TaskRecord } from "../../../core/src/types";
 import { describeError } from "../../../core/src/utils";
 import { publishTaskEvent } from "./events";
 import { taskTerminalEventType } from "../task/status";
 import { markTaskFinished } from "../task/finish";
-import { invokeTool } from "./tool_invocation";
 
 async function getTaskById(ctx: ActionCtx, taskId: string): Promise<TaskRecord | null> {
   const task: TaskRecord | null = await ctx.runQuery(internal.database.getTask, { taskId });
@@ -120,7 +114,7 @@ export async function runQueuedTask(
     });
 
     if (running.runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID) {
-      const dispatchResult = await dispatchCodeWithCloudflareWorkerLoader({
+      const dispatchResult = await ctx.runAction(internal.runtimeNode.dispatchCloudflareWorker, {
         taskId: args.taskId,
         code: running.code,
         timeoutMs: running.timeoutMs,
@@ -157,19 +151,11 @@ export async function runQueuedTask(
       };
     }
 
-    const adapter = new InProcessExecutionAdapter({
-      runId: args.taskId,
-      invokeTool: async (call) => await invokeTool(ctx, running, call),
+    const runtimeResult = await ctx.runAction(internal.runtimeNode.executeLocalVm, {
+      taskId: args.taskId,
+      code: running.code,
+      timeoutMs: running.timeoutMs,
     });
-
-    const runtimeResult = await runCodeWithAdapter(
-      {
-        taskId: args.taskId,
-        code: running.code,
-        timeoutMs: running.timeoutMs,
-      },
-      adapter,
-    );
 
     const finished = await markTaskFinished(ctx, {
       taskId: args.taskId,

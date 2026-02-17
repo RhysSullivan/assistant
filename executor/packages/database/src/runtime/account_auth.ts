@@ -1,5 +1,3 @@
-"use node";
-
 import type { ActionCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { internal } from "../../convex/_generated/api";

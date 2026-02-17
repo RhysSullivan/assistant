@@ -1,17 +1,11 @@
-"use node";
-
 import { Result } from "better-result";
 import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
-import {
-  compileExternalToolSource,
-  compileOpenApiToolSourceFromPrepared,
-  prepareOpenApiSpec,
-  type CompiledToolSourceArtifact,
-} from "../../../core/src/tool-sources";
+import { buildOpenApiToolsFromPrepared } from "../../../core/src/openapi/tool-builder";
 import { resolveCredentialPayloadResult } from "../../../core/src/credential-providers";
+import { serializeTools } from "../../../core/src/tool/source-serialization";
 import {
   buildCredentialAuthHeaders,
   buildStaticAuthHeaders,
@@ -27,11 +21,14 @@ import type {
 } from "../../../core/src/tool/source-types";
 import type { ToolSourceRecord } from "../../../core/src/types";
 import { normalizeToolSourceConfig } from "../database/tool_source_config";
+import { readWorkosVaultObjectViaAction } from "./workos_vault_reader";
+import {
+  parseCompiledToolSourceArtifact,
+  type CompiledToolSourceArtifact,
+} from "./tool_source_artifact";
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
-/** Cache version - bump when registry build/type-hint semantics change. */
-const TOOL_SOURCE_CACHE_VERSION = "v26";
 const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v2";
 
 const openApiAuthModeSchema = z.enum(["static", "account", "workspace", "organization"]);
@@ -91,33 +88,17 @@ function toPreparedOpenApiSpec(value: unknown): PreparedOpenApiSpec | null {
   };
 }
 
-export function sourceSignature(
-  workspaceId: string,
-  sources: Array<{
-    id: string;
-    type?: string;
-    scopeType?: string;
-    organizationId?: string;
-    workspaceId?: string;
-    specHash?: string;
-    authFingerprint?: string;
-    updatedAt: number;
-    enabled: boolean;
-  }>,
-): string {
-  const parts = sources
-    .map((source) => {
-      const type = source.type ?? "unknown";
-      const scopeType = source.scopeType ?? "workspace";
-      const org = source.organizationId ?? "";
-      const ws = source.workspaceId ?? "";
-      const specHash = source.specHash ?? "";
-      const authFingerprint = source.authFingerprint ?? "";
-      const enabled = source.enabled ? 1 : 0;
-      return `${source.id}:${type}:${scopeType}:${org}:${ws}:${specHash}:${authFingerprint}:${source.updatedAt}:${enabled}`;
-    })
-    .sort();
-  return `${TOOL_SOURCE_CACHE_VERSION}|${workspaceId}|${parts.join(",")}`;
+function compileOpenApiArtifactFromPrepared(
+  source: OpenApiToolSourceConfig,
+  prepared: PreparedOpenApiSpec,
+): CompiledToolSourceArtifact {
+  const tools = buildOpenApiToolsFromPrepared(source, prepared);
+  return {
+    version: "v1",
+    sourceType: source.type,
+    sourceName: source.name,
+    tools: serializeTools(tools),
+  };
 }
 
 export function normalizeExternalToolSource(raw: {
@@ -259,15 +240,17 @@ async function resolveMcpDiscoveryHeaders(
     };
   }
 
-  const secretResult = await resolveCredentialPayloadResult(record);
-  if (secretResult.isErr()) {
+  const readSecretResult = await resolveCredentialPayloadResult(record, {
+    readVaultObject: async (input) => await readWorkosVaultObjectViaAction(ctx, input),
+  });
+  if (readSecretResult.isErr()) {
     return {
       headers: {},
-      warnings: [`Source '${source.name}': failed to resolve MCP credential for discovery: ${secretResult.error.message}`],
+      warnings: [`Source '${source.name}': failed to resolve MCP credential for discovery: ${readSecretResult.error.message}`],
     };
   }
 
-  const secret = secretResult.value;
+  const secret = readSecretResult.value;
   if (!secret) {
     return {
       headers: {},
@@ -340,7 +323,15 @@ async function loadCachedOpenApiSpec(
     console.warn(`[executor] OpenAPI cache read failed for '${sourceName}': ${message}`);
   }
 
-  const prepared = await prepareOpenApiSpec(specUrl, sourceName, { includeDts });
+  const preparedResponse = await ctx.runAction(internal.runtimeNode.prepareOpenApiSpec, {
+    specUrl,
+    sourceName,
+    includeDts,
+  });
+  const prepared = toPreparedOpenApiSpec(preparedResponse);
+  if (!prepared) {
+    throw new Error(`Prepared OpenAPI payload for '${sourceName}' was invalid`);
+  }
 
   try {
     const json = JSON.stringify(prepared);
@@ -370,7 +361,7 @@ export async function loadSourceArtifact(
   if (source.type === "openapi" && typeof source.spec === "string") {
     try {
       const prepared = await loadCachedOpenApiSpec(ctx, source.spec, source.name, includeDts);
-      const artifact = compileOpenApiToolSourceFromPrepared(source, prepared);
+      const artifact = compileOpenApiArtifactFromPrepared(source, prepared);
       const warnings = (prepared.warnings ?? []).map(
         (warning) => `Source '${source.name}': ${warning}`,
       );
@@ -407,8 +398,14 @@ export async function loadSourceArtifact(
   }
 
   try {
-    const artifact = await compileExternalToolSource(sourceForCompile);
-    return { artifact, warnings: preWarnings };
+    const artifactRaw = await ctx.runAction(internal.runtimeNode.compileExternalToolSource, {
+      source: sourceForCompile as unknown as Record<string, unknown>,
+    });
+    const artifactResult = parseCompiledToolSourceArtifact(artifactRaw);
+    if (artifactResult.isErr()) {
+      throw artifactResult.error;
+    }
+    return { artifact: artifactResult.value, warnings: preWarnings };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {

@@ -497,6 +497,14 @@ export declare const internal: {
       any
     >;
   };
+  credentialsNode: {
+    readVaultObject: FunctionReference<
+      "action",
+      "internal",
+      { apiKey?: string; objectId: string },
+      any
+    >;
+  };
   database: {
     anonymous_session: {
       bootstrapAnonymousSession: FunctionReference<
@@ -1161,6 +1169,32 @@ export declare const internal: {
         storageId: Id<"_storage">;
         version: string;
       },
+      any
+    >;
+  };
+  runtimeNode: {
+    compileExternalToolSource: FunctionReference<
+      "action",
+      "internal",
+      { source: Record<string, any> },
+      any
+    >;
+    dispatchCloudflareWorker: FunctionReference<
+      "action",
+      "internal",
+      { code: string; taskId: string; timeoutMs: number },
+      any
+    >;
+    executeLocalVm: FunctionReference<
+      "action",
+      "internal",
+      { code: string; taskId: string; timeoutMs: number },
+      any
+    >;
+    prepareOpenApiSpec: FunctionReference<
+      "action",
+      "internal",
+      { includeDts?: boolean; sourceName: string; specUrl: string },
       any
     >;
   };

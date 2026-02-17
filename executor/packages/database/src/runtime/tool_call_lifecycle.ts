@@ -1,5 +1,3 @@
-"use node";
-
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type { TaskRecord } from "../../../core/src/types";

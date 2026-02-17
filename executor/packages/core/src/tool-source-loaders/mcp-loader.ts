@@ -1,5 +1,3 @@
-"use node";
-
 import { z } from "zod";
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";

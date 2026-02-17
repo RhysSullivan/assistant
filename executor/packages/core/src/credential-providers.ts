@@ -1,22 +1,15 @@
-"use node";
-
 import { Result } from "better-result";
 import { z } from "zod";
-import {
-  createWorkosClient,
-  parseWorkosVaultReference,
-  withWorkosVaultRetryResult,
-} from "./credentials/workos-vault";
 import type { CredentialProvider, CredentialRecord } from "./types";
 
 type CredentialPayload = Record<string, unknown>;
 
-interface VaultReadInput {
+export interface VaultReadInput {
   objectId: string;
   apiKey?: string;
 }
 
-type VaultObjectReader = (input: VaultReadInput) => Promise<string>;
+export type VaultObjectReader = (input: VaultReadInput) => Promise<string>;
 
 type ProviderResolver = (
   record: Pick<CredentialRecord, "provider" | "secretJson">,
@@ -24,6 +17,11 @@ type ProviderResolver = (
 ) => Promise<Result<CredentialPayload | null, Error>>;
 
 const recordSchema = z.record(z.unknown());
+const workosVaultReferenceSchema = z.object({
+  objectId: z.string().optional(),
+  id: z.string().optional(),
+  apiKey: z.string().optional(),
+});
 
 function coerceRecord(value: unknown): Record<string, unknown> {
   const parsed = recordSchema.safeParse(value);
@@ -33,24 +31,27 @@ function coerceRecord(value: unknown): Record<string, unknown> {
 const envSecretKeySchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
 async function defaultReadVaultObject(input: VaultReadInput): Promise<string> {
-  const workosResult = createWorkosClient(input.apiKey);
-  if (workosResult.isErr()) {
-    throw new Error("WorkOS Vault provider requires WORKOS_API_KEY");
+  throw new Error(
+    `WorkOS Vault reader unavailable for object '${input.objectId}'. Provide a readVaultObject option in this runtime.`,
+  );
+}
+
+function parseWorkosVaultReference(value: unknown): {
+  objectId?: string;
+  apiKey?: string;
+} {
+  const parsed = workosVaultReferenceSchema.safeParse(value);
+  if (!parsed.success) {
+    return {};
   }
 
-  const readResult = await withWorkosVaultRetryResult(async () => {
-    return await workosResult.value.vault.readObject({ id: input.objectId });
-  });
-  if (readResult.isErr()) {
-    throw readResult.error;
-  }
+  const objectId = (parsed.data.objectId ?? parsed.data.id ?? "").trim();
+  const apiKey = (parsed.data.apiKey ?? "").trim();
 
-  const object = readResult.value;
-  const value = typeof object.value === "string" ? object.value : "";
-  if (!value.trim()) {
-    throw new Error(`WorkOS Vault object '${input.objectId}' returned an empty value`);
-  }
-  return value;
+  return {
+    ...(objectId ? { objectId } : {}),
+    ...(apiKey ? { apiKey } : {}),
+  };
 }
 
 function parseSecretValue(raw: string): CredentialPayload {
