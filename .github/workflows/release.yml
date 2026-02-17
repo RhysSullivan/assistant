@@ -120,6 +120,10 @@ jobs:
             executor/dist/release/executor-linux-arm64.tar.gz
             executor/dist/release/executor-darwin-x64.tar.gz
             executor/dist/release/executor-darwin-arm64.tar.gz
+            executor/dist/release/executor-runtime-linux-x64.tar.gz
+            executor/dist/release/executor-runtime-linux-arm64.tar.gz
+            executor/dist/release/executor-runtime-darwin-x64.tar.gz
+            executor/dist/release/executor-runtime-darwin-arm64.tar.gz
             executor/dist/release/executor-web-linux-x64.tar.gz
             executor/dist/release/executor-web-linux-arm64.tar.gz
             executor/dist/release/executor-web-darwin-x64.tar.gz
@@ -145,6 +149,10 @@ jobs:
             executor/dist/release/executor-linux-arm64.tar.gz
             executor/dist/release/executor-darwin-x64.tar.gz
             executor/dist/release/executor-darwin-arm64.tar.gz
+            executor/dist/release/executor-runtime-linux-x64.tar.gz
+            executor/dist/release/executor-runtime-linux-arm64.tar.gz
+            executor/dist/release/executor-runtime-darwin-x64.tar.gz
+            executor/dist/release/executor-runtime-darwin-arm64.tar.gz
             executor/dist/release/executor-web-linux-x64.tar.gz
             executor/dist/release/executor-web-linux-arm64.tar.gz
             executor/dist/release/executor-web-darwin-x64.tar.gz
