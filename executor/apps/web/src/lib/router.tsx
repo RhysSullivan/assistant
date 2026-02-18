@@ -1,4 +1,4 @@
-import { useMemo, type ComponentProps } from "react";
+import { type ComponentProps } from "react";
 import {
   Link as TanStackLink,
   Navigate as TanStackNavigate,
@@ -23,16 +23,6 @@ export function useNavigate() {
 
 export function useLocation() {
   return useTanStackLocation();
-}
-
-export function useSearchParams(): readonly [URLSearchParams] {
-  const location = useTanStackLocation();
-
-  const searchParams = useMemo(() => {
-    return new URLSearchParams(location.searchStr);
-  }, [location.searchStr]);
-
-  return [searchParams] as const;
 }
 
 type LinkProps = ComponentProps<typeof TanStackLink> & {

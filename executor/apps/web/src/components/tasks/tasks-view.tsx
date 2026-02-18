@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useNavigate, useSearchParams } from "@/lib/router";
+import { useCallback } from "react";
+import { useQueryStates } from "nuqs";
+import { useNavigate } from "@/lib/router";
 import { ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,14 +22,21 @@ import type {
   PendingApprovalRecord,
 } from "@/lib/types";
 import { getTaskRuntimeLabel } from "@/lib/runtime-display";
+import {
+  normalizeTaskTab,
+  taskQueryParsers,
+  type TaskTab,
+} from "@/lib/url-state/tasks";
 // ── Tasks View ──
 
 export function TasksView() {
   const { context, loading: sessionLoading } = useSession();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<"activity" | "runner">("activity");
-  const selectedId = searchParams.get("selected");
+  const [taskQueryState, setTaskQueryState] = useQueryStates(taskQueryParsers, {
+    history: "replace",
+  });
+  const activeTab = taskQueryState.tab;
+  const selectedId = taskQueryState.selected;
 
   const tasks = useQuery(
     convexApi.workspace.listTasks,
@@ -52,13 +60,17 @@ export function TasksView() {
 
   const selectTask = useCallback(
     (taskId: string | null) => {
-      if (taskId) {
-        navigate(`/tasks?selected=${taskId}`);
-      } else {
-        navigate("/tasks");
-      }
+      void setTaskQueryState({ selected: taskId }, { history: "replace" });
     },
-    [navigate],
+    [setTaskQueryState],
+  );
+
+  const setActiveTab = useCallback(
+    (nextTab: string) => {
+      const normalized = normalizeTaskTab(nextTab);
+      void setTaskQueryState({ tab: normalized }, { history: "push" });
+    },
+    [setTaskQueryState],
   );
 
   if (sessionLoading) {
@@ -85,7 +97,7 @@ export function TasksView() {
         </Button>
       </PageHeader>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "activity" | "runner")}>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TaskTab)}>
         <TabsList className="bg-muted/50 h-9">
           <TabsTrigger value="activity" className="text-xs data-[state=active]:bg-background">
             Activity

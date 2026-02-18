@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "@/lib/router";
+import { parseAsString, useQueryStates } from "nuqs";
+import { Link } from "@/lib/router";
 import { useMutation } from "convex/react";
 import { ChevronsUpDown, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,12 @@ export function SessionInfo() {
     workspaces,
     resetWorkspace,
   } = useSession();
-  const [searchParams] = useSearchParams();
+  const [queryState] = useQueryStates({
+    organization_id: parseAsString,
+    login_hint: parseAsString,
+  }, {
+    history: "replace",
+  });
   const deleteCurrentAccountMutation = useMutation(convexApi.accounts.deleteCurrentAccount);
   const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -51,16 +57,11 @@ export function SessionInfo() {
     : null;
   const inferredOrganizationId = activeWorkspace?.organizationId ?? undefined;
   const hintedOrganizationId =
-    searchParams.get("organization_id")
-    ?? searchParams.get("organizationId")
-    ?? searchParams.get("org_id")
-    ?? searchParams.get("orgId")
+    queryState.organization_id
     ?? inferredOrganizationId
     ?? undefined;
   const hintedLogin =
-    searchParams.get("login_hint")
-    ?? searchParams.get("loginHint")
-    ?? searchParams.get("email")
+    queryState.login_hint
     ?? undefined;
   const signInParams = new URLSearchParams();
   if (hintedOrganizationId) {

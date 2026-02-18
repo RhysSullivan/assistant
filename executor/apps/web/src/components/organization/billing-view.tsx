@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useSearchParams } from "@/lib/router";
+import { parseAsBoolean, useQueryStates } from "nuqs";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { AlertTriangle, BadgeCheck, CreditCard, RefreshCcw } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -51,7 +51,12 @@ function formatTimestamp(value: number | null | undefined): string {
 
 export function BillingView({ showHeader = true }: BillingViewProps) {
   const { context, organizations, organizationsLoading, workspaces } = useSession();
-  const [searchParams] = useSearchParams();
+  const [billingQueryState] = useQueryStates({
+    success: parseAsBoolean.withDefault(false),
+    canceled: parseAsBoolean.withDefault(false),
+  }, {
+    history: "replace",
+  });
   const [actionState, setActionState] = useState<"idle" | "running" | "success" | "error">("idle");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [priceId, setPriceId] = useState(() => readRuntimeConfig().stripePriceId ?? "");
@@ -84,8 +89,8 @@ export function BillingView({ showHeader = true }: BillingViewProps) {
   const createCustomerPortal = useAction(convexApi.billing.createCustomerPortal);
   const retrySeatSync = useMutation(convexApi.billing.retrySeatSync);
 
-  const checkoutSuccess = searchParams.get("success") === "true";
-  const checkoutCanceled = searchParams.get("canceled") === "true";
+  const checkoutSuccess = billingQueryState.success;
+  const checkoutCanceled = billingQueryState.canceled;
 
   const handleStartCheckout = async () => {
     if (!effectiveOrganizationId || !canManageBilling) {

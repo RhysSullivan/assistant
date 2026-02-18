@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { parseAsNativeArrayOf, parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
-import { useLocation, useNavigate } from "@/lib/router";
+import { useQueryStates } from "nuqs";
+import { useNavigate as useTanStackNavigate } from "@tanstack/react-router";
+import { useLocation } from "@/lib/router";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,6 +31,7 @@ import { sourceLabel } from "@/lib/tool/source-utils";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 import type { SourceDialogMeta } from "@/components/tools/add/source-dialog";
 import type { FilterApproval } from "@/components/tools/explorer-derived";
+import { toolsCatalogQueryParsers } from "@/lib/url-state/tools";
 
 // ── Optimistic source helpers ──
 
@@ -106,14 +108,6 @@ function parseToolsTab(pathname: string): ToolsTab {
   return "catalog";
 }
 
-function normalizeCatalogApprovalFilter(value: string | null): FilterApproval {
-  if (value === "required" || value === "auto") {
-    return value;
-  }
-
-  return "all";
-}
-
 function toolsPathFromTab(tab: ToolsTab): string {
   if (tab === "catalog") {
     return "/tools/catalog";
@@ -134,26 +128,16 @@ function mapEmptyQueryValueToNull(value: string): string | null {
 // ── Tools View ──
 
 export function ToolsView() {
-  const navigate = useNavigate();
+  const navigate = useTanStackNavigate();
   const location = useLocation();
   const { context, loading: sessionLoading } = useSession();
   const activeTab = useMemo(() => parseToolsTab(location.pathname), [location.pathname]);
-  const [catalogQueryState, setCatalogQueryState] = useQueryStates({
-    q: parseAsString.withDefault(""),
-    approval: parseAsStringLiteral(["all", "required", "auto"]).withDefault("all"),
-    tool: parseAsString.withDefault(""),
-    selected: parseAsNativeArrayOf(parseAsString),
-    source: parseAsString.withDefault(""),
-    sourcePanel: parseAsString.withDefault(""),
-  }, {
+  const [catalogQueryState, setCatalogQueryState] = useQueryStates(toolsCatalogQueryParsers, {
     history: "replace",
   });
 
   const catalogSearchValue = catalogQueryState.q;
-  const catalogFilterValue = useMemo(
-    () => normalizeCatalogApprovalFilter(catalogQueryState.approval),
-    [catalogQueryState.approval],
-  );
+  const catalogFilterValue = catalogQueryState.approval as FilterApproval;
   const catalogSourceValue = useMemo(() => mapEmptyQueryValueToNull(catalogQueryState.source), [catalogQueryState.source]);
   const catalogActiveToolPath = mapEmptyQueryValueToNull(catalogQueryState.tool);
   const catalogSelectedToolPaths = useMemo(
@@ -455,9 +439,8 @@ export function ToolsView() {
 
   const setActiveTab = useCallback((nextTab: ToolsTab) => {
     const nextPath = toolsPathFromTab(nextTab);
-    const qs = location.searchStr;
-    navigate(qs ? `${nextPath}?${qs}` : nextPath);
-  }, [location.searchStr, navigate]);
+    void navigate({ to: nextPath, search: true });
+  }, [navigate]);
 
   const handleRegenerateInventory = useCallback(async () => {
     if (!context || regenerationInFlight) {

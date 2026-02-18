@@ -41,12 +41,7 @@ function appendAuthkitPassthroughQueryParams(requestUrl: URL, authorizationUrl: 
 }
 
 async function resolveOrganizationHint(requestUrl: URL): Promise<string | undefined> {
-  const organizationHint = readOptionalQueryParam(requestUrl, [
-    "organizationId",
-    "organization_id",
-    "orgId",
-    "org_id",
-  ]);
+  const organizationHint = readOptionalQueryParam(requestUrl, ["organization_id"]);
 
   if (!organizationHint) {
     return undefined;
@@ -78,17 +73,17 @@ async function handleSignUp(request: Request): Promise<Response> {
 
   const requestUrl = new URL(request.url);
   const oauthRedirectUri =
-    readOptionalQueryParam(requestUrl, ["redirect_uri", "redirectUri"])
-    ?? readOptionalReferrerQueryParam(request, ["redirect_uri", "redirectUri"]);
+    readOptionalQueryParam(requestUrl, ["redirect_uri"])
+    ?? readOptionalReferrerQueryParam(request, ["redirect_uri"]);
   const oauthState =
     readOptionalQueryParam(requestUrl, ["state"])
     ?? readOptionalReferrerQueryParam(request, ["state"]);
   const oauthClientId =
-    readOptionalQueryParam(requestUrl, ["client_id", "clientId"])
-    ?? readOptionalReferrerQueryParam(request, ["client_id", "clientId"]);
+    readOptionalQueryParam(requestUrl, ["client_id"])
+    ?? readOptionalReferrerQueryParam(request, ["client_id"]);
   const redirectUri = oauthRedirectUri ?? `${externalOriginFromRequest(request)}/callback`;
   const organizationId = await resolveOrganizationHint(requestUrl);
-  const loginHint = readOptionalQueryParam(requestUrl, ["loginHint", "login_hint", "email"]);
+  const loginHint = readOptionalQueryParam(requestUrl, ["login_hint"]);
 
   const authkit = await getAuthkit();
   const baseAuthorizationUrl = await authkit.getSignUpUrl({

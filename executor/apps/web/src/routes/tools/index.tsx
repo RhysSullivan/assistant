@@ -1,18 +1,16 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Navigate, createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
-import { Navigate, useLocation } from "@/lib/router";
+import { normalizeToolsSearch } from "@/lib/url-state/tools";
 
 export const Route = createFileRoute("/tools/")({
+  validateSearch: (search: Record<string, unknown>) => normalizeToolsSearch(search),
   component: ToolsLayout,
 });
 
 function ToolsLayout() {
-  const location = useLocation();
-  const search = location.searchStr ? `?${location.searchStr}` : "";
-
   return (
     <AppShell>
-      <Navigate to={`/tools/catalog${search}`} replace />
+      <Navigate to="/tools/catalog" search={true} replace />
     </AppShell>
   );
 }

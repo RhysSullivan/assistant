@@ -1,33 +1,28 @@
 "use client";
 
-import { useMemo } from "react";
-import { useLocation, useNavigate, useSearchParams } from "@/lib/router";
+import { useCallback } from "react";
+import { useQueryStates } from "nuqs";
 import { CreditCard, Users } from "lucide-react";
 import { BillingView } from "@/components/organization/billing-view";
 import { MembersView } from "@/components/organization/members-view";
 import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-type OrganizationTab = "members" | "billing";
-
-function normalizeTab(value: string | null): OrganizationTab {
-  return value === "billing" ? "billing" : "members";
-}
+import {
+  normalizeOrganizationTab,
+  organizationQueryParsers,
+  type OrganizationTab,
+} from "@/lib/url-state/organization";
 
 export function OrganizationSettingsView() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const pathname = location.pathname;
-  const [searchParams] = useSearchParams();
+  const [organizationQueryState, setOrganizationQueryState] = useQueryStates(organizationQueryParsers, {
+    history: "replace",
+  });
+  const tab = organizationQueryState.tab;
 
-  const tab = useMemo(() => normalizeTab(searchParams.get("tab")), [searchParams]);
-
-  const setTab = (nextTab: string) => {
-    const normalizedTab = normalizeTab(nextTab);
-    const nextSearch = new URLSearchParams(searchParams.toString());
-    nextSearch.set("tab", normalizedTab);
-    navigate(`${pathname}?${nextSearch.toString()}`, { replace: true });
-  };
+  const setTab = useCallback((nextTab: string) => {
+    const normalizedTab = normalizeOrganizationTab(nextTab);
+    void setOrganizationQueryState({ tab: normalizedTab }, { history: "replace" });
+  }, [setOrganizationQueryState]);
 
   return (
     <div className="space-y-6">
@@ -36,7 +31,7 @@ export function OrganizationSettingsView() {
         description="Manage organization-level members, invites, and billing"
       />
 
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={(value) => setTab(value as OrganizationTab)}>
         <TabsList>
           <TabsTrigger value="members">
             <Users className="h-4 w-4" />
