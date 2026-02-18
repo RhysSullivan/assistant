@@ -25,15 +25,15 @@ export {
 export { bootstrapAnonymousSession } from "./database/anonymous_session";
 export {
   listRuntimeTargets,
-  upsertToolRole,
-  listToolRoles,
-  deleteToolRole,
-  upsertToolRoleRule,
-  listToolRoleRules,
-  deleteToolRoleRule,
-  upsertToolRoleBinding,
-  listToolRoleBindings,
-  deleteToolRoleBinding,
+  upsertToolPolicySet,
+  listToolPolicySets,
+  deleteToolPolicySet,
+  upsertToolPolicyRule,
+  listToolPolicyRules,
+  deleteToolPolicyRule,
+  upsertToolPolicyAssignment,
+  listToolPolicyAssignments,
+  deleteToolPolicyAssignment,
   listToolPolicies,
 } from "./database/policies";
 export {

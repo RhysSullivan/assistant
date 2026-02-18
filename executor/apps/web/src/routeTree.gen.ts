@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as StaticAppShellRouteImport } from './routes/static-app-shell'
 import { Route as SignUpRouteImport } from './routes/sign-up'
@@ -25,6 +24,11 @@ import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as BillingRouteImport } from './routes/billing'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ToolsIndexRouteImport } from './routes/tools/index'
+import { Route as ToolsPoliciesRouteImport } from './routes/tools/policies'
+import { Route as ToolsEditorRouteImport } from './routes/tools/editor'
+import { Route as ToolsConnectionsRouteImport } from './routes/tools/connections'
+import { Route as ToolsCatalogRouteImport } from './routes/tools/catalog'
 import { Route as McpOauthStartRouteImport } from './routes/mcp/oauth/start'
 import { Route as McpOauthResultRouteImport } from './routes/mcp/oauth/result'
 import { Route as McpOauthDetectRouteImport } from './routes/mcp/oauth/detect'
@@ -34,11 +38,6 @@ import { Route as ApiOpenapiInspectRouteImport } from './routes/api/openapi/insp
 import { Route as ApiAuthCallbackRouteImport } from './routes/api/auth/callback'
 import { Route as ApiAuthAnonymousTokenRouteImport } from './routes/api/auth/anonymous-token'
 
-const ToolsRoute = ToolsRouteImport.update({
-  id: '/tools',
-  path: '/tools',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
@@ -114,6 +113,31 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ToolsIndexRoute = ToolsIndexRouteImport.update({
+  id: '/tools/',
+  path: '/tools/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsPoliciesRoute = ToolsPoliciesRouteImport.update({
+  id: '/tools/policies',
+  path: '/tools/policies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsEditorRoute = ToolsEditorRouteImport.update({
+  id: '/tools/editor',
+  path: '/tools/editor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsConnectionsRoute = ToolsConnectionsRouteImport.update({
+  id: '/tools/connections',
+  path: '/tools/connections',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsCatalogRoute = ToolsCatalogRouteImport.update({
+  id: '/tools/catalog',
+  path: '/tools/catalog',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const McpOauthStartRoute = McpOauthStartRouteImport.update({
   id: '/mcp/oauth/start',
   path: '/mcp/oauth/start',
@@ -171,7 +195,11 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/static-app-shell': typeof StaticAppShellRoute
   '/tasks': typeof TasksRoute
-  '/tools': typeof ToolsRoute
+  '/tools/catalog': typeof ToolsCatalogRoute
+  '/tools/connections': typeof ToolsConnectionsRoute
+  '/tools/editor': typeof ToolsEditorRoute
+  '/tools/policies': typeof ToolsPoliciesRoute
+  '/tools/': typeof ToolsIndexRoute
   '/api/auth/anonymous-token': typeof ApiAuthAnonymousTokenRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/openapi/inspect': typeof ApiOpenapiInspectRoute
@@ -197,7 +225,11 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/static-app-shell': typeof StaticAppShellRoute
   '/tasks': typeof TasksRoute
-  '/tools': typeof ToolsRoute
+  '/tools/catalog': typeof ToolsCatalogRoute
+  '/tools/connections': typeof ToolsConnectionsRoute
+  '/tools/editor': typeof ToolsEditorRoute
+  '/tools/policies': typeof ToolsPoliciesRoute
+  '/tools': typeof ToolsIndexRoute
   '/api/auth/anonymous-token': typeof ApiAuthAnonymousTokenRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/openapi/inspect': typeof ApiOpenapiInspectRoute
@@ -224,7 +256,11 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/static-app-shell': typeof StaticAppShellRoute
   '/tasks': typeof TasksRoute
-  '/tools': typeof ToolsRoute
+  '/tools/catalog': typeof ToolsCatalogRoute
+  '/tools/connections': typeof ToolsConnectionsRoute
+  '/tools/editor': typeof ToolsEditorRoute
+  '/tools/policies': typeof ToolsPoliciesRoute
+  '/tools/': typeof ToolsIndexRoute
   '/api/auth/anonymous-token': typeof ApiAuthAnonymousTokenRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/openapi/inspect': typeof ApiOpenapiInspectRoute
@@ -252,7 +288,11 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/static-app-shell'
     | '/tasks'
-    | '/tools'
+    | '/tools/catalog'
+    | '/tools/connections'
+    | '/tools/editor'
+    | '/tools/policies'
+    | '/tools/'
     | '/api/auth/anonymous-token'
     | '/api/auth/callback'
     | '/api/openapi/inspect'
@@ -278,6 +318,10 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/static-app-shell'
     | '/tasks'
+    | '/tools/catalog'
+    | '/tools/connections'
+    | '/tools/editor'
+    | '/tools/policies'
     | '/tools'
     | '/api/auth/anonymous-token'
     | '/api/auth/callback'
@@ -304,7 +348,11 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/static-app-shell'
     | '/tasks'
-    | '/tools'
+    | '/tools/catalog'
+    | '/tools/connections'
+    | '/tools/editor'
+    | '/tools/policies'
+    | '/tools/'
     | '/api/auth/anonymous-token'
     | '/api/auth/callback'
     | '/api/openapi/inspect'
@@ -331,7 +379,11 @@ export interface RootRouteChildren {
   SignUpRoute: typeof SignUpRoute
   StaticAppShellRoute: typeof StaticAppShellRoute
   TasksRoute: typeof TasksRoute
-  ToolsRoute: typeof ToolsRoute
+  ToolsCatalogRoute: typeof ToolsCatalogRoute
+  ToolsConnectionsRoute: typeof ToolsConnectionsRoute
+  ToolsEditorRoute: typeof ToolsEditorRoute
+  ToolsPoliciesRoute: typeof ToolsPoliciesRoute
+  ToolsIndexRoute: typeof ToolsIndexRoute
   ApiAuthAnonymousTokenRoute: typeof ApiAuthAnonymousTokenRoute
   ApiAuthCallbackRoute: typeof ApiAuthCallbackRoute
   ApiOpenapiInspectRoute: typeof ApiOpenapiInspectRoute
@@ -344,13 +396,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/tools': {
-      id: '/tools'
-      path: '/tools'
-      fullPath: '/tools'
-      preLoaderRoute: typeof ToolsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/tasks': {
       id: '/tasks'
       path: '/tasks'
@@ -456,6 +501,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tools/': {
+      id: '/tools/'
+      path: '/tools'
+      fullPath: '/tools/'
+      preLoaderRoute: typeof ToolsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/policies': {
+      id: '/tools/policies'
+      path: '/tools/policies'
+      fullPath: '/tools/policies'
+      preLoaderRoute: typeof ToolsPoliciesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/editor': {
+      id: '/tools/editor'
+      path: '/tools/editor'
+      fullPath: '/tools/editor'
+      preLoaderRoute: typeof ToolsEditorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/connections': {
+      id: '/tools/connections'
+      path: '/tools/connections'
+      fullPath: '/tools/connections'
+      preLoaderRoute: typeof ToolsConnectionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools/catalog': {
+      id: '/tools/catalog'
+      path: '/tools/catalog'
+      fullPath: '/tools/catalog'
+      preLoaderRoute: typeof ToolsCatalogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/mcp/oauth/start': {
       id: '/mcp/oauth/start'
       path: '/mcp/oauth/start'
@@ -531,7 +611,11 @@ const rootRouteChildren: RootRouteChildren = {
   SignUpRoute: SignUpRoute,
   StaticAppShellRoute: StaticAppShellRoute,
   TasksRoute: TasksRoute,
-  ToolsRoute: ToolsRoute,
+  ToolsCatalogRoute: ToolsCatalogRoute,
+  ToolsConnectionsRoute: ToolsConnectionsRoute,
+  ToolsEditorRoute: ToolsEditorRoute,
+  ToolsPoliciesRoute: ToolsPoliciesRoute,
+  ToolsIndexRoute: ToolsIndexRoute,
   ApiAuthAnonymousTokenRoute: ApiAuthAnonymousTokenRoute,
   ApiAuthCallbackRoute: ApiAuthCallbackRoute,
   ApiOpenapiInspectRoute: ApiOpenapiInspectRoute,

@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { parseAsNativeArrayOf, parseAsString, parseAsStringLiteral, useQueryStates } from "nuqs";
+import { useLocation, useNavigate } from "@/lib/router";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,6 +29,7 @@ import {
 import { sourceLabel } from "@/lib/tool/source-utils";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 import type { SourceDialogMeta } from "@/components/tools/add/source-dialog";
+import type { FilterApproval } from "@/components/tools/explorer-derived";
 
 // ── Optimistic source helpers ──
 
@@ -80,34 +83,87 @@ function pruneStaleOps(
   });
 }
 
-type ToolsTab = "catalog" | "credentials" | "policies" | "editor";
+type ToolsTab = "catalog" | "connections" | "policies" | "editor";
 const INVENTORY_REGENERATION_TOAST_ID = "tool-inventory-regeneration";
 
-function parseInitialTab(tab?: string | null): ToolsTab {
-  if (tab === "runner" || tab === "editor") {
-    return "editor";
+function parseToolsTab(pathname: string): ToolsTab {
+  const segments = pathname.split("/").filter(Boolean);
+  const last = segments.at(-1);
+
+  if (last === "catalog") {
+    return "catalog";
   }
-  if (tab === "catalog" || tab === "credentials") {
-    return tab;
+  if (last === "connections" || last === "credentials") {
+    return "connections";
   }
-  if (tab === "policies") {
+  if (last === "policies") {
     return "policies";
   }
+  if (last === "editor" || last === "runner") {
+    return "editor";
+  }
+
   return "catalog";
+}
+
+function normalizeCatalogApprovalFilter(value: string | null): FilterApproval {
+  if (value === "required" || value === "auto") {
+    return value;
+  }
+
+  return "all";
+}
+
+function toolsPathFromTab(tab: ToolsTab): string {
+  if (tab === "catalog") {
+    return "/tools/catalog";
+  }
+  if (tab === "connections") {
+    return "/tools/connections";
+  }
+  if (tab === "policies") {
+    return "/tools/policies";
+  }
+  return "/tools/editor";
+}
+
+function mapEmptyQueryValueToNull(value: string): string | null {
+  return value.length > 0 ? value : null;
 }
 
 // ── Tools View ──
 
-export function ToolsView({
-  initialSource,
-  initialTab,
-}: {
-  initialSource?: string | null;
-  initialTab?: string | null;
-}) {
+export function ToolsView() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { context, loading: sessionLoading } = useSession();
-  const [selectedSource, setSelectedSource] = useState<string | null>(initialSource ?? null);
-  const [activeTab, setActiveTab] = useState<ToolsTab>(parseInitialTab(initialTab));
+  const activeTab = useMemo(() => parseToolsTab(location.pathname), [location.pathname]);
+  const [catalogQueryState, setCatalogQueryState] = useQueryStates({
+    q: parseAsString.withDefault(""),
+    approval: parseAsStringLiteral(["all", "required", "auto"]).withDefault("all"),
+    tool: parseAsString.withDefault(""),
+    selected: parseAsNativeArrayOf(parseAsString),
+    source: parseAsString.withDefault(""),
+    sourcePanel: parseAsString.withDefault(""),
+  }, {
+    history: "replace",
+  });
+
+  const catalogSearchValue = catalogQueryState.q;
+  const catalogFilterValue = useMemo(
+    () => normalizeCatalogApprovalFilter(catalogQueryState.approval),
+    [catalogQueryState.approval],
+  );
+  const catalogSourceValue = useMemo(() => mapEmptyQueryValueToNull(catalogQueryState.source), [catalogQueryState.source]);
+  const catalogActiveToolPath = mapEmptyQueryValueToNull(catalogQueryState.tool);
+  const catalogSelectedToolPaths = useMemo(
+    () => catalogQueryState.selected ?? [],
+    [catalogQueryState.selected],
+  );
+  const catalogFocusedSourceName = useMemo(
+    () => mapEmptyQueryValueToNull(catalogQueryState.sourcePanel),
+    [catalogQueryState.sourcePanel],
+  );
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [connectionDialogEditing, setConnectionDialogEditing] = useState<CredentialRecord | null>(null);
   const [connectionDialogSourceKey, setConnectionDialogSourceKey] = useState<string | null>(null);
@@ -316,6 +372,7 @@ export function ToolsView({
 
   const existingSourceNames = useMemo(() => new Set(sourceItems.map((source) => source.name)), [sourceItems]);
   const warningsBySource = useMemo(() => warningsBySourceName(warnings), [warnings]);
+
   const sourceDialogMeta = useMemo(() => {
     const bySource: Record<string, SourceDialogMeta> = {};
     for (const source of sourceItems) {
@@ -328,10 +385,10 @@ export function ToolsView({
     }
     return bySource;
   }, [sourceItems, sourceQuality, refreshingTools, warningsBySource]);
-  const activeSource = selectedSource
-    && (sourceItems.some((source) => source.name === selectedSource) || toolSourceNames.has(selectedSource))
-    ? selectedSource
-    : null;
+  const activeSource = catalogSourceValue
+    && (sourceItems.some((source) => source.name === catalogSourceValue) || toolSourceNames.has(catalogSourceValue))
+      ? catalogSourceValue
+      : null;
 
   const handleSourceAdded = useCallback((source: ToolSourceRecord) => {
     setOptimisticOps((ops) => [
@@ -340,13 +397,67 @@ export function ToolsView({
     ]);
   }, []);
 
+  const syncSourceToUrl = useCallback((sourceName: string) => {
+    void setCatalogQueryState({
+      source: sourceName,
+    }, {
+      history: "replace",
+    });
+  }, [setCatalogQueryState]);
+
   const handleSourceDeleted = useCallback((sourceName: string) => {
     setOptimisticOps((ops) => [
       ...ops,
       { kind: "remove", sourceName, removedAt: Date.now() },
     ]);
-    setSelectedSource((current) => (current === sourceName ? null : current));
-  }, []);
+    syncSourceToUrl(activeSource === sourceName ? "" : (activeSource ?? ""));
+  }, [activeSource, syncSourceToUrl]);
+
+  const setCatalogSearch = useCallback((search: string) => {
+    void setCatalogQueryState({
+      q: search,
+    }, {
+      history: "replace",
+    });
+  }, [setCatalogQueryState]);
+
+  const setCatalogApprovalFilter = useCallback((filterApproval: FilterApproval) => {
+    void setCatalogQueryState({
+      approval: filterApproval,
+    }, {
+      history: "replace",
+    });
+  }, [setCatalogQueryState]);
+
+  const setCatalogActiveToolPath = useCallback((toolPath: string | null) => {
+    void setCatalogQueryState({
+      tool: toolPath ?? "",
+    }, {
+      history: "replace",
+    });
+  }, [setCatalogQueryState]);
+
+  const setCatalogSelectedToolPaths = useCallback((toolPaths: string[]) => {
+    void setCatalogQueryState({
+      selected: toolPaths,
+    }, {
+      history: "replace",
+    });
+  }, [setCatalogQueryState]);
+
+  const setCatalogFocusedSourceName = useCallback((sourceName: string | null) => {
+    void setCatalogQueryState({
+      sourcePanel: sourceName ?? "",
+    }, {
+      history: "replace",
+    });
+  }, [setCatalogQueryState]);
+
+  const setActiveTab = useCallback((nextTab: ToolsTab) => {
+    const nextPath = toolsPathFromTab(nextTab);
+    const qs = location.searchStr;
+    navigate(qs ? `${nextPath}?${qs}` : nextPath);
+  }, [location.searchStr, navigate]);
 
   const handleRegenerateInventory = useCallback(async () => {
     if (!context || regenerationInFlight) {
@@ -442,7 +553,7 @@ export function ToolsView({
               {loadingTools ? "..." : totalTools}
             </span>
           </TabsTrigger>
-          <TabsTrigger value="credentials" className="text-xs data-[state=active]:bg-background">
+          <TabsTrigger value="connections" className="text-xs data-[state=active]:bg-background">
             Connections
             {credentials && (
               <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
@@ -478,16 +589,24 @@ export function ToolsView({
                   sourceHasMoreTools={sourceHasMoreTools}
                   sourceLoadingMoreTools={sourceLoadingMoreTools}
                   onLoadMoreToolsForSource={loadMoreToolsForSource}
-                  loading={loadingTools}
-                  sourceDialogMeta={sourceDialogMeta}
-                  sourceAuthProfiles={sourceAuthProfiles}
-                  existingSourceNames={existingSourceNames}
-                  onSourceDeleted={handleSourceDeleted}
-                  onLoadToolDetails={loadToolDetails}
-                  warnings={warnings}
-                  initialSource={initialSource}
-                  activeSource={activeSource}
-                  onActiveSourceChange={setSelectedSource}
+                   loading={loadingTools}
+                   sourceDialogMeta={sourceDialogMeta}
+                   sourceAuthProfiles={sourceAuthProfiles}
+                   existingSourceNames={existingSourceNames}
+                   onSourceDeleted={handleSourceDeleted}
+                   onLoadToolDetails={loadToolDetails}
+                   warnings={warnings}
+                   activeSource={activeSource}
+                   searchValue={catalogSearchValue}
+                  filterApprovalValue={catalogFilterValue}
+                  focusedToolPathValue={catalogActiveToolPath}
+                  selectedToolPathsValue={catalogSelectedToolPaths}
+                  focusedSourceNameValue={catalogFocusedSourceName}
+                  onSearchValueChange={setCatalogSearch}
+                  onFilterApprovalValueChange={setCatalogApprovalFilter}
+                  onFocusedToolPathChange={setCatalogActiveToolPath}
+                  onSelectedToolPathsChange={setCatalogSelectedToolPaths}
+                  onFocusedSourceNameChange={setCatalogFocusedSourceName}
                   onRegenerate={handleRegenerateInventory}
                   inventoryState={inventoryStatus?.state}
                   inventoryError={inventoryStatus?.error}
@@ -503,7 +622,7 @@ export function ToolsView({
           </Card>
         </TabsContent>
 
-        <TabsContent value="credentials" className="mt-4">
+        <TabsContent value="connections" className="mt-4">
           <CredentialsPanel
             sources={sourceItems}
             credentials={credentialItems}

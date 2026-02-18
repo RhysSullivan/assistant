@@ -53,9 +53,9 @@ import type {
   ArgumentCondition,
   ArgumentConditionOperator,
   ToolDescriptor,
-  ToolRoleBindingRecord,
-  ToolRoleRuleRecord,
-  ToolRoleRecord,
+  ToolPolicyAssignmentRecord,
+  ToolPolicyRuleRecord,
+  ToolPolicySetRecord,
 } from "@/lib/types";
 import type { Id } from "@executor/database/convex/_generated/dataModel";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
@@ -94,20 +94,20 @@ interface RoleFormState {
 }
 
 interface RoleRuleFormState {
-  selectorType: ToolRoleRuleRecord["selectorType"];
+  selectorType: ToolPolicyRuleRecord["selectorType"];
   sourceKey: string;
   resourcePattern: string;
-  matchType: ToolRoleRuleRecord["matchType"];
-  effect: ToolRoleRuleRecord["effect"];
-  approvalMode: ToolRoleRuleRecord["approvalMode"];
+  matchType: ToolPolicyRuleRecord["matchType"];
+  effect: ToolPolicyRuleRecord["effect"];
+  approvalMode: ToolPolicyRuleRecord["approvalMode"];
   priority: string;
 }
 
 interface RoleBindingFormState {
-  scopeType: ToolRoleBindingRecord["scopeType"];
+  scopeType: ToolPolicyAssignmentRecord["scopeType"];
   targetAccountId: string;
   clientId: string;
-  status: ToolRoleBindingRecord["status"];
+  status: ToolPolicyAssignmentRecord["status"];
 }
 
 interface OrganizationMemberListItem {
@@ -343,7 +343,7 @@ function isDirectToolPolicy(policy: ToolPolicyRecord): boolean {
   );
 }
 
-function roleRulePattern(rule: ToolRoleRuleRecord): string {
+function roleRulePattern(rule: ToolPolicyRuleRecord): string {
   if (rule.selectorType === "all") return "*";
   if (rule.selectorType === "source") return rule.sourceKey ?? "";
   if (rule.selectorType === "namespace") return rule.namespacePattern ?? "";
@@ -837,7 +837,7 @@ function PolicyCard({
                 </button>
               </TooltipTrigger>
               <TooltipContent side="left" className="text-xs">
-                {canDelete ? "Delete policy" : "Role-managed policy (delete from roles)"}
+                {canDelete ? "Delete policy" : "Policy-set-managed policy (delete from policy sets)"}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -869,12 +869,12 @@ export function PoliciesPanel({
 
   const listArgs = workspaceQueryArgs(context);
   const policiesQuery = useQuery(convexApi.workspace.listToolPolicies, listArgs);
-  const upsertToolRole = useMutation(convexApi.workspace.upsertToolRole);
-  const upsertToolRoleRule = useMutation(convexApi.workspace.upsertToolRoleRule);
-  const upsertToolRoleBinding = useMutation(convexApi.workspace.upsertToolRoleBinding);
-  const deleteToolRole = useMutation(convexApi.workspace.deleteToolRole);
-  const deleteToolRoleRule = useMutation(convexApi.workspace.deleteToolRoleRule);
-  const deleteToolRoleBinding = useMutation(convexApi.workspace.deleteToolRoleBinding);
+  const upsertToolPolicySet = useMutation(convexApi.workspace.upsertToolPolicySet);
+  const upsertToolPolicyRule = useMutation(convexApi.workspace.upsertToolPolicyRule);
+  const upsertToolPolicyAssignment = useMutation(convexApi.workspace.upsertToolPolicyAssignment);
+  const deleteToolPolicySet = useMutation(convexApi.workspace.deleteToolPolicySet);
+  const deleteToolPolicyRule = useMutation(convexApi.workspace.deleteToolPolicyRule);
+  const deleteToolPolicyAssignment = useMutation(convexApi.workspace.deleteToolPolicyAssignment);
 
   const loading = Boolean(context) && policiesQuery === undefined;
   const policies = useMemo(() => (policiesQuery ?? []) as ToolPolicyRecord[], [policiesQuery]);
@@ -902,10 +902,10 @@ export function PoliciesPanel({
   const canManageRoles = selfMembership?.role === "owner" || selfMembership?.role === "admin";
 
   const rolesQuery = useQuery(
-    convexApi.workspace.listToolRoles,
+    convexApi.workspace.listToolPolicySets,
     context && canManageRoles ? listArgs : "skip",
   );
-  const roleItems = useMemo(() => ((rolesQuery ?? []) as ToolRoleRecord[]), [rolesQuery]);
+  const roleItems = useMemo(() => ((rolesQuery ?? []) as ToolPolicySetRecord[]), [rolesQuery]);
   const activeRoleId = useMemo(() => {
     if (!canManageRoles) {
       return null;
@@ -919,13 +919,13 @@ export function PoliciesPanel({
   }, [canManageRoles, roleItems, selectedRoleId]);
 
   const bindingsQuery = useQuery(
-    convexApi.workspace.listToolRoleBindings,
+    convexApi.workspace.listToolPolicyAssignments,
     context && canManageRoles ? listArgs : "skip",
   );
-  const bindingItems = useMemo(() => ((bindingsQuery ?? []) as ToolRoleBindingRecord[]), [bindingsQuery]);
+  const bindingItems = useMemo(() => ((bindingsQuery ?? []) as ToolPolicyAssignmentRecord[]), [bindingsQuery]);
 
   const roleRulesQuery = useQuery(
-    convexApi.workspace.listToolRoleRules,
+    convexApi.workspace.listToolPolicyRules,
     context && canManageRoles && activeRoleId
       ? {
           workspaceId: context.workspaceId,
@@ -935,7 +935,7 @@ export function PoliciesPanel({
       : "skip",
   );
   const selectedRoleRules = useMemo(
-    () => ((roleRulesQuery ?? []) as ToolRoleRuleRecord[]),
+    () => ((roleRulesQuery ?? []) as ToolPolicyRuleRecord[]),
     [roleRulesQuery],
   );
 
@@ -1024,7 +1024,7 @@ export function PoliciesPanel({
         : "organization" as const;
       const targetAccountId = form.scope === "personal" ? context.accountId : undefined;
 
-      await upsertToolRole({
+      await upsertToolPolicySet({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         id: roleId,
@@ -1033,7 +1033,7 @@ export function PoliciesPanel({
       });
 
       try {
-        await upsertToolRoleRule({
+        await upsertToolPolicyRule({
           workspaceId: context.workspaceId,
           sessionId: context.sessionId,
           id: ruleId,
@@ -1048,7 +1048,7 @@ export function PoliciesPanel({
           priority,
         });
 
-        await upsertToolRoleBinding({
+        await upsertToolPolicyAssignment({
           workspaceId: context.workspaceId,
           sessionId: context.sessionId,
           id: bindingId,
@@ -1060,7 +1060,7 @@ export function PoliciesPanel({
         });
       } catch (error) {
         try {
-          await deleteToolRole({
+          await deleteToolPolicySet({
             workspaceId: context.workspaceId,
             sessionId: context.sessionId,
             roleId,
@@ -1084,7 +1084,7 @@ export function PoliciesPanel({
   const handleDelete = useCallback(async (policy: ToolPolicyRecord) => {
     if (!context) return;
     if (!isDirectToolPolicy(policy)) {
-      toast.error("This policy is managed by role bindings. Use role management to remove it.");
+      toast.error("This policy is managed by a policy set assignment. Use the Policy Set Manager to remove it.");
       return;
     }
 
@@ -1095,7 +1095,7 @@ export function PoliciesPanel({
 
     setDeletingId(policy.id);
     try {
-      await deleteToolRole({
+      await deleteToolPolicySet({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         roleId: policy.roleId,
@@ -1106,7 +1106,7 @@ export function PoliciesPanel({
     } finally {
       setDeletingId(null);
     }
-  }, [context, deleteToolRole]);
+  }, [context, deleteToolPolicySet]);
 
   const handleCreateRole = useCallback(async () => {
     if (!context) return;
@@ -1118,7 +1118,7 @@ export function PoliciesPanel({
 
     setBusyRoleAction("create-role");
     try {
-      const role = await upsertToolRole({
+      const role = await upsertToolPolicySet({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         name,
@@ -1132,7 +1132,7 @@ export function PoliciesPanel({
     } finally {
       setBusyRoleAction(null);
     }
-  }, [context, roleForm, upsertToolRole]);
+  }, [context, roleForm, upsertToolPolicySet]);
 
   const handleCreateRoleRule = useCallback(async () => {
     if (!context || !activeRoleId) return;
@@ -1157,7 +1157,7 @@ export function PoliciesPanel({
 
     setBusyRoleAction("create-rule");
     try {
-      await upsertToolRoleRule({
+      await upsertToolPolicyRule({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         roleId: activeRoleId,
@@ -1176,7 +1176,7 @@ export function PoliciesPanel({
     } finally {
       setBusyRoleAction(null);
     }
-  }, [activeRoleId, context, roleRuleForm, upsertToolRoleRule]);
+  }, [activeRoleId, context, roleRuleForm, upsertToolPolicyRule]);
 
   const handleCreateRoleBinding = useCallback(async () => {
     if (!context || !activeRoleId) return;
@@ -1190,7 +1190,7 @@ export function PoliciesPanel({
 
     setBusyRoleAction("create-binding");
     try {
-      await upsertToolRoleBinding({
+      await upsertToolPolicyAssignment({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         roleId: activeRoleId,
@@ -1208,14 +1208,14 @@ export function PoliciesPanel({
     } finally {
       setBusyRoleAction(null);
     }
-  }, [activeRoleId, context, roleBindingForm, upsertToolRoleBinding]);
+  }, [activeRoleId, context, roleBindingForm, upsertToolPolicyAssignment]);
 
   const handleDeleteRole = useCallback(async (roleId: string) => {
     if (!context) return;
 
     setBusyRoleAction(`delete-role:${roleId}`);
     try {
-      await deleteToolRole({
+      await deleteToolPolicySet({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         roleId,
@@ -1229,14 +1229,14 @@ export function PoliciesPanel({
     } finally {
       setBusyRoleAction(null);
     }
-  }, [activeRoleId, context, deleteToolRole]);
+  }, [activeRoleId, context, deleteToolPolicySet]);
 
   const handleDeleteRule = useCallback(async (ruleId: string) => {
     if (!context || !activeRoleId) return;
 
     setBusyRoleAction(`delete-rule:${ruleId}`);
     try {
-      await deleteToolRoleRule({
+      await deleteToolPolicyRule({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         roleId: activeRoleId,
@@ -1248,14 +1248,14 @@ export function PoliciesPanel({
     } finally {
       setBusyRoleAction(null);
     }
-  }, [activeRoleId, context, deleteToolRoleRule]);
+  }, [activeRoleId, context, deleteToolPolicyRule]);
 
   const handleDeleteBinding = useCallback(async (bindingId: string) => {
     if (!context) return;
 
     setBusyRoleAction(`delete-binding:${bindingId}`);
     try {
-      await deleteToolRoleBinding({
+      await deleteToolPolicyAssignment({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         bindingId,
@@ -1266,7 +1266,7 @@ export function PoliciesPanel({
     } finally {
       setBusyRoleAction(null);
     }
-  }, [context, deleteToolRoleBinding]);
+  }, [context, deleteToolPolicyAssignment]);
 
   // ── Group policies by decision for display ──
 
@@ -1305,7 +1305,7 @@ export function PoliciesPanel({
           disabled={!context}
         >
           <Plus className="h-3.5 w-3.5" />
-          New Policy
+          Quick Policy
         </Button>
       </div>
 
@@ -1375,28 +1375,31 @@ export function PoliciesPanel({
 
       <Separator className="bg-border/40" />
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
+      <details className="group rounded-lg border border-border/60 bg-card/40">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5">
           <div>
-            <h4 className="text-sm font-medium">Role Manager</h4>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Manage reusable tool roles, rule selectors, and scoped bindings.
+            <h4 className="text-sm font-medium">Policy Set Manager</h4>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Advanced: reusable policy sets with rules and assignments.
             </p>
           </div>
-        </div>
+          <span className="text-[10px] text-muted-foreground group-open:hidden">Expand</span>
+          <span className="text-[10px] text-muted-foreground hidden group-open:inline">Collapse</span>
+        </summary>
 
-        {!canManageRoles ? (
-          <div className="rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
-            Organization owner/admin role required to manage tool roles.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
+        <div className="px-3 pb-3">
+          {!canManageRoles ? (
+            <div className="rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
+              Organization owner/admin role required to manage tool policy sets.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
             <div className="space-y-3 rounded-lg border border-border/60 bg-card p-3">
-              <Label className="text-xs text-muted-foreground">Create role</Label>
+              <Label className="text-xs text-muted-foreground">Create policy set</Label>
               <Input
                 value={roleForm.name}
                 onChange={(event) => setRoleForm((state) => ({ ...state, name: event.target.value }))}
-                placeholder="Role name"
+                placeholder="Policy set name"
                 className="h-8 text-xs"
               />
               <Input
@@ -1411,14 +1414,14 @@ export function PoliciesPanel({
                 onClick={handleCreateRole}
                 disabled={busyRoleAction === "create-role"}
               >
-                {busyRoleAction === "create-role" ? "Creating..." : "Create role"}
+                {busyRoleAction === "create-role" ? "Creating..." : "Create policy set"}
               </Button>
 
               <Separator className="bg-border/40" />
 
               <div className="space-y-1.5 max-h-[320px] overflow-y-auto">
                 {roleItems.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">No roles yet.</p>
+                  <p className="text-[11px] text-muted-foreground">No policy sets yet.</p>
                 ) : (
                   roleItems.map((role) => {
                     const bindingCount = bindingItems.filter((binding) => binding.roleId === role.id).length;
@@ -1429,7 +1432,7 @@ export function PoliciesPanel({
                         onClick={() => setSelectedRoleId(role.id)}
                         className={cn(
                           "w-full rounded-md border px-2 py-1.5 text-left",
-                          selectedRoleId === role.id
+                          activeRoleId === role.id
                             ? "border-primary/40 bg-primary/5"
                             : "border-border/40 hover:bg-muted/30",
                         )}
@@ -1437,7 +1440,7 @@ export function PoliciesPanel({
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-xs font-medium">{role.name}</span>
                           <Badge variant="outline" className="text-[9px] px-1.5 py-0">
-                            {bindingCount} bind
+                            {bindingCount} assign
                           </Badge>
                         </div>
                         {role.description ? (
@@ -1452,7 +1455,7 @@ export function PoliciesPanel({
 
             <div className="space-y-4 rounded-lg border border-border/60 bg-card p-4">
               {!selectedRole ? (
-                <p className="text-xs text-muted-foreground">Select a role to manage its rules and bindings.</p>
+                <p className="text-xs text-muted-foreground">Select a policy set to manage its rules and assignments.</p>
               ) : (
                 <>
                   <div className="flex items-start justify-between gap-3">
@@ -1470,7 +1473,7 @@ export function PoliciesPanel({
                       onClick={() => handleDeleteRole(selectedRole.id)}
                       disabled={busyRoleAction === `delete-role:${selectedRole.id}`}
                     >
-                      {busyRoleAction === `delete-role:${selectedRole.id}` ? "Deleting..." : "Delete role"}
+                      {busyRoleAction === `delete-role:${selectedRole.id}` ? "Deleting..." : "Delete set"}
                     </Button>
                   </div>
 
@@ -1520,7 +1523,7 @@ export function PoliciesPanel({
                         value={roleRuleForm.selectorType}
                         onValueChange={(value) => setRoleRuleForm((state) => ({
                           ...state,
-                          selectorType: value as ToolRoleRuleRecord["selectorType"],
+                           selectorType: value as ToolPolicyRuleRecord["selectorType"],
                         }))}
                       >
                         <SelectTrigger className="h-8 text-xs">
@@ -1564,7 +1567,7 @@ export function PoliciesPanel({
                         value={roleRuleForm.effect}
                         onValueChange={(value) => setRoleRuleForm((state) => ({
                           ...state,
-                          effect: value as ToolRoleRuleRecord["effect"],
+                           effect: value as ToolPolicyRuleRecord["effect"],
                         }))}
                       >
                         <SelectTrigger className="h-8 text-xs">
@@ -1580,7 +1583,7 @@ export function PoliciesPanel({
                         value={roleRuleForm.approvalMode}
                         onValueChange={(value) => setRoleRuleForm((state) => ({
                           ...state,
-                          approvalMode: value as ToolRoleRuleRecord["approvalMode"],
+                           approvalMode: value as ToolPolicyRuleRecord["approvalMode"],
                         }))}
                       >
                         <SelectTrigger className="h-8 text-xs">
@@ -1615,7 +1618,7 @@ export function PoliciesPanel({
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Bindings</Label>
+                      <Label className="text-xs text-muted-foreground">Assignments</Label>
                       <span className="text-[10px] text-muted-foreground">{selectedRoleBindings.length}</span>
                     </div>
                     <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
@@ -1657,7 +1660,7 @@ export function PoliciesPanel({
                         value={roleBindingForm.scopeType}
                         onValueChange={(value) => setRoleBindingForm((state) => ({
                           ...state,
-                          scopeType: value as ToolRoleBindingRecord["scopeType"],
+                           scopeType: value as ToolPolicyAssignmentRecord["scopeType"],
                         }))}
                       >
                         <SelectTrigger className="h-8 text-xs">
@@ -1699,7 +1702,7 @@ export function PoliciesPanel({
                         value={roleBindingForm.status}
                         onValueChange={(value) => setRoleBindingForm((state) => ({
                           ...state,
-                          status: value as ToolRoleBindingRecord["status"],
+                           status: value as ToolPolicyAssignmentRecord["status"],
                         }))}
                       >
                         <SelectTrigger className="h-8 text-xs">
@@ -1717,7 +1720,7 @@ export function PoliciesPanel({
                         onClick={handleCreateRoleBinding}
                         disabled={busyRoleAction === "create-binding"}
                       >
-                        {busyRoleAction === "create-binding" ? "Adding binding..." : "Add binding"}
+                        {busyRoleAction === "create-binding" ? "Adding assignment..." : "Add assignment"}
                       </Button>
                     </div>
                   </div>
@@ -1725,8 +1728,9 @@ export function PoliciesPanel({
               )}
             </div>
           </div>
-        )}
-      </div>
+          )}
+        </div>
+      </details>
 
       {/* Create Policy Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1924,26 +1928,28 @@ export function PoliciesPanel({
               />
             </div>
 
-            {/* Advanced filters */}
-            <div className="space-y-3 rounded-md border border-border/40 bg-muted/10 p-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Client ID</Label>
-                <Input
-                  value={form.clientId}
-                  onChange={(event) => setForm((state) => ({ ...state, clientId: event.target.value }))}
-                  placeholder="optional client identifier"
-                  className="h-8 text-xs font-mono bg-background"
-                />
-                <p className="text-[10px] text-muted-foreground/60 leading-tight">
-                  When set, this policy only applies to tool calls from this client ID.
-                </p>
-              </div>
+            <details className="rounded-md border border-border/40 bg-muted/10 p-3">
+              <summary className="cursor-pointer text-xs text-muted-foreground">Optional filters</summary>
+              <div className="mt-3 space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Client ID</Label>
+                  <Input
+                    value={form.clientId}
+                    onChange={(event) => setForm((state) => ({ ...state, clientId: event.target.value }))}
+                    placeholder="optional client identifier"
+                    className="h-8 text-xs font-mono bg-background"
+                  />
+                  <p className="text-[10px] text-muted-foreground/60 leading-tight">
+                    When set, this policy only applies to tool calls from this client ID.
+                  </p>
+                </div>
 
-              <ArgumentConditionsEditor
-                conditions={form.argumentConditions}
-                onChange={(argumentConditions) => setForm((state) => ({ ...state, argumentConditions }))}
-              />
-            </div>
+                <ArgumentConditionsEditor
+                  conditions={form.argumentConditions}
+                  onChange={(argumentConditions) => setForm((state) => ({ ...state, argumentConditions }))}
+                />
+              </div>
+            </details>
           </div>
 
           <DialogFooter>

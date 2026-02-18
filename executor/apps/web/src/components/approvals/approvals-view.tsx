@@ -97,7 +97,7 @@ function ApprovalCard({
               variant="ghost"
               size="sm"
               className="h-7 text-[11px]"
-              onClick={() => navigate("/tools?tab=editor")}
+              onClick={() => navigate("/tools/editor")}
             >
               Open editor
             </Button>

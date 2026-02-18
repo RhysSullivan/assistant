@@ -123,7 +123,7 @@ export interface ToolPolicyRecord {
 
 export type ToolRoleSelectorType = "all" | "source" | "namespace" | "tool_path";
 
-export interface ToolRoleRecord {
+export interface ToolPolicySetRecord {
   id: string;
   organizationId: Id<"organizations">;
   name: string;
@@ -133,7 +133,7 @@ export interface ToolRoleRecord {
   updatedAt: number;
 }
 
-export interface ToolRoleRuleRecord {
+export interface ToolPolicyRuleRecord {
   id: string;
   roleId: string;
   organizationId: Id<"organizations">;
@@ -150,7 +150,7 @@ export interface ToolRoleRuleRecord {
   updatedAt: number;
 }
 
-export interface ToolRoleBindingRecord {
+export interface ToolPolicyAssignmentRecord {
   id: string;
   roleId: string;
   organizationId: Id<"organizations">;

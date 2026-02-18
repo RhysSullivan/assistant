@@ -1,9 +1,9 @@
 import type { Id } from "@executor/database/convex/_generated/dataModel";
 import type {
   ToolPolicyRecord as CoreToolPolicyRecord,
-  ToolRoleBindingRecord as CoreToolRoleBindingRecord,
-  ToolRoleRecord as CoreToolRoleRecord,
-  ToolRoleRuleRecord as CoreToolRoleRuleRecord,
+  ToolPolicyAssignmentRecord as CoreToolPolicyAssignmentRecord,
+  ToolPolicySetRecord as CoreToolPolicySetRecord,
+  ToolPolicyRuleRecord as CoreToolPolicyRuleRecord,
 } from "@executor/core/types";
 
 // ── Shared types (inlined from @executor/contracts) ──────────────────────────
@@ -85,9 +85,9 @@ export interface TaskEventRecord {
 }
 
 export type ToolPolicyRecord = CoreToolPolicyRecord;
-export type ToolRoleRecord = CoreToolRoleRecord;
-export type ToolRoleRuleRecord = CoreToolRoleRuleRecord;
-export type ToolRoleBindingRecord = CoreToolRoleBindingRecord;
+export type ToolPolicySetRecord = CoreToolPolicySetRecord;
+export type ToolPolicyRuleRecord = CoreToolPolicyRuleRecord;
+export type ToolPolicyAssignmentRecord = CoreToolPolicyAssignmentRecord;
 
 export interface CredentialRecord {
   id: string;

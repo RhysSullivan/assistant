@@ -136,7 +136,7 @@ export const listToolPolicies = workspaceQuery({
   },
 });
 
-export const upsertToolRole = workspaceMutation({
+export const upsertToolPolicySet = workspaceMutation({
   method: "POST",
   requireAdmin: true,
   args: {
@@ -145,7 +145,7 @@ export const upsertToolRole = workspaceMutation({
     description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.upsertToolRole, {
+    return await ctx.runMutation(internal.database.upsertToolPolicySet, {
       ...args,
       workspaceId: ctx.workspaceId,
       createdByAccountId: ctx.account._id,
@@ -153,32 +153,32 @@ export const upsertToolRole = workspaceMutation({
   },
 });
 
-export const listToolRoles = workspaceQuery({
+export const listToolPolicySets = workspaceQuery({
   method: "GET",
   requireAdmin: true,
   args: {},
   handler: async (ctx) => {
-    return await ctx.runQuery(internal.database.listToolRoles, {
+    return await ctx.runQuery(internal.database.listToolPolicySets, {
       workspaceId: ctx.workspaceId,
     });
   },
 });
 
-export const deleteToolRole = workspaceMutation({
+export const deleteToolPolicySet = workspaceMutation({
   method: "POST",
   requireAdmin: true,
   args: {
     roleId: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.deleteToolRole, {
+    return await ctx.runMutation(internal.database.deleteToolPolicySet, {
       workspaceId: ctx.workspaceId,
       roleId: args.roleId,
     });
   },
 });
 
-export const upsertToolRoleRule = workspaceMutation({
+export const upsertToolPolicyRule = workspaceMutation({
   method: "POST",
   requireAdmin: true,
   args: {
@@ -198,28 +198,28 @@ export const upsertToolRoleRule = workspaceMutation({
     priority: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.upsertToolRoleRule, {
+    return await ctx.runMutation(internal.database.upsertToolPolicyRule, {
       ...args,
       workspaceId: ctx.workspaceId,
     });
   },
 });
 
-export const listToolRoleRules = workspaceQuery({
+export const listToolPolicyRules = workspaceQuery({
   method: "GET",
   requireAdmin: true,
   args: {
     roleId: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.runQuery(internal.database.listToolRoleRules, {
+    return await ctx.runQuery(internal.database.listToolPolicyRules, {
       workspaceId: ctx.workspaceId,
       roleId: args.roleId,
     });
   },
 });
 
-export const deleteToolRoleRule = workspaceMutation({
+export const deleteToolPolicyRule = workspaceMutation({
   method: "POST",
   requireAdmin: true,
   args: {
@@ -227,7 +227,7 @@ export const deleteToolRoleRule = workspaceMutation({
     ruleId: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.deleteToolRoleRule, {
+    return await ctx.runMutation(internal.database.deleteToolPolicyRule, {
       workspaceId: ctx.workspaceId,
       roleId: args.roleId,
       ruleId: args.ruleId,
@@ -235,7 +235,7 @@ export const deleteToolRoleRule = workspaceMutation({
   },
 });
 
-export const upsertToolRoleBinding = workspaceMutation({
+export const upsertToolPolicyAssignment = workspaceMutation({
   method: "POST",
   requireAdmin: true,
   args: {
@@ -248,35 +248,35 @@ export const upsertToolRoleBinding = workspaceMutation({
     expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.upsertToolRoleBinding, {
+    return await ctx.runMutation(internal.database.upsertToolPolicyAssignment, {
       ...args,
       workspaceId: ctx.workspaceId,
     });
   },
 });
 
-export const listToolRoleBindings = workspaceQuery({
+export const listToolPolicyAssignments = workspaceQuery({
   method: "GET",
   requireAdmin: true,
   args: {
     roleId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await ctx.runQuery(internal.database.listToolRoleBindings, {
+    return await ctx.runQuery(internal.database.listToolPolicyAssignments, {
       workspaceId: ctx.workspaceId,
       roleId: args.roleId,
     });
   },
 });
 
-export const deleteToolRoleBinding = workspaceMutation({
+export const deleteToolPolicyAssignment = workspaceMutation({
   method: "POST",
   requireAdmin: true,
   args: {
     bindingId: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.deleteToolRoleBinding, {
+    return await ctx.runMutation(internal.database.deleteToolPolicyAssignment, {
       workspaceId: ctx.workspaceId,
       bindingId: args.bindingId,
     });

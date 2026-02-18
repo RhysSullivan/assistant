@@ -306,19 +306,13 @@ export declare const api: {
       { accountId?: string; sessionId?: string },
       any
     >;
-    deleteToolRole: FunctionReference<
-      "mutation",
-      "public",
-      { roleId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    deleteToolRoleBinding: FunctionReference<
+    deleteToolPolicyAssignment: FunctionReference<
       "mutation",
       "public",
       { bindingId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    deleteToolRoleRule: FunctionReference<
+    deleteToolPolicyRule: FunctionReference<
       "mutation",
       "public",
       {
@@ -327,6 +321,12 @@ export declare const api: {
         sessionId?: string;
         workspaceId: Id<"workspaces">;
       },
+      any
+    >;
+    deleteToolPolicySet: FunctionReference<
+      "mutation",
+      "public",
+      { roleId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     deleteToolSource: FunctionReference<
@@ -381,19 +381,19 @@ export declare const api: {
       { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    listToolRoleBindings: FunctionReference<
+    listToolPolicyAssignments: FunctionReference<
       "query",
       "public",
       { roleId?: string; sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    listToolRoleRules: FunctionReference<
+    listToolPolicyRules: FunctionReference<
       "query",
       "public",
       { roleId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    listToolRoles: FunctionReference<
+    listToolPolicySets: FunctionReference<
       "query",
       "public",
       { sessionId?: string; workspaceId: Id<"workspaces"> },
@@ -439,19 +439,7 @@ export declare const api: {
       },
       any
     >;
-    upsertToolRole: FunctionReference<
-      "mutation",
-      "public",
-      {
-        description?: string;
-        id?: string;
-        name: string;
-        sessionId?: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-    upsertToolRoleBinding: FunctionReference<
+    upsertToolPolicyAssignment: FunctionReference<
       "mutation",
       "public",
       {
@@ -467,7 +455,7 @@ export declare const api: {
       },
       any
     >;
-    upsertToolRoleRule: FunctionReference<
+    upsertToolPolicyRule: FunctionReference<
       "mutation",
       "public",
       {
@@ -486,6 +474,18 @@ export declare const api: {
         selectorType: "all" | "source" | "namespace" | "tool_path";
         sessionId?: string;
         sourceKey?: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    upsertToolPolicySet: FunctionReference<
+      "mutation",
+      "public",
+      {
+        description?: string;
+        id?: string;
+        name: string;
+        sessionId?: string;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -742,22 +742,22 @@ export declare const internal: {
         any
       >;
     };
-    deleteToolRole: FunctionReference<
-      "mutation",
-      "internal",
-      { roleId: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    deleteToolRoleBinding: FunctionReference<
+    deleteToolPolicyAssignment: FunctionReference<
       "mutation",
       "internal",
       { bindingId: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    deleteToolRoleRule: FunctionReference<
+    deleteToolPolicyRule: FunctionReference<
       "mutation",
       "internal",
       { roleId: string; ruleId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    deleteToolPolicySet: FunctionReference<
+      "mutation",
+      "internal",
+      { roleId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     deleteToolSource: FunctionReference<
@@ -855,19 +855,19 @@ export declare const internal: {
       { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
       any
     >;
-    listToolRoleBindings: FunctionReference<
+    listToolPolicyAssignments: FunctionReference<
       "query",
       "internal",
       { roleId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    listToolRoleRules: FunctionReference<
+    listToolPolicyRules: FunctionReference<
       "query",
       "internal",
       { roleId: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    listToolRoles: FunctionReference<
+    listToolPolicySets: FunctionReference<
       "query",
       "internal",
       { workspaceId: Id<"workspaces"> },
@@ -897,22 +897,22 @@ export declare const internal: {
       any
     >;
     policies: {
-      deleteToolRole: FunctionReference<
-        "mutation",
-        "internal",
-        { roleId: string; workspaceId: Id<"workspaces"> },
-        any
-      >;
-      deleteToolRoleBinding: FunctionReference<
+      deleteToolPolicyAssignment: FunctionReference<
         "mutation",
         "internal",
         { bindingId: string; workspaceId: Id<"workspaces"> },
         any
       >;
-      deleteToolRoleRule: FunctionReference<
+      deleteToolPolicyRule: FunctionReference<
         "mutation",
         "internal",
         { roleId: string; ruleId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
+      deleteToolPolicySet: FunctionReference<
+        "mutation",
+        "internal",
+        { roleId: string; workspaceId: Id<"workspaces"> },
         any
       >;
       listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
@@ -922,37 +922,25 @@ export declare const internal: {
         { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
         any
       >;
-      listToolRoleBindings: FunctionReference<
+      listToolPolicyAssignments: FunctionReference<
         "query",
         "internal",
         { roleId?: string; workspaceId: Id<"workspaces"> },
         any
       >;
-      listToolRoleRules: FunctionReference<
+      listToolPolicyRules: FunctionReference<
         "query",
         "internal",
         { roleId: string; workspaceId: Id<"workspaces"> },
         any
       >;
-      listToolRoles: FunctionReference<
+      listToolPolicySets: FunctionReference<
         "query",
         "internal",
         { workspaceId: Id<"workspaces"> },
         any
       >;
-      upsertToolRole: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          createdByAccountId?: Id<"accounts">;
-          description?: string;
-          id?: string;
-          name: string;
-          workspaceId: Id<"workspaces">;
-        },
-        any
-      >;
-      upsertToolRoleBinding: FunctionReference<
+      upsertToolPolicyAssignment: FunctionReference<
         "mutation",
         "internal",
         {
@@ -967,7 +955,7 @@ export declare const internal: {
         },
         any
       >;
-      upsertToolRoleRule: FunctionReference<
+      upsertToolPolicyRule: FunctionReference<
         "mutation",
         "internal",
         {
@@ -985,6 +973,18 @@ export declare const internal: {
           roleId: string;
           selectorType: "all" | "source" | "namespace" | "tool_path";
           sourceKey?: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      upsertToolPolicySet: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          createdByAccountId?: Id<"accounts">;
+          description?: string;
+          id?: string;
+          name: string;
           workspaceId: Id<"workspaces">;
         },
         any
@@ -1186,19 +1186,7 @@ export declare const internal: {
       },
       any
     >;
-    upsertToolRole: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        createdByAccountId?: Id<"accounts">;
-        description?: string;
-        id?: string;
-        name: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-    upsertToolRoleBinding: FunctionReference<
+    upsertToolPolicyAssignment: FunctionReference<
       "mutation",
       "internal",
       {
@@ -1213,7 +1201,7 @@ export declare const internal: {
       },
       any
     >;
-    upsertToolRoleRule: FunctionReference<
+    upsertToolPolicyRule: FunctionReference<
       "mutation",
       "internal",
       {
@@ -1231,6 +1219,18 @@ export declare const internal: {
         roleId: string;
         selectorType: "all" | "source" | "namespace" | "tool_path";
         sourceKey?: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    upsertToolPolicySet: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        createdByAccountId?: Id<"accounts">;
+        description?: string;
+        id?: string;
+        name: string;
         workspaceId: Id<"workspaces">;
       },
       any

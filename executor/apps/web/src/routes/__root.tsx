@@ -5,6 +5,7 @@ import { AppConvexProvider } from "@/lib/convex-provider";
 import { QueryProvider } from "@/lib/query-provider";
 import { SessionProvider } from "@/lib/session-context";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import { runtimeConfigFromEnv } from "@/lib/runtime-config";
 import appCss from "../app/globals.css?url";
 
@@ -55,23 +56,25 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             __html: `window.__EXECUTOR_RUNTIME_CONFIG__ = ${runtimeConfig};`,
           }}
         />
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem
-          enableColorScheme
-        >
-          <AppErrorBoundary>
-            <QueryProvider>
-              <AppConvexProvider>
-                <SessionProvider>
-                  {children}
-                </SessionProvider>
-              </AppConvexProvider>
-            </QueryProvider>
-          </AppErrorBoundary>
-          <Toaster position="bottom-right" />
-        </ThemeProvider>
+        <NuqsAdapter>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="dark"
+            enableSystem
+            enableColorScheme
+          >
+            <AppErrorBoundary>
+              <QueryProvider>
+                <AppConvexProvider>
+                  <SessionProvider>
+                    {children}
+                  </SessionProvider>
+                </AppConvexProvider>
+              </QueryProvider>
+            </AppErrorBoundary>
+            <Toaster position="bottom-right" />
+          </ThemeProvider>
+        </NuqsAdapter>
         <Scripts />
       </body>
     </html>

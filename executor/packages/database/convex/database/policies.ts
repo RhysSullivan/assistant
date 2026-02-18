@@ -5,9 +5,9 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { listRuntimeTargets as listAvailableRuntimeTargets } from "../../../core/src/runtimes/runtime-catalog";
 import type {
   ToolPolicyRecord,
-  ToolRoleBindingRecord,
-  ToolRoleRecord,
-  ToolRoleRuleRecord,
+  ToolPolicyAssignmentRecord,
+  ToolPolicySetRecord,
+  ToolPolicyRuleRecord,
   ToolRoleSelectorType,
 } from "../../../core/src/types";
 import {
@@ -83,7 +83,7 @@ function mapToolRole(doc: {
   createdByAccountId?: Id<"accounts">;
   createdAt: number;
   updatedAt: number;
-}): ToolRoleRecord {
+}): ToolPolicySetRecord {
   return {
     id: doc.roleId,
     organizationId: doc.organizationId,
@@ -110,7 +110,7 @@ function mapToolRoleRule(doc: {
   priority: number;
   createdAt: number;
   updatedAt: number;
-}): ToolRoleRuleRecord {
+}): ToolPolicyRuleRecord {
   return {
     id: doc.ruleId,
     roleId: doc.roleId,
@@ -141,7 +141,7 @@ function mapToolRoleBinding(doc: {
   expiresAt?: number;
   createdAt: number;
   updatedAt: number;
-}): ToolRoleBindingRecord {
+}): ToolPolicyAssignmentRecord {
   return {
     id: doc.bindingId,
     roleId: doc.roleId,
@@ -328,7 +328,7 @@ async function listEffectiveBindings(
 }
 
 function selectorInputToResource(
-  rule: Pick<ToolRoleRuleRecord, "selectorType" | "sourceKey" | "namespacePattern" | "toolPathPattern">,
+  rule: Pick<ToolPolicyRuleRecord, "selectorType" | "sourceKey" | "namespacePattern" | "toolPathPattern">,
 ): { resourceType: PolicyResourceType; resourcePattern: string } {
   const resourceType = resourceTypeFromSelectorType(rule.selectorType);
   const resourcePattern = resourcePatternFromRule(rule);
@@ -346,7 +346,7 @@ export const listRuntimeTargets = internalQuery({
   },
 });
 
-export const upsertToolRole = internalMutation({
+export const upsertToolPolicySet = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     id: v.optional(v.string()),
@@ -410,7 +410,7 @@ export const upsertToolRole = internalMutation({
   },
 });
 
-export const listToolRoles = internalQuery({
+export const listToolPolicySets = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),
   },
@@ -426,7 +426,7 @@ export const listToolRoles = internalQuery({
   },
 });
 
-export const deleteToolRole = internalMutation({
+export const deleteToolPolicySet = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     roleId: v.string(),
@@ -459,7 +459,7 @@ export const deleteToolRole = internalMutation({
   },
 });
 
-export const upsertToolRoleRule = internalMutation({
+export const upsertToolPolicyRule = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     roleId: v.string(),
@@ -541,7 +541,7 @@ export const upsertToolRoleRule = internalMutation({
   },
 });
 
-export const listToolRoleRules = internalQuery({
+export const listToolPolicyRules = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),
     roleId: v.string(),
@@ -572,7 +572,7 @@ export const listToolRoleRules = internalQuery({
   },
 });
 
-export const deleteToolRoleRule = internalMutation({
+export const deleteToolPolicyRule = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     roleId: v.string(),
@@ -601,7 +601,7 @@ export const deleteToolRoleRule = internalMutation({
   },
 });
 
-export const upsertToolRoleBinding = internalMutation({
+export const upsertToolPolicyAssignment = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     roleId: v.string(),
@@ -680,7 +680,7 @@ export const upsertToolRoleBinding = internalMutation({
   },
 });
 
-export const listToolRoleBindings = internalQuery({
+export const listToolPolicyAssignments = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),
     roleId: v.optional(v.string()),
@@ -705,7 +705,7 @@ export const listToolRoleBindings = internalQuery({
   },
 });
 
-export const deleteToolRoleBinding = internalMutation({
+export const deleteToolPolicyAssignment = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     bindingId: v.string(),

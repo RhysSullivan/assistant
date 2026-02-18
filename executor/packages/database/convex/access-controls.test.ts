@@ -217,7 +217,7 @@ describe("authentication", () => {
     const owner = await seedUser(t, { subject: "owner-2" });
 
     await expect(
-      t.mutation(api.workspace.upsertToolRole, {
+      t.mutation(api.workspace.upsertToolPolicySet, {
         workspaceId: owner.workspaceId,
         name: "anonymous-role",
       }),
@@ -439,7 +439,7 @@ describe("workspace access controls", () => {
     const authedMember = t.withIdentity({ subject: "ws-plain-member" });
 
     await expect(
-      authedMember.mutation(api.workspace.upsertToolRole, {
+      authedMember.mutation(api.workspace.upsertToolPolicySet, {
         workspaceId: owner.workspaceId,
         name: "member-managed-role",
       }),
@@ -464,13 +464,13 @@ describe("workspace access controls", () => {
 
     const authedAdmin = t.withIdentity({ subject: "ws-policy-admin" });
 
-    const role = await authedAdmin.mutation(api.workspace.upsertToolRole, {
+    const role = await authedAdmin.mutation(api.workspace.upsertToolPolicySet, {
       workspaceId: owner.workspaceId,
       name: "policy-admin-role",
       description: "workspace admin policy role",
     });
 
-    await authedAdmin.mutation(api.workspace.upsertToolRoleRule, {
+    await authedAdmin.mutation(api.workspace.upsertToolPolicyRule, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
       selectorType: "tool_path",
@@ -479,7 +479,7 @@ describe("workspace access controls", () => {
       approvalMode: "required",
     });
 
-    await authedAdmin.mutation(api.workspace.upsertToolRoleBinding, {
+    await authedAdmin.mutation(api.workspace.upsertToolPolicyAssignment, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
       scopeType: "workspace",
@@ -503,13 +503,13 @@ describe("workspace access controls", () => {
     const outsider = await seedUser(t, { subject: "policy-target-outsider" });
     const authedOwner = t.withIdentity({ subject: "policy-target-owner" });
 
-    const role = await authedOwner.mutation(api.workspace.upsertToolRole, {
+    const role = await authedOwner.mutation(api.workspace.upsertToolPolicySet, {
       workspaceId: owner.workspaceId,
       name: "policy-target-role",
     });
 
     await expect(
-      authedOwner.mutation(api.workspace.upsertToolRoleBinding, {
+      authedOwner.mutation(api.workspace.upsertToolPolicyAssignment, {
         workspaceId: owner.workspaceId,
         roleId: role.id,
         scopeType: "account",
@@ -524,12 +524,12 @@ describe("workspace access controls", () => {
     const owner = await seedUser(t, { subject: "ws-owner-policy" });
     const authedOwner = t.withIdentity({ subject: "ws-owner-policy" });
 
-    const role = await authedOwner.mutation(api.workspace.upsertToolRole, {
+    const role = await authedOwner.mutation(api.workspace.upsertToolPolicySet, {
       workspaceId: owner.workspaceId,
       name: "owner-policy-role",
     });
 
-    await authedOwner.mutation(api.workspace.upsertToolRoleRule, {
+    await authedOwner.mutation(api.workspace.upsertToolPolicyRule, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
       selectorType: "all",
@@ -537,7 +537,7 @@ describe("workspace access controls", () => {
       approvalMode: "required",
     });
 
-    await authedOwner.mutation(api.workspace.upsertToolRoleBinding, {
+    await authedOwner.mutation(api.workspace.upsertToolPolicyAssignment, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
       scopeType: "workspace",
@@ -555,12 +555,12 @@ describe("workspace access controls", () => {
     const owner = await seedUser(t, { subject: "ws-owner-policy-delete" });
     const authedOwner = t.withIdentity({ subject: "ws-owner-policy-delete" });
 
-    const role = await authedOwner.mutation(api.workspace.upsertToolRole, {
+    const role = await authedOwner.mutation(api.workspace.upsertToolPolicySet, {
       workspaceId: owner.workspaceId,
       name: "owner-policy-delete-role",
     });
 
-    await authedOwner.mutation(api.workspace.upsertToolRoleRule, {
+    await authedOwner.mutation(api.workspace.upsertToolPolicyRule, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
       selectorType: "tool_path",
@@ -569,14 +569,14 @@ describe("workspace access controls", () => {
       matchType: "exact",
     });
 
-    await authedOwner.mutation(api.workspace.upsertToolRoleBinding, {
+    await authedOwner.mutation(api.workspace.upsertToolPolicyAssignment, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
       scopeType: "workspace",
       status: "active",
     });
 
-    await authedOwner.mutation(api.workspace.deleteToolRole, {
+    await authedOwner.mutation(api.workspace.deleteToolPolicySet, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
     });
@@ -754,7 +754,7 @@ describe("workspace access controls", () => {
     const authedMember = t.withIdentity({ subject: "role-tool-member" });
 
     await expect(
-      authedMember.mutation(api.workspace.upsertToolRole, {
+      authedMember.mutation(api.workspace.upsertToolPolicySet, {
         workspaceId: owner.workspaceId,
         name: "limited",
       }),
@@ -766,13 +766,13 @@ describe("workspace access controls", () => {
     const owner = await seedUser(t, { subject: "role-source-owner" });
     const authedOwner = t.withIdentity({ subject: "role-source-owner" });
 
-    const role = await authedOwner.mutation(api.workspace.upsertToolRole, {
+    const role = await authedOwner.mutation(api.workspace.upsertToolPolicySet, {
       workspaceId: owner.workspaceId,
       name: "github-access",
       description: "Allows github source tools",
     });
 
-    await authedOwner.mutation(api.workspace.upsertToolRoleRule, {
+    await authedOwner.mutation(api.workspace.upsertToolPolicyRule, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
       selectorType: "source",
@@ -781,7 +781,7 @@ describe("workspace access controls", () => {
       approvalMode: "auto",
     });
 
-    await authedOwner.mutation(api.workspace.upsertToolRoleBinding, {
+    await authedOwner.mutation(api.workspace.upsertToolPolicyAssignment, {
       workspaceId: owner.workspaceId,
       roleId: role.id,
       scopeType: "organization",
@@ -1120,7 +1120,7 @@ describe("cross-workspace isolation", () => {
     const authedA = t.withIdentity({ subject: "policy-user-a" });
 
     await expect(
-      authedA.mutation(api.workspace.upsertToolRole, {
+      authedA.mutation(api.workspace.upsertToolPolicySet, {
         workspaceId: userB.workspaceId,
         name: "cross-workspace-role",
       }),
@@ -1628,18 +1628,18 @@ describe("role hierarchy validation", () => {
     const authed = t.withIdentity({ subject: "admin-hier-admin" });
 
     // Admin can manage tool-policy roles/rules/bindings
-    const role = await authed.mutation(api.workspace.upsertToolRole, {
+    const role = await authed.mutation(api.workspace.upsertToolPolicySet, {
       workspaceId: org.workspaceId,
       name: "admin-hierarchy-role",
     });
-    await authed.mutation(api.workspace.upsertToolRoleRule, {
+    await authed.mutation(api.workspace.upsertToolPolicyRule, {
       workspaceId: org.workspaceId,
       roleId: role.id,
       selectorType: "tool_path",
       resourcePattern: "admin.*",
       effect: "deny",
     });
-    await authed.mutation(api.workspace.upsertToolRoleBinding, {
+    await authed.mutation(api.workspace.upsertToolPolicyAssignment, {
       workspaceId: org.workspaceId,
       roleId: role.id,
       scopeType: "workspace",

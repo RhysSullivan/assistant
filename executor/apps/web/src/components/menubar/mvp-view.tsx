@@ -60,7 +60,7 @@ export function MenubarMvpView() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => navigate("/tools?tab=editor")}>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => navigate("/tools/editor")}>
               Open Editor
             </Button>
             <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => navigate("/approvals")}>
@@ -112,7 +112,7 @@ export function MenubarMvpView() {
             <Sparkles className="h-4 w-4 text-primary" />
             Recent AI tasks
           </p>
-          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => navigate("/tools?tab=editor")}>Open Editor</Button>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => navigate("/tools/editor")}>Open Editor</Button>
         </div>
 
         {tasksLoading ? (
@@ -130,7 +130,7 @@ export function MenubarMvpView() {
                 key={task.id}
                 type="button"
                 className="flex w-full items-center justify-between rounded border border-border bg-background px-2.5 py-2 text-left hover:bg-accent"
-                onClick={() => navigate("/tools?tab=editor")}
+                onClick={() => navigate("/tools/editor")}
               >
                 <span className="min-w-0">
                   <span className="block truncate text-[11px] font-mono text-foreground">{task.id}</span>

@@ -51,9 +51,17 @@ interface ToolExplorerProps {
   loadingSources?: string[];
   onLoadToolDetails?: (toolPaths: string[]) => Promise<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>;
   warnings?: string[];
-  initialSource?: string | null;
-  activeSource?: string | null;
-  onActiveSourceChange?: (source: string | null) => void;
+  activeSource: string | null;
+  searchValue: string;
+  filterApprovalValue: FilterApproval;
+  focusedToolPathValue: string | null;
+  selectedToolPathsValue: string[];
+  focusedSourceNameValue: string | null;
+  onSearchValueChange: (value: string) => void;
+  onFilterApprovalValueChange: (filter: FilterApproval) => void;
+  onFocusedToolPathChange: (toolPath: string | null) => void;
+  onSelectedToolPathsChange: (toolPaths: string[]) => void;
+  onFocusedSourceNameChange: (sourceName: string | null) => void;
   /** @deprecated No longer used — source sidebar is merged into the tool list panel. */
   showSourceSidebar?: boolean;
   onSourceAdded?: (source: ToolSourceRecord) => void;
@@ -79,9 +87,17 @@ export function ToolExplorer({
   loadingSources = [],
   onLoadToolDetails,
   warnings = [],
-  initialSource = null,
   activeSource,
-  onActiveSourceChange,
+  searchValue,
+  filterApprovalValue,
+  focusedToolPathValue,
+  selectedToolPathsValue,
+  focusedSourceNameValue,
+  onSearchValueChange,
+  onFilterApprovalValueChange,
+  onFocusedToolPathChange,
+  onSelectedToolPathsChange,
+  onFocusedSourceNameChange,
   onSourceAdded,
   sourceDialogMeta,
   sourceAuthProfiles,
@@ -106,21 +122,45 @@ export function ToolExplorer({
     return description.length > 0 || hasInputHint || hasOutputHint || hasSchemas;
   }, []);
 
-  const [searchInput, setSearchInput] = useState("");
-  const search = useDeferredValue(searchInput);
-  const [internalActiveSource] = useState<string | null>(initialSource);
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [filterApproval, setFilterApproval] = useState<FilterApproval>("all");
   const [toolDetailsByPath, setToolDetailsByPath] = useState<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>({});
   const [loadingDetailPaths, setLoadingDetailPaths] = useState<Set<string>>(new Set());
-  const [focusedToolPath, setFocusedToolPath] = useState<string | null>(null);
-  const [focusedSourceName, setFocusedSourceName] = useState<string | null>(null);
   // "new" = add source form, ToolSourceRecord = edit/view existing source, null = no source panel
   const [formSource, setFormSource] = useState<"new" | ToolSourceRecord | null>(null);
   const toolListRef = useRef<HTMLDivElement>(null);
   const toolListScrollContainerId = "tool-explorer-toollist-scroll";
-  const resolvedActiveSource =
-    activeSource === undefined ? internalActiveSource : activeSource;
+  const resolvedActiveSource = activeSource;
+  const searchInput = searchValue;
+  const filterApproval = filterApprovalValue;
+  const focusedToolPath = focusedToolPathValue;
+  const selectedKeys = useMemo(() => new Set(selectedToolPathsValue), [selectedToolPathsValue]);
+  const focusedSourceName = focusedSourceNameValue;
+  const search = useDeferredValue(searchInput);
+
+  const setSearchInput = useCallback((value: string) => {
+    onSearchValueChange(value);
+  }, [onSearchValueChange]);
+
+  const setFilterApproval = useCallback((nextFilter: FilterApproval) => {
+    onFilterApprovalValueChange(nextFilter);
+  }, [onFilterApprovalValueChange]);
+
+  const setFocusedToolPath = useCallback((toolPath: string | null) => {
+    onFocusedToolPathChange(toolPath);
+  }, [onFocusedToolPathChange]);
+
+  const setSelectedKeys = useCallback((next: Set<string>) => {
+    onSelectedToolPathsChange(Array.from(next));
+  }, [onSelectedToolPathsChange]);
+
+  const setFocusedSourceName = useCallback((sourceName: string | null) => {
+    onFocusedSourceNameChange(sourceName);
+  }, [onFocusedSourceNameChange]);
+
+  const setSourceFocusState = useCallback((sourceName: string | null, sourceRecord: ToolSourceRecord | null) => {
+    setFocusedSourceName(sourceName);
+    setFormSource(sourceRecord);
+    setFocusedToolPath(null);
+  }, [setFocusedSourceName, setFocusedToolPath]);
 
   const hydratedTools = useMemo(() => {
     if (Object.keys(toolDetailsByPath).length === 0) {
@@ -212,21 +252,30 @@ export function ToolExplorer({
     return map;
   }, [visibleSources]);
 
+  useEffect(() => {
+    const resolvedSource = focusedSourceNameValue
+      ? sourceByName.get(focusedSourceNameValue) ?? null
+      : null;
+
+    setFormSource(resolvedSource);
+    if (focusedSourceNameValue) {
+      setFocusedToolPath(null);
+    }
+  }, [focusedSourceNameValue, sourceByName, setFocusedToolPath]);
+
   const toggleSelectTool = useCallback(
     (path: string, e: React.MouseEvent) => {
       e.stopPropagation();
       e.preventDefault();
-      setSelectedKeys((prev) => {
-        const next = new Set(prev);
-        if (next.has(path)) {
-          next.delete(path);
-        } else {
-          next.add(path);
-        }
-        return next;
-      });
+      const next = new Set(selectedKeys);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      setSelectedKeys(next);
     },
-    [],
+    [selectedKeys, setSelectedKeys],
   );
 
   const clearSelection = useCallback(() => {
@@ -280,14 +329,11 @@ export function ToolExplorer({
     setFocusedSourceName(null);
     setFormSource(null);
     void maybeLoadToolDetails(tool, true);
-  }, [maybeLoadToolDetails]);
+  }, [maybeLoadToolDetails, setFocusedSourceName]);
 
   const handleSourceClick = useCallback((sourceName: string) => {
     const source = sourceByName.get(sourceName);
-    setFocusedSourceName(sourceName);
-    setFocusedToolPath(null);
-    // Open the source form panel directly — no separate "view" mode
-    setFormSource(source ?? null);
+    setSourceFocusState(sourceName, source ?? null);
     // Ensure the source group is expanded
     setExpandedKeys((prev) => {
       const key = `source:${sourceName}`;
@@ -299,10 +345,9 @@ export function ToolExplorer({
   }, [sourceByName]);
 
   const handleAddSource = useCallback(() => {
+    setSourceFocusState(null, null);
     setFormSource("new");
-    setFocusedToolPath(null);
-    setFocusedSourceName(null);
-  }, []);
+  }, [setFocusedSourceName, setSourceFocusState]);
 
   const handleSourceFormClose = useCallback(() => {
     setFormSource(null);
@@ -311,10 +356,8 @@ export function ToolExplorer({
   const handleSourceFormAdded = useCallback((source: ToolSourceRecord) => {
     onSourceAdded?.(source);
     // After adding, show the new source in the form
-    setFormSource(null);
-    setFocusedSourceName(source.name);
-    setFocusedToolPath(null);
-  }, [onSourceAdded]);
+    setSourceFocusState(source.name, source);
+  }, [onSourceAdded, setSourceFocusState]);
 
   const focusedTool = useMemo(() => {
     if (!focusedToolPath) return null;
@@ -328,13 +371,23 @@ export function ToolExplorer({
 
   // Auto-focus first tool when tools arrive
   useEffect(() => {
-    if (!focusedToolPath && searchedTools.length > 0) {
+    if (!focusedToolPath && !focusedSourceName && searchedTools.length > 0) {
       const first = searchedTools[0];
       setFocusedToolPath(first.path);
       void maybeLoadToolDetails(first, true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchedTools.length > 0]);
+
+  useEffect(() => {
+    if (!focusedToolPath || searchedTools.length === 0) {
+      return;
+    }
+
+    if (!searchedTools.some((tool) => tool.path === focusedToolPath)) {
+      setFocusedToolPath(null);
+    }
+  }, [focusedToolPath, searchedTools]);
 
   const loadingRows = useMemo(() => {
     if (search.length > 0) return [];
