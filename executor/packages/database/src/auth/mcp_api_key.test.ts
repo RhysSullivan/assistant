@@ -50,3 +50,15 @@ test("issueMcpApiKey returns null when secret is missing", async () => {
 
   expect(apiKey).toBeNull();
 });
+
+test("does not fall back to anonymous private key", async () => {
+  delete process.env.MCP_API_KEY_SECRET;
+  process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM = "unused-anonymous-key";
+
+  const apiKey = await issueMcpApiKey({
+    workspaceId: "workspace_no_fallback" as Id<"workspaces">,
+    accountId: "account_no_fallback" as Id<"accounts">,
+  });
+
+  expect(apiKey).toBeNull();
+});

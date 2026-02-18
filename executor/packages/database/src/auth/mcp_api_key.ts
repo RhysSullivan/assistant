@@ -26,11 +26,6 @@ function getConfiguredSecret(): string | null {
     return normalizeSecret(explicit);
   }
 
-  const anonymousPrivateKey = trimOrNull(process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM);
-  if (anonymousPrivateKey) {
-    return normalizeSecret(anonymousPrivateKey);
-  }
-
   return null;
 }
 
