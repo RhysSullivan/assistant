@@ -19,8 +19,6 @@ const accountStatus = v.union(v.literal("active"), v.literal("deleted"));
 const organizationStatus = v.union(v.literal("active"), v.literal("deleted"));
 const orgRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"), v.literal("billing_admin"));
 const orgMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
-const workspaceMemberRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"));
-const workspaceMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
 const billingSubscriptionStatus = v.union(
   v.literal("incomplete"),
   v.literal("incomplete_expired"),
@@ -104,6 +102,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_organization", ["organizationId"])
     .index("by_organization_created", ["organizationId", "createdAt"])
     .index("by_organization_slug", ["organizationId", "slug"])
     .index("by_slug", ["slug"]),
@@ -149,23 +148,6 @@ export default defineSchema({
     .index("by_org_account", ["organizationId", "accountId"])
     .index("by_account", ["accountId"])
     .index("by_org_billable_status", ["organizationId", "billable", "status"]),
-
-  // Membership of an account within a workspace (scopes app permissions within the org).
-  //
-  // Primary access patterns:
-  // - List members in workspace.
-  // - Get membership for (workspace, account).
-  workspaceMembers: defineTable({
-    workspaceId: v.id("workspaces"),
-    accountId: v.id("accounts"),
-    role: workspaceMemberRole,
-    status: workspaceMemberStatus,
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_workspace", ["workspaceId"])
-    .index("by_workspace_account", ["workspaceId", "accountId"])
-    .index("by_account", ["accountId"]),
 
   // Organization (and optionally workspace-specific) email invites.
   // Provider-specific invite id is stored once WorkOS invite delivery succeeds.
@@ -335,7 +317,7 @@ export default defineSchema({
   accessPolicies: defineTable({
     policyId: v.string(), // domain ID: policy_<uuid>
     scopeType: policyScopeType,
-    organizationId: v.optional(v.id("organizations")),
+    organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
     targetAccountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
@@ -358,7 +340,7 @@ export default defineSchema({
     .index("by_policy_id", ["policyId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_organization_created", ["organizationId", "createdAt"])
-    .index("by_target_account_created", ["targetAccountId", "createdAt"]),
+    .index("by_org_target_account_created", ["organizationId", "targetAccountId", "createdAt"]),
 
   // Stored credentials for tool sources.
   //
@@ -376,7 +358,7 @@ export default defineSchema({
     credentialId: v.string(), // domain ID: conn_<uuid>
     scopeType: credentialScopeType,
     accountId: v.optional(v.id("accounts")),
-    organizationId: v.optional(v.id("organizations")),
+    organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
     sourceKey: v.string(),
     provider: credentialProvider,
@@ -388,13 +370,13 @@ export default defineSchema({
   })
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_organization_created", ["organizationId", "createdAt"])
-    .index("by_account_created", ["accountId", "createdAt"])
+    .index("by_org_account_created", ["organizationId", "accountId", "createdAt"])
     .index("by_workspace_source_scope", ["workspaceId", "sourceKey", "scopeType"])
     .index("by_organization_source_scope", ["organizationId", "sourceKey", "scopeType"])
-    .index("by_account_source_scope", ["accountId", "sourceKey", "scopeType"])
+    .index("by_org_account_source_scope", ["organizationId", "accountId", "sourceKey", "scopeType"])
     .index("by_workspace_credential", ["workspaceId", "credentialId"])
     .index("by_organization_credential", ["organizationId", "credentialId"])
-    .index("by_account_credential", ["accountId", "credentialId"])
+    .index("by_org_account_credential", ["organizationId", "accountId", "credentialId"])
     .index("by_source", ["sourceKey"])
     .index("by_binding_id", ["bindingId"]),
 

@@ -24,6 +24,30 @@ import {
   MCP_API_KEY_ENV_NAME,
 } from "../src/auth/mcp_api_key";
 
+function sanitizeSourceConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {
+    ...config,
+  };
+
+  const authRaw = sanitized.auth;
+  if (authRaw && typeof authRaw === "object" && !Array.isArray(authRaw)) {
+    const auth = authRaw as Record<string, unknown>;
+    const authSanitized: Record<string, unknown> = {};
+    if (typeof auth.type === "string") {
+      authSanitized.type = auth.type;
+    }
+    if (typeof auth.mode === "string") {
+      authSanitized.mode = auth.mode;
+    }
+    if (typeof auth.header === "string") {
+      authSanitized.header = auth.header;
+    }
+    sanitized.auth = authSanitized;
+  }
+
+  return sanitized;
+}
+
 export const bootstrapAnonymousSession = customMutation({
   method: "POST",
   args: {
@@ -127,6 +151,21 @@ export const upsertAccessPolicy = workspaceMutation({
       }
     }
 
+    if (args.scopeType === "account") {
+      if (!args.targetAccountId) {
+        throw new Error("targetAccountId is required for account-scoped policies");
+      }
+
+      const targetMembership = await getOrganizationMembership(
+        ctx,
+        ctx.workspace.organizationId,
+        args.targetAccountId,
+      );
+      if (!targetMembership || targetMembership.status !== "active") {
+        throw new Error("targetAccountId must be an active member of this organization");
+      }
+    }
+
     return await ctx.runMutation(internal.database.upsertAccessPolicy, {
       ...args,
       workspaceId: ctx.workspaceId,
@@ -176,6 +215,17 @@ export const upsertCredential = workspaceMutation({
       const organizationMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, ctx.account._id);
       if (!organizationMembership || !isAdminRole(organizationMembership.role)) {
         throw new Error("Only organization admins can manage organization-level credentials");
+      }
+    }
+
+    if (args.scopeType === "account") {
+      if (!args.accountId) {
+        throw new Error("accountId is required for account-scoped credentials");
+      }
+
+      const targetMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, args.accountId);
+      if (!targetMembership || targetMembership.status !== "active") {
+        throw new Error("accountId must be an active member of this organization");
       }
     }
 
@@ -252,9 +302,18 @@ export const listToolSources = workspaceQuery({
   method: "GET",
   args: {},
   handler: async (ctx) => {
-    return await ctx.runQuery(internal.database.listToolSources, {
+    const sources = await ctx.runQuery(internal.database.listToolSources, {
       workspaceId: ctx.workspaceId,
     });
+
+    if (isAdminRole(ctx.organizationMembership.role)) {
+      return sources;
+    }
+
+    return (sources as Array<Record<string, unknown> & { config: Record<string, unknown> }>).map((source) => ({
+      ...source,
+      config: sanitizeSourceConfig(source.config),
+    }));
   },
 });
 

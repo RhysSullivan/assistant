@@ -55,7 +55,7 @@ function ensureOrganizationRole(
 
 function ensureWorkspaceRole(role: string, options: Pick<WorkspaceAccessOptions, "requireAdmin">): void {
   if (options.requireAdmin && !isAdminRole(role)) {
-    throw new Error("Only workspace admins can perform this action");
+    throw new Error("Only organization admins can perform this action");
   }
 }
 
@@ -193,7 +193,7 @@ export const workspaceQuery = convexCustomQuery(query, {
   input: async (ctx, args, options: WorkspaceAccessOptions = { method: "GET" }) => {
     const access = await requireWorkspaceAccessForRequest(ctx, args.workspaceId, args.sessionId);
 
-    ensureWorkspaceRole(access.workspaceMembership.role, options);
+    ensureWorkspaceRole(access.organizationMembership.role, options);
 
     return {
       ctx: {
@@ -213,7 +213,7 @@ export const workspaceMutation = convexCustomMutation(mutation, {
   input: async (ctx, args, options: WorkspaceAccessOptions = { method: "POST" }) => {
     const access = await requireWorkspaceAccessForRequest(ctx, args.workspaceId, args.sessionId);
 
-    ensureWorkspaceRole(access.workspaceMembership.role, options);
+    ensureWorkspaceRole(access.organizationMembership.role, options);
 
     return {
       ctx: {

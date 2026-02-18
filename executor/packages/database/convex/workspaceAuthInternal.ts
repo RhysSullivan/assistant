@@ -25,7 +25,7 @@ export const getWorkspaceAccessForRequest = internalQuery({
       accountId: account._id,
       provider: account.provider,
       providerAccountId: account.providerAccountId,
-      role: access.workspaceMembership.role,
+      role: access.organizationMembership.role,
     };
   },
 });
@@ -48,7 +48,7 @@ export const getWorkspaceAccessForWorkosSubject = internalQuery({
       accountId: account._id,
       provider: account.provider,
       providerAccountId: account.providerAccountId,
-      role: access.workspaceMembership.role,
+      role: access.organizationMembership.role,
     };
   },
 });
@@ -76,7 +76,7 @@ export const getWorkspaceAccessForAnonymousSubject = internalQuery({
       accountId: account._id,
       provider: account.provider,
       providerAccountId: account.providerAccountId,
-      role: access.workspaceMembership.role,
+      role: access.organizationMembership.role,
     };
   },
 });
@@ -99,7 +99,7 @@ export const getWorkspaceAccessForAccount = internalQuery({
       accountId: account._id,
       provider: account.provider,
       providerAccountId: account.providerAccountId,
-      role: access.workspaceMembership.role,
+      role: access.organizationMembership.role,
     };
   },
 });

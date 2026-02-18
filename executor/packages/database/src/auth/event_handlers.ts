@@ -128,6 +128,44 @@ async function applyInviteHintFromMembershipEvent(
   }
 }
 
+async function applyMembershipDeletionFromEvent(
+  ctx: MutationCtx,
+  args: { data: unknown; now: number },
+): Promise<void> {
+  const parsed = parseMembershipEventData(args.data);
+  if (!parsed) {
+    return;
+  }
+
+  const workosUserId = parsed.user_id ?? parsed.userId;
+  const workosOrgId = parsed.organization_id ?? parsed.organizationId;
+  if (!workosUserId || !workosOrgId) {
+    return;
+  }
+
+  const [account, organization] = await Promise.all([
+    getAccountByWorkosId(ctx, workosUserId),
+    getOrganizationByWorkosOrgId(ctx, workosOrgId),
+  ]);
+  if (!account || !organization) {
+    return;
+  }
+
+  const membership = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_org_account", (q) => q.eq("organizationId", organization._id).eq("accountId", account._id))
+    .unique();
+  if (!membership) {
+    return;
+  }
+
+  await ctx.db.patch(membership._id, {
+    status: "removed",
+    billable: false,
+    updatedAt: args.now,
+  });
+}
+
 async function recordAndHandleMembershipHint(
   ctx: MutationCtx,
   args: { eventType: string; data: unknown },
@@ -270,9 +308,19 @@ export const workosEventHandlers = {
   },
 
   "organization_membership.deleted": async (ctx, event) => {
-    await recordNoopWorkosEvent(ctx, {
+    const now = Date.now();
+    const claimed = await claimWorkosWebhookReceipt(ctx, {
       eventType: "organization_membership.deleted",
       data: event.data,
+      now,
+    });
+    if (!claimed) {
+      return;
+    }
+
+    await applyMembershipDeletionFromEvent(ctx, {
+      data: event.data,
+      now,
     });
   },
 } satisfies Partial<Parameters<AuthKit<DataModel>["events"]>[0]>;

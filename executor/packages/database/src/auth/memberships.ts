@@ -4,19 +4,7 @@ import type {
   OrganizationId,
   OrganizationMemberStatus,
   OrganizationRole,
-  WorkspaceMemberRole,
 } from "./types";
-import { projectOrganizationMembershipToWorkspaceMembers } from "./workspace_membership_projection";
-
-export function mapOrganizationRoleToWorkspaceRole(role: OrganizationRole): WorkspaceMemberRole {
-  if (role === "owner") {
-    return "owner";
-  }
-  if (role === "admin") {
-    return "admin";
-  }
-  return "member";
-}
 
 export async function upsertOrganizationMembership(
   ctx: DbCtx,
@@ -58,13 +46,6 @@ export async function upsertOrganizationMembership(
     });
   }
 
-  await projectOrganizationMembershipToWorkspaceMembers(ctx, {
-    organizationId: args.organizationId,
-    accountId: args.accountId,
-    role: mapOrganizationRoleToWorkspaceRole(args.role),
-    status: args.status,
-    now: args.now,
-  });
 }
 
 async function getLatestPendingInviteRoleForEmail(

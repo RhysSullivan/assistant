@@ -49,9 +49,20 @@ export const upsertAccessPolicy = internalMutation({
       throw new Error("targetAccountId is required for account-scoped policies");
     }
 
-    const organizationId = scopeType === "organization" || scopeType === "workspace"
-      ? workspace.organizationId
-      : undefined;
+    const targetAccountId = scopeType === "account" ? args.targetAccountId : undefined;
+    if (targetAccountId) {
+      const targetMembership = await ctx.db
+        .query("organizationMembers")
+        .withIndex("by_org_account", (q) =>
+          q.eq("organizationId", workspace.organizationId).eq("accountId", targetAccountId)
+        )
+        .unique();
+      if (!targetMembership || targetMembership.status !== "active") {
+        throw new Error("targetAccountId must be an active member of this organization");
+      }
+    }
+
+    const organizationId = workspace.organizationId;
     const workspaceId = scopeType === "workspace" ? args.workspaceId : undefined;
 
     // Normalize argument conditions: drop empty entries, store undefined if empty array.
@@ -162,7 +173,9 @@ export const listAccessPolicies = internalQuery({
     const accountDocs = args.accountId
       ? await ctx.db
         .query("accessPolicies")
-        .withIndex("by_target_account_created", (q) => q.eq("targetAccountId", args.accountId))
+        .withIndex("by_org_target_account_created", (q) =>
+          q.eq("organizationId", workspace.organizationId).eq("targetAccountId", args.accountId)
+        )
         .collect()
       : [];
 

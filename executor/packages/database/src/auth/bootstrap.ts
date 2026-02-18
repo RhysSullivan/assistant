@@ -34,14 +34,23 @@ async function seedHintedOrganizationMembership(
   });
 }
 
-async function hasActiveWorkspaceMembership(ctx: MutationCtx, args: { accountId: AccountId }) {
-  const activeWorkspaceMembership = await ctx.db
-    .query("workspaceMembers")
+async function hasActiveWorkspaceAccess(ctx: MutationCtx, args: { accountId: AccountId }) {
+  const activeOrganizationMembership = await ctx.db
+    .query("organizationMembers")
     .withIndex("by_account", (q) => q.eq("accountId", args.accountId))
     .filter((q) => q.eq(q.field("status"), "active"))
     .first();
 
-  return Boolean(activeWorkspaceMembership);
+  if (!activeOrganizationMembership) {
+    return false;
+  }
+
+  const workspace = await ctx.db
+    .query("workspaces")
+    .withIndex("by_organization_created", (q) => q.eq("organizationId", activeOrganizationMembership.organizationId))
+    .first();
+
+  return Boolean(workspace);
 }
 
 export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
@@ -83,7 +92,7 @@ export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
     now,
   });
 
-  let hasWorkspaceMembership = await hasActiveWorkspaceMembership(ctx, {
+  let hasWorkspaceMembership = await hasActiveWorkspaceAccess(ctx, {
     accountId: account._id,
   });
 
@@ -96,12 +105,12 @@ export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
       now,
     });
 
-    hasWorkspaceMembership = await hasActiveWorkspaceMembership(ctx, {
+    hasWorkspaceMembership = await hasActiveWorkspaceAccess(ctx, {
       accountId: account._id,
     });
 
     if (!hasWorkspaceMembership) {
-      throw new Error("Account bootstrap did not produce an active workspace membership");
+      throw new Error("Account bootstrap did not produce an active workspace access");
     }
   }
 

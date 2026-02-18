@@ -3,11 +3,7 @@ import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { getOrganizationMembership, slugify } from "../../../core/src/identity";
 import { ensureUniqueSlug } from "../../../core/src/slug";
-import {
-  mapOrganizationRoleToWorkspaceRole,
-  upsertOrganizationMembership,
-} from "../auth/memberships";
-import { seedWorkspaceMembersFromOrganization } from "../auth/workspace_membership_projection";
+import { upsertOrganizationMembership } from "../auth/memberships";
 import { safeRunAfter } from "../lib/scheduler";
 
 type WorkspaceResult = {
@@ -28,82 +24,6 @@ type OptionalAccountCtx = QueryCtx & {
 type AuthedCtx = MutationCtx & {
   account: Doc<"accounts">;
 };
-
-async function workspaceHasActivity(
-  ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
-  workspaceId: Id<"workspaces">,
-): Promise<boolean> {
-  const [
-    task,
-    approval,
-    policy,
-    credential,
-    toolSource,
-    member,
-  ] = await Promise.all([
-    ctx.db.query("tasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
-    ctx.db.query("approvals").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
-    ctx.db.query("accessPolicies").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
-    ctx.db
-      .query("sourceCredentials")
-      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
-      .first(),
-    ctx.db.query("toolSources").withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId)).first(),
-    ctx.db.query("workspaceMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first(),
-  ]);
-
-  return Boolean(task || approval || policy || credential || toolSource || member);
-}
-
-async function filterDisplayWorkspaces(
-  ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
-  workspaces: Doc<"workspaces">[],
-): Promise<Doc<"workspaces">[]> {
-  if (workspaces.length <= 1) {
-    return workspaces;
-  }
-
-  const starterWorkspace = workspaces.find((workspace) => workspace.name === "Default Workspace");
-  if (!starterWorkspace) {
-    return workspaces;
-  }
-
-  const hasActivity = await workspaceHasActivity(ctx, starterWorkspace._id);
-  if (hasActivity) {
-    return workspaces;
-  }
-
-  return workspaces.filter((workspace) => workspace._id !== starterWorkspace._id);
-}
-
-async function cleanupEmptyStarterWorkspace(
-  ctx: Pick<MutationCtx, "db">,
-  organizationId: Id<"organizations">,
-  preserveWorkspaceId: Id<"workspaces">,
-): Promise<void> {
-  const docs = await ctx.db
-    .query("workspaces")
-    .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
-    .collect();
-
-  if (docs.length <= 1) {
-    return;
-  }
-
-  const starterWorkspace = docs.find(
-    (workspace) => workspace.name === "Default Workspace" && workspace._id !== preserveWorkspaceId,
-  );
-  if (!starterWorkspace) {
-    return;
-  }
-
-  const hasActivity = await workspaceHasActivity(ctx, starterWorkspace._id);
-  if (hasActivity) {
-    return;
-  }
-
-  await ctx.db.delete(starterWorkspace._id);
-}
 
 async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName);
@@ -213,15 +133,6 @@ export async function createWorkspaceHandler(
     throw new Error("Failed to create workspace");
   }
 
-  await seedWorkspaceMembersFromOrganization(ctx, {
-    organizationId,
-    workspaceId,
-    now,
-    mapRole: mapOrganizationRoleToWorkspaceRole,
-  });
-
-  await cleanupEmptyStarterWorkspace(ctx, organizationId, workspaceId);
-
   await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
     workspaceId,
     accountId: account._id,
@@ -247,8 +158,7 @@ export async function listWorkspacesHandler(ctx: OptionalAccountCtx, args: { org
       .query("workspaces")
       .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
       .collect();
-    const filteredDocs = await filterDisplayWorkspaces(ctx, docs);
-    return await Promise.all(filteredDocs.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
+    return await Promise.all(docs.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
   }
 
   const memberships = await ctx.db
@@ -264,8 +174,7 @@ export async function listWorkspacesHandler(ctx: OptionalAccountCtx, args: { org
       .query("workspaces")
       .withIndex("by_organization_created", (q) => q.eq("organizationId", membership.organizationId))
       .collect();
-    const filteredDocs = await filterDisplayWorkspaces(ctx, docs);
-    for (const workspace of filteredDocs) {
+    for (const workspace of docs) {
       allWorkspaces.push(await toWorkspaceResult(ctx, workspace));
     }
   }

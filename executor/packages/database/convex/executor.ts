@@ -47,6 +47,7 @@ export const createTaskInternal = internalMutation({
 
 export const resolveApproval = workspaceMutation({
   method: "POST",
+  requireAdmin: true,
   args: {
     approvalId: v.string(),
     decision: v.union(v.literal("approved"), v.literal("denied")),

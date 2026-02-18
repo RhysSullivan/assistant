@@ -63,14 +63,6 @@ async function deleteWorkspaceData(
     await ctx.db.delete(source._id);
   }
 
-  const workspaceMembers = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const member of workspaceMembers) {
-    await ctx.db.delete(member._id);
-  }
-
   const anonymousSessions = await ctx.db
     .query("anonymousSessions")
     .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId))
@@ -190,14 +182,6 @@ export async function deleteCurrentAccountHandler(ctx: DeleteCurrentAccountCtx) 
 
   for (const organizationId of organizationIdsToDelete) {
     await deleteOrganizationData(ctx, organizationId);
-  }
-
-  const workspaceMemberships = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_account", (q) => q.eq("accountId", accountId))
-    .collect();
-  for (const membership of workspaceMemberships) {
-    await ctx.db.delete(membership._id);
   }
 
   const organizationMemberships = await ctx.db

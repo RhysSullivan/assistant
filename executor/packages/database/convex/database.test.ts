@@ -187,6 +187,23 @@ test("credentials persist provider and resolve by scope", async () => {
   expect(workspaceCredential.provider).toBe("local-convex");
 
   const accountId = await seedAccount(t, "cred-account");
+  await t.run(async (ctx) => {
+    const workspace = await ctx.db.get(wsId);
+    if (!workspace) {
+      throw new Error("Workspace not found while seeding account credential test");
+    }
+
+    await ctx.db.insert("organizationMembers", {
+      organizationId: workspace.organizationId,
+      accountId,
+      role: "member",
+      status: "active",
+      billable: true,
+      joinedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
   const accountCredential = await t.mutation(internal.database.upsertCredential, {
     workspaceId: wsId,
     sourceKey: "openapi:github",

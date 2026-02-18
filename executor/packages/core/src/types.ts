@@ -102,7 +102,7 @@ export interface ArgumentCondition {
 export interface AccessPolicyRecord {
   id: string;
   scopeType: PolicyScopeType;
-  organizationId?: Id<"organizations">;
+  organizationId: Id<"organizations">;
   workspaceId?: Id<"workspaces">;
   targetAccountId?: Id<"accounts">;
   clientId?: string;
@@ -122,7 +122,7 @@ export interface CredentialRecord {
   bindingId?: string;
   scopeType: CredentialScopeType;
   accountId?: Id<"accounts">;
-  organizationId?: Id<"organizations">;
+  organizationId: Id<"organizations">;
   workspaceId?: Id<"workspaces">;
   sourceKey: string;
   overridesJson?: Record<string, unknown>;

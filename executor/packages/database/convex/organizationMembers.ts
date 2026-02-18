@@ -56,6 +56,17 @@ export const updateRole = organizationMutation({
       throw new Error("Organization member not found");
     }
 
+    if (membership.status === "active" && membership.role === "owner" && args.role !== "owner") {
+      const members = await ctx.db
+        .query("organizationMembers")
+        .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
+        .collect();
+      const ownerCount = members.filter((member) => member.status === "active" && member.role === "owner").length;
+      if (ownerCount <= 1) {
+        throw new Error("Organization must have at least one active owner");
+      }
+    }
+
     await upsertOrganizationMembership(ctx, {
       organizationId: ctx.organizationId,
       accountId: args.accountId,
@@ -110,6 +121,17 @@ export const remove = organizationMutation({
     const membership = await getOrganizationMembership(ctx, ctx.organizationId, args.accountId);
     if (!membership) {
       throw new Error("Organization member not found");
+    }
+
+    if (membership.status === "active" && membership.role === "owner") {
+      const members = await ctx.db
+        .query("organizationMembers")
+        .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
+        .collect();
+      const ownerCount = members.filter((member) => member.status === "active" && member.role === "owner").length;
+      if (ownerCount <= 1) {
+        throw new Error("Organization must have at least one active owner");
+      }
     }
 
     await upsertOrganizationMembership(ctx, {

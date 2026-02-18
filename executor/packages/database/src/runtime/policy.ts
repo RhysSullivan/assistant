@@ -105,7 +105,6 @@ export function getDecisionForContext(
       const matchType = policy.matchType;
 
       if (scopeType === "workspace" && policy.workspaceId !== context.workspaceId) return false;
-      if (scopeType === "organization" && !policy.organizationId) return false;
       if (targetAccountId && targetAccountId !== context.accountId) return false;
       if (policy.clientId && policy.clientId !== context.clientId) return false;
       if (!matchesToolPath(resourcePattern, tool.path, matchType)) return false;

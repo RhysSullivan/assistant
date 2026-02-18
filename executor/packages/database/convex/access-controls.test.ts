@@ -39,7 +39,6 @@ async function seedUser(
     orgName?: string;
     orgRole?: "owner" | "admin" | "member" | "billing_admin";
     workspaceName?: string;
-    workspaceRole?: "owner" | "admin" | "member";
   },
 ) {
   const now = Date.now();
@@ -47,7 +46,6 @@ async function seedUser(
   const email = opts.email ?? `${subject}@test.local`;
   const name = opts.name ?? subject;
   const orgRole = opts.orgRole ?? "owner";
-  const wsRole = opts.workspaceRole ?? "owner";
 
   return await t.run(async (ctx) => {
     const accountId = await ctx.db.insert("accounts", {
@@ -85,15 +83,6 @@ async function seedUser(
       slug: `ws-${subject}`,
       name: opts.workspaceName ?? `${name}'s Workspace`,
       createdByAccountId: accountId,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await ctx.db.insert("workspaceMembers", {
-      workspaceId,
-      accountId,
-      role: wsRole,
-      status: "active",
       createdAt: now,
       updatedAt: now,
     });
@@ -142,36 +131,6 @@ async function addOrgMember(
       });
     }
 
-    const role = opts.role === "owner" || opts.role === "admin" ? opts.role : "member";
-    const workspaces = await ctx.db
-      .query("workspaces")
-      .withIndex("by_organization_created", (q) => q.eq("organizationId", opts.organizationId))
-      .collect();
-
-    for (const workspace of workspaces) {
-      const existing = await ctx.db
-        .query("workspaceMembers")
-        .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", opts.accountId))
-        .first();
-
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          role,
-          status: opts.status ?? "active",
-          updatedAt: now,
-        });
-      } else {
-        await ctx.db.insert("workspaceMembers", {
-          workspaceId: workspace._id,
-          accountId: opts.accountId,
-          role,
-          status: opts.status ?? "active",
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-
     return membershipId!;
   });
 }
@@ -190,25 +149,34 @@ async function addWorkspaceMember(
 ) {
   const now = Date.now();
   return await t.run(async (ctx) => {
-    const existing = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace_account", (q) => q.eq("workspaceId", opts.workspaceId).eq("accountId", opts.accountId))
-      .first();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        role: opts.role,
-        status: opts.status ?? "active",
-        updatedAt: now,
-      });
-      return existing._id;
+    const workspace = await ctx.db.get(opts.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
     }
 
-    return await ctx.db.insert("workspaceMembers", {
-      workspaceId: opts.workspaceId,
+    const role = opts.role === "owner" || opts.role === "admin" ? opts.role : "member";
+    const existingOrgMembership = await ctx.db
+      .query("organizationMembers")
+      .withIndex("by_org_account", (q) => q.eq("organizationId", workspace.organizationId).eq("accountId", opts.accountId))
+      .first();
+
+    if (existingOrgMembership) {
+      await ctx.db.patch(existingOrgMembership._id, {
+        role,
+        status: opts.status ?? "active",
+        billable: true,
+        updatedAt: now,
+      });
+      return existingOrgMembership._id;
+    }
+
+    return await ctx.db.insert("organizationMembers", {
+      organizationId: workspace.organizationId,
       accountId: opts.accountId,
-      role: opts.role,
+      role,
       status: opts.status ?? "active",
+      billable: true,
+      joinedAt: now,
       createdAt: now,
       updatedAt: now,
     });
@@ -457,7 +425,7 @@ describe("workspace access controls", () => {
         resourcePattern: "*",
         effect: "allow",
       }),
-    ).rejects.toThrow("Only workspace admins can perform this action");
+    ).rejects.toThrow("Only organization admins can perform this action");
   });
 
   test("workspace admin can upsert access policies", async () => {
@@ -529,7 +497,7 @@ describe("workspace access controls", () => {
         scopeType: "workspace",
         secretJson: { token: "ghp_test" },
       }),
-    ).rejects.toThrow("Only workspace admins can perform this action");
+    ).rejects.toThrow("Only organization admins can perform this action");
   });
 
   test("regular member cannot upsert tool sources (admin-only)", async () => {
@@ -557,7 +525,7 @@ describe("workspace access controls", () => {
         type: "mcp",
         config: { url: "https://example.com" },
       }),
-    ).rejects.toThrow("Only workspace admins can perform this action");
+    ).rejects.toThrow("Only organization admins can perform this action");
   });
 
   test("regular member cannot delete tool sources (admin-only)", async () => {
@@ -583,7 +551,7 @@ describe("workspace access controls", () => {
         workspaceId: owner.workspaceId,
         sourceId: "src_nonexistent",
       }),
-    ).rejects.toThrow("Only workspace admins can perform this action");
+    ).rejects.toThrow("Only organization admins can perform this action");
   });
 
   test("regular member can read access policies (no admin required)", async () => {
@@ -730,6 +698,20 @@ describe("organization access controls", () => {
     expect(result.ok).toBe(true);
   });
 
+  test("cannot demote the last active owner", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "last-owner-demote" });
+    const authedOwner = t.withIdentity({ subject: "last-owner-demote" });
+
+    await expect(
+      authedOwner.mutation(api.organizationMembers.updateRole, {
+        organizationId: owner.organizationId,
+        accountId: owner.accountId,
+        role: "admin",
+      }),
+    ).rejects.toThrow("Organization must have at least one active owner");
+  });
+
   test("regular member cannot remove members (admin-only)", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "remove-owner" });
@@ -792,6 +774,19 @@ describe("organization access controls", () => {
       const updated = await ctx.db.get(membership!._id);
       expect(updated!.status).toBe("removed");
     });
+  });
+
+  test("cannot remove the last active owner", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "last-owner-remove" });
+    const authedOwner = t.withIdentity({ subject: "last-owner-remove" });
+
+    await expect(
+      authedOwner.mutation(api.organizationMembers.remove, {
+        organizationId: owner.organizationId,
+        accountId: owner.accountId,
+      }),
+    ).rejects.toThrow("Organization must have at least one active owner");
   });
 });
 
@@ -903,7 +898,7 @@ describe("cross-organization isolation", () => {
 });
 
 describe("workspace creation", () => {
-  test("authenticated user can create a workspace", async () => {
+  test("authenticated user can create a workspace in an existing organization", async () => {
     const t = setup();
     const user = await seedUser(t, { subject: "creator" });
     const authed = t.withIdentity({ subject: "creator" });
@@ -915,6 +910,24 @@ describe("workspace creation", () => {
 
     expect(result.name).toBe("My New Workspace");
     expect(result.organizationId).toBe(user.organizationId);
+  });
+
+  test("organization can have multiple workspaces", async () => {
+    const t = setup();
+    const user = await seedUser(t, { subject: "single-ws-user" });
+    const authed = t.withIdentity({ subject: "single-ws-user" });
+
+    const created = await authed.mutation(api.workspaces.create, {
+      name: "Another Workspace",
+      organizationId: user.organizationId,
+    });
+
+    expect(created.organizationId).toBe(user.organizationId);
+
+    const workspaces = await authed.query(api.workspaces.list, {
+      organizationId: user.organizationId,
+    });
+    expect(workspaces.length).toBe(2);
   });
 
   test("unauthenticated user cannot create a workspace", async () => {
@@ -1241,7 +1254,7 @@ describe("credential security", () => {
         sourceKey: "openapi:github",
         scopeType: "workspace",
       }),
-    ).rejects.toThrow("Only workspace admins can perform this action");
+    ).rejects.toThrow("Only organization admins can perform this action");
   });
 });
 

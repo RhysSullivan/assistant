@@ -5,13 +5,20 @@ import { isAnonymousIdentity } from "../../database/src/auth/anonymous";
 type IdentityCtx = Pick<QueryCtx, "auth" | "db"> | Pick<MutationCtx, "auth" | "db">;
 type MembershipCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
 
-type WorkspaceAccessMembership = Pick<Doc<"workspaceMembers">, "role" | "status">;
+type WorkspaceAccessMembership = Pick<Doc<"organizationMembers">, "role" | "status">;
 
 export type WorkspaceAccess = {
   account: Doc<"accounts">;
   workspace: Doc<"workspaces">;
-  workspaceMembership: WorkspaceAccessMembership;
+  organizationMembership: WorkspaceAccessMembership;
 };
+
+function activeAccountOrNull(account: Doc<"accounts"> | null): Doc<"accounts"> | null {
+  if (!account || account.status !== "active") {
+    return null;
+  }
+  return account;
+}
 
 export function slugify(input: string, fallback = "team"): string {
   const slug = input
@@ -35,7 +42,7 @@ export async function resolveAccountForRequest(
       .withIndex("by_provider", (q) => q.eq("provider", "workos").eq("providerAccountId", identity.subject))
       .unique();
     if (workosAccount) {
-      return workosAccount;
+      return activeAccountOrNull(workosAccount);
     }
   }
 
@@ -47,7 +54,7 @@ export async function resolveAccountForRequest(
     if (anonymousSession) {
       const anonymousAccount = await ctx.db.get(anonymousSession.accountId);
       if (anonymousAccount) {
-        return anonymousAccount;
+        return activeAccountOrNull(anonymousAccount);
       }
     }
   }
@@ -61,7 +68,7 @@ export async function resolveAccountForRequest(
         anonymousById = null;
       }
       if (anonymousById?.provider === "anonymous") {
-        return anonymousById;
+        return activeAccountOrNull(anonymousById);
       }
 
       const anonymousAccount = await ctx.db
@@ -69,7 +76,7 @@ export async function resolveAccountForRequest(
         .withIndex("by_provider", (q) => q.eq("provider", "anonymous").eq("providerAccountId", identity.subject))
         .unique();
       if (anonymousAccount) {
-        return anonymousAccount;
+        return activeAccountOrNull(anonymousAccount);
       }
     }
   }
@@ -85,10 +92,12 @@ export async function resolveWorkosAccountBySubject(
     return null;
   }
 
-  return await ctx.db
+  const account = await ctx.db
     .query("accounts")
     .withIndex("by_provider", (q) => q.eq("provider", "workos").eq("providerAccountId", subject))
     .unique();
+
+  return activeAccountOrNull(account);
 }
 
 export async function getOrganizationMembership(
@@ -102,36 +111,29 @@ export async function getOrganizationMembership(
     .unique();
 }
 
-export async function getWorkspaceMembership(
-  ctx: MembershipCtx,
-  workspaceId: Id<"workspaces">,
-  accountId: Id<"accounts">,
-) {
-  return await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
-    .unique();
-}
-
 export async function requireWorkspaceAccessForAccount(
   ctx: MembershipCtx,
   workspaceId: Id<"workspaces">,
   account: Doc<"accounts">,
 ): Promise<WorkspaceAccess> {
+  if (account.status !== "active") {
+    throw new Error("Account is inactive");
+  }
+
   const workspace = await ctx.db.get(workspaceId);
   if (!workspace) {
     throw new Error("Workspace not found");
   }
 
-  const workspaceMembership = await getWorkspaceMembership(ctx, workspace._id, account._id);
-  if (!workspaceMembership || workspaceMembership.status !== "active") {
+  const organizationMembership = await getOrganizationMembership(ctx, workspace.organizationId, account._id);
+  if (!organizationMembership || organizationMembership.status !== "active") {
     throw new Error("You are not a member of this workspace");
   }
 
   return {
     account,
     workspace,
-    workspaceMembership,
+    organizationMembership,
   };
 }
 

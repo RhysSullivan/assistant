@@ -66,12 +66,16 @@ export async function getOrCreatePersonalWorkspace(ctx: DbCtx, accountId: Accoun
   });
 
   const memberships = await ctx.db
-    .query("workspaceMembers")
+    .query("organizationMembers")
     .withIndex("by_account", (q) => q.eq("accountId", accountId))
+    .filter((q) => q.eq(q.field("status"), "active"))
     .collect();
 
   for (const membership of memberships) {
-    const workspace = await ctx.db.get(membership.workspaceId);
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_organization_created", (q) => q.eq("organizationId", membership.organizationId))
+      .first();
     if (!workspace || workspace.createdByAccountId !== accountId) {
       continue;
     }
@@ -130,11 +134,11 @@ export async function getOrCreatePersonalWorkspace(ctx: DbCtx, accountId: Accoun
   });
 
   const membership = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
+    .query("organizationMembers")
+    .withIndex("by_org_account", (q) => q.eq("organizationId", organizationId).eq("accountId", accountId))
     .unique();
   if (!membership || membership.status !== "active") {
-    throw new Error("Failed to project personal workspace membership");
+    throw new Error("Failed to create personal organization membership");
   }
 
   return {
@@ -156,12 +160,16 @@ export async function refreshGeneratedPersonalWorkspaceNames(
   });
 
   const memberships = await ctx.db
-    .query("workspaceMembers")
+    .query("organizationMembers")
     .withIndex("by_account", (q) => q.eq("accountId", accountId))
+    .filter((q) => q.eq(q.field("status"), "active"))
     .collect();
 
   for (const membership of memberships) {
-    const workspace = await ctx.db.get(membership.workspaceId);
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_organization_created", (q) => q.eq("organizationId", membership.organizationId))
+      .first();
     if (!workspace) {
       continue;
     }

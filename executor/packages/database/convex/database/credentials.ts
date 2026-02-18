@@ -65,10 +65,21 @@ export const upsertCredential = internalMutation({
 
     const organizationId = workspace.organizationId;
     const scopedWorkspaceId = scopeType === "workspace" ? args.workspaceId : undefined;
-    const scopedOrganizationId = scopeType === "workspace" || scopeType === "organization"
-      ? organizationId
-      : undefined;
+    const scopedOrganizationId = organizationId;
     const scopedAccountId = requireAccountId(scopeType, args.accountId);
+
+    if (scopeType === "account" && scopedAccountId) {
+      const targetMembership = await ctx.db
+        .query("organizationMembers")
+        .withIndex("by_org_account", (q) =>
+          q.eq("organizationId", organizationId).eq("accountId", scopedAccountId)
+        )
+        .unique();
+      if (!targetMembership || targetMembership.status !== "active") {
+        throw new Error("accountId must be an active member of this organization");
+      }
+    }
+
     const submittedSecret = toRecordValue(args.secretJson);
     const hasSubmittedSecret = Object.keys(submittedSecret).length > 0;
 
@@ -94,8 +105,9 @@ export const upsertCredential = internalMutation({
           .unique()
         : await ctx.db
           .query("sourceCredentials")
-          .withIndex("by_account_source_scope", (q) =>
+          .withIndex("by_org_account_source_scope", (q) =>
             q
+              .eq("organizationId", organizationId)
               .eq("accountId", scopedAccountId)
               .eq("sourceKey", args.sourceKey)
               .eq("scopeType", "account"),
@@ -137,8 +149,8 @@ export const upsertCredential = internalMutation({
           .collect()
         : await ctx.db
           .query("sourceCredentials")
-          .withIndex("by_account_credential", (q) =>
-            q.eq("accountId", scopedAccountId).eq("credentialId", connectionId),
+          .withIndex("by_org_account_credential", (q) =>
+            q.eq("organizationId", organizationId).eq("accountId", scopedAccountId).eq("credentialId", connectionId),
           )
           .collect();
 
@@ -217,8 +229,12 @@ export const upsertCredential = internalMutation({
           .unique()
         : await ctx.db
           .query("sourceCredentials")
-          .withIndex("by_account_source_scope", (q) =>
-            q.eq("accountId", scopedAccountId).eq("sourceKey", args.sourceKey).eq("scopeType", "account"),
+          .withIndex("by_org_account_source_scope", (q) =>
+            q
+              .eq("organizationId", organizationId)
+              .eq("accountId", scopedAccountId)
+              .eq("sourceKey", args.sourceKey)
+              .eq("scopeType", "account"),
           )
           .unique();
 
@@ -274,7 +290,9 @@ export const listCredentials = internalQuery({
       args.accountId
         ? ctx.db
           .query("sourceCredentials")
-          .withIndex("by_account_created", (q) => q.eq("accountId", args.accountId))
+          .withIndex("by_org_account_created", (q) =>
+            q.eq("organizationId", organizationId).eq("accountId", args.accountId)
+          )
           .order("desc")
           .collect()
         : Promise.resolve([]),
@@ -344,8 +362,12 @@ export const resolveCredential = internalQuery({
 
       return await ctx.db
         .query("sourceCredentials")
-        .withIndex("by_account_source_scope", (q) =>
-          q.eq("accountId", args.accountId).eq("sourceKey", args.sourceKey).eq("scopeType", "account"),
+        .withIndex("by_org_account_source_scope", (q) =>
+          q
+            .eq("organizationId", organizationId)
+            .eq("accountId", args.accountId)
+            .eq("sourceKey", args.sourceKey)
+            .eq("scopeType", "account"),
         )
         .unique();
     };
