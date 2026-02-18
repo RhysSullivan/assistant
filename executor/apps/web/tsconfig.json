@@ -10,7 +10,6 @@
     "noEmit": true,
     "esModuleInterop": true,
     "module": "ESNext",
-    "baseUrl": ".",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
@@ -20,6 +19,7 @@
     "incremental": true,
     "types": ["vite/client", "node", "bun"],
     "paths": {
+      "*": ["./*"],
       "@/*": ["./src/*"],
       "@executor/core/*": ["../../packages/core/src/*"]
     }
