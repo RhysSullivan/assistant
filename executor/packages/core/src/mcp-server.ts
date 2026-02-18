@@ -4,7 +4,11 @@ import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { z } from "zod";
 import type { McpExecutorService, ApprovalPrompt } from "./mcp/server-contracts";
 import type { Id } from "../../database/convex/_generated/dataModel.d.ts";
-import { waitForTerminalTask, createMcpApprovalPrompt } from "./mcp/server-approval";
+import {
+  waitForTerminalTask,
+  createMcpApprovalPrompt,
+  runTaskNowWithApprovalElicitation,
+} from "./mcp/server-approval";
 import { buildRunCodeDescription, summarizeTask } from "./mcp/server-formatting";
 import { getTaskTerminalState, textContent } from "./mcp/server-utils";
 
@@ -88,7 +92,13 @@ function createRunCodeTool(
     }
 
     if (service.runTaskNow) {
-      const runOutcome = await service.runTaskNow(created.task.id);
+      const runOutcome = await runTaskNowWithApprovalElicitation(
+        service,
+        created.task.id,
+        () => service.runTaskNow!(created.task.id),
+        onApprovalPrompt,
+        { workspaceId: context.workspaceId, accountId: context.accountId },
+      );
       const task = runOutcome?.task ?? await service.getTask(created.task.id, context.workspaceId);
       if (!task) {
         return {

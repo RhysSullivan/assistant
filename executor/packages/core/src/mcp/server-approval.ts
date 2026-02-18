@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { PendingApprovalRecord, TaskRecord } from "../types";
+import type { PendingApprovalRecord, TaskExecutionOutcome, TaskRecord } from "../types";
 import type { Id } from "../../../database/convex/_generated/dataModel";
 import type {
   ApprovalPrompt,
@@ -23,10 +23,39 @@ const subscriptionEventPayloadSchema = z.object({
   pendingApprovalCount: z.coerce.number().optional(),
 });
 
+const REDACTED_PLACEHOLDER = "[redacted]";
+const sensitiveInputKeyPattern = /(authorization|api[-_]?key|token|secret|password|cookie|credential)/i;
+
+function sanitizeApprovalInput(input: unknown, seen = new WeakSet<object>()): unknown {
+  if (Array.isArray(input)) {
+    return input.map((entry) => sanitizeApprovalInput(entry, seen));
+  }
+
+  if (input && typeof input === "object") {
+    const objectInput = input as Record<string, unknown>;
+    if (seen.has(objectInput)) {
+      return "[circular]";
+    }
+    seen.add(objectInput);
+
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(objectInput)) {
+      if (sensitiveInputKeyPattern.test(key)) {
+        sanitized[key] = REDACTED_PLACEHOLDER;
+        continue;
+      }
+      sanitized[key] = sanitizeApprovalInput(value, seen);
+    }
+    return sanitized;
+  }
+
+  return input;
+}
+
 function formatApprovalInput(input: unknown, maxLength = 2000): string {
   let serialized: string;
   try {
-    serialized = JSON.stringify(input ?? {}, null, 2);
+    serialized = JSON.stringify(sanitizeApprovalInput(input ?? {}), null, 2);
   } catch {
     serialized = String(input);
   }
@@ -235,4 +264,92 @@ export function waitForTerminalTask(
       }
     }).catch(() => {});
   });
+}
+
+export async function runTaskNowWithApprovalElicitation(
+  service: McpExecutorService,
+  taskId: string,
+  runTaskNow: () => Promise<TaskExecutionOutcome | null>,
+  onApprovalPrompt?: ApprovalPrompt,
+  approvalContext?: ApprovalPromptContext,
+): Promise<TaskExecutionOutcome | null> {
+  const hasApprovalSupport = Boolean(
+    onApprovalPrompt
+    && approvalContext
+    && service.listPendingApprovals
+    && service.resolveApproval,
+  );
+
+  if (!hasApprovalSupport || !service.listPendingApprovals || !service.resolveApproval || !onApprovalPrompt || !approvalContext) {
+    return await runTaskNow();
+  }
+  const listPendingApprovals = service.listPendingApprovals;
+  const resolveApproval = service.resolveApproval;
+
+  let settled = false;
+  let elicitationEnabled = true;
+  let loggedElicitationFallback = false;
+  const seenApprovalIds = new Set<string>();
+
+  const logElicitationFallback = (reason: string) => {
+    if (loggedElicitationFallback) return;
+    loggedElicitationFallback = true;
+    console.warn(`[executor] MCP approval elicitation unavailable, using out-of-band approvals: ${reason}`);
+  };
+
+  const maybeHandleApprovals = async () => {
+    if (!elicitationEnabled) {
+      return;
+    }
+
+    const approvals = await listPendingApprovals(approvalContext.workspaceId);
+    const pending = approvals.filter((approval) => approval.taskId === taskId && !seenApprovalIds.has(approval.id));
+    if (pending.length === 0) {
+      return;
+    }
+
+    for (const approval of pending) {
+      let decision: ApprovalPromptDecision | null;
+      try {
+        decision = await onApprovalPrompt(approval, approvalContext);
+      } catch (error) {
+        elicitationEnabled = false;
+        logElicitationFallback(error instanceof Error ? error.message : String(error));
+        return;
+      }
+
+      if (!decision) {
+        elicitationEnabled = false;
+        logElicitationFallback("client did not provide elicitation response support");
+        return;
+      }
+
+      await resolveApproval({
+        workspaceId: approvalContext.workspaceId,
+        approvalId: approval.id,
+        decision: decision.decision,
+        reason: decision.reason,
+        reviewerId: approvalContext.accountId,
+      });
+      seenApprovalIds.add(approval.id);
+    }
+  };
+
+  const pollApprovals = async () => {
+    while (!settled) {
+      await maybeHandleApprovals().catch(() => {});
+      if (settled) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+  };
+
+  const approvalPoller = pollApprovals();
+  try {
+    return await runTaskNow();
+  } finally {
+    settled = true;
+    void approvalPoller;
+  }
 }
