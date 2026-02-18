@@ -246,12 +246,48 @@ async function generateSelfHostedAdminKey(config: RuntimeConfig): Promise<string
   return parsed.adminKey;
 }
 
+async function assertSeededClientConfig(config: RuntimeConfig, expectedAnonymousIssuer: string): Promise<void> {
+  const response = await fetch(`http://${config.hostInterface}:${config.backendPort}/api/query`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      path: "app:getClientConfig",
+      args: {},
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed querying app:getClientConfig during runtime seeding: ${text || response.statusText}`);
+  }
+
+  const parsed = await response.json() as {
+    status?: string;
+    value?: {
+      anonymousAuthIssuer?: unknown;
+    };
+  };
+
+  if (parsed.status !== "success") {
+    throw new Error(`Runtime seeding query returned unexpected status: ${JSON.stringify(parsed)}`);
+  }
+
+  if (parsed.value?.anonymousAuthIssuer !== expectedAnonymousIssuer) {
+    throw new Error(
+      `Runtime seeding issuer mismatch. Expected ${expectedAnonymousIssuer}, got ${String(parsed.value?.anonymousAuthIssuer)}`,
+    );
+  }
+}
+
 async function seedManagedRuntimeState(
   rootDir: string,
   runtimeDir: string,
   config: RuntimeConfig,
   anonymousAuth: AnonymousAuthSeed,
 ): Promise<void> {
+  const expectedAnonymousIssuer = `http://${config.hostInterface}:${defaultManagedSitePort}`;
   const adminKey = await generateSelfHostedAdminKey(config);
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "executor-seed-env-"));
   const envFilePath = path.join(tempDir, "selfhost.env");
@@ -265,7 +301,7 @@ async function seedManagedRuntimeState(
 
   const envEntries: Array<{ name: string; value: string }> = [
     { name: "WORKOS_CLIENT_ID", value: "disabled" },
-    { name: "ANONYMOUS_AUTH_ISSUER", value: `http://${config.hostInterface}:${defaultManagedSitePort}` },
+    { name: "ANONYMOUS_AUTH_ISSUER", value: expectedAnonymousIssuer },
     { name: "ANONYMOUS_AUTH_PRIVATE_KEY_PEM", value: anonymousAuth.privateKeyPem },
     { name: "ANONYMOUS_AUTH_PUBLIC_KEY_PEM", value: anonymousAuth.publicKeyPem },
     { name: "MCP_API_KEY_SECRET", value: anonymousAuth.apiKeySecret },
@@ -282,9 +318,7 @@ async function seedManagedRuntimeState(
       cwd: rootDir,
     });
 
-    await runCommand(["bunx", "convex", "run", "app:getClientConfig", "--env-file", envFilePath], {
-      cwd: rootDir,
-    });
+    await assertSeededClientConfig(config, expectedAnonymousIssuer);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

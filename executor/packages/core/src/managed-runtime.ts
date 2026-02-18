@@ -20,6 +20,22 @@ function trimEnv(name: string): string | null {
   return value && value.length > 0 ? value : null;
 }
 
+function resolveManagedConvexEndpoints(info: ManagedRuntimeInfo): {
+  convexUrl: string;
+  convexSiteUrl: string;
+} {
+  const managedConvexUrl = `http://${info.config.hostInterface}:${info.config.backendPort}`;
+  const managedConvexSiteUrl = `http://${info.config.hostInterface}:${info.config.siteProxyPort}`;
+
+  const overrideConvexUrl = trimEnv("EXECUTOR_WEB_CONVEX_URL");
+  const overrideConvexSiteUrl = trimEnv("EXECUTOR_WEB_CONVEX_SITE_URL");
+
+  return {
+    convexUrl: overrideConvexUrl ?? managedConvexUrl,
+    convexSiteUrl: overrideConvexSiteUrl ?? managedConvexSiteUrl,
+  };
+}
+
 function normalizePemForEnv(value: string): string {
   return value.replace(/\r\n/g, "\n").replace(/\n/g, "\\n").trim();
 }
@@ -162,8 +178,7 @@ export async function ensureManagedRuntime(options: { quiet?: boolean } = {}): P
 export async function runManagedBackend(args: string[]): Promise<number> {
   const info = await ensureManagedRuntime();
   const anonymousAuthEnv = await resolveManagedAnonymousAuthEnv(info);
-  const managedConvexUrl = `http://${info.config.hostInterface}:${info.config.backendPort}`;
-  const managedConvexSiteUrl = `http://${info.config.hostInterface}:${info.config.siteProxyPort}`;
+  const endpoints = resolveManagedConvexEndpoints(info);
 
   if (args.length === 0) {
     try {
@@ -179,9 +194,9 @@ export async function runManagedBackend(args: string[]): Promise<number> {
     ...process.env,
     ...anonymousAuthEnv,
     PATH: `${path.dirname(info.nodeBin)}:${process.env.PATH ?? ""}`,
-    CONVEX_URL: managedConvexUrl,
-    CONVEX_SITE_URL: managedConvexSiteUrl,
-    ANONYMOUS_AUTH_ISSUER: managedConvexSiteUrl,
+    CONVEX_URL: endpoints.convexUrl,
+    CONVEX_SITE_URL: endpoints.convexSiteUrl,
+    ANONYMOUS_AUTH_ISSUER: endpoints.convexSiteUrl,
   };
 
   const proc = Bun.spawn([info.backendBinary, ...backendArgs(info, args)], {
@@ -211,8 +226,7 @@ export async function runManagedWeb(options: { port?: number } = {}): Promise<nu
 
   const webPort = options.port ?? Number(Bun.env.EXECUTOR_WEB_PORT ?? 5312);
   const host = Bun.env.EXECUTOR_WEB_INTERFACE ?? "127.0.0.1";
-  const managedConvexUrl = `http://${info.config.hostInterface}:${info.config.backendPort}`;
-  const managedConvexSiteUrl = `http://${info.config.hostInterface}:${info.config.siteProxyPort}`;
+  const endpoints = resolveManagedConvexEndpoints(info);
 
   const env = {
     ...process.env,
@@ -220,11 +234,11 @@ export async function runManagedWeb(options: { port?: number } = {}): Promise<nu
     NODE_ENV: "production",
     PORT: String(webPort),
     HOSTNAME: host,
-    CONVEX_URL: managedConvexUrl,
-    CONVEX_SITE_URL: managedConvexSiteUrl,
-    EXECUTOR_WEB_CONVEX_URL: managedConvexUrl,
-    EXECUTOR_WEB_CONVEX_SITE_URL: managedConvexSiteUrl,
-    ANONYMOUS_AUTH_ISSUER: managedConvexSiteUrl,
+    CONVEX_URL: endpoints.convexUrl,
+    CONVEX_SITE_URL: endpoints.convexSiteUrl,
+    EXECUTOR_WEB_CONVEX_URL: endpoints.convexUrl,
+    EXECUTOR_WEB_CONVEX_SITE_URL: endpoints.convexSiteUrl,
+    ANONYMOUS_AUTH_ISSUER: endpoints.convexSiteUrl,
   };
 
   const proc = await runProcess(info.nodeBin, [info.webServerEntry], {

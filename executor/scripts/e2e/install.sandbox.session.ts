@@ -1,6 +1,6 @@
 import { Sandbox } from "@vercel/sandbox";
 import { generateKeyPairSync } from "node:crypto";
-import { anonymousBootstrapCheckScript, runtimeDoctorScript } from "./install-checks";
+import { anonymousBootstrapCheckScript, runtimeConfigCheckScript, runtimeDoctorScript } from "./install-checks";
 
 type CommandResult = {
   exitCode: number;
@@ -237,6 +237,16 @@ try {
     },
   );
   assertSuccess(doctor, "sandbox doctor --verbose");
+
+  const runtimeConfigCheck = await runSandboxBash(
+    sandbox,
+    runtimeConfigCheckScript({ webPort, expectedConvexUrl: convexUrl }),
+    {
+      timeoutMs: installTimeoutMs,
+      env: sandboxEnv,
+    },
+  );
+  assertSuccess(runtimeConfigCheck, "sandbox runtime config convex URL check");
 
   const anonymousCheck = await runSandboxBash(
     sandbox,

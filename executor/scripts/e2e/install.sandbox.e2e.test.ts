@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Sandbox } from "@vercel/sandbox";
-import { anonymousBootstrapCheckScript, runtimeDoctorScript } from "./install-checks";
+import { anonymousBootstrapCheckScript, runtimeConfigCheckScript, runtimeDoctorScript } from "./install-checks";
 
 type CommandResult = {
   exitCode: number;
@@ -12,6 +12,7 @@ async function runSandboxBash(
   sandbox: Sandbox,
   script: string,
   timeoutMs: number,
+  env?: Record<string, string>,
 ): Promise<CommandResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -22,6 +23,7 @@ async function runSandboxBash(
     const command = await sandbox.runCommand({
       cmd: "bash",
       args: ["-lc", script],
+      env,
       signal: controller.signal,
     });
 
@@ -63,6 +65,10 @@ function assertSuccess(result: CommandResult, label: string): void {
 }
 
 test("installer works in fresh Vercel sandbox", async () => {
+  const backendPort = 5410;
+  const sitePort = 5411;
+  const webPort = 5312;
+
   const credentials =
     process.env.VERCEL_TOKEN && process.env.VERCEL_TEAM_ID && process.env.VERCEL_PROJECT_ID
       ? {
@@ -76,6 +82,7 @@ test("installer works in fresh Vercel sandbox", async () => {
     try {
       return await Sandbox.create({
         runtime: "node22",
+        ports: [webPort, backendPort, sitePort],
         timeout: 30 * 60 * 1000,
         ...credentials,
       });
@@ -90,13 +97,34 @@ test("installer works in fresh Vercel sandbox", async () => {
   let sandbox: Sandbox | null = await createSandbox();
 
   try {
+    const buildSandboxEnv = (activeSandbox: Sandbox) => {
+      const convexUrl = activeSandbox.domain(backendPort);
+      const convexSiteUrl = activeSandbox.domain(sitePort);
+      return {
+        convexUrl,
+        env: {
+          EXECUTOR_BACKEND_INTERFACE: "0.0.0.0",
+          EXECUTOR_WEB_INTERFACE: "0.0.0.0",
+          EXECUTOR_BACKEND_PORT: String(backendPort),
+          EXECUTOR_BACKEND_SITE_PORT: String(sitePort),
+          EXECUTOR_WEB_PORT: String(webPort),
+          CONVEX_URL: convexUrl,
+          CONVEX_SITE_URL: convexSiteUrl,
+          EXECUTOR_WEB_CONVEX_URL: convexUrl,
+          EXECUTOR_WEB_CONVEX_SITE_URL: convexSiteUrl,
+        },
+      };
+    };
+
+    let sandboxSettings = buildSandboxEnv(sandbox);
+
     const installScript = [
       "set -euo pipefail",
       "cd ~",
       "if [ -x ~/.executor/bin/executor ]; then ~/.executor/bin/executor uninstall --yes || true; fi",
       "rm -rf ~/.executor",
       "start=$(date +%s)",
-      "curl -fsSL https://executor.sh/install | bash",
+      "curl -fsSL https://executor.sh/install | bash -s -- --no-modify-path --no-star-prompt",
       "end=$(date +%s)",
       "echo INSTALL_SECONDS=$((end-start))",
       runtimeDoctorScript(),
@@ -104,7 +132,7 @@ test("installer works in fresh Vercel sandbox", async () => {
 
     let install: CommandResult;
     try {
-      install = await runSandboxBash(sandbox, installScript, 900_000);
+      install = await runSandboxBash(sandbox, installScript, 900_000, sandboxSettings.env);
     } catch (error) {
       if (!isSandboxStoppedError(error)) {
         throw error;
@@ -116,16 +144,26 @@ test("installer works in fresh Vercel sandbox", async () => {
         // ignore
       }
       sandbox = await createSandbox();
-      install = await runSandboxBash(sandbox, installScript, 900_000);
+      sandboxSettings = buildSandboxEnv(sandbox);
+      install = await runSandboxBash(sandbox, installScript, 900_000, sandboxSettings.env);
     }
     assertSuccess(install, "sandbox install + doctor");
 
     const output = `${install.stdout}\n${install.stderr}`;
     expect(output).toContain("Executor status: ready");
+    const runtimeConfigCheck = await runSandboxBash(
+      sandbox,
+      runtimeConfigCheckScript({ webPort, expectedConvexUrl: sandboxSettings.convexUrl }),
+      300_000,
+      sandboxSettings.env,
+    );
+    assertSuccess(runtimeConfigCheck, "sandbox runtime config convex URL check");
+
     const anonymousCheck = await runSandboxBash(
       sandbox,
-      anonymousBootstrapCheckScript({ backendPort: 5410, webPort: 5312 }),
+      anonymousBootstrapCheckScript({ backendPort, webPort }),
       300_000,
+      sandboxSettings.env,
     );
     assertSuccess(anonymousCheck, "sandbox anonymous bootstrap check");
 

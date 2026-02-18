@@ -77,6 +77,11 @@ function assertSuccess(result: CommandResult, label: string): void {
   );
 }
 
+function shouldSkipBuildSteps(): boolean {
+  const raw = process.env.EXECUTOR_INSTALL_E2E_SKIP_BUILD?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
   const repoRoot = repositoryRoot();
   const installScript = path.join(repoRoot, "install");
@@ -109,19 +114,27 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
   };
 
   try {
-    const buildBinary = await runCommand(["bun", "run", "build:binary"], {
-      cwd: repoRoot,
-      env: process.env,
-      timeoutMs: 300_000,
-    });
-    assertSuccess(buildBinary, "build binary");
+    if (!shouldSkipBuildSteps()) {
+      const buildBinary = await runCommand(["bun", "run", "build:binary"], {
+        cwd: repoRoot,
+        env: process.env,
+        timeoutMs: 300_000,
+      });
+      assertSuccess(buildBinary, "build binary");
 
-    const buildRelease = await runCommand(["bun", "run", "build:release"], {
-      cwd: repoRoot,
-      env: process.env,
-      timeoutMs: 1_200_000,
-    });
-    assertSuccess(buildRelease, "build release");
+      const buildRelease = await runCommand(["bun", "run", "build:release"], {
+        cwd: repoRoot,
+        env: process.env,
+        timeoutMs: 1_200_000,
+      });
+      assertSuccess(buildRelease, "build release");
+    }
+
+    if (!(await pathExists(binaryPath))) {
+      throw new Error(
+        `Missing expected binary at ${binaryPath}. Run 'bun run build:binary' or unset EXECUTOR_INSTALL_E2E_SKIP_BUILD.`,
+      );
+    }
 
     await fs.mkdir(installCwd, { recursive: true });
 

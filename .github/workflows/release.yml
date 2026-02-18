@@ -114,6 +114,11 @@ jobs:
       - name: Build release artifacts
         run: bun run --cwd executor build:release
 
+      - name: Validate local install flow against built artifacts
+        run: |
+          bun run --cwd executor build:binary
+          EXECUTOR_INSTALL_E2E_SKIP_BUILD=1 bun test executor/scripts/e2e/install.e2e.test.ts
+
       - name: Verify release artifacts exist
         shell: bash
         run: |

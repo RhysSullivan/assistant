@@ -13,3 +13,12 @@ export function anonymousBootstrapCheckScript(ports: { backendPort: number; webP
     "printf '%s' \"$mutation_json\" | \"$node_bin\" -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);if(j.status!=='success' || !j.value || typeof j.value.workspaceId!=='string' || typeof j.value.sessionId!=='string'){console.error(d);process.exit(3)}console.log(JSON.stringify({workspaceId:j.value.workspaceId,sessionId:j.value.sessionId}))})\"",
   ].join("; ");
 }
+
+export function runtimeConfigCheckScript(options: { webPort: number; expectedConvexUrl: string }): string {
+  return [
+    "set -euo pipefail",
+    `expected_convex_url='${options.expectedConvexUrl}'`,
+    `html=$(curl -fsS http://127.0.0.1:${options.webPort}/)`,
+    "printf '%s' \"$html\" | node -e \"const expected=process.argv[1];let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const m=d.match(/window\\.__EXECUTOR_RUNTIME_CONFIG__ = ([^;]+);/);if(!m){console.error('runtime config script missing');process.exit(2)};const cfg=JSON.parse(m[1]);if(cfg?.convexUrl!==expected){console.error(JSON.stringify({expected,actual:cfg?.convexUrl}));process.exit(3)};if(expected.startsWith('https://')&&!String(cfg?.convexUrl||'').startsWith('https://')){console.error('expected https convex url');process.exit(4)};console.log(JSON.stringify({convexUrl:cfg.convexUrl}))})\" \"$expected_convex_url\"",
+  ].join("; ");
+}
