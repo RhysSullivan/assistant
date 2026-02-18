@@ -99,7 +99,8 @@ bun run convex:codegen
 This repo uses a single root `.env` as the source of truth.
 
 - `assistant` and `executor` scripts read from root env-aware wrappers.
-- `executor/apps/web/next.config.ts` maps canonical vars (like `CONVEX_URL`) into `NEXT_PUBLIC_*` values for the client.
+- `executor/apps/web` is a TanStack Start app; canonical vars are consumed by the app and injected at runtime.
+- Client-facing values use `VITE_*` names where needed.
 - See `.env.example` for optional WorkOS, Stripe, tool-source API keys, and port overrides.
 
 ## Project Notes
