@@ -236,9 +236,7 @@ export function TaskComposer() {
                 </SelectContent>
               </Select>
             ) : (
-              <div className="h-8 px-3 rounded-md border border-input bg-background/70 text-xs text-muted-foreground flex items-center font-mono">
-                {selectedRuntime?.label ?? "Runtime"}
-              </div>
+             null
             )}
           </div>
           <div className="space-y-1.5">
