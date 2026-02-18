@@ -43,7 +43,6 @@ test("discovery output schemas validate expected payload shape", () => {
       outputSchemaJson: JSON.stringify({
         type: "object",
       }),
-      previewInputKeys: ["owner", "repo"],
     },
   };
 

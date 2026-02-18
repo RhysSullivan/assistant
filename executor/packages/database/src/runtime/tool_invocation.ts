@@ -120,7 +120,6 @@ function buildOpenApiRefHintLookup(value: unknown): Record<string, Record<string
 type DiscoveryTypingPayload = {
   inputSchemaJson?: string;
   outputSchemaJson?: string;
-  previewInputKeys?: string[];
   refHintKeys?: string[];
 };
 
@@ -154,14 +153,12 @@ function resolveEntryDiscoveryTyping(
 
   const typing = serializedTool.value.typing;
   const refHintKeys = toStringArray(typing?.refHintKeys);
-  const previewInputKeys = toStringArray(typing?.previewInputKeys);
   const inputSchemaJson = toSchemaJson((typing as { inputSchema?: unknown } | undefined)?.inputSchema);
   const outputSchemaJson = toSchemaJson((typing as { outputSchema?: unknown } | undefined)?.outputSchema);
 
   const discoveryTyping: DiscoveryTypingPayload = {
     ...(inputSchemaJson ? { inputSchemaJson } : {}),
     ...(outputSchemaJson ? { outputSchemaJson } : {}),
-    ...(previewInputKeys.length > 0 ? { previewInputKeys } : {}),
     ...(refHintKeys.length > 0 ? { refHintKeys } : {}),
   };
 
@@ -243,11 +240,23 @@ async function listRegistryNamespaces(
 
 async function searchRegistryTools(
   ctx: ActionCtx,
-  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
+  args: {
+    workspaceId: TaskRecord["workspaceId"];
+    buildId: string;
+    query: string;
+    limit: number;
+    includeSchemas?: boolean;
+  },
 ): Promise<RegistryToolEntry[]> {
-  const entries = await ctx.runQuery(internal.toolRegistry.searchTools, args);
+  const entries = await ctx.runQuery(internal.toolRegistry.searchTools, {
+    workspaceId: args.workspaceId,
+    buildId: args.buildId,
+    query: args.query,
+    limit: args.limit,
+  });
   const parsed = z.array(registryToolEntrySchema).safeParse(entries);
   if (!parsed.success) return [];
+  if (!args.includeSchemas) return parsed.data;
 
   const payloads = await ctx.runQuery(internal.toolRegistry.getSerializedToolsByPaths, {
     workspaceId: args.workspaceId,
@@ -269,11 +278,23 @@ async function searchRegistryTools(
 
 async function listRegistryToolsByNamespace(
   ctx: ActionCtx,
-  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; namespace: string; limit: number },
+  args: {
+    workspaceId: TaskRecord["workspaceId"];
+    buildId: string;
+    namespace: string;
+    limit: number;
+    includeSchemas?: boolean;
+  },
 ): Promise<RegistryToolEntry[]> {
-  const entries = await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, args);
+  const entries = await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, {
+    workspaceId: args.workspaceId,
+    buildId: args.buildId,
+    namespace: args.namespace,
+    limit: args.limit,
+  });
   const parsed = z.array(registryToolEntrySchema).safeParse(entries);
   if (!parsed.success) return [];
+  if (!args.includeSchemas) return parsed.data;
 
   const payloads = await ctx.runQuery(internal.toolRegistry.getSerializedToolsByPaths, {
     workspaceId: args.workspaceId,
@@ -405,6 +426,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         const query = (parsedInput.success ? (parsedInput.data.query ?? "") : "").trim();
         const limitInput = parsedInput.success ? parsedInput.data.limit : undefined;
         const limit = Math.max(1, Math.min(200, Number(limitInput ?? 50)));
+        const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
 
         const raw = query
           ? await searchRegistryTools(ctx, {
@@ -412,6 +434,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
               buildId,
               query,
               limit,
+              includeSchemas,
             })
           : namespace
             ? await listRegistryToolsByNamespace(ctx, {
@@ -419,6 +442,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
                 buildId,
                 namespace,
                 limit,
+                includeSchemas,
               })
             : [];
 
@@ -440,9 +464,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
               source: entry.source,
               approval: entry.approval,
               description: entry.description,
-              inputHint,
-              outputHint,
-              ...(Object.keys(discoveryTyping.typing).length > 0 ? { typing: discoveryTyping.typing } : {}),
+              ...(includeSchemas
+                ? (Object.keys(discoveryTyping.typing).length > 0 ? { typing: discoveryTyping.typing } : {})
+                : {
+                    inputHint,
+                    outputHint,
+                  }),
             };
           });
 
@@ -460,11 +487,13 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       const limitInput = parsedInput.success ? parsedInput.data.limit : undefined;
       const limit = Math.max(1, Math.min(50, Number(limitInput ?? 8)));
       const compact = parsedInput.success ? (parsedInput.data.compact ?? true) : true;
+      const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
       const hits = await searchRegistryTools(ctx, {
         workspaceId: task.workspaceId,
         buildId,
         query,
         limit: Math.max(limit * 2, limit),
+        includeSchemas,
       });
 
       const filtered = hits
@@ -486,9 +515,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           source: entry.source,
           approval: entry.approval,
           description,
-          inputHint,
-          outputHint,
-          ...(Object.keys(discoveryTyping.typing).length > 0 ? { typing: discoveryTyping.typing } : {}),
+          ...(includeSchemas
+            ? (Object.keys(discoveryTyping.typing).length > 0 ? { typing: discoveryTyping.typing } : {})
+            : {
+                inputHint,
+                outputHint,
+              }),
         };
       });
 

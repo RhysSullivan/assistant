@@ -33,12 +33,12 @@ export const catalogToolsInputSchema = z.object({
   query: z.string().optional(),
   limit: z.coerce.number().optional(),
   compact: z.boolean().optional(),
+  includeSchemas: z.boolean().optional(),
 });
 
 export const discoveryTypingSchema = z.object({
   inputSchemaJson: z.string().optional(),
   outputSchemaJson: z.string().optional(),
-  previewInputKeys: z.array(z.string()).optional(),
   refHintKeys: z.array(z.string()).optional(),
 });
 
@@ -62,6 +62,7 @@ export const discoverInputSchema = z.object({
   query: z.string().optional(),
   limit: z.coerce.number().optional(),
   compact: z.boolean().optional(),
+  includeSchemas: z.boolean().optional(),
 });
 
 export const discoverOutputSchema = z.object({
@@ -85,7 +86,6 @@ const discoveryResultJsonSchema: JsonSchema = {
       properties: {
         inputSchemaJson: { type: "string" },
         outputSchemaJson: { type: "string" },
-        previewInputKeys: { type: "array", items: { type: "string" } },
         refHintKeys: { type: "array", items: { type: "string" } },
       },
       additionalProperties: false,
@@ -132,6 +132,7 @@ export const catalogToolsInputJsonSchema = toJsonSchema(catalogToolsInputSchema,
     query: { type: "string" },
     limit: { type: "number" },
     compact: { type: "boolean" },
+    includeSchemas: { type: "boolean" },
   },
   additionalProperties: false,
 });
@@ -159,6 +160,7 @@ export const discoverInputJsonSchema = toJsonSchema(discoverInputSchema, {
     query: { type: "string" },
     limit: { type: "number" },
     compact: { type: "boolean" },
+    includeSchemas: { type: "boolean" },
   },
   additionalProperties: false,
 });
