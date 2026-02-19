@@ -38,6 +38,7 @@ const NAV_ITEMS = [
         label: "Connections",
         matchPrefixes: ["/tools/connections", "/tools/credentials"],
       },
+      { href: "/tools/storage", label: "Storage" },
       { href: "/tools/policies", label: "Policies" },
       {
         href: "/tools/editor",

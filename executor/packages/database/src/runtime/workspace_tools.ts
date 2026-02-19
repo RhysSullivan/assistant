@@ -1399,7 +1399,10 @@ async function loadWorkspaceToolInventoryForContext(
   });
   const toolsByPath = new Map<string, ToolDescriptor>();
   for (const tool of baseDescriptors) toolsByPath.set(tool.path, tool);
-  for (const tool of registryDescriptors) toolsByPath.set(tool.path, tool);
+  for (const tool of registryDescriptors) {
+    if (baseTools.has(tool.path)) continue;
+    toolsByPath.set(tool.path, tool);
+  }
   const tools = [...toolsByPath.values()];
 
   const sourceQuality = includeSourceMeta ? result.sourceQuality : {};

@@ -1,6 +1,20 @@
 export interface Env {
   LOADER: WorkerLoader;
   AUTH_TOKEN: string;
+  AGENTFS: DurableObjectNamespace;
+}
+
+export interface DurableObjectNamespace {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
+}
+
+export interface DurableObjectId {
+  toString(): string;
+}
+
+export interface DurableObjectStub {
+  fetch(input: string | Request, init?: RequestInit): Promise<Response>;
 }
 
 /** Dynamic Worker Loader binding — provided by the `worker_loaders` config. */
@@ -70,6 +84,12 @@ export interface BridgeProps {
 
 export interface BridgeEntrypointContext {
   props: BridgeProps;
+}
+
+export interface StorageProxyRequest {
+  instanceId: string;
+  operation: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface WorkerEntrypointExports {

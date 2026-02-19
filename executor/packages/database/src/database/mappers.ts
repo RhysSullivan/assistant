@@ -137,3 +137,26 @@ export function mapSource(doc: Doc<"toolSources">) {
     updatedAt: doc.updatedAt,
   };
 }
+
+export function mapStorageInstance(doc: Doc<"storageInstances">) {
+  return {
+    id: doc.instanceId,
+    scopeType: doc.scopeType,
+    durability: doc.durability,
+    status: doc.status,
+    provider: doc.provider,
+    backendKey: doc.backendKey,
+    organizationId: doc.organizationId,
+    workspaceId: doc.workspaceId,
+    accountId: doc.accountId,
+    createdByAccountId: doc.createdByAccountId,
+    purpose: doc.purpose,
+    sizeBytes: doc.sizeBytes,
+    fileCount: doc.fileCount,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    lastSeenAt: doc.lastSeenAt,
+    closedAt: doc.closedAt,
+    expiresAt: doc.expiresAt,
+  };
+}

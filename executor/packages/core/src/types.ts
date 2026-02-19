@@ -17,6 +17,10 @@ export type CredentialScope = CredentialScopeType;
 export type CredentialProvider = "local-convex" | "workos-vault";
 export type ToolApprovalMode = "auto" | "required";
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
+export type StorageScopeType = "scratch" | "account" | "workspace" | "organization";
+export type StorageDurability = "ephemeral" | "durable";
+export type StorageInstanceStatus = "active" | "closed" | "deleted";
+export type StorageProvider = "agentfs-local" | "agentfs-cloudflare";
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -193,6 +197,27 @@ export interface ToolSourceRecord {
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface StorageInstanceRecord {
+  id: string;
+  scopeType: StorageScopeType;
+  durability: StorageDurability;
+  status: StorageInstanceStatus;
+  provider: StorageProvider;
+  backendKey: string;
+  organizationId: Id<"organizations">;
+  workspaceId?: Id<"workspaces">;
+  accountId?: Id<"accounts">;
+  createdByAccountId?: Id<"accounts">;
+  purpose?: string;
+  sizeBytes?: number;
+  fileCount?: number;
+  createdAt: number;
+  updatedAt: number;
+  lastSeenAt: number;
+  closedAt?: number;
+  expiresAt?: number;
 }
 
 export interface ToolDescriptor {

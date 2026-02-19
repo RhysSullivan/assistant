@@ -10,6 +10,8 @@ import {
   policyEffectValidator,
   policyMatchTypeValidator,
   policyScopeTypeValidator,
+  storageDurabilityValidator,
+  storageScopeTypeValidator,
   toolRoleBindingStatusValidator,
   toolRoleSelectorTypeValidator,
   toolSourceScopeTypeValidator,
@@ -399,6 +401,75 @@ export const listToolSources = workspaceQuery({
       ...source,
       config: sanitizeSourceConfig(source.config),
     }));
+  },
+});
+
+export const openStorageInstance = workspaceMutation({
+  method: "POST",
+  args: {
+    instanceId: v.optional(v.string()),
+    scopeType: v.optional(storageScopeTypeValidator),
+    durability: v.optional(storageDurabilityValidator),
+    purpose: v.optional(v.string()),
+    ttlHours: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const scopeType = args.scopeType ?? "scratch";
+    if (scopeType === "organization" || scopeType === "workspace") {
+      if (!isAdminRole(ctx.organizationMembership.role)) {
+        throw new Error("Only workspace admins can open workspace or organization storage instances");
+      }
+    }
+
+    return await ctx.runMutation(internal.database.openStorageInstance, {
+      workspaceId: ctx.workspaceId,
+      accountId: ctx.account._id,
+      ...args,
+    });
+  },
+});
+
+export const listStorageInstances = workspaceQuery({
+  method: "GET",
+  args: {
+    scopeType: v.optional(storageScopeTypeValidator),
+    includeDeleted: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.runQuery(internal.database.listStorageInstances, {
+      workspaceId: ctx.workspaceId,
+      accountId: ctx.account._id,
+      ...args,
+    });
+  },
+});
+
+export const closeStorageInstance = workspaceMutation({
+  method: "POST",
+  args: {
+    instanceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.runMutation(internal.database.closeStorageInstance, {
+      workspaceId: ctx.workspaceId,
+      accountId: ctx.account._id,
+      instanceId: args.instanceId,
+    });
+  },
+});
+
+export const deleteStorageInstance = workspaceMutation({
+  method: "POST",
+  requireAdmin: true,
+  args: {
+    instanceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.runMutation(internal.database.deleteStorageInstance, {
+      workspaceId: ctx.workspaceId,
+      accountId: ctx.account._id,
+      instanceId: args.instanceId,
+    });
   },
 });
 

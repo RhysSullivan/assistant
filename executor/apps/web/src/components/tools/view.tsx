@@ -10,14 +10,17 @@ import { TaskComposer } from "@/components/tasks/task-composer";
 import { CredentialsPanel } from "@/components/tools/credentials";
 import { ConnectionFormDialog } from "@/components/tools/connection/form-dialog";
 import { PoliciesPanel } from "@/components/tools/policies";
+import { StoragePanel } from "@/components/tools/storage";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use/workspace-tools";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { convexApi } from "@/lib/convex-api";
 import type {
   ToolSourceRecord,
   CredentialRecord,
+  StorageDurability,
+  StorageScopeType,
 } from "@/lib/types";
 import {
   parseWarningSourceName,
@@ -29,7 +32,7 @@ import type { SourceDialogMeta } from "@/components/tools/add/source-dialog";
 import type { FilterApproval } from "@/components/tools/explorer-derived";
 import { toolsCatalogQueryParsers } from "@/lib/url-state/tools";
 
-type ToolsTab = "catalog" | "connections" | "policies" | "editor";
+type ToolsTab = "catalog" | "connections" | "policies" | "storage" | "editor";
 const INVENTORY_REGENERATION_TOAST_ID = "tool-inventory-regeneration";
 
 function parseToolsTab(pathname: string): ToolsTab {
@@ -44,6 +47,9 @@ function parseToolsTab(pathname: string): ToolsTab {
   }
   if (last === "policies") {
     return "policies";
+  }
+  if (last === "storage") {
+    return "storage";
   }
   if (last === "editor" || last === "runner") {
     return "editor";
@@ -81,6 +87,8 @@ export function ToolsView() {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [connectionDialogEditing, setConnectionDialogEditing] = useState<CredentialRecord | null>(null);
   const [connectionDialogSourceKey, setConnectionDialogSourceKey] = useState<string | null>(null);
+  const [storageMutationBusyId, setStorageMutationBusyId] = useState<string | undefined>(undefined);
+  const [storageCreateBusy, setStorageCreateBusy] = useState(false);
   const [regenerationInFlight, setRegenerationInFlight] = useState(false);
   const lastRegenerationToastMessageRef = useRef<string | null>(null);
 
@@ -188,8 +196,17 @@ export function ToolsView() {
     convexApi.workspace.listCredentials,
     workspaceQueryArgs(context),
   );
+  const storageInstances = useQuery(
+    convexApi.workspace.listStorageInstances,
+    workspaceQueryArgs(context),
+  );
+  const openStorageInstance = useMutation(convexApi.workspace.openStorageInstance);
+  const closeStorageInstance = useMutation(convexApi.workspace.closeStorageInstance);
+  const deleteStorageInstance = useMutation(convexApi.workspace.deleteStorageInstance);
   const credentialItems: CredentialRecord[] = credentials ?? [];
   const credentialsLoading = !!context && credentials === undefined;
+  const storageItems = storageInstances ?? [];
+  const storageLoading = !!context && storageInstances === undefined;
 
   const globalWarnings = useMemo(
     () => warnings.filter((warning) => !parseWarningSourceName(warning)),
@@ -370,6 +387,74 @@ export function ToolsView() {
     }
   };
 
+  const handleCreateStorageInstance = useCallback(async (args: {
+    scopeType: StorageScopeType;
+    durability: StorageDurability;
+    purpose?: string;
+    ttlHours?: number;
+  }) => {
+    if (!context || storageCreateBusy) {
+      return;
+    }
+
+    setStorageCreateBusy(true);
+    try {
+      await openStorageInstance({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        scopeType: args.scopeType,
+        durability: args.durability,
+        purpose: args.purpose,
+        ttlHours: args.ttlHours,
+      });
+      toast.success("Storage instance created");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create storage instance");
+    } finally {
+      setStorageCreateBusy(false);
+    }
+  }, [context, openStorageInstance, storageCreateBusy]);
+
+  const handleCloseStorageInstance = useCallback(async (instanceId: string) => {
+    if (!context || storageMutationBusyId) {
+      return;
+    }
+
+    setStorageMutationBusyId(instanceId);
+    try {
+      await closeStorageInstance({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        instanceId,
+      });
+      toast.success("Storage instance closed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to close storage instance");
+    } finally {
+      setStorageMutationBusyId(undefined);
+    }
+  }, [closeStorageInstance, context, storageMutationBusyId]);
+
+  const handleDeleteStorageInstance = useCallback(async (instanceId: string) => {
+    if (!context || storageMutationBusyId) {
+      return;
+    }
+
+    setStorageMutationBusyId(instanceId);
+    try {
+      await deleteStorageInstance({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        instanceId,
+      });
+      toast.success("Storage instance deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete storage instance");
+    } finally {
+      setStorageMutationBusyId(undefined);
+    }
+  }, [context, deleteStorageInstance, storageMutationBusyId]);
+
   if (sessionLoading) {
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -468,6 +553,20 @@ export function ToolsView() {
           <PoliciesPanel
             tools={visibleTools}
             loadingTools={loadingTools}
+          />
+        </div>
+      ) : null}
+
+      {activeTab === "storage" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8">
+          <StoragePanel
+            instances={storageItems}
+            loading={storageLoading}
+            creating={storageCreateBusy}
+            busyInstanceId={storageMutationBusyId}
+            onCreate={handleCreateStorageInstance}
+            onClose={handleCloseStorageInstance}
+            onDelete={handleDeleteStorageInstance}
           />
         </div>
       ) : null}

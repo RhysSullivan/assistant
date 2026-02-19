@@ -66,6 +66,10 @@ const toolRoleSelectorType = v.union(
 const toolRoleBindingStatus = v.union(v.literal("active"), v.literal("disabled"));
 const toolSourceScopeType = v.union(v.literal("organization"), v.literal("workspace"));
 const credentialScopeType = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
+const storageScopeType = v.union(v.literal("scratch"), v.literal("account"), v.literal("workspace"), v.literal("organization"));
+const storageDurability = v.union(v.literal("ephemeral"), v.literal("durable"));
+const storageInstanceStatus = v.union(v.literal("active"), v.literal("closed"), v.literal("deleted"));
+const storageProvider = v.union(v.literal("agentfs-local"), v.literal("agentfs-cloudflare"));
 const credentialProvider = v.union(
   v.literal("local-convex"),
   v.literal("workos-vault"),
@@ -564,6 +568,35 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_workspace_build", ["workspaceId", "buildId"]),
+
+  // Durable and ephemeral storage instances used by filesystem/kv/sql tools.
+  // Rows are scope-aware and can be shared across account/workspace/org contexts.
+  storageInstances: defineTable({
+    instanceId: v.string(),
+    scopeType: storageScopeType,
+    durability: storageDurability,
+    status: storageInstanceStatus,
+    provider: storageProvider,
+    backendKey: v.string(),
+    organizationId: v.id("organizations"),
+    workspaceId: v.optional(v.id("workspaces")),
+    accountId: v.optional(v.id("accounts")),
+    createdByAccountId: v.optional(v.id("accounts")),
+    purpose: v.optional(v.string()),
+    sizeBytes: v.optional(v.number()),
+    fileCount: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastSeenAt: v.number(),
+    closedAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+  })
+    .index("by_instance_id", ["instanceId"])
+    .index("by_workspace_updated", ["workspaceId", "updatedAt"])
+    .index("by_workspace_status_updated", ["workspaceId", "status", "updatedAt"])
+    .index("by_org_scope_updated", ["organizationId", "scopeType", "updatedAt"])
+    .index("by_org_account_updated", ["organizationId", "accountId", "updatedAt"])
+    .index("by_org_expires", ["organizationId", "expiresAt"]),
 
   // Anonymous session linkage.
   // Used to map an unauthenticated/anonymous account to a backing `accounts` row and a

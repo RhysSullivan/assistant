@@ -38,7 +38,10 @@
     "clean": "bun run --filter '*' --if-present clean && rm -rf node_modules .turbo",
     "knip": "bunx knip --config knip.json",
     "db:clear:executor": "bun with-env bun run executor/scripts/dev/wipe/convex-db.ts",
-    "convex:codegen": "bunx --cwd executor convex codegen"
+    "convex:codegen": "bunx --cwd executor convex codegen",
+    "smoke:storage:execute-flow:local": "bun with-env bun run --cwd executor smoke:storage:execute-flow:local",
+    "smoke:storage:execute-flow": "bun with-env bun run --cwd executor smoke:storage:execute-flow",
+    "smoke:storage:execute-flow:cloudflare": "bun with-env bun run --cwd executor smoke:storage:execute-flow:cloudflare"
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
@@ -46,6 +49,7 @@
     "@convex-dev/stripe": "^0.1.3",
     "@convex-dev/workos-authkit": "^0.1.6",
     "@workos-inc/node": "^8.2.0",
+    "agentfs-sdk": "^0.6.0",
     "convex": "^1.31.7",
     "convex-helpers": "^0.1.111",
     "jose": "^6.1.0",

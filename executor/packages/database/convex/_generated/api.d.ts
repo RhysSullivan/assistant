@@ -306,6 +306,18 @@ export declare const api: {
       { accountId?: string; sessionId?: string },
       any
     >;
+    closeStorageInstance: FunctionReference<
+      "mutation",
+      "public",
+      { instanceId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    deleteStorageInstance: FunctionReference<
+      "mutation",
+      "public",
+      { instanceId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     deleteToolPolicyAssignment: FunctionReference<
       "mutation",
       "public",
@@ -369,6 +381,17 @@ export declare const api: {
       { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    listStorageInstances: FunctionReference<
+      "query",
+      "public",
+      {
+        includeDeleted?: boolean;
+        scopeType?: "scratch" | "account" | "workspace" | "organization";
+        sessionId?: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     listTasks: FunctionReference<
       "query",
       "public",
@@ -403,6 +426,20 @@ export declare const api: {
       "query",
       "public",
       { sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    openStorageInstance: FunctionReference<
+      "mutation",
+      "public",
+      {
+        durability?: "ephemeral" | "durable";
+        instanceId?: string;
+        purpose?: string;
+        scopeType?: "scratch" | "account" | "workspace" | "organization";
+        sessionId?: string;
+        ttlHours?: number;
+        workspaceId: Id<"workspaces">;
+      },
       any
     >;
     regenerateToolInventory: FunctionReference<
@@ -670,6 +707,16 @@ export declare const internal: {
       { accountId?: string; clientId?: string; sessionId?: string },
       any
     >;
+    closeStorageInstance: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        accountId?: Id<"accounts">;
+        instanceId: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     createApproval: FunctionReference<
       "mutation",
       "internal",
@@ -742,6 +789,16 @@ export declare const internal: {
         any
       >;
     };
+    deleteStorageInstance: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        accountId?: Id<"accounts">;
+        instanceId: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     deleteToolPolicyAssignment: FunctionReference<
       "mutation",
       "internal",
@@ -789,6 +846,16 @@ export declare const internal: {
       { approvalId: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    getStorageInstance: FunctionReference<
+      "query",
+      "internal",
+      {
+        accountId?: Id<"accounts">;
+        instanceId: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     getTask: FunctionReference<"query", "internal", { taskId: string }, any>;
     getTaskInWorkspace: FunctionReference<
       "query",
@@ -831,6 +898,17 @@ export declare const internal: {
       any
     >;
     listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
+    listStorageInstances: FunctionReference<
+      "query",
+      "internal",
+      {
+        accountId?: Id<"accounts">;
+        includeDeleted?: boolean;
+        scopeType?: "scratch" | "account" | "workspace" | "organization";
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     listTaskEvents: FunctionReference<
       "query",
       "internal",
@@ -894,6 +972,20 @@ export declare const internal: {
       "mutation",
       "internal",
       { taskId: string },
+      any
+    >;
+    openStorageInstance: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        accountId?: Id<"accounts">;
+        durability?: "ephemeral" | "durable";
+        instanceId?: string;
+        purpose?: string;
+        scopeType?: "scratch" | "account" | "workspace" | "organization";
+        ttlHours?: number;
+        workspaceId: Id<"workspaces">;
+      },
       any
     >;
     policies: {
@@ -1018,6 +1110,77 @@ export declare const internal: {
       { approvalId: string; callId: string; taskId: string },
       any
     >;
+    storage_instances: {
+      closeStorageInstance: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          accountId?: Id<"accounts">;
+          instanceId: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      deleteStorageInstance: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          accountId?: Id<"accounts">;
+          instanceId: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      getStorageInstance: FunctionReference<
+        "query",
+        "internal",
+        {
+          accountId?: Id<"accounts">;
+          instanceId: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      listStorageInstances: FunctionReference<
+        "query",
+        "internal",
+        {
+          accountId?: Id<"accounts">;
+          includeDeleted?: boolean;
+          scopeType?: "scratch" | "account" | "workspace" | "organization";
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      openStorageInstance: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          accountId?: Id<"accounts">;
+          durability?: "ephemeral" | "durable";
+          instanceId?: string;
+          purpose?: string;
+          scopeType?: "scratch" | "account" | "workspace" | "organization";
+          ttlHours?: number;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      touchStorageInstance: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          accountId?: Id<"accounts">;
+          fileCount?: number;
+          instanceId: string;
+          provider?: "agentfs-local" | "agentfs-cloudflare";
+          sizeBytes?: number;
+          status?: "active" | "closed" | "deleted";
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+    };
     task_events: {
       createTaskEvent: FunctionReference<
         "mutation",
@@ -1160,6 +1323,20 @@ export declare const internal: {
         any
       >;
     };
+    touchStorageInstance: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        accountId?: Id<"accounts">;
+        fileCount?: number;
+        instanceId: string;
+        provider?: "agentfs-local" | "agentfs-cloudflare";
+        sizeBytes?: number;
+        status?: "active" | "closed" | "deleted";
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     upsertCredential: FunctionReference<
       "mutation",
       "internal",

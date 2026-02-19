@@ -49,3 +49,16 @@ export const credentialProviderValidator = v.union(
 );
 
 export const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
+
+export const storageScopeTypeValidator = v.union(
+  v.literal("scratch"),
+  v.literal("account"),
+  v.literal("workspace"),
+  v.literal("organization"),
+);
+
+export const storageDurabilityValidator = v.union(v.literal("ephemeral"), v.literal("durable"));
+
+export const storageInstanceStatusValidator = v.union(v.literal("active"), v.literal("closed"), v.literal("deleted"));
+
+export const storageProviderValidator = v.union(v.literal("agentfs-local"), v.literal("agentfs-cloudflare"));

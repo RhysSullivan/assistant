@@ -2,7 +2,7 @@
   "name": "executor-sandbox-host",
   "main": "src/index.ts",
   "compatibility_date": "2025-06-01",
-  "compatibility_flags": ["enable_ctx_exports"],
+  "compatibility_flags": ["enable_ctx_exports", "nodejs_compat"],
 
   // Treat *.isolate.js files as raw text strings so they can be passed to the
   // Dynamic Worker Loader API as module source code. This lets us author the
@@ -17,6 +17,24 @@
   "worker_loaders": [
     {
       "binding": "LOADER"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AGENTFS",
+        "class_name": "AgentFSStorageObject"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "AgentFSStorageObject"
+      ]
     }
   ]
 

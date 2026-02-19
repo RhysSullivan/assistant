@@ -30,6 +30,10 @@ export type ToolSourceScopeType = "organization" | "workspace";
 export type CredentialScopeType = "account" | "organization" | "workspace";
 export type ToolApprovalMode = "auto" | "required";
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
+export type StorageScopeType = "scratch" | "account" | "workspace" | "organization";
+export type StorageDurability = "ephemeral" | "durable";
+export type StorageInstanceStatus = "active" | "closed" | "deleted";
+export type StorageProvider = "agentfs-local" | "agentfs-cloudflare";
 
 export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
 
@@ -118,6 +122,27 @@ export interface ToolSourceRecord {
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface StorageInstanceRecord {
+  id: string;
+  scopeType: StorageScopeType;
+  durability: StorageDurability;
+  status: StorageInstanceStatus;
+  provider: StorageProvider;
+  backendKey: string;
+  organizationId: string;
+  workspaceId?: string;
+  accountId?: string;
+  createdByAccountId?: string;
+  purpose?: string;
+  sizeBytes?: number;
+  fileCount?: number;
+  createdAt: number;
+  updatedAt: number;
+  lastSeenAt: number;
+  closedAt?: number;
+  expiresAt?: number;
 }
 
 export interface ToolDescriptor {

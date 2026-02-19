@@ -47,4 +47,12 @@ export {
   listToolSources,
   deleteToolSource,
 } from "./database/tool_sources";
+export {
+  openStorageInstance,
+  getStorageInstance,
+  listStorageInstances,
+  closeStorageInstance,
+  deleteStorageInstance,
+  touchStorageInstance,
+} from "./database/storage_instances";
 export { createTaskEvent, listTaskEvents } from "./database/task_events";

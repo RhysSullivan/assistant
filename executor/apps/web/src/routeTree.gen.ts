@@ -25,6 +25,7 @@ import { Route as BillingRouteImport } from './routes/billing'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ToolsIndexRouteImport } from './routes/tools/index'
+import { Route as ToolsStorageRouteImport } from './routes/tools/storage'
 import { Route as ToolsPoliciesRouteImport } from './routes/tools/policies'
 import { Route as ToolsEditorRouteImport } from './routes/tools/editor'
 import { Route as ToolsConnectionsRouteImport } from './routes/tools/connections'
@@ -118,6 +119,11 @@ const ToolsIndexRoute = ToolsIndexRouteImport.update({
   path: '/tools/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ToolsStorageRoute = ToolsStorageRouteImport.update({
+  id: '/tools/storage',
+  path: '/tools/storage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ToolsPoliciesRoute = ToolsPoliciesRouteImport.update({
   id: '/tools/policies',
   path: '/tools/policies',
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/tools/connections': typeof ToolsConnectionsRoute
   '/tools/editor': typeof ToolsEditorRoute
   '/tools/policies': typeof ToolsPoliciesRoute
+  '/tools/storage': typeof ToolsStorageRoute
   '/tools/': typeof ToolsIndexRoute
   '/api/auth/anonymous-token': typeof ApiAuthAnonymousTokenRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
@@ -229,6 +236,7 @@ export interface FileRoutesByTo {
   '/tools/connections': typeof ToolsConnectionsRoute
   '/tools/editor': typeof ToolsEditorRoute
   '/tools/policies': typeof ToolsPoliciesRoute
+  '/tools/storage': typeof ToolsStorageRoute
   '/tools': typeof ToolsIndexRoute
   '/api/auth/anonymous-token': typeof ApiAuthAnonymousTokenRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
@@ -260,6 +268,7 @@ export interface FileRoutesById {
   '/tools/connections': typeof ToolsConnectionsRoute
   '/tools/editor': typeof ToolsEditorRoute
   '/tools/policies': typeof ToolsPoliciesRoute
+  '/tools/storage': typeof ToolsStorageRoute
   '/tools/': typeof ToolsIndexRoute
   '/api/auth/anonymous-token': typeof ApiAuthAnonymousTokenRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
@@ -292,6 +301,7 @@ export interface FileRouteTypes {
     | '/tools/connections'
     | '/tools/editor'
     | '/tools/policies'
+    | '/tools/storage'
     | '/tools/'
     | '/api/auth/anonymous-token'
     | '/api/auth/callback'
@@ -322,6 +332,7 @@ export interface FileRouteTypes {
     | '/tools/connections'
     | '/tools/editor'
     | '/tools/policies'
+    | '/tools/storage'
     | '/tools'
     | '/api/auth/anonymous-token'
     | '/api/auth/callback'
@@ -352,6 +363,7 @@ export interface FileRouteTypes {
     | '/tools/connections'
     | '/tools/editor'
     | '/tools/policies'
+    | '/tools/storage'
     | '/tools/'
     | '/api/auth/anonymous-token'
     | '/api/auth/callback'
@@ -383,6 +395,7 @@ export interface RootRouteChildren {
   ToolsConnectionsRoute: typeof ToolsConnectionsRoute
   ToolsEditorRoute: typeof ToolsEditorRoute
   ToolsPoliciesRoute: typeof ToolsPoliciesRoute
+  ToolsStorageRoute: typeof ToolsStorageRoute
   ToolsIndexRoute: typeof ToolsIndexRoute
   ApiAuthAnonymousTokenRoute: typeof ApiAuthAnonymousTokenRoute
   ApiAuthCallbackRoute: typeof ApiAuthCallbackRoute
@@ -508,6 +521,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ToolsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tools/storage': {
+      id: '/tools/storage'
+      path: '/tools/storage'
+      fullPath: '/tools/storage'
+      preLoaderRoute: typeof ToolsStorageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tools/policies': {
       id: '/tools/policies'
       path: '/tools/policies'
@@ -615,6 +635,7 @@ const rootRouteChildren: RootRouteChildren = {
   ToolsConnectionsRoute: ToolsConnectionsRoute,
   ToolsEditorRoute: ToolsEditorRoute,
   ToolsPoliciesRoute: ToolsPoliciesRoute,
+  ToolsStorageRoute: ToolsStorageRoute,
   ToolsIndexRoute: ToolsIndexRoute,
   ApiAuthAnonymousTokenRoute: ApiAuthAnonymousTokenRoute,
   ApiAuthCallbackRoute: ApiAuthCallbackRoute,

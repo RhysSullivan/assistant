@@ -32,6 +32,7 @@ import {
   discoverInputSchema,
   discoverOutputSchema,
 } from "./discovery_tool_contracts";
+import { isStorageSystemToolPath, runStorageSystemTool } from "./storage_tools";
 
 const payloadRecordSchema = z.record(z.unknown());
 
@@ -367,11 +368,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     };
 
     // Fast system tools are handled server-side from the registry.
-    if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools") {
+    if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools" || isStorageSystemToolPath(toolPath)) {
+      const baseSystemTool = baseTools.get(toolPath);
       const systemToolDecision = getDecisionForContext(
         {
           path: toolPath,
-          approval: "auto",
+          approval: baseSystemTool?.approval ?? "auto",
         },
         {
           workspaceId: task.workspaceId,
@@ -389,6 +391,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           deniedMessage,
           reason: "policy_deny",
         });
+      }
+
+      if (isStorageSystemToolPath(toolPath)) {
+        const output = await runStorageSystemTool(ctx, task, toolPath, input);
+        return await finalizeImmediateTool(output);
       }
 
       const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {

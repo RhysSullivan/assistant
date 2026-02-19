@@ -7,6 +7,10 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json",
     "clean": "rm -rf node_modules .turbo"
   },
+  "dependencies": {
+    "convex": "^1.31.7",
+    "sql.js": "^1.14.0"
+  },
   "main": "./convex/_generated/api.js",
   "types": "./convex/_generated/api.d.ts"
 }
