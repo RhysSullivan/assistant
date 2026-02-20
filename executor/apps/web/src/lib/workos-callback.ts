@@ -5,6 +5,12 @@ import { isWorkosDebugEnabled, logWorkosAuth, redactAuthCode } from "@/lib/worko
 
 const callbackHandler = handleCallbackRoute({
   returnPathname: "/",
+  onSuccess: ({ user }) => {
+    logWorkosAuth("callback.auth-success", {
+      userId: user?.id,
+      email: user?.email,
+    });
+  },
 });
 
 const WORKOS_CALLBACK_REPLAY_MS = 10 * 60 * 1000;
@@ -87,12 +93,41 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
 
   const response = await callbackHandler(context);
 
+  const responseHeaders = new Headers(response.headers);
+  const responseHeaderNames = Array.from(responseHeaders.keys());
+  const setCookieHeaders = responseHeaderNames
+    .filter((headerName) => headerName.toLowerCase() === "set-cookie")
+    .map((headerName) => responseHeaders.get(headerName))
+    .filter((value): value is string => value !== null);
+
   if (isWorkosDebugEnabled()) {
     logWorkosAuth("callback.result", {
       requestId,
       code: redactAuthCode(code),
       status: response.status,
       statusText: response.statusText,
+      location: responseHeaders.get("location"),
+      headerNames: responseHeaderNames,
+      setCookieCount: setCookieHeaders.length,
+      setCookieLength: setCookieHeaders[0]?.length ?? 0,
+    });
+  }
+
+  if (isWorkosDebugEnabled() && setCookieHeaders.length > 0) {
+    logWorkosAuth("callback.set-cookie", {
+      requestId,
+      cookie: setCookieHeaders[0],
+    });
+  }
+
+  if (isWorkosDebugEnabled() && code && response.status >= 300 && response.status < 400 && setCookieHeaders.length === 0) {
+    logWorkosAuth("callback.missing-set-cookie", {
+      requestId,
+      code: redactAuthCode(code),
+      status: response.status,
+      statusText: response.statusText,
+      location: responseHeaders.get("location"),
+      hasLocation: responseHeaders.has("location"),
     });
   }
 
