@@ -69,7 +69,7 @@ function corsHeaders(request: Request): Record<string, string> {
 
 await mkdir(dirname(DB_PATH), { recursive: true });
 const db = createDb(DB_PATH);
-const syncConfig: SyncConfig = { listUrl: LIST_URL };
+const syncConfig = { listUrl: LIST_URL } satisfies SyncConfig;
 const state: SyncState = {
   inFlight: null,
   lastSyncedAt: null,

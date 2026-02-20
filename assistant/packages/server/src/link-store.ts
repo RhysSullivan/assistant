@@ -51,7 +51,7 @@ export function createFileLinkStore(filePath = Bun.env.ASSISTANT_LINKS_FILE ?? d
 
   async function persist() {
     await mkdir(dirname(filePath), { recursive: true });
-    const payload: LinkStoreFile = { version: 1, links };
+    const payload = { version: 1, links } satisfies LinkStoreFile;
     await Bun.write(filePath, JSON.stringify(payload, null, 2));
   }
 

@@ -108,7 +108,7 @@ const knownElicitations = new Map<string, PendingElicitation>();
 const knownElicitationIdsByRequest = new Map<string, Set<string>>();
 const formModalSessions = new Map<string, FormModalSession>();
 
-const slashCommands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
+const slashCommands = [
   new SlashCommandBuilder()
     .setName("ask")
     .setDescription("Ask the assistant in your linked context")
@@ -133,7 +133,7 @@ const slashCommands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     .setName("unlink")
     .setDescription("Remove your saved MCP link")
     .toJSON(),
-];
+] satisfies RESTPostAPIChatInputApplicationCommandsJSONBody[];
 
 const bot = new Client({
   intents: [

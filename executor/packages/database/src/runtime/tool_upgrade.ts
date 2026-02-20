@@ -134,7 +134,7 @@ export async function previewOpenApiSourceUpgradeForContext(
     proposedByPath.set(tool.path, JSON.stringify(tool));
   }
 
-  const state: { readyBuildId?: string } | null = await ctx.runQuery(internal.toolRegistry.getState, {
+  const state = await ctx.runQuery(internal.toolRegistry.getState, {
     workspaceId: context.workspaceId,
   });
   const currentByPath = state?.readyBuildId

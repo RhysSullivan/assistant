@@ -219,7 +219,7 @@ async function upsertRequestedToolCall(
   ctx: ActionCtx,
   args: { taskId: string; callId: string; workspaceId: TaskRecord["workspaceId"]; toolPath: string },
 ): Promise<ToolCallRecord> {
-  const persistedCall: ToolCallRecord = await ctx.runMutation(internal.database.upsertToolCallRequested, args);
+  const persistedCall = await ctx.runMutation(internal.database.upsertToolCallRequested, args);
   return persistedCall;
 }
 

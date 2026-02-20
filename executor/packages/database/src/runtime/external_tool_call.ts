@@ -6,7 +6,7 @@ import { describeError } from "../../../core/src/utils";
 import { invokeTool } from "./tool_invocation";
 
 async function getTaskById(ctx: ActionCtx, taskId: string): Promise<TaskRecord | null> {
-  const task: TaskRecord | null = await ctx.runQuery(internal.database.getTask, { taskId });
+  const task = await ctx.runQuery(internal.database.getTask, { taskId });
   return task;
 }
 

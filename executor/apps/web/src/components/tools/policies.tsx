@@ -182,7 +182,7 @@ function scopeLabel(policy: ToolPolicyRecord, currentAccountId?: string): string
   return scopeType === "organization" ? "org" : "workspace";
 }
 
-const DECISION_CONFIG: Record<PolicyDecisionType, { label: string; color: string; icon: typeof ShieldCheck; description: string }> = {
+const DECISION_CONFIG = {
   allow: {
     label: "Auto-approve",
     color: "text-emerald-400",
@@ -201,7 +201,7 @@ const DECISION_CONFIG: Record<PolicyDecisionType, { label: string; color: string
     icon: ShieldOff,
     description: "Tool calls are blocked entirely",
   },
-};
+} satisfies Record<PolicyDecisionType, { label: string; color: string; icon: typeof ShieldCheck; description: string }>;
 
 const RESOURCE_TYPE_CONFIG: Record<
   PolicyResourceType,
@@ -505,7 +505,7 @@ function ToolPicker({
   }, [namespaces, deferredSearch]);
 
   // Flatten namespaces + visible tools into a single row array for the virtualizer.
-  const flatRows = useMemo<VirtualRow[]>(() => {
+  const flatRows = useMemo(() => {
     const rows: VirtualRow[] = [];
     const isSearching = deferredSearch.trim().length > 0;
     for (const ns of filteredNamespaces) {

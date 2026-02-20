@@ -62,7 +62,7 @@ async function listWorkspaceToolSources(
   ctx: QueryRunnerCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<ToolSourceRecord[]> {
-  const sources: ToolSourceRecord[] = await ctx.runQuery(internal.database.listToolSources, { workspaceId });
+  const sources = await ctx.runQuery(internal.database.listToolSources, { workspaceId });
   return sources;
 }
 
@@ -71,7 +71,7 @@ async function listWorkspaceToolPolicies(
   workspaceId: Id<"workspaces">,
   accountId?: Id<"accounts">,
 ): Promise<ToolPolicyRecord[]> {
-  const policies: ToolPolicyRecord[] = await ctx.runQuery(internal.database.listToolPolicies, { workspaceId, accountId });
+  const policies = await ctx.runQuery(internal.database.listToolPolicies, { workspaceId, accountId });
   return policies;
 }
 
@@ -1054,17 +1054,16 @@ function computeWorkspaceInventoryProgress(
     state = "stale";
   }
 
-  const warnings: string[] = [...(registryState?.warnings ?? [])];
+  const warnings = [...(registryState?.warnings ?? [])];
   const allSourceNames = sources.map((source) => source.name);
-  let loadingSourceNames: string[] = [];
+  const loadingSourceNames = state === "initializing"
+    ? [...allSourceNames]
+    : (state === "rebuilding" || state === "stale" || state === "failed")
+      ? changedSources
+      : [];
 
-  if (state === "initializing") {
-    loadingSourceNames = [...allSourceNames];
-    if (allSourceNames.length > 0) {
-      warnings.push("Tool inventory is still loading; showing partial results.");
-    }
-  } else if (state === "rebuilding" || state === "stale" || state === "failed") {
-    loadingSourceNames = changedSources;
+  if (state === "initializing" && allSourceNames.length > 0) {
+    warnings.push("Tool inventory is still loading; showing partial results.");
   }
 
   if (state === "stale" || state === "rebuilding") {
@@ -1189,7 +1188,7 @@ async function getWorkspaceToolsFromRegistry(
   const sources = (await listWorkspaceToolSources(ctx, workspaceId))
     .filter((source) => source.enabled);
 
-  const registryState: WorkspaceRegistryStateRecord = await ctx.runQuery(internal.toolRegistry.getState, {
+  const registryState = await ctx.runQuery(internal.toolRegistry.getState, {
     workspaceId,
   });
 
@@ -1200,22 +1199,17 @@ async function getWorkspaceToolsFromRegistry(
   const sourceQuality = toSourceQualityRecord(registryState?.sourceQuality ?? []);
   const sourceAuthProfiles = toSourceAuthProfileRecord(registryState?.sourceAuthProfiles ?? []);
   const openApiRefHintLookup = toOpenApiRefHintLookup(registryState?.openApiRefHintTables ?? []);
-  const warnings: string[] = [...progress.warnings];
+  const warnings = [...progress.warnings];
   const scopedSourceName = options.sourceName ?? toSourceName(options.source) ?? undefined;
-  let loadingSourceNames: string[] = [];
   const allSourceNames = sources.map((source) => source.name);
   const relevantSourceNames = scopedSourceName
     ? allSourceNames.filter((name) => name === scopedSourceName)
     : allSourceNames;
   const baseLoadingSourceSet = new Set(progress.inventoryStatus.loadingSourceNames);
 
-  if (scopedSourceName) {
-    loadingSourceNames = baseLoadingSourceSet.has(scopedSourceName)
-      ? [scopedSourceName]
-      : [];
-  } else {
-    loadingSourceNames = progress.inventoryStatus.loadingSourceNames;
-  }
+  const loadingSourceNames = scopedSourceName
+    ? (baseLoadingSourceSet.has(scopedSourceName) ? [scopedSourceName] : [])
+    : progress.inventoryStatus.loadingSourceNames;
 
   const inventoryStatus: ToolInventoryStatus = {
     ...progress.inventoryStatus,

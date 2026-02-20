@@ -117,7 +117,7 @@ function deriveWorkosUserIdCandidates(subject: string): string[] {
     return [];
   }
 
-  const candidates: string[] = [normalizedSubject];
+  const candidates = [normalizedSubject];
 
   const userIdMatch = normalizedSubject.match(/(user_[A-Za-z0-9]+)/);
   if (userIdMatch?.[1]) {

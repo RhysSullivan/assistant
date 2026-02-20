@@ -14,7 +14,7 @@ import { taskTerminalEventType } from "../task/status";
 import { markTaskFinished } from "../task/finish";
 
 async function getTaskById(ctx: ActionCtx, taskId: string): Promise<TaskRecord | null> {
-  const task: TaskRecord | null = await ctx.runQuery(internal.database.getTask, { taskId });
+  const task = await ctx.runQuery(internal.database.getTask, { taskId });
   return task;
 }
 
@@ -22,7 +22,7 @@ async function markTaskRunning(
   ctx: ActionCtx,
   taskId: string,
 ): Promise<TaskRecord | null> {
-  const runningTask: TaskRecord | null = await ctx.runMutation(internal.database.markTaskRunning, {
+  const runningTask = await ctx.runMutation(internal.database.markTaskRunning, {
     taskId,
   });
   return runningTask;

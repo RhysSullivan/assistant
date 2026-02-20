@@ -156,7 +156,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const guestContext: AnonymousContext | null = manualGuestContext ?? bootstrapSessionQuery.data ?? null;
+  const guestContext = manualGuestContext ?? bootstrapSessionQuery.data ?? null;
 
   const account = useConvexQuery(
     convexApi.app.getCurrentAccount,
@@ -290,7 +290,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     switchWorkspace,
   ]);
 
-  const accountWorkspaceContext = useMemo<AnonymousContext | null>(() => {
+  const accountWorkspaceContext = useMemo(() => {
     return buildAccountWorkspaceContext(
       account,
       workspaces,
@@ -309,7 +309,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     || account === undefined
     || (account?.provider === "workos" && bootstrapWorkosAccountQuery.isFetching)
   );
-  const mode: "guest" | "workos" | "anonymous" = accountWorkspaceContext
+  const mode = accountWorkspaceContext
     ? (account?.provider === "workos" ? "workos" : "anonymous")
     : "guest";
   const shouldBlockGuestFallback = workosEnabled && account?.provider === "workos";

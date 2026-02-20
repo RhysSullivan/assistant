@@ -58,7 +58,7 @@ async function createTaskDocument(
     clientId?: string;
   },
 ): Promise<TaskRecord> {
-  const task: TaskRecord = await ctx.runMutation(internal.database.createTask, args);
+  const task = await ctx.runMutation(internal.database.createTask, args);
   return task;
 }
 
@@ -72,7 +72,7 @@ async function resolveApprovalDocument(
     reason?: string;
   },
 ): Promise<ApprovalRecord | null> {
-  const approval: ApprovalRecord | null = await ctx.runMutation(internal.database.resolveApproval, args);
+  const approval = await ctx.runMutation(internal.database.resolveApproval, args);
   return approval;
 }
 
@@ -81,7 +81,7 @@ async function getTaskById(
   internal: Internal,
   taskId: string,
 ): Promise<TaskRecord | null> {
-  const task: TaskRecord | null = await ctx.runQuery(internal.database.getTask, { taskId });
+  const task = await ctx.runQuery(internal.database.getTask, { taskId });
   return task;
 }
 
@@ -99,7 +99,7 @@ async function createTaskInternal(
     scheduleAfterCreate?: boolean;
   },
 ): Promise<{ task: TaskRecord }> {
-  const created: { task: TaskRecord } = await ctx.runMutation(internal.executor.createTaskInternal, args);
+  const created = await ctx.runMutation(internal.executor.createTaskInternal, args);
   return created;
 }
 

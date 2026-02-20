@@ -16,6 +16,6 @@ export async function markTaskFinished(
   ctx: TaskFinishContext,
   args: MarkTaskFinishedInput,
 ): Promise<TaskRecord | null> {
-  const task: TaskRecord | null = await ctx.runMutation(internal.database.markTaskFinished, args);
+  const task = await ctx.runMutation(internal.database.markTaskFinished, args);
   return task;
 }
