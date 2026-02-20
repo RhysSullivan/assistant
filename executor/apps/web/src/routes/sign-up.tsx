@@ -3,7 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import { api } from "@executor/database/convex/_generated/api";
 import type { Id } from "@executor/database/convex/_generated/dataModel";
-import { readOptionalQueryParam, readOptionalReferrerQueryParam } from "@/lib/http/query-params";
+import { readOptionalQueryParam } from "@/lib/http/query-params";
 import { redirectResponse } from "@/lib/http/response";
 import { isWorkosDebugEnabled, logWorkosAuth } from "@/lib/workos-debug";
 import { resolveWorkosRedirectUri } from "@/lib/workos-redirect";
@@ -73,15 +73,9 @@ async function handleSignUp(request: Request): Promise<Response> {
   }
 
   const requestUrl = new URL(request.url);
-  const oauthRedirectUri =
-    readOptionalQueryParam(requestUrl, ["redirect_uri"])
-    ?? readOptionalReferrerQueryParam(request, ["redirect_uri"]);
-  const oauthState =
-    readOptionalQueryParam(requestUrl, ["state"])
-    ?? readOptionalReferrerQueryParam(request, ["state"]);
-  const oauthClientId =
-    readOptionalQueryParam(requestUrl, ["client_id"])
-    ?? readOptionalReferrerQueryParam(request, ["client_id"]);
+  const oauthRedirectUri = readOptionalQueryParam(requestUrl, ["redirect_uri"]);
+  const oauthState = readOptionalQueryParam(requestUrl, ["state"]);
+  const oauthClientId = readOptionalQueryParam(requestUrl, ["client_id"]);
   const redirectUri = oauthRedirectUri ?? resolveWorkosRedirectUri(request);
   if (!redirectUri) {
     return redirectResponse("/");
