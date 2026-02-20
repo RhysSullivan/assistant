@@ -8,49 +8,39 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 
-export type McpOAuthPending = {
-  state: string;
-  sourceUrl: string;
-  redirectUrl: string;
-  codeVerifier?: string;
-  clientInformation?: OAuthClientInformationMixed;
-};
-
-export type McpOAuthPopupResult = {
-  ok: boolean;
-  sourceUrl?: string;
-  accessToken?: string;
-  refreshToken?: string;
-  scope?: string;
-  expiresIn?: number;
-  error?: string;
-};
-
 const COOKIE_PREFIX = "executor_mcp_oauth_";
 export const MCP_OAUTH_RESULT_COOKIE = "executor_mcp_oauth_result";
 
+const pendingSchema = z.object({
+  state: z.string(),
+  sourceUrl: z.string(),
+  redirectUrl: z.string(),
+  codeVerifier: z.string().optional(),
+  clientInformation: z.custom<OAuthClientInformationMixed>().optional(),
+});
+
+export type McpOAuthPending = z.infer<typeof pendingSchema>;
+
+const popupResultSchema = z.object({
+  ok: z.boolean(),
+  sourceUrl: z.string().optional(),
+  accessToken: z.string().optional(),
+  refreshToken: z.string().optional(),
+  scope: z.string().optional(),
+  expiresIn: z.number().optional(),
+  error: z.string().optional(),
+});
+
+export type McpOAuthPopupResult = z.infer<typeof popupResultSchema>;
+
 const versionedPendingSchema = z.object({
   version: z.literal(1),
-  pending: z.object({
-    state: z.string(),
-    sourceUrl: z.string(),
-    redirectUrl: z.string(),
-    codeVerifier: z.string().optional(),
-    clientInformation: z.custom<OAuthClientInformationMixed>().optional(),
-  }),
+  pending: pendingSchema,
 });
 
 const versionedPopupResultSchema = z.object({
   version: z.literal(1),
-  result: z.object({
-    ok: z.boolean(),
-    sourceUrl: z.string().optional(),
-    accessToken: z.string().optional(),
-    refreshToken: z.string().optional(),
-    scope: z.string().optional(),
-    expiresIn: z.number().optional(),
-    error: z.string().optional(),
-  }),
+  result: popupResultSchema,
 });
 
 function decodeCookieJson(raw: string): unknown | null {

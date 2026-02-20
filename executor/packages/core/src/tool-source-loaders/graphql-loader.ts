@@ -11,6 +11,7 @@ import {
   type GqlType,
   type GqlTypeRef,
 } from "../graphql/field-tools";
+import { normalizeGraphqlInvocationInput } from "../graphql/invocation-input";
 import {
   executeGraphqlRequest,
   type GraphqlExecutionEnvelope,
@@ -81,57 +82,11 @@ const gqlIntrospectionResponseSchema = z.object({
   errors: z.array(z.unknown()).optional(),
 });
 
-const graphqlObjectInputSchema = z.object({
-  query: z.string().optional(),
-  variables: z.unknown().optional(),
-}).catchall(z.unknown());
-
-const graphqlToolInputSchema = z.union([
-  z.string(),
-  graphqlObjectInputSchema,
-]);
-
 const recordSchema = z.record(z.unknown());
 
 function coerceRecord(value: unknown): Record<string, unknown> {
   const parsed = recordSchema.safeParse(value);
   return parsed.success ? parsed.data : {};
-}
-
-function normalizeGraphqlToolInput(value: unknown): {
-  payload: Record<string, unknown>;
-  query: string;
-  variables: unknown;
-  hasExplicitQuery: boolean;
-} {
-  const parsedInput = graphqlToolInputSchema.safeParse(value);
-  if (!parsedInput.success) {
-    const payload = coerceRecord(value);
-    return {
-      payload,
-      query: "",
-      variables: payload.variables,
-      hasExplicitQuery: false,
-    };
-  }
-
-  if (typeof parsedInput.data === "string") {
-    const query = parsedInput.data.trim();
-    return {
-      payload: { query: parsedInput.data },
-      query,
-      variables: undefined,
-      hasExplicitQuery: query.length > 0,
-    };
-  }
-
-  const query = (parsedInput.data.query ?? "").trim();
-  return {
-    payload: parsedInput.data,
-    query,
-    variables: parsedInput.data.variables,
-    hasExplicitQuery: query.length > 0,
-  };
 }
 
 const INTROSPECTION_QUERY_EXTENDED = `
@@ -484,7 +439,7 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
       authHeaders,
     },
     run: async (input: unknown, context) => {
-      const normalized = normalizeGraphqlToolInput(input);
+      const normalized = normalizeGraphqlInvocationInput(input);
       if (!normalized.hasExplicitQuery) {
         throw new Error("GraphQL query string is required");
       }
@@ -564,7 +519,7 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
         _pseudoTool: true,
         run: async (input: unknown, context) => {
           // If someone calls this directly, delegate to the main graphql tool
-          const normalized = normalizeGraphqlToolInput(input);
+          const normalized = normalizeGraphqlInvocationInput(input);
           const payload = normalized.payload;
           if (!normalized.hasExplicitQuery) {
             // Auto-build the query from the variables

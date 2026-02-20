@@ -1,17 +1,23 @@
 import { asStringRecord, detectJsonContentType, findUnresolvedPostmanTemplateKeys, interpolatePostmanTemplate, stringifyTemplateValue } from "./postman-utils";
 import { z } from "zod";
-import type { PostmanRequestBody } from "./postman/collection-utils";
 
-export interface PostmanSerializedRunSpec {
-  kind: "postman";
-  method: string;
-  url: string;
-  headers: Record<string, string>;
-  queryParams: Array<{ key: string; value: string }>;
-  body?: PostmanRequestBody;
-  variables: Record<string, string>;
-  authHeaders: Record<string, string>;
-}
+const postmanRequestBodySchema = z.union([
+  z.object({ kind: z.literal("urlencoded"), entries: z.array(z.object({ key: z.string(), value: z.string() })) }),
+  z.object({ kind: z.literal("raw"), text: z.string() }),
+]);
+
+export const postmanSerializedRunSpecSchema = z.object({
+  kind: z.literal("postman"),
+  method: z.string(),
+  url: z.string(),
+  headers: z.record(z.string()),
+  queryParams: z.array(z.object({ key: z.string(), value: z.string() })),
+  body: postmanRequestBodySchema.optional(),
+  variables: z.record(z.string()),
+  authHeaders: z.record(z.string()),
+});
+
+export type PostmanSerializedRunSpec = z.infer<typeof postmanSerializedRunSpecSchema>;
 
 const postmanRuntimePayloadSchema = z.object({
   variables: z.record(z.unknown()).optional(),

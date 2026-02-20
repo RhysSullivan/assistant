@@ -1,16 +1,9 @@
-import { z } from "zod";
-import type { Env, RunRequest, RunResult } from "./types";
+import type { Env } from "./types";
 import { getEntrypointExports } from "./bridge";
+import { runResultSchema, type RunRequest, type RunResult } from "./contracts";
 
 const DEFAULT_TASK_TIMEOUT_MS = 300_000;
 const MAX_TASK_TIMEOUT_MS = 900_000;
-
-const runResultSchema: z.ZodType<RunResult> = z.object({
-  status: z.enum(["completed", "failed", "timed_out", "denied"]),
-  result: z.unknown().optional(),
-  error: z.string().optional(),
-  exitCode: z.number().optional(),
-});
 
 /**
  * Build the user code module. The code is wrapped in an exported async

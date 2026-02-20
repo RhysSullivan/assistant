@@ -5,18 +5,12 @@ import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import type {
   BridgeEntrypointContext,
-  BridgeProps,
   ToolCallResult,
   WorkerEntrypointExports,
 } from "./types";
+import { bridgePropsSchema, type BridgeProps } from "./contracts";
 
 const APPROVAL_SUBSCRIPTION_TIMEOUT_MS = 10 * 60 * 1000;
-
-const bridgePropsSchema: z.ZodType<BridgeProps> = z.object({
-  callbackConvexUrl: z.string(),
-  callbackInternalSecret: z.string(),
-  taskId: z.string(),
-});
 
 const recordSchema = z.record(z.unknown());
 

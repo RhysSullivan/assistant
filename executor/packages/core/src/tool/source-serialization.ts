@@ -1,72 +1,23 @@
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
-import { executePostmanRequest, type PostmanSerializedRunSpec } from "../postman-runtime";
+import { executePostmanRequest, postmanSerializedRunSpecSchema } from "../postman-runtime";
 import { normalizeGraphqlFieldVariables, selectGraphqlFieldEnvelope } from "../graphql/field-tools";
+import { normalizeGraphqlInvocationInput } from "../graphql/invocation-input";
 import { callMcpToolWithReconnect, executeGraphqlRequest, executeOpenApiRequest } from "./source-execution";
 import { Result } from "better-result";
 import { z } from "zod";
-import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolRunContext, ToolTyping } from "../types";
+import {
+  CREDENTIAL_SCOPE_TYPES,
+  TOOL_APPROVAL_MODES,
+  TOOL_CREDENTIAL_AUTH_TYPES,
+  type ToolDefinition,
+  type ToolRunContext,
+} from "../types";
 
 const recordSchema = z.record(z.unknown());
 
 function toRecord(value: unknown): Record<string, unknown> {
   const parsed = recordSchema.safeParse(value);
   return parsed.success ? parsed.data : {};
-}
-
-export interface SerializedTool {
-  path: string;
-  description: string;
-  approval: ToolApprovalMode;
-  source?: string;
-  typing?: ToolTyping;
-  credential?: ToolCredentialSpec;
-  _graphqlSource?: string;
-  _pseudoTool?: boolean;
-  runSpec:
-    | {
-        kind: "openapi";
-        baseUrl: string;
-        method: string;
-        pathTemplate: string;
-        parameters: Array<{
-          name: string;
-          in: string;
-          required: boolean;
-          schema: Record<string, unknown>;
-          description?: string;
-          deprecated?: boolean;
-          style?: string;
-          explode?: boolean;
-          allowReserved?: boolean;
-          example?: unknown;
-          examples?: Record<string, unknown>;
-        }>;
-        authHeaders: Record<string, string>;
-      }
-    | {
-        kind: "mcp";
-        url: string;
-        transport?: "sse" | "streamable-http";
-        queryParams?: Record<string, string>;
-        authHeaders: Record<string, string>;
-        toolName: string;
-      }
-    | PostmanSerializedRunSpec
-    | {
-        kind: "graphql_raw";
-        endpoint: string;
-        authHeaders: Record<string, string>;
-      }
-    | {
-        kind: "graphql_field";
-        endpoint: string;
-        operationName: string;
-        operationType: "query" | "mutation";
-        queryTemplate: string;
-        argNames?: string[];
-        authHeaders: Record<string, string>;
-      }
-    | { kind: "builtin" };
 }
 
 const openApiRunSpecSchema = z.object({
@@ -99,20 +50,6 @@ const mcpRunSpecSchema = z.object({
   toolName: z.string(),
 });
 
-const postmanRunSpecSchema: z.ZodType<PostmanSerializedRunSpec> = z.object({
-  kind: z.literal("postman"),
-  method: z.string(),
-  url: z.string(),
-  headers: z.record(z.string()),
-  queryParams: z.array(z.object({ key: z.string(), value: z.string() })),
-  body: z.union([
-    z.object({ kind: z.literal("urlencoded"), entries: z.array(z.object({ key: z.string(), value: z.string() })) }),
-    z.object({ kind: z.literal("raw"), text: z.string() }),
-  ]).optional(),
-  variables: z.record(z.string()),
-  authHeaders: z.record(z.string()),
-});
-
 const graphqlRawRunSpecSchema = z.object({
   kind: z.literal("graphql_raw"),
   endpoint: z.string(),
@@ -137,7 +74,7 @@ const toolTypedRefSchema = z.object({
   operationId: z.string(),
 });
 
-const toolTypingSchema: z.ZodType<ToolTyping> = z.object({
+const toolTypingSchema = z.object({
   inputSchema: z.record(z.unknown()).optional(),
   outputSchema: z.record(z.unknown()).optional(),
   inputHint: z.string().optional(),
@@ -148,78 +85,32 @@ const toolTypingSchema: z.ZodType<ToolTyping> = z.object({
   typedRef: toolTypedRefSchema.optional(),
 });
 
-const toolCredentialSpecSchema: z.ZodType<ToolCredentialSpec> = z.object({
+const toolCredentialSpecSchema = z.object({
   sourceKey: z.string(),
-  mode: z.enum(["workspace", "account", "organization"]),
-  authType: z.enum(["bearer", "apiKey", "basic"]),
+  mode: z.enum(CREDENTIAL_SCOPE_TYPES),
+  authType: z.enum(TOOL_CREDENTIAL_AUTH_TYPES),
   headerName: z.string().optional(),
   staticSecretJson: z.record(z.unknown()).optional(),
 });
-
-const graphqlObjectInputSchema = z.object({
-  query: z.string().optional(),
-  variables: z.unknown().optional(),
-}).catchall(z.unknown());
-
-const graphqlInvocationInputSchema = z.union([
-  z.string(),
-  graphqlObjectInputSchema,
-]);
 
 const invalidSerializedToolFallbackSchema = z.object({
   path: z.string().optional(),
   source: z.string().optional(),
 });
 
-function normalizeGraphqlInvocationInput(input: unknown): {
-  payload: Record<string, unknown>;
-  query: string;
-  variables: unknown;
-  hasExplicitQuery: boolean;
-} {
-  const parsedInput = graphqlInvocationInputSchema.safeParse(input);
-  if (!parsedInput.success) {
-    const payload = toRecord(input);
-    return {
-      payload,
-      query: "",
-      variables: payload.variables,
-      hasExplicitQuery: false,
-    };
-  }
-
-  if (typeof parsedInput.data === "string") {
-    const query = parsedInput.data.trim();
-    return {
-      payload: { query: parsedInput.data },
-      query,
-      variables: undefined,
-      hasExplicitQuery: query.length > 0,
-    };
-  }
-
-  const query = (parsedInput.data.query ?? "").trim();
-  return {
-    payload: parsedInput.data,
-    query,
-    variables: parsedInput.data.variables,
-    hasExplicitQuery: query.length > 0,
-  };
-}
-
 const serializedRunSpecSchema = z.union([
   openApiRunSpecSchema,
   mcpRunSpecSchema,
-  postmanRunSpecSchema,
+  postmanSerializedRunSpecSchema,
   graphqlRawRunSpecSchema,
   graphqlFieldRunSpecSchema,
   builtinRunSpecSchema,
 ]);
 
-const serializedToolSchema: z.ZodType<SerializedTool> = z.object({
+const serializedToolSchema = z.object({
   path: z.string(),
   description: z.string(),
-  approval: z.enum(["auto", "required"]),
+  approval: z.enum(TOOL_APPROVAL_MODES),
   source: z.string().optional(),
   typing: toolTypingSchema.optional(),
   credential: toolCredentialSpecSchema.optional(),
@@ -227,6 +118,8 @@ const serializedToolSchema: z.ZodType<SerializedTool> = z.object({
   _pseudoTool: z.boolean().optional(),
   runSpec: serializedRunSpecSchema,
 });
+
+export type SerializedTool = z.infer<typeof serializedToolSchema>;
 
 type ToolWithRunSpec = ToolDefinition & { _runSpec?: SerializedTool["runSpec"] };
 type McpConnection = Awaited<ReturnType<typeof connectMcp>>;

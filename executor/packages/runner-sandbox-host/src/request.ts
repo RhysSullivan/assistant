@@ -1,15 +1,4 @@
-import { z } from "zod";
-import type { RunRequest } from "./types";
-
-const runRequestSchema: z.ZodType<RunRequest> = z.object({
-  taskId: z.string().min(1),
-  code: z.string().min(1),
-  timeoutMs: z.number().int().positive().optional(),
-  callback: z.object({
-    convexUrl: z.string().min(1),
-    internalSecret: z.string().min(1),
-  }),
-});
+import { runRequestSchema, type RunRequest } from "./contracts";
 
 export async function parseRunRequest(request: Request): Promise<RunRequest | Response> {
   let rawBody: unknown;

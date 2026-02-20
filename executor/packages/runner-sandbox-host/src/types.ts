@@ -1,3 +1,5 @@
+import type { BridgeProps, RunRequest, RunResult } from "./contracts";
+
 export interface Env {
   LOADER: WorkerLoader;
   AUTH_TOKEN: string;
@@ -39,22 +41,7 @@ export interface EntrypointStub {
   fetch(input: string | Request, init?: RequestInit): Promise<Response>;
 }
 
-export interface RunRequest {
-  taskId: string;
-  code: string;
-  timeoutMs?: number;
-  callback: {
-    convexUrl: string;
-    internalSecret: string;
-  };
-}
-
-export interface RunResult {
-  status: "completed" | "failed" | "timed_out" | "denied";
-  result?: unknown;
-  error?: string;
-  exitCode?: number;
-}
+export type { RunRequest, RunResult };
 
 export type ToolCallResult =
   | {
@@ -76,11 +63,7 @@ export type ToolCallResult =
       retryAfterMs?: number;
     };
 
-export interface BridgeProps {
-  callbackConvexUrl: string;
-  callbackInternalSecret: string;
-  taskId: string;
-}
+export type { BridgeProps };
 
 export interface BridgeEntrypointContext {
   props: BridgeProps;

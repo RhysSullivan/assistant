@@ -1,16 +1,9 @@
 import { Result } from "better-result";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import type { CredentialScope, SourceAuthType } from "@/lib/types";
+import type { SourceAuthType } from "@/lib/types";
 
 type SupportedAuthType = Exclude<SourceAuthType, "none" | "mixed">;
-
-export type InferredSpecAuth = {
-  type: SourceAuthType;
-  mode?: CredentialScope;
-  header?: string;
-  inferred: true;
-};
 
 type OpenApiInspectionResult = {
   spec: Record<string, unknown>;
@@ -23,6 +16,8 @@ const inferredSpecAuthSchema = z.object({
   header: z.string().optional(),
   inferred: z.literal(true),
 });
+
+export type InferredSpecAuth = z.infer<typeof inferredSpecAuthSchema>;
 
 const recordSchema = z.record(z.string(), z.unknown());
 

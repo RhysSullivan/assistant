@@ -44,29 +44,15 @@ function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
 }
 
-type RegistryToolEntry = {
-  path: string;
-  preferredPath?: string;
-  source?: string;
-  approval: ToolDefinition["approval"];
-  description?: string;
-  displayInput?: string;
-  displayOutput?: string;
-  typedRef?: {
-    kind: "openapi_operation";
-    sourceKey: string;
-    operationId: string;
-  };
-  serializedToolJson?: string;
-};
-
 const registryNamespaceSchema = z.object({
   namespace: z.string(),
   toolCount: z.number(),
   samplePaths: z.array(z.string()),
 });
 
-const registryToolEntrySchema: z.ZodType<RegistryToolEntry> = z.object({
+type RegistryNamespace = z.infer<typeof registryNamespaceSchema>;
+
+const registryToolEntrySchema = z.object({
   path: z.string(),
   preferredPath: z.string().optional(),
   source: z.string().optional(),
@@ -81,6 +67,8 @@ const registryToolEntrySchema: z.ZodType<RegistryToolEntry> = z.object({
   }).optional(),
   serializedToolJson: z.string().optional(),
 });
+
+type RegistryToolEntry = z.infer<typeof registryToolEntrySchema>;
 
 const registryToolPayloadEntrySchema = z.object({
   path: z.string(),
@@ -237,7 +225,7 @@ async function listWorkspaceToolPolicies(
 async function listRegistryNamespaces(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; limit: number },
-): Promise<Array<{ namespace: string; toolCount: number; samplePaths: string[] }>> {
+): Promise<RegistryNamespace[]> {
   const namespaces = await ctx.runQuery(internal.toolRegistry.listNamespaces, args);
   const parsed = z.array(registryNamespaceSchema).safeParse(namespaces);
   return parsed.success ? parsed.data : [];
@@ -376,7 +364,7 @@ async function denyToolCallForApproval(
   },
 ): Promise<never> {
   const deniedMessage = `${args.toolPath} (${args.approvalId})`;
-  return await denyToolCall(ctx, {
+  return denyToolCall(ctx, {
     task: args.task,
     callId: args.callId,
     toolPath: args.toolPath,
