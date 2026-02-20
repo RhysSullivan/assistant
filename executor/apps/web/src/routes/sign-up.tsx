@@ -3,9 +3,10 @@ import { ConvexHttpClient } from "convex/browser";
 import { getAuthkit } from "@workos/authkit-tanstack-react-start";
 import { api } from "@executor/database/convex/_generated/api";
 import type { Id } from "@executor/database/convex/_generated/dataModel";
-import { externalOriginFromRequest } from "@/lib/http/request-origin";
 import { readOptionalQueryParam, readOptionalReferrerQueryParam } from "@/lib/http/query-params";
 import { redirectResponse } from "@/lib/http/response";
+import { isWorkosDebugEnabled, logWorkosAuth } from "@/lib/workos-debug";
+import { resolveWorkosRedirectUri } from "@/lib/workos-redirect";
 
 const AUTHKIT_PASSTHROUGH_QUERY_KEYS = [
   "authorization_session_id",
@@ -81,7 +82,20 @@ async function handleSignUp(request: Request): Promise<Response> {
   const oauthClientId =
     readOptionalQueryParam(requestUrl, ["client_id"])
     ?? readOptionalReferrerQueryParam(request, ["client_id"]);
-  const redirectUri = oauthRedirectUri ?? `${externalOriginFromRequest(request)}/callback`;
+  const redirectUri = oauthRedirectUri ?? resolveWorkosRedirectUri(request);
+  if (!redirectUri) {
+    return redirectResponse("/");
+  }
+
+  if (isWorkosDebugEnabled()) {
+    logWorkosAuth("sign-up.redirect", {
+      redirectUri,
+      requestHost: requestUrl.host,
+      forwardedHost: request.headers.get("x-forwarded-host"),
+      forwardedProto: request.headers.get("x-forwarded-proto") ?? requestUrl.protocol,
+      hasOrganizationHint: Boolean(readOptionalQueryParam(requestUrl, ["organization_id"])),
+    });
+  }
   const organizationId = await resolveOrganizationHint(requestUrl);
   const loginHint = readOptionalQueryParam(requestUrl, ["login_hint"]);
 
