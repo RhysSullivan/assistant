@@ -132,13 +132,24 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
   }
 
   if (code && response.status >= 300 && response.status < 400) {
-    markCodeAsReplayed(code);
+    if (setCookieHeaders.length > 0) {
+      markCodeAsReplayed(code);
 
-    if (isWorkosDebugEnabled()) {
-      logWorkosAuth("callback.code-marked-used", {
+      if (isWorkosDebugEnabled()) {
+        logWorkosAuth("callback.code-marked-used", {
+          requestId,
+          code: redactAuthCode(code),
+          status: response.status,
+          setCookieCount: setCookieHeaders.length,
+        });
+      }
+    }
+    else if (isWorkosDebugEnabled()) {
+      logWorkosAuth("callback.code-not-marked-used", {
         requestId,
         code: redactAuthCode(code),
         status: response.status,
+        reason: "missing-set-cookie",
       });
     }
 
