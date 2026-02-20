@@ -2,12 +2,13 @@ import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { internal } from "./_generated/api";
 import schema from "./schema";
+import { registerRateLimiterComponent } from "./testHelpers";
 
 const GITHUB_OPENAPI_SPEC_URL =
   "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json?convex_test_profile=github";
 
 function setup() {
-  return convexTest(schema, {
+  const t = convexTest(schema, {
     "./database.ts": () => import("./database"),
     "./executorNode.ts": () => import("./executorNode"),
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
@@ -16,6 +17,9 @@ function setup() {
     "./runtimeNode.ts": () => import("./runtimeNode"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
+
+  registerRateLimiterComponent(t);
+  return t;
 }
 
 test("convex-test keeps GitHub inventory build warm-cache fast", async () => {

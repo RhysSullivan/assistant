@@ -3,13 +3,17 @@ import { convexTest } from "convex-test";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel.d.ts";
 import schema from "./schema";
+import { registerRateLimiterComponent } from "./testHelpers";
 
 function setup() {
-  return convexTest(schema, {
+  const t = convexTest(schema, {
     "./database.ts": () => import("./database"),
     "./toolRegistry.ts": () => import("./toolRegistry"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
+
+  registerRateLimiterComponent(t);
+  return t;
 }
 
 /** Insert a minimal workspace row and return its Id. */
