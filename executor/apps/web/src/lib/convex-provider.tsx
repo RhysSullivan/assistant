@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo } from "react";
 import { ConvexProviderWithAuth } from "convex/react";
+import { z } from "zod";
 import {
   AuthKitProvider,
   useAccessToken,
@@ -36,6 +37,8 @@ type WorkosAuthProfile = {
   avatarUrl?: string | null;
 };
 
+const recordSchema = z.record(z.unknown());
+
 function readNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -57,11 +60,12 @@ function getRecordString(record: Record<string, unknown>, keys: string[]): strin
 }
 
 function buildWorkosAuthProfile(user: unknown): WorkosAuthProfile | null {
-  if (!user || typeof user !== "object") {
+  const parsedUser = recordSchema.safeParse(user);
+  if (!parsedUser.success) {
     return null;
   }
 
-  const userRecord = user as Record<string, unknown>;
+  const userRecord = parsedUser.data;
   const firstName = getRecordString(userRecord, ["firstName", "first_name", "givenName", "given_name"]);
   const lastName = getRecordString(userRecord, ["lastName", "last_name", "familyName", "family_name"]);
   const combinedName = [firstName, lastName].filter(Boolean).join(" ").trim();

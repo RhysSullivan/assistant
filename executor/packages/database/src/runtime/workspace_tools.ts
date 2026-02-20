@@ -255,12 +255,19 @@ function buildBoundedOpenApiRefHintTables(
   let remainingBudget = MAX_REF_HINT_METADATA_BYTES;
 
   const tables = externalArtifacts
-    .filter((artifact) => typeof artifact.openApiSourceKey === "string" && typeof artifact.openApiRefHintTable === "object")
+    .filter(
+      (
+        artifact,
+      ): artifact is CompiledToolSourceArtifact & { openApiSourceKey: string; openApiRefHintTable: Record<string, string> } => (
+        typeof artifact.openApiSourceKey === "string"
+        && artifact.openApiRefHintTable !== undefined
+      ),
+    )
     .map((artifact) => {
-      const sourceKey = artifact.openApiSourceKey!;
+      const sourceKey = artifact.openApiSourceKey;
       const refs: Array<{ key: string; hint: string }> = [];
 
-      const rawEntries = Object.entries(artifact.openApiRefHintTable ?? {})
+      const rawEntries = Object.entries(artifact.openApiRefHintTable)
         .filter((entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string");
 
       for (const [key, rawHint] of rawEntries) {
