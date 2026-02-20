@@ -104,27 +104,17 @@ Run these from `executor/`:
 
 ```bash
 bun run doctor
-bun run doctor:prod
-bun run deploy:prod
 bun run up
 bun run backend -- --help
 bun run web
 bun run codegen
 bun run deploy
 bun run build:binary
-bun run build:release
 ```
 
 Notes:
 
 - `build:binary` compiles a host-native `dist/executor` binary.
-- `build:release` builds multi-platform binary archives and web archives for all release target names in `dist/release/`.
-
-Manual GitHub release (recommended):
-
-- Run the `Release Executor` workflow from Actions.
-- Choose `release_type` (`patch`, `minor`, `major`), or provide `version` explicitly.
-- The workflow builds artifacts, creates a new tag (`vX.Y.Z`), and publishes the GitHub release with all required assets.
 
 ## MCP and OAuth Surface
 
@@ -217,8 +207,6 @@ executor/
 |- packages/runner-sandbox-host/ # Cloudflare worker sandbox runtime
 |- packages/core/src/        # shared executor runtime/tooling core package code
 |- scripts/dev/              # local/dev-only helpers
-|- scripts/prod/             # production setup and deploy scripts
-|- scripts/release/          # release artifact builder
 |- executor.ts               # CLI entrypoint (compiled into binary)
 |- install                   # curl install script
 `- uninstall                 # uninstall script
@@ -230,4 +218,3 @@ executor/
 - `401` on `/mcp/anonymous`: pass `API_KEY` from the setup card as `Authorization: Bearer <API_KEY>` (or `x-api-key`).
 - Web UI cannot load data: verify `CONVEX_URL` / `CONVEX_SITE_URL` and that Convex dev is running.
 - `ENOENT` after `fs.write` on hosted Convex: `agentfs-local` is unsupported on hosted Convex because local filesystem state is not shared across workers. Use `AGENT_STORAGE_PROVIDER=agentfs-cloudflare`.
-- Release build missing managed artifacts: run `bun run build:release` and verify `executor/dist/release/` contains `executor-*.tar.gz`, `executor-web-*.tar.gz`, and `executor-runtime-*.tar.gz`.

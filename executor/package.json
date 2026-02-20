@@ -9,11 +9,6 @@
   "private": true,
   "scripts": {
     "doctor": "bun run executor.ts doctor",
-    "doctor:prod": "bun run scripts/prod/doctor-prod.ts",
-    "deploy:prod": "bun run scripts/prod/deploy-prod.ts",
-    "setup:prod:env": "bun run scripts/prod/setup/prod-env.ts --from-env",
-    "setup:prod:cloudflare": "bun run scripts/prod/setup/prod-cloudflare.ts",
-    "setup:prod:all": "bun run setup:prod:cloudflare --deploy && bun run setup:prod:env && bun run doctor:prod",
     "up": "bun run executor.ts up",
     "upgrade": "bun run executor.ts upgrade",
     "down": "bun run executor.ts down",
@@ -29,13 +24,9 @@
     "test:e2e:install": "bun test scripts/e2e/install.e2e.test.ts",
     "test:e2e:install:sandbox": "bun test scripts/e2e/install.sandbox.e2e.test.ts",
     "sandbox:install:session": "bun run scripts/e2e/install.sandbox.session.ts",
-    "smoke:storage:execute-flow:local": "bun run scripts/dev/storage/smoke.execute-flow.ts --runtime local-bun --deploy-convex",
-    "smoke:storage:execute-flow": "bun run scripts/dev/storage/smoke.execute-flow.ts --runtime cloudflare-worker-loader --deploy-convex --deploy-worker",
-    "smoke:storage:execute-flow:cloudflare": "bun run scripts/dev/storage/smoke.execute-flow.ts --runtime cloudflare-worker-loader --deploy-convex --deploy-worker",
     "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json",
-    "build:binary": "bun build executor.ts --compile --outfile dist/executor",
-    "build:release": "bun run scripts/release/build-release.ts"
+    "build:binary": "bun build executor.ts --compile --outfile dist/executor"
   },
   "type": "module"
 }

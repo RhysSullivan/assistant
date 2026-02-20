@@ -48,7 +48,7 @@ Run from repo root unless noted.
 - `bun run typecheck:assistant` - checks server + bot tsconfig files.
 - `bun run --cwd executor/apps/web lint` - ESLint for Next.js web app.
 
-- `bun run --cwd executor build:binary` / `build:release` - binary + release artifacts.
+- `bun run --cwd executor build:binary` - host-native binary build.
 - `bun run --cwd executor/apps/web build` - Next.js production build.
 
 ### Dev commands

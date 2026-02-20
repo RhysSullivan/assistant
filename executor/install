@@ -329,8 +329,8 @@ install_runtime_bundle() {
   echo -e "${RED}Runtime bundle was not installed (missing release asset ${runtime_filename})${NC}"
   echo ""
   echo "To build and install it locally:"
-  echo "  bun run --cwd executor build:release"
-  echo "  bash executor/install --no-modify-path"
+  echo "  bun run --cwd executor build:binary"
+  echo "  bash executor/install --binary executor/dist/executor --no-modify-path"
   exit 1
 }
 

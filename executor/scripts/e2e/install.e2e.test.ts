@@ -121,13 +121,6 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
         timeoutMs: 300_000,
       });
       assertSuccess(buildBinary, "build binary");
-
-      const buildRelease = await runCommand(["bun", "run", "build:release"], {
-        cwd: repoRoot,
-        env: process.env,
-        timeoutMs: 1_200_000,
-      });
-      assertSuccess(buildRelease, "build release");
     }
 
     if (!(await pathExists(binaryPath))) {
