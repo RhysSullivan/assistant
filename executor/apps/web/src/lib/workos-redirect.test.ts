@@ -19,11 +19,13 @@ const originalWorkosEnv: Record<(typeof WORKOS_ENV_KEYS)[number], string | undef
   }, {} as Record<(typeof WORKOS_ENV_KEYS)[number], string | undefined>);
 
 function resetWorkosEnv() {
+  const mutableEnv = process.env as Record<string, string | undefined>;
+
   for (const key of WORKOS_ENV_KEYS) {
     if (originalWorkosEnv[key] === undefined) {
-      delete process.env[key];
+      delete mutableEnv[key];
     } else {
-      process.env[key] = originalWorkosEnv[key];
+      mutableEnv[key] = originalWorkosEnv[key];
     }
   }
 }
@@ -35,7 +37,7 @@ test("uses explicit WORKOS_REDIRECT_URI when set", () => {
   process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI = "https://public.example.com/callback";
 
   const request = new Request("https://request.example.com/sign-in");
-  expect(resolveWorkosRedirectUri(request)).toBe("https://app.example.com/api/auth/callback");
+  expect(resolveWorkosRedirectUri(request)).toBe("https://app.example.com/callback");
 });
 
 test("falls back to NEXT_PUBLIC_WORKOS_REDIRECT_URI when server var is absent", () => {
@@ -45,7 +47,7 @@ test("falls back to NEXT_PUBLIC_WORKOS_REDIRECT_URI when server var is absent", 
   process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI = "https://public.example.com/callback";
 
   const request = new Request("https://request.example.com/sign-in");
-  expect(resolveWorkosRedirectUri(request)).toBe("https://public.example.com/api/auth/callback");
+  expect(resolveWorkosRedirectUri(request)).toBe("https://public.example.com/callback");
 });
 
 test("derives from forwarded request origin when not explicitly configured", () => {
@@ -61,7 +63,7 @@ test("derives from forwarded request origin when not explicitly configured", () 
     },
   });
 
-  expect(resolveWorkosRedirectUri(request)).toBe("https://executor.sh/api/auth/callback");
+  expect(resolveWorkosRedirectUri(request)).toBe("https://executor.sh/callback");
 });
 
 test("falls back to localhost when host cannot be derived locally", () => {
@@ -73,10 +75,10 @@ test("falls back to localhost when host cannot be derived locally", () => {
   delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
   delete process.env.VERCEL_URL;
   delete process.env.NEXT_PUBLIC_VERCEL_URL;
-  process.env.NODE_ENV = "development";
+  (process.env as Record<string, string | undefined>).NODE_ENV = "development";
 
   const request = new Request("http://localhost:1234/sign-in");
-  expect(resolveWorkosRedirectUri(request)).toBe("http://localhost:1234/api/auth/callback");
+  expect(resolveWorkosRedirectUri(request)).toBe("http://localhost:1234/callback");
 });
 
 resetWorkosEnv();

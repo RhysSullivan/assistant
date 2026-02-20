@@ -7,7 +7,7 @@ import {
   AuthKitProvider,
   useAccessToken,
   useAuth as useWorkosAuth,
-} from "@workos/authkit-tanstack-react-start/client";
+} from "@workos-inc/authkit-nextjs/components";
 import { ConvexReactClient } from "convex/react";
 import type { ReactNode } from "react";
 import { useQueryClient, useQuery as useTanstackQuery } from "@tanstack/react-query";

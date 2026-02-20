@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
-import type { Id } from "@executor/database/convex/_generated/dataModel";
+import type { Id } from "@/lib/convex-id";
 
 type Role = "owner" | "admin" | "member" | "billing_admin";
 type MemberStatus = "active" | "pending" | "removed";

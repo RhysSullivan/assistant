@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@/lib/router";
 import { useMutation } from "convex/react";
 import { ChevronsUpDown, Plus, Check, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -207,12 +207,7 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
                             className="inline-flex h-5 w-5 items-center justify-center rounded-sm border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
                             onClick={() => {
                               switchWorkspace(settingsWorkspace.id);
-                              void navigate({
-                                to: "/organization",
-                                search: {
-                                  tab: "members",
-                                },
-                              });
+                              navigate("/organization?tab=members");
                             }}
                             aria-label={`Open ${group.organizationName} settings`}
                             title="Organization settings"

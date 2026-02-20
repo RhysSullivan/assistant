@@ -1,65 +1,48 @@
-import type { Id } from "@executor/database/convex/_generated/dataModel";
-import type {
-  ApprovalStatus as CoreApprovalStatus,
-  ArgumentCondition as CoreArgumentCondition,
-  ArgumentConditionOperator as CoreArgumentConditionOperator,
-  CredentialAdditionalHeader as CoreCredentialAdditionalHeader,
-  CredentialProvider as CoreCredentialProvider,
-  CredentialScope as CoreCredentialScope,
-  CredentialScopeType as CoreCredentialScopeType,
-  OpenApiSourceQuality as CoreOpenApiSourceQuality,
-  PolicyApprovalMode as CorePolicyApprovalMode,
-  PolicyDecision as CorePolicyDecision,
-  PolicyEffect as CorePolicyEffect,
-  PolicyMatchType as CorePolicyMatchType,
-  PolicyScopeType as CorePolicyScopeType,
-  SourceAuthProfile as CoreSourceAuthProfile,
-  SourceAuthType as CoreSourceAuthType,
-  StorageDurability as CoreStorageDurability,
-  StorageInstanceStatus as CoreStorageInstanceStatus,
-  StorageProvider as CoreStorageProvider,
-  StorageScopeType as CoreStorageScopeType,
-  TaskStatus as CoreTaskStatus,
-  ToolApprovalMode as CoreToolApprovalMode,
-  ToolRoleBindingStatus as CoreToolRoleBindingStatus,
-  ToolRoleSelectorType as CoreToolRoleSelectorType,
-  ToolSourceScopeType as CoreToolSourceScopeType,
-  ToolSourceType as CoreToolSourceType,
-  ToolPolicyRecord as CoreToolPolicyRecord,
-  ToolPolicyAssignmentRecord as CoreToolPolicyAssignmentRecord,
-  ToolPolicySetRecord as CoreToolPolicySetRecord,
-  ToolPolicyRuleRecord as CoreToolPolicyRuleRecord,
-} from "@executor/core/types";
+import type { Id } from "@/lib/convex-id";
 
 // ── Shared types (inlined from @executor/contracts) ──────────────────────────
 
-export type TaskStatus = CoreTaskStatus;
-export type ApprovalStatus = CoreApprovalStatus;
-export type PolicyDecision = CorePolicyDecision;
-export type PolicyScopeType = CorePolicyScopeType;
-export type PolicyMatchType = CorePolicyMatchType;
-export type PolicyEffect = CorePolicyEffect;
-export type PolicyApprovalMode = CorePolicyApprovalMode;
-export type ToolRoleSelectorType = CoreToolRoleSelectorType;
-export type ToolRoleBindingStatus = CoreToolRoleBindingStatus;
-export type ArgumentConditionOperator = CoreArgumentConditionOperator;
+export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
+export type ApprovalStatus = "pending" | "approved" | "denied";
+export type PolicyDecision = "allow" | "require_approval" | "deny";
+export type PolicyScopeType = "account" | "organization" | "workspace";
+export type PolicyMatchType = "glob" | "exact";
+export type PolicyEffect = "allow" | "deny";
+export type PolicyApprovalMode = "inherit" | "auto" | "required";
+export type ToolRoleSelectorType = "all" | "source" | "namespace" | "tool_path";
+export type ToolRoleBindingStatus = "active" | "disabled";
+export type ArgumentConditionOperator = "equals" | "contains" | "starts_with" | "not_equals";
 
-export type ArgumentCondition = CoreArgumentCondition;
-export type CredentialAdditionalHeader = CoreCredentialAdditionalHeader;
-export type CredentialScope = CoreCredentialScope;
-export type CredentialProvider = CoreCredentialProvider;
-export type ToolSourceScopeType = CoreToolSourceScopeType;
-export type CredentialScopeType = CoreCredentialScopeType;
-export type ToolApprovalMode = CoreToolApprovalMode;
-export type ToolSourceType = CoreToolSourceType;
-export type StorageScopeType = CoreStorageScopeType;
-export type StorageDurability = CoreStorageDurability;
-export type StorageInstanceStatus = CoreStorageInstanceStatus;
-export type StorageProvider = CoreStorageProvider;
+export interface ArgumentCondition {
+  key: string;
+  operator: ArgumentConditionOperator;
+  value: string;
+}
 
-export type SourceAuthType = CoreSourceAuthType;
+export interface CredentialAdditionalHeader {
+  name: string;
+  value: string;
+}
 
-export type SourceAuthProfile = CoreSourceAuthProfile;
+export type CredentialScopeType = "account" | "organization" | "workspace";
+export type CredentialScope = CredentialScopeType;
+export type CredentialProvider = "local-convex" | "workos-vault";
+export type ToolSourceScopeType = "organization" | "workspace";
+export type ToolApprovalMode = "auto" | "required";
+export type ToolSourceType = "mcp" | "openapi" | "graphql";
+export type StorageScopeType = "scratch" | "account" | "workspace" | "organization";
+export type StorageDurability = "ephemeral" | "durable";
+export type StorageInstanceStatus = "active" | "closed" | "deleted";
+export type StorageProvider = "agentfs-local" | "agentfs-cloudflare";
+
+export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
+
+export interface SourceAuthProfile {
+  type: SourceAuthType;
+  mode?: CredentialScope;
+  header?: string;
+  inferred: boolean;
+}
 
 export interface TaskRecord {
   id: string;
@@ -105,10 +88,69 @@ export interface TaskEventRecord {
   createdAt: number;
 }
 
-export type ToolPolicyRecord = CoreToolPolicyRecord;
-export type ToolPolicySetRecord = CoreToolPolicySetRecord;
-export type ToolPolicyRuleRecord = CoreToolPolicyRuleRecord;
-export type ToolPolicyAssignmentRecord = CoreToolPolicyAssignmentRecord;
+export type PolicyResourceType = "all_tools" | "source" | "namespace" | "tool_path";
+
+export interface ToolPolicyRecord {
+  id: string;
+  scopeType: PolicyScopeType;
+  organizationId: Id<"organizations">;
+  workspaceId?: Id<"workspaces">;
+  targetAccountId?: Id<"accounts">;
+  clientId?: string;
+  resourceType: PolicyResourceType;
+  resourcePattern: string;
+  matchType: PolicyMatchType;
+  effect: PolicyEffect;
+  approvalMode: PolicyApprovalMode;
+  argumentConditions?: ArgumentCondition[];
+  priority: number;
+  roleId?: string;
+  ruleId?: string;
+  bindingId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ToolPolicySetRecord {
+  id: string;
+  organizationId: Id<"organizations">;
+  name: string;
+  description?: string;
+  createdByAccountId?: Id<"accounts">;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ToolPolicyRuleRecord {
+  id: string;
+  roleId: string;
+  organizationId: Id<"organizations">;
+  selectorType: ToolRoleSelectorType;
+  sourceKey?: string;
+  namespacePattern?: string;
+  toolPathPattern?: string;
+  matchType: PolicyMatchType;
+  effect: PolicyEffect;
+  approvalMode: PolicyApprovalMode;
+  argumentConditions?: ArgumentCondition[];
+  priority: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ToolPolicyAssignmentRecord {
+  id: string;
+  roleId: string;
+  organizationId: Id<"organizations">;
+  scopeType: PolicyScopeType;
+  workspaceId?: Id<"workspaces">;
+  targetAccountId?: Id<"accounts">;
+  clientId?: string;
+  status: ToolRoleBindingStatus;
+  expiresAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface CredentialRecord {
   id: string;
@@ -187,7 +229,17 @@ export interface ToolDescriptor {
   };
 }
 
-export type OpenApiSourceQuality = CoreOpenApiSourceQuality;
+export interface OpenApiSourceQuality {
+  sourceKey: string;
+  toolCount: number;
+  unknownArgsCount: number;
+  unknownReturnsCount: number;
+  partialUnknownArgsCount: number;
+  partialUnknownReturnsCount: number;
+  argsQuality: number;
+  returnsQuality: number;
+  overallQuality: number;
+}
 
 export interface AnonymousContext {
   sessionId: string;

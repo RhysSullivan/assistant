@@ -1,4 +1,4 @@
-import type { Id } from "@executor/database/convex/_generated/dataModel";
+import type { Id } from "@/lib/convex-id";
 import { z } from "zod";
 
 const SESSION_KEY = "executor_session_id";

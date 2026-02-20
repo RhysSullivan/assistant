@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { joinStoragePath, prettyBytes, type StorageDirectoryEntry } from "./storage_panel_shared";
 import { JsonPreview } from "./storage_panel_json_preview";
 
+const FILE_PREVIEW_SKELETON_WIDTHS = [42, 56, 63, 48, 71, 54, 67, 59] as const;
+
 type StorageFsTabContentProps = {
   canInspect: boolean;
   fsPath: string;
@@ -180,8 +182,8 @@ export function StorageFsTabContent(props: StorageFsTabContentProps) {
                   <div className="max-h-[60vh] overflow-auto p-4">
                     {filePreviewLoading ? (
                       <div className="space-y-1">
-                        {Array.from({ length: 8 }).map((_, i) => (
-                          <Skeleton key={i} className="h-4 rounded" style={{ width: `${40 + Math.random() * 50}%` }} />
+                        {FILE_PREVIEW_SKELETON_WIDTHS.map((width, i) => (
+                          <Skeleton key={i} className="h-4 rounded" style={{ width: `${width}%` }} />
                         ))}
                       </div>
                     ) : parsedFilePreviewJson !== null ? (

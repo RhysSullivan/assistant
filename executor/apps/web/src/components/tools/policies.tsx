@@ -47,6 +47,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
+import type { Id } from "@/lib/convex-id";
 import { cn } from "@/lib/utils";
 import type {
   ToolPolicyRecord,
@@ -57,7 +58,6 @@ import type {
   ToolPolicyRuleRecord,
   ToolPolicySetRecord,
 } from "@/lib/types";
-import type { Id } from "@executor/database/convex/_generated/dataModel";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 import { sourceLabel } from "@/lib/tool/source-utils";
 

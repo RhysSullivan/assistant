@@ -54,18 +54,7 @@ export function readRuntimeConfig(): ExecutorRuntimeConfig {
     return window.__EXECUTOR_RUNTIME_CONFIG__;
   }
 
-  if (typeof window === "undefined") {
-    return runtimeConfigFromEnv();
-  }
-
-  return {
-    convexUrl: trim(import.meta.env.VITE_CONVEX_URL),
-    convexSiteUrl: trim(import.meta.env.VITE_CONVEX_SITE_URL),
-    workosClientId: trim(import.meta.env.VITE_WORKOS_CLIENT_ID),
-    stripePriceId: trim(import.meta.env.VITE_STRIPE_PRICE_ID),
-    executorHttpUrl: trim(import.meta.env.VITE_EXECUTOR_HTTP_URL),
-    allowLocalVm: parseBooleanEnv(import.meta.env.VITE_DANGEROUSLY_ALLOW_LOCAL_VM),
-  };
+  return runtimeConfigFromEnv();
 }
 
 function toSiteUrl(convexUrl?: string): string | undefined {

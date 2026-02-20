@@ -1,49 +1,111 @@
-import { type ComponentProps } from "react";
-import {
-  Link as TanStackLink,
-  Navigate as TanStackNavigate,
-  useLocation as useTanStackLocation,
-  useNavigate as useTanStackNavigate,
-} from "@tanstack/react-router";
+"use client";
+
+import type { AnchorHTMLAttributes, ReactNode } from "react";
+import { useEffect } from "react";
+import NextLink from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type NavigateOptions = {
   replace?: boolean;
 };
 
-export function useNavigate() {
-  const navigate = useTanStackNavigate();
+type NavigateTarget = string | {
+  to: string;
+  search?: Record<string, string | number | boolean | null | undefined>;
+};
 
-  return (to: string, options?: NavigateOptions) => {
-    void navigate({
-      to,
-      replace: options?.replace,
-    });
+function withSearch(
+  to: string,
+  search?: Record<string, string | number | boolean | null | undefined>,
+): string {
+  if (!search || Object.keys(search).length === 0) {
+    return to;
+  }
+
+  const url = new URL(to, "http://localhost");
+  for (const [key, value] of Object.entries(search)) {
+    if (value === null || value === undefined || value === "") {
+      url.searchParams.delete(key);
+      continue;
+    }
+    url.searchParams.set(key, String(value));
+  }
+
+  const searchPart = url.searchParams.toString();
+  return `${url.pathname}${searchPart ? `?${searchPart}` : ""}`;
+}
+
+function toHref(target: NavigateTarget): string {
+  if (typeof target === "string") {
+    return target;
+  }
+
+  return withSearch(target.to, target.search);
+}
+
+export function useNavigate() {
+  const router = useRouter();
+
+  return (to: NavigateTarget, options?: NavigateOptions) => {
+    const href = toHref(to);
+    if (options?.replace) {
+      router.replace(href);
+      return;
+    }
+
+    router.push(href);
   };
 }
 
 export function useLocation() {
-  return useTanStackLocation();
+  const pathname = usePathname() ?? "/";
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+
+  return {
+    pathname,
+    search: search ? `?${search}` : "",
+    hash: "",
+  };
 }
 
-type LinkProps = ComponentProps<typeof TanStackLink> & {
+type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
+  children?: ReactNode | ((state: { isActive: boolean; isTransitioning: boolean }) => ReactNode);
+  to: string;
+  replace?: boolean;
   reloadDocument?: boolean;
 };
 
+function resolveChildren(
+  children: LinkProps["children"],
+): ReactNode {
+  if (typeof children === "function") {
+    return children({ isActive: false, isTransitioning: false });
+  }
+
+  return children;
+}
+
 export function Link({ reloadDocument, to, ...props }: LinkProps) {
   if (reloadDocument) {
-    const href = typeof to === "string" ? to : "#";
+    const href = to;
     const { children, ...anchorProps } = props;
 
     return (
-      <a href={href} {...(anchorProps as ComponentProps<"a">)}>
-        {typeof children === "function"
-          ? children({ isActive: false, isTransitioning: false })
-          : children}
+      <a href={href} {...anchorProps}>
+        {resolveChildren(children)}
       </a>
     );
   }
 
-  return <TanStackLink to={to} {...props} />;
+  const { children, replace, ...linkProps } = props;
+  const resolvedChildren = resolveChildren(children);
+
+  return (
+    <NextLink href={to} replace={replace} {...linkProps}>
+      {resolvedChildren as ReactNode}
+    </NextLink>
+  );
 }
 
 type NavigateProps = {
@@ -52,5 +114,11 @@ type NavigateProps = {
 };
 
 export function Navigate({ to, replace }: NavigateProps) {
-  return <TanStackNavigate to={to} replace={replace} />;
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    navigate(to, { replace });
+  }, [navigate, replace, to]);
+
+  return null;
 }

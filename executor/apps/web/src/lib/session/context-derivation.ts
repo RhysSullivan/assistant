@@ -1,4 +1,4 @@
-import type { Id } from "@executor/database/convex/_generated/dataModel";
+import type { Id } from "@/lib/convex-id";
 import type { AnonymousContext } from "@/lib/types";
 
 export interface WorkosAccount {

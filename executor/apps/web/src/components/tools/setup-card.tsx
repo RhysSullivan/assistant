@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "convex/react"
 import { Check, Copy, Eye, EyeOff } from "lucide-react"
-import type { Id } from "@executor/database/convex/_generated/dataModel"
+import type { Id } from "@/lib/convex-id"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"

@@ -25,6 +25,7 @@ import {
   escapeSqlIdentifier,
   isInternalSqlObject,
   isJsonLike,
+  truncateText,
   sqlObjectType,
   tryParseJson,
   type CreateStorageArgs,

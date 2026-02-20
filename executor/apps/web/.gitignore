@@ -16,10 +16,6 @@
 # next.js
 /.next/
 /out/
-/.output/
-/.nitro/
-/.vinxi/
-/.tanstack/
 
 # production
 /build

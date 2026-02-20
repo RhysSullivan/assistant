@@ -31,8 +31,8 @@ import {
   readWorkspaceByAccount,
 } from "@/lib/session-storage";
 import { clearAnonymousAuth } from "@/lib/anonymous-auth";
+import type { Id } from "@/lib/convex-id";
 import type { AnonymousContext } from "./types";
-import type { Id } from "@executor/database/convex/_generated/dataModel";
 
 function isGeneratedWorkosLabel(name: string | undefined): boolean {
   if (!name) {
