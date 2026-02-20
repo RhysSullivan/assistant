@@ -3,12 +3,13 @@ import { internalMutation, internalQuery } from "../_generated/server";
 import { mapToolCall } from "../../src/database/mappers";
 import { getToolCallDoc } from "../../src/database/readers";
 import { terminalToolCallStatusValidator } from "../../src/database/validators";
+import { vv } from "../typedV";
 
 export const upsertToolCallRequested = internalMutation({
   args: {
     taskId: v.string(),
     callId: v.string(),
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     toolPath: v.string(),
   },
   handler: async (ctx, args) => {

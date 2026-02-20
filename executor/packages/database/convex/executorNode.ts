@@ -26,6 +26,7 @@ import { previewOpenApiSourceUpgradeForContext, type OpenApiUpgradeDiffPreview }
 import { getStorageProvider, type StorageEncoding, type StorageProvider } from "../src/runtime/storage_provider";
 import { shouldTouchStorageOnRead } from "../src/runtime/storage_touch_policy";
 import { shouldRefreshStorageUsage } from "../src/runtime/storage_usage_refresh";
+import { vv } from "./typedV";
 
 function isReadOnlySql(sql: string): boolean {
   const trimmed = sql.trim().toLowerCase();
@@ -109,8 +110,8 @@ async function touchStorageInstance(
 export const listToolsWithWarnings = customAction({
   method: "POST",
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     sessionId: v.optional(v.string()),
     includeDetails: v.optional(v.boolean()),
     includeSourceMeta: v.optional(v.boolean()),
@@ -181,8 +182,8 @@ export const listToolsWithWarnings = customAction({
 
 export const listToolsInternal = internalAction({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ToolDescriptor[]> => {
@@ -192,8 +193,8 @@ export const listToolsInternal = internalAction({
 
 export const listToolsWithWarningsInternal = internalAction({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     clientId: v.optional(v.string()),
   },
   handler: async (
@@ -215,8 +216,8 @@ export const listToolsWithWarningsInternal = internalAction({
 
 export const rebuildToolInventoryInternal = internalAction({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ rebuilt: boolean }> => {
@@ -230,8 +231,8 @@ export const rebuildToolInventoryInternal = internalAction({
 export const previewOpenApiSourceUpgrade = customAction({
   method: "POST",
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     sessionId: v.optional(v.string()),
     sourceId: v.string(),
     name: v.string(),
@@ -263,8 +264,8 @@ export const previewOpenApiSourceUpgrade = customAction({
 export const storageListDirectory = customAction({
   method: "POST",
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     sessionId: v.optional(v.string()),
     instanceId: v.string(),
     path: v.optional(v.string()),
@@ -291,8 +292,8 @@ export const storageListDirectory = customAction({
 export const storageReadFile = customAction({
   method: "POST",
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     sessionId: v.optional(v.string()),
     instanceId: v.string(),
     path: v.string(),
@@ -322,8 +323,8 @@ export const storageReadFile = customAction({
 export const storageListKv = customAction({
   method: "POST",
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     sessionId: v.optional(v.string()),
     instanceId: v.string(),
     prefix: v.optional(v.string()),
@@ -353,8 +354,8 @@ export const storageListKv = customAction({
 export const storageQuerySql = customAction({
   method: "POST",
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     sessionId: v.optional(v.string()),
     instanceId: v.string(),
     sql: v.string(),

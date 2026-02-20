@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { customMutation, workspaceMutation, workspaceQuery } from "../../core/src/function-builders";
 import { getOrganizationMembership, isAdminRole } from "../../core/src/identity";
 import {
+  argumentConditionValidator,
   credentialProviderValidator,
   credentialScopeTypeValidator,
   jsonObjectValidator,
@@ -17,6 +18,7 @@ import {
   toolSourceScopeTypeValidator,
   toolSourceTypeValidator,
 } from "../src/database/validators";
+import { vv } from "./typedV";
 import { safeRunAfter } from "../src/lib/scheduler";
 import {
   getWorkspaceInventoryProgressForContext,
@@ -111,6 +113,8 @@ export const listTasks = workspaceQuery({
   method: "GET",
   args: {},
   handler: async (ctx) => {
+    // TODO(security): Revisit member-level visibility for task code/output
+    // and provide redacted views by default outside admin contexts.
     return await ctx.runQuery(internal.database.listTasks, {
       workspaceId: ctx.workspaceId,
     });
@@ -121,6 +125,8 @@ export const listPendingApprovals = workspaceQuery({
   method: "GET",
   args: {},
   handler: async (ctx) => {
+    // TODO(security): Revisit member-level visibility for approval inputs,
+    // which can include sensitive request payloads.
     return await ctx.runQuery(internal.database.listPendingApprovals, {
       workspaceId: ctx.workspaceId,
     });
@@ -192,11 +198,7 @@ export const upsertToolPolicyRule = workspaceMutation({
     matchType: v.optional(policyMatchTypeValidator),
     effect: v.optional(policyEffectValidator),
     approvalMode: v.optional(policyApprovalModeValidator),
-    argumentConditions: v.optional(v.array(v.object({
-      key: v.string(),
-      operator: v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals")),
-      value: v.string(),
-    }))),
+    argumentConditions: v.optional(v.array(argumentConditionValidator)),
     priority: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -244,7 +246,7 @@ export const upsertToolPolicyAssignment = workspaceMutation({
     id: v.optional(v.string()),
     roleId: v.string(),
     scopeType: v.optional(policyScopeTypeValidator),
-    targetAccountId: v.optional(v.id("accounts")),
+    targetAccountId: v.optional(vv.id("accounts")),
     clientId: v.optional(v.string()),
     status: v.optional(toolRoleBindingStatusValidator),
     expiresAt: v.optional(v.number()),
@@ -292,7 +294,7 @@ export const upsertCredential = workspaceMutation({
     id: v.optional(v.string()),
     scopeType: v.optional(credentialScopeTypeValidator),
     sourceKey: v.string(),
-    accountId: v.optional(v.id("accounts")),
+    accountId: v.optional(vv.id("accounts")),
     provider: v.optional(credentialProviderValidator),
     secretJson: jsonObjectValidator,
     overridesJson: v.optional(jsonObjectValidator),
@@ -342,7 +344,7 @@ export const resolveCredential = workspaceQuery({
   args: {
     sourceKey: v.string(),
     scopeType: credentialScopeTypeValidator,
-    accountId: v.optional(v.id("accounts")),
+    accountId: v.optional(vv.id("accounts")),
   },
   handler: async (ctx, args) => {
     return await ctx.runQuery(internal.database.resolveCredential, {

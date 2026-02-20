@@ -8,6 +8,7 @@ import {
   storageAccessTypeValidator,
   storageScopeTypeValidator,
 } from "../../src/database/validators";
+import { vv } from "../typedV";
 import { DEFAULT_TASK_TIMEOUT_MS, MAX_TASK_TIMEOUT_MS } from "../../src/task/constants";
 import { isTerminalTaskStatus } from "../../src/task/status";
 
@@ -62,8 +63,8 @@ export const createTask = internalMutation({
     runtimeId: v.string(),
     timeoutMs: v.optional(v.number()),
     metadata: v.optional(jsonObjectValidator),
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -107,7 +108,7 @@ export const getTask = internalQuery({
 });
 
 export const listTasks = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: vv.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("tasks")
@@ -132,7 +133,7 @@ export const listQueuedTaskIds = internalQuery({
 });
 
 export const getTaskInWorkspace = internalQuery({
-  args: { taskId: v.string(), workspaceId: v.id("workspaces") },
+  args: { taskId: v.string(), workspaceId: vv.id("workspaces") },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
     if (!doc || doc.workspaceId !== args.workspaceId) {

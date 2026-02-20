@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import { deleteCurrentAccountBatchStep } from "../src/accounts/delete-current-account-batch";
 import { safeRunAfter } from "../src/lib/scheduler";
+import { vv } from "./typedV";
 
 const DEFAULT_DELETE_BATCH_SIZE = 200;
 
@@ -16,7 +17,7 @@ function normalizeBatchSize(value: number | undefined): number {
 
 export const processDeleteCurrentAccountBatch = internalMutation({
   args: {
-    accountId: v.id("accounts"),
+    accountId: vv.id("accounts"),
     batchSize: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -38,7 +39,7 @@ export const processDeleteCurrentAccountBatch = internalMutation({
 
 export const runDeleteCurrentAccount = internalAction({
   args: {
-    accountId: v.id("accounts"),
+    accountId: vv.id("accounts"),
     batchSize: v.optional(v.number()),
   },
   handler: async (ctx, args) => {

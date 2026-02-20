@@ -8,6 +8,7 @@ import {
   handleToolCallHandler,
 } from "../src/runtime-callbacks/handlers";
 import { jsonObjectValidator } from "../src/database/validators";
+import { vv } from "./typedV";
 
 export const handleToolCall = customAction({
   method: "POST",
@@ -55,7 +56,7 @@ export const getTaskWatchStatus = customQuery({
   args: {
     internalSecret: v.string(),
     runId: v.string(),
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
   },
   handler: async (ctx, args) => {
     return await getTaskWatchStatusHandler(ctx, internal, args);

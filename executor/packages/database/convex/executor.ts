@@ -10,6 +10,7 @@ import {
   resolveApprovalInternalHandler,
 } from "../src/executor/handlers";
 import { jsonObjectValidator } from "../src/database/validators";
+import { vv } from "./typedV";
 
 export const createTask = customAction({
   method: "POST",
@@ -18,9 +19,9 @@ export const createTask = customAction({
     timeoutMs: v.optional(v.number()),
     runtimeId: v.optional(v.string()),
     metadata: v.optional(jsonObjectValidator),
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     sessionId: v.optional(v.string()),
-    accountId: v.optional(v.id("accounts")),
+    accountId: v.optional(vv.id("accounts")),
     waitForResult: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -34,8 +35,8 @@ export const createTaskInternal = internalMutation({
     timeoutMs: v.optional(v.number()),
     runtimeId: v.optional(v.string()),
     metadata: v.optional(jsonObjectValidator),
-    workspaceId: v.id("workspaces"),
-    accountId: v.id("accounts"),
+    workspaceId: vv.id("workspaces"),
+    accountId: vv.id("accounts"),
     clientId: v.optional(v.string()),
     scheduleAfterCreate: v.optional(v.boolean()),
   },
@@ -60,7 +61,7 @@ export const resolveApproval = workspaceMutation({
 
 export const resolveApprovalInternal = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     approvalId: v.string(),
     decision: v.union(v.literal("approved"), v.literal("denied")),
     reviewerId: v.optional(v.string()),

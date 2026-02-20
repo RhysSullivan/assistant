@@ -4,6 +4,7 @@ import { mapApproval } from "../../src/database/mappers";
 import { getApprovalDoc, getTaskDoc } from "../../src/database/readers";
 import { approvalStatusValidator, jsonObjectValidator } from "../../src/database/validators";
 import type { TaskStatus } from "../../../core/src/types";
+import { vv } from "../typedV";
 
 export const createApproval = internalMutation({
   args: {
@@ -52,7 +53,7 @@ export const getApproval = internalQuery({
 
 export const listApprovals = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     status: v.optional(approvalStatusValidator),
   },
   handler: async (ctx, args) => {
@@ -78,7 +79,7 @@ export const listApprovals = internalQuery({
 });
 
 export const listPendingApprovals = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: vv.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("approvals")
@@ -145,7 +146,7 @@ export const resolveApproval = internalMutation({
 });
 
 export const getApprovalInWorkspace = internalQuery({
-  args: { approvalId: v.string(), workspaceId: v.id("workspaces") },
+  args: { approvalId: v.string(), workspaceId: vv.id("workspaces") },
   handler: async (ctx, args) => {
     const doc = await getApprovalDoc(ctx, args.approvalId);
     if (!doc || doc.workspaceId !== args.workspaceId) {

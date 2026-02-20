@@ -1,10 +1,11 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { vv } from "./typedV";
 
 export const getState = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
   },
   handler: async (ctx, args) => {
     const entry = await ctx.db
@@ -40,7 +41,7 @@ export const getState = internalQuery({
 
 export const beginBuild = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     signature: v.string(),
     buildId: v.string(),
   },
@@ -88,7 +89,7 @@ export const beginBuild = internalMutation({
 
 export const putToolsBatch = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     tools: v.array(
       v.object({
@@ -152,7 +153,7 @@ export const putToolsBatch = internalMutation({
 
 export const putNamespacesBatch = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     namespaces: v.array(
       v.object({
@@ -179,7 +180,7 @@ export const putNamespacesBatch = internalMutation({
 
 export const finishBuild = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     signature: v.string(),
   },
@@ -235,7 +236,7 @@ export const finishBuild = internalMutation({
 
 export const updateBuildMetadata = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     typesStorageId: v.optional(v.id("_storage")),
     warnings: v.array(v.string()),
@@ -303,7 +304,7 @@ export const updateBuildMetadata = internalMutation({
 
 export const failBuild = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     error: v.optional(v.string()),
   },
@@ -335,7 +336,7 @@ const PRUNE_NAMESPACE_SCAN_PAGE_SIZE = 250;
 
 export const scanNamespaceBuildsForPrune = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -356,7 +357,7 @@ export const scanNamespaceBuildsForPrune = internalQuery({
 
 export const deleteToolRegistryToolsPage = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     cursor: v.optional(v.string()),
   },
@@ -376,7 +377,7 @@ export const deleteToolRegistryToolsPage = internalMutation({
 
 export const deleteToolRegistryPayloadsPage = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     cursor: v.optional(v.string()),
   },
@@ -396,7 +397,7 @@ export const deleteToolRegistryPayloadsPage = internalMutation({
 
 export const deleteToolRegistryNamespacesPage = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     cursor: v.optional(v.string()),
   },
@@ -416,7 +417,7 @@ export const deleteToolRegistryNamespacesPage = internalMutation({
 
 export const pruneBuilds = internalAction({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     maxRetainedBuilds: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -528,7 +529,7 @@ export const pruneBuilds = internalAction({
 
 export const getToolByPath = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     path: v.string(),
   },
@@ -569,7 +570,7 @@ export const getToolByPath = internalQuery({
 
 export const getSerializedToolsByPaths = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     paths: v.array(v.string()),
   },
@@ -601,7 +602,7 @@ export const getSerializedToolsByPaths = internalQuery({
 
 export const listToolsByNamespace = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     namespace: v.string(),
     limit: v.number(),
@@ -636,7 +637,7 @@ export const listToolsByNamespace = internalQuery({
 
 export const listToolsPage = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     cursor: v.optional(v.string()),
     limit: v.number(),
@@ -674,7 +675,7 @@ export const listToolsPage = internalQuery({
 
 export const listToolsBySourcePage = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     source: v.string(),
     cursor: v.optional(v.string()),
@@ -737,7 +738,7 @@ export const listToolsBySourcePage = internalQuery({
 
 export const getToolsByNormalizedPath = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     normalizedPath: v.string(),
     limit: v.number(),
@@ -781,7 +782,7 @@ export const getToolsByNormalizedPath = internalQuery({
 
 export const searchTools = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     query: v.string(),
     limit: v.number(),
@@ -818,7 +819,7 @@ export const searchTools = internalQuery({
 
 export const listNamespaces = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     buildId: v.string(),
     limit: v.number(),
   },

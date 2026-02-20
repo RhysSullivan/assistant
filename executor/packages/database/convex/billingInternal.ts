@@ -8,6 +8,7 @@ import {
   upsertCustomerLinkHandler,
   upsertSeatStateHandler,
 } from "../src/billing/internal-handlers";
+import { vv } from "./typedV";
 
 export const getBillingAccessForRequest = internalOrganizationQuery({
   args: {},
@@ -18,7 +19,7 @@ export const getBillingAccessForRequest = internalOrganizationQuery({
 
 export const getSeatSyncSnapshot = internalQuery({
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
   },
   handler: async (ctx, args) => {
     return await getSeatSyncSnapshotHandler(ctx, args);
@@ -27,7 +28,7 @@ export const getSeatSyncSnapshot = internalQuery({
 
 export const upsertCustomerLink = internalMutation({
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
     stripeCustomerId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -37,7 +38,7 @@ export const upsertCustomerLink = internalMutation({
 
 export const bumpSeatSyncVersion = internalMutation({
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
   },
   handler: async (ctx, args) => {
     return await bumpSeatSyncVersionHandler(ctx, args);
@@ -46,7 +47,7 @@ export const bumpSeatSyncVersion = internalMutation({
 
 export const upsertSeatState = internalMutation({
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
     desiredSeats: v.number(),
     lastAppliedSeats: v.union(v.number(), v.null()),
     syncError: v.union(v.string(), v.null()),

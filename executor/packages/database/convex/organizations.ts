@@ -7,6 +7,7 @@ import {
   listOrganizationsMineHandler,
   resolveWorkosOrganizationIdHandler,
 } from "../src/organizations/handlers";
+import { vv } from "./typedV";
 
 export const create = authedMutation({
   method: "POST",
@@ -37,7 +38,7 @@ export const getNavigationState = optionalAccountQuery({
 export const getOrganizationAccess = optionalAccountQuery({
   method: "GET",
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
   },
   handler: async (ctx, args) => {
     return await getOrganizationAccessHandler(ctx, args);
@@ -47,7 +48,7 @@ export const getOrganizationAccess = optionalAccountQuery({
 export const resolveWorkosOrganizationId = optionalAccountQuery({
   method: "GET",
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
   },
   handler: async (ctx, args) => {
     return await resolveWorkosOrganizationIdHandler(ctx, args);

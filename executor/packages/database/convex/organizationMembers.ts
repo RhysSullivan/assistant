@@ -4,6 +4,7 @@ import { getOrganizationMembership } from "../../core/src/identity";
 import { organizationMutation, organizationQuery } from "../../core/src/function-builders";
 import { upsertOrganizationMembership } from "../src/auth/memberships";
 import { safeRunAfter } from "../src/lib/scheduler";
+import { vv } from "./typedV";
 
 const organizationRoleValidator = v.union(
   v.literal("owner"),
@@ -46,7 +47,7 @@ export const list = organizationQuery({
 export const updateRole = organizationMutation({
   method: "POST",
   args: {
-    accountId: v.id("accounts"),
+    accountId: vv.id("accounts"),
     role: organizationRoleValidator,
   },
   requireAdmin: true,
@@ -84,7 +85,7 @@ export const updateRole = organizationMutation({
 export const updateBillable = organizationMutation({
   method: "POST",
   args: {
-    accountId: v.id("accounts"),
+    accountId: vv.id("accounts"),
     billable: v.boolean(),
   },
   requireBillingAdmin: true,
@@ -114,7 +115,7 @@ export const updateBillable = organizationMutation({
 export const remove = organizationMutation({
   method: "POST",
   args: {
-    accountId: v.id("accounts"),
+    accountId: vv.id("accounts"),
   },
   requireAdmin: true,
   handler: async (ctx, args) => {

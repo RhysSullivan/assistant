@@ -6,10 +6,11 @@ import {
   resolveWorkosAccountBySubject,
 } from "../../core/src/identity";
 import type { Id } from "./_generated/dataModel.d.ts";
+import { vv } from "./typedV";
 
 export const getWorkspaceAccessForRequest = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     sessionId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -32,7 +33,7 @@ export const getWorkspaceAccessForRequest = internalQuery({
 
 export const getWorkspaceAccessForWorkosSubject = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     subject: v.string(),
   },
   handler: async (ctx, args) => {
@@ -55,7 +56,7 @@ export const getWorkspaceAccessForWorkosSubject = internalQuery({
 
 export const getWorkspaceAccessForAnonymousSubject = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     accountId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -83,8 +84,8 @@ export const getWorkspaceAccessForAnonymousSubject = internalQuery({
 
 export const getWorkspaceAccessForAccount = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.id("accounts"),
+    workspaceId: vv.id("workspaces"),
+    accountId: vv.id("accounts"),
   },
   handler: async (ctx, args) => {
     const account = await ctx.db.get(args.accountId);

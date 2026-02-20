@@ -2,12 +2,13 @@ import { StripeSubscriptions } from "@convex-dev/stripe";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
+import { vv } from "./typedV";
 
 const stripeClient = new StripeSubscriptions(components.stripe, {});
 
 export const syncSeatQuantity = internalAction({
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
     expectedVersion: v.number(),
   },
   handler: async (ctx, args) => {

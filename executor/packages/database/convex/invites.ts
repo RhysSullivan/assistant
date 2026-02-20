@@ -14,6 +14,7 @@ import {
 } from "../src/invites/workos";
 import { normalizePersonalOrganizationName } from "../src/invites/normalize";
 import { safeRunAfter } from "../src/lib/scheduler";
+import { vv } from "./typedV";
 
 const organizationRoleValidator = v.union(
   v.literal("owner"),
@@ -124,7 +125,7 @@ export const create = organizationMutation({
 
 export const deliverWorkosInvite = internalAction({
   args: {
-    inviteId: v.id("invites"),
+    inviteId: vv.id("invites"),
     inviterWorkosUserId: v.string(),
     expiresInDays: v.optional(v.number()),
     roleSlug: v.optional(v.string()),
@@ -192,7 +193,7 @@ export const revoke = organizationMutation({
   method: "POST",
   requireAdmin: true,
   args: {
-    inviteId: v.id("invites"),
+    inviteId: vv.id("invites"),
   },
   handler: async (ctx, args) => {
     const invite = await ctx.db.get(args.inviteId);
@@ -222,7 +223,7 @@ export const revoke = organizationMutation({
 
 export const revokeWorkosInvite = internalAction({
   args: {
-    inviteId: v.id("invites"),
+    inviteId: vv.id("invites"),
     providerInviteId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -239,7 +240,7 @@ export const revokeWorkosInvite = internalAction({
 
 export const getInviteDeliveryContext = internalQuery({
   args: {
-    inviteId: v.id("invites"),
+    inviteId: vv.id("invites"),
   },
   handler: async (ctx, args) => {
     const invite = await ctx.db.get(args.inviteId);
@@ -264,7 +265,7 @@ export const getInviteDeliveryContext = internalQuery({
 
 export const linkOrganizationToWorkos = internalMutation({
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
     workosOrgId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -277,7 +278,7 @@ export const linkOrganizationToWorkos = internalMutation({
 
 export const getInviteById = internalQuery({
   args: {
-    inviteId: v.id("invites"),
+    inviteId: vv.id("invites"),
   },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.inviteId);
@@ -286,7 +287,7 @@ export const getInviteById = internalQuery({
 
 export const markInviteDelivered = internalMutation({
   args: {
-    inviteId: v.id("invites"),
+    inviteId: vv.id("invites"),
     providerInviteId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -304,7 +305,7 @@ export const markInviteDelivered = internalMutation({
 
 export const markInviteDeliveryFailed = internalMutation({
   args: {
-    inviteId: v.id("invites"),
+    inviteId: vv.id("invites"),
     errorMessage: v.string(),
   },
   handler: async (ctx, args) => {

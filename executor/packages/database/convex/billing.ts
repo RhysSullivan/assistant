@@ -1,6 +1,7 @@
 import { StripeSubscriptions } from "@convex-dev/stripe";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
+import { vv } from "./typedV";
 import { customAction, organizationMutation, organizationQuery } from "../../core/src/function-builders";
 import {
   createCustomerPortalHandler,
@@ -22,7 +23,7 @@ export const getSummary = organizationQuery({
 export const createSubscriptionCheckout = customAction({
   method: "POST",
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
     priceId: v.string(),
     successUrl: v.optional(v.string()),
     cancelUrl: v.optional(v.string()),
@@ -36,7 +37,7 @@ export const createSubscriptionCheckout = customAction({
 export const createCustomerPortal = customAction({
   method: "POST",
   args: {
-    organizationId: v.id("organizations"),
+    organizationId: vv.id("organizations"),
     returnUrl: v.optional(v.string()),
     sessionId: v.optional(v.string()),
   },
