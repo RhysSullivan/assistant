@@ -7,13 +7,15 @@ import {
   normalizeSourceAuthFingerprint,
 } from "../../src/database/mappers";
 import { normalizeToolSourceConfig, TOOL_SOURCE_CONFIG_VERSION } from "../../src/database/tool_source_config";
+import { assertToolSourceScopeFields } from "../../src/database/scope_invariants";
 import { safeRunAfter } from "../../src/lib/scheduler";
 import { jsonObjectValidator, toolSourceScopeTypeValidator, toolSourceTypeValidator } from "../../src/database/validators";
+import { vv } from "../typedV";
 
 export const upsertToolSource = internalMutation({
   args: {
     id: v.optional(v.string()),
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     scopeType: v.optional(toolSourceScopeTypeValidator),
     name: v.string(),
     type: toolSourceTypeValidator,
@@ -30,6 +32,11 @@ export const upsertToolSource = internalMutation({
     }
     const organizationId = workspace.organizationId;
     const scopedWorkspaceId = scopeType === "workspace" ? args.workspaceId : undefined;
+
+    assertToolSourceScopeFields({
+      scopeType,
+      workspaceId: scopedWorkspaceId,
+    });
 
     const configResult = normalizeToolSourceConfig(args.type, args.config);
     if (configResult.isErr()) {
@@ -121,7 +128,7 @@ export const upsertToolSource = internalMutation({
 });
 
 export const listToolSources = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: vv.id("workspaces") },
   handler: async (ctx, args) => {
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
@@ -152,7 +159,7 @@ export const listToolSources = internalQuery({
 });
 
 export const deleteToolSource = internalMutation({
-  args: { workspaceId: v.id("workspaces"), sourceId: v.string() },
+  args: { workspaceId: vv.id("workspaces"), sourceId: v.string() },
   handler: async (ctx, args) => {
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {

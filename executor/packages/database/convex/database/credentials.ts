@@ -11,6 +11,8 @@ import {
   credentialScopeTypeValidator,
   jsonObjectValidator,
 } from "../../src/database/validators";
+import { assertCredentialScopeFields } from "../../src/database/scope_invariants";
+import { vv } from "../typedV";
 
 const recordSchema = z.record(z.unknown());
 
@@ -70,10 +72,10 @@ function sourceIdFromSourceKey(sourceKey: string): string | null {
 export const upsertCredential = internalMutation({
   args: {
     id: v.optional(v.string()),
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     scopeType: v.optional(credentialScopeTypeValidator),
     sourceKey: v.string(),
-    accountId: v.optional(v.id("accounts")),
+    accountId: v.optional(vv.id("accounts")),
     provider: v.optional(credentialProviderValidator),
     secretJson: jsonObjectValidator,
     overridesJson: v.optional(jsonObjectValidator),
@@ -90,6 +92,12 @@ export const upsertCredential = internalMutation({
     const scopedWorkspaceId = scopeType === "workspace" ? args.workspaceId : undefined;
     const scopedOrganizationId = organizationId;
     const scopedAccountId = requireAccountId(scopeType, args.accountId);
+
+    assertCredentialScopeFields({
+      scopeType,
+      workspaceId: scopedWorkspaceId,
+      accountId: scopedAccountId,
+    });
 
     if (scopeType === "account" && scopedAccountId) {
       const targetMembership = await ctx.db
@@ -295,8 +303,8 @@ export const upsertCredential = internalMutation({
 
 export const listCredentials = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
   },
   handler: async (ctx, args) => {
     const workspace = await ctx.db.get(args.workspaceId);
@@ -369,10 +377,10 @@ export const listCredentialProviders = internalQuery({
 
 export const resolveCredential = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     sourceKey: v.string(),
     scopeType: credentialScopeTypeValidator,
-    accountId: v.optional(v.id("accounts")),
+    accountId: v.optional(vv.id("accounts")),
   },
   handler: async (ctx, args) => {
     const workspace = await ctx.db.get(args.workspaceId);

@@ -8,6 +8,8 @@ import {
   storageScopeTypeValidator,
   storageProviderValidator,
 } from "../../src/database/validators";
+import { assertStorageScopeFields } from "../../src/database/scope_invariants";
+import { vv } from "../typedV";
 
 const DEFAULT_EPHEMERAL_TTL_HOURS = 24;
 const MAX_EPHEMERAL_TTL_HOURS = 24 * 30;
@@ -64,8 +66,27 @@ function canAccessInstance(args: {
     return false;
   }
 
-  if (args.doc.scopeType === "workspace" || args.doc.scopeType === "scratch") {
+  try {
+    assertStorageScopeFields({
+      scopeType: args.doc.scopeType,
+      workspaceId: args.doc.workspaceId,
+      accountId: args.doc.accountId,
+    });
+  } catch {
+    return false;
+  }
+
+  if (args.doc.scopeType === "workspace") {
     return args.doc.workspaceId === args.workspaceId;
+  }
+
+  if (args.doc.scopeType === "scratch") {
+    return Boolean(
+      args.doc.workspaceId === args.workspaceId
+      && args.accountId
+      && args.doc.accountId
+      && args.accountId === args.doc.accountId,
+    );
   }
 
   if (args.doc.scopeType === "account") {
@@ -125,8 +146,8 @@ async function assertCanManageSharedScope(
 
 export const openStorageInstance = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     instanceId: v.optional(v.string()),
     scopeType: v.optional(storageScopeTypeValidator),
     durability: v.optional(storageDurabilityValidator),
@@ -195,6 +216,20 @@ export const openStorageInstance = internalMutation({
     if (scopeType === "account" && !args.accountId) {
       throw new Error("accountId is required for account-scoped storage instances");
     }
+
+    const scopedWorkspaceId = scopeType === "workspace" || scopeType === "scratch"
+      ? args.workspaceId
+      : undefined;
+    const scopedAccountId = scopeType === "account" || scopeType === "scratch"
+      ? args.accountId
+      : undefined;
+
+    assertStorageScopeFields({
+      scopeType,
+      workspaceId: scopedWorkspaceId,
+      accountId: scopedAccountId,
+    });
+
     if (scopeType === "workspace" || scopeType === "organization") {
       await assertCanManageSharedScope(ctx, {
         organizationId,
@@ -223,8 +258,8 @@ export const openStorageInstance = internalMutation({
       provider,
       backendKey,
       organizationId,
-      workspaceId: scopeType === "workspace" || scopeType === "scratch" ? args.workspaceId : undefined,
-      accountId: scopeType === "account" || scopeType === "scratch" ? args.accountId : undefined,
+      workspaceId: scopedWorkspaceId,
+      accountId: scopedAccountId,
       createdByAccountId: args.accountId,
       purpose: purpose && purpose.length > 0 ? purpose : undefined,
       createdAt: now,
@@ -247,8 +282,8 @@ export const openStorageInstance = internalMutation({
 
 export const getStorageInstance = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     instanceId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -284,8 +319,8 @@ export const getStorageInstance = internalQuery({
 
 export const listStorageInstances = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     scopeType: v.optional(storageScopeTypeValidator),
     includeDeleted: v.optional(v.boolean()),
   },
@@ -334,8 +369,8 @@ export const listStorageInstances = internalQuery({
 
 export const closeStorageInstance = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     instanceId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -388,8 +423,8 @@ export const closeStorageInstance = internalMutation({
 
 export const deleteStorageInstance = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     instanceId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -442,8 +477,8 @@ export const deleteStorageInstance = internalMutation({
 
 export const touchStorageInstance = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
     instanceId: v.string(),
     status: v.optional(storageInstanceStatusValidator),
     sizeBytes: v.optional(v.number()),

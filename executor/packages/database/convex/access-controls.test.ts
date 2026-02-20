@@ -16,6 +16,7 @@ function setup() {
     "./organizationMembers.ts": () => import("./organizationMembers"),
     "./executor.ts": () => import("./executor"),
     "./executorNode.ts": () => import("./executorNode"),
+    "./credentialsNode.ts": () => import("./credentialsNode"),
     "./database.ts": () => import("./database"),
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./app.ts": () => import("./app"),
@@ -607,6 +608,34 @@ describe("workspace access controls", () => {
 
     await expect(
       authedMember.mutation(api.workspace.upsertCredential, {
+        workspaceId: owner.workspaceId,
+        sourceKey: "openapi:github",
+        scopeType: "workspace",
+        secretJson: { token: "ghp_test" },
+      }),
+    ).rejects.toThrow("Only organization admins can perform this action");
+  });
+
+  test("regular member cannot upsert credentials via action endpoint (admin-only)", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "cred-action-owner" });
+    const member = await seedUser(t, { subject: "cred-action-member" });
+
+    await addOrgMember(t, {
+      organizationId: owner.organizationId,
+      accountId: member.accountId,
+      role: "member",
+    });
+    await addWorkspaceMember(t, {
+      workspaceId: owner.workspaceId,
+      accountId: member.accountId,
+      role: "member",
+    });
+
+    const authedMember = t.withIdentity({ subject: "cred-action-member" });
+
+    await expect(
+      authedMember.action(api.credentialsNode.upsertCredential, {
         workspaceId: owner.workspaceId,
         sourceKey: "openapi:github",
         scopeType: "workspace",
@@ -1730,6 +1759,59 @@ describe("storage lifecycle access controls", () => {
       });
 
       expect(deleted?.status).toBe("deleted");
+    } finally {
+      if (previousStorageProvider === undefined) {
+        delete process.env.AGENT_STORAGE_PROVIDER;
+      } else {
+        process.env.AGENT_STORAGE_PROVIDER = previousStorageProvider;
+      }
+    }
+  });
+
+  test("scratch storage is isolated to the owning account", async () => {
+    const previousStorageProvider = process.env.AGENT_STORAGE_PROVIDER;
+    process.env.AGENT_STORAGE_PROVIDER = "agentfs-cloudflare";
+    try {
+      const t = setup();
+      const owner = await seedUser(t, { subject: "storage-scratch-isolation-owner" });
+      const memberA = await seedUser(t, { subject: "storage-scratch-isolation-member-a" });
+      const memberB = await seedUser(t, { subject: "storage-scratch-isolation-member-b" });
+
+      for (const member of [memberA, memberB]) {
+        await addOrgMember(t, {
+          organizationId: owner.organizationId,
+          accountId: member.accountId,
+          role: "member",
+        });
+        await addWorkspaceMember(t, {
+          workspaceId: owner.workspaceId,
+          accountId: member.accountId,
+          role: "member",
+        });
+      }
+
+      const authedMemberA = t.withIdentity({ subject: "storage-scratch-isolation-member-a" });
+      const authedMemberB = t.withIdentity({ subject: "storage-scratch-isolation-member-b" });
+
+      const instance = await authedMemberA.mutation(api.workspace.openStorageInstance, {
+        workspaceId: owner.workspaceId,
+        scopeType: "scratch",
+        durability: "ephemeral",
+        purpose: "member A scratch",
+      });
+
+      const memberBVisibleInstances = await authedMemberB.query(api.workspace.listStorageInstances, {
+        workspaceId: owner.workspaceId,
+      });
+
+      expect(memberBVisibleInstances.some((entry: { id: string }) => entry.id === instance.id)).toBe(false);
+
+      await expect(
+        authedMemberB.mutation(api.workspace.deleteStorageInstance, {
+          workspaceId: owner.workspaceId,
+          instanceId: instance.id,
+        }),
+      ).rejects.toThrow("Storage instance is not accessible in this workspace context");
     } finally {
       if (previousStorageProvider === undefined) {
         delete process.env.AGENT_STORAGE_PROVIDER;

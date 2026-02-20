@@ -19,6 +19,8 @@ import {
   toolRoleBindingStatusValidator,
   toolRoleSelectorTypeValidator,
 } from "../../src/database/validators";
+import { assertToolRoleBindingScopeFields } from "../../src/database/scope_invariants";
+import { vv } from "../typedV";
 
 type PolicyResourceType = ToolPolicyRecord["resourceType"];
 type DbContext = Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">;
@@ -348,11 +350,11 @@ export const listRuntimeTargets = internalQuery({
 
 export const upsertToolPolicySet = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     id: v.optional(v.string()),
     name: v.string(),
     description: v.optional(v.string()),
-    createdByAccountId: v.optional(v.id("accounts")),
+    createdByAccountId: v.optional(vv.id("accounts")),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -412,7 +414,7 @@ export const upsertToolPolicySet = internalMutation({
 
 export const listToolPolicySets = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
   },
   handler: async (ctx, args) => {
     const workspace = await requireWorkspaceWithOrganization(ctx, args.workspaceId);
@@ -428,7 +430,7 @@ export const listToolPolicySets = internalQuery({
 
 export const deleteToolPolicySet = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     roleId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -461,7 +463,7 @@ export const deleteToolPolicySet = internalMutation({
 
 export const upsertToolPolicyRule = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     roleId: v.string(),
     id: v.optional(v.string()),
     selectorType: toolRoleSelectorTypeValidator,
@@ -543,7 +545,7 @@ export const upsertToolPolicyRule = internalMutation({
 
 export const listToolPolicyRules = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     roleId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -574,7 +576,7 @@ export const listToolPolicyRules = internalQuery({
 
 export const deleteToolPolicyRule = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     roleId: v.string(),
     ruleId: v.string(),
   },
@@ -603,11 +605,11 @@ export const deleteToolPolicyRule = internalMutation({
 
 export const upsertToolPolicyAssignment = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     roleId: v.string(),
     id: v.optional(v.string()),
     scopeType: v.optional(policyScopeTypeValidator),
-    targetAccountId: v.optional(v.id("accounts")),
+    targetAccountId: v.optional(vv.id("accounts")),
     clientId: v.optional(v.string()),
     status: v.optional(toolRoleBindingStatusValidator),
     expiresAt: v.optional(v.number()),
@@ -626,6 +628,13 @@ export const upsertToolPolicyAssignment = internalMutation({
     const scopeType = args.scopeType ?? "organization";
     const workspaceId = scopeType === "workspace" ? args.workspaceId : undefined;
     const targetAccountId = scopeType === "account" ? args.targetAccountId : undefined;
+
+    assertToolRoleBindingScopeFields({
+      scopeType,
+      workspaceId,
+      targetAccountId,
+    });
+
     if (scopeType === "account" && !targetAccountId) {
       throw new Error("targetAccountId is required for account-scoped bindings");
     }
@@ -682,7 +691,7 @@ export const upsertToolPolicyAssignment = internalMutation({
 
 export const listToolPolicyAssignments = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     roleId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -707,7 +716,7 @@ export const listToolPolicyAssignments = internalQuery({
 
 export const deleteToolPolicyAssignment = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: vv.id("workspaces"),
     bindingId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -727,8 +736,8 @@ export const deleteToolPolicyAssignment = internalMutation({
 
 export const listToolPolicies = internalQuery({
   args: {
-    workspaceId: v.id("workspaces"),
-    accountId: v.optional(v.id("accounts")),
+    workspaceId: vv.id("workspaces"),
+    accountId: v.optional(vv.id("accounts")),
   },
   handler: async (ctx, args) => {
     const workspace = await requireWorkspaceWithOrganization(ctx, args.workspaceId);

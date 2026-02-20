@@ -4,6 +4,7 @@ import {
   customMutation as convexCustomMutation,
   customQuery as convexCustomQuery,
 } from "convex-helpers/server/customFunctions";
+import { internal as internalApi } from "../../database/convex/_generated/api";
 import { action, internalQuery, mutation, query } from "../../database/convex/_generated/server";
 import {
   canManageBilling,
@@ -92,6 +93,29 @@ export const customAction = convexCustomAction(action, {
     ctx: {},
     args: {},
   }),
+});
+
+export const workspaceAction = convexCustomAction(action, {
+  args: {
+    workspaceId: v.id("workspaces"),
+    sessionId: v.optional(v.string()),
+  },
+  input: async (ctx, args, options: WorkspaceAccessOptions = { method: "POST" }) => {
+    const access = await ctx.runQuery(internalApi.workspaceAuthInternal.getWorkspaceAccessForRequest, {
+      workspaceId: args.workspaceId,
+      sessionId: args.sessionId,
+    });
+
+    ensureWorkspaceRole(access.role, options);
+
+    return {
+      ctx: {
+        ...access,
+        workspaceId: args.workspaceId,
+      },
+      args: {},
+    };
+  },
 });
 
 export const authedQuery = convexCustomQuery(query, {

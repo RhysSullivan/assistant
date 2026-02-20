@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { customAction } from "../../core/src/function-builders";
+import { workspaceAction } from "../../core/src/function-builders";
 import { readVaultObjectHandler } from "../src/credentials-node/read-vault-object";
 import { upsertCredentialHandler } from "../src/credentials-node/upsert-credential";
 import {
@@ -9,16 +9,16 @@ import {
   credentialScopeTypeValidator,
   jsonObjectValidator,
 } from "../src/database/validators";
+import { vv } from "./typedV";
 
-export const upsertCredential = customAction({
+export const upsertCredential = workspaceAction({
   method: "POST",
+  requireAdmin: true,
   args: {
     id: v.optional(v.string()),
-    workspaceId: v.id("workspaces"),
-    sessionId: v.optional(v.string()),
     scopeType: v.optional(credentialScopeTypeValidator),
     sourceKey: v.string(),
-    accountId: v.optional(v.id("accounts")),
+    accountId: v.optional(vv.id("accounts")),
     provider: v.optional(credentialProviderValidator),
     secretJson: jsonObjectValidator,
   },

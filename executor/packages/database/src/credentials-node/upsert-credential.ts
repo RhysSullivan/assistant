@@ -118,7 +118,7 @@ async function upsertVaultObject(args: {
   const value = JSON.stringify(args.payload);
 
   if (args.existingObjectId) {
-    const objectId: string = args.existingObjectId;
+    const objectId = args.existingObjectId;
     const updatedResult = await withWorkosVaultRetryResult(async () => {
       return await workos.vault.updateObject({
         id: objectId,
@@ -159,12 +159,13 @@ async function upsertVaultObject(args: {
 }
 
 export async function upsertCredentialHandler(
-  ctx: ActionCtx,
+  ctx: ActionCtx & {
+    workspaceId: Id<"workspaces">;
+    accountId: Id<"accounts">;
+  },
   internal: Internal,
   args: {
     id?: string;
-    workspaceId: Id<"workspaces">;
-    sessionId?: string;
     scopeType?: "account" | "organization" | "workspace";
     sourceKey: string;
     accountId?: Id<"accounts">;
@@ -172,28 +173,24 @@ export async function upsertCredentialHandler(
     secretJson: unknown;
   },
 ): Promise<Record<string, unknown>> {
-  const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
-    workspaceId: args.workspaceId,
-    sessionId: args.sessionId,
-  });
   const scopeType = args.scopeType ?? "workspace";
-  if (scopeType === "account" && args.accountId && args.accountId !== access.accountId) {
+  if (scopeType === "account" && args.accountId && args.accountId !== ctx.accountId) {
     throw new Error("accountId must match the authenticated account for account-scoped credentials");
   }
-  const accountId = normalizedAccountId(scopeType, args.accountId ?? access.accountId);
+  const accountId = normalizedAccountId(scopeType, args.accountId ?? ctx.accountId);
   const rawSubmittedSecret = toRecordValue(args.secretJson);
   const { cleanSecret: submittedSecret, overridesJson } = extractHeaderOverrides(rawSubmittedSecret);
 
   const existingBinding = await ctx.runQuery(internal.database.resolveCredential, {
-    workspaceId: args.workspaceId,
+    workspaceId: ctx.workspaceId,
     sourceKey: args.sourceKey,
     scopeType,
     accountId: scopeType === "account" ? (accountId as Id<"accounts">) : undefined,
   });
 
   const allCredentialsRaw = await ctx.runQuery(internal.database.listCredentials, {
-    workspaceId: args.workspaceId,
-    accountId: access.accountId,
+    workspaceId: ctx.workspaceId,
+    accountId: ctx.accountId,
   });
   const allCredentials = parseListedCredentials(allCredentialsRaw);
   const requestedId = args.id?.trim();
@@ -227,7 +224,7 @@ export async function upsertCredentialHandler(
 
     return await ctx.runMutation(internal.database.upsertCredential, {
       id: connectionId,
-      workspaceId: args.workspaceId,
+      workspaceId: ctx.workspaceId,
       scopeType,
       sourceKey: args.sourceKey,
       accountId: scopeType === "account" ? (accountId as Id<"accounts">) : undefined,
@@ -249,7 +246,7 @@ export async function upsertCredentialHandler(
   let finalObjectId = submittedObjectId;
   if (!finalObjectId && Object.keys(submittedSecret).length > 0) {
     const upsertResult = await upsertVaultObject({
-      workspaceId: args.workspaceId,
+      workspaceId: ctx.workspaceId,
       sourceKey: args.sourceKey,
       scopeType,
       accountId,
@@ -272,7 +269,7 @@ export async function upsertCredentialHandler(
 
   return await ctx.runMutation(internal.database.upsertCredential, {
     id: connectionId,
-    workspaceId: args.workspaceId,
+    workspaceId: ctx.workspaceId,
     scopeType,
     sourceKey: args.sourceKey,
     accountId: scopeType === "account" ? (accountId as Id<"accounts">) : undefined,
