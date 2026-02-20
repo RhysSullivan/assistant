@@ -2,8 +2,10 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { Id } from "../_generated/dataModel.d.ts";
 import type { ActionCtx } from "../_generated/server";
 
-export const MCP_PATH = "/mcp";
-export const MCP_ANONYMOUS_PATH = "/mcp/anonymous";
+export const MCP_PATH = "/v1/mcp";
+export const MCP_ANONYMOUS_PATH = "/v1/mcp/anonymous";
+export const LEGACY_MCP_PATH = "/mcp";
+export const LEGACY_MCP_ANONYMOUS_PATH = "/mcp/anonymous";
 
 type McpAuthConfig = {
   enabled: boolean;
@@ -18,6 +20,30 @@ type ParsedMcpContext = {
   accountId?: string;
   sessionId?: string;
 };
+
+function configuredMcpAudiences(): string[] {
+  const raw = (process.env.MCP_AUTH_AUDIENCE ?? "").trim();
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function deriveMcpAudiences(request: Request): string[] {
+  const url = new URL(request.url);
+  const derived = [
+    new URL(MCP_PATH, url.origin).toString(),
+    new URL(LEGACY_MCP_PATH, url.origin).toString(),
+  ];
+
+  const configured = configuredMcpAudiences();
+  const merged = [...configured, ...derived];
+  return Array.from(new Set(merged));
+}
 
 function parseWorkspaceId(raw: string): Id<"workspaces"> {
   return raw as Id<"workspaces">;
@@ -124,6 +150,7 @@ export async function verifyMcpToken(
     try {
       const { payload } = await jwtVerify(token, config.jwks, {
         issuer: config.authorizationServer,
+        audience: deriveMcpAudiences(request),
       });
 
       if (typeof payload.sub === "string" && payload.sub.length > 0) {

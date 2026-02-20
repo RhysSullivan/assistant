@@ -4,12 +4,33 @@ import type { PendingApprovalRecord } from "../../../core/src/types";
 
 type InternalApi = typeof import("../../convex/_generated/api").internal;
 
+function timingSafeEqual(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const left = encoder.encode(a);
+  const right = encoder.encode(b);
+
+  if (left.length !== right.length) {
+    let mismatch = 0;
+    for (let i = 0; i < left.length; i += 1) {
+      mismatch |= (left[i] ?? 0) ^ (left[i] ?? 0);
+    }
+    return false;
+  }
+
+  let mismatch = 0;
+  for (let i = 0; i < left.length; i += 1) {
+    mismatch |= (left[i] ?? 0) ^ (right[i] ?? 0);
+  }
+
+  return mismatch === 0;
+}
+
 function requireInternalSecret(secret: string): void {
   const expected = process.env.EXECUTOR_INTERNAL_TOKEN;
   if (!expected) {
     throw new Error("EXECUTOR_INTERNAL_TOKEN is not configured");
   }
-  if (secret !== expected) {
+  if (!timingSafeEqual(secret, expected)) {
     throw new Error("Unauthorized: invalid internal secret");
   }
 }

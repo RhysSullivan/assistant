@@ -6,10 +6,7 @@ import {
   ANONYMOUS_AUTH_TOKEN_TTL_SECONDS,
   getAnonymousAuthIssuer,
 } from "../../src/auth/anonymous";
-
-type AnonymousTokenBody = {
-  accountId?: string;
-};
+import { enforceAnonymousTokenRateLimit } from "./rate_limit";
 
 type AnonymousTokenConfig = {
   issuer: string | null;
@@ -56,37 +53,6 @@ function noStoreHeaders(extra?: Record<string, string>) {
   };
 }
 
-function parseAnonymousAccountId(raw: unknown): string | null {
-  if (typeof raw !== "string") {
-    return null;
-  }
-  const accountId = raw.trim();
-  if (!accountId) {
-    return null;
-  }
-  return accountId;
-}
-
-async function readAccountIdFromRequest(request: Request): Promise<string | null> {
-  const url = new URL(request.url);
-  const queryAccountId = url.searchParams.get("accountId");
-  if (queryAccountId) {
-    return parseAnonymousAccountId(queryAccountId);
-  }
-
-  if (request.method !== "POST") {
-    return null;
-  }
-
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    return null;
-  }
-
-  const body = (await request.json()) as AnonymousTokenBody;
-  return parseAnonymousAccountId(body.accountId);
-}
-
 function createAccountId(): string {
   return `anon_${crypto.randomUUID().replace(/-/g, "")}`;
 }
@@ -123,6 +89,11 @@ async function loadJwks(publicKeyPem: string, keyId: string): Promise<Record<str
 }
 
 export const anonymousTokenHandler = httpAction(async (_ctx, request) => {
+  const rateLimited = await enforceAnonymousTokenRateLimit(_ctx, request);
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const config = getAnonymousTokenConfig();
   if (!config.issuer || !config.privateKeyPem) {
     return Response.json(
@@ -132,7 +103,8 @@ export const anonymousTokenHandler = httpAction(async (_ctx, request) => {
   }
 
   try {
-    const accountId = (await readAccountIdFromRequest(request)) ?? createAccountId();
+    void request;
+    const accountId = createAccountId();
     const nowSeconds = Math.floor(Date.now() / 1000);
     const expiresAtSeconds = nowSeconds + config.tokenTtlSeconds;
     const signingKey = await loadSigningKey(config.privateKeyPem);

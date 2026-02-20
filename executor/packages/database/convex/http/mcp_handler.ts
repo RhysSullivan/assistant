@@ -5,11 +5,13 @@ import { isMcpApiKeyConfigured, verifyMcpApiKey } from "../../src/auth/mcp_api_k
 import {
   getMcpAuthConfig,
   isAnonymousSessionId,
+  MCP_ANONYMOUS_PATH,
   parseMcpContext,
   unauthorizedMcpResponse,
   verifyMcpToken,
 } from "./mcp_auth";
 import { createMcpExecutorService } from "./mcp_service";
+import { enforceMcpRateLimit } from "./rate_limit";
 
 type McpEndpointMode = "default" | "anonymous";
 
@@ -32,6 +34,11 @@ function parseMcpApiKey(request: Request): string | null {
 
 function createMcpHandler(mode: McpEndpointMode) {
   return httpAction(async (ctx, request) => {
+    const rateLimit = await enforceMcpRateLimit(ctx, request);
+    if (rateLimit) {
+      return rateLimit;
+    }
+
     const url = new URL(request.url);
     const mcpAuthConfig = getMcpAuthConfig();
     const requestedContext = parseMcpContext(url);
@@ -41,7 +48,7 @@ function createMcpHandler(mode: McpEndpointMode) {
 
     if (mode === "default" && hasAnonymousContextHint) {
       return Response.json(
-        { error: "Anonymous context must use /mcp/anonymous" },
+        { error: `Anonymous context must use ${MCP_ANONYMOUS_PATH}` },
         { status: 400 },
       );
     }
@@ -53,7 +60,7 @@ function createMcpHandler(mode: McpEndpointMode) {
         const workspaceId = requestedContext?.workspaceId;
         if (!workspaceId) {
           return Response.json(
-            { error: "workspaceId query parameter is required for /mcp/anonymous" },
+            { error: `workspaceId query parameter is required for ${MCP_ANONYMOUS_PATH}` },
             { status: 400 },
           );
         }
@@ -68,7 +75,7 @@ function createMcpHandler(mode: McpEndpointMode) {
         const apiKey = parseMcpApiKey(request);
         if (!apiKey) {
           return Response.json(
-            { error: "API key is required for /mcp/anonymous" },
+            { error: `API key is required for ${MCP_ANONYMOUS_PATH}` },
             { status: 401 },
           );
         }

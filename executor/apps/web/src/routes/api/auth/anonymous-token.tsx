@@ -1,11 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { importPKCS8, SignJWT } from "jose";
-import { z } from "zod";
 import { noStoreJson } from "@/lib/http/response";
-
-const anonymousTokenRequestSchema = z.object({
-  accountId: z.string().trim().min(1).optional(),
-});
 
 const anonymousAuthAudience = "executor-anonymous";
 const anonymousAuthKeyId = "executor-anonymous-es256";
@@ -129,19 +124,14 @@ function createAccountId(): string {
 }
 
 async function handleAnonymousToken(request: Request): Promise<Response> {
+  void request;
   const issuer = await resolveIssuerFromBackend() ?? resolveIssuer();
   const privateKeyPem = normalizePem(process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM);
   if (!issuer || !privateKeyPem) {
     return noStoreJson({ error: "Anonymous auth is not configured" }, 503);
   }
 
-  let accountId: string;
-  try {
-    const parsed = anonymousTokenRequestSchema.safeParse(await request.json());
-    accountId = parsed.success && parsed.data.accountId ? parsed.data.accountId : createAccountId();
-  } catch {
-    accountId = createAccountId();
-  }
+  const accountId = createAccountId();
 
   try {
     const nowSeconds = Math.floor(Date.now() / 1000);

@@ -1,5 +1,12 @@
 import { httpAction } from "../_generated/server";
-import { getMcpAuthConfig, MCP_ANONYMOUS_PATH, MCP_PATH, selectMcpAuthProvider } from "./mcp_auth";
+import {
+  getMcpAuthConfig,
+  LEGACY_MCP_ANONYMOUS_PATH,
+  LEGACY_MCP_PATH,
+  MCP_ANONYMOUS_PATH,
+  MCP_PATH,
+  selectMcpAuthProvider,
+} from "./mcp_auth";
 
 export const oauthProtectedResourceHandler = httpAction(async (_ctx, request) => {
   const mcpAuthConfig = getMcpAuthConfig();
@@ -20,15 +27,16 @@ export const oauthProtectedResourceHandler = httpAction(async (_ctx, request) =>
         return Response.json({ error: "resource hint origin must match this server" }, { status: 400 });
       }
 
-      if (parsed.pathname === MCP_ANONYMOUS_PATH) {
+      if (parsed.pathname === MCP_ANONYMOUS_PATH || parsed.pathname === LEGACY_MCP_ANONYMOUS_PATH) {
         return Response.json(
           { error: "Anonymous MCP does not use OAuth discovery" },
           { status: 404 },
         );
       }
 
-      if (parsed.pathname === MCP_PATH) {
-        resource = parsed;
+      if (parsed.pathname === MCP_PATH || parsed.pathname === LEGACY_MCP_PATH) {
+        resource = new URL(MCP_PATH, url.origin);
+        resource.search = parsed.search;
       }
     } catch {
       return Response.json({ error: "Invalid resource hint" }, { status: 400 });
