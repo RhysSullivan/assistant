@@ -21,6 +21,12 @@ type WorkosProfile = {
 };
 
 const nonEmptyTrimmedStringSchema = z.string().transform((value) => value.trim()).refine((value) => value.length > 0);
+const recordSchema = z.record(z.unknown());
+
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 function deriveFallbackUserLabel(workosUserId: string): string {
   return `User ${workosUserId.slice(-6)}`;
@@ -60,7 +66,8 @@ function getIdentityString(identity: Record<string, unknown>, keys: string[]): s
   }
 
   const nestedRecords = Object.values(identity)
-    .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value));
+    .map((value) => parseRecord(value))
+    .filter((value): value is Record<string, unknown> => value !== null);
   for (const nestedRecord of nestedRecords) {
     for (const key of keys) {
       const parsedValue = nonEmptyTrimmedStringSchema.safeParse(nestedRecord[key]);
@@ -98,8 +105,8 @@ function getProfileString(profile: WorkosProfile | null, keys: string[]): string
   }
 
   const metadata = profileRecord.metadata;
-  if (metadata && typeof metadata === "object") {
-    const metadataRecord = metadata as Record<string, unknown>;
+  const metadataRecord = parseRecord(metadata);
+  if (metadataRecord) {
     for (const key of keys) {
       const parsedValue = nonEmptyTrimmedStringSchema.safeParse(metadataRecord[key]);
       if (parsedValue.success) {
