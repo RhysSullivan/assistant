@@ -171,38 +171,14 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
     }
 
     if (code && response.status >= 300 && response.status < 400) {
-      if (setCookieHeaders.length > 0) {
-        markCodeAsReplayed(code);
+      markCodeAsReplayed(code);
 
-        if (isWorkosDebugEnabled()) {
-          logWorkosAuth("callback.code-marked-used", {
-            requestId,
-            code: redactAuthCode(code),
-            status: response.status,
-            setCookieCount: setCookieHeaders.length,
-          });
-        }
-      }
-      else if (isWorkosDebugEnabled()) {
-        logWorkosAuth("callback.code-not-marked-used", {
+      if (isWorkosDebugEnabled()) {
+        logWorkosAuth("callback.code-marked-used", {
           requestId,
           code: redactAuthCode(code),
           status: response.status,
-          reason: "missing-set-cookie",
-        });
-      }
-
-      if (setCookieHeaders.length === 0) {
-        return new Response(JSON.stringify({
-          error: {
-            message: "Authentication did not set a session cookie",
-            description: "Sign-in completed but the callback response did not include Set-Cookie.",
-          },
-        }), {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-          },
+          setCookieCount: setCookieHeaders.length,
         });
       }
 
