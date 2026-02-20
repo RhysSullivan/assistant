@@ -1,4 +1,21 @@
+import { z } from "zod";
 import type { SourceType } from "@/components/tools/add/source/dialog-helpers";
+
+const openApiIndicatorSchema = z.union([
+  z.object({ openapi: z.unknown() }).passthrough(),
+  z.object({ swagger: z.unknown() }).passthrough(),
+]);
+
+const graphqlIntrospectionSchema = z.object({
+  data: z.object({
+    __schema: z.unknown(),
+  }).passthrough(),
+}).passthrough();
+
+const postmanCollectionSchema = z.object({
+  info: z.unknown(),
+  item: z.unknown(),
+}).passthrough();
 
 export type DetectedSourceType = {
   type: SourceType;
@@ -84,20 +101,18 @@ async function detectFromResponse(
 
     // Try JSON parse
     try {
-      const json = JSON.parse(text);
-      if (typeof json === "object" && json !== null) {
-        // OpenAPI indicators
-        if ("openapi" in json || "swagger" in json) {
-          return { type: "openapi", confidence: "high" };
-        }
-        // GraphQL introspection response
-        if ("data" in json && typeof json.data === "object" && json.data && "__schema" in json.data) {
-          return { type: "graphql", confidence: "high" };
-        }
-        // Postman collection
-        if ("info" in json && "item" in json) {
-          return { type: "openapi", confidence: "medium" };
-        }
+      const json: unknown = JSON.parse(text);
+
+      if (openApiIndicatorSchema.safeParse(json).success) {
+        return { type: "openapi", confidence: "high" };
+      }
+
+      if (graphqlIntrospectionSchema.safeParse(json).success) {
+        return { type: "graphql", confidence: "high" };
+      }
+
+      if (postmanCollectionSchema.safeParse(json).success) {
+        return { type: "openapi", confidence: "medium" };
       }
     } catch {
       // Not JSON — try YAML indicators

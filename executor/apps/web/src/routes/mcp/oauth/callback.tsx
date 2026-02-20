@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { appendDeleteCookie, appendSetCookie, readCookie } from "@/lib/http/cookies";
+import { resultErrorMessage } from "@/lib/error-utils";
 import { redirectResponse } from "@/lib/http/response";
 import { fetchMcpOAuth } from "@/lib/mcp/oauth-fetch";
 import { getExternalOrigin, isExternalHttps } from "@/lib/mcp/oauth-request";
@@ -38,19 +39,6 @@ function popupResultRedirect(
     });
   }
   return response;
-}
-
-function resultErrorMessage(error: unknown, fallback: string): string {
-  const cause = typeof error === "object" && error && "cause" in error
-    ? (error as { cause?: unknown }).cause
-    : error;
-  if (cause instanceof Error && cause.message.trim()) {
-    return cause.message;
-  }
-  if (typeof cause === "string" && cause.trim()) {
-    return cause;
-  }
-  return fallback;
 }
 
 async function withTimeout<T>(factory: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {

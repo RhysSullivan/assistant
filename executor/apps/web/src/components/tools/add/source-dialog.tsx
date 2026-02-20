@@ -48,6 +48,7 @@ import {
   useAddSourceFormState,
 } from "../use/add/source/form-state";
 import { saveSourceWithCredentials } from "./source-submit";
+import { resultErrorMessage } from "@/lib/error-utils";
 
 export type SourceDialogMeta = {
   quality?: OpenApiSourceQuality;
@@ -61,19 +62,6 @@ export type SourceAddedOptions = {
 };
 
 export type OnSourceAdded = (source: ToolSourceRecord, options?: SourceAddedOptions) => void;
-
-function resultErrorMessage(error: unknown, fallback: string): string {
-  const cause = typeof error === "object" && error && "cause" in error
-    ? (error as { cause?: unknown }).cause
-    : error;
-  if (cause instanceof Error && cause.message.trim()) {
-    return cause.message;
-  }
-  if (typeof cause === "string" && cause.trim()) {
-    return cause;
-  }
-  return fallback;
-}
 
 function ownerScopeBadge(scopeType: ToolSourceScopeType | undefined): string {
   return scopeType === "organization" ? "org shared" : "workspace only";
