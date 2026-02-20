@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { createFileRoute } from "@tanstack/react-router";
 import { parse as parseDomain } from "tldts";
 import { z } from "zod";
+import { isAbortError } from "@/lib/error-utils";
 import { inspectOpenApiPayload } from "@/lib/openapi/spec-inspector";
 import { noStoreJson } from "@/lib/http/response";
 
@@ -11,6 +12,8 @@ const requestSchema = z.object({
   specUrl: z.string().trim().min(1),
   headers: z.record(z.string(), z.string()).optional(),
 });
+
+const errorDetailObjectSchema = z.record(z.string(), z.unknown());
 
 const blockedForwardedHeaderNames = new Set([
   "accept",
@@ -84,13 +87,6 @@ function isPublicDnsHostname(hostname: string): boolean {
   return Boolean(parsed.domain && parsed.publicSuffix);
 }
 
-function isAbortError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "name" in error
-    && (error as { name?: unknown }).name === "AbortError";
-}
-
 function sanitizeForwardHeaders(headers: Record<string, string> | undefined): Record<string, string> {
   if (!headers) {
     return {};
@@ -119,12 +115,14 @@ function extractErrorDetail(text: string): string | undefined {
   }
 
   try {
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    const candidates = ["message", "error", "detail", "title", "description"];
-    for (const key of candidates) {
-      const value = parsed[key];
-      if (typeof value === "string" && value.trim().length > 0) {
-        return value.trim().slice(0, 300);
+    const parsed = errorDetailObjectSchema.safeParse(JSON.parse(trimmed));
+    if (parsed.success) {
+      const candidates = ["message", "error", "detail", "title", "description"];
+      for (const key of candidates) {
+        const value = parsed.data[key];
+        if (typeof value === "string" && value.trim().length > 0) {
+          return value.trim().slice(0, 300);
+        }
       }
     }
   } catch {

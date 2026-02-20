@@ -1,4 +1,5 @@
 import { parseMcpSourceUrl } from "@/lib/mcp/oauth-url";
+import { isAbortError } from "@/lib/error-utils";
 
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 const DEFAULT_MAX_REDIRECTS = 5;
@@ -11,13 +12,6 @@ function toUrl(input: RequestInfo | URL): URL {
     return new URL(input);
   }
   return new URL(input.url);
-}
-
-function isAbortError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "name" in error
-    && (error as { name?: unknown }).name === "AbortError";
 }
 
 async function fetchWithRequestTimeout(

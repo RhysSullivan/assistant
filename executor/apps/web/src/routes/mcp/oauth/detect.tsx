@@ -5,6 +5,8 @@ import {
   extractWWWAuthenticateParams,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+import { resultErrorMessage } from "@/lib/error-utils";
 import { noStoreJson } from "@/lib/http/response";
 import { fetchMcpOAuth } from "@/lib/mcp/oauth-fetch";
 import { parseMcpSourceUrl } from "@/lib/mcp/oauth-url";
@@ -18,21 +20,12 @@ type DetectResponse = {
 const MCP_OAUTH_CHALLENGE_PROBE_TIMEOUT_MS = 2_500;
 const MCP_OAUTH_METADATA_TIMEOUT_MS = 12_000;
 
+const oauthMetadataSchema = z.object({
+  authorization_servers: z.array(z.string()).optional(),
+}).passthrough();
+
 function noStoreDetectJson(payload: DetectResponse, status = 200): Response {
   return noStoreJson(payload, status);
-}
-
-function resultErrorMessage(error: unknown, fallback: string): string {
-  const cause = typeof error === "object" && error && "cause" in error
-    ? (error as { cause?: unknown }).cause
-    : error;
-  if (cause instanceof Error && cause.message.trim()) {
-    return cause.message;
-  }
-  if (typeof cause === "string" && cause.trim()) {
-    return cause;
-  }
-  return fallback;
 }
 
 async function withTimeout<T>(factory: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -149,11 +142,11 @@ async function handleDetect(request: Request): Promise<Response> {
     }, 502);
   }
 
-  const metadata = metadataResult.value;
-  const authorizationServers = Array.isArray((metadata as { authorization_servers?: unknown }).authorization_servers)
-    ? (metadata as { authorization_servers: unknown[] }).authorization_servers.filter(
-        (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
-      )
+  const parsedMetadata = oauthMetadataSchema.safeParse(metadataResult.value);
+  const authorizationServers = parsedMetadata.success
+    ? (parsedMetadata.data.authorization_servers ?? [])
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
     : [];
 
   return noStoreDetectJson({

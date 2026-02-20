@@ -41,21 +41,9 @@ import {
 } from "../use/add/source/form-state";
 import { startMcpOAuthPopup } from "@/lib/mcp/oauth-popup";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
+import { resultErrorMessage } from "@/lib/error-utils";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function resultErrorMessage(error: unknown, fallback: string): string {
-  const cause = typeof error === "object" && error && "cause" in error
-    ? (error as { cause?: unknown }).cause
-    : error;
-  if (cause instanceof Error && cause.message.trim()) {
-    return cause.message;
-  }
-  if (typeof cause === "string" && cause.trim()) {
-    return cause;
-  }
-  return fallback;
-}
 
 function ownerScopeBadge(scopeType: ToolSourceRecord["scopeType"] | undefined): string {
   return scopeType === "organization" ? "org shared" : "workspace only";

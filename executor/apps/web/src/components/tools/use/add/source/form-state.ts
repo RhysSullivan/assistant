@@ -1,12 +1,14 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
+import { z } from "zod";
 import { fetchAndInspectOpenApiSpec, type InferredSpecAuth } from "@/lib/openapi/spec-inspector";
 import { detectSourceType } from "@/lib/tools/detect-source-type";
 import { normalizeSourceEndpoint } from "@/lib/tools/source-url";
 import type { CatalogCollectionItem } from "@/lib/catalog-collections";
 import { catalogSourceName, inferNameFromUrl, sourceKeyForSource, withUniqueSourceName } from "@/lib/tools/source-helpers";
 import type { CredentialRecord, CredentialScope, SourceAuthType, ToolSourceRecord } from "@/lib/types";
+import { isAbortError } from "@/lib/error-utils";
 import { getVisibleCatalogItems, type SourceCatalogSort, type SourceType } from "../../../add/source/dialog-helpers";
 import type { SourceAuthPanelEditableField } from "../../../add/source/auth-panel";
 import {
@@ -33,6 +35,12 @@ type SharingScope = "only_me" | "workspace" | "organization";
 
 const MCP_OAUTH_DETECT_REQUEST_TIMEOUT_MS = 12_000;
 
+const mcpOauthDetectResponseSchema = z.object({
+  oauth: z.boolean().optional(),
+  authorizationServers: z.array(z.string()).optional(),
+  detail: z.string().optional(),
+});
+
 function sharingScopeFromValues(values: Pick<SourceFormValues, "scopeType" | "authScope">): SharingScope {
   if (values.authScope === "account") {
     return "only_me";
@@ -58,13 +66,6 @@ function applySharingScope(
 
   form.setValue("scopeType", "workspace", { shouldDirty: true, shouldTouch: true });
   form.setValue("authScope", "workspace", { shouldDirty: true, shouldTouch: true });
-}
-
-function isAbortError(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "name" in error
-    && (error as { name?: unknown }).name === "AbortError";
 }
 
 function patchUi(
@@ -518,22 +519,23 @@ export function useAddSourceFormState({
           signal: controller.signal,
           cache: "no-store",
         });
-        const json = await response.json() as {
-          oauth?: boolean;
-          authorizationServers?: unknown[];
-          detail?: string;
-        };
-        const detail = typeof json.detail === "string" ? json.detail : "";
+        const payload = await response.json().catch(() => null);
+        const parsed = mcpOauthDetectResponseSchema.safeParse(payload);
+        if (!parsed.success) {
+          throw new Error("OAuth detection returned an invalid response");
+        }
+
+        const detail = parsed.data.detail?.trim() ?? "";
 
         if (!response.ok) {
           throw new Error(detail || `OAuth detection failed (${response.status})`);
         }
 
         return {
-          oauth: Boolean(json.oauth),
-          authorizationServers: Array.isArray(json.authorizationServers)
-            ? json.authorizationServers.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-            : [],
+          oauth: Boolean(parsed.data.oauth),
+          authorizationServers: (parsed.data.authorizationServers ?? [])
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0),
           detail,
         };
       } catch (error) {

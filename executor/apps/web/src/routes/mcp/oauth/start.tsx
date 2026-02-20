@@ -3,6 +3,7 @@ import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { appendSetCookie } from "@/lib/http/cookies";
 import { redirectResponse } from "@/lib/http/response";
+import { resultErrorMessage } from "@/lib/error-utils";
 import { fetchMcpOAuth } from "@/lib/mcp/oauth-fetch";
 import { getExternalOrigin, isExternalHttps } from "@/lib/mcp/oauth-request";
 import { parseMcpSourceUrl } from "@/lib/mcp/oauth-url";
@@ -34,19 +35,6 @@ function popupResultRedirect(request: Request, payload: McpOAuthPopupResult): Re
 
 function badPopupResponse(request: Request, message: string): Response {
   return popupResultRedirect(request, { ok: false, error: message });
-}
-
-function resultErrorMessage(error: unknown, fallback: string): string {
-  const cause = typeof error === "object" && error && "cause" in error
-    ? (error as { cause?: unknown }).cause
-    : error;
-  if (cause instanceof Error && cause.message.trim()) {
-    return cause.message;
-  }
-  if (typeof cause === "string" && cause.trim()) {
-    return cause;
-  }
-  return fallback;
 }
 
 async function withTimeout<T>(factory: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
