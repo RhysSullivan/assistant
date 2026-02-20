@@ -8,6 +8,7 @@ export const LEGACY_MCP_PATH = "/mcp";
 export const LEGACY_MCP_ANONYMOUS_PATH = "/mcp/anonymous";
 
 type McpAuthConfig = {
+  required: boolean;
   enabled: boolean;
   authorizationServer: string | null;
   jwks: ReturnType<typeof createRemoteJWKSet> | null;
@@ -17,9 +18,25 @@ type VerifiedMcpToken = { provider: "workos"; subject: string };
 
 type ParsedMcpContext = {
   workspaceId?: Id<"workspaces">;
-  accountId?: string;
-  sessionId?: string;
 };
+
+function isTruthyEnvValue(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+function mcpAuthRequired(): boolean {
+  const explicit = (process.env.EXECUTOR_DEPLOYMENT_MODE ?? "").trim().toLowerCase();
+  if (explicit === "cloud" || explicit === "hosted" || explicit === "production" || explicit === "prod") {
+    return true;
+  }
+
+  if (explicit === "self-hosted" || explicit === "self_hosted" || explicit === "selfhosted") {
+    return false;
+  }
+
+  return isTruthyEnvValue(process.env.EXECUTOR_ENFORCE_MCP_AUTH);
+}
 
 function configuredMcpAudiences(): string[] {
   const raw = (process.env.MCP_AUTH_AUDIENCE ?? "").trim();
@@ -58,9 +75,11 @@ function getMcpAuthorizationServer(): string | null {
 }
 
 export function getMcpAuthConfig(): McpAuthConfig {
+  const required = mcpAuthRequired();
   const authorizationServer = getMcpAuthorizationServer();
   if (!authorizationServer) {
     return {
+      required,
       enabled: false,
       authorizationServer: null,
       jwks: null,
@@ -72,15 +91,11 @@ export function getMcpAuthConfig(): McpAuthConfig {
     : null;
 
   return {
+    required,
     enabled: true,
     authorizationServer,
     jwks,
   };
-}
-
-export function isAnonymousSessionId(sessionId?: string): boolean {
-  if (!sessionId) return false;
-  return sessionId.startsWith("anon_session_") || sessionId.startsWith("mcp_");
 }
 
 export function selectMcpAuthProvider(
@@ -173,10 +188,8 @@ export async function verifyMcpToken(
 export function parseMcpContext(url: URL): ParsedMcpContext | undefined {
   const raw = url.searchParams.get("workspaceId");
   const workspaceId = raw ? parseWorkspaceId(raw) : undefined;
-  const accountId = url.searchParams.get("accountId") ?? undefined;
-  const sessionId = url.searchParams.get("sessionId") ?? undefined;
-  if (!workspaceId && !accountId && !sessionId) {
+  if (!workspaceId) {
     return undefined;
   }
-  return { workspaceId, accountId, sessionId };
+  return { workspaceId };
 }

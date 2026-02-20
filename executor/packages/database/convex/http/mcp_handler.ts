@@ -4,7 +4,6 @@ import { handleMcpRequest, type McpWorkspaceContext } from "../../../core/src/mc
 import { isMcpApiKeyConfigured, verifyMcpApiKey } from "../../src/auth/mcp_api_key";
 import {
   getMcpAuthConfig,
-  isAnonymousSessionId,
   MCP_ANONYMOUS_PATH,
   parseMcpContext,
   unauthorizedMcpResponse,
@@ -42,16 +41,6 @@ function createMcpHandler(mode: McpEndpointMode) {
     const url = new URL(request.url);
     const mcpAuthConfig = getMcpAuthConfig();
     const requestedContext = parseMcpContext(url);
-
-    const hasAnonymousContextHint = isAnonymousSessionId(requestedContext?.sessionId)
-      || false;
-
-    if (mode === "default" && hasAnonymousContextHint) {
-      return Response.json(
-        { error: `Anonymous context must use ${MCP_ANONYMOUS_PATH}` },
-        { status: 400 },
-      );
-    }
 
     let context: McpWorkspaceContext | undefined;
 
@@ -119,70 +108,45 @@ function createMcpHandler(mode: McpEndpointMode) {
         );
       }
     } else {
+      if (!mcpAuthConfig.enabled) {
+        const detail = mcpAuthConfig.required
+          ? "MCP OAuth must be configured for cloud deployments"
+          : "MCP OAuth is not configured";
+        return Response.json(
+          { error: detail },
+          { status: 503 },
+        );
+      }
+
       const auth = await verifyMcpToken(ctx, request, mcpAuthConfig);
-      if (mcpAuthConfig.enabled && !auth) {
+      if (!auth) {
         return unauthorizedMcpResponse(request, "No valid bearer token provided.");
       }
 
-      if (mcpAuthConfig.enabled && auth?.provider === "workos" && !requestedContext?.workspaceId) {
+      if (!requestedContext?.workspaceId) {
         return Response.json(
           { error: "workspaceId query parameter is required when MCP OAuth is enabled" },
           { status: 400 },
         );
       }
 
-      const hasRequestedWorkspace = Boolean(requestedContext?.workspaceId);
-      if (hasRequestedWorkspace) {
-        try {
-          const workspaceId = requestedContext?.workspaceId;
-          if (!workspaceId) {
-            return Response.json(
-              { error: "workspaceId query parameter is required" },
-              { status: 400 },
-            );
-          }
+      try {
+        const workspaceId = requestedContext.workspaceId;
+        const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForWorkosSubject, {
+          workspaceId,
+          subject: auth.subject,
+        });
 
-          if (auth?.provider === "workos") {
-            const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForWorkosSubject, {
-              workspaceId,
-              subject: auth.subject,
-            });
-
-            context = {
-              workspaceId,
-              accountId: access.accountId,
-              clientId: "mcp",
-            };
-          } else {
-            if (mcpAuthConfig.enabled && !requestedContext?.sessionId) {
-              return unauthorizedMcpResponse(request, "No valid bearer token provided.");
-            }
-
-            const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
-              workspaceId,
-              sessionId: requestedContext?.sessionId,
-            });
-
-            if (mcpAuthConfig.enabled && access.provider !== "anonymous") {
-              return unauthorizedMcpResponse(
-                request,
-                "Bearer token required for non-anonymous sessions.",
-              );
-            }
-
-            context = {
-              workspaceId,
-              accountId: access.accountId,
-              clientId: "mcp",
-              sessionId: requestedContext?.sessionId,
-            };
-          }
-        } catch (error) {
-          return Response.json(
-            { error: error instanceof Error ? error.message : "Workspace authorization failed" },
-            { status: 403 },
-          );
-        }
+        context = {
+          workspaceId,
+          accountId: access.accountId,
+          clientId: "mcp",
+        };
+      } catch (error) {
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Workspace authorization failed" },
+          { status: 403 },
+        );
       }
     }
 

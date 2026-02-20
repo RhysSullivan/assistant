@@ -3,6 +3,7 @@ import type { Id } from "../_generated/dataModel.d.ts";
 import { internalMutation } from "../_generated/server";
 import { ensureAnonymousIdentity } from "../../src/database/anonymous";
 import { mapAnonymousContext } from "../../src/database/readers";
+import { enforceAnonymousSessionBootstrapRateLimit } from "../http/rate_limit";
 
 type TrustedClientId = "web" | "mcp";
 
@@ -40,6 +41,16 @@ function defaultClientIdForSessionId(sessionId: string): TrustedClientId {
   return "web";
 }
 
+function anonymousBootstrapRateLimitKey(args: {
+  requestedSessionId: string;
+  requestedAccountId: string;
+  requestedClientId?: TrustedClientId;
+}): string {
+  const keyId = args.requestedSessionId || args.requestedAccountId || "new";
+  const client = args.requestedClientId ?? "unknown";
+  return `${client}:${keyId.slice(0, 120)}`;
+}
+
 function resolveTrustedClientId(args: {
   sessionId: string;
   requestedClientId?: TrustedClientId;
@@ -68,6 +79,15 @@ export const bootstrapAnonymousSession = internalMutation({
     const requestedSessionId = args.sessionId?.trim() || "";
     const requestedAccountId = args.accountId?.trim() || "";
     const requestedClientId = parseTrustedClientId(args.clientId);
+
+    await enforceAnonymousSessionBootstrapRateLimit(
+      ctx,
+      anonymousBootstrapRateLimitKey({
+        requestedSessionId,
+        requestedAccountId,
+        requestedClientId,
+      }),
+    );
 
     const allowRequestedSessionId = requestedSessionId.startsWith("mcp_")
       || requestedSessionId.startsWith("anon_session_");

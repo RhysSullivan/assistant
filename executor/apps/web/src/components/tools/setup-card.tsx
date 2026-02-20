@@ -21,11 +21,6 @@ function isAnonymousSessionId(sessionId?: string): boolean {
   return sessionId.startsWith("anon_session_") || sessionId.startsWith("mcp_")
 }
 
-function isWorkosSessionId(sessionId?: string): boolean {
-  if (!sessionId) return false
-  return sessionId.startsWith("workos_")
-}
-
 function resolveMcpOrigin(windowOrigin: string): string {
   const runtimeConfig = readRuntimeConfig()
   const explicit = runtimeConfig.executorHttpUrl ?? runtimeConfig.convexSiteUrl
@@ -70,9 +65,6 @@ export function McpSetupCard({
     const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp"
     const base = origin ? new URL(mcpPath, origin) : new URL(`http://localhost${mcpPath}`)
     if (workspaceId) base.searchParams.set("workspaceId", workspaceId)
-    if (!isAnonymousSession && sessionId && !isWorkosSessionId(sessionId)) {
-      base.searchParams.set("sessionId", sessionId)
-    }
     if (!origin) {
       return `${base.pathname}${base.search}`
     }

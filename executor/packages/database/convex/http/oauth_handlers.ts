@@ -14,7 +14,14 @@ export const oauthProtectedResourceHandler = httpAction(async (_ctx, request) =>
 
   const provider = selectMcpAuthProvider(mcpAuthConfig);
   if (!provider || !mcpAuthConfig.authorizationServer) {
-    return Response.json({ error: "MCP OAuth is not configured" }, { status: 404 });
+    return Response.json(
+      {
+        error: mcpAuthConfig.required
+          ? "MCP OAuth must be configured for cloud deployments"
+          : "MCP OAuth is not configured",
+      },
+      { status: mcpAuthConfig.required ? 503 : 404 },
+    );
   }
 
   let resource = new URL(MCP_PATH, url.origin);
@@ -53,7 +60,14 @@ export const oauthProtectedResourceHandler = httpAction(async (_ctx, request) =>
 export const oauthAuthorizationServerHandler = httpAction(async (_ctx, _request) => {
   const mcpAuthConfig = getMcpAuthConfig();
   if (!mcpAuthConfig.enabled || !mcpAuthConfig.authorizationServer) {
-    return Response.json({ error: "MCP OAuth is not configured" }, { status: 404 });
+    return Response.json(
+      {
+        error: mcpAuthConfig.required
+          ? "MCP OAuth must be configured for cloud deployments"
+          : "MCP OAuth is not configured",
+      },
+      { status: mcpAuthConfig.required ? 503 : 404 },
+    );
   }
 
   const upstream = new URL("/.well-known/oauth-authorization-server", mcpAuthConfig.authorizationServer);

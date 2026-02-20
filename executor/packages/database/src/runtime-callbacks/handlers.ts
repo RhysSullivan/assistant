@@ -9,16 +9,9 @@ function timingSafeEqual(a: string, b: string): boolean {
   const left = encoder.encode(a);
   const right = encoder.encode(b);
 
-  if (left.length !== right.length) {
-    let mismatch = 0;
-    for (let i = 0; i < left.length; i += 1) {
-      mismatch |= (left[i] ?? 0) ^ (left[i] ?? 0);
-    }
-    return false;
-  }
-
-  let mismatch = 0;
-  for (let i = 0; i < left.length; i += 1) {
+  const maxLength = Math.max(left.length, right.length);
+  let mismatch = left.length ^ right.length;
+  for (let i = 0; i < maxLength; i += 1) {
     mismatch |= (left[i] ?? 0) ^ (right[i] ?? 0);
   }
 

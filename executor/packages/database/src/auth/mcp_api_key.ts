@@ -51,6 +51,8 @@ export async function issueMcpApiKey(input: {
   }
 
   const issuer = getIssuer();
+  // TODO(security): Add explicit key expiration + revocation support once
+  // anonymous MCP key lifecycle management is implemented.
   let jwt = new SignJWT({
     workspaceId: input.workspaceId,
     accountId: input.accountId,
