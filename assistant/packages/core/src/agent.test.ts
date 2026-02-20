@@ -62,7 +62,8 @@ test("agent calls Claude, runs code via MCP, returns result", async () => {
 
   const result = await agent.run("What is the current server time?", (event) => {
     events.push(event.type);
-    console.log(`  [event] ${event.type}`, "text" in event ? event.text?.slice(0, 80) : "");
+    const text = (event as { text?: unknown }).text;
+    console.log(`  [event] ${event.type}`, typeof text === "string" ? text.slice(0, 80) : "");
   });
 
   expect(result.text.length).toBeGreaterThan(0);

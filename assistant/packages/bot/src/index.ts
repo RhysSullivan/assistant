@@ -388,7 +388,7 @@ function parseEnumOptions(property: Record<string, unknown>): EnumOption[] | nul
   const variants: EnumOption[] = [];
   for (const variant of variantsRaw) {
     const parsed = parseObject(variant);
-    if (!parsed || !("const" in parsed)) {
+    if (!parsed) {
       return null;
     }
     const value = parsed.const;

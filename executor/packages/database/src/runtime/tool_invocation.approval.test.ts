@@ -38,14 +38,14 @@ function makeFakeCtx(seedApprovals?: FakeApproval[]) {
 
   const ctx = {
     runQuery: async (query: unknown, args: Record<string, unknown>) => {
-      if (query && "approvalId" in args) {
+      if (query && args.approvalId !== undefined) {
         return approvals.get(String(args.approvalId)) ?? null;
       }
 
       throw new Error("Unexpected query arguments in enforceToolApproval test");
     },
     runMutation: async (_mutation: unknown, args: Record<string, unknown>) => {
-      if ("id" in args && "toolPath" in args && "input" in args) {
+      if (args.id !== undefined && args.toolPath !== undefined && args.input !== undefined) {
         mutations.push({ kind: "create_approval", args });
         const created: FakeApproval = {
           id: String(args.id),
@@ -59,12 +59,12 @@ function makeFakeCtx(seedApprovals?: FakeApproval[]) {
         return created;
       }
 
-      if ("callId" in args && "approvalId" in args) {
+      if (args.callId !== undefined && args.approvalId !== undefined) {
         mutations.push({ kind: "set_pending", args });
         return null;
       }
 
-      if ("eventName" in args && "type" in args && "payload" in args) {
+      if (args.eventName !== undefined && args.type !== undefined && args.payload !== undefined) {
         mutations.push({ kind: "create_event", args });
         return null;
       }

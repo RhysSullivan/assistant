@@ -16,6 +16,19 @@ export class ApiError {
   constructor(readonly status: number, readonly value: unknown) {}
 }
 
+function parseApiErrorPayload(error: unknown): { status: number; value?: unknown } | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+
+  const candidate = error as { status?: unknown; value?: unknown };
+  if (typeof candidate.status !== "number" || !Number.isFinite(candidate.status)) {
+    return null;
+  }
+
+  return { status: candidate.status, value: candidate.value };
+}
+
 export async function unwrap<T extends Record<number, unknown>>(
   treatyCall: Promise<Treaty.TreatyResponse<T>>,
 ): Promise<Treaty.Data<Treaty.TreatyResponse<T>>> {
@@ -23,11 +36,9 @@ export async function unwrap<T extends Record<number, unknown>>(
 
   if (response.error) {
     const err = response.error as unknown;
-    if (err && typeof err === "object" && "status" in err) {
-      throw new ApiError(
-        (err as { status: number }).status,
-        "value" in err ? (err as { value: unknown }).value : err,
-      );
+    const parsedError = parseApiErrorPayload(err);
+    if (parsedError) {
+      throw new ApiError(parsedError.status, parsedError.value ?? err);
     }
     throw new ApiError(0, err);
   }

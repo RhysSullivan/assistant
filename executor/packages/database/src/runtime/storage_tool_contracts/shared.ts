@@ -44,7 +44,7 @@ function mergeSchemaWithFallback(schema: unknown, fallback: JsonSchema): JsonSch
   if (!Array.isArray(merged.required) && Array.isArray(fallback.required)) {
     merged.required = fallback.required;
   }
-  if (!("additionalProperties" in merged) && "additionalProperties" in fallback) {
+  if (merged.additionalProperties === undefined && fallback.additionalProperties !== undefined) {
     merged.additionalProperties = fallback.additionalProperties;
   }
 

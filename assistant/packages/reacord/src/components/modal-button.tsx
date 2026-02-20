@@ -176,22 +176,25 @@ class ModalButtonNode extends Node<ModalButtonProps> {
 			},
 			getStringSelect: (id: string) => {
 				const field = interaction.fields.fields.get(id);
-				if (field && "values" in field) {
-					return field.values;
+				const values = (field as { values?: unknown } | undefined)?.values;
+				if (Array.isArray(values)) {
+					return values.filter((value): value is string => typeof value === "string");
 				}
 				return undefined;
 			},
 			getUserSelect: (id: string) => {
 				const field = interaction.fields.fields.get(id);
-				if (field && "values" in field) {
-					return field.values;
+				const values = (field as { values?: unknown } | undefined)?.values;
+				if (Array.isArray(values)) {
+					return values.filter((value): value is string => typeof value === "string");
 				}
 				return undefined;
 			},
 			getFileUpload: (id: string) => {
 				const field = interaction.fields.fields.get(id);
-				if (field && "attachments" in field) {
-					return [...field.attachments.values()];
+				const attachments = (field as { attachments?: Map<string, Attachment> } | undefined)?.attachments;
+				if (attachments instanceof Map) {
+					return [...attachments.values()];
 				}
 				return undefined;
 			},

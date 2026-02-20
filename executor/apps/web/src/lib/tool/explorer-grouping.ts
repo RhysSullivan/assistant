@@ -12,6 +12,15 @@ export interface ToolGroup {
   children: Array<ToolGroup | ToolDescriptor>;
 }
 
+export function isToolGroupNode(node: ToolGroup | ToolDescriptor): node is ToolGroup {
+  const type = (node as { type?: unknown }).type;
+  return type === "source" || type === "namespace";
+}
+
+export function isToolDescriptorNode(node: ToolGroup | ToolDescriptor): node is ToolDescriptor {
+  return !isToolGroupNode(node);
+}
+
 export function toolNamespace(path: string): string {
   const parts = path.split(".");
   if (parts.length >= 2) return parts.slice(0, -1).join(".");
@@ -124,8 +133,8 @@ export function buildSourceTree(tools: ToolDescriptor[]): ToolGroup[] {
       }
 
       const filteredNsChildren = children.sort((a, b) => {
-        const aKey = "label" in a ? `namespace:${a.label}` : a.path;
-        const bKey = "label" in b ? `namespace:${b.label}` : b.path;
+        const aKey = isToolGroupNode(a) ? `namespace:${a.label}` : a.path;
+        const bKey = isToolGroupNode(b) ? `namespace:${b.label}` : b.path;
         return aKey.localeCompare(bKey);
       });
 
@@ -205,7 +214,7 @@ export function collectGroupKeys(groups: ToolGroup[]): Set<string> {
 
     keys.add(group.key);
     for (const child of group.children) {
-      if ("key" in child) {
+      if (isToolGroupNode(child)) {
         stack.push(child);
       }
     }

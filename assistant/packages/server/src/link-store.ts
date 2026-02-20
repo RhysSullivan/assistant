@@ -22,6 +22,60 @@ interface LinkStoreFile {
 
 export const defaultLinksFilePath = new URL("../../../.chat-links.json", import.meta.url).pathname;
 
+function parseLinkedContext(value: unknown): LinkedMcpContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const provider = candidate.provider;
+  const workspaceId = candidate.workspaceId;
+  const linkedAt = candidate.linkedAt;
+
+  if ((provider !== "anonymous" && provider !== "workos") || typeof workspaceId !== "string") {
+    return null;
+  }
+  if (typeof linkedAt !== "number" || !Number.isFinite(linkedAt)) {
+    return null;
+  }
+
+  return {
+    provider,
+    workspaceId: workspaceId as Id<"workspaces">,
+    linkedAt,
+    ...(typeof candidate.accountId === "string" ? { accountId: candidate.accountId } : {}),
+    ...(typeof candidate.sessionId === "string" ? { sessionId: candidate.sessionId } : {}),
+    ...(typeof candidate.accessToken === "string" ? { accessToken: candidate.accessToken } : {}),
+    ...(typeof candidate.mcpApiKey === "string" ? { mcpApiKey: candidate.mcpApiKey } : {}),
+    ...(typeof candidate.clientId === "string" ? { clientId: candidate.clientId } : {}),
+  };
+}
+
+function parseLinksFile(value: unknown): Record<string, LinkedMcpContext> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  if (candidate.version !== 1) {
+    return null;
+  }
+  if (!candidate.links || typeof candidate.links !== "object" || Array.isArray(candidate.links)) {
+    return null;
+  }
+
+  const parsedLinks: Record<string, LinkedMcpContext> = {};
+  for (const [identityKey, rawContext] of Object.entries(candidate.links)) {
+    const parsedContext = parseLinkedContext(rawContext);
+    if (!parsedContext) {
+      continue;
+    }
+    parsedLinks[identityKey] = parsedContext;
+  }
+
+  return parsedLinks;
+}
+
 export function createFileLinkStore(filePath = Bun.env.ASSISTANT_LINKS_FILE ?? defaultLinksFilePath) {
   let loaded = false;
   let links: Record<string, LinkedMcpContext> = {};
@@ -37,12 +91,9 @@ export function createFileLinkStore(filePath = Bun.env.ASSISTANT_LINKS_FILE ?? d
     if (!text.trim()) return;
 
     try {
-      const parsed = JSON.parse(text) as {
-        version?: number;
-        links?: Record<string, LinkedMcpContext>;
-      };
-      if (parsed && parsed.version === 1 && parsed.links && typeof parsed.links === "object") {
-        links = parsed.links;
+      const parsedLinks = parseLinksFile(JSON.parse(text));
+      if (parsedLinks) {
+        links = parsedLinks;
       }
     } catch (error) {
       console.error(`[assistant] Failed to parse link store '${filePath}':`, error);

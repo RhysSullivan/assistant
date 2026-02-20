@@ -1,11 +1,11 @@
 import { z } from "zod";
+import type { JsonSchema } from "../types";
 import { toPlainObject } from "../utils";
 
 function toRecordOrEmpty(value: unknown): Record<string, unknown> {
   return toPlainObject(value) ?? {};
 }
 
-type JsonSchema = Record<string, unknown>;
 const COMPONENT_REF_INLINE_DEPTH = 2;
 const openApiParameterMetadataSchema = z.object({
   type: z.string().optional(),
@@ -18,8 +18,8 @@ const openApiParameterMetadataSchema = z.object({
   examples: z.record(z.unknown()).optional(),
   nullable: z.boolean().optional(),
 }).passthrough();
-const openApiExampleObjectSchema = z.object({
-  value: z.unknown().optional(),
+const openApiExampleWithValueSchema = z.object({
+  value: z.unknown(),
 }).passthrough();
 
 function isSmallInlineableComponentSchema(schema: Record<string, unknown>): boolean {
@@ -158,8 +158,8 @@ function extractParameterExamples(entry: Record<string, unknown>): unknown[] {
   const values: unknown[] = [];
   for (const rawExample of Object.values(rawExamples)) {
     if (rawExample === undefined) continue;
-    const parsedExampleObject = openApiExampleObjectSchema.safeParse(rawExample);
-    if (parsedExampleObject.success && Object.prototype.hasOwnProperty.call(parsedExampleObject.data, "value")) {
+    const parsedExampleObject = openApiExampleWithValueSchema.safeParse(rawExample);
+    if (parsedExampleObject.success) {
       const value = parsedExampleObject.data.value;
       if (value !== undefined) values.push(value);
       continue;
@@ -192,31 +192,31 @@ export function parameterSchemaFromEntry(entry: Record<string, unknown>): Record
     }
   }
 
-  if (!("description" in normalized) && typeof metadata.description === "string") {
+  if (normalized.description === undefined && typeof metadata.description === "string") {
     const description = metadata.description.trim();
     if (description.length > 0) normalized.description = description;
   }
 
-  if (!("deprecated" in normalized) && metadata.deprecated !== undefined) {
+  if (normalized.deprecated === undefined && metadata.deprecated !== undefined) {
     normalized.deprecated = metadata.deprecated;
   }
 
-  if (!("default" in normalized) && metadata.default !== undefined) {
+  if (normalized.default === undefined && metadata.default !== undefined) {
     normalized.default = metadata.default;
   }
 
-  if (!("example" in normalized) && metadata.example !== undefined) {
+  if (normalized.example === undefined && metadata.example !== undefined) {
     normalized.example = metadata.example;
   }
 
-  if (!("examples" in normalized)) {
+  if (normalized.examples === undefined) {
     const examples = extractParameterExamples(entry);
     if (examples.length > 0) {
       normalized.examples = examples;
     }
   }
 
-  if (!("nullable" in normalized) && metadata.nullable !== undefined) {
+  if (normalized.nullable === undefined && metadata.nullable !== undefined) {
     normalized.nullable = metadata.nullable;
   }
 

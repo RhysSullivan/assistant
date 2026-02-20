@@ -22,6 +22,8 @@ import { cn } from "@/lib/utils";
 import { AddSourceDialog } from "./add/source-dialog";
 import type { SourceDialogMeta } from "./add/source-dialog";
 import {
+  isToolDescriptorNode,
+  isToolGroupNode,
   toolDisplayOperation,
   toolDisplaySegment,
   type ToolGroup,
@@ -69,7 +71,7 @@ export function GroupNode({
       ? "system"
       : (group.sourceType as ToolSourceRecord["type"] | "local") ?? "openapi";
 
-  const hasNestedGroups = group.children.some((child): child is ToolGroup => "key" in child);
+  const hasNestedGroups = group.children.some(isToolGroupNode);
   const displayLabel = toolDisplaySegment(group.label);
 
   return (
@@ -168,9 +170,9 @@ export function GroupNode({
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        {hasNestedGroups || group.children.some((child) => !("key" in child))
+        {hasNestedGroups || group.children.some(isToolDescriptorNode)
           ? group.children.map((child) => {
-              if ("key" in child) {
+              if (isToolGroupNode(child)) {
                 return (
                   <GroupNode
                     key={child.key}
@@ -255,7 +257,7 @@ export function NavGroupNode({
       ? "system"
       : (group.sourceType as ToolSourceRecord["type"] | "local") ?? "openapi";
 
-  const hasNestedGroups = group.children.some((child): child is ToolGroup => "key" in child);
+  const hasNestedGroups = group.children.some(isToolGroupNode);
   const displayLabel = toolDisplaySegment(group.label);
 
   const handleSourceHeaderClick = () => {
@@ -376,9 +378,9 @@ export function NavGroupNode({
       )}
 
       <CollapsibleContent>
-        {hasNestedGroups || group.children.some((child) => !("key" in child))
+        {hasNestedGroups || group.children.some(isToolDescriptorNode)
           ? group.children.map((child) => {
-              if ("key" in child) {
+              if (isToolGroupNode(child)) {
                 return (
                   <NavGroupNode
                     key={child.key}

@@ -255,8 +255,9 @@ export class Renderer {
 	handleModalInteraction(interaction: ModalSubmitInteraction): boolean {
 		const fields = new Map<string, string>();
 		for (const [key, field] of interaction.fields.fields) {
-			if ("value" in field && typeof field.value === "string") {
-				fields.set(key, field.value);
+			const value = (field as { value?: unknown }).value;
+			if (typeof value === "string") {
+				fields.set(key, value);
 			}
 		}
 

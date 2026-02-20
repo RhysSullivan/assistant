@@ -206,21 +206,21 @@ function withGraphqlSchemaMetadata(
 ): Record<string, unknown> {
   const next: Record<string, unknown> = { ...schema };
   const description = (metadata.description ?? "").trim();
-  if (description.length > 0 && !("description" in next)) {
+  if (description.length > 0 && next.description === undefined) {
     next.description = description;
   }
 
   const parsedDefault = parseGraphqlDefaultValue(metadata.defaultValue);
-  if (parsedDefault !== undefined && !("default" in next)) {
+  if (parsedDefault !== undefined && next.default === undefined) {
     next.default = parsedDefault;
   }
 
-  if (metadata.isDeprecated === true && !("deprecated" in next)) {
+  if (metadata.isDeprecated === true && next.deprecated === undefined) {
     next.deprecated = true;
   }
 
   const deprecationReason = (metadata.deprecationReason ?? "").trim();
-  if (deprecationReason.length > 0 && !("x-deprecationReason" in next)) {
+  if (deprecationReason.length > 0 && next["x-deprecationReason"] === undefined) {
     next["x-deprecationReason"] = deprecationReason;
   }
 
@@ -382,7 +382,7 @@ function parseGraphqlIntrospectionSchema(payload: unknown): Result<GqlSchema, Er
 function toGraphqlEnvelope(value: unknown): GraphqlExecutionEnvelope {
   const payload = coerceRecord(value);
   return {
-    data: Object.prototype.hasOwnProperty.call(payload, "data") ? payload.data : null,
+    data: payload.data ?? null,
     errors: Array.isArray(payload.errors) ? payload.errors : [],
   };
 }
