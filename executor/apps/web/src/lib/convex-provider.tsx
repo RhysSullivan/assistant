@@ -37,7 +37,7 @@ type WorkosAuthProfile = {
   avatarUrl?: string | null;
 };
 
-const recordSchema = z.record(z.unknown());
+const recordSchema = z.record(z.string(), z.unknown());
 
 function readNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") {
