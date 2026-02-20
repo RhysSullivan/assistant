@@ -2,13 +2,17 @@ import { expect, test, describe } from "bun:test";
 import { convexTest } from "convex-test";
 import { internal } from "./_generated/api";
 import schema from "./schema";
+import { registerRateLimiterComponent } from "./testHelpers";
 
 function setup() {
-  return convexTest(schema, {
+  const t = convexTest(schema, {
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
     "./toolRegistry.ts": () => import("./toolRegistry"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
+
+  registerRateLimiterComponent(t);
+  return t;
 }
 
 describe("openApiSpecCache table operations", () => {

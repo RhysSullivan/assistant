@@ -3,13 +3,14 @@ import { convexTest } from "convex-test";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel.d.ts";
 import schema from "./schema";
+import { registerRateLimiterComponent } from "./testHelpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function setup() {
-  return convexTest(schema, {
+  const t = convexTest(schema, {
     "./workspace.ts": () => import("./workspace"),
     "./workspaces.ts": () => import("./workspaces"),
     "./organizations.ts": () => import("./organizations"),
@@ -25,6 +26,9 @@ function setup() {
     "./toolRegistry.ts": () => import("./toolRegistry"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
+
+  registerRateLimiterComponent(t);
+  return t;
 }
 
 /**
