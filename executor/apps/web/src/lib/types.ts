@@ -116,6 +116,7 @@ export interface ToolSourceRecord {
   workspaceId?: string;
   name: string;
   type: ToolSourceType;
+  configVersion: number;
   config: Record<string, unknown>;
   specHash?: string;
   authFingerprint?: string;

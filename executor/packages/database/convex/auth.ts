@@ -1,4 +1,5 @@
 import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
+import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel.d.ts";
 import { internalMutation } from "./_generated/server";
@@ -42,6 +43,10 @@ export const authKitEvent = authKitEvents?.authKitEvent ?? internalMutation({
 
 export const bootstrapCurrentWorkosAccount = customMutation({
   method: "POST",
-  args: {},
-  handler: bootstrapCurrentWorkosAccountImpl,
+  args: {
+    sessionId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await bootstrapCurrentWorkosAccountImpl(ctx, args);
+  },
 });

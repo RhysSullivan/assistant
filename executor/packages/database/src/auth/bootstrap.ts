@@ -3,6 +3,7 @@ import { upsertWorkosAccount } from "./accounts";
 import { getOrganizationByWorkosOrgId } from "./db_queries";
 import { getAuthKitUserProfile, resolveIdentityProfile } from "./identity";
 import { activateOrganizationMembershipFromInviteHint } from "./memberships";
+import { claimAnonymousSessionToWorkosAccount } from "./account_links";
 import { getOrCreatePersonalWorkspace, refreshGeneratedPersonalWorkspaceNames } from "./personal_workspace";
 import type { AccountId } from "./types";
 
@@ -53,7 +54,10 @@ async function hasActiveWorkspaceAccess(ctx: MutationCtx, args: { accountId: Acc
   return Boolean(workspace);
 }
 
-export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
+export async function bootstrapCurrentWorkosAccountImpl(
+  ctx: MutationCtx,
+  args?: { sessionId?: string },
+) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
 
@@ -76,6 +80,12 @@ export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
     includeLastLoginAt: true,
   });
   if (!account) return null;
+
+  await claimAnonymousSessionToWorkosAccount(ctx, {
+    sessionId: args?.sessionId,
+    targetAccountId: account._id,
+    now,
+  });
 
   await refreshGeneratedPersonalWorkspaceNames(ctx, account._id, {
     email: identityProfile.email,

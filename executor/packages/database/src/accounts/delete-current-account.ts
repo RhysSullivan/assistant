@@ -223,6 +223,22 @@ export async function deleteCurrentAccountHandler(ctx: DeleteCurrentAccountCtx) 
     await ctx.db.delete(session._id);
   }
 
+  const linksBySource = await ctx.db
+    .query("accountLinks")
+    .withIndex("by_source_account", (q) => q.eq("sourceAccountId", accountId))
+    .collect();
+  for (const link of linksBySource) {
+    await ctx.db.delete(link._id);
+  }
+
+  const linksByTarget = await ctx.db
+    .query("accountLinks")
+    .withIndex("by_target_account", (q) => q.eq("targetAccountId", accountId))
+    .collect();
+  for (const link of linksByTarget) {
+    await ctx.db.delete(link._id);
+  }
+
   await ctx.db.delete(accountId);
 
   return {

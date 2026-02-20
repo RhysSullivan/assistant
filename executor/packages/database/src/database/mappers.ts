@@ -129,6 +129,7 @@ export function mapSource(doc: Doc<"toolSources">) {
     workspaceId: doc.workspaceId,
     name: doc.name,
     type: doc.type,
+    configVersion: doc.configVersion,
     config,
     specHash: doc.specHash,
     authFingerprint: doc.authFingerprint,

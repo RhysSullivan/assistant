@@ -115,6 +115,7 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_organization_created", ["organizationId", "createdAt"])
     .index("by_organization_slug", ["organizationId", "slug"])
+    .index("by_creator_created", ["createdByAccountId", "createdAt"])
     .index("by_slug", ["slug"]),
 
   // Billing / membership umbrella entity.
@@ -134,6 +135,7 @@ export default defineSchema({
   })
     .index("by_workos_org_id", ["workosOrgId"])
     .index("by_slug", ["slug"])
+    .index("by_creator_created", ["createdByAccountId", "createdAt"])
     .index("by_status_created", ["status", "createdAt"]),
 
   // Membership of an account within an organization.
@@ -179,7 +181,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId"])
-    .index("by_org_email_status", ["organizationId", "email", "status"]),
+    .index("by_org_email_status", ["organizationId", "email", "status"])
+    .index("by_invited_by_created", ["invitedByAccountId", "createdAt"]),
 
   // Idempotency receipts for incoming provider webhooks.
   // We treat provider events as hints and suppress duplicate payload processing.
@@ -432,6 +435,7 @@ export default defineSchema({
     workspaceId: v.optional(v.id("workspaces")),
     name: v.string(),
     type: toolSourceType,
+    configVersion: v.number(),
     config: jsonObject,
     specHash: v.optional(v.string()),
     authFingerprint: v.optional(v.string()),
@@ -617,4 +621,19 @@ export default defineSchema({
     .index("by_session_id", ["sessionId"])
     .index("by_workspace_account", ["workspaceId", "accountId"])
     .index("by_account", ["accountId"]),
+
+  // Links an anonymous account/session lineage to a durable WorkOS account.
+  accountLinks: defineTable({
+    sourceAccountId: v.id("accounts"),
+    targetAccountId: v.id("accounts"),
+    sourceProvider: accountProvider,
+    targetProvider: accountProvider,
+    linkReason: v.union(v.literal("anonymous_claim")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_source_account", ["sourceAccountId"])
+    .index("by_target_account", ["targetAccountId"])
+    .index("by_source_target", ["sourceAccountId", "targetAccountId"]),
+
 });

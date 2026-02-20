@@ -190,7 +190,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       && account !== undefined,
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
-    queryFn: async () => bootstrapCurrentWorkosAccount({}),
+    queryFn: async () => bootstrapCurrentWorkosAccount({
+      sessionId: storedSessionId ?? undefined,
+    }),
   });
 
   const resetWorkspace = useCallback(async () => {

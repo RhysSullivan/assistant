@@ -9,6 +9,7 @@ import type {
 import type { ToolApprovalMode } from "../../../core/src/types";
 
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
+export const TOOL_SOURCE_CONFIG_VERSION = 1;
 
 export type NormalizedMcpToolSourceConfig = Pick<
   McpToolSourceConfig,

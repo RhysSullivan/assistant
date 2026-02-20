@@ -191,6 +191,7 @@ export interface ToolSourceRecord {
   workspaceId?: Id<"workspaces">;
   name: string;
   type: ToolSourceType;
+  configVersion: number;
   config: Record<string, unknown>;
   specHash?: string;
   authFingerprint?: string;

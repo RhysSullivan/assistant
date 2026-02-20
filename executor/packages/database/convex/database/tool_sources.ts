@@ -6,7 +6,7 @@ import {
   mapSource,
   normalizeSourceAuthFingerprint,
 } from "../../src/database/mappers";
-import { normalizeToolSourceConfig } from "../../src/database/tool_source_config";
+import { normalizeToolSourceConfig, TOOL_SOURCE_CONFIG_VERSION } from "../../src/database/tool_source_config";
 import { safeRunAfter } from "../../src/lib/scheduler";
 import { jsonObjectValidator, toolSourceScopeTypeValidator, toolSourceTypeValidator } from "../../src/database/validators";
 
@@ -79,6 +79,7 @@ export const upsertToolSource = internalMutation({
         workspaceId: scopedWorkspaceId,
         name: args.name,
         type: args.type,
+        configVersion: TOOL_SOURCE_CONFIG_VERSION,
         config,
         specHash,
         authFingerprint,
@@ -93,6 +94,7 @@ export const upsertToolSource = internalMutation({
         workspaceId: scopedWorkspaceId,
         name: args.name,
         type: args.type,
+        configVersion: TOOL_SOURCE_CONFIG_VERSION,
         config,
         specHash,
         authFingerprint,
