@@ -10,19 +10,18 @@ import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
 import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
 import { baseTools } from "./base_tools";
 
-type RegistrySerializedToolEntry = {
-  path: string;
-  serializedToolJson: string;
-};
-
 const registrySearchEntrySchema = z.object({
   preferredPath: z.string(),
 });
+
+type RegistrySearchEntry = z.infer<typeof registrySearchEntrySchema>;
 
 const registrySerializedToolEntrySchema = z.object({
   path: z.string(),
   serializedToolJson: z.string(),
 });
+
+type RegistrySerializedToolEntry = z.infer<typeof registrySerializedToolEntrySchema>;
 
 const graphqlDecisionInputSchema = z.union([
   z.string(),
@@ -45,7 +44,7 @@ function getGraphqlQueryFromInput(input: unknown): string {
 async function searchRegistryEntries(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
-): Promise<Array<{ preferredPath: string }>> {
+): Promise<RegistrySearchEntry[]> {
   const entries = await ctx.runQuery(internal.toolRegistry.searchTools, args);
   const parsed = z.array(registrySearchEntrySchema).safeParse(entries);
   return parsed.success ? parsed.data : [];
