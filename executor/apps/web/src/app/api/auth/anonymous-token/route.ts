@@ -1,10 +1,28 @@
 import { importPKCS8, SignJWT } from "jose";
 import { z } from "zod";
+import { appendDeleteCookie, appendSetCookie, readCookie } from "@/lib/http/cookies";
 
 const anonymousAuthAudience = "executor-anonymous";
 const anonymousAuthKeyId = "executor-anonymous-es256";
 const anonymousAuthTokenTtlSeconds = 60 * 60 * 24 * 7;
+const anonymousAuthCookieName = "executor_anonymous_auth";
+const anonymousAuthCookieVersion = 1;
+const tokenRefreshSkewMs = 60_000;
 const configQueryTimeoutMs = 2_000;
+
+const issueAnonymousTokenRequestSchema = z.object({
+  accountId: z.string().trim().min(1).optional(),
+  forceRefresh: z.boolean().optional(),
+}).partial();
+
+const anonymousAuthCookieSchema = z.object({
+  version: z.literal(anonymousAuthCookieVersion),
+  accessToken: z.string().min(1),
+  accountId: z.string().min(1),
+  expiresAtMs: z.number().finite(),
+});
+
+type AnonymousAuthCookiePayload = z.infer<typeof anonymousAuthCookieSchema>;
 
 function trimOrNull(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -109,6 +127,75 @@ function parseTokenTtlSeconds(raw: string | undefined): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : anonymousAuthTokenTtlSeconds;
 }
 
+function parseIssueRequestBody(raw: unknown): z.infer<typeof issueAnonymousTokenRequestSchema> {
+  const parsed = issueAnonymousTokenRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error("Invalid anonymous token request payload");
+  }
+  return parsed.data;
+}
+
+function encodeAnonymousAuthCookie(payload: AnonymousAuthCookiePayload): string {
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function decodeAnonymousAuthCookie(raw: string): AnonymousAuthCookiePayload | null {
+  try {
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    const parsed = JSON.parse(decoded);
+    const payload = anonymousAuthCookieSchema.safeParse(parsed);
+    return payload.success ? payload.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAnonymousAuthCookieUsable(payload: AnonymousAuthCookiePayload): boolean {
+  return Date.now() + tokenRefreshSkewMs < payload.expiresAtMs;
+}
+
+function readAnonymousAuthCookie(request: Request): AnonymousAuthCookiePayload | null {
+  const rawCookie = readCookie(request, anonymousAuthCookieName);
+  if (!rawCookie) {
+    return null;
+  }
+
+  const decoded = decodeAnonymousAuthCookie(rawCookie);
+  if (!decoded || !isAnonymousAuthCookieUsable(decoded)) {
+    return null;
+  }
+
+  return decoded;
+}
+
+function shouldUseSecureCookies(request: Request): boolean {
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (forwardedProto) {
+    return forwardedProto === "https";
+  }
+  return new URL(request.url).protocol === "https:";
+}
+
+function appendAnonymousAuthCookie(request: Request, headers: Headers, payload: AnonymousAuthCookiePayload) {
+  const ttlSeconds = Math.max(0, Math.floor((payload.expiresAtMs - Date.now()) / 1000));
+  appendSetCookie(headers, anonymousAuthCookieName, encodeAnonymousAuthCookie(payload), {
+    path: "/",
+    maxAge: ttlSeconds,
+    httpOnly: true,
+    secure: shouldUseSecureCookies(request),
+    sameSite: "lax",
+  });
+}
+
+function appendAnonymousAuthCookieDeletion(request: Request, headers: Headers) {
+  appendDeleteCookie(headers, anonymousAuthCookieName, {
+    path: "/",
+    httpOnly: true,
+    secure: shouldUseSecureCookies(request),
+    sameSite: "lax",
+  });
+}
+
 function noStoreJson(payload: unknown, status: number): Response {
   return Response.json(payload, {
     status,
@@ -131,14 +218,39 @@ function createAccountId(): string {
   return `anon_${crypto.randomUUID().replace(/-/g, "")}`;
 }
 
-export async function POST(): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
+  let parsedBody: z.infer<typeof issueAnonymousTokenRequestSchema>;
+  try {
+    parsedBody = parseIssueRequestBody(await request.json().catch(() => ({})));
+  } catch (error) {
+    return noStoreJson(
+      { error: error instanceof Error ? error.message : "Invalid anonymous token request payload" },
+      400,
+    );
+  }
+
+  if (!parsedBody.forceRefresh) {
+    const existing = readAnonymousAuthCookie(request);
+    if (existing && (!parsedBody.accountId || parsedBody.accountId === existing.accountId)) {
+      return noStoreJson(
+        {
+          tokenType: "Bearer",
+          accessToken: existing.accessToken,
+          accountId: existing.accountId,
+          expiresAtMs: existing.expiresAtMs,
+        },
+        200,
+      );
+    }
+  }
+
   const issuer = await resolveIssuerFromBackend() ?? resolveIssuer();
   const privateKeyPem = normalizePem(process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM);
   if (!issuer || !privateKeyPem) {
     return noStoreJson({ error: "Anonymous auth is not configured" }, 503);
   }
 
-  const accountId = createAccountId();
+  const accountId = parsedBody.accountId ?? createAccountId();
 
   try {
     const nowSeconds = Math.floor(Date.now() / 1000);
@@ -155,19 +267,30 @@ export async function POST(): Promise<Response> {
       .setExpirationTime(expiresAtSeconds)
       .sign(signingKey);
 
-    return noStoreJson(
-      {
-        tokenType: "Bearer",
-        accessToken,
-        accountId,
-        expiresAtMs: expiresAtSeconds * 1000,
-      },
-      200,
-    );
+    const payload = {
+      tokenType: "Bearer",
+      accessToken,
+      accountId,
+      expiresAtMs: expiresAtSeconds * 1000,
+    };
+    const response = noStoreJson(payload, 200);
+    appendAnonymousAuthCookie(request, response.headers, {
+      version: anonymousAuthCookieVersion,
+      accessToken,
+      accountId,
+      expiresAtMs: payload.expiresAtMs,
+    });
+    return response;
   } catch (error) {
     return noStoreJson(
       { error: error instanceof Error ? error.message : "Failed to issue anonymous token" },
       400,
     );
   }
+}
+
+export async function DELETE(request: Request): Promise<Response> {
+  const response = noStoreJson({ ok: true }, 200);
+  appendAnonymousAuthCookieDeletion(request, response.headers);
+  return response;
 }

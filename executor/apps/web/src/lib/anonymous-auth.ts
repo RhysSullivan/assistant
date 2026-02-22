@@ -4,86 +4,69 @@ export type AnonymousAuthToken = {
   expiresAtMs: number;
 };
 
-const TOKEN_STORAGE_KEY = "executor_anonymous_access_token";
-const ACCOUNT_STORAGE_KEY = "executor_anonymous_account_id";
-const EXPIRES_STORAGE_KEY = "executor_anonymous_token_expires_at";
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
+let cachedToken: AnonymousAuthToken | null = null;
+let cachedAccountId: string | null = null;
 
 function canUseStorage(): boolean {
   return typeof window !== "undefined";
 }
 
-function readStorageValue(key: string): string | null {
-  if (!canUseStorage()) {
-    return null;
-  }
-  return localStorage.getItem(key);
+function isTokenUsable(token: AnonymousAuthToken): boolean {
+  return Date.now() + TOKEN_EXPIRY_SKEW_MS < token.expiresAtMs;
 }
 
-function writeStorageValue(key: string, value: string) {
-  if (!canUseStorage()) {
-    return;
-  }
-  localStorage.setItem(key, value);
+function clearTokenCache() {
+  cachedToken = null;
 }
 
 export function clearAnonymousAuth(options?: { clearAccount?: boolean }) {
-  if (!canUseStorage()) {
-    return;
+  clearTokenCache();
+  if (options?.clearAccount) {
+    cachedAccountId = null;
   }
 
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
-  if (options?.clearAccount) {
-    localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+  if (canUseStorage()) {
+    void fetch("/api/auth/anonymous-token", {
+      method: "DELETE",
+      cache: "no-store",
+      keepalive: true,
+    }).catch(() => {});
   }
-  localStorage.removeItem(EXPIRES_STORAGE_KEY);
 }
 
 function persistAnonymousAuth(token: AnonymousAuthToken) {
-  writeStorageValue(TOKEN_STORAGE_KEY, token.accessToken);
-  writeStorageValue(ACCOUNT_STORAGE_KEY, token.accountId);
-  writeStorageValue(EXPIRES_STORAGE_KEY, String(token.expiresAtMs));
-}
-
-function readStoredAccountId(): string | null {
-  const raw = readStorageValue(ACCOUNT_STORAGE_KEY);
-  return raw && raw.trim().length > 0 ? raw.trim() : null;
+  cachedToken = token;
+  cachedAccountId = token.accountId;
 }
 
 export function readStoredAnonymousAuthToken(): AnonymousAuthToken | null {
-  const accessToken = readStorageValue(TOKEN_STORAGE_KEY);
-  const accountId = readStoredAccountId();
-  const expiresAtRaw = readStorageValue(EXPIRES_STORAGE_KEY);
-
-  if (!accessToken || !accountId || !expiresAtRaw) {
+  if (!cachedToken) {
     return null;
   }
 
-  const expiresAtMs = Number.parseInt(expiresAtRaw, 10);
-  if (!Number.isFinite(expiresAtMs)) {
-    clearAnonymousAuth();
+  if (!isTokenUsable(cachedToken)) {
+    clearTokenCache();
     return null;
   }
 
-  if (Date.now() + TOKEN_EXPIRY_SKEW_MS >= expiresAtMs) {
-    clearAnonymousAuth();
-    return null;
-  }
-
-  return {
-    accessToken,
-    accountId,
-    expiresAtMs,
-  };
+  return cachedToken;
 }
 
-async function requestAnonymousAuthToken(accountId?: string): Promise<AnonymousAuthToken> {
+async function requestAnonymousAuthToken(options?: {
+  accountId?: string;
+  forceRefresh?: boolean;
+}): Promise<AnonymousAuthToken> {
   const response = await fetch("/api/auth/anonymous-token", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({ accountId }),
+    body: JSON.stringify({
+      accountId: options?.accountId,
+      forceRefresh: options?.forceRefresh,
+    }),
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -123,8 +106,8 @@ export async function getAnonymousAuthToken(
     }
   }
 
-  const accountId = requestedAccountId ?? readStoredAccountId() ?? undefined;
-  const fresh = await requestAnonymousAuthToken(accountId);
+  const accountId = requestedAccountId ?? cachedAccountId ?? undefined;
+  const fresh = await requestAnonymousAuthToken({ accountId, forceRefresh });
   persistAnonymousAuth(fresh);
   return fresh;
 }
