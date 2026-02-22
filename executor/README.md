@@ -82,6 +82,7 @@ executor doctor
 executor upgrade
 executor down
 executor up
+executor claude
 executor web
 executor backend --help
 ```
@@ -105,6 +106,7 @@ Run these from `executor/`:
 ```bash
 bun run doctor
 bun run up
+bun run claude
 bun run backend -- --help
 bun run web
 bun run codegen
