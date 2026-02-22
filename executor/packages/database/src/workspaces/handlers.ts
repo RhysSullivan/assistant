@@ -185,6 +185,40 @@ export async function listWorkspacesHandler(ctx: OptionalAccountCtx, args: { org
   return Array.from(new Map(allWorkspaces.map((workspace) => [workspace.id, workspace])).values());
 }
 
+type WorkspaceAccessCtx = MutationCtx & {
+  account: Doc<"accounts">;
+  workspace: Doc<"workspaces">;
+  workspaceId: Id<"workspaces">;
+};
+
+export async function renameWorkspaceHandler(
+  ctx: WorkspaceAccessCtx,
+  args: { name: string },
+) {
+  const name = args.name.trim();
+  if (name.length < 2) {
+    throw new Error("Workspace name must be at least 2 characters");
+  }
+
+  const workspace = ctx.workspace;
+  if (workspace.name === name) {
+    return await toWorkspaceResult(ctx, workspace);
+  }
+
+  const now = Date.now();
+  await ctx.db.patch(workspace._id, {
+    name,
+    updatedAt: now,
+  });
+
+  const updated = await ctx.db.get(workspace._id);
+  if (!updated) {
+    throw new Error("Failed to update workspace");
+  }
+
+  return await toWorkspaceResult(ctx, updated);
+}
+
 export async function generateWorkspaceIconUploadUrlHandler(ctx: AuthedCtx) {
   void ctx.account;
   return await ctx.storage.generateUploadUrl();

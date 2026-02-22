@@ -224,6 +224,18 @@ export const getMcpApiKey = workspaceQuery({
   },
 });
 
+export const rename = workspaceMutation({
+  method: "POST",
+  requireAdmin: true,
+  args: {
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { renameWorkspaceHandler } = await import("../src/workspaces/handlers");
+    return await renameWorkspaceHandler(ctx, args);
+  },
+});
+
 export const listTasks = workspaceQuery({
   method: "GET",
   args: {},

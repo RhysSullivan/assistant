@@ -5,7 +5,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "@/lib/router";
 import { useMutation } from "convex/react";
-import { ChevronsUpDown, Plus, Check, Settings } from "lucide-react";
+import { ChevronsUpDown, Plus, Check, Settings, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -38,6 +38,7 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
     creatingWorkspace,
     createWorkspace,
   } = useSession();
+  const renameWorkspaceMutation = useMutation(convexApi.workspace.rename);
   const [createOpen, setCreateOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [newWorkspaceIcon, setNewWorkspaceIcon] = useState<File | null>(null);
@@ -46,6 +47,11 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
   const [createTargetOrganizationName, setCreateTargetOrganizationName] = useState<string | null>(null);
   const [creatingOrganization, setCreatingOrganization] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameWorkspaceId, setRenameWorkspaceId] = useState<(typeof workspaces)[number]["id"] | null>(null);
+  const [renameWorkspaceName, setRenameWorkspaceName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const activeWorkspace = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)
@@ -99,6 +105,40 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
     setCreateTargetOrganizationId(organizationId);
     setCreateTargetOrganizationName(organizationName);
     setCreateOpen(true);
+  };
+
+  const openRenameWorkspace = (workspace: (typeof workspaces)[number]) => {
+    setRenameError(null);
+    setRenameWorkspaceId(workspace.id);
+    setRenameWorkspaceName(workspace.name);
+    setRenameOpen(true);
+  };
+
+  const handleRenameWorkspace = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+
+    const trimmed = renameWorkspaceName.trim();
+    if (trimmed.length < 2) {
+      setRenameError("Workspace name must be at least 2 characters.");
+      return;
+    }
+
+    if (!renameWorkspaceId) {
+      return;
+    }
+
+    setRenaming(true);
+    try {
+      await renameWorkspaceMutation({
+        workspaceId: renameWorkspaceId,
+        name: trimmed,
+      });
+      setRenameOpen(false);
+    } catch (cause) {
+      setRenameError(cause instanceof Error ? cause.message : "Failed to rename workspace");
+    } finally {
+      setRenaming(false);
+    }
   };
 
   const openCreateOrganization = () => {
@@ -224,7 +264,7 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
                           <DropdownMenuItem
                             key={workspace.id}
                             onSelect={() => switchWorkspace(workspace.id)}
-                            className="text-xs"
+                            className="text-xs group/ws"
                           >
                             <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
                             {workspace.iconUrl ? (
@@ -240,7 +280,19 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
                                 {(workspace.name[0] ?? "W").toUpperCase()}
                               </span>
                             )}
-                            <span className="min-w-0 truncate">{workspace.name}</span>
+                            <span className="min-w-0 truncate flex-1">{workspace.name}</span>
+                            <button
+                              type="button"
+                              className="ml-auto opacity-0 group-hover/ws:opacity-100 inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openRenameWorkspace(workspace);
+                              }}
+                              aria-label={`Rename ${workspace.name}`}
+                              title="Rename workspace"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
                           </DropdownMenuItem>
                         );
                       })}
@@ -340,6 +392,47 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
                   : createScope === "new_org"
                     ? "Create organization"
                     : "Create workspace"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent>
+          <form className="space-y-4" onSubmit={handleRenameWorkspace}>
+            <DialogHeader>
+              <DialogTitle>Rename workspace</DialogTitle>
+              <DialogDescription>
+                Enter a new name for this workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Input
+                value={renameWorkspaceName}
+                onChange={(event) => {
+                  setRenameError(null);
+                  setRenameWorkspaceName(event.target.value);
+                }}
+                placeholder="Workspace name"
+                maxLength={64}
+                autoFocus
+              />
+              {renameError ? (
+                <p className="text-xs text-destructive">{renameError}</p>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRenameOpen(false)}
+                disabled={renaming}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={renaming}>
+                {renaming ? "Renaming..." : "Rename"}
               </Button>
             </DialogFooter>
           </form>
