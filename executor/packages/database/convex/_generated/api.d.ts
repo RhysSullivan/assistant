@@ -500,6 +500,12 @@ export declare const api: {
       { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    rename: FunctionReference<
+      "mutation",
+      "public",
+      { name: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     resolveCredential: FunctionReference<
       "query",
       "public",
