@@ -16,6 +16,7 @@
     "backend": "bun run executor.ts backend",
     "convex": "bun run executor.ts backend",
     "web": "bun run executor.ts web",
+    "claude": "bun run executor.ts claude",
     "deploy": "bunx convex deploy",
     "codegen": "bunx convex codegen",
     "test": "bun run scripts/test/run-suite.ts fast",

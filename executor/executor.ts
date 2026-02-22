@@ -37,6 +37,7 @@ Usage:
   executor doctor [--verbose]
   executor upgrade [--version <version>]
   executor up [backend-args]
+  executor claude [--allow-bash] [-- claude-args]
   executor down
   executor backend <args>
   executor web [--port <number>]
@@ -46,6 +47,7 @@ Commands:
   doctor        Show install health and quick status
   upgrade       Re-run installer to update executor
   up            Run managed backend
+  claude        Start Claude Code wired to executor MCP execute tool
   down          Stop background backend/web services started by installer
   backend       Pass through arguments to managed convex-local-backend binary
   web           Run packaged web UI (expects backend already running)
@@ -602,6 +604,227 @@ Options:
   }
 }
 
+type AnonymousTokenResponse = {
+  accessToken: string;
+  accountId: string;
+  expiresAtMs: number;
+};
+
+type AnonymousSessionContext = {
+  sessionId: string;
+  workspaceId: string;
+};
+
+type McpApiKeyResponse = {
+  enabled: boolean;
+  apiKey: string | null;
+  error?: string;
+};
+
+type ClaudeLaunchContext = {
+  mcpUrl: string;
+  apiKey: string;
+};
+
+const CLAUDE_SESSION_FILE = "claude-session-id";
+const CLAUDE_SYSTEM_PROMPT = "Use mcp__executor__execute for command-like work and code execution. That tool runs TypeScript inside executor's sandbox.";
+
+async function readStoredClaudeSessionId(runtimeRoot: string): Promise<string | undefined> {
+  const filePath = path.join(runtimeRoot, CLAUDE_SESSION_FILE);
+  try {
+    const value = (await fs.readFile(filePath, "utf8")).trim();
+    if (value.startsWith("mcp_")) {
+      return value;
+    }
+  } catch {
+    // missing file is expected on first run
+  }
+
+  return undefined;
+}
+
+async function writeStoredClaudeSessionId(runtimeRoot: string, sessionId: string): Promise<void> {
+  if (!sessionId.startsWith("mcp_")) {
+    return;
+  }
+
+  const filePath = path.join(runtimeRoot, CLAUDE_SESSION_FILE);
+  await fs.mkdir(runtimeRoot, { recursive: true });
+  await fs.writeFile(filePath, `${sessionId}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+async function requestAnonymousToken(convexSiteUrl: string): Promise<AnonymousTokenResponse> {
+  const response = await fetch(`${convexSiteUrl}/auth/anonymous/token`, {
+    method: "POST",
+  });
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    const detail = responseText.trim().length > 0 ? responseText.trim() : `${response.status} ${response.statusText}`;
+    throw new Error(`Failed to obtain anonymous auth token: ${detail}`);
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(responseText);
+  } catch {
+    throw new Error("Anonymous token response was not valid JSON");
+  }
+
+  const parsed = payload as Partial<AnonymousTokenResponse>;
+  if (
+    typeof parsed.accessToken !== "string"
+    || typeof parsed.accountId !== "string"
+    || typeof parsed.expiresAtMs !== "number"
+  ) {
+    throw new Error("Anonymous token response was malformed");
+  }
+
+  return {
+    accessToken: parsed.accessToken,
+    accountId: parsed.accountId,
+    expiresAtMs: parsed.expiresAtMs,
+  };
+}
+
+async function bootstrapClaudeContext(convexUrl: string, convexSiteUrl: string, runtimeRoot: string): Promise<ClaudeLaunchContext> {
+  const token = await requestAnonymousToken(convexSiteUrl);
+
+  const convex = new ConvexHttpClient(convexUrl, {
+    skipConvexDeploymentUrlCheck: true,
+  });
+  convex.setAuth(token.accessToken);
+  const convexAny = convex as unknown as {
+    mutation: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+    query: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+  };
+
+  const storedSessionId = await readStoredClaudeSessionId(runtimeRoot);
+  const anonymousContext = await convexAny.mutation("workspace:bootstrapAnonymousSession", {
+    ...(storedSessionId ? { sessionId: storedSessionId } : {}),
+  }) as AnonymousSessionContext;
+
+  if (typeof anonymousContext?.sessionId !== "string" || typeof anonymousContext?.workspaceId !== "string") {
+    throw new Error("Anonymous session bootstrap returned malformed data");
+  }
+
+  await writeStoredClaudeSessionId(runtimeRoot, anonymousContext.sessionId);
+
+  const mcpApiKey = await convexAny.query("workspace:getMcpApiKey", {
+    workspaceId: anonymousContext.workspaceId,
+    sessionId: anonymousContext.sessionId,
+  }) as McpApiKeyResponse;
+
+  if (!mcpApiKey.enabled || !mcpApiKey.apiKey) {
+    throw new Error(mcpApiKey.error ?? "MCP API key is not available");
+  }
+
+  const mcpUrl = new URL("/mcp/anonymous", convexSiteUrl);
+  mcpUrl.searchParams.set("workspaceId", anonymousContext.workspaceId);
+
+  return {
+    mcpUrl: mcpUrl.toString(),
+    apiKey: mcpApiKey.apiKey,
+  };
+}
+
+function printClaudeHelp(): void {
+  console.log(`Usage:
+  executor claude [--allow-bash] [-- claude-args]
+
+Starts Claude Code with a temporary MCP config wired to executor's execute tool.
+
+Options:
+  --allow-bash    Keep Claude's Bash tool enabled
+  -h, --help      Show this help
+
+Examples:
+  executor claude
+  executor claude -- "fix failing tests"
+  executor claude --allow-bash -- --model sonnet`);
+}
+
+async function runClaude(args: string[]): Promise<number> {
+  const claudePath = Bun.which("claude");
+  if (!claudePath) {
+    console.log("Claude Code CLI is not installed. Install it first with:");
+    console.log("  curl -fsSL https://claude.ai/install.sh | bash");
+    return 1;
+  }
+
+  if (args.length === 1 && (args[0] === "-h" || args[0] === "--help")) {
+    printClaudeHelp();
+    return 0;
+  }
+
+  let allowBash = false;
+  let passThrough = args;
+
+  if (passThrough[0] !== "--") {
+    passThrough = passThrough.filter((arg) => {
+      if (arg === "--allow-bash") {
+        allowBash = true;
+        return false;
+      }
+      return true;
+    });
+  }
+
+  if (passThrough[0] === "--") {
+    passThrough = passThrough.slice(1);
+  }
+
+  const info = await managedRuntimeDiagnostics();
+  const backendRunning = await checkHttp(`${info.convexUrl}/version`);
+  if (!backendRunning) {
+    console.log("Managed backend is not running. Start it first with `executor up`.");
+    return 1;
+  }
+
+  const launchContext = await bootstrapClaudeContext(info.convexUrl, info.convexSiteUrl, info.rootDir);
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "executor-claude-"));
+  const configPath = path.join(tempDir, "mcp.json");
+  const mcpConfig = {
+    mcpServers: {
+      executor: {
+        type: "http",
+        url: launchContext.mcpUrl,
+        headers: {
+          "x-api-key": launchContext.apiKey,
+        },
+      },
+    },
+  };
+
+  try {
+    await fs.writeFile(configPath, `${JSON.stringify(mcpConfig, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+
+    const claudeArgs: string[] = [
+      "--mcp-config",
+      configPath,
+      "--strict-mcp-config",
+      "--append-system-prompt",
+      CLAUDE_SYSTEM_PROMPT,
+      ...(!allowBash ? ["--disallowedTools", "Bash"] : []),
+      ...passThrough,
+    ];
+
+    const proc = Bun.spawn([claudePath, ...claudeArgs], {
+      env: process.env,
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    return await proc.exited;
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function run(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
 
@@ -627,6 +850,11 @@ async function run(): Promise<void> {
 
   if (command === "up") {
     const exitCode = await runManagedBackend(rest);
+    process.exit(exitCode);
+  }
+
+  if (command === "claude") {
+    const exitCode = await runClaude(rest);
     process.exit(exitCode);
   }
 
