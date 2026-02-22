@@ -436,6 +436,34 @@ function containsUnknownTypeToken(segment: string): boolean {
   return /\bunknown\b/.test(withoutQuotedLiterals);
 }
 
+function isSchemaRefOnly(schema: Record<string, unknown>): boolean {
+  const keys = Object.keys(schema);
+  return keys.length > 0
+    && typeof schema.$ref === "string"
+    && keys.every((key) => key === "$ref");
+}
+
+function resolveExpectedInputPrimitiveFromGeneratedSchema(
+  inputSchema: Record<string, unknown>,
+  fieldName: string,
+  componentSchemas: Record<string, unknown>,
+): PrimitiveParamType | null {
+  const rootProps = toRecord(inputSchema.properties);
+  const containerKeys = ["path", "query", "headers", "cookie", "body"] as const;
+
+  const direct = resolveSchemaPrimitiveType(rootProps[fieldName], componentSchemas);
+  if (direct) return direct;
+
+  for (const container of containerKeys) {
+    const containerSchema = toRecord(rootProps[container]);
+    const containerProps = toRecord(containerSchema.properties);
+    const resolved = resolveSchemaPrimitiveType(containerProps[fieldName], componentSchemas);
+    if (resolved) return resolved;
+  }
+
+  return null;
+}
+
 const SPECS: SpecFixture[] = [
   {
     name: "jira",
@@ -692,6 +720,113 @@ describe("real-world OpenAPI specs", () => {
       const outputProps = toRecord(outputItems.properties);
       expect(toRecord(outputProps.id).type).toBe("string");
       expect(toRecord(outputProps.actor).type).toBe("object");
+    },
+    300_000,
+  );
+
+  test(
+    "github: enterprise code security configurations resolves array item schema in includeDts=false mode",
+    async () => {
+      const githubUrl =
+        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
+
+      const prepared = await prepareOpenApiSpec(githubUrl, "github", {
+        includeDts: false,
+        profile: "full",
+      });
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "github",
+          spec: githubUrl,
+          baseUrl: prepared.servers[0] || "https://api.github.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find((t) => t.path === "github.code_security.get_configurations_for_enterprise");
+
+      expect(tool).toBeDefined();
+      const outputSchema = toRecord(tool!.typing?.outputSchema);
+      expect(outputSchema.type).toBe("array");
+
+      const outputItems = toRecord(outputSchema.items);
+      expect(typeof outputItems.$ref).not.toBe("string");
+      expect(outputItems.type).toBe("object");
+
+      const outputProps = toRecord(outputItems.properties);
+      expect(toRecord(outputProps.id).type).toBe("integer");
+      expect(toRecord(outputProps.name).type).toBe("string");
+    },
+    300_000,
+  );
+
+  test(
+    "github + stripe: root generated array schemas include concrete item definitions",
+    async () => {
+      const fixtures = [
+        {
+          name: "github",
+          url: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml",
+          fallbackBaseUrl: "https://api.github.com",
+        },
+        {
+          name: "stripe",
+          url: "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+          fallbackBaseUrl: "https://api.stripe.com",
+        },
+      ] as const;
+
+      for (const fixture of fixtures) {
+        const prepared = await prepareOpenApiSpec(fixture.url, fixture.name, {
+          includeDts: false,
+          profile: "full",
+        });
+        const tools = buildOpenApiToolsFromPrepared(
+          {
+            type: "openapi",
+            name: fixture.name,
+            spec: fixture.url,
+            baseUrl: prepared.servers[0] || fixture.fallbackBaseUrl,
+          },
+          prepared,
+        );
+
+        const issues: string[] = [];
+
+        const validateArrayItems = (schema: Record<string, unknown>, location: string) => {
+          const items = toRecord(schema.items);
+          const itemKeys = Object.keys(items);
+          if (itemKeys.length === 0) {
+            issues.push(`${location}.items has empty items schema`);
+            return;
+          }
+
+          const isRefOnly = typeof items.$ref === "string" && itemKeys.every((key) => key === "$ref");
+          if (isRefOnly) {
+            issues.push(`${location}.items is ref-only (${String(items.$ref)})`);
+          }
+        };
+
+        const visitTopLevelSchema = (schemaValue: unknown, location: string) => {
+          const schema = toRecord(schemaValue);
+          if (Object.keys(schema).length === 0) return;
+
+          if (schema.type === "array") {
+            validateArrayItems(schema, `${location}:schema`);
+          }
+        };
+
+        for (const tool of tools) {
+          visitTopLevelSchema(tool.typing?.inputSchema, `${tool.path}:input`);
+          visitTopLevelSchema(tool.typing?.outputSchema, `${tool.path}:output`);
+        }
+
+        expect(
+          issues,
+          `${fixture.name} has array item schema regressions:\n${issues.slice(0, 20).join("\n")}`,
+        ).toHaveLength(0);
+      }
     },
     300_000,
   );
@@ -1035,6 +1170,111 @@ describe("real-world OpenAPI specs", () => {
             }
           }
         }
+      }
+    },
+    1_800_000,
+  );
+
+  test(
+    "full profile schemas validate every github/stripe operation against parser-derived expectations",
+    async () => {
+      const fixtures = SPECS.filter((fixture) => fixture.name === "github" || fixture.name === "stripe");
+      expect(fixtures.length).toBe(2);
+
+      for (const fixture of fixtures) {
+        const parsed = await SwaggerParser.parse(fixture.url);
+        const parsedSpec = parsed as Record<string, unknown>;
+        const componentSchemas = toRecord(toRecord(parsedSpec.components).schemas);
+        const operationExpectations = collectOperationTypeExpectations(parsedSpec);
+        expect(operationExpectations.size).toBeGreaterThan(0);
+
+        const prepared = await prepareOpenApiSpec(parsedSpec, fixture.name, {
+          includeDts: false,
+          profile: "full",
+        });
+
+        const tools = buildOpenApiToolsFromPrepared(
+          {
+            type: "openapi",
+            name: fixture.name,
+            spec: fixture.url,
+            baseUrl: prepared.servers[0] || `https://${fixture.name}.example.com`,
+          },
+          prepared,
+        );
+
+        const toolsByOperationId = new Map<string, (typeof tools)[number]>();
+        for (const tool of tools) {
+          const operationId = tool.typing?.typedRef?.kind === "openapi_operation"
+            ? tool.typing.typedRef.operationId
+            : "";
+          if (!operationId || toolsByOperationId.has(operationId)) continue;
+          toolsByOperationId.set(operationId, tool);
+        }
+
+        expect(toolsByOperationId.size).toBe(operationExpectations.size);
+
+        const issues: string[] = [];
+
+        for (const [operationId, expectations] of operationExpectations.entries()) {
+          const tool = toolsByOperationId.get(operationId);
+          if (!tool) {
+            issues.push(`missing tool for operationId ${operationId}`);
+            continue;
+          }
+
+          const inputSchema = toRecord(tool.typing?.inputSchema);
+          const outputSchema = toRecord(tool.typing?.outputSchema);
+
+          if (expectations.expectsInput && Object.keys(inputSchema).length === 0) {
+            issues.push(`${tool.path}: expected input schema but got empty`);
+          }
+
+          if (expectations.expectsKnownOutput && Object.keys(outputSchema).length === 0) {
+            issues.push(`${tool.path}: expected output schema but got empty`);
+          }
+
+          if (expectations.expectsVoidOutput && Object.keys(outputSchema).length > 0) {
+            issues.push(`${tool.path}: expected void output but schema was present`);
+          }
+
+          if (outputSchema.type === "array") {
+            const items = toRecord(outputSchema.items);
+            if (Object.keys(items).length === 0) {
+              issues.push(`${tool.path}: output array has empty items schema`);
+            } else if (isSchemaRefOnly(items)) {
+              issues.push(`${tool.path}: output array items are ref-only (${String(items.$ref)})`);
+            }
+          }
+
+          for (const expected of expectations.expectedInputFields) {
+            const resolved = resolveExpectedInputPrimitiveFromGeneratedSchema(inputSchema, expected.name, componentSchemas);
+            if (!resolved) {
+              issues.push(`${tool.path}: missing input field ${expected.name}`);
+              continue;
+            }
+            if (resolved !== expected.type) {
+              issues.push(`${tool.path}: input field ${expected.name} expected ${expected.type}, got ${resolved}`);
+            }
+          }
+
+          const outputProperties = toRecord(outputSchema.properties);
+          for (const expected of expectations.expectedOutputFields) {
+            const resolved = resolveSchemaPrimitiveType(outputProperties[expected.name], componentSchemas);
+            if (!resolved) {
+              issues.push(`${tool.path}: missing output field ${expected.name}`);
+              continue;
+            }
+            if (resolved !== expected.type) {
+              issues.push(`${tool.path}: output field ${expected.name} expected ${expected.type}, got ${resolved}`);
+            }
+          }
+        }
+
+        expect(
+          issues,
+          `${fixture.name} full-profile schema regressions:\n${issues.slice(0, 30).join("\n")}`,
+        ).toHaveLength(0);
       }
     },
     1_800_000,

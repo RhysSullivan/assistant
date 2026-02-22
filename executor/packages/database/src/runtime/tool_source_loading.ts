@@ -30,6 +30,7 @@ import {
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 const OPENAPI_PREPARE_MAX_ATTEMPTS = 3;
 const OPENAPI_PREPARE_RETRY_BASE_DELAY_MS = 1_500;
+const OPENAPI_EXTERNAL_GENERATE_TIMEOUT_MS = 180_000;
 
 const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v11";
 const OPENAPI_ARTIFACT_CACHE_VERSION = "openapi_artifact_v1";
@@ -79,6 +80,90 @@ const preparedOpenApiEnvelopeSchema = z.object({
   storageId: z.string(),
   sizeBytes: z.number().optional(),
 });
+
+const externalGenerateResponseSchema = z.object({
+  status: z.enum(["ready", "failed"]).optional(),
+  prepared: z.unknown().optional(),
+  error: z.string().optional(),
+});
+
+function trimEnv(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveExternalGenerateEndpoint(): string | undefined {
+  const base = trimEnv(process.env.EXECUTOR_GENERATE_URL);
+  if (!base) {
+    return undefined;
+  }
+
+  return base.endsWith("/api/generate") ? base : `${base.replace(/\/$/, "")}/api/generate`;
+}
+
+async function loadPreparedOpenApiSpecFromExternalGenerate(
+  specUrl: string,
+  sourceName: string,
+  includeDts: boolean,
+): Promise<PreparedOpenApiSpec | null> {
+  const endpoint = resolveExternalGenerateEndpoint();
+  if (!endpoint) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAPI_EXTERNAL_GENERATE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ specUrl, sourceName, includeDts }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    const payload = externalGenerateResponseSchema.safeParse(await response.json().catch(() => ({})));
+    if (!payload.success) {
+      return null;
+    }
+
+    if (!response.ok || payload.data.status === "failed") {
+      return null;
+    }
+
+    return toPreparedOpenApiSpec(payload.data.prepared);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function cachePreparedOpenApiSpec(
+  ctx: ActionCtx,
+  specUrl: string,
+  sourceName: string,
+  prepared: PreparedOpenApiSpec,
+  preparedStorageId?: Id<"_storage">,
+  preparedSizeBytes?: number,
+): Promise<void> {
+  try {
+    const json = JSON.stringify(prepared);
+    const storageId = preparedStorageId ?? await ctx.storage.store(new Blob([json], { type: "application/json" }));
+    await ctx.runMutation(internal.openApiSpecCache.putEntry, {
+      specUrl,
+      version: OPENAPI_PREPARED_CACHE_VERSION,
+      storageId,
+      sizeBytes: preparedSizeBytes ?? json.length,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[executor] OpenAPI cache write failed for '${sourceName}': ${message}`);
+  }
+}
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
@@ -459,6 +544,16 @@ async function loadCachedOpenApiSpec(
     console.warn(`[executor] OpenAPI cache read failed for '${sourceName}': ${message}`);
   }
 
+  const externalPrepared = await loadPreparedOpenApiSpecFromExternalGenerate(
+    specUrl,
+    sourceName,
+    includeDts,
+  );
+  if (externalPrepared) {
+    await cachePreparedOpenApiSpec(ctx, specUrl, sourceName, externalPrepared);
+    return externalPrepared;
+  }
+
   let preparedResponse: unknown = undefined;
   let lastPrepareError: string | undefined;
   for (let attempt = 1; attempt <= OPENAPI_PREPARE_MAX_ATTEMPTS; attempt += 1) {
@@ -520,19 +615,14 @@ async function loadCachedOpenApiSpec(
     throw new Error(`Prepared OpenAPI payload for '${sourceName}' was invalid`);
   }
 
-  try {
-    const json = JSON.stringify(prepared);
-    const storageId = preparedStorageId ?? await ctx.storage.store(new Blob([json], { type: "application/json" }));
-    await ctx.runMutation(internal.openApiSpecCache.putEntry, {
-      specUrl,
-      version: OPENAPI_PREPARED_CACHE_VERSION,
-      storageId,
-      sizeBytes: preparedSizeBytes ?? json.length,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[executor] OpenAPI cache write failed for '${sourceName}': ${message}`);
-  }
+  await cachePreparedOpenApiSpec(
+    ctx,
+    specUrl,
+    sourceName,
+    prepared,
+    preparedStorageId,
+    preparedSizeBytes,
+  );
 
   return prepared;
 }
