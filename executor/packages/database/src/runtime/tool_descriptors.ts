@@ -23,6 +23,22 @@ function stringifySchema(schema: Record<string, unknown> | undefined): string | 
   }
 }
 
+function isSchemaReferenceOnly(schema: Record<string, unknown> | undefined): boolean {
+  if (!schema || Object.keys(schema).length === 0) return false;
+  if (typeof schema.$ref !== "string" || schema.$ref.length === 0) return false;
+
+  return schema.type === undefined
+    && schema.properties === undefined
+    && schema.items === undefined
+    && schema.anyOf === undefined
+    && schema.oneOf === undefined
+    && schema.allOf === undefined
+    && schema.enum === undefined
+    && schema.const === undefined
+    && schema.required === undefined
+    && schema.additionalProperties === undefined;
+}
+
 function toToolDescriptor(
   tool: ToolDefinition,
   approval: "auto" | "required",
@@ -33,10 +49,21 @@ function toToolDescriptor(
   const outputHint = tool.typing?.outputHint?.trim();
   const hasInputSchema = Object.keys(tool.typing?.inputSchema ?? {}).length > 0;
   const hasOutputSchema = Object.keys(tool.typing?.outputSchema ?? {}).length > 0;
+  const hasUsableInputSchema = hasInputSchema && !isSchemaReferenceOnly(tool.typing?.inputSchema);
+  const hasUsableOutputSchema = hasOutputSchema && !isSchemaReferenceOnly(tool.typing?.outputSchema);
   const inputSchemaJson = stringifySchema(tool.typing?.inputSchema);
   const outputSchemaJson = stringifySchema(tool.typing?.outputSchema);
-  const useInputHint = Boolean(inputHint && (!isLossyTypeHint(inputHint) || !hasInputSchema));
-  const useOutputHint = Boolean(outputHint && (!isLossyTypeHint(outputHint) || !hasOutputSchema));
+  const isOpenApiOperation = tool.typing?.typedRef?.kind === "openapi_operation";
+  const useInputHint = Boolean(
+    inputHint
+      && (!isLossyTypeHint(inputHint) || !hasInputSchema)
+      && !(isOpenApiOperation && hasUsableInputSchema),
+  );
+  const useOutputHint = Boolean(
+    outputHint
+      && (!isLossyTypeHint(outputHint) || !hasOutputSchema)
+      && !(isOpenApiOperation && hasUsableOutputSchema),
+  );
 
   return {
     path: tool.path,
@@ -59,7 +86,7 @@ function toToolDescriptor(
           display: {
             input: useInputHint && inputHint
               ? displayArgTypeHint(inputHint)
-              : compactArgTypeHintFromSchema(tool.typing?.inputSchema ?? {}),
+            : compactArgTypeHintFromSchema(tool.typing?.inputSchema ?? {}),
             output: useOutputHint && outputHint
               ? displayReturnTypeHint(outputHint)
               : compactReturnTypeHintFromSchema(tool.typing?.outputSchema ?? {}),
@@ -97,15 +124,22 @@ export function computeOpenApiSourceQuality(
       const outputSchema = tool.typing?.outputSchema ?? {};
       const hasInput = Object.keys(inputSchema).length > 0;
       const hasOutput = Object.keys(outputSchema).length > 0;
+      const hasUsableInput = hasInput && !isSchemaReferenceOnly(inputSchema);
+      const hasUsableOutput = hasOutput && !isSchemaReferenceOnly(outputSchema);
       if (!hasInput) unknownArgsCount += 1;
       if (!hasOutput) unknownReturnsCount += 1;
       // Best-effort: count schema nodes that still include unknown-ish placeholders.
       const typedInputHint = tool.typing?.inputHint?.trim();
       const typedOutputHint = tool.typing?.outputHint?.trim();
-      const inputHint = typedInputHint && (!isLossyTypeHint(typedInputHint) || !hasInput)
+      const isOpenApiOperation = tool.typing?.typedRef?.kind === "openapi_operation";
+      const inputHint = typedInputHint
+        && (!isLossyTypeHint(typedInputHint) || !hasInput)
+        && !(isOpenApiOperation && hasUsableInput)
         ? displayArgTypeHint(typedInputHint)
         : compactArgTypeHintFromSchema(inputSchema);
-      const outputHint = typedOutputHint && (!isLossyTypeHint(typedOutputHint) || !hasOutput)
+      const outputHint = typedOutputHint
+        && (!isLossyTypeHint(typedOutputHint) || !hasOutput)
+        && !(isOpenApiOperation && hasUsableOutput)
         ? displayReturnTypeHint(typedOutputHint)
         : compactReturnTypeHintFromSchema(outputSchema);
       if (inputHint.includes("unknown")) partialUnknownArgsCount += 1;

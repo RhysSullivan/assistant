@@ -57,6 +57,22 @@ function stringifySchema(schema: JsonSchema): string | undefined {
   }
 }
 
+function isSchemaReferenceOnly(schema: JsonSchema): boolean {
+  if (Object.keys(schema).length === 0) return false;
+  if (typeof schema.$ref !== "string" || schema.$ref.length === 0) return false;
+
+  return schema.type === undefined
+    && schema.properties === undefined
+    && schema.items === undefined
+    && schema.anyOf === undefined
+    && schema.oneOf === undefined
+    && schema.allOf === undefined
+    && schema.enum === undefined
+    && schema.const === undefined
+    && schema.required === undefined
+    && schema.additionalProperties === undefined;
+}
+
 async function listWorkspaceToolSources(
   ctx: QueryRunnerCtx,
   workspaceId: Id<"workspaces">,
@@ -313,16 +329,27 @@ function toDescriptorFromRegistryEntry(
         const typedOutputHint = serializedTool.typing?.outputHint?.trim();
         const hasInputSchema = Object.keys(inputSchema).length > 0;
         const hasOutputSchema = Object.keys(outputSchema).length > 0;
-        const useTypedInputHint = Boolean(typedInputHint && (!isLossyTypeHint(typedInputHint) || !hasInputSchema));
-        const useTypedOutputHint = Boolean(typedOutputHint && (!isLossyTypeHint(typedOutputHint) || !hasOutputSchema));
+        const hasUsableInputSchema = hasInputSchema && !isSchemaReferenceOnly(inputSchema);
+        const hasUsableOutputSchema = hasOutputSchema && !isSchemaReferenceOnly(outputSchema);
+        const isOpenApiOperation = serializedTool.typing?.typedRef?.kind === "openapi_operation";
+        const useTypedInputHint = Boolean(
+          typedInputHint
+            && (!isLossyTypeHint(typedInputHint) || !hasInputSchema)
+            && !(isOpenApiOperation && hasUsableInputSchema),
+        );
+        const useTypedOutputHint = Boolean(
+          typedOutputHint
+            && (!isLossyTypeHint(typedOutputHint) || !hasOutputSchema)
+            && !(isOpenApiOperation && hasUsableOutputSchema),
+        );
 
         resolvedDisplayInput = useTypedInputHint && typedInputHint
           ? displayArgTypeHint(typedInputHint)
-          : (hasInputSchema ? compactArgTypeHintFromSchema(inputSchema) : fallbackDisplayInput);
+          : (hasUsableInputSchema ? compactArgTypeHintFromSchema(inputSchema) : fallbackDisplayInput);
 
         resolvedDisplayOutput = useTypedOutputHint && typedOutputHint
           ? displayReturnTypeHint(typedOutputHint)
-          : (hasOutputSchema ? compactReturnTypeHintFromSchema(outputSchema) : fallbackDisplayOutput);
+          : (hasUsableOutputSchema ? compactReturnTypeHintFromSchema(outputSchema) : fallbackDisplayOutput);
       }
     } catch {
       // Keep fallback display hints.
@@ -464,8 +491,19 @@ function computeOpenApiSourceQualityFromSerializedTools(
       const outputSchema = toJsonSchema(typing?.outputSchema);
       const hasInputSchema = Object.keys(inputSchema).length > 0;
       const hasOutputSchema = Object.keys(outputSchema).length > 0;
-      const useInputHint = Boolean(inputHint && (!isLossyTypeHint(inputHint) || !hasInputSchema));
-      const useOutputHint = Boolean(outputHint && (!isLossyTypeHint(outputHint) || !hasOutputSchema));
+      const hasUsableInputSchema = hasInputSchema && !isSchemaReferenceOnly(inputSchema);
+      const hasUsableOutputSchema = hasOutputSchema && !isSchemaReferenceOnly(outputSchema);
+      const isOpenApiOperation = typing?.typedRef?.kind === "openapi_operation";
+      const useInputHint = Boolean(
+        inputHint
+          && (!isLossyTypeHint(inputHint) || !hasInputSchema)
+          && !(isOpenApiOperation && hasUsableInputSchema),
+      );
+      const useOutputHint = Boolean(
+        outputHint
+          && (!isLossyTypeHint(outputHint) || !hasOutputSchema)
+          && !(isOpenApiOperation && hasUsableOutputSchema),
+      );
 
       return {
         path: tool.path,
@@ -722,8 +760,19 @@ function registryWriteEntriesFromSerializedTools(serializedTools: SerializedTool
     const outputHint = typing.outputHint?.trim();
     const hasInputSchema = Object.keys(inputSchema).length > 0;
     const hasOutputSchema = Object.keys(outputSchema).length > 0;
-    const useInputHint = Boolean(inputHint && (!isLossyTypeHint(inputHint) || !hasInputSchema));
-    const useOutputHint = Boolean(outputHint && (!isLossyTypeHint(outputHint) || !hasOutputSchema));
+    const hasUsableInputSchema = hasInputSchema && !isSchemaReferenceOnly(inputSchema);
+    const hasUsableOutputSchema = hasOutputSchema && !isSchemaReferenceOnly(outputSchema);
+    const isOpenApiOperation = st.typing?.typedRef?.kind === "openapi_operation";
+    const useInputHint = Boolean(
+      inputHint
+        && (!isLossyTypeHint(inputHint) || !hasInputSchema)
+        && !(isOpenApiOperation && hasUsableInputSchema),
+    );
+    const useOutputHint = Boolean(
+      outputHint
+        && (!isLossyTypeHint(outputHint) || !hasOutputSchema)
+        && !(isOpenApiOperation && hasUsableOutputSchema),
+    );
 
     const displayInput = useInputHint && inputHint
       ? displayArgTypeHint(inputHint)

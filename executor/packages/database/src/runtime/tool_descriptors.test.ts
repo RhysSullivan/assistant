@@ -48,3 +48,81 @@ test("listVisibleToolDescriptors derives display hints from schemas", () => {
   expect(descriptor.typing?.requiredInputKeys).toEqual(expect.arrayContaining(["org", "runner_id", "labels"]));
   expect(descriptor.typing?.previewInputKeys).toEqual(expect.arrayContaining(["org", "runner_id"]));
 });
+
+test("listVisibleToolDescriptors ignores OpenAPI typed hints when schemas are present", () => {
+  const tool: ToolDefinition = {
+    path: "stripe.delete_accounts_account_bank_accounts_id",
+    description: "Delete an external account",
+    approval: "required",
+    source: "openapi:stripe",
+    typing: {
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: {
+            type: "object",
+            properties: {
+              account: { type: "string" },
+              id: { type: "string" },
+            },
+            required: ["account", "id"],
+          },
+        },
+        required: ["path"],
+      },
+      outputSchema: {
+        type: "object",
+        properties: {
+          deleted: { type: "boolean" },
+          id: { type: "string" },
+        },
+        required: ["deleted", "id"],
+      },
+      inputHint: "{ path: string; body?: Record<string, unknown> }",
+      outputHint: "string",
+      typedRef: {
+        kind: "openapi_operation",
+        sourceKey: "openapi:stripe",
+        operationId: "DeleteAccountsAccountBankAccountsID",
+      },
+    },
+    run: async () => ({ deleted: true, id: "ba_123" }),
+  };
+
+  const tools = new Map<string, ToolDefinition>([[tool.path, tool]]);
+  const [descriptor] = listVisibleToolDescriptors(tools, { workspaceId: "w" }, [], { includeDetails: true });
+
+  expect(descriptor).toBeDefined();
+  expect(descriptor!.display?.input).toContain("path");
+  expect(descriptor!.display?.input).not.toContain("body?: Record<string, unknown>");
+  expect(descriptor!.display?.output).toContain("deleted");
+  expect(descriptor!.display?.output).not.toBe("string");
+});
+
+test("listVisibleToolDescriptors falls back to OpenAPI typed hints for $ref-only schemas", () => {
+  const tool: ToolDefinition = {
+    path: "stripe.delete_accounts_account_bank_accounts_id",
+    description: "Delete an external account",
+    approval: "required",
+    source: "openapi:stripe",
+    typing: {
+      outputSchema: {
+        $ref: "#/components/schemas/deleted_external_account",
+      },
+      outputHint: "{ deleted: true; id: string; object: \"bank_account\" } | { object: \"card\" }",
+      typedRef: {
+        kind: "openapi_operation",
+        sourceKey: "openapi:stripe",
+        operationId: "DeleteAccountsAccountBankAccountsID",
+      },
+    },
+    run: async () => ({ deleted: true, id: "ba_123", object: "bank_account" }),
+  };
+
+  const tools = new Map<string, ToolDefinition>([[tool.path, tool]]);
+  const [descriptor] = listVisibleToolDescriptors(tools, { workspaceId: "w" }, [], { includeDetails: true });
+
+  expect(descriptor).toBeDefined();
+  expect(descriptor!.display?.output).toContain("deleted: true");
+  expect(descriptor!.display?.output).not.toContain("$ref");
+});

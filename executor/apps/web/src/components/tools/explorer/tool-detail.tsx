@@ -371,21 +371,20 @@ function ToolDetailContent({
   const hasOutputHint = outputHint.length > 0 && outputHint.toLowerCase() !== "unknown";
   const hasInputSchema = inputSchemaJson.length > 0 && inputSchemaJson !== "{}";
   const hasOutputSchema = outputSchemaJson.length > 0 && outputSchemaJson !== "{}";
+  const inputSchema = useMemo(() => parseSchemaJson(inputSchemaJson), [inputSchemaJson]);
+  const outputSchema = useMemo(() => parseSchemaJson(outputSchemaJson), [outputSchemaJson]);
 
   const inputFields = useMemo(
-    () => traverseSchema(parseSchemaJson(inputSchemaJson), { maxEntries: 30, maxDepth: 5 }),
-    [inputSchemaJson],
+    () => traverseSchema(inputSchema, { maxEntries: 30, maxDepth: 5 }),
+    [inputSchema],
   );
   const outputFields = useMemo(
-    () => traverseSchema(parseSchemaJson(outputSchemaJson), { maxEntries: 30, maxDepth: 5 }),
-    [outputSchemaJson],
+    () => traverseSchema(outputSchema, { maxEntries: 30, maxDepth: 5 }),
+    [outputSchema],
   );
 
-  const hasInputFields = inputFields.entries.length > 0;
-  const hasOutputFields = outputFields.entries.length > 0;
-
-  const canRenderInputSchema = hasInputSchema && hasInputFields;
-  const canRenderOutputSchema = hasOutputSchema && hasOutputFields;
+  const canRenderInputSchema = hasInputSchema;
+  const canRenderOutputSchema = hasOutputSchema;
 
   const shouldShowInputHint = hasInputHint && !canRenderInputSchema;
   const shouldShowOutputHint = hasOutputHint && !canRenderOutputSchema;

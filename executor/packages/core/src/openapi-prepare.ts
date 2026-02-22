@@ -230,8 +230,8 @@ export async function prepareOpenApiSpec(
   const includeDts = options.includeDts ?? true;
   const profile = options.profile ?? (includeDts ? "full" : "inventory");
   const shouldGenerateDts = includeDts && profile === "full";
-  const shouldBundle = profile === "full" && includeDts;
   const resolveSchemaRefs = options.resolveSchemaRefs ?? (profile === "full");
+  const shouldBundle = profile === "full" && resolveSchemaRefs;
 
   const warnings: string[] = [];
 

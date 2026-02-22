@@ -660,6 +660,43 @@ describe("real-world OpenAPI specs", () => {
   );
 
   test(
+    "github: list public events resolves array item schema in includeDts=false mode",
+    async () => {
+      const githubUrl =
+        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
+
+      const prepared = await prepareOpenApiSpec(githubUrl, "github", {
+        includeDts: false,
+        profile: "full",
+      });
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "github",
+          spec: githubUrl,
+          baseUrl: prepared.servers[0] || "https://api.github.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find((t) => t.path === "github.activity.list_public_events");
+
+      expect(tool).toBeDefined();
+      const outputSchema = toRecord(tool!.typing?.outputSchema);
+      expect(outputSchema.type).toBe("array");
+
+      const outputItems = toRecord(outputSchema.items);
+      expect(typeof outputItems.$ref).not.toBe("string");
+      expect(outputItems.type).toBe("object");
+
+      const outputProps = toRecord(outputItems.properties);
+      expect(toRecord(outputProps.id).type).toBe("string");
+      expect(toRecord(outputProps.actor).type).toBe("object");
+    },
+    300_000,
+  );
+
+  test(
     "stripe: extraction keeps concrete schemas for forwarding + verification report list outputs",
     async () => {
       const stripeUrl = "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json";
