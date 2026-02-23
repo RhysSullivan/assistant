@@ -10,14 +10,29 @@ type OpenApiInspectionResult = {
   inferredAuth: InferredSpecAuth;
 };
 
-const inferredSpecAuthSchema = z.object({
+export type InferredSpecAuth = {
+  type: "none" | "bearer" | "apiKey" | "basic" | "mixed";
+  mode?: "workspace" | "account" | "organization";
+  header?: string;
+  inferred: true;
+};
+
+const generatedPreparedInferredAuthSchema = z.object({
   type: z.enum(["none", "bearer", "apiKey", "basic", "mixed"]),
   mode: z.enum(["workspace", "account", "organization"]).optional(),
   header: z.string().optional(),
-  inferred: z.literal(true),
+}).optional();
+
+const generatedPreparedSpecSchema = z.object({
+  servers: z.array(z.string()).optional(),
+  inferredAuth: generatedPreparedInferredAuthSchema,
 });
 
-export type InferredSpecAuth = z.infer<typeof inferredSpecAuthSchema>;
+const generatedResponseSchema = z.object({
+  status: z.enum(["ready", "failed"]).optional(),
+  prepared: z.unknown().optional(),
+  error: z.string().optional(),
+});
 
 const recordSchema = z.record(z.string(), z.unknown());
 
@@ -198,16 +213,22 @@ export async function fetchAndInspectOpenApiSpec(input: {
   headers?: Record<string, string>;
   signal?: AbortSignal;
 }): Promise<OpenApiInspectionResult> {
-  const response = await fetch("/api/openapi/inspect", {
-    method: "POST",
+  const hasHeaders = Object.keys(input.headers ?? {}).length > 0;
+  const params = new URLSearchParams({
+    specUrl: input.specUrl,
+    sourceName: "openapi-inspect",
+    includeDts: "0",
+  });
+
+  if (hasHeaders) {
+    params.set("headers", JSON.stringify(input.headers ?? {}));
+  }
+
+  const response = await fetch(`/api/generate?${params.toString()}`, {
+    method: "GET",
     headers: {
-      "content-type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({
-      specUrl: input.specUrl,
-      headers: input.headers ?? {},
-    }),
     signal: input.signal,
     cache: "no-store",
   });
@@ -220,31 +241,41 @@ export async function fetchAndInspectOpenApiSpec(input: {
   }
 
   if (!response.ok) {
-    const payloadRecord = recordSchema.safeParse(payload);
-    const detail = payloadRecord.success && typeof payloadRecord.data.detail === "string"
-      ? payloadRecord.data.detail
+    const generatedPayload = generatedResponseSchema.safeParse(payload);
+    const detail = generatedPayload.success
+      ? (generatedPayload.data.error ?? "")
       : "";
-    const status = payloadRecord.success && typeof payloadRecord.data.status === "number"
-      ? payloadRecord.data.status
-      : response.status;
-    const statusText = payloadRecord.success && typeof payloadRecord.data.statusText === "string"
-      ? payloadRecord.data.statusText
-      : response.statusText;
-    throw new Error(createSpecFetchErrorMessage({ status, statusText, detail }));
+    throw new Error(createSpecFetchErrorMessage({ status: response.status, statusText: response.statusText, detail }));
   }
 
-  const payloadRecord = recordSchema.safeParse(payload);
-  if (!payloadRecord.success) {
-    throw new Error("Spec inspection returned an invalid response");
+  const generatedPayload = generatedResponseSchema.safeParse(payload);
+  if (!generatedPayload.success || generatedPayload.data.status === "failed") {
+    throw new Error("Spec generation returned an invalid response");
   }
 
-  const parsedSpec = recordSchema.safeParse(payloadRecord.data.spec);
-  if (!parsedSpec.success) {
-    throw new Error("Spec inspection did not return a valid OpenAPI document");
+  const preparedParsed = generatedPreparedSpecSchema.safeParse(generatedPayload.data.prepared);
+  if (!preparedParsed.success) {
+    throw new Error("Spec generation did not return a valid prepared document");
   }
 
-  const parsedAuth = inferredSpecAuthSchema.safeParse(payloadRecord.data.inferredAuth);
-  const inferredAuth = parsedAuth.success ? parsedAuth.data : inferSecuritySchemaAuth(parsedSpec.data);
+  const servers = (preparedParsed.data.servers ?? [])
+    .filter((server): server is string => typeof server === "string" && server.trim().length > 0)
+    .map((url) => ({ url }));
 
-  return { spec: parsedSpec.data, inferredAuth };
+  const generatedInferredAuth = preparedParsed.data.inferredAuth;
+  const inferredAuth: InferredSpecAuth = generatedInferredAuth
+    ? {
+      type: generatedInferredAuth.type,
+      ...(generatedInferredAuth.mode ? { mode: generatedInferredAuth.mode } : {}),
+      ...(generatedInferredAuth.type === "apiKey" && generatedInferredAuth.header
+        ? { header: generatedInferredAuth.header }
+        : {}),
+      inferred: true,
+    }
+    : { type: "none", inferred: true };
+
+  return {
+    spec: { servers },
+    inferredAuth,
+  };
 }

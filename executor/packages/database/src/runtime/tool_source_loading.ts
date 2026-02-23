@@ -115,13 +115,13 @@ async function loadPreparedOpenApiSpecFromExternalGenerate(
   const timeout = setTimeout(() => controller.abort(), OPENAPI_EXTERNAL_GENERATE_TIMEOUT_MS);
 
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ specUrl, sourceName, includeDts }),
-      cache: "no-store",
+    const url = new URL(endpoint);
+    url.searchParams.set("specUrl", specUrl);
+    url.searchParams.set("sourceName", sourceName);
+    url.searchParams.set("includeDts", includeDts ? "1" : "0");
+
+    const response = await fetch(url.toString(), {
+      method: "GET",
       signal: controller.signal,
     });
 
