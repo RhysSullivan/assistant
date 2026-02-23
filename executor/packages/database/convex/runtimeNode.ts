@@ -39,12 +39,13 @@ export const prepareOpenApiSpec = internalAction({
     specUrl: v.string(),
     sourceName: v.string(),
     includeDts: v.optional(v.boolean()),
+    profile: v.optional(v.union(v.literal("full"), v.literal("inventory"))),
   },
   handler: async (ctx, args): Promise<string> => {
     const prepared = await prepareOpenApiSpecInNode(args.specUrl, args.sourceName, {
       includeDts: args.includeDts,
-      profile: "full",
-      resolveSchemaRefs: true,
+      profile: args.profile ?? "full",
+      resolveSchemaRefs: args.profile === "inventory" ? false : true,
     });
 
     const json = JSON.stringify(prepared);

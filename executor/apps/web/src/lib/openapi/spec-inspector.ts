@@ -218,6 +218,7 @@ export async function fetchAndInspectOpenApiSpec(input: {
     specUrl: input.specUrl,
     sourceName: "openapi-inspect",
     includeDts: "0",
+    profile: "inventory",
   });
 
   if (hasHeaders) {

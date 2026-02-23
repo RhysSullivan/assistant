@@ -74,8 +74,6 @@ interface ToolExplorerProps {
   onSourceDeleted?: (sourceName: string) => void;
   onRegenerate?: () => void;
   isRebuilding?: boolean;
-  inventoryState?: "initializing" | "ready" | "rebuilding" | "failed";
-  inventoryError?: string;
 }
 
 export function ToolExplorer({
@@ -107,8 +105,6 @@ export function ToolExplorer({
   onSourceDeleted,
   onRegenerate,
   isRebuilding = false,
-  inventoryState,
-  inventoryError,
 }: ToolExplorerProps) {
   const [toolDetailsByPath, setToolDetailsByPath] = useState<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>({});
   const [loadingDetailPaths, setLoadingDetailPaths] = useState<Set<string>>(new Set());
@@ -426,50 +422,6 @@ export function ToolExplorer({
     });
   }, []);
 
-  const inventoryStatus = useMemo(() => {
-    const loadingSourceCount = loadingSourceSet.size;
-    const sourceStateEntries = Object.entries(sourceStates);
-    const totalSourceCount = sourceStateEntries.length;
-    const readySourceCount = sourceStateEntries.filter(([, state]) => state.state === "ready").length;
-    const failedSourceCount = sourceStateEntries.filter(([, state]) => state.state === "failed").length;
-
-    if (!inventoryState) {
-      return { label: "Checking...", tone: "muted" as const };
-    }
-    if (inventoryState === "initializing") {
-      const progress = totalSourceCount > 0
-        ? `${readySourceCount}/${totalSourceCount}`
-        : `${loadingSourceCount}`;
-      return {
-        label: `Building ${progress}`,
-        tone: "loading" as const,
-      };
-    }
-    if (inventoryState === "rebuilding") {
-      const progress = totalSourceCount > 0
-        ? `${readySourceCount}/${totalSourceCount}`
-        : `${loadingSourceCount}`;
-      return {
-        label: `Refreshing ${progress}`,
-        tone: "loading" as const,
-      };
-    }
-    if (inventoryState === "failed") {
-      return {
-        label: inventoryError
-          ? `Failed: ${inventoryError}`
-          : failedSourceCount > 0
-            ? `Failed (${failedSourceCount} sources)`
-            : "Failed",
-        tone: "error" as const,
-      };
-    }
-    return {
-      label: totalSourceCount > 0 ? `Up to date (${readySourceCount}/${totalSourceCount})` : "Up to date",
-      tone: "muted" as const,
-    };
-  }, [inventoryError, inventoryState, loadingSourceSet.size, sourceStates]);
-
   const regenerationInProgress = isRebuilding;
   // ── Render ──────────────────────────────────────────────────────────────
 
@@ -484,24 +436,6 @@ export function ToolExplorer({
               <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/50">
                 Tools
               </p>
-              <span
-                className={cn(
-                  "text-[9px] font-mono flex items-center gap-0.5",
-                  inventoryStatus.tone === "loading"
-                    ? "text-terminal-amber/80"
-                    : inventoryStatus.tone === "error"
-                      ? "text-terminal-red/80"
-                      : "text-muted-foreground/40",
-                )}
-                title={inventoryStatus.label}
-              >
-                {inventoryStatus.tone === "loading" ? (
-                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                ) : inventoryStatus.tone === "error" ? (
-                  <AlertTriangle className="h-2.5 w-2.5" />
-                ) : null}
-                {inventoryStatus.label}
-              </span>
             </div>
             <div className="flex items-center gap-0.5">
               {onRegenerate ? (

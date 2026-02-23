@@ -8,6 +8,7 @@ const querySchema = z.object({
   specUrl: z.string().trim().min(1),
   sourceName: z.string().trim().min(1).optional(),
   includeDts: z.enum(["1", "true", "0", "false"]).optional(),
+  profile: z.enum(["full", "inventory"]).optional(),
   headers: z.string().optional(),
 });
 
@@ -109,6 +110,7 @@ async function prepareWithForwardedHeaders(
   specUrl: string,
   sourceName: string,
   includeDts: boolean,
+  profile: "full" | "inventory",
   headers: Record<string, string>,
 ): Promise<Awaited<ReturnType<typeof prepareOpenApiSpec>>> {
   const controller = new AbortController();
@@ -133,7 +135,7 @@ async function prepareWithForwardedHeaders(
     const parsedSpec = parseSpecPayload(raw);
     return await prepareOpenApiSpec(parsedSpec, sourceName, {
       includeDts,
-      profile: "inventory",
+      profile,
     });
   } finally {
     clearTimeout(timeoutId);
@@ -146,6 +148,7 @@ export async function GET(request: Request): Promise<Response> {
     specUrl: url.searchParams.get("specUrl") ?? "",
     sourceName: url.searchParams.get("sourceName") ?? undefined,
     includeDts: url.searchParams.get("includeDts") ?? undefined,
+    profile: url.searchParams.get("profile") ?? undefined,
     headers: url.searchParams.get("headers") ?? undefined,
   });
 
@@ -156,17 +159,19 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const includeDts = parsed.data.includeDts === "1" || parsed.data.includeDts === "true";
     const sourceName = parsed.data.sourceName ?? "openapi";
+    const profile = parsed.data.profile ?? "full";
     const forwardedHeaders = sanitizeForwardHeaders(parseHeadersQueryValue(parsed.data.headers));
 
     const prepared = Object.keys(forwardedHeaders).length === 0
       ? await prepareOpenApiSpec(parsed.data.specUrl, sourceName, {
         includeDts,
-        profile: "inventory",
+        profile,
       })
       : await prepareWithForwardedHeaders(
         parsed.data.specUrl,
         sourceName,
         includeDts,
+        profile,
         forwardedHeaders,
       );
 

@@ -1742,7 +1742,12 @@ export declare const internal: {
     prepareOpenApiSpec: FunctionReference<
       "action",
       "internal",
-      { includeDts?: boolean; sourceName: string; specUrl: string },
+      {
+        includeDts?: boolean;
+        profile?: "full" | "inventory";
+        sourceName: string;
+        specUrl: string;
+      },
       any
     >;
   };

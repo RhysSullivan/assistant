@@ -489,8 +489,6 @@ export function ToolsView() {
             onFocusedToolPathChange={setCatalogActiveToolPath}
             onFocusedSourceNameChange={setCatalogFocusedSourceName}
             onRegenerate={handleRegenerateInventory}
-            inventoryState={inventoryStatus?.state}
-            inventoryError={inventoryStatus?.error}
             isRebuilding={
               regenerationInFlight
               || inventoryStatus?.state === "rebuilding"

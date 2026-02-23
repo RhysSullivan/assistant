@@ -113,21 +113,30 @@ function resolveTypeLabel(schema: Record<string, unknown>): {
   // oneOf / anyOf union
   const union = (schema.oneOf ?? schema.anyOf) as unknown[] | undefined;
   if (Array.isArray(union) && union.length > 0) {
-    const parts = union.map((s) => {
-      const sub = asRecord(s);
-      return resolveTypeLabel(sub).label;
-    });
-    return { type: "union", label: parts.join(" | ") };
+    const parts = union
+      .map((s) => resolveTypeLabel(asRecord(s)))
+      .filter((part) => part.label.trim().length > 0);
+    const uniqueLabels = [...new Set(parts.map((part) => part.label))];
+    if (uniqueLabels.length === 1) {
+      const single = parts[0];
+      if (single) {
+        return { type: single.type, label: single.label, itemType: single.itemType };
+      }
+    }
+    return { type: "union", label: uniqueLabels.join(" | ") };
   }
 
   // allOf intersection
   const allOf = schema.allOf as unknown[] | undefined;
   if (Array.isArray(allOf) && allOf.length > 0) {
-    const parts = allOf.map((s) => {
-      const sub = asRecord(s);
-      return resolveTypeLabel(sub).label;
-    });
-    return { type: "object", label: parts.join(" & ") };
+    const parts = allOf
+      .map((s) => resolveTypeLabel(asRecord(s)).label)
+      .filter((label) => label.trim().length > 0);
+    const uniqueLabels = [...new Set(parts)];
+    if (uniqueLabels.length === 1) {
+      return { type: "object", label: uniqueLabels[0]! };
+    }
+    return { type: "object", label: uniqueLabels.join(" & ") };
   }
 
   // Type array (e.g. ["string", "null"])
@@ -154,6 +163,11 @@ function resolveTypeLabel(schema: Record<string, unknown>): {
 
   // Object
   if (rawType === "object") {
+    return { type: "object", label: "object" };
+  }
+
+  const hasProperties = Object.keys(asRecord(schema.properties)).length > 0;
+  if (hasProperties || schema.additionalProperties !== undefined || Array.isArray(schema.required)) {
     return { type: "object", label: "object" };
   }
 

@@ -762,6 +762,49 @@ describe("real-world OpenAPI specs", () => {
   );
 
   test(
+    "cloudflare: access group create keeps concrete body schema in full profile",
+    async () => {
+      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
+
+      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare", {
+        includeDts: false,
+        profile: "full",
+      });
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "cloudflare",
+          spec: cloudflareUrl,
+          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
+        },
+        prepared,
+      );
+
+      const tool = tools.find((t) => t.path === "cloudflare.access_groups.create_an_access_group");
+
+      expect(tool).toBeDefined();
+      const inputSchema = toRecord(tool!.typing?.inputSchema);
+      const inputProperties = toRecord(inputSchema.properties);
+      const bodySchema = toRecord(inputProperties.body);
+      expect(Object.keys(bodySchema).length).toBeGreaterThan(0);
+
+      const bodyProperties = toRecord(bodySchema.properties);
+      const includeSchema = toRecord(bodyProperties.include);
+      const excludeSchema = toRecord(bodyProperties.exclude);
+      const requireSchema = toRecord(bodyProperties.require);
+
+      expect(includeSchema.type).toBe("array");
+      expect(excludeSchema.type).toBe("array");
+      expect(requireSchema.type).toBe("array");
+
+      expect(Object.keys(toRecord(includeSchema.items)).length).toBeGreaterThan(0);
+      expect(Object.keys(toRecord(excludeSchema.items)).length).toBeGreaterThan(0);
+      expect(Object.keys(toRecord(requireSchema.items)).length).toBeGreaterThan(0);
+    },
+    300_000,
+  );
+
+  test(
     "github + stripe: root generated array schemas include concrete item definitions",
     async () => {
       const fixtures = [

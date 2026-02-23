@@ -32,9 +32,12 @@ const OPENAPI_PREPARE_MAX_ATTEMPTS = 3;
 const OPENAPI_PREPARE_RETRY_BASE_DELAY_MS = 1_500;
 const OPENAPI_EXTERNAL_GENERATE_TIMEOUT_MS = 180_000;
 
-const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v11";
-const OPENAPI_ARTIFACT_CACHE_VERSION = "openapi_artifact_v1";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v12";
+const OPENAPI_ARTIFACT_CACHE_VERSION = "openapi_artifact_v2";
 const OPENAPI_ARTIFACT_CACHE_TTL_MS = 24 * 60 * 60_000;
+const OPENAPI_PROFILE_FALLBACK_WARNING_PREFIX = "OpenAPI profile fallback:";
+
+type OpenApiPrepareProfile = "full" | "inventory";
 
 const openApiAuthModeSchema = z.enum(["account", "workspace", "organization"]);
 
@@ -105,6 +108,7 @@ async function loadPreparedOpenApiSpecFromExternalGenerate(
   specUrl: string,
   sourceName: string,
   includeDts: boolean,
+  profile: "full" | "inventory",
   headers?: Record<string, string>,
 ): Promise<PreparedOpenApiSpec | null> {
   const endpoint = resolveExternalGenerateEndpoint();
@@ -120,6 +124,7 @@ async function loadPreparedOpenApiSpecFromExternalGenerate(
     url.searchParams.set("specUrl", specUrl);
     url.searchParams.set("sourceName", sourceName);
     url.searchParams.set("includeDts", includeDts ? "1" : "0");
+    url.searchParams.set("profile", profile);
     if (headers && Object.keys(headers).length > 0) {
       url.searchParams.set("headers", JSON.stringify(headers));
     }
@@ -149,6 +154,7 @@ async function loadPreparedOpenApiSpecFromExternalGenerate(
 async function cachePreparedOpenApiSpec(
   ctx: ActionCtx,
   specUrl: string,
+  version: string,
   sourceName: string,
   prepared: PreparedOpenApiSpec,
   preparedStorageId?: Id<"_storage">,
@@ -159,7 +165,7 @@ async function cachePreparedOpenApiSpec(
     const storageId = preparedStorageId ?? await ctx.storage.store(new Blob([json], { type: "application/json" }));
     await ctx.runMutation(internal.openApiSpecCache.putEntry, {
       specUrl,
-      version: OPENAPI_PREPARED_CACHE_VERSION,
+      version,
       storageId,
       sizeBytes: preparedSizeBytes ?? json.length,
     });
@@ -584,6 +590,10 @@ async function resolveOpenApiFetchHeaders(
   return { headers, warnings: [] };
 }
 
+function preparedCacheVersion(profile: OpenApiPrepareProfile, includeDts: boolean): string {
+  return `${OPENAPI_PREPARED_CACHE_VERSION}:${profile}:${includeDts ? "dts" : "nodts"}`;
+}
+
 async function loadCachedOpenApiSpec(
   ctx: ActionCtx,
   specUrl: string,
@@ -599,125 +609,185 @@ async function loadCachedOpenApiSpec(
     return prepared.dts ? "ready" : "failed";
   };
 
-  if (!hasHeaders) {
-    try {
-      const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
-        specUrl,
-        version: OPENAPI_PREPARED_CACHE_VERSION,
-        maxAgeMs: OPENAPI_SPEC_CACHE_TTL_MS,
-      });
+  const parsePreparedResponse = async (preparedResponse: unknown): Promise<{
+    prepared: PreparedOpenApiSpec;
+    preparedStorageId?: Id<"_storage">;
+    preparedSizeBytes?: number;
+  }> => {
+    let preparedPayload: unknown;
+    let preparedStorageId: Id<"_storage"> | undefined;
+    let preparedSizeBytes: number | undefined;
 
-      if (entry) {
-        const blob = await ctx.storage.get(entry.storageId);
-        if (blob) {
-          const json = await blob.text();
-          let parsedJson: unknown;
-          try {
-            parsedJson = JSON.parse(json);
-          } catch {
-            parsedJson = undefined;
+    if (typeof preparedResponse === "string") {
+      try {
+        const parsed = JSON.parse(preparedResponse) as unknown;
+        const parsedEnvelope = preparedOpenApiEnvelopeSchema.safeParse(parsed);
+        if (parsedEnvelope.success) {
+          preparedStorageId = parsedEnvelope.data.storageId as Id<"_storage">;
+          preparedSizeBytes = parsedEnvelope.data.sizeBytes;
+
+          const blob = await ctx.storage.get(preparedStorageId);
+          if (!blob) {
+            throw new Error(`Prepared OpenAPI blob missing for '${sourceName}'`);
           }
-
-          if (parsedJson !== undefined) {
-            const prepared = toPreparedOpenApiSpec(parsedJson);
-            if (prepared && (!includeDts || getDtsStatus(prepared) !== "skipped")) {
-              return prepared;
-            }
-          }
+          const text = await blob.text();
+          preparedPayload = JSON.parse(text);
+        } else {
+          preparedPayload = parsed;
         }
+      } catch {
+        preparedPayload = undefined;
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[executor] OpenAPI cache read failed for '${sourceName}': ${message}`);
+    } else {
+      preparedPayload = preparedResponse;
     }
-  }
 
-  const externalPrepared = await loadPreparedOpenApiSpecFromExternalGenerate(
-    specUrl,
-    sourceName,
-    includeDts,
-    headers,
-  );
-  if (externalPrepared) {
-    if (!hasHeaders) {
-      await cachePreparedOpenApiSpec(ctx, specUrl, sourceName, externalPrepared);
+    const prepared = toPreparedOpenApiSpec(preparedPayload);
+    if (!prepared) {
+      throw new Error(`Prepared OpenAPI payload for '${sourceName}' was invalid`);
     }
-    return externalPrepared;
-  }
 
-  let preparedResponse: unknown = undefined;
-  let lastPrepareError: string | undefined;
-  for (let attempt = 1; attempt <= OPENAPI_PREPARE_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      preparedResponse = await ctx.runAction(internal.runtimeNode.prepareOpenApiSpec, {
-        specUrl,
-        sourceName,
-        includeDts,
-      });
-      lastPrepareError = undefined;
-      break;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      lastPrepareError = message;
-      if (attempt >= OPENAPI_PREPARE_MAX_ATTEMPTS) {
-        break;
-      }
-
-      const delayMs = OPENAPI_PREPARE_RETRY_BASE_DELAY_MS * attempt;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-  }
-
-  if (lastPrepareError) {
-    throw new Error(
-      `Failed to prepare OpenAPI source '${sourceName}' after ${OPENAPI_PREPARE_MAX_ATTEMPTS} attempts: ${lastPrepareError}`,
-    );
-  }
-
-  let preparedPayload: unknown;
-  let preparedStorageId: Id<"_storage"> | undefined;
-  let preparedSizeBytes: number | undefined;
-  if (typeof preparedResponse === "string") {
-    try {
-      const parsed = JSON.parse(preparedResponse) as unknown;
-      const parsedEnvelope = preparedOpenApiEnvelopeSchema.safeParse(parsed);
-      if (parsedEnvelope.success) {
-        preparedStorageId = parsedEnvelope.data.storageId as Id<"_storage">;
-        preparedSizeBytes = parsedEnvelope.data.sizeBytes;
-
-        const blob = await ctx.storage.get(preparedStorageId);
-        if (!blob) {
-          throw new Error(`Prepared OpenAPI blob missing for '${sourceName}'`);
-        }
-        const text = await blob.text();
-        preparedPayload = JSON.parse(text);
-      } else {
-        preparedPayload = parsed;
-      }
-    } catch {
-      preparedPayload = undefined;
-    }
-  } else {
-    preparedPayload = preparedResponse;
-  }
-
-  const prepared = toPreparedOpenApiSpec(preparedPayload);
-  if (!prepared) {
-    throw new Error(`Prepared OpenAPI payload for '${sourceName}' was invalid`);
-  }
-
-  if (!hasHeaders) {
-    await cachePreparedOpenApiSpec(
-      ctx,
-      specUrl,
-      sourceName,
+    return {
       prepared,
       preparedStorageId,
       preparedSizeBytes,
+    };
+  };
+
+  const loadForProfile = async (profile: OpenApiPrepareProfile): Promise<PreparedOpenApiSpec> => {
+    const cacheVersion = preparedCacheVersion(profile, includeDts);
+
+    if (!hasHeaders) {
+      try {
+        const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
+          specUrl,
+          version: cacheVersion,
+          maxAgeMs: OPENAPI_SPEC_CACHE_TTL_MS,
+        });
+
+        if (entry) {
+          const blob = await ctx.storage.get(entry.storageId);
+          if (blob) {
+            const json = await blob.text();
+            let parsedJson: unknown;
+            try {
+              parsedJson = JSON.parse(json);
+            } catch {
+              parsedJson = undefined;
+            }
+
+            if (parsedJson !== undefined) {
+              const prepared = toPreparedOpenApiSpec(parsedJson);
+              if (prepared && (!includeDts || getDtsStatus(prepared) !== "skipped")) {
+                return prepared;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[executor] OpenAPI cache read failed for '${sourceName}' (${profile}): ${message}`);
+      }
+    }
+
+    const externalPrepared = await loadPreparedOpenApiSpecFromExternalGenerate(
+      specUrl,
+      sourceName,
+      includeDts,
+      profile,
+      headers,
     );
+    if (externalPrepared) {
+      if (!hasHeaders) {
+        await cachePreparedOpenApiSpec(
+          ctx,
+          specUrl,
+          cacheVersion,
+          sourceName,
+          externalPrepared,
+        );
+      }
+      return externalPrepared;
+    }
+
+    let preparedResponse: unknown = undefined;
+    let lastPrepareError: string | undefined;
+    const prepareOpenApiSpecAction = internal.runtimeNode.prepareOpenApiSpec as unknown as {
+      _doNotReferenceDirectly?: true;
+    };
+    const maxAttempts = profile === "full" && !includeDts ? 1 : OPENAPI_PREPARE_MAX_ATTEMPTS;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        preparedResponse = await ctx.runAction(prepareOpenApiSpecAction as never, {
+          specUrl,
+          sourceName,
+          includeDts,
+          profile,
+        } as never);
+        lastPrepareError = undefined;
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        lastPrepareError = message;
+        if (attempt >= maxAttempts) {
+          break;
+        }
+
+        const delayMs = OPENAPI_PREPARE_RETRY_BASE_DELAY_MS * attempt;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    if (lastPrepareError) {
+      throw new Error(
+        `Failed to prepare OpenAPI source '${sourceName}' with profile '${profile}' after ${maxAttempts} attempt(s): ${lastPrepareError}`,
+      );
+    }
+
+    const parsedPrepared = await parsePreparedResponse(preparedResponse);
+    if (!hasHeaders) {
+      await cachePreparedOpenApiSpec(
+        ctx,
+        specUrl,
+        cacheVersion,
+        sourceName,
+        parsedPrepared.prepared,
+        parsedPrepared.preparedStorageId,
+        parsedPrepared.preparedSizeBytes,
+      );
+    }
+
+    return parsedPrepared.prepared;
+  };
+
+  const profilesToTry: OpenApiPrepareProfile[] = includeDts ? ["full"] : ["full", "inventory"];
+  const profileErrors: string[] = [];
+
+  for (let index = 0; index < profilesToTry.length; index += 1) {
+    const profile = profilesToTry[index]!;
+    try {
+      const prepared = await loadForProfile(profile);
+      if (index === 0) {
+        return prepared;
+      }
+
+      const warning = `${OPENAPI_PROFILE_FALLBACK_WARNING_PREFIX} Source '${sourceName}' fell back to '${profile}' profile after full profile failed: ${profileErrors[0] ?? "unknown error"}`;
+      return {
+        ...prepared,
+        warnings: [...(prepared.warnings ?? []), warning],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      profileErrors.push(message);
+      if (index === profilesToTry.length - 1) {
+        break;
+      }
+    }
   }
 
-  return prepared;
+  throw new Error(
+    `Failed to prepare OpenAPI source '${sourceName}' after ${profilesToTry.length} profile attempt(s): ${profileErrors.join("; ")}`,
+  );
 }
 
 export async function loadSourceArtifact(
@@ -761,8 +831,11 @@ export async function loadSourceArtifact(
         resolvedOpenApiHeaders.headers,
       );
       const artifact = compileOpenApiArtifactFromPrepared(source, prepared);
+      const usedFallbackProfile = (prepared.warnings ?? []).some((warning) =>
+        warning.startsWith(OPENAPI_PROFILE_FALLBACK_WARNING_PREFIX)
+      );
 
-      if (sharedArtifactCacheEligible && sharedArtifactCacheKey) {
+      if (sharedArtifactCacheEligible && sharedArtifactCacheKey && !usedFallbackProfile) {
         await putSharedOpenApiArtifactCache(ctx, sharedArtifactCacheKey, artifact);
       }
 
