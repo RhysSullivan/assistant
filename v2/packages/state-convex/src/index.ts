@@ -1,3 +1,26 @@
-export * from "./convex-ids";
-export * from "./schema";
-export * from "./profiles";
+export {
+  ApprovalDocIdSchema,
+  CredentialRefDocIdSchema,
+  EventDocIdSchema,
+  OAuthTokenDocIdSchema,
+  PolicyDocIdSchema,
+  ProfileDocIdSchema,
+  SourceDocIdSchema,
+  SyncStateDocIdSchema,
+  TaskRunDocIdSchema,
+  ToolArtifactDocIdSchema,
+  WorkspaceDocIdSchema,
+  type ApprovalDocId,
+  type CredentialRefDocId,
+  type EventDocId,
+  type OAuthTokenDocId,
+  type PolicyDocId,
+  type ProfileDocId,
+  type SourceDocId,
+  type SyncStateDocId,
+  type TaskRunDocId,
+  type ToolArtifactDocId,
+  type WorkspaceDocId,
+} from "./convex-ids";
+export { makeConvexProfileStore } from "./profiles";
+export { executorConfectSchema, type ExecutorConfectTables } from "./schema";

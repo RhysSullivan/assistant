@@ -1,6 +1,7 @@
 import * as Headers from "@effect/platform/Headers";
 import * as HttpTraceContext from "@effect/platform/HttpTraceContext";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import type * as Tracer from "effect/Tracer";
 
 export const rpcTelemetryContextField = "confectTelemetryContext";
@@ -14,8 +15,12 @@ export interface RpcTelemetryContext {
 	readonly tracestate?: string;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
+const UnknownRecordSchema = Schema.Record({
+	key: Schema.String,
+	value: Schema.Unknown,
+});
+
+const isUnknownRecord = Schema.is(UnknownRecordSchema);
 
 const toStringValue = (value: unknown): Option.Option<string> =>
 	typeof value === "string" ? Option.some(value) : Option.none();
@@ -90,7 +95,7 @@ export const withRpcTelemetryContext = (
 	payload: unknown,
 	telemetryContext: RpcTelemetryContext,
 ): unknown => {
-	if (!isRecord(payload)) {
+	if (!isUnknownRecord(payload)) {
 		return payload;
 	}
 
@@ -103,12 +108,12 @@ export const withRpcTelemetryContext = (
 export const extractParentSpanFromPayload = (
 	payload: unknown,
 ): Option.Option<Tracer.ExternalSpan> => {
-	if (!isRecord(payload)) {
+	if (!isUnknownRecord(payload)) {
 		return Option.none();
 	}
 
 	const rawTelemetryContext = payload[rpcTelemetryContextField];
-	if (!isRecord(rawTelemetryContext)) {
+	if (!isUnknownRecord(rawTelemetryContext)) {
 		return Option.none();
 	}
 

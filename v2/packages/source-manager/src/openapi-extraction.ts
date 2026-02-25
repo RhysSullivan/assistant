@@ -29,6 +29,15 @@ const HTTP_METHODS = [
 
 type HttpMethod = (typeof HTTP_METHODS)[number];
 
+const OPEN_API_PARAMETER_LOCATIONS = [
+  "path",
+  "query",
+  "header",
+  "cookie",
+] as const;
+
+type OpenApiParameterLocation = (typeof OPEN_API_PARAMETER_LOCATIONS)[number];
+
 type OpenApiExtractionStage =
   | "validate"
   | "extract"
@@ -41,15 +50,37 @@ export class OpenApiExtractionError extends Data.TaggedError("OpenApiExtractionE
   details: string | null;
 }> {}
 
+export const ExtractedToolParameterSchema = Schema.Struct({
+  name: Schema.String,
+  location: Schema.Literal(...OPEN_API_PARAMETER_LOCATIONS),
+  required: Schema.Boolean,
+});
+
+export const ExtractedToolRequestBodySchema = Schema.Struct({
+  required: Schema.Boolean,
+  contentTypes: Schema.Array(Schema.String),
+});
+
+export const ExtractedToolInvocationSchema = Schema.Struct({
+  method: Schema.String,
+  pathTemplate: Schema.String,
+  parameters: Schema.Array(ExtractedToolParameterSchema),
+  requestBody: Schema.NullOr(ExtractedToolRequestBodySchema),
+});
+
 export const ExtractedToolSchema = Schema.Struct({
   toolId: Schema.String,
   name: Schema.String,
   description: Schema.NullOr(Schema.String),
   method: Schema.String,
   path: Schema.String,
+  invocation: ExtractedToolInvocationSchema,
   operationHash: Schema.String,
 });
 
+export type ExtractedToolParameter = typeof ExtractedToolParameterSchema.Type;
+export type ExtractedToolRequestBody = typeof ExtractedToolRequestBodySchema.Type;
+export type ExtractedToolInvocation = typeof ExtractedToolInvocationSchema.Type;
 export type ExtractedTool = typeof ExtractedToolSchema.Type;
 
 export const ToolManifestSchema = Schema.Struct({
@@ -85,15 +116,125 @@ export type RefreshOpenApiArtifactInput = {
   now?: () => number;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const UnknownRecordSchema = Schema.Record({
+  key: Schema.String,
+  value: Schema.Unknown,
+});
+
+type UnknownRecord = typeof UnknownRecordSchema.Type;
+
+const isUnknownRecord = Schema.is(UnknownRecordSchema);
+
+const OpenApiParameterInputSchema = Schema.Struct({
+  name: Schema.String,
+  in: Schema.Literal(...OPEN_API_PARAMETER_LOCATIONS),
+  required: Schema.optional(Schema.Boolean),
+});
+
+type OpenApiParameterInput = typeof OpenApiParameterInputSchema.Type;
+
+const isOpenApiParameterInput = Schema.is(OpenApiParameterInputSchema);
+
+const OpenApiRequestBodyInputSchema = Schema.Struct({
+  required: Schema.optional(Schema.Boolean),
+  content: Schema.optional(UnknownRecordSchema),
+});
+
+type OpenApiRequestBodyInput = typeof OpenApiRequestBodyInputSchema.Type;
+
+const isOpenApiRequestBodyInput = Schema.is(OpenApiRequestBodyInputSchema);
+
+const toExtractedToolParameter = (
+  value: unknown,
+): ExtractedToolParameter | null => {
+  if (!isOpenApiParameterInput(value)) {
+    return null;
+  }
+
+  const parameter: OpenApiParameterInput = value;
+  const name = parameter.name.trim();
+
+  if (name.length === 0) {
+    return null;
+  }
+
+  return {
+    name,
+    location: parameter.in,
+    required: parameter.in === "path" || parameter.required === true,
+  };
+};
+
+const mergeParameters = (
+  pathItem: UnknownRecord,
+  operation: UnknownRecord,
+): Array<ExtractedToolParameter> => {
+  const byKey = new Map<string, ExtractedToolParameter>();
+
+  const addParameters = (candidate: unknown) => {
+    if (!Array.isArray(candidate)) {
+      return;
+    }
+
+    for (const item of candidate) {
+      const parameter = toExtractedToolParameter(item);
+      if (!parameter) {
+        continue;
+      }
+      byKey.set(`${parameter.location}:${parameter.name}`, parameter);
+    }
+  };
+
+  addParameters(pathItem.parameters);
+  addParameters(operation.parameters);
+
+  return Array.from(byKey.values()).sort((left, right) => {
+    if (left.location === right.location) {
+      return left.name.localeCompare(right.name);
+    }
+
+    return left.location.localeCompare(right.location);
+  });
+};
+
+const extractRequestBody = (
+  operation: UnknownRecord,
+): ExtractedToolRequestBody | null => {
+  const requestBody = operation.requestBody;
+
+  if (!isOpenApiRequestBodyInput(requestBody)) {
+    return null;
+  }
+
+  const openApiRequestBody: OpenApiRequestBodyInput = requestBody;
+  const contentTypes = openApiRequestBody.content
+    ? Object.keys(openApiRequestBody.content).sort()
+    : [];
+
+  return {
+    required: openApiRequestBody.required === true,
+    contentTypes,
+  };
+};
+
+const buildInvocationMetadata = (
+  method: HttpMethod,
+  pathValue: string,
+  pathItem: UnknownRecord,
+  operation: UnknownRecord,
+): ExtractedToolInvocation => ({
+  method,
+  pathTemplate: pathValue,
+  parameters: mergeParameters(pathItem, operation),
+  requestBody: extractRequestBody(operation),
+});
 
 const toStableValue = (value: unknown): unknown => {
   if (Array.isArray(value)) {
     return value.map(toStableValue);
   }
 
-  if (isRecord(value)) {
+  if (isUnknownRecord(value)) {
     const stableRecord: Record<string, unknown> = {};
     for (const key of Object.keys(value).sort()) {
       stableRecord[key] = toStableValue(value[key]);
@@ -202,7 +343,7 @@ export const extractOpenApiManifest = (
   openApiSpec: unknown,
 ): Effect.Effect<ToolManifest, OpenApiExtractionError> =>
   Effect.gen(function* () {
-    if (!isRecord(openApiSpec)) {
+    if (!isUnknownRecord(openApiSpec)) {
       return yield* new OpenApiExtractionError({
         sourceName,
         stage: "validate",
@@ -211,11 +352,12 @@ export const extractOpenApiManifest = (
       });
     }
 
-    const pathsValue = openApiSpec.paths;
-    if (!isRecord(pathsValue)) {
+    const specRecord: UnknownRecord = openApiSpec;
+    const pathsValue = specRecord.paths;
+    if (!isUnknownRecord(pathsValue)) {
       return {
         version: 1 as const,
-        sourceHash: hashUnknown(openApiSpec),
+        sourceHash: hashUnknown(specRecord),
         tools: [],
       };
     }
@@ -224,15 +366,22 @@ export const extractOpenApiManifest = (
 
     for (const pathValue of Object.keys(pathsValue).sort()) {
       const pathItem = pathsValue[pathValue];
-      if (!isRecord(pathItem)) {
+      if (!isUnknownRecord(pathItem)) {
         continue;
       }
 
       for (const method of HTTP_METHODS) {
         const operation = pathItem[method];
-        if (!isRecord(operation)) {
+        if (!isUnknownRecord(operation)) {
           continue;
         }
+
+        const invocation = buildInvocationMetadata(
+          method,
+          pathValue,
+          pathItem,
+          operation,
+        );
 
         tools.push({
           toolId: buildToolId(method, pathValue, operation),
@@ -240,10 +389,12 @@ export const extractOpenApiManifest = (
           description: buildToolDescription(operation),
           method,
           path: pathValue,
+          invocation,
           operationHash: hashUnknown({
             method,
             path: pathValue,
             operation,
+            invocation,
           }),
         });
       }

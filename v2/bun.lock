@@ -61,6 +61,10 @@
     },
     "packages/engine": {
       "name": "@executor-v2/engine",
+      "dependencies": {
+        "@executor-v2/schema": "workspace:*",
+        "effect": "^3.19.8",
+      },
     },
     "packages/mcp-gateway": {
       "name": "@executor-v2/mcp-gateway",

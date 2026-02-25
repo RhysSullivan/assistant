@@ -1,1 +1,5 @@
-export * from "./server";
+export {
+  handleMcpHttpRequest,
+  type GatewayTarget,
+  type McpGatewayOptions,
+} from "./server";

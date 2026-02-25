@@ -566,8 +566,13 @@ type BuiltEndpoints<T extends Record<string, AnyUnbuiltEndpoint>> = {
 	[K in keyof T & string]: BuiltEndpoint<K, T[K]>;
 };
 
-const isUnbuilt = (value: unknown): value is AnyUnbuiltEndpoint =>
-	typeof value === "object" && value !== null && "__unbuilt" in value && (value as { __unbuilt: unknown }).__unbuilt === true;
+const UnbuiltEndpointMarkerSchema = Schema.Struct({
+	__unbuilt: Schema.Literal(true),
+});
+
+const isUnbuiltMarker = Schema.is(UnbuiltEndpointMarkerSchema);
+
+const isUnbuilt = (value: unknown): value is AnyUnbuiltEndpoint => isUnbuiltMarker(value);
 
 type ExtractMiddlewares<T extends Record<string, AnyUnbuiltEndpoint>> = T[keyof T]["middlewares"][number];
 

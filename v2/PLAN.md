@@ -60,7 +60,7 @@ Control includes source registry, policies, approvals/input workflow, identity/l
 
 ### Execution role
 
-Execution remains the runtime engine that runs generated TypeScript and calls `tools.*` via proxy invocation.
+Execution is provider-based: the runtime engine runs generated TypeScript, resolves `tools.*` calls, and routes invocation through source/tool providers (OpenAPI, MCP, GraphQL, in-memory, and future formats).
 
 ---
 
@@ -164,7 +164,6 @@ Current scaffold includes:
   - policy, approval
   - task run, sync state
   - event envelope
-- event envelope schema
 - local snapshot/WAL schemas in `persistence-local`
 
 ### Convex ID compatibility
@@ -177,7 +176,7 @@ This keeps canonical schema backend-agnostic while preserving strict table-typed
 
 ---
 
-## 9) Tooling and MCP surface
+## 9) Tooling, providers, and MCP surface
 
 ### Top-level model-facing tools
 
@@ -195,10 +194,36 @@ Executor config is handled as tool calls from inside `execute` via built-in name
 
 No mandatory top-level `set_enabled` in v1 (remove/add is enough for initial UX).
 
+### Provider architecture (source-agnostic)
+
+Use a provider registry, not format-specific execution in core runtime.
+
+- Each provider implements:
+  - `discover(source) -> ToolManifest`
+  - `invoke(call) -> ToolResult`
+- Core runtime stays source-format agnostic; it resolves tool identity and dispatches to provider.
+- Initial provider kinds:
+  - `openapi`
+  - `mcp`
+  - `graphql`
+  - `in_memory` (host-registered tools; AI-SDK style)
+- Future source formats are added as new providers, without changing core execution semantics.
+
+### Canonical tool descriptor
+
+All providers publish into one canonical descriptor used by runtime and SDK:
+- stable tool id
+- display metadata (name, description)
+- invocation metadata (kind + provider payload)
+- availability metadata (`local_only` vs `remote_capable`)
+
+Provider-specific details remain in a typed payload at the edge.
+
 ### Execution semantics
 
 - Agent writes TS using `tools.*`.
-- Runtime proxy resolves tool calls.
+- Runtime proxy resolves tool calls against the canonical registry.
+- Provider receives invocation and returns canonical result envelope.
 - Credentials/policies/approvals are applied server-side during invocation.
 
 ---
@@ -209,13 +234,18 @@ Goal: user can ask the agent to use a service; agent can register the source thr
 
 - Discovery itself may happen outside Executor (model/web).
 - Registration happens via Executor control tools (`tools.executor.sources.add`).
+- `source.kind` selects provider (`openapi`, `mcp`, `graphql`, etc.).
+- In-memory tools are host-registered (runtime side), not persisted remote source records by default.
 
-Registration flow states:
+Registration flow states (networked providers):
 - `draft -> probing -> auth_required -> connected | error`
+
+Registration flow states (in-memory provider):
+- `registered -> connected | error`
 
 Auth handling:
 - MCP: dynamic auth/OAuth detection, client registration where needed
-- OpenAPI: inspect security schemes, prompt for API key if required
+- OpenAPI/GraphQL: inspect auth schemes, prompt for API key/OAuth when required
 
 Secrets are entered through host UX, not model transcript.
 
@@ -263,6 +293,7 @@ API shape should be Executor session/adapters, not single-source helper APIs.
 Primary operations:
 - execute code
 - register/list/remove sources
+- register/list/remove in-memory tools (AI-SDK style)
 - stream run status/results
 
 Do not expose approval/input-response as model tools.
@@ -307,7 +338,9 @@ Sync principles:
 - PM daemon skeleton
 - file persistence (snapshot + WAL)
 - execute path with runtime proxy integration
+- provider registry + canonical tool descriptor
 - basic source add/list/remove through `tools.executor.*`
+- first provider slices: `openapi` + `in_memory`
 
 ### Phase 2: Input/approval UX
 - InputBroker + pending state persistence
@@ -318,6 +351,7 @@ Sync principles:
 - persistence-convex adapter and Convex app wiring
 - shared RPC contracts for pm/convex
 - target switching in CLI/web
+- runtime/provider capability checks for local vs remote
 
 ### Phase 4: Sync + upgrades
 - local->remote promotion pipeline
@@ -338,6 +372,7 @@ Sync principles:
 - No required database for local-lite mode.
 - Same execution semantics across local and remote targets.
 - Agent can add sources and execute against them in one flow.
+- Provider-based execution works for at least `openapi` + `in_memory` in local-lite.
 - Approval/input is usable in fullscreen terminal clients.
 
 ---
@@ -355,20 +390,28 @@ Sync principles:
 Implemented in `v2` so far:
 - monorepo app/package skeleton
 - `confect` imported from quickhub
-- schema package scaffold with Effect models
+- schema package scaffold with Effect models and event envelope
 - domain ID groundwork in `schema/src/ids.ts`
 - Convex table ID groundwork in `persistence-convex/src/convex-ids.ts`
+- shared persistence ports for `SourceStore` and `ToolArtifactStore`
+- local persistence adapters for source/tool artifacts
+- local-only snapshot/WAL contract and persistence implementation
+- OpenAPI extraction + artifact refresh/reuse flow
+- service-first wiring (`Context.Tag` + Layer) in source manager and local persistence
 
 Not implemented yet:
-- runtime wiring, adapters, rpc handlers, PM behavior, sync engine
+- provider registry and canonical tool descriptor routing in engine/runtime
+- execute lifecycle through PM beyond stub MCP tool
+- MCP/GraphQL providers and in-memory tool registration/invocation path
+- full rpc/sdk adapter wiring and sync engine
 
 ---
 
 ## 19) Immediate next steps
 
-1. Define `persistence-ports` interfaces against current schema models.
-2. Implement minimal `persistence-local` snapshot + event log codec.
-3. Convert side-effectful packages to service-first APIs (`Context.Tag` + live/test layers).
-4. Wire a minimal `apps/pm` execute flow (single run lifecycle).
-5. Add first `tools.executor.sources.add/list/remove` control operations.
-6. Add basic InputBroker contract (without full UI).
+1. Define canonical provider tool descriptor + provider service contracts (`discover` / `invoke`).
+2. Implement engine-side provider registry and routing for tool invocation.
+3. Wire minimal `apps/pm` execute flow (single run lifecycle) using provider routing.
+4. Implement first end-to-end providers: `openapi` (network) and `in_memory` (AI-SDK style).
+5. Add first `tools.executor.sources.add/list/remove` control operations in PM gateway.
+6. Add provider conformance tests and one vertical test: OpenAPI spec -> manifest -> execute tool call.
