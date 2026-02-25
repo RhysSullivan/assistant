@@ -30,6 +30,8 @@ v2 changes the default:
    - Top-level model tool surface is minimal; code execution is primary.
 5. **Progressive complexity**
    - Advanced controls exist but are hidden until needed.
+6. **Service-first Effect architecture**
+   - Effectful orchestration is exposed as `Context.Tag` services + Layers; plain functions are for pure transforms.
 
 ---
 
@@ -117,6 +119,7 @@ Rules:
 - `schema` has no dependency on feature/runtime packages.
 - `domain` depends on interfaces, not concrete state adapters.
 - apps are leaves; packages do not import apps.
+- packages expose effectful orchestration through services (`Context.Tag`), with Layers wiring implementations.
 
 ---
 
@@ -364,6 +367,7 @@ Not implemented yet:
 
 1. Define `persistence-ports` interfaces against current schema models.
 2. Implement minimal `persistence-local` snapshot + event log codec.
-3. Wire a minimal `apps/pm` execute flow (single run lifecycle).
-4. Add first `tools.executor.sources.add/list/remove` control operations.
-5. Add basic InputBroker contract (without full UI).
+3. Convert side-effectful packages to service-first APIs (`Context.Tag` + live/test layers).
+4. Wire a minimal `apps/pm` execute flow (single run lifecycle).
+5. Add first `tools.executor.sources.add/list/remove` control operations.
+6. Add basic InputBroker contract (without full UI).

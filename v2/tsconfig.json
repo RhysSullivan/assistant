@@ -10,7 +10,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "types": [],
+    "types": ["node", "bun"],
     "plugins": [
       {
         "name": "@effect/language-service"

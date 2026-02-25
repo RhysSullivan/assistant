@@ -13,6 +13,8 @@
   },
   "devDependencies": {
     "@effect/language-service": "^0.76.0",
+    "@types/bun": "^1.2.22",
+    "@types/node": "^20.19.9",
     "typescript": "^5.9.3"
   }
 }

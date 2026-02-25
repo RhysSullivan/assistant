@@ -1,2 +1,6 @@
 export type { ProfileStore } from "./profiles";
-export type { ToolArtifactStore } from "./tool-artifacts";
+export {
+  ToolArtifactStoreError,
+  ToolArtifactStoreService,
+  type ToolArtifactStore,
+} from "./tool-artifacts";

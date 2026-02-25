@@ -9,6 +9,6 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "effect": "^3.19.4"
+    "effect": "^3.19.8"
   }
 }
