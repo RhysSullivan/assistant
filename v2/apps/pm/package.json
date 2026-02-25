@@ -8,6 +8,8 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor-v2/mcp-gateway": "workspace:*"
+    "@executor-v2/engine": "workspace:*",
+    "@executor-v2/mcp-gateway": "workspace:*",
+    "effect": "^3.19.8"
   }
 }

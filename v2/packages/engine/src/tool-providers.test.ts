@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it } from "@effect/vitest";
 import { type Source, SourceSchema } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
 import {
@@ -29,103 +30,99 @@ const createOpenApiSource = (): Source =>
   });
 
 describe("makeToolProviderRegistry", () => {
-  test("routes discovery and invocation through provider kind", async () => {
-    const openApiProvider: ToolProvider = {
-      kind: "openapi",
-      discoverFromSource: (source) =>
-        Effect.succeed({
-          sourceHash: "hash_1",
-          tools: [
-            {
-              providerKind: "openapi",
-              sourceId: source.id,
-              workspaceId: source.workspaceId,
-              toolId: "getHealth",
-              name: "Get health",
-              description: null,
-              invocationMode: "http",
-              availability: "remote_capable",
-              providerPayload: {
-                method: "get",
-                pathTemplate: "/healthz",
-                parameters: [],
-                requestBody: null,
+  it.effect("routes discovery and invocation through provider kind", () =>
+    Effect.gen(function* () {
+      const openApiProvider: ToolProvider = {
+        kind: "openapi",
+        discoverFromSource: (source) =>
+          Effect.succeed({
+            sourceHash: "hash_1",
+            tools: [
+              {
+                providerKind: "openapi",
+                sourceId: source.id,
+                workspaceId: source.workspaceId,
+                toolId: "getHealth",
+                name: "Get health",
+                description: null,
+                invocationMode: "http",
+                availability: "remote_capable",
+                providerPayload: {
+                  method: "get",
+                  pathTemplate: "/healthz",
+                  parameters: [],
+                  requestBody: null,
+                },
               },
-            },
-          ],
-        }),
-      invoke: () =>
-        Effect.succeed({
-          output: { ok: true },
-          isError: false,
-        }),
-    };
+            ],
+          }),
+        invoke: () =>
+          Effect.succeed({
+            output: { ok: true },
+            isError: false,
+          }),
+      };
 
-    const registry = makeToolProviderRegistry([openApiProvider]);
+      const registry = makeToolProviderRegistry([openApiProvider]);
 
-    const source = createOpenApiSource();
-    const discovery = await Effect.runPromise(registry.discoverFromSource(source));
+      const source = createOpenApiSource();
+      const discovery = yield* registry.discoverFromSource(source);
 
-    expect(discovery.tools).toHaveLength(1);
-    expect(discovery.tools[0]?.toolId).toBe("getHealth");
+      expect(discovery.tools).toHaveLength(1);
+      expect(discovery.tools[0]?.toolId).toBe("getHealth");
 
-    const result = await Effect.runPromise(
-      registry.invoke({
+      const result = yield* registry.invoke({
         source,
         tool: discovery.tools[0]!,
         args: { verbose: true },
-      }),
-    );
+      });
 
-    expect(result.isError).toBe(false);
-    expect(result.output).toEqual({ ok: true });
-  });
+      expect(result.isError).toBe(false);
+      expect(result.output).toEqual({ ok: true });
+    }),
+  );
 
-  test("fails on duplicate provider registration", async () => {
-    const openApiProvider: ToolProvider = {
-      kind: "openapi",
-      invoke: () => Effect.succeed({ output: null, isError: false }),
-    };
+  it.effect("fails on duplicate provider registration", () =>
+    Effect.gen(function* () {
+      const openApiProvider: ToolProvider = {
+        kind: "openapi",
+        invoke: () => Effect.succeed({ output: null, isError: false }),
+      };
 
-    const registry = makeToolProviderRegistry([openApiProvider]);
-    const result = await Effect.runPromise(
-      Effect.either(registry.register(openApiProvider)),
-    );
+      const registry = makeToolProviderRegistry([openApiProvider]);
+      const result = yield* Effect.either(registry.register(openApiProvider));
 
-    if (result._tag === "Right") {
-      throw new Error("expected duplicate provider registration to fail");
-    }
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left).toBeInstanceOf(ToolProviderRegistryError);
+        expect(result.left.message).toContain("Provider already registered");
+      }
+    }),
+  );
 
-    expect(result.left).toBeInstanceOf(ToolProviderRegistryError);
-    expect(result.left.message).toContain("Provider already registered");
-  });
-
-  test("fails when provider cannot discover from source", async () => {
-    const mcpProvider: ToolProvider = {
-      kind: "mcp",
-      invoke: () =>
-        Effect.fail(
+  it.effect("fails when provider cannot discover from source", () =>
+    Effect.gen(function* () {
+      const mcpProvider: ToolProvider = {
+        kind: "mcp",
+        invoke: () =>
           new ToolProviderError({
             operation: "invoke",
             providerKind: "mcp",
             message: "not implemented",
             details: null,
           }),
-        ),
-    };
+      };
 
-    const registry = makeToolProviderRegistry([mcpProvider]);
-    const source = createOpenApiSource();
+      const registry = makeToolProviderRegistry([mcpProvider]);
+      const source = createOpenApiSource();
 
-    const result = await Effect.runPromise(
-      Effect.either(registry.discoverFromSource(source)),
-    );
+      const result = yield* Effect.either(registry.discoverFromSource(source));
 
-    if (result._tag === "Right") {
-      throw new Error("expected discovery to fail without provider");
-    }
-
-    expect(result.left).toBeInstanceOf(ToolProviderRegistryError);
-    expect(result.left.message).toContain("No provider registered");
-  });
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left).toBeInstanceOf(ToolProviderRegistryError);
+        expect(result.left.message).toContain("No provider registered");
+      }
+    }),
+  );
 });

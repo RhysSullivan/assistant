@@ -1,9 +1,10 @@
+import { describe, expect, it } from "@effect/vitest";
 import {
   CanonicalToolDescriptorSchema,
   type CanonicalToolDescriptor,
 } from "@executor-v2/schema";
-import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 
 import {
@@ -33,30 +34,30 @@ const sumToolDescriptor: CanonicalToolDescriptor = decodeCanonicalToolDescriptor
 });
 
 describe("executeJavaScriptInDenoSubprocess", () => {
-  test("runs code in Deno subprocess and proxies tool calls", async () => {
-    const sumProvider: ToolProvider = {
-      kind: "in_memory",
-      invoke: (input) =>
-        Effect.gen(function* () {
-          if (input.tool.toolId !== "sum") {
+  it.effect("runs code in Deno subprocess and proxies tool calls", () =>
+    Effect.gen(function* () {
+      const sumProvider: ToolProvider = {
+        kind: "in_memory",
+        invoke: (input) =>
+          Effect.gen(function* () {
+            if (input.tool.toolId !== "sum") {
+              return {
+                output: `unknown tool: ${input.tool.toolId}`,
+                isError: true,
+              } as const;
+            }
+
+            const args = input.args as { a: number; b: number };
             return {
-              output: `unknown tool: ${input.tool.toolId}`,
-              isError: true,
+              output: args.a + args.b,
+              isError: false,
             } as const;
-          }
+          }),
+      };
 
-          const args = input.args as { a: number; b: number };
-          return {
-            output: args.a + args.b,
-            isError: false,
-          } as const;
-        }),
-    };
+      const registry = makeToolProviderRegistry([sumProvider]);
 
-    const registry = makeToolProviderRegistry([sumProvider]);
-
-    const result = await Effect.runPromise(
-      executeJavaScriptInDenoSubprocess({
+      const result = yield* executeJavaScriptInDenoSubprocess({
         code: "console.log('hello'); return await tools.sum({ a: 2, b: 3 });",
         tools: [
           {
@@ -65,31 +66,30 @@ describe("executeJavaScriptInDenoSubprocess", () => {
           },
         ],
         timeoutMs: 10_000,
-      }).pipe(Effect.provideService(ToolProviderRegistryService, registry)),
-    );
+      }).pipe(Effect.provideService(ToolProviderRegistryService, registry));
 
-    expect(result).toBe(5);
-  });
+      expect(result).toBe(5);
+    }),
+  );
 
-  test("returns a typed error when Deno executable is missing", async () => {
-    const registry = makeToolProviderRegistry([]);
+  it.effect("returns a typed error when Deno executable is missing", () =>
+    Effect.gen(function* () {
+      const registry = makeToolProviderRegistry([]);
 
-    const result = await Effect.runPromise(
-      Effect.either(
+      const result = yield* Effect.either(
         executeJavaScriptInDenoSubprocess({
           code: "return 1;",
           tools: [],
           denoExecutable: "/definitely-missing-deno-binary",
           timeoutMs: 1_000,
         }).pipe(Effect.provideService(ToolProviderRegistryService, registry)),
-      ),
-    );
+      );
 
-    if (result._tag === "Right") {
-      throw new Error("expected missing Deno executable to fail");
-    }
-
-    expect(result.left).toBeInstanceOf(DenoSubprocessRunnerError);
-    expect(result.left.operation).toBe("spawn");
-  });
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left).toBeInstanceOf(DenoSubprocessRunnerError);
+        expect(result.left.operation).toBe("spawn");
+      }
+    }),
+  );
 });

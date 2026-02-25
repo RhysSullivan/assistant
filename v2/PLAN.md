@@ -47,6 +47,12 @@ v2 changes the default:
 - `cloud` and `self-hosted` are not separate architecture branches.
 - They are both **remote Convex targets**; only URL/auth/deployment ownership differs.
 
+### Runtime targets (adapter-based)
+
+- **`deno-subprocess`**: local sandbox runtime (current local secure target in v2).
+- **`cloudflare-worker-loader`**: production cloud runtime target.
+- **`node:vm`**: explicit unsafe/dev fallback only, not default.
+
 ---
 
 ## 4) Control + execution model
@@ -391,27 +397,36 @@ Implemented in `v2` so far:
 - monorepo app/package skeleton
 - `confect` imported from quickhub
 - schema package scaffold with Effect models and event envelope
+- schema-driven runtime tool models (canonical descriptor + OpenAPI invocation/manifest)
 - domain ID groundwork in `schema/src/ids.ts`
 - Convex table ID groundwork in `persistence-convex/src/convex-ids.ts`
 - shared persistence ports for `SourceStore` and `ToolArtifactStore`
 - local persistence adapters for source/tool artifacts
 - local-only snapshot/WAL contract and persistence implementation
 - OpenAPI extraction + artifact refresh/reuse flow
-- service-first wiring (`Context.Tag` + Layer) in source manager and local persistence
+- provider registry contracts and routing in `engine`
+- OpenAPI provider invocation + in-memory provider path through registry
+- local in-process JS runner with `tools.*` proxy dispatch
+- Deno subprocess runtime path with IPC tool-call proxying and tests
+- runtime adapter contract + registry scaffold in `engine` with mapped adapters (`local-inproc`, `deno-subprocess`, `cloudflare-worker-loader`)
+- minimal PM execute lifecycle wired through MCP `executor.execute` -> runtime adapter registry (single run, no persisted run state yet)
+- vertical test: OpenAPI spec -> manifest -> execute code -> HTTP tool call
+- service-first wiring (`Context.Tag` + Layer) across source manager and persistence/local runtime orchestration
 
 Not implemented yet:
-- provider registry and canonical tool descriptor routing in engine/runtime
-- execute lifecycle through PM beyond stub MCP tool
-- MCP/GraphQL providers and in-memory tool registration/invocation path
+- `tools.executor.sources.add/list/remove` end-to-end PM + MCP gateway wiring
+- approval adapter/state machine integration (pending/resume/deny persistence) in v2 runtime path
+- provider/runtime conformance suite beyond current baseline tests (timeouts, cancellation, pending approval)
+- Cloudflare worker loader adapter execution integration (current adapter is explicit scaffold/not-implemented)
+- MCP/GraphQL provider implementations
 - full rpc/sdk adapter wiring and sync engine
 
 ---
 
 ## 19) Immediate next steps
 
-1. Define canonical provider tool descriptor + provider service contracts (`discover` / `invoke`).
-2. Implement engine-side provider registry and routing for tool invocation.
-3. Wire minimal `apps/pm` execute flow (single run lifecycle) using provider routing.
-4. Implement first end-to-end providers: `openapi` (network) and `in_memory` (AI-SDK style).
-5. Add first `tools.executor.sources.add/list/remove` control operations in PM gateway.
-6. Add provider conformance tests and one vertical test: OpenAPI spec -> manifest -> execute tool call.
+1. Add first `tools.executor.sources.add/list/remove` control operations end-to-end in PM + MCP gateway.
+2. Implement approval adapter contract with persisted pending/resume/deny flow for runtime tool calls.
+3. Add provider/runtime conformance tests (invoke success/failure, timeout, pending approval, cancel).
+4. Add Cloudflare worker loader adapter integration against the runtime adapter contract.
+5. Extend PM execute lifecycle from single-run scaffold to persisted run state + streaming status.

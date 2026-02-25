@@ -8,4 +8,5 @@ Current scaffold includes:
 - OpenAPI provider invocation and manifest-to-descriptor conversion helpers
 - minimal in-process JavaScript runner with `tools.*` proxy dispatch into provider registry
 - Deno subprocess runner with line-delimited JSON IPC for proxied `tools.*` calls
+- runtime adapter contract + registry (`local-inproc`, `deno-subprocess`, `cloudflare-worker-loader` scaffold)
 - vertical integration test covering OpenAPI extraction -> descriptor conversion -> code execution -> HTTP call
