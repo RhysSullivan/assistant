@@ -1,67 +1,18 @@
-import type { Source } from "@executor-v2/schema";
+import {
+  OpenApiInvocationPayloadSchema,
+  OpenApiToolManifestSchema,
+  type CanonicalToolDescriptor,
+  type OpenApiCanonicalToolDescriptor,
+  type OpenApiInvocationPayload,
+  type OpenApiToolManifest,
+  type Source,
+} from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 import { pipe } from "effect/Function";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
 
-import {
-  ToolProviderError,
-  type CanonicalToolDescriptor,
-  type ToolProvider,
-} from "./tool-providers";
-
-const OPEN_API_PARAMETER_LOCATIONS = [
-  "path",
-  "query",
-  "header",
-  "cookie",
-] as const;
-
-const OPEN_API_HTTP_METHODS = [
-  "get",
-  "put",
-  "post",
-  "delete",
-  "patch",
-  "head",
-  "options",
-  "trace",
-] as const;
-
-const OpenApiInvocationPayloadSchema = Schema.Struct({
-  method: Schema.Literal(...OPEN_API_HTTP_METHODS),
-  pathTemplate: Schema.String,
-  parameters: Schema.Array(
-    Schema.Struct({
-      name: Schema.String,
-      location: Schema.Literal(...OPEN_API_PARAMETER_LOCATIONS),
-      required: Schema.Boolean,
-    }),
-  ),
-  requestBody: Schema.NullOr(
-    Schema.Struct({
-      required: Schema.Boolean,
-      contentTypes: Schema.Array(Schema.String),
-    }),
-  ),
-});
-
-type OpenApiInvocationPayload = typeof OpenApiInvocationPayloadSchema.Type;
-
-const OpenApiManifestSchema = Schema.Struct({
-  version: Schema.Literal(1),
-  sourceHash: Schema.String,
-  tools: Schema.Array(
-    Schema.Struct({
-      toolId: Schema.String,
-      name: Schema.String,
-      description: Schema.NullOr(Schema.String),
-      invocation: OpenApiInvocationPayloadSchema,
-    }),
-  ),
-});
-
-type OpenApiManifest = typeof OpenApiManifestSchema.Type;
+import { ToolProviderError, type ToolProvider } from "./tool-providers";
 
 const OpenApiToolArgsSchema = Schema.Record({
   key: Schema.String,
@@ -71,12 +22,13 @@ const OpenApiToolArgsSchema = Schema.Record({
 type OpenApiToolArgs = typeof OpenApiToolArgsSchema.Type;
 
 const decodeOpenApiManifestJson = Schema.decodeUnknown(
-  Schema.parseJson(OpenApiManifestSchema),
+  Schema.parseJson(OpenApiToolManifestSchema),
 );
 const decodeOpenApiInvocationPayload = Schema.decodeUnknown(
   OpenApiInvocationPayloadSchema,
 );
 const decodeOpenApiToolArgs = Schema.decodeUnknown(OpenApiToolArgsSchema);
+const encodeUnknownToJson = Schema.encode(Schema.parseJson(Schema.Unknown));
 
 const toOpenApiProviderError = (
   operation: string,
@@ -108,7 +60,7 @@ const argsValueToString = (value: unknown): string => {
     return String(value);
   }
 
-  return JSON.stringify(value);
+  return String(value);
 };
 
 const replacePathTemplate = (
@@ -214,7 +166,16 @@ const buildFetchRequest = (
           });
         }
       } else {
-        body = JSON.stringify(args.body);
+        body = yield* pipe(
+          encodeUnknownToJson(args.body),
+          Effect.mapError((cause) =>
+            toOpenApiProviderError(
+              "invoke.encode_body",
+              "Failed to encode request body as JSON",
+              cause,
+            ),
+          ),
+        );
 
         const preferredContentType = payload.requestBody.contentTypes[0];
         if (preferredContentType) {
@@ -269,20 +230,18 @@ export const openApiToolDescriptorsFromManifest = (
         cause,
       ),
     ),
-    Effect.map((manifest: OpenApiManifest) =>
-      manifest.tools.map(
-        (tool): CanonicalToolDescriptor => ({
-          providerKind: "openapi",
-          sourceId: source.id,
-          workspaceId: source.workspaceId,
-          toolId: tool.toolId,
-          name: tool.name,
-          description: tool.description,
-          invocationMode: "http",
-          availability: "remote_capable",
-          providerPayload: tool.invocation,
-        }),
-      ),
+    Effect.map((manifest: OpenApiToolManifest) =>
+      manifest.tools.map((tool): OpenApiCanonicalToolDescriptor => ({
+        providerKind: "openapi",
+        sourceId: source.id,
+        workspaceId: source.workspaceId,
+        toolId: tool.toolId,
+        name: tool.name,
+        description: tool.description,
+        invocationMode: "http",
+        availability: "remote_capable",
+        providerPayload: tool.invocation,
+      })),
     ),
   );
 

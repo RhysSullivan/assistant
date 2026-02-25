@@ -5,7 +5,20 @@ import {
   type ToolArtifactStore,
 } from "@executor-v2/persistence-ports";
 import {
+  OPEN_API_HTTP_METHODS,
+  OPEN_API_PARAMETER_LOCATIONS,
+  OpenApiExtractedToolSchema,
+  OpenApiInvocationPayloadSchema,
+  OpenApiToolManifestSchema,
+  OpenApiToolParameterSchema,
+  OpenApiToolRequestBodySchema,
   ToolArtifactIdSchema,
+  type OpenApiExtractedTool,
+  type OpenApiHttpMethod,
+  type OpenApiInvocationPayload,
+  type OpenApiToolManifest,
+  type OpenApiToolParameter,
+  type OpenApiToolRequestBody,
   type Source,
   type ToolArtifact,
 } from "@executor-v2/schema";
@@ -16,27 +29,9 @@ import * as Option from "effect/Option";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
 
-const HTTP_METHODS = [
-  "get",
-  "put",
-  "post",
-  "delete",
-  "patch",
-  "head",
-  "options",
-  "trace",
-] as const;
+const HTTP_METHODS = OPEN_API_HTTP_METHODS;
 
-type HttpMethod = (typeof HTTP_METHODS)[number];
-
-const OPEN_API_PARAMETER_LOCATIONS = [
-  "path",
-  "query",
-  "header",
-  "cookie",
-] as const;
-
-type OpenApiParameterLocation = (typeof OPEN_API_PARAMETER_LOCATIONS)[number];
+type HttpMethod = OpenApiHttpMethod;
 
 type OpenApiExtractionStage =
   | "validate"
@@ -50,50 +45,21 @@ export class OpenApiExtractionError extends Data.TaggedError("OpenApiExtractionE
   details: string | null;
 }> {}
 
-export const ExtractedToolParameterSchema = Schema.Struct({
-  name: Schema.String,
-  location: Schema.Literal(...OPEN_API_PARAMETER_LOCATIONS),
-  required: Schema.Boolean,
-});
+export const ExtractedToolParameterSchema = OpenApiToolParameterSchema;
+export const ExtractedToolRequestBodySchema = OpenApiToolRequestBodySchema;
+export const ExtractedToolInvocationSchema = OpenApiInvocationPayloadSchema;
+export const ExtractedToolSchema = OpenApiExtractedToolSchema;
+export const ToolManifestSchema = OpenApiToolManifestSchema;
 
-export const ExtractedToolRequestBodySchema = Schema.Struct({
-  required: Schema.Boolean,
-  contentTypes: Schema.Array(Schema.String),
-});
-
-export const ExtractedToolInvocationSchema = Schema.Struct({
-  method: Schema.String,
-  pathTemplate: Schema.String,
-  parameters: Schema.Array(ExtractedToolParameterSchema),
-  requestBody: Schema.NullOr(ExtractedToolRequestBodySchema),
-});
-
-export const ExtractedToolSchema = Schema.Struct({
-  toolId: Schema.String,
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  method: Schema.String,
-  path: Schema.String,
-  invocation: ExtractedToolInvocationSchema,
-  operationHash: Schema.String,
-});
-
-export type ExtractedToolParameter = typeof ExtractedToolParameterSchema.Type;
-export type ExtractedToolRequestBody = typeof ExtractedToolRequestBodySchema.Type;
-export type ExtractedToolInvocation = typeof ExtractedToolInvocationSchema.Type;
-export type ExtractedTool = typeof ExtractedToolSchema.Type;
-
-export const ToolManifestSchema = Schema.Struct({
-  version: Schema.Literal(1),
-  sourceHash: Schema.String,
-  tools: Schema.Array(ExtractedToolSchema),
-});
+export type ExtractedToolParameter = OpenApiToolParameter;
+export type ExtractedToolRequestBody = OpenApiToolRequestBody;
+export type ExtractedToolInvocation = OpenApiInvocationPayload;
+export type ExtractedTool = OpenApiExtractedTool;
+export type ToolManifest = OpenApiToolManifest;
 
 const ToolManifestFromJsonSchema = Schema.parseJson(ToolManifestSchema);
 const encodeManifestToJson = Schema.encode(ToolManifestFromJsonSchema);
 const decodeToolArtifactId = Schema.decodeUnknownSync(ToolArtifactIdSchema);
-
-export type ToolManifest = typeof ToolManifestSchema.Type;
 
 export type ToolManifestDiff = {
   added: Array<string>;

@@ -48,6 +48,8 @@ describe("makeToolProviderRegistry", () => {
               providerPayload: {
                 method: "get",
                 pathTemplate: "/healthz",
+                parameters: [],
+                requestBody: null,
               },
             },
           ],

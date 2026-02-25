@@ -1,31 +1,22 @@
-import type { Source, SourceKind } from "@executor-v2/schema";
+import type {
+  CanonicalToolDescriptor as SchemaCanonicalToolDescriptor,
+  Source,
+  ToolAvailability as SchemaToolAvailability,
+  ToolDiscoveryResult as SchemaToolDiscoveryResult,
+  ToolInvocationMode as SchemaToolInvocationMode,
+  ToolInvokeResult,
+  ToolProviderKind as SchemaToolProviderKind,
+} from "@executor-v2/schema";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-export type ToolProviderKind = SourceKind | "in_memory";
-
-export type ToolInvocationMode = "http" | "mcp" | "graphql" | "in_memory";
-
-export type ToolAvailability = "local_only" | "remote_capable";
-
-export type CanonicalToolDescriptor = {
-  providerKind: ToolProviderKind;
-  sourceId: Source["id"] | null;
-  workspaceId: Source["workspaceId"] | null;
-  toolId: string;
-  name: string;
-  description: string | null;
-  invocationMode: ToolInvocationMode;
-  availability: ToolAvailability;
-  providerPayload: unknown;
-};
-
-export type ToolDiscoveryResult = {
-  sourceHash: string | null;
-  tools: ReadonlyArray<CanonicalToolDescriptor>;
-};
+export type ToolAvailability = SchemaToolAvailability;
+export type ToolInvocationMode = SchemaToolInvocationMode;
+export type ToolProviderKind = SchemaToolProviderKind;
+export type CanonicalToolDescriptor = SchemaCanonicalToolDescriptor;
+export type ToolDiscoveryResult = SchemaToolDiscoveryResult;
 
 export type InvokeToolInput = {
   source: Source | null;
@@ -33,10 +24,7 @@ export type InvokeToolInput = {
   args: unknown;
 };
 
-export type InvokeToolResult = {
-  output: unknown;
-  isError: boolean;
-};
+export type InvokeToolResult = ToolInvokeResult;
 
 export class ToolProviderError extends Data.TaggedError("ToolProviderError")<{
   operation: string;

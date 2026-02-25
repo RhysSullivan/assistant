@@ -1,4 +1,11 @@
 export {
+  executeJavaScriptInDenoSubprocess,
+  isDenoSubprocessRuntimeAvailable,
+  DenoSubprocessRunnerError,
+  type DenoRunnableTool,
+  type ExecuteJavaScriptInDenoInput,
+} from "./deno-subprocess-runner";
+export {
   executeJavaScriptWithTools,
   LocalCodeRunnerError,
   type ExecuteJavaScriptInput,

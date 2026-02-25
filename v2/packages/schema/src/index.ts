@@ -13,4 +13,5 @@ export * from "./models/approval";
 export * from "./models/task-run";
 export * from "./models/sync-state";
 export * from "./models/event-envelope";
+export * from "./models/runtime-tool";
 
