@@ -6,10 +6,19 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+    "with-env": "bun run --env-file=../../.env.local --",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "bun with-env bunx vitest run --no-watch src/*.test.ts"
   },
   "dependencies": {
     "@executor-v2/sdk": "workspace:*",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "ai": "^6.0.0",
+    "effect": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@executor-v2/engine": "workspace:*",
+    "vitest": "catalog:"
   }
 }
