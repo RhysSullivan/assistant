@@ -6,8 +6,4 @@ export const mcpHandler = httpAction(async (_ctx, request) =>
     target: "remote",
     serverName: "executor-v2-convex",
     serverVersion: "0.0.0",
-    execute: async () => ({
-      isError: true,
-      error: "Remote execute path is not wired yet",
-    }),
   }));

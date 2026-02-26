@@ -33,53 +33,19 @@ const duplicateToolIdError = (toolId: string): LocalCodeRunnerError =>
     details: null,
   });
 
-const formatToolErrorDetails = (output: unknown): string | null => {
-  if (output === undefined) {
-    return null;
-  }
-
-  if (typeof output === "string") {
-    return output;
-  }
-
-  try {
-    const serialized = JSON.stringify(output, null, 2);
-    return typeof serialized === "string" ? serialized : String(output);
-  } catch {
-    return String(output);
-  }
-};
-
-const toolCallFailedError = (
-  toolId: string,
-  output: unknown,
-): LocalCodeRunnerError => {
-  const details = formatToolErrorDetails(output);
-  const baseMessage = `Tool call returned error: ${toolId}`;
-
-  return new LocalCodeRunnerError({
+const toolCallFailedError = (toolId: string): LocalCodeRunnerError =>
+  new LocalCodeRunnerError({
     operation: "invoke_tool",
-    message: details ? `${baseMessage}\n${details}` : baseMessage,
-    details,
+    message: `Tool call returned error: ${toolId}`,
+    details: null,
   });
-};
 
-const toExecutionError = (cause: unknown): LocalCodeRunnerError => {
-  let details = cause instanceof Error ? cause.stack ?? cause.message : String(cause);
-
-  if (typeof cause === "object" && cause !== null && "details" in cause) {
-    const causeDetails = (cause as { details?: unknown }).details;
-    if (typeof causeDetails === "string" && causeDetails.length > 0) {
-      details = `${details}\n${causeDetails}`;
-    }
-  }
-
-  return new LocalCodeRunnerError({
+const toExecutionError = (cause: unknown): LocalCodeRunnerError =>
+  new LocalCodeRunnerError({
     operation: "execute",
     message: "JavaScript execution failed",
-    details,
+    details: cause instanceof Error ? cause.stack ?? cause.message : String(cause),
   });
-};
 
 const buildToolBindings = (
   tools: ReadonlyArray<RunnableTool>,
@@ -98,47 +64,17 @@ const buildToolBindings = (
     return byToolId;
   });
 
-const assignToolBinding = (
-  toolsRoot: Record<string, unknown>,
-  toolId: string,
-  callTool: (args: unknown) => Promise<unknown>,
-): void => {
-  toolsRoot[toolId] = callTool;
-
-  const segments = toolId.split(".").filter((segment) => segment.length > 0);
-  if (segments.length <= 1) {
-    return;
-  }
-
-  let cursor: Record<string, unknown> = toolsRoot;
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    const segment = segments[index];
-    const current = cursor[segment];
-
-    if (typeof current !== "object" || current === null || Array.isArray(current)) {
-      const next = Object.create(null) as Record<string, unknown>;
-      cursor[segment] = next;
-      cursor = next;
-      continue;
-    }
-
-    cursor = current as Record<string, unknown>;
-  }
-
-  const leafSegment = segments[segments.length - 1];
-  cursor[leafSegment] = callTool;
-};
-
 const runJavaScript = (
   code: string,
-  toolsObject: Record<string, unknown>,
+  toolsObject: Record<string, (args: unknown) => Promise<unknown>>,
 ): Effect.Effect<unknown, LocalCodeRunnerError> =>
   Effect.tryPromise({
     try: async () => {
       const execute = new Function(
         "tools",
         `"use strict"; return (async () => {\n${code}\n})();`,
-      ) as (tools: Record<string, unknown>) => Promise<unknown>;
+      ) as (tools: Record<string, (args: unknown) => Promise<unknown>>) =>
+        Promise<unknown>;
 
       return await execute(toolsObject);
     },
@@ -158,10 +94,11 @@ export const executeJavaScriptWithTools = (
     const runPromise = Runtime.runPromise(runtime);
     const toolBindings = yield* buildToolBindings(input.tools);
 
-    const toolsObject: Record<string, unknown> = Object.create(null);
+    const toolsObject: Record<string, (args: unknown) => Promise<unknown>> =
+      Object.create(null);
 
     for (const [toolId, binding] of toolBindings.entries()) {
-      assignToolBinding(toolsObject, toolId, (args: unknown) =>
+      toolsObject[toolId] = (args: unknown) =>
         runPromise(
           registry
             .invoke({
@@ -172,12 +109,11 @@ export const executeJavaScriptWithTools = (
             .pipe(
               Effect.flatMap((result) =>
                 result.isError
-                  ? toolCallFailedError(toolId, result.output)
+                  ? toolCallFailedError(toolId)
                   : Effect.succeed(result.output),
               ),
             ),
-        ),
-      );
+        );
     }
 
     return yield* runJavaScript(input.code, toolsObject);
