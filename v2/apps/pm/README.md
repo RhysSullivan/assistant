@@ -6,4 +6,11 @@ Current scaffold includes:
 - local MCP endpoint at `POST /mcp`
 - health endpoint at `GET /healthz`
 - MCP tool routing via `@executor-v2/mcp-gateway`
-- `executor.execute` wired to engine runtime adapters (`local-inproc` default, `deno-subprocess` optional)
+- local runtime adapter injection (`makeLocalInProcessRuntimeAdapter()` in entry wiring)
+
+App wiring is now split by responsibility:
+- `src/config.ts`: Effect config service (`PORT`)
+- `src/run-executor.ts`: run execution service for an injected runtime adapter
+- `src/mcp-handler.ts`: MCP transport wiring to run client
+- `src/http-server.ts`: Bun server startup
+- `src/main.ts`: Layer composition + process entrypoint

@@ -10,6 +10,7 @@
   "dependencies": {
     "@executor-v2/mcp-gateway": "workspace:*",
     "@executor-v2/persistence-convex": "workspace:*",
+    "@executor-v2/sdk": "workspace:*",
     "convex": "catalog:"
   }
 }

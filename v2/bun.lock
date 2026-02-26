@@ -19,6 +19,7 @@
       "dependencies": {
         "@executor-v2/mcp-gateway": "workspace:*",
         "@executor-v2/persistence-convex": "workspace:*",
+        "@executor-v2/sdk": "workspace:*",
         "convex": "catalog:",
       },
     },
@@ -27,6 +28,7 @@
       "dependencies": {
         "@executor-v2/engine": "workspace:*",
         "@executor-v2/mcp-gateway": "workspace:*",
+        "@executor-v2/sdk": "workspace:*",
         "effect": "catalog:",
       },
     },
@@ -35,6 +37,10 @@
     },
     "packages/ai-sdk-adapter": {
       "name": "@executor-v2/ai-sdk-adapter",
+      "dependencies": {
+        "@executor-v2/sdk": "workspace:*",
+        "zod": "^4.3.6",
+      },
     },
     "packages/approvals": {
       "name": "@executor-v2/approvals",
@@ -76,6 +82,7 @@
     "packages/mcp-gateway": {
       "name": "@executor-v2/mcp-gateway",
       "dependencies": {
+        "@executor-v2/sdk": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "zod": "^4.3.6",
       },

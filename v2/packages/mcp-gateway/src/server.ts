@@ -1,17 +1,13 @@
+import type { ExecuteRunResult, ExecutorRunClient } from "@executor-v2/sdk";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 
 export type GatewayTarget = "local" | "remote";
 
-export type GatewayRuntimeKind =
-  | "local-inproc"
-  | "deno-subprocess"
-  | "cloudflare-worker-loader";
-
 export type ExecuteToolInput = {
   code: string;
-  runtimeKind?: GatewayRuntimeKind;
+  timeoutMs?: number;
 };
 
 export type ExecuteToolResult = {
@@ -20,11 +16,27 @@ export type ExecuteToolResult = {
   isError: boolean;
 };
 
+const toGatewayExecuteResult = (
+  result: ExecuteRunResult,
+): ExecuteToolResult => {
+  if (result.status === "completed") {
+    return {
+      isError: false,
+      output: result.result,
+    };
+  }
+
+  return {
+    isError: true,
+    error: result.error ?? `Run ${result.runId} ended with status ${result.status}`,
+  };
+};
+
 export type McpGatewayOptions = {
   target: GatewayTarget;
   serverName?: string;
   serverVersion?: string;
-  execute?: (input: ExecuteToolInput) => Promise<ExecuteToolResult>;
+  runClient: ExecutorRunClient;
 };
 
 const DEFAULT_SERVER_NAME = "executor-v2";
@@ -38,9 +50,7 @@ const PingToolInput = z.object({
 
 const ExecuteToolInputSchema = z.object({
   code: z.string(),
-  runtimeKind: z
-    .enum(["local-inproc", "deno-subprocess", "cloudflare-worker-loader"])
-    .optional(),
+  timeoutMs: z.number().int().positive().optional(),
 });
 
 const contentText = (value: unknown): string => {
@@ -87,24 +97,18 @@ const createStubMcpServer = (options: McpGatewayOptions): McpServer => {
   mcp.registerTool(
     EXECUTE_TOOL_NAME,
     {
-      description: "Execute JavaScript against configured runtime adapter",
+      description: "Execute JavaScript against configured runtime",
       inputSchema: ExecuteToolInputSchema,
     },
     async (input: ExecuteToolInput) => {
-      if (!options.execute) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "executor.execute is not configured for this gateway target",
-            },
-          ],
-          isError: true,
-        };
-      }
-
       try {
-        const result = await options.execute(input);
+        const result = toGatewayExecuteResult(
+          await options.runClient.execute({
+            code: input.code,
+            timeoutMs: input.timeoutMs,
+          }),
+        );
+
         return {
           content: [
             {
