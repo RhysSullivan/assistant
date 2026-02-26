@@ -7,6 +7,15 @@
     "apps/*",
     "packages/*"
   ],
+  "catalog": {
+    "@effect/platform": "^0.93.6",
+    "@effect/vitest": "^0.27.0",
+    "@types/node": "^20.19.9",
+    "convex": "^1.32.0",
+    "effect": "^3.19.8",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
   "scripts": {
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
@@ -15,7 +24,7 @@
   "devDependencies": {
     "@effect/language-service": "^0.76.0",
     "@types/bun": "^1.2.22",
-    "@types/node": "^20.19.9",
-    "typescript": "^5.9.3"
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
   }
 }

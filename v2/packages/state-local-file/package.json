@@ -10,15 +10,15 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@effect/platform": "^0.93.6",
+    "@effect/platform": "catalog:",
     "@executor-v2/persistence-ports": "workspace:*",
     "@executor-v2/schema": "workspace:*",
-    "effect": "^3.19.8"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/platform-bun": "^0.86.0",
-    "@effect/vitest": "^0.27.0",
+    "@effect/vitest": "catalog:",
     "@executor-v2/source-manager": "workspace:*",
-    "vitest": "^3.2.4"
+    "vitest": "catalog:"
   }
 }

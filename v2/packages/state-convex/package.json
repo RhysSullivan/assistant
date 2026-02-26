@@ -12,6 +12,6 @@
     "@executor-v2/confect": "workspace:*",
     "@executor-v2/schema": "workspace:*",
     "@executor-v2/persistence-ports": "workspace:*",
-    "effect": "^3.19.8"
+    "effect": "catalog:"
   }
 }

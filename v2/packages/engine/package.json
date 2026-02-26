@@ -12,11 +12,11 @@
   "dependencies": {
     "@executor-v2/persistence-ports": "workspace:*",
     "@executor-v2/schema": "workspace:*",
-    "effect": "^3.19.8"
+    "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.27.0",
+    "@effect/vitest": "catalog:",
     "@executor-v2/source-manager": "workspace:*",
-    "vitest": "^3.2.4"
+    "vitest": "catalog:"
   }
 }

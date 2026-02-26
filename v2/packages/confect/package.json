@@ -20,15 +20,15 @@
   "dependencies": {
     "@effect-atom/atom": "^0.4.11",
     "@effect-atom/atom-react": "^0.4.4",
-    "@effect/platform": "^0.93.6",
+    "@effect/platform": "catalog:",
     "@effect/rpc": "^0.72.2",
-    "convex": "^1.32.0",
-    "effect": "^3.19.8",
+    "convex": "catalog:",
+    "effect": "catalog:",
     "next": "^16.1.6"
   },
   "devDependencies": {
-    "@types/node": "^20.19.9",
-    "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

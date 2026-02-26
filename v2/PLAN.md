@@ -1,9 +1,39 @@
+What is executor:
+
+- Approvals
+- Permission model
+- Code execution
+  - Support abitrary tool targets (API / GraphQL / MCP / in memory)
+- Authentication
+
+Usage locally:
+
+- Approvals are stored in memory
+- Permissions are stored to file system
+- Auth creds are stored to file system
+
+Usage via AI SDK
+
+const executor = new Executor({
+runtime: deno() | nodevm() | cloudflare-dynamic-worker(),
+// all the same RPC?
+approvals:
+authentication:
+permissions:
+})
+
+Usage via Cloud:
+
+- Everything in Convex
+- Runtime is cloudflare dynamic worker
+-
+
 # Executor v2 Plan
 
 Reference implementations and inspiration for this plan:
- `../AnswerOverflow`
- `../quickhub`
- `../create-epoch-app`
+`../AnswerOverflow`
+`../quickhub`
+`../create-epoch-app`
 
 ## 1) Why v2 exists
 
@@ -122,6 +152,7 @@ apps/cli/web -> sdk
 ```
 
 Rules:
+
 - `schema` has no dependency on feature/runtime packages.
 - `domain` depends on interfaces, not concrete state adapters.
 - apps are leaves; packages do not import apps.
@@ -134,6 +165,7 @@ Rules:
 `apps/pm` is the local daemon and source of hot truth.
 
 Responsibilities:
+
 - MCP endpoint surface
 - source registration and status lifecycle
 - approvals/input broker
@@ -150,6 +182,7 @@ Responsibilities:
   - secrets in secure store / dedicated protected file
 
 Crash/restart behavior:
+
 - Rehydrate from snapshot + events.
 - Rebuild derived indexes in memory.
 - Mark previously running tasks terminally with restart reason.
@@ -161,6 +194,7 @@ Crash/restart behavior:
 Effect Schema is canonical (`packages/schema`).
 
 Current scaffold includes:
+
 - domain IDs (`src/ids.ts`)
 - enums/common primitives
 - model schemas:
@@ -175,6 +209,7 @@ Current scaffold includes:
 ### Convex ID compatibility
 
 IDs are now intentionally split by layer:
+
 - **Domain IDs** live in `packages/schema` as portable branded IDs.
 - **Convex table IDs** live in `packages/persistence-convex/src/convex-ids.ts` via `Id("table")` from `@executor-v2/confect`.
 
@@ -187,12 +222,14 @@ This keeps canonical schema backend-agnostic while preserving strict table-typed
 ### Top-level model-facing tools
 
 Keep top-level surface minimal:
+
 - `execute` (primary)
 - optional diagnostics (`health`, `version`) only if needed
 
 ### Configuration model
 
 Executor config is handled as tool calls from inside `execute` via built-in namespace:
+
 - `tools.executor.sources.add(...)`
 - `tools.executor.sources.list(...)`
 - `tools.executor.sources.remove(...)`
@@ -218,6 +255,7 @@ Use a provider registry, not format-specific execution in core runtime.
 ### Canonical tool descriptor
 
 All providers publish into one canonical descriptor used by runtime and SDK:
+
 - stable tool id
 - display metadata (name, description)
 - invocation metadata (kind + provider payload)
@@ -244,12 +282,15 @@ Goal: user can ask the agent to use a service; agent can register the source thr
 - In-memory tools are host-registered (runtime side), not persisted remote source records by default.
 
 Registration flow states (networked providers):
+
 - `draft -> probing -> auth_required -> connected | error`
 
 Registration flow states (in-memory provider):
+
 - `registered -> connected | error`
 
 Auth handling:
+
 - MCP: dynamic auth/OAuth detection, client registration where needed
 - OpenAPI/GraphQL: inspect auth schemes, prompt for API key/OAuth when required
 
@@ -260,6 +301,7 @@ Secrets are entered through host UX, not model transcript.
 ## 11) Approvals and elicitation/input
 
 Use one internal broker for human-required inputs:
+
 - approval
 - confirm
 - form input
@@ -273,6 +315,7 @@ Use one internal broker for human-required inputs:
 ### Terminal UX
 
 For fullscreen terminal clients:
+
 - tmux split/popup watcher
 - auto-show when pending approvals appear
 - auto-hide after queue drains (with debounce)
@@ -290,6 +333,7 @@ API shape should be Executor session/adapters, not single-source helper APIs.
 ### Adapter-first target design
 
 `Executor.create({ adapter })` with adapters such as:
+
 - `inproc` (embedded runtime, no install)
 - `pm` (local daemon transport)
 - `remote` (Convex target transport)
@@ -297,6 +341,7 @@ API shape should be Executor session/adapters, not single-source helper APIs.
 ### Public SDK shape
 
 Primary operations:
+
 - execute code
 - register/list/remove sources
 - register/list/remove in-memory tools (AI-SDK style)
@@ -320,12 +365,15 @@ Use host callbacks (e.g. `onInputRequest`) instead.
 ## 14) Upgrade and sync
 
 Primary path:
+
 - `local-lite -> remote`
 
 Optional reverse:
+
 - `remote -> local-lite` export/backup
 
 Sync principles:
+
 - deterministic source identity
 - idempotent imports
 - explicit credential migration policy
@@ -336,11 +384,13 @@ Sync principles:
 ## 15) Rollout phases
 
 ### Phase 0: Architecture + contracts
+
 - finalize package boundaries
 - finalize schema model set and invariants
 - define state/repository interfaces
 
 ### Phase 1: Local-lite core
+
 - PM daemon skeleton
 - file persistence (snapshot + WAL)
 - execute path with runtime proxy integration
@@ -349,22 +399,26 @@ Sync principles:
 - first provider slices: `openapi` + `in_memory`
 
 ### Phase 2: Input/approval UX
+
 - InputBroker + pending state persistence
 - tmux watcher + local web fallback
 - capability-aware elicitation fallback paths
 
 ### Phase 3: Remote parity
+
 - persistence-convex adapter and Convex app wiring
 - shared RPC contracts for pm/convex
 - target switching in CLI/web
 - runtime/provider capability checks for local vs remote
 
 ### Phase 4: Sync + upgrades
+
 - local->remote promotion pipeline
 - idempotent mapping/cursor strategy
 - conflict handling and dry-run reporting
 
 ### Phase 5: AI SDK adapters
+
 - inproc adapter
 - pm transport adapter
 - remote transport adapter
@@ -394,6 +448,7 @@ Sync principles:
 ## 18) Current scaffold status
 
 Implemented in `v2` so far:
+
 - monorepo app/package skeleton
 - `confect` imported from quickhub
 - schema package scaffold with Effect models and event envelope
@@ -414,6 +469,7 @@ Implemented in `v2` so far:
 - service-first wiring (`Context.Tag` + Layer) across source manager and persistence/local runtime orchestration
 
 Not implemented yet:
+
 - `tools.executor.sources.add/list/remove` end-to-end PM + MCP gateway wiring
 - approval adapter/state machine integration (pending/resume/deny persistence) in v2 runtime path
 - provider/runtime conformance suite beyond current baseline tests (timeouts, cancellation, pending approval)

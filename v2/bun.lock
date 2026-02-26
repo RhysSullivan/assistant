@@ -7,8 +7,8 @@
       "devDependencies": {
         "@effect/language-service": "^0.76.0",
         "@types/bun": "^1.2.22",
-        "@types/node": "^20.19.9",
-        "typescript": "^5.9.3",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
       },
     },
     "apps/cli": {
@@ -19,7 +19,7 @@
       "dependencies": {
         "@executor-v2/mcp-gateway": "workspace:*",
         "@executor-v2/persistence-convex": "workspace:*",
-        "convex": "^1.31.7",
+        "convex": "catalog:",
       },
     },
     "apps/pm": {
@@ -27,7 +27,7 @@
       "dependencies": {
         "@executor-v2/engine": "workspace:*",
         "@executor-v2/mcp-gateway": "workspace:*",
-        "effect": "^3.19.8",
+        "effect": "catalog:",
       },
     },
     "apps/web": {
@@ -45,16 +45,16 @@
       "dependencies": {
         "@effect-atom/atom": "^0.4.11",
         "@effect-atom/atom-react": "^0.4.4",
-        "@effect/platform": "^0.93.6",
+        "@effect/platform": "catalog:",
         "@effect/rpc": "^0.72.2",
-        "convex": "^1.32.0",
-        "effect": "^3.19.8",
+        "convex": "catalog:",
+        "effect": "catalog:",
         "next": "^16.1.6",
       },
       "devDependencies": {
-        "@types/node": "^20.19.9",
-        "typescript": "^5.9.2",
-        "vitest": "^3.2.4",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/domain": {
@@ -65,12 +65,12 @@
       "dependencies": {
         "@executor-v2/persistence-ports": "workspace:*",
         "@executor-v2/schema": "workspace:*",
-        "effect": "^3.19.8",
+        "effect": "catalog:",
       },
       "devDependencies": {
-        "@effect/vitest": "^0.27.0",
+        "@effect/vitest": "catalog:",
         "@executor-v2/source-manager": "workspace:*",
-        "vitest": "^3.2.4",
+        "vitest": "catalog:",
       },
     },
     "packages/mcp-gateway": {
@@ -89,7 +89,7 @@
     "packages/schema": {
       "name": "@executor-v2/schema",
       "dependencies": {
-        "effect": "^3.19.8",
+        "effect": "catalog:",
       },
     },
     "packages/sdk": {
@@ -103,18 +103,18 @@
       "dependencies": {
         "@executor-v2/persistence-ports": "workspace:*",
         "@executor-v2/schema": "workspace:*",
-        "effect": "^3.19.8",
+        "effect": "catalog:",
       },
       "devDependencies": {
-        "@effect/vitest": "^0.27.0",
-        "vitest": "^3.2.4",
+        "@effect/vitest": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/state-contracts": {
       "name": "@executor-v2/persistence-ports",
       "dependencies": {
         "@executor-v2/schema": "workspace:*",
-        "effect": "^3.19.8",
+        "effect": "catalog:",
       },
     },
     "packages/state-convex": {
@@ -123,27 +123,36 @@
         "@executor-v2/confect": "workspace:*",
         "@executor-v2/persistence-ports": "workspace:*",
         "@executor-v2/schema": "workspace:*",
-        "effect": "^3.19.8",
+        "effect": "catalog:",
       },
     },
     "packages/state-local-file": {
       "name": "@executor-v2/persistence-local",
       "dependencies": {
-        "@effect/platform": "^0.93.6",
+        "@effect/platform": "catalog:",
         "@executor-v2/persistence-ports": "workspace:*",
         "@executor-v2/schema": "workspace:*",
-        "effect": "^3.19.8",
+        "effect": "catalog:",
       },
       "devDependencies": {
         "@effect/platform-bun": "^0.86.0",
-        "@effect/vitest": "^0.27.0",
+        "@effect/vitest": "catalog:",
         "@executor-v2/source-manager": "workspace:*",
-        "vitest": "^3.2.4",
+        "vitest": "catalog:",
       },
     },
     "packages/sync": {
       "name": "@executor-v2/sync",
     },
+  },
+  "catalog": {
+    "@effect/platform": "^0.93.6",
+    "@effect/vitest": "^0.27.0",
+    "@types/node": "^20.19.9",
+    "convex": "^1.32.0",
+    "effect": "^3.19.8",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
   },
   "packages": {
     "@effect-atom/atom": ["@effect-atom/atom@0.4.13", "", { "peerDependencies": { "@effect/experimental": "^0.57.0", "@effect/platform": "^0.93.0", "@effect/rpc": "^0.72.1", "effect": "^3.19.0" } }, "sha512-wYCPDg/vN2IWTqxho7kTTSivh//V2TSAcdkQvLXMJWww8YzhcCGmCiDpT6cefyNXvHj+qZrqYB54mrUqG6EYCA=="],
