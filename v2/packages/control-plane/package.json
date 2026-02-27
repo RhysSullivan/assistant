@@ -1,5 +1,5 @@
 {
-  "name": "@executor-v2/persistence-convex",
+  "name": "@executor-v2/control-plane",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,9 +9,11 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor-v2/confect": "workspace:*",
-    "@executor-v2/schema": "workspace:*",
+    "@effect-atom/atom": "^0.4.11",
+    "@effect/platform": "catalog:",
     "@executor-v2/persistence-ports": "workspace:*",
+    "@executor-v2/schema": "workspace:*",
+    "@executor-v2/source-manager": "workspace:*",
     "effect": "catalog:"
   }
 }

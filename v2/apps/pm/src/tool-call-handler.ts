@@ -7,6 +7,7 @@ import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
 
 export type PmToolCallHandlerService = {
@@ -37,28 +38,24 @@ const RuntimeToolCallRequestSchema = Schema.Struct({
 
 const decodeRuntimeToolCallRequest = Schema.decodeUnknown(RuntimeToolCallRequestSchema);
 
-const errorToText = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-
-  return String(error);
-};
-
 const decodeRequestBodyError = (cause: unknown): PmToolCallHttpRequestError =>
   new PmToolCallHttpRequestError({
     message: "Invalid runtime callback request body",
-    details: cause instanceof Error ? cause.message : String(cause),
+    details: String(cause),
   });
+
+const decodeRequestPayloadError = (cause: unknown): PmToolCallHttpRequestError =>
+  new PmToolCallHttpRequestError({
+    message: "Runtime callback request body is invalid",
+    details: ParseResult.isParseError(cause)
+      ? ParseResult.TreeFormatter.formatErrorSync(cause)
+      : String(cause),
+  });
+
+const formatHttpRequestError = (error: PmToolCallHttpRequestError): string =>
+  error.details && error.details.length > 0
+    ? `${error.message}: ${error.details}`
+    : error.message;
 
 const handleToolCall = Effect.fn("@executor-v2/app-pm/tool-call.handle")(function* (
   input: RuntimeToolCallRequest,
@@ -82,24 +79,26 @@ export const handleToolCallBody = Effect.fn(
 )(function* (body: unknown) {
   const handler = yield* PmToolCallHandler;
   const input = yield* decodeRuntimeToolCallRequest(body).pipe(
-    Effect.mapError(decodeRequestBodyError),
+    Effect.mapError(decodeRequestPayloadError),
   );
 
   return yield* handler.handleToolCall(input);
 });
 
 export const handleToolCallHttp = Effect.gen(function* () {
-  const body = yield* HttpServerRequest.schemaBodyJson(Schema.Unknown);
+  const body = yield* HttpServerRequest.schemaBodyJson(Schema.Unknown).pipe(
+    Effect.mapError(decodeRequestBodyError),
+  );
   const result = yield* handleToolCallBody(body);
 
   return yield* HttpServerResponse.json(result, { status: 200 });
 }).pipe(
-  Effect.catchAll((error) =>
+  Effect.catchTag("PmToolCallHttpRequestError", (error) =>
     HttpServerResponse.json(
       {
         ok: false,
         kind: "failed",
-        error: errorToText(error),
+        error: formatHttpRequestError(error),
       } satisfies RuntimeToolCallResult,
       { status: 400 },
     ),

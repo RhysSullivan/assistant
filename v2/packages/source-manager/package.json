@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./source-catalog": "./src/source-catalog.ts"
   },
   "scripts": {
     "test": "bunx vitest run --no-watch src/*.test.ts",

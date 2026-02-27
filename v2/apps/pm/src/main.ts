@@ -1,4 +1,7 @@
+import * as BunContext from "@effect/platform-bun/BunContext";
+import { ControlPlaneServiceLive } from "@executor-v2/control-plane";
 import { makeLocalInProcessRuntimeAdapter } from "@executor-v2/engine";
+import { LocalSourceStoreLive } from "@executor-v2/persistence-local";
 
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -18,12 +21,21 @@ const PmMcpDependenciesLive = Layer.merge(
   PmToolProviderRegistryLive,
 );
 
+const PmControlPlaneDependenciesLive = ControlPlaneServiceLive.pipe(
+  Layer.provide(
+    LocalSourceStoreLive({
+      rootDir: process.env.PM_STATE_ROOT_DIR ?? ".executor-v2/pm-state",
+    }).pipe(Layer.provide(BunContext.layer)),
+  ),
+);
+
 const PmAppLive = Layer.mergeAll(
   PmConfigLive,
   PmMcpHandlerLive.pipe(Layer.provide(PmMcpDependenciesLive)),
   PmToolCallHandlerLive,
+  PmControlPlaneDependenciesLive,
 );
 
-const program = startPmHttpServer().pipe(Effect.provide(PmAppLive));
+const program = Effect.scoped(startPmHttpServer()).pipe(Effect.provide(PmAppLive));
 
 await Effect.runPromise(program);

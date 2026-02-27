@@ -109,7 +109,7 @@ const withMcpClient = (port: number) =>
     Effect.tryPromise({
       try: async () => {
         const transport = new StreamableHTTPClientTransport(
-          new URL(`http://127.0.0.1:${port}/mcp`),
+          new URL(`http://127.0.0.1:${port}/v1/mcp`),
         );
         const client = new Client(
           { name: "executor-v2-pm-e2e", version: "0.0.0" },

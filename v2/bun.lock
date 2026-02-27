@@ -21,9 +21,10 @@
       "name": "@executor-v2/app-convex",
       "dependencies": {
         "@executor-v2/confect": "workspace:*",
+        "@executor-v2/control-plane": "workspace:*",
         "@executor-v2/engine": "workspace:*",
         "@executor-v2/mcp-gateway": "workspace:*",
-        "@executor-v2/persistence-convex": "workspace:*",
+        "@executor-v2/schema": "workspace:*",
         "@executor-v2/sdk": "workspace:*",
         "convex": "catalog:",
         "effect": "catalog:",
@@ -39,8 +40,10 @@
       "dependencies": {
         "@effect/platform": "catalog:",
         "@effect/platform-bun": "^0.86.0",
+        "@executor-v2/control-plane": "workspace:*",
         "@executor-v2/engine": "workspace:*",
         "@executor-v2/mcp-gateway": "workspace:*",
+        "@executor-v2/persistence-local": "workspace:*",
         "@executor-v2/sdk": "workspace:*",
         "effect": "catalog:",
       },
@@ -87,6 +90,17 @@
         "vitest": "catalog:",
       },
     },
+    "packages/control-plane": {
+      "name": "@executor-v2/control-plane",
+      "dependencies": {
+        "@effect-atom/atom": "^0.4.11",
+        "@effect/platform": "catalog:",
+        "@executor-v2/persistence-ports": "workspace:*",
+        "@executor-v2/schema": "workspace:*",
+        "@executor-v2/source-manager": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
     "packages/domain": {
       "name": "@executor-v2/domain",
     },
@@ -113,9 +127,6 @@
     },
     "packages/oauth": {
       "name": "@executor-v2/oauth",
-    },
-    "packages/rpc": {
-      "name": "@executor-v2/rpc",
     },
     "packages/schema": {
       "name": "@executor-v2/schema",
@@ -144,15 +155,6 @@
     "packages/state-contracts": {
       "name": "@executor-v2/persistence-ports",
       "dependencies": {
-        "@executor-v2/schema": "workspace:*",
-        "effect": "catalog:",
-      },
-    },
-    "packages/state-convex": {
-      "name": "@executor-v2/persistence-convex",
-      "dependencies": {
-        "@executor-v2/confect": "workspace:*",
-        "@executor-v2/persistence-ports": "workspace:*",
         "@executor-v2/schema": "workspace:*",
         "effect": "catalog:",
       },
@@ -300,6 +302,8 @@
 
     "@executor-v2/confect": ["@executor-v2/confect@workspace:packages/confect"],
 
+    "@executor-v2/control-plane": ["@executor-v2/control-plane@workspace:packages/control-plane"],
+
     "@executor-v2/domain": ["@executor-v2/domain@workspace:packages/domain"],
 
     "@executor-v2/engine": ["@executor-v2/engine@workspace:packages/engine"],
@@ -308,13 +312,9 @@
 
     "@executor-v2/oauth": ["@executor-v2/oauth@workspace:packages/oauth"],
 
-    "@executor-v2/persistence-convex": ["@executor-v2/persistence-convex@workspace:packages/state-convex"],
-
     "@executor-v2/persistence-local": ["@executor-v2/persistence-local@workspace:packages/state-local-file"],
 
     "@executor-v2/persistence-ports": ["@executor-v2/persistence-ports@workspace:packages/state-contracts"],
-
-    "@executor-v2/rpc": ["@executor-v2/rpc@workspace:packages/rpc"],
 
     "@executor-v2/schema": ["@executor-v2/schema@workspace:packages/schema"],
 

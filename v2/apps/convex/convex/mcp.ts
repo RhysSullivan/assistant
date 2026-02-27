@@ -1,13 +1,13 @@
 import { handleMcpHttpRequest } from "@executor-v2/mcp-gateway";
 import { createExecutorRunClient } from "@executor-v2/sdk";
-import { api } from "./_generated/api";
+import * as Effect from "effect/Effect";
+
 import { httpAction } from "./_generated/server";
-import { unwrapRpcSuccess } from "./rpc_exit";
-export const mcpHandler = httpAction(async (ctx, request) => {
+import { executeRunImpl } from "./executor";
+
+export const mcpHandler = httpAction(async (_ctx, request) => {
   const runClient = createExecutorRunClient((input) =>
-    ctx
-      .runAction(api.executor.executeRun, input)
-      .then((result) => unwrapRpcSuccess(result, "executor.executeRun")),
+    Effect.runPromise(executeRunImpl(input)),
   );
 
   return handleMcpHttpRequest(request, {

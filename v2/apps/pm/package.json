@@ -11,9 +11,11 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@effect/platform-bun": "^0.86.0",
+    "@executor-v2/control-plane": "workspace:*",
     "@executor-v2/engine": "workspace:*",
     "@executor-v2/mcp-gateway": "workspace:*",
     "@executor-v2/sdk": "workspace:*",
+    "@executor-v2/persistence-local": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

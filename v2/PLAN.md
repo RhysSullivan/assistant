@@ -64,7 +64,7 @@ Control is optional capability, not required for execute-only environments.
 How clients talk to executor.
 
 - MCP server/gateway
-- OpenAPI/RPC control API
+- OpenAPI control API
 - AI SDK tool bridge
 
 Transport does not own core execution semantics.
@@ -167,7 +167,7 @@ This is mostly transport/API behavior; core runtime pipeline stays the same.
 
 ---
 
-## 8) MCP, RPC, and AI SDK strategy
+## 8) MCP, OpenAPI, and AI SDK strategy
 
 ### MCP
 
@@ -179,7 +179,7 @@ Top-level model-facing tools stay minimal:
 
 ### Control API
 
-Control is exposed through Executor OpenAPI/RPC contracts.
+Control is exposed through Executor OpenAPI contracts.
 
 - Host/app control calls should use control API directly.
 - Model control calls can use `tools.executor.*` inside `execute` code.
@@ -287,16 +287,15 @@ v2/
     schema/
     state-contracts/
     state-local-file/
-    state-convex/
     domain/
     approvals/
     source-manager/
+    control-plane/
     engine/
     mcp-gateway/
     oauth/
     secrets/
     sync/
-    rpc/
     sdk/
     ai-sdk-adapter/
 ```
@@ -313,15 +312,15 @@ Planned follow-up split (after behavior stabilizes):
 confect -> schema -> state-contracts
 
 state-contracts -> state-local-file
-state-contracts -> state-convex
 
 schema + state-contracts + oauth + secrets -> domain
 domain -> approvals/source-manager/engine
+source-manager + schema -> control-plane
 approvals/source-manager/engine -> mcp-gateway
-domain/features -> rpc -> sdk -> ai-sdk-adapter
+domain/features -> sdk -> ai-sdk-adapter
 
-apps/pm      -> mcp-gateway + domain + state-local-file + rpc
-apps/convex  -> mcp-gateway + domain + state-convex + rpc
+apps/pm      -> mcp-gateway + domain + state-local-file + control-plane
+apps/convex  -> mcp-gateway + domain + control-plane
 apps/cli/web -> sdk (and/or ai-sdk bridge)
 ```
 Rules:
@@ -367,7 +366,7 @@ Rules:
 ### Phase 5: transport polish
 
 - MCP surface stabilization
-- OpenAPI/RPC control surface stabilization
+- OpenAPI control surface stabilization
 - AI SDK bridge (`toAiSdkTools`) and docs/examples
 
 ---
@@ -414,7 +413,7 @@ Still missing:
 - shared tool invocation service wired with persisted approval lifecycle in v2 path
 - cloudflare-worker-loader runtime adapter implementation in v2 runtime path
 - parity conformance tests for runtime/provider/pending-approval/cancel flows
-- full rpc/sdk/ai-sdk adapter wiring and usage examples
+- full openapi/sdk/ai-sdk adapter wiring and usage examples
 
 ---
 

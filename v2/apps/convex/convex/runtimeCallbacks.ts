@@ -1,27 +1,13 @@
-import { createRpcFactory, makeRpcModule } from "@executor-v2/confect/rpc";
-import { executorConfectSchema } from "@executor-v2/persistence-convex";
 import type {
   RuntimeToolCallRequest,
   RuntimeToolCallResult,
 } from "@executor-v2/sdk";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
-import { api } from "./_generated/api";
+
 import { httpAction } from "./_generated/server";
-import { unwrapRpcSuccess } from "./rpc_exit";
-
-const runtimeToolCallResultSchema = Schema.Struct({
-  ok: Schema.Boolean,
-  kind: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-  value: Schema.optional(Schema.Unknown),
-  approvalId: Schema.optional(Schema.String),
-  retryAfterMs: Schema.optional(Schema.Number),
-});
-
-const factory = createRpcFactory({
-  schema: executorConfectSchema,
-});
 
 export const handleToolCallImpl = (
   input: RuntimeToolCallRequest,
@@ -32,35 +18,26 @@ export const handleToolCallImpl = (
     error: `Convex runtime callback received tool '${input.toolPath}', but callback invocation is not wired yet.`,
   });
 
-const handleToolCallEndpoint = factory.action({
-  payload: {
-    runId: Schema.String,
-    callId: Schema.String,
-    toolPath: Schema.String,
-    input: Schema.optional(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.Unknown,
-      }),
-    ),
-  },
-  success: runtimeToolCallResultSchema,
+class RuntimeToolCallBadRequestError extends Data.TaggedError(
+  "RuntimeToolCallBadRequestError",
+)<{
+  message: string;
+  details: string;
+}> {}
+
+const RuntimeToolCallRequestSchema = Schema.Struct({
+  runId: Schema.String,
+  callId: Schema.String,
+  toolPath: Schema.String,
+  input: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.Unknown,
+    }),
+  ),
 });
 
-handleToolCallEndpoint.implement((payload) =>
-  handleToolCallImpl({
-    runId: payload.runId,
-    callId: payload.callId,
-    toolPath: payload.toolPath,
-    input: payload.input,
-  }),
-);
-
-const runtimeCallbacksRpc = makeRpcModule({
-  handleToolCall: handleToolCallEndpoint,
-});
-
-export const handleToolCall = runtimeCallbacksRpc.handlers.handleToolCall;
+const decodeRuntimeToolCallRequest = Schema.decodeUnknown(RuntimeToolCallRequestSchema);
 
 const badRequest = (message: string): Response =>
   Response.json(
@@ -72,48 +49,42 @@ const badRequest = (message: string): Response =>
     { status: 400 },
   );
 
-export const handleToolCallHttp = httpAction(async (ctx, request) => {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch (cause) {
-    return badRequest(
-      `Invalid runtime callback request body: ${
-        cause instanceof Error ? cause.message : String(cause)
-      }`,
+const formatBadRequestMessage = (error: RuntimeToolCallBadRequestError): string =>
+  error.details.length > 0 ? `${error.message}: ${error.details}` : error.message;
+
+const formatUnknownDetails = (cause: unknown): string => String(cause);
+
+const handleToolCallHttpEffect = (
+  request: Request,
+): Effect.Effect<Response, never> =>
+  Effect.gen(function* () {
+    const body = yield* Effect.tryPromise({
+      try: () => request.json(),
+      catch: (cause) =>
+        new RuntimeToolCallBadRequestError({
+          message: "Invalid runtime callback request body",
+          details: formatUnknownDetails(cause),
+        }),
+    });
+
+    const input = yield* decodeRuntimeToolCallRequest(body).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RuntimeToolCallBadRequestError({
+            message: "Runtime callback request body is invalid",
+            details: ParseResult.TreeFormatter.formatErrorSync(cause),
+          }),
+      ),
     );
-  }
 
-  if (typeof body !== "object" || body === null) {
-    return badRequest("Runtime callback request body must be an object");
-  }
+    const result = yield* handleToolCallImpl(input);
+    return Response.json(result, { status: 200 });
+  }).pipe(
+    Effect.catchTag("RuntimeToolCallBadRequestError", (error) =>
+      Effect.succeed(badRequest(formatBadRequestMessage(error))),
+    ),
+  );
 
-  const payload = body as Partial<RuntimeToolCallRequest>;
-
-  if (
-    typeof payload.runId !== "string" ||
-    typeof payload.callId !== "string" ||
-    typeof payload.toolPath !== "string"
-  ) {
-    return badRequest("Runtime callback request body is missing required fields");
-  }
-
-  let result: RuntimeToolCallResult;
-  try {
-    result = unwrapRpcSuccess(
-      await ctx.runAction(api.runtimeCallbacks.handleToolCall, {
-        runId: payload.runId,
-        callId: payload.callId,
-        toolPath: payload.toolPath,
-        input:
-          payload.input && typeof payload.input === "object"
-            ? (payload.input as Record<string, unknown>)
-            : undefined,
-      }),
-      "runtimeCallbacks.handleToolCall",
-    );
-  } catch (cause) {
-    return badRequest(cause instanceof Error ? cause.message : String(cause));
-  }
-  return Response.json(result, { status: 200 });
-});
+export const handleToolCallHttp = httpAction((_ctx, request) =>
+  Effect.runPromise(handleToolCallHttpEffect(request)),
+);

@@ -3,7 +3,9 @@
 Convex remote server app scaffold for Executor v2.
 
 Current scaffold includes:
- Convex schema wiring at `convex/schema.ts`, sourced from `@executor-v2/persistence-convex`
- MCP HTTP endpoint at `convex/http.ts` and `convex/mcp.ts`, wired through a run client
- runtime callback endpoints at `POST /runtime/tool-call` and `POST /v1/runtime/tool-call`
- action-level callback handler scaffold in `convex/runtimeCallbacks.ts`
+ Convex schema wiring lives directly in `convex/schema.ts`
+ MCP HTTP endpoint at `GET/POST/DELETE /v1/mcp` via `convex/http.ts` and `convex/mcp.ts`
+ runtime callback endpoint at `POST /v1/runtime/tool-call`
+ control-plane source endpoints at `GET/POST /v1/workspaces/:workspaceId/sources`
+ control-plane source removal endpoint at `DELETE /v1/workspaces/:workspaceId/sources/:sourceId`
+ generated OpenAPI spec endpoint at `GET /v1/openapi.json`

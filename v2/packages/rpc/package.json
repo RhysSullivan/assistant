@@ -1,8 +1,0 @@
-{
-  "name": "@executor-v2/rpc",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
-  }
-}
