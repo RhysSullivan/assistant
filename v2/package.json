@@ -18,6 +18,7 @@
   },
   "scripts": {
     "prepare": "effect-language-service patch",
+    "dev": "turbo run dev --parallel --filter=@executor-v2/app-pm --filter=@executor-v2/app-convex --filter=@executor-v2/app-web",
     "typecheck": "tsc --noEmit",
     "knip": "bunx knip --config knip.json"
   },
@@ -25,6 +26,7 @@
     "@effect/language-service": "^0.76.0",
     "@types/bun": "^1.2.22",
     "@types/node": "catalog:",
+    "turbo": "^2.8.11",
     "typescript": "catalog:"
   },
   "dependencies": {

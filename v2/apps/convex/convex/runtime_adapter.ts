@@ -1,7 +1,12 @@
-import { executeJavaScriptWithTools } from "@executor-v2/engine/local-runner";
-import type {
-  CanonicalToolDescriptor,
+import {
+  LocalCodeRunnerError,
+  executeJavaScriptWithTools,
+} from "@executor-v2/engine/local-runner";
+import {
+  ToolProviderError,
+  ToolProviderRegistryError,
   ToolProviderRegistryService,
+  type CanonicalToolDescriptor,
 } from "@executor-v2/engine/tool-providers";
 import type { Source } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
@@ -17,12 +22,17 @@ export type RuntimeExecuteInput = {
   timeoutMs?: number;
 };
 
+export type RuntimeExecuteError =
+  | LocalCodeRunnerError
+  | ToolProviderRegistryError
+  | ToolProviderError;
+
 export type RuntimeAdapter = {
   kind: "local-inproc";
   isAvailable: () => Effect.Effect<boolean>;
   execute: (
     input: RuntimeExecuteInput,
-  ) => Effect.Effect<unknown, unknown, ToolProviderRegistryService>;
+  ) => Effect.Effect<unknown, RuntimeExecuteError, ToolProviderRegistryService>;
 };
 
 export const makeLocalInProcessRuntimeAdapter = (): RuntimeAdapter => ({

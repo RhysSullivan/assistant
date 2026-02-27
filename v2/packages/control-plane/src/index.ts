@@ -35,10 +35,7 @@ export {
 export {
   createControlPlaneAtomClient,
   makeControlPlaneClient,
+  type ControlPlaneAtomClient,
   type ControlPlaneClientError,
   type ControlPlaneClientOptions,
-  type ControlPlaneReadOptions,
-  type ListSourcesRequest,
-  type RemoveSourceRequest,
-  type UpsertSourceRequest,
 } from "./client";

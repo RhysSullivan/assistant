@@ -1,13 +1,16 @@
 import {
-  makeLocalInProcessRuntimeAdapter,
-  makeToolProviderRegistry,
   ToolProviderRegistryService,
-  type RuntimeExecuteError,
-} from "@executor-v2/engine";
+  makeToolProviderRegistry,
+} from "@executor-v2/engine/tool-providers";
 import type { ExecuteRunInput, ExecuteRunResult } from "@executor-v2/sdk";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+
+import {
+  makeLocalInProcessRuntimeAdapter,
+  type RuntimeExecuteError,
+} from "./runtime_adapter";
 
 export type ConvexRunExecutorService = {
   executeRun: (
@@ -23,9 +26,7 @@ const runtimeAdapter = makeLocalInProcessRuntimeAdapter();
 
 const formatRuntimeExecuteError = (error: RuntimeExecuteError): string => {
   switch (error._tag) {
-    case "RuntimeAdapterError":
     case "LocalCodeRunnerError":
-    case "DenoSubprocessRunnerError":
     case "ToolProviderError":
       return error.details ? `${error.message}: ${error.details}` : error.message;
     case "ToolProviderRegistryError":
