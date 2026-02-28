@@ -45,17 +45,17 @@ export class OpenApiExtractionError extends Data.TaggedError("OpenApiExtractionE
   details: string | null;
 }> {}
 
-export const ExtractedToolParameterSchema = OpenApiToolParameterSchema;
-export const ExtractedToolRequestBodySchema = OpenApiToolRequestBodySchema;
-export const ExtractedToolInvocationSchema = OpenApiInvocationPayloadSchema;
-export const ExtractedToolSchema = OpenApiExtractedToolSchema;
-export const ToolManifestSchema = OpenApiToolManifestSchema;
+const ExtractedToolParameterSchema = OpenApiToolParameterSchema;
+const ExtractedToolRequestBodySchema = OpenApiToolRequestBodySchema;
+const ExtractedToolInvocationSchema = OpenApiInvocationPayloadSchema;
+const ExtractedToolSchema = OpenApiExtractedToolSchema;
+const ToolManifestSchema = OpenApiToolManifestSchema;
 
-export type ExtractedToolParameter = OpenApiToolParameter;
-export type ExtractedToolRequestBody = OpenApiToolRequestBody;
-export type ExtractedToolInvocation = OpenApiInvocationPayload;
-export type ExtractedTool = OpenApiExtractedTool;
-export type ToolManifest = OpenApiToolManifest;
+type ExtractedToolParameter = OpenApiToolParameter;
+type ExtractedToolRequestBody = OpenApiToolRequestBody;
+type ExtractedToolInvocation = OpenApiInvocationPayload;
+type ExtractedTool = OpenApiExtractedTool;
+type ToolManifest = OpenApiToolManifest;
 
 const ToolManifestFromJsonSchema = Schema.parseJson(ToolManifestSchema);
 const encodeManifestToJson = Schema.encode(ToolManifestFromJsonSchema);
@@ -75,7 +75,7 @@ export type RefreshOpenApiArtifactResult = {
   reused: boolean;
 };
 
-export type RefreshOpenApiArtifactInput = {
+type RefreshOpenApiArtifactInput = {
   source: Source;
   openApiSpec: unknown;
   artifactStore: ToolArtifactStore;

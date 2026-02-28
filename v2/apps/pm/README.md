@@ -5,4 +5,5 @@ Local Process Manager app scaffold for Executor v2.
 Current scaffold includes:
 - local MCP endpoint at `POST /mcp`
 - health endpoint at `GET /healthz`
-- MCP stub tool routing via `@executor-v2/mcp-gateway`
+- MCP tool routing via `@executor-v2/mcp-gateway`
+- `executor.execute` wired to engine runtime adapters (`local-inproc` default, `deno-subprocess` optional)

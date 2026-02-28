@@ -9,7 +9,7 @@ export const convexRequestIdHeader = "convex-request-id";
 
 export type RpcClientKind = "query" | "mutation" | "action";
 
-export interface RpcTelemetryContext {
+interface RpcTelemetryContext {
 	readonly traceparent: string;
 	readonly b3?: string;
 	readonly tracestate?: string;

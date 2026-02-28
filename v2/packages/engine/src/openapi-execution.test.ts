@@ -1,9 +1,10 @@
-import {
-  type ToolArtifactStore,
-} from "@executor-v2/persistence-ports";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+
+import { describe, expect, it } from "@effect/vitest";
+import { type ToolArtifactStore } from "@executor-v2/persistence-ports";
 import { type Source, SourceSchema, type ToolArtifact } from "@executor-v2/schema";
 import { makeSourceManagerService } from "@executor-v2/source-manager";
-import { describe, expect, test } from "bun:test";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -27,51 +28,104 @@ type TestServer = {
     query: string;
     apiKey: string | null;
   }>;
-  server: Bun.Server<unknown>;
+  close: () => Promise<void>;
+};
+
+class TestServerReleaseError extends Data.TaggedError("TestServerReleaseError")<{
+  message: string;
+}> {}
+
+const jsonResponse = (res: ServerResponse, statusCode: number, body: unknown): void => {
+  res.statusCode = statusCode;
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify(body));
+};
+
+const getHeaderValue = (
+  req: IncomingMessage,
+  key: string,
+): string | null => {
+  const value = req.headers[key];
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return null;
 };
 
 const makeTestServer = Effect.acquireRelease(
-  Effect.sync<TestServer>(() => {
-    const requests: TestServer["requests"] = [];
+  Effect.promise<TestServer>(
+    () =>
+      new Promise<TestServer>((resolve, reject) => {
+        const requests: TestServer["requests"] = [];
 
-    const server = Bun.serve({
-      port: 0,
-      fetch: async (request) => {
-        const url = new URL(request.url);
+        const server = createServer((req, res) => {
+          const host = getHeaderValue(req, "host") ?? "127.0.0.1";
+          const url = new URL(req.url ?? "/", `http://${host}`);
 
-        if (url.pathname === "/users/u123") {
-          requests.push({
-            path: url.pathname,
-            query: url.search,
-            apiKey: request.headers.get("x-api-key"),
+          if (url.pathname === "/users/u123") {
+            requests.push({
+              path: url.pathname,
+              query: url.search,
+              apiKey: getHeaderValue(req, "x-api-key"),
+            });
+
+            jsonResponse(res, 200, {
+              id: "u123",
+              verbose: url.searchParams.get("verbose") === "true",
+              apiKey: getHeaderValue(req, "x-api-key"),
+            });
+            return;
+          }
+
+          jsonResponse(res, 404, { error: "not found" });
+        });
+
+        server.once("error", (error) => {
+          reject(error);
+        });
+
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address();
+          if (!address || typeof address === "string") {
+            reject(new Error("failed to resolve test server address"));
+            return;
+          }
+
+          resolve({
+            baseUrl: `http://127.0.0.1:${address.port}`,
+            requests,
+            close: () =>
+              new Promise<void>((closeResolve, closeReject) => {
+                server.close((error) => {
+                  if (error) {
+                    closeReject(error);
+                    return;
+                  }
+                  closeResolve();
+                });
+              }),
           });
-
-          return Response.json({
-            id: "u123",
-            verbose: url.searchParams.get("verbose") === "true",
-            apiKey: request.headers.get("x-api-key"),
-          });
-        }
-
-        return Response.json({ error: "not found" }, { status: 404 });
-      },
-    });
-
-    return {
-      baseUrl: `http://127.0.0.1:${server.port}`,
-      requests,
-      server,
-    };
-  }),
-  ({ server }) =>
-    Effect.sync(() => {
-      server.stop(true);
-    }),
+        });
+      })
+  ),
+  (testServer) =>
+    Effect.tryPromise({
+      try: () => testServer.close(),
+      catch: (cause) =>
+        new TestServerReleaseError({
+          message: cause instanceof Error ? cause.message : String(cause),
+        }),
+    }).pipe(Effect.orDie),
 );
 
 describe("OpenAPI execution vertical slice", () => {
-  test("extracts OpenAPI tools and executes code against provider", async () => {
-    const program = Effect.gen(function* () {
+  it.scoped("extracts OpenAPI tools and executes code against provider", () =>
+    Effect.gen(function* () {
       const testServer = yield* makeTestServer;
 
       const openApiSpec = {
@@ -185,8 +239,6 @@ return await tools.getUser({
       expect(testServer.requests[0]?.path).toBe("/users/u123");
       expect(testServer.requests[0]?.query).toBe("?verbose=true");
       expect(testServer.requests[0]?.apiKey).toBe("sk_test");
-    });
-
-    await Effect.runPromise(program.pipe(Effect.scoped));
-  });
+    }),
+  );
 });

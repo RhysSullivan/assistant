@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "prepare": "effect-language-service patch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "knip": "bunx knip --config knip.json"
   },
   "devDependencies": {
     "@effect/language-service": "^0.76.0",

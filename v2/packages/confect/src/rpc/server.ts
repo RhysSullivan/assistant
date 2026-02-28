@@ -44,7 +44,6 @@ export { Rpc, RpcGroup, RpcMiddleware };
 
 export {
 	WrapperTypeId,
-	type WrapperTypeId as WrapperTypeIdType,
 	type Wrapper,
 	isWrapper,
 	wrap,

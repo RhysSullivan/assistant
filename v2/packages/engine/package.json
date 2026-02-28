@@ -6,7 +6,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bun test src/*.test.ts",
+    "test": "bunx vitest run --no-watch src/*.test.ts",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -15,6 +15,8 @@
     "effect": "^3.19.8"
   },
   "devDependencies": {
-    "@executor-v2/source-manager": "workspace:*"
+    "@effect/vitest": "^0.27.0",
+    "@executor-v2/source-manager": "workspace:*",
+    "vitest": "^3.2.4"
   }
 }
