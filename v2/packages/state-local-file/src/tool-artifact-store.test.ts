@@ -10,7 +10,7 @@ import { pipe } from "effect/Function";
 import * as Layer from "effect/Layer";
 
 import { type Source, SourceSchema } from "@executor-v2/schema";
-import { makeSourceManagerService } from "@executor-v2/source-manager";
+import { makeSourceManagerService } from "@executor-v2/management-api";
 
 import { makeLocalToolArtifactStore } from "./tool-artifact-store";
 

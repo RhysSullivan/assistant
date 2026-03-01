@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { describe, expect, it } from "@effect/vitest";
 import { type ToolArtifactStore } from "@executor-v2/persistence-ports";
 import { type Source, SourceSchema, type ToolArtifact } from "@executor-v2/schema";
-import { makeSourceManagerService } from "@executor-v2/source-manager";
+import { makeSourceManagerService } from "@executor-v2/management-api";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";

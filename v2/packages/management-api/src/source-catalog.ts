@@ -67,7 +67,7 @@ export type SourceCatalogService = {
   ) => Effect.Effect<RemoveSourceResult, SourceStoreError>;
 };
 
-export class SourceCatalog extends Context.Tag("@executor-v2/source-manager/SourceCatalog")<
+export class SourceCatalog extends Context.Tag("@executor-v2/management-api/SourceCatalog")<
   SourceCatalog,
   SourceCatalogService
 >() {}

@@ -2,7 +2,7 @@ import { type SourceStoreError } from "@executor-v2/persistence-ports";
 import {
   SourceCatalogValidationError,
   type SourceCatalogService,
-} from "@executor-v2/source-manager/source-catalog";
+} from "../source-catalog";
 import { type Source, type SourceId, type WorkspaceId } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 

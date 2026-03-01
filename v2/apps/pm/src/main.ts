@@ -4,6 +4,7 @@ import {
   makeControlPlaneService,
   makeControlPlaneSourcesService,
   makeControlPlaneWebHandler,
+  makeSourceCatalogService,
 } from "@executor-v2/management-api";
 import {
   createRunExecutor,
@@ -19,11 +20,11 @@ import {
 import { makeCloudflareWorkerLoaderRuntimeAdapter } from "@executor-v2/runtime-cloudflare-worker-loader";
 import { makeDenoSubprocessRuntimeAdapter } from "@executor-v2/runtime-deno-subprocess";
 import { makeLocalInProcessRuntimeAdapter } from "@executor-v2/runtime-local-inproc";
-import { makeSourceCatalogService } from "@executor-v2/source-manager";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { PmActorLive } from "./actor";
+import { createPmApprovalsService } from "./approvals-service";
 import { createPmResolveToolCredentials } from "./credential-resolver";
 import { startPmHttpServer } from "./http-server";
 import { createPmMcpHandler } from "./mcp-handler";
@@ -73,8 +74,10 @@ const localStateStore = await Effect.runPromise(
 );
 
 const sourceCatalog = makeSourceCatalogService(sourceStore);
+const approvalsService = createPmApprovalsService(localStateStore);
 const controlPlaneService = makeControlPlaneService({
   sources: makeControlPlaneSourcesService(sourceCatalog),
+  approvals: approvalsService,
 });
 
 const controlPlaneWebHandler = makeControlPlaneWebHandler(

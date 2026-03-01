@@ -38,4 +38,22 @@ export const makeConvexControlPlaneService = (
           }),
         catch: (cause) => toSourceStoreError("controlPlane.removeSource", cause),
       }),
+    listApprovals: (workspaceId) =>
+      Effect.tryPromise({
+        try: () =>
+          ctx.runQuery(api.controlPlane.listApprovals, {
+            workspaceId,
+          }),
+        catch: (cause) => toSourceStoreError("controlPlane.listApprovals", cause),
+      }),
+    resolveApproval: (input) =>
+      Effect.tryPromise({
+        try: () =>
+          ctx.runMutation(api.controlPlane.resolveApproval, {
+            workspaceId: input.workspaceId,
+            approvalId: input.approvalId,
+            payload: input.payload,
+          }),
+        catch: (cause) => toSourceStoreError("controlPlane.resolveApproval", cause),
+      }),
   });

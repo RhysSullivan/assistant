@@ -10,8 +10,10 @@ import * as Layer from "effect/Layer";
 
 import {
   OpenApiExtractionError,
+  extractOpenApiManifest,
   refreshOpenApiArtifact,
   type RefreshOpenApiArtifactResult,
+  type ToolManifestDiff,
 } from "./openapi-extraction";
 
 export type RefreshOpenApiArtifactRequest = {
@@ -29,7 +31,7 @@ export type SourceManagerService = {
   >;
 };
 
-export class SourceManager extends Context.Tag("@executor-v2/source-manager/SourceManager")<
+export class SourceManager extends Context.Tag("@executor-v2/management-api/SourceManager")<
   SourceManager,
   SourceManagerService
 >() {}
@@ -52,3 +54,11 @@ export const SourceManagerLive = Layer.effect(
     return SourceManager.of(makeSourceManagerService(artifactStore));
   }),
 );
+
+export {
+  OpenApiExtractionError,
+  extractOpenApiManifest,
+  refreshOpenApiArtifact,
+  type RefreshOpenApiArtifactResult,
+  type ToolManifestDiff,
+};

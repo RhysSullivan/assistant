@@ -95,9 +95,6 @@
         "vitest": "catalog:",
       },
     },
-    "packages/approvals": {
-      "name": "@executor-v2/approvals",
-    },
     "packages/confect": {
       "name": "@executor-v2/confect",
       "version": "0.0.0",
@@ -137,7 +134,7 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
-        "@executor-v2/source-manager": "workspace:*",
+        "@executor-v2/management-api": "workspace:*",
         "vitest": "catalog:",
       },
     },
@@ -149,8 +146,11 @@
         "@executor-v2/domain": "workspace:*",
         "@executor-v2/persistence-ports": "workspace:*",
         "@executor-v2/schema": "workspace:*",
-        "@executor-v2/source-manager": "workspace:*",
         "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/mcp-gateway": {
@@ -160,9 +160,6 @@
         "@modelcontextprotocol/sdk": "^1.26.0",
         "zod": "^4.3.6",
       },
-    },
-    "packages/oauth": {
-      "name": "@executor-v2/oauth",
     },
     "packages/runtime-cloudflare-worker-loader": {
       "name": "@executor-v2/runtime-cloudflare-worker-loader",
@@ -194,21 +191,6 @@
     "packages/sdk": {
       "name": "@executor-v2/sdk",
     },
-    "packages/secrets": {
-      "name": "@executor-v2/secrets",
-    },
-    "packages/source-manager": {
-      "name": "@executor-v2/source-manager",
-      "dependencies": {
-        "@executor-v2/persistence-ports": "workspace:*",
-        "@executor-v2/schema": "workspace:*",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
     "packages/state-contracts": {
       "name": "@executor-v2/persistence-ports",
       "dependencies": {
@@ -227,12 +209,9 @@
       "devDependencies": {
         "@effect/platform-bun": "^0.86.0",
         "@effect/vitest": "catalog:",
-        "@executor-v2/source-manager": "workspace:*",
+        "@executor-v2/management-api": "workspace:*",
         "vitest": "catalog:",
       },
-    },
-    "packages/sync": {
-      "name": "@executor-v2/sync",
     },
   },
   "catalog": {
@@ -355,8 +334,6 @@
 
     "@executor-v2/app-web": ["@executor-v2/app-web@workspace:apps/web"],
 
-    "@executor-v2/approvals": ["@executor-v2/approvals@workspace:packages/approvals"],
-
     "@executor-v2/confect": ["@executor-v2/confect@workspace:packages/confect"],
 
     "@executor-v2/domain": ["@executor-v2/domain@workspace:packages/domain"],
@@ -366,8 +343,6 @@
     "@executor-v2/management-api": ["@executor-v2/management-api@workspace:packages/management-api"],
 
     "@executor-v2/mcp-gateway": ["@executor-v2/mcp-gateway@workspace:packages/mcp-gateway"],
-
-    "@executor-v2/oauth": ["@executor-v2/oauth@workspace:packages/oauth"],
 
     "@executor-v2/persistence-local": ["@executor-v2/persistence-local@workspace:packages/state-local-file"],
 
@@ -382,12 +357,6 @@
     "@executor-v2/schema": ["@executor-v2/schema@workspace:packages/schema"],
 
     "@executor-v2/sdk": ["@executor-v2/sdk@workspace:packages/sdk"],
-
-    "@executor-v2/secrets": ["@executor-v2/secrets@workspace:packages/secrets"],
-
-    "@executor-v2/source-manager": ["@executor-v2/source-manager@workspace:packages/source-manager"],
-
-    "@executor-v2/sync": ["@executor-v2/sync@workspace:packages/sync"],
 
     "@fastify/busboy": ["@fastify/busboy@2.1.1", "", {}, "sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA=="],
 
