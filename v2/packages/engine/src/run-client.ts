@@ -9,7 +9,11 @@ import {
   type ToolProvider,
   type ToolProviderRegistry,
 } from "./tool-providers";
-import type { RuntimeAdapter, RuntimeRunnableTool } from "./runtime-adapters";
+import type {
+  RuntimeAdapter,
+  RuntimeExecuteError,
+  RuntimeRunnableTool,
+} from "./runtime-adapters";
 
 export type RuntimeRunClientExecuteInput = {
   code: string;
@@ -57,21 +61,16 @@ export type CreateInMemoryRuntimeRunClientOptions = {
   makeRunId?: () => string;
 };
 
-const errorToText = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
+const formatRuntimeExecuteError = (error: RuntimeExecuteError): string => {
+  switch (error._tag) {
+    case "RuntimeAdapterError":
+    case "LocalCodeRunnerError":
+    case "DenoSubprocessRunnerError":
+    case "ToolProviderError":
+      return error.details ? `${error.message}: ${error.details}` : error.message;
+    case "ToolProviderRegistryError":
+      return error.message;
   }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-
-  return String(error);
 };
 
 const toInMemoryDescriptor = (
@@ -127,7 +126,7 @@ const makeInMemoryToolProvider = (
           operation: "invoke",
           providerKind: "in_memory",
           message: `In-memory tool invocation failed: ${input.tool.toolId}`,
-          details: cause instanceof Error ? cause.message : String(cause),
+          details: String(cause),
         }),
     });
   },
@@ -152,7 +151,7 @@ export const createRuntimeRunClient = (
         return {
           runId,
           status: "failed",
-          error: errorToText(availabilityResult.left),
+          error: "Runtime availability check failed",
         };
       }
 
@@ -185,7 +184,7 @@ export const createRuntimeRunClient = (
         return {
           runId,
           status: "failed",
-          error: errorToText(executionResult.left),
+          error: formatRuntimeExecuteError(executionResult.left),
         };
       }
 

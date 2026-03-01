@@ -8,10 +8,14 @@
  * @module
  */
 
+import type * as controlPlane from "../controlPlane.js";
+import type * as control_plane_errors from "../control_plane/errors.js";
+import type * as control_plane_http from "../control_plane/http.js";
+import type * as control_plane_service from "../control_plane/service.js";
+import type * as control_plane_sources from "../control_plane/sources.js";
 import type * as executor from "../executor.js";
 import type * as http from "../http.js";
 import type * as mcp from "../mcp.js";
-import type * as rpc_exit from "../rpc_exit.js";
 import type * as run_executor from "../run_executor.js";
 import type * as runtimeCallbacks from "../runtimeCallbacks.js";
 import type * as runtime_adapter from "../runtime_adapter.js";
@@ -23,10 +27,14 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  controlPlane: typeof controlPlane;
+  "control_plane/errors": typeof control_plane_errors;
+  "control_plane/http": typeof control_plane_http;
+  "control_plane/service": typeof control_plane_service;
+  "control_plane/sources": typeof control_plane_sources;
   executor: typeof executor;
   http: typeof http;
   mcp: typeof mcp;
-  rpc_exit: typeof rpc_exit;
   run_executor: typeof run_executor;
   runtimeCallbacks: typeof runtimeCallbacks;
   runtime_adapter: typeof runtime_adapter;
