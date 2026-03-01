@@ -53,12 +53,17 @@ export type ToolRegistryDiscoverOutput = {
   refHintTable?: Record<string, string>;
 };
 
+export type ToolRegistryNamespaceSummary = {
+  namespace: string;
+  toolCount: number;
+  samplePaths: Array<string>;
+  source?: string;
+  sourceKey?: string;
+  description?: string;
+};
+
 export type ToolRegistryCatalogNamespacesOutput = {
-  namespaces: Array<{
-    namespace: string;
-    toolCount: number;
-    samplePaths: Array<string>;
-  }>;
+  namespaces: Array<ToolRegistryNamespaceSummary>;
   total: number;
 };
 
@@ -154,6 +159,8 @@ const toRuntimeAdapterError = (
   });
 
 const defaultPendingRetryAfterMs = 1_000;
+const maxCatalogNamespacesLimit = 5_000;
+const maxCatalogToolsLimit = 50_000;
 
 const normalizePendingRetryAfterMs = (value: number | undefined): number => {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -483,7 +490,7 @@ const inMemoryCatalogNamespaces = (
   tools: InMemorySandboxToolMap,
   input: ToolRegistryCatalogNamespacesInput,
 ): ToolRegistryCatalogNamespacesOutput => {
-  const limit = Math.max(1, Math.min(200, input.limit ?? 50));
+  const limit = Math.max(1, Math.min(maxCatalogNamespacesLimit, input.limit ?? 50));
   const grouped = new Map<string, Array<string>>();
 
   for (const path of Object.keys(tools)) {
@@ -512,7 +519,7 @@ const inMemoryCatalogTools = (
   refHintTable: Record<string, string> | undefined,
   input: ToolRegistryCatalogToolsInput,
 ): ToolRegistryCatalogToolsOutput => {
-  const limit = Math.max(1, Math.min(200, input.limit ?? 50));
+  const limit = Math.max(1, Math.min(maxCatalogToolsLimit, input.limit ?? 50));
   const query = (input.query ?? "").trim().toLowerCase();
   const namespace = (input.namespace ?? "").trim().toLowerCase();
   const includeSchemas = input.includeSchemas === true;

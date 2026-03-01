@@ -38,10 +38,20 @@ export {
   type ToolRegistryCatalogToolsOutput,
   type ToolRegistryDiscoverInput,
   type ToolRegistryDiscoverOutput,
+  type ToolRegistryNamespaceSummary,
   type ToolRegistryToolSummary,
 } from "./tool-registry";
 
 export { createSourceToolRegistry } from "./source-tool-registry";
+
+export {
+  buildExecuteToolDescription,
+  defaultExecuteToolDescription,
+  defaultExecuteToolExposureMode,
+  parseExecuteToolExposureMode,
+  type BuildExecuteToolDescriptionOptions,
+  type ExecuteToolExposureMode,
+} from "./execute-tool-description";
 
 export {
   PersistentToolApprovalPolicyStoreError,

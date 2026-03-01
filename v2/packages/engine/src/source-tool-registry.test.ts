@@ -8,7 +8,10 @@ import {
   OpenApi,
 } from "@effect/platform";
 import { describe, expect, it } from "@effect/vitest";
-import { makeSourceManagerService } from "@executor-v2/management-api";
+import {
+  fetchOpenApiDocument,
+  makeSourceManagerService,
+} from "@executor-v2/management-api";
 import {
   type SourceStore,
   type ToolArtifactStore,
@@ -271,9 +274,30 @@ describe("source tool registry", () => {
         },
       });
 
+      const autocorrectedPath = bestPath.replace(".", "_").toUpperCase();
+      const autocorrectedResult = yield* toolRegistry.callTool({
+        runId: "run_source_registry_1",
+        callId: "call_source_registry_2",
+        toolPath: autocorrectedPath,
+        input: {
+          owner: "octocat",
+          repo: "hello-world",
+        },
+      });
+
+      expect(autocorrectedResult).toMatchObject({
+        ok: true,
+        value: {
+          status: 200,
+        },
+      });
+
       const namespaces = yield* toolRegistry.catalogNamespaces({});
       expect(namespaces.total).toBeGreaterThan(0);
       expect(namespaces.namespaces[0]?.samplePaths.length).toBeGreaterThan(0);
+      expect(namespaces.namespaces[0]?.source).toBe("github");
+      expect(namespaces.namespaces[0]?.sourceKey).toBe("src_github");
+      expect(namespaces.namespaces[0]?.description).toContain("source at");
 
       const namespace = namespaces.namespaces[0]?.namespace;
       if (!namespace) {
@@ -285,7 +309,10 @@ describe("source tool registry", () => {
       });
 
       expect(catalog.results.length).toBeGreaterThan(0);
-      expect(server.requests).toEqual(["/repos/octocat/hello-world"]);
+      expect(server.requests).toEqual([
+        "/repos/octocat/hello-world",
+        "/repos/octocat/hello-world",
+      ]);
     }),
   );
 
@@ -381,5 +408,140 @@ describe("source tool registry", () => {
       });
       expect(server.requests).toEqual([]);
     }),
+  );
+
+  it.effect("reloads source entries for each registry operation", () =>
+    Effect.gen(function* () {
+      const source: Source = decodeSource({
+        id: "src_dynamic_load",
+        workspaceId: "ws_local",
+        name: "github",
+        kind: "openapi",
+        endpoint: "https://example.test",
+        status: "connected",
+        enabled: true,
+        configJson: "{}",
+        sourceHash: null,
+        lastError: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      let listByWorkspaceCalls = 0;
+
+      const sourceStore: SourceStore = {
+        getById: () => Effect.succeed(Option.some(source)),
+        listByWorkspace: () =>
+          Effect.sync(() => {
+            listByWorkspaceCalls += 1;
+            return [source];
+          }),
+        upsert: () => Effect.void,
+        removeById: () => Effect.succeed(false),
+      };
+
+      const toolArtifactStore: ToolArtifactStore = {
+        getBySource: () => Effect.succeed(Option.none()),
+        upsert: () => Effect.void,
+      };
+
+      const toolRegistry = createSourceToolRegistry({
+        workspaceId: source.workspaceId,
+        sourceStore,
+        toolArtifactStore,
+        toolProviderRegistry: makeToolProviderRegistry([makeOpenApiToolProvider()]),
+      });
+
+      const discovered = yield* toolRegistry.discover({ query: "repo" });
+      const namespaces = yield* toolRegistry.catalogNamespaces({});
+      const missing = yield* toolRegistry.callTool({
+        runId: "run_source_dynamic_1",
+        callId: "call_source_dynamic_1",
+        toolPath: "github.repos.get",
+      });
+
+      expect(discovered.total).toBe(0);
+      expect(namespaces.total).toBe(0);
+      expect(missing.ok).toBe(false);
+      expect(listByWorkspaceCalls).toBe(3);
+    }),
+  );
+
+  it.live("loads Vercel OpenAPI and discovers tools", () =>
+    Effect.gen(function* () {
+      const openApiSpec = yield* Effect.tryPromise(() =>
+        fetchOpenApiDocument("https://openapi.vercel.sh/"),
+      );
+
+      const source: Source = decodeSource({
+        id: "src_vercel_live",
+        workspaceId: "ws_local",
+        name: "vercel",
+        kind: "openapi",
+        endpoint: "https://api.vercel.com",
+        status: "connected",
+        enabled: true,
+        configJson: "{}",
+        sourceHash: null,
+        lastError: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      const sources: Array<Source> = [source];
+      const sourceStore: SourceStore = {
+        getById: (workspaceId, sourceId) =>
+          Effect.succeed(
+            Option.fromNullable(
+              sources.find(
+                (candidate) =>
+                  candidate.workspaceId === workspaceId && candidate.id === sourceId,
+              ),
+            ),
+          ),
+        listByWorkspace: (workspaceId) =>
+          Effect.succeed(
+            sources.filter((candidate) => candidate.workspaceId === workspaceId),
+          ),
+        upsert: () => Effect.void,
+        removeById: () => Effect.succeed(false),
+      };
+
+      const artifactsByKey = new Map<string, ToolArtifact>();
+      const toolArtifactStore: ToolArtifactStore = {
+        getBySource: (workspaceId, sourceId) =>
+          Effect.succeed(
+            Option.fromNullable(artifactsByKey.get(`${workspaceId}:${sourceId}`)),
+          ),
+        upsert: (artifact) =>
+          Effect.sync(() => {
+            artifactsByKey.set(`${artifact.workspaceId}:${artifact.sourceId}`, artifact);
+          }),
+      };
+
+      const sourceManager = makeSourceManagerService(toolArtifactStore);
+      const refresh = yield* sourceManager.refreshOpenApiArtifact({
+        source,
+        openApiSpec,
+      });
+      expect(refresh.artifact.toolCount).toBeGreaterThan(0);
+
+      const toolRegistry = createSourceToolRegistry({
+        workspaceId: source.workspaceId,
+        sourceStore,
+        toolArtifactStore,
+        toolProviderRegistry: makeToolProviderRegistry([makeOpenApiToolProvider()]),
+      });
+
+      const discovered = yield* toolRegistry.discover({
+        query: "vercel",
+        limit: 12,
+      });
+
+      expect(discovered.bestPath).not.toBeNull();
+      expect(discovered.total).toBeGreaterThan(0);
+      expect(discovered.results[0]?.source).toBe("vercel");
+    }),
+    120_000,
   );
 });

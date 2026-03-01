@@ -12,10 +12,12 @@ import {
   RuntimeAdapterError,
   createRunExecutor,
   createSourceToolRegistry,
+  defaultExecuteToolExposureMode,
   invokeRuntimeToolCallResult,
   makeOpenApiToolProvider,
   makeRuntimeAdapterRegistry,
   makeToolProviderRegistry,
+  parseExecuteToolExposureMode,
 } from "@executor-v2/engine";
 import {
   makeLocalSourceStore,
@@ -71,12 +73,21 @@ const readBooleanFlag = (value: string | undefined): boolean => {
   return normalized === "1" || normalized === "true" || normalized === "yes";
 };
 
+const readConfiguredToolExposureMode = (
+  value: string | undefined,
+): "all_tools" | "sources_only" =>
+  parseExecuteToolExposureMode(value ?? undefined) ??
+  defaultExecuteToolExposureMode;
+
 const formatRuntimeAdapterError = (error: RuntimeAdapterError): string =>
   error.details ? `${error.message}: ${error.details}` : error.message;
 
 const port = parsePort(process.env.PORT);
 const workspaceId = readConfiguredWorkspaceId(process.env.PM_WORKSPACE_ID);
 const requireToolApprovals = readBooleanFlag(process.env.PM_REQUIRE_TOOL_APPROVALS);
+const defaultToolExposureMode = readConfiguredToolExposureMode(
+  process.env.PM_TOOL_EXPOSURE_MODE,
+);
 
 const pmRuntimeAdapters = [
   makeLocalInProcessRuntimeAdapter(),
@@ -182,7 +193,10 @@ const executeRuntimeRun = createPmExecuteRuntimeRun({
 });
 
 const runExecutor = createRunExecutor(executeRuntimeRun);
-const handleMcp = createPmMcpHandler(runExecutor.executeRun);
+const handleMcp = createPmMcpHandler(runExecutor.executeRun, {
+  toolRegistry,
+  defaultToolExposureMode,
+});
 
 const handleToolCallHttp = createPmToolCallHttpHandler((input) =>
   Effect.runPromise(

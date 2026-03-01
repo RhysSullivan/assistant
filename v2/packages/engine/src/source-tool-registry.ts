@@ -81,6 +81,9 @@ const toRuntimeAdapterError = (
   });
 
 const defaultPendingRetryAfterMs = 1_000;
+const maxCatalogNamespacesLimit = 5_000;
+const maxCatalogToolsLimit = 50_000;
+const maxUnknownToolSuggestions = 3;
 
 const normalizePendingRetryAfterMs = (value: number | undefined): number => {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -197,6 +200,59 @@ const sourceToolPath = (
   source: Source,
   descriptor: CanonicalToolDescriptor,
 ): string => `${sourceNamespace(source)}.${descriptor.toolId}`;
+
+const describeSource = (source: Source): string => {
+  const kind = source.kind.toUpperCase();
+  return `${kind} source at ${source.endpoint}`;
+};
+
+const normalizeToolPathForLookup = (path: string): string =>
+  path
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/\.+/g, ".")
+    .replace(/^\.|\.$/g, "");
+
+const levenshteinDistance = (left: string, right: string): number => {
+  if (left === right) {
+    return 0;
+  }
+
+  if (left.length === 0) {
+    return right.length;
+  }
+
+  if (right.length === 0) {
+    return left.length;
+  }
+
+  const previous = new Array<number>(right.length + 1);
+  const current = new Array<number>(right.length + 1);
+
+  for (let column = 0; column <= right.length; column += 1) {
+    previous[column] = column;
+  }
+
+  for (let row = 1; row <= left.length; row += 1) {
+    current[0] = row;
+
+    for (let column = 1; column <= right.length; column += 1) {
+      const substitutionCost = left[row - 1] === right[column - 1] ? 0 : 1;
+      current[column] = Math.min(
+        previous[column] + 1,
+        current[column - 1] + 1,
+        previous[column - 1] + substitutionCost,
+      );
+    }
+
+    for (let column = 0; column <= right.length; column += 1) {
+      previous[column] = current[column];
+    }
+  }
+
+  return previous[right.length] ?? right.length;
+};
 
 const parseJson = (value: string): unknown | null => {
   try {
@@ -374,6 +430,173 @@ const describeOutput = (value: unknown): string => {
   }
 };
 
+type SourceToolResolution = {
+  entry: SourceToolEntry | null;
+  suggestions: Array<string>;
+};
+
+const uniquePaths = (paths: ReadonlyArray<string>): Array<string> => {
+  const seen = new Set<string>();
+  const ordered: Array<string> = [];
+
+  for (const path of paths) {
+    if (!seen.has(path)) {
+      seen.add(path);
+      ordered.push(path);
+    }
+
+    if (ordered.length >= maxUnknownToolSuggestions) {
+      break;
+    }
+  }
+
+  return ordered;
+};
+
+const suggestSourceToolPaths = (
+  entries: ReadonlyArray<SourceToolEntry>,
+  requestedPath: string,
+): Array<string> => {
+  const lowerRequested = requestedPath.toLowerCase();
+  const normalizedRequested = normalizeToolPathForLookup(requestedPath);
+
+  const directMatches = entries
+    .map((entry) => entry.path)
+    .filter((path) => {
+      const lowerPath = path.toLowerCase();
+      if (lowerPath.startsWith(lowerRequested) || lowerPath.includes(lowerRequested)) {
+        return true;
+      }
+
+      const normalizedPath = normalizeToolPathForLookup(path);
+      return (
+        normalizedPath.startsWith(normalizedRequested) ||
+        normalizedPath.includes(normalizedRequested)
+      );
+    })
+    .sort((left, right) => left.localeCompare(right));
+
+  if (directMatches.length > 0) {
+    return uniquePaths(directMatches);
+  }
+
+  const distanceCandidates = entries
+    .map((entry) => ({
+      path: entry.path,
+      distance: levenshteinDistance(entry.path.toLowerCase(), lowerRequested),
+    }))
+    .sort((left, right) => {
+      if (left.distance !== right.distance) {
+        return left.distance - right.distance;
+      }
+
+      return left.path.localeCompare(right.path);
+    })
+    .slice(0, maxUnknownToolSuggestions)
+    .map((candidate) => candidate.path);
+
+  return uniquePaths(distanceCandidates);
+};
+
+const resolveSourceToolPath = (
+  snapshot: SourceToolSnapshot,
+  requestedPath: string,
+): SourceToolResolution => {
+  const trimmedPath = requestedPath.trim();
+  if (trimmedPath.length === 0) {
+    return {
+      entry: null,
+      suggestions: [],
+    };
+  }
+
+  const exact = snapshot.entries.find((entry) => entry.path === trimmedPath);
+  if (exact) {
+    return {
+      entry: exact,
+      suggestions: [],
+    };
+  }
+
+  const lowerRequested = trimmedPath.toLowerCase();
+  const lowerMatch = snapshot.entries.find(
+    (entry) => entry.path.toLowerCase() === lowerRequested,
+  );
+  if (lowerMatch) {
+    return {
+      entry: lowerMatch,
+      suggestions: [],
+    };
+  }
+
+  const normalizedRequested = normalizeToolPathForLookup(trimmedPath);
+  const normalizedMatches = snapshot.entries.filter(
+    (entry) => normalizeToolPathForLookup(entry.path) === normalizedRequested,
+  );
+  if (normalizedMatches.length === 1) {
+    return {
+      entry: normalizedMatches[0] ?? null,
+      suggestions: [],
+    };
+  }
+
+  if (normalizedMatches.length > 1) {
+    const preferred = [...normalizedMatches].sort((left, right) => {
+      if (left.path.length !== right.path.length) {
+        return left.path.length - right.path.length;
+      }
+
+      return left.path.localeCompare(right.path);
+    })[0];
+
+    return {
+      entry: preferred ?? null,
+      suggestions: [],
+    };
+  }
+
+  const closest = snapshot.entries
+    .map((entry) => ({
+      entry,
+      distance: levenshteinDistance(entry.path.toLowerCase(), lowerRequested),
+    }))
+    .sort((left, right) => {
+      if (left.distance !== right.distance) {
+        return left.distance - right.distance;
+      }
+
+      return left.entry.path.localeCompare(right.entry.path);
+    })[0];
+
+  const maxDistance = Math.max(2, Math.floor(trimmedPath.length * 0.2));
+  if (closest && closest.distance <= maxDistance) {
+    return {
+      entry: closest.entry,
+      suggestions: [],
+    };
+  }
+
+  return {
+    entry: null,
+    suggestions: suggestSourceToolPaths(snapshot.entries, trimmedPath),
+  };
+};
+
+const unknownToolPathErrorMessage = (
+  requestedPath: string,
+  suggestions: ReadonlyArray<string>,
+): string => {
+  const hintQuery = requestedPath.trim().length > 0 ? requestedPath.trim() : "tool";
+  const suggestionText =
+    suggestions.length > 0
+      ? ` Did you mean: ${suggestions.join(", ")}.`
+      : "";
+
+  return `Unknown tool path: ${requestedPath}.${suggestionText} Use tools.discover({ query: ${JSON.stringify(
+    hintQuery,
+  )} }) or tools.catalog.tools({ query: ${JSON.stringify(hintQuery)} }) to find available tool paths.`;
+};
+
 const loadSourceEntries = (
   options: SourceToolRegistryOptions,
 ): Effect.Effect<SourceToolSnapshot, RuntimeAdapterError> =>
@@ -544,23 +767,39 @@ const catalogNamespaces = (
   snapshot: SourceToolSnapshot,
   input: ToolRegistryCatalogNamespacesInput,
 ): ToolRegistryCatalogNamespacesOutput => {
-  const limit = Math.max(1, Math.min(200, input.limit ?? 50));
-  const grouped = new Map<string, Array<string>>();
+  const limit = Math.max(1, Math.min(maxCatalogNamespacesLimit, input.limit ?? 50));
+  const grouped = new Map<
+    string,
+    {
+      paths: Array<string>;
+      source: Source;
+    }
+  >();
 
   for (const entry of snapshot.entries) {
-    const paths = grouped.get(entry.namespace) ?? [];
-    paths.push(entry.path);
-    grouped.set(entry.namespace, paths);
+    const existing = grouped.get(entry.namespace);
+    if (existing) {
+      existing.paths.push(entry.path);
+      continue;
+    }
+
+    grouped.set(entry.namespace, {
+      paths: [entry.path],
+      source: entry.source,
+    });
   }
 
   const namespaces = [...grouped.entries()]
     .sort((left, right) => left[0].localeCompare(right[0]))
-    .map(([namespace, paths]) => ({
+    .map(([namespace, value]) => ({
       namespace,
-      toolCount: paths.length,
-      samplePaths: [...paths]
+      toolCount: value.paths.length,
+      samplePaths: [...value.paths]
         .sort((left, right) => left.localeCompare(right))
         .slice(0, 3),
+      source: value.source.name,
+      sourceKey: value.source.id,
+      description: describeSource(value.source),
     }));
 
   return {
@@ -573,7 +812,7 @@ const catalogTools = (
   snapshot: SourceToolSnapshot,
   input: ToolRegistryCatalogToolsInput,
 ): ToolRegistryCatalogToolsOutput => {
-  const limit = Math.max(1, Math.min(200, input.limit ?? 50));
+  const limit = Math.max(1, Math.min(maxCatalogToolsLimit, input.limit ?? 50));
   const query = (input.query ?? "").trim().toLowerCase();
   const namespace = (input.namespace ?? "").trim().toLowerCase();
   const includeSchemas = input.includeSchemas === true;
@@ -600,22 +839,21 @@ export const createSourceToolRegistry = (
   callTool: (input: ToolRegistryCallInput) =>
     Effect.gen(function* () {
       const snapshot = yield* loadSourceEntries(options);
-      const entry = snapshot.entries.find(
-        (candidate) => candidate.path === input.toolPath,
-      );
+      const resolved = resolveSourceToolPath(snapshot, input.toolPath);
+      const entry = resolved.entry;
 
       if (!entry) {
         return {
           ok: false,
           kind: "failed",
-          error: `Unknown tool path: ${input.toolPath}. Use tools.discover({ query }) or tools.catalog.tools({ namespace }) to find available tool paths.`,
+          error: unknownToolPathErrorMessage(input.toolPath, resolved.suggestions),
         } satisfies RuntimeToolCallResult;
       }
 
       const approvalRequest: ToolApprovalRequest = {
         runId: input.runId,
         callId: input.callId,
-        toolPath: input.toolPath,
+        toolPath: entry.path,
         input: normalizeToolCallInput(input.input),
         workspaceId: options.workspaceId,
         source: entry.source.name,

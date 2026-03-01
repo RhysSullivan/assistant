@@ -34,6 +34,7 @@ export type McpGatewayOptions = {
   serverName?: string;
   serverVersion?: string;
   runClient: ExecutorRunClient;
+  executeToolDescription?: string;
 };
 const DEFAULT_SERVER_NAME = "executor-v2";
 const DEFAULT_SERVER_VERSION = "0.0.0";
@@ -65,7 +66,9 @@ const createMcpServer = (options: McpGatewayOptions): McpServer => {
   mcp.registerTool(
     EXECUTE_TOOL_NAME,
     {
-      description: "Execute JavaScript against configured runtime",
+      description:
+        options.executeToolDescription ??
+        "Execute JavaScript against configured runtime",
       inputSchema: ExecuteToolInputSchema,
     },
     async (input: ExecuteToolInput) => {

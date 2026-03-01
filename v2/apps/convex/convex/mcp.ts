@@ -1,3 +1,10 @@
+import {
+  buildExecuteToolDescription,
+  defaultExecuteToolDescription,
+  defaultExecuteToolExposureMode,
+  parseExecuteToolExposureMode,
+  type ExecuteToolExposureMode,
+} from "@executor-v2/engine";
 import { handleMcpHttpRequest } from "@executor-v2/mcp-gateway";
 import { createExecutorRunClient } from "@executor-v2/sdk";
 import * as Effect from "effect/Effect";
@@ -24,6 +31,35 @@ const readWorkspaceIdFromRequest = (request: Request): string | null => {
 
 const readRequestedWorkspaceId = (request: Request, fallbackWorkspaceId: string): string =>
   readWorkspaceIdFromRequest(request) ?? fallbackWorkspaceId;
+
+const readToolExposureModeFromRequest = (
+  request: Request,
+  fallbackMode: ExecuteToolExposureMode,
+): ExecuteToolExposureMode => {
+  const url = new URL(request.url);
+  const rawMode =
+    url.searchParams.get("toolExposureMode") ??
+    url.searchParams.get("toolContextMode") ??
+    undefined;
+
+  return parseExecuteToolExposureMode(rawMode ?? undefined) ?? fallbackMode;
+};
+
+const resolveExecuteToolDescription = async (
+  mode: ExecuteToolExposureMode,
+  toolRegistry: ReturnType<typeof createConvexSourceToolRegistry>,
+): Promise<string> => {
+  try {
+    return await Effect.runPromise(
+      buildExecuteToolDescription({
+        toolRegistry,
+        mode,
+      }),
+    );
+  } catch {
+    return defaultExecuteToolDescription;
+  }
+};
 
 const hasWorkspaceAccess = async (
   ctx: ActionCtx,
@@ -65,6 +101,9 @@ const hasWorkspaceAccess = async (
 };
 
 const fallbackWorkspaceId = readConfiguredWorkspaceId(process.env.CONVEX_WORKSPACE_ID);
+const defaultToolExposureMode =
+  parseExecuteToolExposureMode(process.env.CONVEX_TOOL_EXPOSURE_MODE) ??
+  defaultExecuteToolExposureMode;
 const runtimeInternal = internal as any;
 
 export const mcpHandler = httpAction(async (ctx, request) => {
@@ -108,6 +147,14 @@ export const mcpHandler = httpAction(async (ctx, request) => {
   }
 
   const toolRegistry = createConvexSourceToolRegistry(ctx, workspaceId);
+  const toolExposureMode = readToolExposureModeFromRequest(
+    request,
+    defaultToolExposureMode,
+  );
+  const executeToolDescription = await resolveExecuteToolDescription(
+    toolExposureMode,
+    toolRegistry,
+  );
 
   const runClient = createExecutorRunClient(async (input) => {
     const runId = `run_${crypto.randomUUID()}`;
@@ -151,5 +198,6 @@ export const mcpHandler = httpAction(async (ctx, request) => {
     serverName: "executor-v2-convex",
     serverVersion: "0.0.0",
     runClient,
+    executeToolDescription,
   });
 });
