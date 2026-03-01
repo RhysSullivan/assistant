@@ -1,0 +1,382 @@
+import { WorkerEntrypoint } from "cloudflare:workers";
+
+import GLOBALS_MODULE from "./isolate/globals.isolate.js";
+import HARNESS_CODE from "./isolate/harness.isolate.js";
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_MS = 120_000;
+
+type RuntimeToolCallResult =
+  | {
+      ok: true;
+      value: unknown;
+    }
+  | {
+      ok: false;
+      kind: "pending";
+      approvalId: string;
+      retryAfterMs: number;
+      error?: string;
+    }
+  | {
+      ok: false;
+      kind: "denied";
+      error: string;
+    }
+  | {
+      ok: false;
+      kind: "failed";
+      error: string;
+    };
+
+type RunRequest = {
+  runId: string;
+  taskId: string;
+  code: string;
+  timeoutMs?: number;
+  callback: {
+    url: string;
+    internalSecret?: string;
+  };
+};
+
+type RunResult = {
+  status: "completed" | "failed" | "timed_out" | "denied";
+  result?: unknown;
+  error?: string;
+  exitCode?: number;
+};
+
+type BridgeProps = {
+  callbackUrl: string;
+  callbackInternalSecret: string | null;
+  runId: string;
+};
+
+type Env = {
+  AUTH_TOKEN: string;
+  LOADER: {
+    get: (
+      id: string,
+      init: () => Promise<{
+        compatibilityDate: string;
+        mainModule: string;
+        modules: Record<string, string>;
+        env: Record<string, unknown>;
+        globalOutbound: null;
+      }>,
+    ) => {
+      getEntrypoint: () => {
+        fetch: (url: string, init: RequestInit) => Promise<Response>;
+      };
+    };
+  };
+};
+
+const json = (value: unknown, status = 200): Response =>
+  new Response(JSON.stringify(value), {
+    status,
+    headers: {
+      "content-type": "application/json",
+    },
+  });
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isRuntimeToolCallResult = (value: unknown): value is RuntimeToolCallResult => {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+
+  if (value.ok === true) {
+    return Object.prototype.hasOwnProperty.call(value, "value");
+  }
+
+  if (value.ok === false && value.kind === "pending") {
+    return (
+      typeof value.approvalId === "string" &&
+      typeof value.retryAfterMs === "number"
+    );
+  }
+
+  if (value.ok === false && value.kind === "denied") {
+    return typeof value.error === "string";
+  }
+
+  if (value.ok === false && value.kind === "failed") {
+    return typeof value.error === "string";
+  }
+
+  return false;
+};
+
+const isRunResult = (value: unknown): value is RunResult => {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+
+  if (
+    value.status !== "completed" &&
+    value.status !== "failed" &&
+    value.status !== "timed_out" &&
+    value.status !== "denied"
+  ) {
+    return false;
+  }
+
+  if (value.error !== undefined && typeof value.error !== "string") {
+    return false;
+  }
+
+  if (value.exitCode !== undefined && typeof value.exitCode !== "number") {
+    return false;
+  }
+
+  return true;
+};
+
+const toFailedResult = (error: string): RunResult => ({
+  status: "failed",
+  error,
+});
+
+const validateRunRequest = (value: unknown): RunRequest | null => {
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+
+  if (
+    typeof value.runId !== "string" ||
+    typeof value.taskId !== "string" ||
+    typeof value.code !== "string"
+  ) {
+    return null;
+  }
+
+  if (!isObjectRecord(value.callback) || typeof value.callback.url !== "string") {
+    return null;
+  }
+
+  if (
+    value.callback.internalSecret !== undefined &&
+    typeof value.callback.internalSecret !== "string"
+  ) {
+    return null;
+  }
+
+  if (value.timeoutMs !== undefined && typeof value.timeoutMs !== "number") {
+    return null;
+  }
+
+  return {
+    runId: value.runId,
+    taskId: value.taskId,
+    code: value.code,
+    timeoutMs: value.timeoutMs,
+    callback: {
+      url: value.callback.url,
+      internalSecret: value.callback.internalSecret,
+    },
+  };
+};
+
+const buildUserModule = (userCode: string): string =>
+  `export async function run(tools, console) {\n"use strict";\n${userCode}\n}\n`;
+
+const getBridgePropsFromContext = (
+  context: ExecutionContext | Record<string, unknown> | null | undefined,
+): BridgeProps => {
+  if (!isObjectRecord(context) || !isObjectRecord(context.props)) {
+    throw new Error("ToolBridge props are missing");
+  }
+
+  const props = context.props;
+
+  if (
+    typeof props.callbackUrl !== "string" ||
+    typeof props.runId !== "string"
+  ) {
+    throw new Error("ToolBridge props are invalid");
+  }
+
+  if (
+    props.callbackInternalSecret !== null &&
+    props.callbackInternalSecret !== undefined &&
+    typeof props.callbackInternalSecret !== "string"
+  ) {
+    throw new Error("ToolBridge callback secret is invalid");
+  }
+
+  return {
+    callbackUrl: props.callbackUrl,
+    callbackInternalSecret:
+      props.callbackInternalSecret === undefined ? null : props.callbackInternalSecret,
+    runId: props.runId,
+  };
+};
+
+class ToolBridge extends WorkerEntrypoint<Env> {
+  private get props(): BridgeProps {
+    return getBridgePropsFromContext(this.ctx);
+  }
+
+  async callTool(
+    toolPath: string,
+    input: unknown,
+    callId?: string,
+  ): Promise<RuntimeToolCallResult> {
+    const headers = new Headers({
+      "content-type": "application/json",
+    });
+
+    if (this.props.callbackInternalSecret) {
+      headers.set("x-internal-secret", this.props.callbackInternalSecret);
+    }
+
+    const response = await fetch(this.props.callbackUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        runId: this.props.runId,
+        callId: callId ?? `call_${crypto.randomUUID()}`,
+        toolPath,
+        input,
+      }),
+    }).catch((error: unknown) => {
+      throw new Error(
+        `Tool callback transport failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+
+    if (response.status !== 200) {
+      return {
+        ok: false,
+        kind: "failed",
+        error: `Tool callback returned ${response.status}`,
+      };
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (!isRuntimeToolCallResult(payload)) {
+      return {
+        ok: false,
+        kind: "failed",
+        error: "Tool callback returned invalid result payload",
+      };
+    }
+
+    return payload;
+  }
+}
+
+const executeSandboxRun = async (
+  request: RunRequest,
+  ctx: ExecutionContext,
+  env: Env,
+): Promise<RunResult> => {
+  const timeoutMsRaw = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = Math.max(1, Math.min(MAX_TIMEOUT_MS, Math.floor(timeoutMsRaw)));
+
+  const contextAsRecord = ctx as unknown as Record<string, unknown>;
+  if (!isObjectRecord(contextAsRecord.exports)) {
+    return toFailedResult("Execution context exports are unavailable");
+  }
+
+  const toolBridgeFactory = contextAsRecord.exports.ToolBridge;
+  if (typeof toolBridgeFactory !== "function") {
+    return toFailedResult("Execution context ToolBridge export is unavailable");
+  }
+
+  const toolBridgeBinding = toolBridgeFactory({
+    props: {
+      callbackUrl: request.callback.url,
+      callbackInternalSecret: request.callback.internalSecret ?? null,
+      runId: request.runId,
+    },
+  });
+
+  const worker = env.LOADER.get(request.taskId, async () => ({
+    compatibilityDate: "2025-06-01",
+    mainModule: "harness.js",
+    modules: {
+      "harness.js": HARNESS_CODE,
+      "globals.js": GLOBALS_MODULE,
+      "user-code.js": buildUserModule(request.code),
+    },
+    env: {
+      TOOL_BRIDGE: toolBridgeBinding,
+    },
+    globalOutbound: null,
+  }));
+
+  const entrypoint = worker.getEntrypoint();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await entrypoint.fetch("http://sandbox.internal/run", {
+      method: "POST",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return {
+        status: "timed_out",
+        error: `Execution timed out after ${timeoutMs}ms`,
+      };
+    }
+
+    return toFailedResult(
+      `Sandbox isolate request failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  clearTimeout(timer);
+
+  const payload = await response.json().catch(() => null);
+  if (!isRunResult(payload)) {
+    return toFailedResult("Sandbox isolate returned invalid response payload");
+  }
+
+  return payload;
+};
+
+export { ToolBridge };
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/health") {
+      return new Response("ok", { status: 200 });
+    }
+
+    if (url.pathname !== "/v1/runs" || request.method !== "POST") {
+      return json({ error: "not_found" }, 404);
+    }
+
+    if (typeof env.AUTH_TOKEN !== "string" || env.AUTH_TOKEN.length === 0) {
+      return json({ error: "misconfigured_auth_token" }, 500);
+    }
+
+    if (request.headers.get("authorization") !== `Bearer ${env.AUTH_TOKEN}`) {
+      return json({ error: "unauthorized" }, 401);
+    }
+
+    const payloadRaw = await request.json().catch(() => null);
+    const payload = validateRunRequest(payloadRaw);
+    if (!payload) {
+      return json({ error: "invalid_payload" }, 400);
+    }
+
+    const runResult = await executeSandboxRun(payload, ctx, env);
+    return json(runResult, 200);
+  },
+};

@@ -1,0 +1,21 @@
+{
+  "name": "executor-v2-runtime-cloudflare-worker-loader",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "compatibility_flags": ["enable_ctx_exports", "nodejs_compat"],
+  "vars": {
+    "AUTH_TOKEN": "sandbox-token"
+  },
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.isolate.js"],
+      "fallthrough": true
+    }
+  ],
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ]
+}

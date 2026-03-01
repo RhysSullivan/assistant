@@ -62,6 +62,12 @@ export const OpenApiInvocationPayloadSchema = Schema.Struct({
   requestBody: Schema.NullOr(OpenApiToolRequestBodySchema),
 });
 
+export const DiscoveryTypingPayloadSchema = Schema.Struct({
+  inputSchemaJson: Schema.optional(Schema.String),
+  outputSchemaJson: Schema.optional(Schema.String),
+  refHintKeys: Schema.optional(Schema.Array(Schema.String)),
+});
+
 export const OpenApiExtractedToolSchema = Schema.Struct({
   toolId: Schema.String,
   name: Schema.String,
@@ -70,12 +76,19 @@ export const OpenApiExtractedToolSchema = Schema.Struct({
   path: Schema.String,
   invocation: OpenApiInvocationPayloadSchema,
   operationHash: Schema.String,
+  typing: Schema.optional(DiscoveryTypingPayloadSchema),
 });
 
 export const OpenApiToolManifestSchema = Schema.Struct({
   version: Schema.Literal(1),
   sourceHash: Schema.String,
   tools: Schema.Array(OpenApiExtractedToolSchema),
+  refHintTable: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.String,
+    }),
+  ),
 });
 
 const SourceBackedCanonicalToolDescriptorBaseSchema = Schema.Struct({
@@ -170,6 +183,7 @@ export type OpenApiParameterLocation = typeof OpenApiParameterLocationSchema.Typ
 export type OpenApiToolParameter = typeof OpenApiToolParameterSchema.Type;
 export type OpenApiToolRequestBody = typeof OpenApiToolRequestBodySchema.Type;
 export type OpenApiInvocationPayload = typeof OpenApiInvocationPayloadSchema.Type;
+export type DiscoveryTypingPayload = typeof DiscoveryTypingPayloadSchema.Type;
 export type OpenApiExtractedTool = typeof OpenApiExtractedToolSchema.Type;
 export type OpenApiToolManifest = typeof OpenApiToolManifestSchema.Type;
 
