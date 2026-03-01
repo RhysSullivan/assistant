@@ -20,6 +20,7 @@ const openApiExtractorVersion = "openapi_v2";
 const graphqlExtractorVersion = "graphql_v1";
 const mcpExtractorVersion = "mcp_v1";
 const writeBatchSize = 500;
+const stagedArtifactBatchSize = 40;
 
 const maxRefHintBytes = 900_000;
 
@@ -33,6 +34,30 @@ const safeRefHintTableJson = (
   const serialized = JSON.stringify(refHintTable);
   const bytes = new TextEncoder().encode(serialized).length;
   return bytes <= maxRefHintBytes ? serialized : null;
+};
+
+const refHintEntries = (
+  refHintTable: Record<string, unknown> | undefined,
+): Array<{ refKey: string; schemaJson: string }> => {
+  if (!refHintTable) {
+    return [];
+  }
+
+  return Object.entries(refHintTable)
+    .map(([refKey, value]) => {
+      if (typeof value === "string") {
+        return {
+          refKey,
+          schemaJson: value,
+        };
+      }
+
+      return {
+        refKey,
+        schemaJson: JSON.stringify(value),
+      };
+    })
+    .sort((left, right) => left.refKey.localeCompare(right.refKey));
 };
 
 const graphqlSchemaRootsQuery = `query SchemaRoots {
@@ -111,6 +136,16 @@ class SourceIngestError extends Schema.TaggedError<SourceIngestError>()(
   },
 ) {}
 
+type SourceIngestPrepared = {
+  protocol: "openapi" | "graphql" | "mcp";
+  artifactId: string;
+  sourceHash: string;
+  toolCount: number;
+  namespace: string;
+  refHintTableJson: string | null;
+  artifactBatchCount: number;
+};
+
 const isUnknownRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -157,6 +192,111 @@ const toolSegment = (value: string): string => {
     .replaceAll(/^_+|_+$/g, "");
 
   return segment.length > 0 ? segment : "field";
+};
+
+const normalizeNamespacePart = (value: string): string => {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return normalized.length > 0 ? normalized : "source";
+};
+
+const sourceNamespace = (source: Source): string => {
+  const sourceIdSuffix = source.id.slice(-6).toLowerCase();
+  return `${normalizeNamespacePart(source.name)}_${sourceIdSuffix}`;
+};
+
+const sourceToolPath = (source: Source, toolId: string): string =>
+  `${sourceNamespace(source)}.${toolId}`;
+
+const normalizedSearchText = (...parts: ReadonlyArray<string | null | undefined>): string =>
+  parts
+    .map((part) => (typeof part === "string" ? part.trim().toLowerCase() : ""))
+    .filter((part) => part.length > 0)
+    .join(" ");
+
+const metadataSearchTerms = (metadataJson: string | null | undefined): ReadonlyArray<string> => {
+  if (!metadataJson) {
+    return [];
+  }
+
+  const parsed = parseJsonObject(metadataJson);
+  const keys = ["method", "path", "operationType", "fieldName", "toolName"] as const;
+  const terms: Array<string> = [];
+
+  for (const key of keys) {
+    const value = parsed[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      terms.push(value);
+    }
+  }
+
+  return terms;
+};
+
+const toWorkspaceToolMethod = (protocol: string, metadataJson: string | null | undefined): string => {
+  if (protocol !== "openapi") {
+    return "post";
+  }
+
+  const parsed = metadataJson ? parseJsonObject(metadataJson) : {};
+  const method = typeof parsed.method === "string" ? parsed.method.trim().toLowerCase() : "";
+
+  if (
+    method === "get" ||
+    method === "post" ||
+    method === "put" ||
+    method === "patch" ||
+    method === "delete" ||
+    method === "head" ||
+    method === "options" ||
+    method === "trace"
+  ) {
+    return method;
+  }
+
+  return "get";
+};
+
+const parseJsonObject = (value: string): Record<string, unknown> => {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isUnknownRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const safeJsonStringify = (value: unknown): string | null => {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+};
+
+const chunkArray = <A>(values: ReadonlyArray<A>, size: number): Array<Array<A>> => {
+  const chunkSize = Math.max(1, Math.floor(size));
+  const chunks: Array<Array<A>> = [];
+
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+
+  return chunks;
+};
+
+const extractMcpSchemas = (
+  invocationJson: string,
+): { inputSchemaJson: string | null; outputSchemaJson: string | null } => {
+  const parsed = parseJsonObject(invocationJson);
+  return {
+    inputSchemaJson: safeJsonStringify(parsed.inputSchema) ?? null,
+    outputSchemaJson: safeJsonStringify(parsed.outputSchema) ?? null,
+  };
 };
 
 const typeRefToLabel = (typeRef: unknown): string => {
@@ -820,12 +960,149 @@ const trySourceIngestPromise = <A>(
       }),
   });
 
-const ingestOpenApiSource = (ctx: any, source: Source): Effect.Effect<string, SourceIngestError> =>
+const openApiParserUrl = process.env.OPENAPI_PARSE_API_URL?.trim() ?? "";
+const openApiParserToken = process.env.OPENAPI_PARSE_API_TOKEN?.trim() ?? "";
+
+type OpenApiParserIngestedPayload = {
+  ok?: boolean;
+  mode?: string;
+  artifactId?: string;
+  sourceHash?: string;
+  toolCount?: number;
+  namespace?: string;
+  refHintTableJson?: string | null;
+  artifactBatchCount?: number;
+  error?: string;
+};
+
+type OpenApiParserParsedPayload = {
+  ok?: boolean;
+  mode?: string;
+  openApiSpec?: unknown;
+  error?: string;
+};
+
+type OpenApiFetchResult =
+  | {
+      mode: "parsed";
+      openApiSpec: unknown;
+    }
+  | {
+      mode: "ingested";
+      artifactId: string;
+      sourceHash: string;
+      toolCount: number;
+      namespace: string;
+      refHintTableJson: string | null;
+      artifactBatchCount: number;
+    };
+
+const fetchOpenApiDocumentForIngest = async (source: Source): Promise<OpenApiFetchResult> => {
+  if (openApiParserUrl.length === 0) {
+    return {
+      mode: "parsed",
+      openApiSpec: await fetchOpenApiDocument(source.endpoint),
+    };
+  }
+
+  const response = await fetch(openApiParserUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(openApiParserToken.length > 0
+        ? { "x-openapi-parse-token": openApiParserToken }
+        : {}),
+    },
+    body: JSON.stringify({
+      specUrl: source.endpoint,
+      workspaceId: source.workspaceId,
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceEnabled: source.enabled,
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(
+      `Parser endpoint failed (${response.status}): ${
+        details.trim().length > 0 ? details.trim() : response.statusText
+      }`,
+    );
+  }
+
+  const payload = (await response.json()) as OpenApiParserIngestedPayload & OpenApiParserParsedPayload;
+
+  if (payload.ok !== true) {
+    throw new Error(
+      payload.error && payload.error.trim().length > 0
+        ? payload.error
+        : "Parser endpoint returned an invalid payload",
+    );
+  }
+
+  if (payload.mode === "ingested") {
+    const artifactId = normalizeString(payload.artifactId);
+    const sourceHash = normalizeString(payload.sourceHash);
+    const namespace = normalizeString(payload.namespace);
+    const toolCount = Number.isFinite(payload.toolCount)
+      ? Math.max(0, Math.floor(payload.toolCount ?? 0))
+      : null;
+    const artifactBatchCount = Number.isFinite(payload.artifactBatchCount)
+      ? Math.max(0, Math.floor(payload.artifactBatchCount ?? 0))
+      : 0;
+
+    if (!artifactId || !sourceHash || !namespace || toolCount === null) {
+      throw new Error("Parser endpoint returned an invalid ingested payload");
+    }
+
+    return {
+      mode: "ingested",
+      artifactId,
+      sourceHash,
+      toolCount,
+      namespace,
+      refHintTableJson:
+        typeof payload.refHintTableJson === "string" ? payload.refHintTableJson : null,
+      artifactBatchCount,
+    };
+  }
+
+  return {
+    mode: "parsed",
+    openApiSpec: payload.openApiSpec,
+  };
+};
+
+type IngestOptions = {
+  rebuildIndex: boolean;
+  stageArtifactWrites: boolean;
+};
+
+const ingestOpenApiSource = (
+  ctx: any,
+  source: Source,
+  options: IngestOptions,
+): Effect.Effect<SourceIngestPrepared, SourceIngestError> =>
   Effect.gen(function* () {
-    const openApiDocument = yield* trySourceIngestPromise(
-      () => fetchOpenApiDocument(source.endpoint),
+    const openApiFetchResult = yield* trySourceIngestPromise(
+      () => fetchOpenApiDocumentForIngest(source),
       "Failed to fetch OpenAPI document",
     );
+
+    if (openApiFetchResult.mode === "ingested") {
+      return {
+        protocol: "openapi",
+        artifactId: openApiFetchResult.artifactId,
+        sourceHash: openApiFetchResult.sourceHash,
+        toolCount: openApiFetchResult.toolCount,
+        namespace: openApiFetchResult.namespace,
+        refHintTableJson: openApiFetchResult.refHintTableJson,
+        artifactBatchCount: openApiFetchResult.artifactBatchCount,
+      };
+    }
+
+    const openApiDocument = openApiFetchResult.openApiSpec;
 
     const manifest = yield* extractOpenApiManifest(source.name, openApiDocument).pipe(
       Effect.mapError((cause) =>
@@ -841,14 +1118,55 @@ const ingestOpenApiSource = (ctx: any, source: Source): Effect.Effect<string, So
       created: boolean;
     }>(
       () =>
-        ctx.runMutation(runtimeInternal.control_plane.openapi_ingest_mvp.upsertOpenApiArtifactMeta, {
-          sourceHash: manifest.sourceHash,
+        ctx.runMutation(runtimeInternal.control_plane.tool_registry.upsertArtifactMeta, {
+          protocol: "openapi",
+          contentHash: manifest.sourceHash,
           extractorVersion: openApiExtractorVersion,
           toolCount: manifest.tools.length,
           refHintTableJson: safeRefHintTableJson(manifest.refHintTable),
         }),
       "Failed to upsert OpenAPI artifact metadata",
     );
+
+    const artifactRefEntries = refHintEntries(manifest.refHintTable);
+
+    if (artifactRefEntries.length > 0) {
+      let shouldPersistArtifactRefs = artifactMeta.created;
+
+      if (!shouldPersistArtifactRefs) {
+        const existingRefCount = yield* trySourceIngestPromise<number>(
+          () =>
+            ctx.runQuery(runtimeInternal.control_plane.tool_registry.countArtifactSchemaRefs, {
+              artifactId: artifactMeta.artifactId,
+            }),
+          "Failed to read OpenAPI artifact schema ref count",
+        );
+
+        shouldPersistArtifactRefs = existingRefCount !== artifactRefEntries.length;
+      }
+
+      if (shouldPersistArtifactRefs) {
+        yield* trySourceIngestPromise(
+          () =>
+            ctx.runMutation(runtimeInternal.control_plane.tool_registry.clearArtifactSchemaRefs, {
+              artifactId: artifactMeta.artifactId,
+            }),
+          "Failed to clear OpenAPI artifact schema refs",
+        );
+
+        for (let index = 0; index < artifactRefEntries.length; index += writeBatchSize) {
+          const batch = artifactRefEntries.slice(index, index + writeBatchSize);
+          yield* trySourceIngestPromise(
+            () =>
+              ctx.runMutation(runtimeInternal.control_plane.tool_registry.putArtifactSchemaRefsBatch, {
+                artifactId: artifactMeta.artifactId,
+                refs: batch,
+              }),
+            "Failed to write OpenAPI artifact schema refs",
+          );
+        }
+      }
+    }
 
     if (artifactMeta.created) {
       const allTools = manifest.tools.map((tool) => ({
@@ -863,36 +1181,127 @@ const ingestOpenApiSource = (ctx: any, source: Source): Effect.Effect<string, So
         outputSchemaJson: tool.typing?.outputSchemaJson ?? null,
       }));
 
-      for (let index = 0; index < allTools.length; index += writeBatchSize) {
-        const batch = allTools.slice(index, index + writeBatchSize);
+      const artifactRows = allTools.map((tool) => ({
+        toolId: tool.toolId,
+        name: tool.name,
+        description: tool.description,
+        canonicalPath: `${tool.method.toUpperCase()} ${tool.path}`,
+        operationHash: tool.operationHash,
+        invocationJson: tool.invocationJson,
+        inputSchemaJson: tool.inputSchemaJson,
+        outputSchemaJson: tool.outputSchemaJson,
+        metadataJson: safeJsonStringify({
+          method: tool.method,
+          path: tool.path,
+        }),
+      }));
+
+      if (options.stageArtifactWrites) {
+        const serializedBatches = chunkArray(artifactRows, stagedArtifactBatchSize).map((batch) =>
+          JSON.stringify(batch),
+        );
+
         yield* trySourceIngestPromise(
           () =>
-            ctx.runMutation(runtimeInternal.control_plane.openapi_ingest_mvp.putOpenApiArtifactToolsBatch, {
-              artifactId: artifactMeta.artifactId,
-              insertOnly: true,
-              tools: batch,
-            }),
-          "Failed to write OpenAPI artifact tools",
+            ctx.runMutation(
+              runtimeInternal.control_plane.tool_registry.replaceSourceIngestArtifactBatches,
+              {
+                workspaceId: source.workspaceId,
+                sourceId: source.id,
+                artifactId: artifactMeta.artifactId,
+                protocol: "openapi",
+                batches: serializedBatches,
+              },
+            ),
+          "Failed to stage OpenAPI artifact tool batches",
         );
+      } else {
+        for (let index = 0; index < artifactRows.length; index += writeBatchSize) {
+          const batch = artifactRows.slice(index, index + writeBatchSize);
+          yield* trySourceIngestPromise(
+            () =>
+              ctx.runMutation(runtimeInternal.control_plane.tool_registry.putArtifactToolsBatch, {
+                artifactId: artifactMeta.artifactId,
+                protocol: "openapi",
+                insertOnly: true,
+                tools: batch,
+              }),
+            "Failed to write OpenAPI artifact tools",
+          );
+        }
       }
     }
 
     yield* trySourceIngestPromise(
       () =>
-        ctx.runMutation(runtimeInternal.control_plane.openapi_ingest_mvp.bindSourceToOpenApiArtifact, {
+        ctx.runMutation(runtimeInternal.control_plane.tool_registry.bindSourceToArtifact, {
           workspaceId: source.workspaceId,
           sourceId: source.id,
           artifactId: artifactMeta.artifactId,
-          sourceHash: manifest.sourceHash,
-          extractorVersion: openApiExtractorVersion,
         }),
       "Failed to bind source to OpenAPI artifact",
     );
 
-    return manifest.sourceHash;
+    const namespace = sourceNamespace(source);
+    const refHintTableJson = safeRefHintTableJson(manifest.refHintTable);
+    const indexRows = manifest.tools.map((tool) => ({
+      toolId: tool.toolId,
+      protocol: "openapi",
+      method: tool.method,
+      path: sourceToolPath(source, tool.toolId),
+      operationPath: tool.path,
+      name: tool.name,
+      description: tool.description,
+      searchText: normalizedSearchText(
+        source.name,
+        source.endpoint,
+        namespace,
+        tool.toolId,
+        tool.name,
+        tool.description,
+        tool.path,
+        tool.method,
+      ),
+      operationHash: tool.operationHash,
+      approvalMode: "auto",
+      status: source.enabled ? "active" : "disabled",
+    }));
+
+    if (options.rebuildIndex) {
+      yield* trySourceIngestPromise(
+        () =>
+          ctx.runMutation(runtimeInternal.control_plane.tool_registry.replaceWorkspaceSourceToolIndex, {
+            workspaceId: source.workspaceId,
+            sourceId: source.id,
+            sourceName: source.name,
+            sourceKind: source.kind,
+            artifactId: artifactMeta.artifactId,
+            namespace,
+            refHintTableJson,
+            rows: indexRows,
+          }),
+        "Failed to rebuild workspace tool index for OpenAPI source",
+      );
+    }
+
+    return {
+      protocol: "openapi",
+      artifactId: artifactMeta.artifactId,
+      sourceHash: manifest.sourceHash,
+      toolCount: manifest.tools.length,
+      namespace,
+      refHintTableJson,
+      artifactBatchCount: artifactMeta.created && options.stageArtifactWrites
+        ? Math.ceil(manifest.tools.length / stagedArtifactBatchSize)
+        : 0,
+    };
   });
 
-const ingestGraphqlSource = (ctx: any, source: Source): Effect.Effect<string, SourceIngestError> =>
+const ingestGraphqlSource = (
+  ctx: any,
+  source: Source,
+  options: IngestOptions,
+): Effect.Effect<SourceIngestPrepared, SourceIngestError> =>
   Effect.gen(function* () {
     const credentialHeadersResult = yield* trySourceIngestPromise<{
       headers: Record<string, string>;
@@ -922,8 +1331,9 @@ const ingestGraphqlSource = (ctx: any, source: Source): Effect.Effect<string, So
       created: boolean;
     }>(
       () =>
-        ctx.runMutation(runtimeInternal.control_plane.graphql_ingest_support.upsertGraphqlArtifactMeta, {
-          schemaHash: extracted.schemaHash,
+        ctx.runMutation(runtimeInternal.control_plane.tool_registry.upsertArtifactMeta, {
+          protocol: "graphql",
+          contentHash: extracted.schemaHash,
           extractorVersion: graphqlExtractorVersion,
           toolCount: extracted.tools.length,
         }),
@@ -931,39 +1341,124 @@ const ingestGraphqlSource = (ctx: any, source: Source): Effect.Effect<string, So
     );
 
     if (artifactMeta.created) {
-      for (let index = 0; index < extracted.tools.length; index += writeBatchSize) {
-        const batch = extracted.tools.slice(index, index + writeBatchSize);
+      const artifactRows = extracted.tools.map((tool) => ({
+        toolId: tool.toolId,
+        name: tool.name,
+        description: tool.description,
+        canonicalPath: `${tool.operationType}.${tool.fieldName}`,
+        operationHash: tool.operationHash,
+        invocationJson: tool.invocationJson,
+        metadataJson: safeJsonStringify({
+          operationType: tool.operationType,
+          fieldName: tool.fieldName,
+        }),
+      }));
+
+      if (options.stageArtifactWrites) {
+        const serializedBatches = chunkArray(artifactRows, stagedArtifactBatchSize).map((batch) =>
+          JSON.stringify(batch),
+        );
+
         yield* trySourceIngestPromise(
           () =>
             ctx.runMutation(
-              runtimeInternal.control_plane.graphql_ingest_support.putGraphqlArtifactToolsBatch,
+              runtimeInternal.control_plane.tool_registry.replaceSourceIngestArtifactBatches,
               {
+                workspaceId: source.workspaceId,
+                sourceId: source.id,
                 artifactId: artifactMeta.artifactId,
-                insertOnly: true,
-                tools: batch,
+                protocol: "graphql",
+                batches: serializedBatches,
               },
             ),
-          "Failed to write GraphQL artifact tools",
+          "Failed to stage GraphQL artifact tool batches",
         );
+      } else {
+        for (let index = 0; index < artifactRows.length; index += writeBatchSize) {
+          const batch = artifactRows.slice(index, index + writeBatchSize);
+          yield* trySourceIngestPromise(
+            () =>
+              ctx.runMutation(runtimeInternal.control_plane.tool_registry.putArtifactToolsBatch, {
+                artifactId: artifactMeta.artifactId,
+                protocol: "graphql",
+                insertOnly: true,
+                tools: batch,
+              }),
+            "Failed to write GraphQL artifact tools",
+          );
+        }
       }
     }
 
     yield* trySourceIngestPromise(
       () =>
-        ctx.runMutation(runtimeInternal.control_plane.graphql_ingest_support.bindSourceToGraphqlArtifact, {
+        ctx.runMutation(runtimeInternal.control_plane.tool_registry.bindSourceToArtifact, {
           workspaceId: source.workspaceId,
           sourceId: source.id,
           artifactId: artifactMeta.artifactId,
-          schemaHash: extracted.schemaHash,
-          extractorVersion: graphqlExtractorVersion,
         }),
       "Failed to bind source to GraphQL artifact",
     );
 
-    return extracted.schemaHash;
+    const namespace = sourceNamespace(source);
+    const indexRows = extracted.tools.map((tool) => ({
+      toolId: tool.toolId,
+      protocol: "graphql",
+      method: "post",
+      path: sourceToolPath(source, tool.toolId),
+      operationPath: null,
+      name: tool.name,
+      description: tool.description,
+      searchText: normalizedSearchText(
+        source.name,
+        source.endpoint,
+        namespace,
+        tool.toolId,
+        tool.name,
+        tool.description,
+        tool.operationType,
+        tool.fieldName,
+      ),
+      operationHash: tool.operationHash,
+      approvalMode: "auto",
+      status: source.enabled ? "active" : "disabled",
+    }));
+
+    if (options.rebuildIndex) {
+      yield* trySourceIngestPromise(
+        () =>
+          ctx.runMutation(runtimeInternal.control_plane.tool_registry.replaceWorkspaceSourceToolIndex, {
+            workspaceId: source.workspaceId,
+            sourceId: source.id,
+            sourceName: source.name,
+            sourceKind: source.kind,
+            artifactId: artifactMeta.artifactId,
+            namespace,
+            refHintTableJson: null,
+            rows: indexRows,
+          }),
+        "Failed to rebuild workspace tool index for GraphQL source",
+      );
+    }
+
+    return {
+      protocol: "graphql",
+      artifactId: artifactMeta.artifactId,
+      sourceHash: extracted.schemaHash,
+      toolCount: extracted.tools.length,
+      namespace,
+      refHintTableJson: null,
+      artifactBatchCount: artifactMeta.created && options.stageArtifactWrites
+        ? Math.ceil(extracted.tools.length / stagedArtifactBatchSize)
+        : 0,
+    };
   });
 
-const ingestMcpSource = (ctx: any, source: Source): Effect.Effect<string, SourceIngestError> =>
+const ingestMcpSource = (
+  ctx: any,
+  source: Source,
+  options: IngestOptions,
+): Effect.Effect<SourceIngestPrepared, SourceIngestError> =>
   Effect.gen(function* () {
     const credentialHeadersResult = yield* trySourceIngestPromise<{
       headers: Record<string, string>;
@@ -1006,8 +1501,9 @@ const ingestMcpSource = (ctx: any, source: Source): Effect.Effect<string, Source
       created: boolean;
     }>(
       () =>
-        ctx.runMutation(runtimeInternal.control_plane.mcp_ingest_support.upsertMcpArtifactMeta, {
-          sourceHash: extracted.sourceHash,
+        ctx.runMutation(runtimeInternal.control_plane.tool_registry.upsertArtifactMeta, {
+          protocol: "mcp",
+          contentHash: extracted.sourceHash,
           extractorVersion: mcpExtractorVersion,
           toolCount: extracted.tools.length,
         }),
@@ -1015,33 +1511,122 @@ const ingestMcpSource = (ctx: any, source: Source): Effect.Effect<string, Source
     );
 
     if (artifactMeta.created) {
-      for (let index = 0; index < extracted.tools.length; index += writeBatchSize) {
-        const batch = extracted.tools.slice(index, index + writeBatchSize);
+      const artifactRows = extracted.tools.map((tool) => {
+        const schemas = extractMcpSchemas(tool.invocationJson);
+        return {
+          toolId: tool.toolId,
+          name: tool.name,
+          description: tool.description,
+          canonicalPath: tool.toolName,
+          operationHash: tool.operationHash,
+          invocationJson: tool.invocationJson,
+          inputSchemaJson: schemas.inputSchemaJson,
+          outputSchemaJson: schemas.outputSchemaJson,
+          metadataJson: safeJsonStringify({
+            toolName: tool.toolName,
+          }),
+        };
+      });
+
+      if (options.stageArtifactWrites) {
+        const serializedBatches = chunkArray(artifactRows, stagedArtifactBatchSize).map((batch) =>
+          JSON.stringify(batch),
+        );
+
         yield* trySourceIngestPromise(
           () =>
-            ctx.runMutation(runtimeInternal.control_plane.mcp_ingest_support.putMcpArtifactToolsBatch, {
-              artifactId: artifactMeta.artifactId,
-              insertOnly: true,
-              tools: batch,
-            }),
-          "Failed to write MCP artifact tools",
+            ctx.runMutation(
+              runtimeInternal.control_plane.tool_registry.replaceSourceIngestArtifactBatches,
+              {
+                workspaceId: source.workspaceId,
+                sourceId: source.id,
+                artifactId: artifactMeta.artifactId,
+                protocol: "mcp",
+                batches: serializedBatches,
+              },
+            ),
+          "Failed to stage MCP artifact tool batches",
         );
+      } else {
+        for (let index = 0; index < artifactRows.length; index += writeBatchSize) {
+          const batch = artifactRows.slice(index, index + writeBatchSize);
+          yield* trySourceIngestPromise(
+            () =>
+              ctx.runMutation(runtimeInternal.control_plane.tool_registry.putArtifactToolsBatch, {
+                artifactId: artifactMeta.artifactId,
+                protocol: "mcp",
+                insertOnly: true,
+                tools: batch,
+              }),
+            "Failed to write MCP artifact tools",
+          );
+        }
       }
     }
 
     yield* trySourceIngestPromise(
       () =>
-        ctx.runMutation(runtimeInternal.control_plane.mcp_ingest_support.bindSourceToMcpArtifact, {
+        ctx.runMutation(runtimeInternal.control_plane.tool_registry.bindSourceToArtifact, {
           workspaceId: source.workspaceId,
           sourceId: source.id,
           artifactId: artifactMeta.artifactId,
-          sourceHash: extracted.sourceHash,
-          extractorVersion: mcpExtractorVersion,
         }),
       "Failed to bind source to MCP artifact",
     );
 
-    return extracted.sourceHash;
+    const namespace = sourceNamespace(source);
+    const indexRows = extracted.tools.map((tool) => {
+      return {
+        toolId: tool.toolId,
+        protocol: "mcp",
+        method: "post",
+        path: sourceToolPath(source, tool.toolId),
+        operationPath: null,
+        name: tool.name,
+        description: tool.description,
+        searchText: normalizedSearchText(
+          source.name,
+          source.endpoint,
+          namespace,
+          tool.toolId,
+          tool.name,
+          tool.description,
+          tool.toolName,
+        ),
+        operationHash: tool.operationHash,
+        approvalMode: "auto",
+        status: source.enabled ? "active" : "disabled",
+      };
+    });
+
+    if (options.rebuildIndex) {
+      yield* trySourceIngestPromise(
+        () =>
+          ctx.runMutation(runtimeInternal.control_plane.tool_registry.replaceWorkspaceSourceToolIndex, {
+            workspaceId: source.workspaceId,
+            sourceId: source.id,
+            sourceName: source.name,
+            sourceKind: source.kind,
+            artifactId: artifactMeta.artifactId,
+            namespace,
+            refHintTableJson: null,
+            rows: indexRows,
+          }),
+        "Failed to rebuild workspace tool index for MCP source",
+      );
+    }
+
+    return {
+      protocol: "mcp",
+      artifactId: artifactMeta.artifactId,
+      sourceHash: extracted.sourceHash,
+      toolCount: extracted.tools.length,
+      namespace,
+      refHintTableJson: null,
+      artifactBatchCount: artifactMeta.created && options.stageArtifactWrites
+        ? Math.ceil(extracted.tools.length / stagedArtifactBatchSize)
+        : 0,
+    };
   });
 
 export const ingestSourceArtifact = internalAction({
@@ -1065,11 +1650,20 @@ export const ingestSourceArtifact = internalAction({
     });
 
     const ingestEffect = source.kind === "openapi"
-      ? ingestOpenApiSource(ctx, source)
+      ? ingestOpenApiSource(ctx, source, {
+          rebuildIndex: true,
+          stageArtifactWrites: false,
+        })
       : source.kind === "graphql"
-        ? ingestGraphqlSource(ctx, source)
+        ? ingestGraphqlSource(ctx, source, {
+            rebuildIndex: true,
+            stageArtifactWrites: false,
+          })
         : source.kind === "mcp"
-          ? ingestMcpSource(ctx, source)
+          ? ingestMcpSource(ctx, source, {
+              rebuildIndex: true,
+              stageArtifactWrites: false,
+            })
           : Effect.fail(
               SourceIngestError.make({
                 status: "error",
@@ -1085,9 +1679,9 @@ export const ingestSourceArtifact = internalAction({
             sourceHash: null as string | null,
             lastError: error.message,
           }),
-          onSuccess: (sourceHash) => ({
+          onSuccess: (prepared) => ({
             status: "connected" as const,
-            sourceHash,
+            sourceHash: prepared.sourceHash,
             lastError: null as string | null,
           }),
         }),
@@ -1100,5 +1694,288 @@ export const ingestSourceArtifact = internalAction({
       sourceHash: result.sourceHash,
       lastError: result.lastError,
     });
+  },
+});
+
+export const prepareSourceArtifactIngest = internalAction({
+  args: {
+    workspaceId: v.string(),
+    sourceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const source = await ctx.runQuery(runtimeInternal.control_plane.sources.getSourceForIngest, {
+      sourceId: args.sourceId,
+    });
+
+    if (!source || source.workspaceId !== args.workspaceId) {
+      return {
+        ok: false as const,
+        status: "error" as const,
+        message: "Source not found for workspace",
+      };
+    }
+
+    const ingestEffect = source.kind === "openapi"
+      ? ingestOpenApiSource(ctx, source, {
+          rebuildIndex: false,
+          stageArtifactWrites: true,
+        })
+      : source.kind === "graphql"
+        ? ingestGraphqlSource(ctx, source, {
+            rebuildIndex: false,
+            stageArtifactWrites: true,
+          })
+        : source.kind === "mcp"
+          ? ingestMcpSource(ctx, source, {
+              rebuildIndex: false,
+              stageArtifactWrites: true,
+            })
+          : Effect.fail(
+              SourceIngestError.make({
+                status: "error",
+                message: `Source ingest for kind '${source.kind}' is not implemented yet`,
+              }),
+            );
+
+    const result = await Effect.runPromise(
+      ingestEffect.pipe(
+        Effect.match({
+          onFailure: (error) => ({
+            ok: false as const,
+            status: error.status,
+            message: error.message,
+          }),
+          onSuccess: (prepared) => ({
+            ok: true as const,
+            workspaceId: source.workspaceId,
+            sourceId: source.id,
+            sourceName: source.name,
+            sourceKind: source.kind,
+            sourceEndpoint: source.endpoint,
+            sourceEnabled: source.enabled,
+            artifactId: prepared.artifactId,
+            protocol: prepared.protocol,
+            sourceHash: prepared.sourceHash,
+            toolCount: prepared.toolCount,
+            namespace: prepared.namespace,
+            refHintTableJson: prepared.refHintTableJson,
+            artifactBatchCount: prepared.artifactBatchCount,
+          }),
+        }),
+      ),
+    );
+
+    if (result.ok && result.artifactBatchCount === 0) {
+      await ctx.runMutation(runtimeInternal.control_plane.tool_registry.clearSourceIngestArtifactBatches, {
+        workspaceId: source.workspaceId,
+        sourceId: source.id,
+      });
+    }
+
+    return result;
+  },
+});
+
+export const writeArtifactToolBatchFromStaging = internalAction({
+  args: {
+    workspaceId: v.string(),
+    sourceId: v.string(),
+    artifactId: v.string(),
+    protocol: v.string(),
+    batchIndex: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const staged = await ctx.runQuery(runtimeInternal.control_plane.tool_registry.getSourceIngestArtifactBatch, {
+      workspaceId: args.workspaceId,
+      sourceId: args.sourceId,
+      artifactId: args.artifactId,
+      batchIndex: args.batchIndex,
+    });
+
+    if (!staged || typeof staged.toolsJson !== "string") {
+      return { written: 0 };
+    }
+
+    let tools: Array<Record<string, unknown>> = [];
+    try {
+      const parsed = JSON.parse(staged.toolsJson) as unknown;
+      if (Array.isArray(parsed)) {
+        tools = parsed.filter((entry): entry is Record<string, unknown> => isUnknownRecord(entry));
+      }
+    } catch {
+      tools = [];
+    }
+
+    if (tools.length === 0) {
+      return { written: 0 };
+    }
+
+    await ctx.runMutation(runtimeInternal.control_plane.tool_registry.putArtifactToolsBatch, {
+      artifactId: args.artifactId,
+      protocol: args.protocol,
+      insertOnly: true,
+      tools: tools.map((tool) => ({
+        toolId: String(tool.toolId ?? ""),
+        name: String(tool.name ?? ""),
+        description: typeof tool.description === "string" ? tool.description : null,
+        canonicalPath: String(tool.canonicalPath ?? ""),
+        operationHash: String(tool.operationHash ?? ""),
+        invocationJson: String(tool.invocationJson ?? "{}"),
+        inputSchemaJson: typeof tool.inputSchemaJson === "string" ? tool.inputSchemaJson : null,
+        outputSchemaJson: typeof tool.outputSchemaJson === "string" ? tool.outputSchemaJson : null,
+        metadataJson: typeof tool.metadataJson === "string" ? tool.metadataJson : null,
+      })),
+    });
+
+    return { written: tools.length };
+  },
+});
+
+export const appendWorkspaceToolIndexChunk = internalAction({
+  args: {
+    workspaceId: v.string(),
+    sourceId: v.string(),
+    sourceName: v.string(),
+    sourceKind: v.string(),
+    sourceEndpoint: v.string(),
+    sourceEnabled: v.boolean(),
+    artifactId: v.string(),
+    namespace: v.string(),
+    refHintTableJson: v.optional(v.union(v.string(), v.null())),
+    chunkIndex: v.number(),
+    chunkSize: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const chunkIndex = Math.max(0, Math.floor(args.chunkIndex));
+    const chunkSize = Math.max(1, Math.floor(args.chunkSize));
+    const offset = chunkIndex * chunkSize;
+
+    const tools = await ctx.runQuery(runtimeInternal.control_plane.tool_registry.listArtifactToolIndexSlice, {
+      artifactId: args.artifactId,
+      offset,
+      limit: chunkSize,
+    });
+
+    if (!tools || tools.length === 0) {
+      return { written: 0 };
+    }
+
+    const rows = tools.map((tool: any) => ({
+      toolId: tool.toolId,
+      protocol: tool.protocol,
+      method: toWorkspaceToolMethod(tool.protocol, tool.metadataJson ?? null),
+      path: `${args.namespace}.${tool.toolId}`,
+      operationPath: tool.protocol === "openapi"
+        ? (typeof tool.canonicalPath === "string" ? tool.canonicalPath : null)
+        : null,
+      name: tool.name,
+      description: tool.description ?? null,
+      searchText: normalizedSearchText(
+        args.sourceName,
+        args.sourceEndpoint,
+        args.namespace,
+        tool.toolId,
+        tool.name,
+        tool.description,
+        ...metadataSearchTerms(tool.metadataJson ?? null),
+      ),
+      operationHash: tool.operationHash,
+      approvalMode: "auto",
+      status: args.sourceEnabled ? "active" : "disabled",
+    }));
+
+    const writeResult = await ctx.runMutation(
+      runtimeInternal.control_plane.tool_registry.appendWorkspaceSourceToolIndexChunk,
+      {
+        workspaceId: args.workspaceId,
+        sourceId: args.sourceId,
+        sourceName: args.sourceName,
+        sourceKind: args.sourceKind,
+        artifactId: args.artifactId,
+        namespace: args.namespace,
+        refHintTableJson: args.refHintTableJson ?? null,
+        rows,
+      },
+    );
+
+    return {
+      written: (writeResult.insertedCount ?? 0) + (writeResult.updatedCount ?? 0),
+    };
+  },
+});
+
+export const rebuildWorkspaceToolIndexFromArtifact = internalAction({
+  args: {
+    workspaceId: v.string(),
+    sourceId: v.string(),
+    sourceName: v.string(),
+    sourceKind: v.string(),
+    sourceEndpoint: v.string(),
+    sourceEnabled: v.boolean(),
+    artifactId: v.string(),
+    namespace: v.string(),
+    refHintTableJson: v.optional(v.union(v.string(), v.null())),
+    chunkSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const chunkSize = Math.max(1, Math.floor(args.chunkSize ?? 1000));
+
+    const tools = await ctx.runQuery(runtimeInternal.control_plane.tool_registry.listArtifactTools, {
+      artifactId: args.artifactId,
+    });
+
+    if (!tools || tools.length === 0) {
+      return { written: 0, chunks: 0 };
+    }
+
+    const rows = tools.map((tool: any) => ({
+      toolId: String(tool.toolId ?? ""),
+      protocol: String(tool.protocol ?? "openapi"),
+      method: toWorkspaceToolMethod(String(tool.protocol ?? "openapi"), tool.metadataJson ?? null),
+      path: `${args.namespace}.${String(tool.toolId ?? "")}`,
+      operationPath: typeof tool.canonicalPath === "string" ? tool.canonicalPath : null,
+      name: String(tool.name ?? ""),
+      description: typeof tool.description === "string" ? tool.description : null,
+      searchText: normalizedSearchText(
+        args.sourceName,
+        args.sourceEndpoint,
+        args.namespace,
+        String(tool.toolId ?? ""),
+        String(tool.name ?? ""),
+        typeof tool.description === "string" ? tool.description : null,
+        ...metadataSearchTerms(typeof tool.metadataJson === "string" ? tool.metadataJson : null),
+      ),
+      operationHash: String(tool.operationHash ?? ""),
+      approvalMode: "auto",
+      status: args.sourceEnabled ? "active" : "disabled",
+    }));
+
+    const chunks = chunkArray(rows, chunkSize);
+    const results = await Promise.all(
+      chunks.map((batch) =>
+        ctx.runMutation(
+          runtimeInternal.control_plane.tool_registry.appendWorkspaceSourceToolIndexChunk,
+          {
+            workspaceId: args.workspaceId,
+            sourceId: args.sourceId,
+            sourceName: args.sourceName,
+            sourceKind: args.sourceKind,
+            artifactId: args.artifactId,
+            namespace: args.namespace,
+            refHintTableJson: args.refHintTableJson ?? null,
+            insertOnly: true,
+            rows: batch,
+          },
+        ),
+      ),
+    );
+
+    const written = results.reduce(
+      (sum: number, result: any) =>
+        sum + (result.insertedCount ?? 0) + (result.updatedCount ?? 0),
+      0,
+    );
+
+    return { written, chunks: chunks.length };
   },
 });

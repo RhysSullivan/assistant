@@ -23,6 +23,7 @@ export const SourceToolSummarySchema = Schema.Struct({
   description: Schema.NullOr(Schema.String),
   method: OpenApiHttpMethodSchema,
   path: Schema.String,
+  operationPath: Schema.optional(Schema.NullOr(Schema.String)),
   operationHash: Schema.String,
 });
 
@@ -35,6 +36,7 @@ export const SourceToolDetailSchema = Schema.Struct({
   description: Schema.NullOr(Schema.String),
   method: OpenApiHttpMethodSchema,
   path: Schema.String,
+  operationPath: Schema.optional(Schema.NullOr(Schema.String)),
   operationHash: Schema.String,
   inputSchemaJson: Schema.NullOr(Schema.String),
   outputSchemaJson: Schema.NullOr(Schema.String),

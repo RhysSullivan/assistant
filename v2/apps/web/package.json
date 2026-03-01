@@ -13,6 +13,7 @@
     "@effect-atom/atom-react": "^0.4.6",
     "@executor-v2/management-api": "workspace:*",
     "@executor-v2/schema": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@streamdown/code": "^1.0.3",
     "@workos-inc/authkit-nextjs": "^2.13.0",
     "class-variance-authority": "^0.7.1",
@@ -23,7 +24,8 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "streamdown": "^2.3.0",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "tldts": "^7.0.23"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.12",

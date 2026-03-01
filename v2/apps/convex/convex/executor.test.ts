@@ -20,10 +20,9 @@ const setup = () =>
     "./control_plane/storage.ts": () => import("./control_plane/storage"),
     "./control_plane/credentials.ts": () => import("./control_plane/credentials"),
     "./control_plane/sources.ts": () => import("./control_plane/sources"),
-    "./control_plane/openapi_ingest_mvp.ts": () => import("./control_plane/openapi_ingest_mvp"),
-    "./control_plane/graphql_ingest_support.ts": () => import("./control_plane/graphql_ingest_support"),
-    "./control_plane/mcp_ingest_support.ts": () => import("./control_plane/mcp_ingest_support"),
+    "./control_plane/tool_registry.ts": () => import("./control_plane/tool_registry"),
     "./control_plane/openapi_ingest.ts": () => import("./control_plane/openapi_ingest"),
+    "./workflow.ts": () => import("./workflow"),
     "./controlPlane.ts": () => import("./controlPlane"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
@@ -45,7 +44,7 @@ describe("Convex executor and control-plane", () => {
       const t = setup();
 
       const added = (yield* Effect.tryPromise(() =>
-        t.mutation(api.controlPlane.upsertSource, {
+        t.action(api.controlPlane.upsertSource, {
           workspaceId: "ws_1",
           payload: {
             id: "src_1",
@@ -505,18 +504,69 @@ describe("Convex executor and control-plane", () => {
       });
 
       const now = Date.now();
+      const openApiArtifactMeta = (yield* Effect.tryPromise(() =>
+        t.mutation(runtimeInternal.control_plane.tool_registry.upsertArtifactMeta, {
+          protocol: "openapi",
+          contentHash: manifest.sourceHash,
+          extractorVersion: "openapi_v2",
+          toolCount: manifest.tools.length,
+          refHintTableJson: manifest.refHintTable ? JSON.stringify(manifest.refHintTable) : null,
+        }),
+      )) as {
+        artifactId: string;
+        created: boolean;
+      };
+
       yield* Effect.tryPromise(() =>
-        t.mutation(runtimeInternal.source_tool_registry.upsertToolArtifactForSource, {
-          artifact: {
-            id: "tool_artifact_src_1",
-            workspaceId: "ws_1",
-            sourceId: "src_1",
-            sourceHash: manifest.sourceHash,
-            toolCount: manifest.tools.length,
-            manifestJson: JSON.stringify(manifest),
-            createdAt: now,
-            updatedAt: now,
-          },
+        t.mutation(runtimeInternal.control_plane.tool_registry.putArtifactToolsBatch, {
+          artifactId: openApiArtifactMeta.artifactId,
+          protocol: "openapi",
+          insertOnly: true,
+          tools: manifest.tools.map((tool) => ({
+            toolId: tool.toolId,
+            name: tool.name,
+            description: tool.description,
+            canonicalPath: `${tool.method.toUpperCase()} ${tool.path}`,
+            operationHash: tool.operationHash,
+            invocationJson: JSON.stringify(tool.invocation),
+            inputSchemaJson: tool.typing?.inputSchemaJson ?? null,
+            outputSchemaJson: tool.typing?.outputSchemaJson ?? null,
+            metadataJson: JSON.stringify({
+              method: tool.method,
+              path: tool.path,
+            }),
+          })),
+        }),
+      );
+
+      yield* Effect.tryPromise(() =>
+        t.mutation(runtimeInternal.control_plane.tool_registry.bindSourceToArtifact, {
+          workspaceId: "ws_1",
+          sourceId: "src_1",
+          artifactId: openApiArtifactMeta.artifactId,
+        }),
+      );
+
+      yield* Effect.tryPromise(() =>
+        t.mutation(runtimeInternal.control_plane.tool_registry.replaceWorkspaceSourceToolIndex, {
+          workspaceId: "ws_1",
+          sourceId: "src_1",
+          sourceName: "Weather API",
+          sourceKind: "openapi",
+          artifactId: openApiArtifactMeta.artifactId,
+          namespace: "weather_api_src_1",
+          refHintTableJson: manifest.refHintTable ? JSON.stringify(manifest.refHintTable) : null,
+          rows: manifest.tools.map((tool) => ({
+            toolId: tool.toolId,
+            protocol: "openapi",
+            path: `weather_api_src_1.${tool.toolId}`,
+            name: tool.name,
+            description: tool.description,
+            searchText: `weather api ${tool.name.toLowerCase()} ${tool.path.toLowerCase()} ${tool.method.toLowerCase()}`,
+            operationHash: tool.operationHash,
+            approvalMode: "auto",
+            status: "active",
+          })),
         }),
       );
 
@@ -564,10 +614,12 @@ describe("Convex executor and control-plane", () => {
       );
 
       const graphqlArtifactMeta = (yield* Effect.tryPromise(() =>
-        t.mutation(runtimeInternal.control_plane.graphql_ingest_support.upsertGraphqlArtifactMeta, {
-          schemaHash: "graphql_schema_hash_1",
+        t.mutation(runtimeInternal.control_plane.tool_registry.upsertArtifactMeta, {
+          protocol: "graphql",
+          contentHash: "graphql_schema_hash_1",
           extractorVersion: "graphql_v1",
           toolCount: 2,
+          refHintTableJson: null,
         }),
       )) as {
         artifactId: string;
@@ -577,39 +629,80 @@ describe("Convex executor and control-plane", () => {
       expect(graphqlArtifactMeta.created).toBe(true);
 
       yield* Effect.tryPromise(() =>
-        t.mutation(runtimeInternal.control_plane.graphql_ingest_support.putGraphqlArtifactToolsBatch, {
+        t.mutation(runtimeInternal.control_plane.tool_registry.putArtifactToolsBatch, {
           artifactId: graphqlArtifactMeta.artifactId,
+          protocol: "graphql",
           insertOnly: true,
           tools: [
             {
               toolId: "linear.graphql",
               name: "Linear GraphQL",
               description: "Run raw GraphQL queries against Linear",
-              operationType: "raw",
-              fieldName: "graphql",
+              canonicalPath: "raw.graphql",
               operationHash: "raw_hash",
               invocationJson: "{}",
+              metadataJson: JSON.stringify({
+                operationType: "raw",
+                fieldName: "graphql",
+              }),
             },
             {
               toolId: "linear.query.viewer",
               name: "viewer",
               description: "Current viewer",
-              operationType: "query",
-              fieldName: "viewer",
+              canonicalPath: "query.viewer",
               operationHash: "viewer_hash",
               invocationJson: "{}",
+              metadataJson: JSON.stringify({
+                operationType: "query",
+                fieldName: "viewer",
+              }),
             },
           ],
         }),
       );
 
       yield* Effect.tryPromise(() =>
-        t.mutation(runtimeInternal.control_plane.graphql_ingest_support.bindSourceToGraphqlArtifact, {
+        t.mutation(runtimeInternal.control_plane.tool_registry.bindSourceToArtifact, {
           workspaceId: "ws_1",
           sourceId: "src_graphql_1",
           artifactId: graphqlArtifactMeta.artifactId,
-          schemaHash: "graphql_schema_hash_1",
-          extractorVersion: "graphql_v1",
+        }),
+      );
+
+      yield* Effect.tryPromise(() =>
+        t.mutation(runtimeInternal.control_plane.tool_registry.replaceWorkspaceSourceToolIndex, {
+          workspaceId: "ws_1",
+          sourceId: "src_graphql_1",
+          sourceName: "Linear API",
+          sourceKind: "graphql",
+          artifactId: graphqlArtifactMeta.artifactId,
+          namespace: "linear_api_phql_1",
+          refHintTableJson: null,
+          rows: [
+            {
+              toolId: "linear.graphql",
+              protocol: "graphql",
+              path: "linear_api_phql_1.linear.graphql",
+              name: "Linear GraphQL",
+              description: "Run raw GraphQL queries against Linear",
+              searchText: "linear api graphql linear.graphql",
+              operationHash: "raw_hash",
+              approvalMode: "auto",
+              status: "active",
+            },
+            {
+              toolId: "linear.query.viewer",
+              protocol: "graphql",
+              path: "linear_api_phql_1.linear.query.viewer",
+              name: "viewer",
+              description: "Current viewer",
+              searchText: "linear api graphql viewer linear.query.viewer",
+              operationHash: "viewer_hash",
+              approvalMode: "auto",
+              status: "active",
+            },
+          ],
         }),
       );
 
@@ -662,10 +755,12 @@ describe("Convex executor and control-plane", () => {
       );
 
       const mcpArtifactMeta = (yield* Effect.tryPromise(() =>
-        t.mutation(runtimeInternal.control_plane.mcp_ingest_support.upsertMcpArtifactMeta, {
-          sourceHash: "mcp_source_hash_1",
+        t.mutation(runtimeInternal.control_plane.tool_registry.upsertArtifactMeta, {
+          protocol: "mcp",
+          contentHash: "mcp_source_hash_1",
           extractorVersion: "mcp_v1",
           toolCount: 1,
+          refHintTableJson: null,
         }),
       )) as {
         artifactId: string;
@@ -675,29 +770,56 @@ describe("Convex executor and control-plane", () => {
       expect(mcpArtifactMeta.created).toBe(true);
 
       yield* Effect.tryPromise(() =>
-        t.mutation(runtimeInternal.control_plane.mcp_ingest_support.putMcpArtifactToolsBatch, {
+        t.mutation(runtimeInternal.control_plane.tool_registry.putArtifactToolsBatch, {
           artifactId: mcpArtifactMeta.artifactId,
+          protocol: "mcp",
           insertOnly: true,
           tools: [
             {
               toolId: "deepwiki.mcp.search_docs",
               name: "search_docs",
               description: "Search docs",
-              toolName: "search_docs",
+              canonicalPath: "search_docs",
               operationHash: "mcp_hash_1",
               invocationJson: "{}",
+              metadataJson: JSON.stringify({
+                toolName: "search_docs",
+              }),
             },
           ],
         }),
       );
 
       yield* Effect.tryPromise(() =>
-        t.mutation(runtimeInternal.control_plane.mcp_ingest_support.bindSourceToMcpArtifact, {
+        t.mutation(runtimeInternal.control_plane.tool_registry.bindSourceToArtifact, {
           workspaceId: "ws_1",
           sourceId: "src_mcp_1",
           artifactId: mcpArtifactMeta.artifactId,
-          sourceHash: "mcp_source_hash_1",
-          extractorVersion: "mcp_v1",
+        }),
+      );
+
+      yield* Effect.tryPromise(() =>
+        t.mutation(runtimeInternal.control_plane.tool_registry.replaceWorkspaceSourceToolIndex, {
+          workspaceId: "ws_1",
+          sourceId: "src_mcp_1",
+          sourceName: "Deepwiki",
+          sourceKind: "mcp",
+          artifactId: mcpArtifactMeta.artifactId,
+          namespace: "deepwiki_mcp_1",
+          refHintTableJson: null,
+          rows: [
+            {
+              toolId: "deepwiki.mcp.search_docs",
+              protocol: "mcp",
+              path: "deepwiki_mcp_1.deepwiki.mcp.search_docs",
+              name: "search_docs",
+              description: "Search docs",
+              searchText: "deepwiki mcp search docs",
+              operationHash: "mcp_hash_1",
+              approvalMode: "auto",
+              status: "active",
+            },
+          ],
         }),
       );
 
@@ -713,7 +835,7 @@ describe("Convex executor and control-plane", () => {
 
       expect(mcpSourceTools).toHaveLength(1);
       expect(mcpSourceTools[0]?.sourceId).toBe("src_mcp_1");
-      expect(mcpSourceTools[0]?.path).toContain("#mcp.search_docs");
+      expect(mcpSourceTools[0]?.path).toContain("deepwiki.mcp.search_docs");
 
       const workspaceToolsWithMcp = (yield* Effect.tryPromise(() =>
         t.query(api.controlPlane.listWorkspaceTools, {
@@ -1160,7 +1282,7 @@ describe("Convex executor and control-plane", () => {
 
         expect(sourceTools).toHaveLength(1);
         expect(sourceTools[0]?.sourceId).toBe("src_mcp_ingest_1");
-        expect(sourceTools[0]?.path).toContain("#mcp.search_docs");
+        expect(sourceTools[0]?.path).toContain("deepwiki.mcp.search_docs");
       } finally {
         globalThis.fetch = originalFetch;
       }

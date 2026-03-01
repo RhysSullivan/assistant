@@ -16,7 +16,7 @@ export const PmConfigLive = Layer.effect(
   PmConfig,
   Effect.gen(function* () {
     const port = yield* Config.integer("PORT").pipe(
-      Config.orElse(() => Config.succeed(8787)),
+      Config.orElse(() => Config.succeed(8788)),
     );
 
     return PmConfig.of({

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 const Page = () => {
-  redirect("/sources");
+  redirect("/tools");
 };
 
 export default Page;

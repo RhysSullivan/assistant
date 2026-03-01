@@ -9,7 +9,7 @@ const isTruthy = (value: string | undefined): boolean => {
 };
 
 export const isLocalControlPlaneUpstream = (): boolean => {
-  const upstream = trim(process.env.CONTROL_PLANE_UPSTREAM_URL) ?? "http://127.0.0.1:8787";
+  const upstream = trim(process.env.CONTROL_PLANE_UPSTREAM_URL) ?? "http://127.0.0.1:8788";
 
   try {
     const url = new URL(upstream);

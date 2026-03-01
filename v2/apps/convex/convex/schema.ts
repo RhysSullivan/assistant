@@ -41,9 +41,10 @@ const StorageSqlKvEntrySchema = Schema.Struct({
   updatedAt: Schema.Number,
 });
 
-const OpenApiArtifactSchema = Schema.Struct({
+const ArtifactSchema = Schema.Struct({
   id: Schema.String,
-  sourceHash: Schema.String,
+  protocol: Schema.String,
+  contentHash: Schema.String,
   extractorVersion: Schema.String,
   toolCount: Schema.Number,
   refHintTableJson: Schema.optional(Schema.NullOr(Schema.String)),
@@ -51,94 +52,73 @@ const OpenApiArtifactSchema = Schema.Struct({
   updatedAt: Schema.Number,
 });
 
-const OpenApiArtifactToolSchema = Schema.Struct({
+const ArtifactToolSchema = Schema.Struct({
   id: Schema.String,
   artifactId: Schema.String,
+  protocol: Schema.String,
   toolId: Schema.String,
   name: Schema.String,
   description: Schema.NullOr(Schema.String),
-  method: Schema.String,
-  path: Schema.String,
+  canonicalPath: Schema.String,
   operationHash: Schema.String,
   invocationJson: Schema.String,
   inputSchemaJson: Schema.optional(Schema.NullOr(Schema.String)),
   outputSchemaJson: Schema.optional(Schema.NullOr(Schema.String)),
+  metadataJson: Schema.optional(Schema.NullOr(Schema.String)),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
 });
 
-const OpenApiSourceArtifactBindingSchema = Schema.Struct({
+const ArtifactSchemaRefSchema = Schema.Struct({
+  id: Schema.String,
+  artifactId: Schema.String,
+  refKey: Schema.String,
+  schemaJson: Schema.String,
+  createdAt: Schema.Number,
+  updatedAt: Schema.Number,
+});
+
+const SourceArtifactBindingSchema = Schema.Struct({
   id: Schema.String,
   workspaceId: Schema.String,
   sourceId: Schema.String,
   artifactId: Schema.String,
-  sourceHash: Schema.String,
-  extractorVersion: Schema.String,
   updatedAt: Schema.Number,
 });
 
-const GraphqlArtifactSchema = Schema.Struct({
+const SourceIngestArtifactBatchSchema = Schema.Struct({
   id: Schema.String,
-  schemaHash: Schema.String,
-  extractorVersion: Schema.String,
-  toolCount: Schema.Number,
-  createdAt: Schema.Number,
+  workspaceId: Schema.String,
+  sourceId: Schema.String,
+  artifactId: Schema.String,
+  protocol: Schema.String,
+  batchIndex: Schema.Number,
+  toolsJson: Schema.String,
   updatedAt: Schema.Number,
 });
 
-const GraphqlArtifactToolSchema = Schema.Struct({
+const WorkspaceToolIndexSchema = Schema.Struct({
   id: Schema.String,
+  workspaceId: Schema.String,
+  sourceId: Schema.String,
+  sourceName: Schema.String,
+  sourceKind: Schema.String,
   artifactId: Schema.String,
   toolId: Schema.String,
+  protocol: Schema.String,
+  method: Schema.String,
+  namespace: Schema.String,
+  path: Schema.String,
+  pathLower: Schema.String,
+  normalizedPath: Schema.String,
+  operationPath: Schema.optional(Schema.NullOr(Schema.String)),
   name: Schema.String,
   description: Schema.NullOr(Schema.String),
-  operationType: Schema.String,
-  fieldName: Schema.String,
+  searchText: Schema.String,
   operationHash: Schema.String,
-  invocationJson: Schema.String,
-  createdAt: Schema.Number,
-  updatedAt: Schema.Number,
-});
-
-const GraphqlSourceArtifactBindingSchema = Schema.Struct({
-  id: Schema.String,
-  workspaceId: Schema.String,
-  sourceId: Schema.String,
-  artifactId: Schema.String,
-  schemaHash: Schema.String,
-  extractorVersion: Schema.String,
-  updatedAt: Schema.Number,
-});
-
-const McpArtifactSchema = Schema.Struct({
-  id: Schema.String,
-  sourceHash: Schema.String,
-  extractorVersion: Schema.String,
-  toolCount: Schema.Number,
-  createdAt: Schema.Number,
-  updatedAt: Schema.Number,
-});
-
-const McpArtifactToolSchema = Schema.Struct({
-  id: Schema.String,
-  artifactId: Schema.String,
-  toolId: Schema.String,
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  toolName: Schema.String,
-  operationHash: Schema.String,
-  invocationJson: Schema.String,
-  createdAt: Schema.Number,
-  updatedAt: Schema.Number,
-});
-
-const McpSourceArtifactBindingSchema = Schema.Struct({
-  id: Schema.String,
-  workspaceId: Schema.String,
-  sourceId: Schema.String,
-  artifactId: Schema.String,
-  sourceHash: Schema.String,
-  extractorVersion: Schema.String,
+  approvalMode: Schema.String,
+  status: Schema.String,
+  refHintTableJson: Schema.optional(Schema.NullOr(Schema.String)),
   updatedAt: Schema.Number,
 });
 
@@ -159,42 +139,48 @@ export const executorConfectSchema = defineSchema({
   sources: defineTable(SourceSchema)
     .index("by_domainId", ["id"])
     .index("by_workspaceId", ["workspaceId"]),
-  openApiArtifacts: defineTable(OpenApiArtifactSchema)
+  artifacts: defineTable(ArtifactSchema)
     .index("by_domainId", ["id"])
-    .index("by_sourceHash_extractorVersion", ["sourceHash", "extractorVersion"]),
-  openApiArtifactTools: defineTable(OpenApiArtifactToolSchema)
+    .index("by_protocol_contentHash_extractorVersion", [
+      "protocol",
+      "contentHash",
+      "extractorVersion",
+    ]),
+  artifactTools: defineTable(ArtifactToolSchema)
     .index("by_domainId", ["id"])
     .index("by_artifactId", ["artifactId"])
     .index("by_artifactId_toolId", ["artifactId", "toolId"]),
-  openApiSourceArtifactBindings: defineTable(OpenApiSourceArtifactBindingSchema)
+  artifactSchemaRefs: defineTable(ArtifactSchemaRefSchema)
+    .index("by_domainId", ["id"])
+    .index("by_artifactId", ["artifactId"])
+    .index("by_artifactId_refKey", ["artifactId", "refKey"]),
+  sourceArtifactBindings: defineTable(SourceArtifactBindingSchema)
     .index("by_domainId", ["id"])
     .index("by_workspaceId", ["workspaceId"])
     .index("by_workspaceId_sourceId", ["workspaceId", "sourceId"])
     .index("by_artifactId", ["artifactId"]),
-  graphqlArtifacts: defineTable(GraphqlArtifactSchema)
+  sourceIngestArtifactBatches: defineTable(SourceIngestArtifactBatchSchema)
     .index("by_domainId", ["id"])
-    .index("by_schemaHash_extractorVersion", ["schemaHash", "extractorVersion"]),
-  graphqlArtifactTools: defineTable(GraphqlArtifactToolSchema)
-    .index("by_domainId", ["id"])
-    .index("by_artifactId", ["artifactId"])
-    .index("by_artifactId_toolId", ["artifactId", "toolId"]),
-  graphqlSourceArtifactBindings: defineTable(GraphqlSourceArtifactBindingSchema)
+    .index("by_workspaceId_sourceId", ["workspaceId", "sourceId"])
+    .index("by_workspaceId_sourceId_artifactId_batchIndex", [
+      "workspaceId",
+      "sourceId",
+      "artifactId",
+      "batchIndex",
+    ])
+    .index("by_artifactId", ["artifactId"]),
+  workspaceToolIndex: defineTable(WorkspaceToolIndexSchema)
     .index("by_domainId", ["id"])
     .index("by_workspaceId", ["workspaceId"])
     .index("by_workspaceId_sourceId", ["workspaceId", "sourceId"])
-    .index("by_artifactId", ["artifactId"]),
-  mcpArtifacts: defineTable(McpArtifactSchema)
-    .index("by_domainId", ["id"])
-    .index("by_sourceHash_extractorVersion", ["sourceHash", "extractorVersion"]),
-  mcpArtifactTools: defineTable(McpArtifactToolSchema)
-    .index("by_domainId", ["id"])
-    .index("by_artifactId", ["artifactId"])
-    .index("by_artifactId_toolId", ["artifactId", "toolId"]),
-  mcpSourceArtifactBindings: defineTable(McpSourceArtifactBindingSchema)
-    .index("by_domainId", ["id"])
-    .index("by_workspaceId", ["workspaceId"])
-    .index("by_workspaceId_sourceId", ["workspaceId", "sourceId"])
-    .index("by_artifactId", ["artifactId"]),
+    .index("by_workspaceId_namespace", ["workspaceId", "namespace"])
+    .index("by_workspaceId_pathLower", ["workspaceId", "pathLower"])
+    .index("by_workspaceId_normalizedPath", ["workspaceId", "normalizedPath"])
+    .index("by_workspaceId_operationHash", ["workspaceId", "operationHash"])
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["workspaceId", "sourceId", "status", "namespace"],
+    }),
   sourceCredentialBindings: defineTable(SourceCredentialBindingSchema)
     .index("by_domainId", ["id"])
     .index("by_credentialId", ["credentialId"])

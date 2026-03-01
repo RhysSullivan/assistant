@@ -6,6 +6,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "dev": "bun run worker:dev",
     "test": "bunx vitest run --no-watch src/*.integration.test.ts",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "worker:dev": "bunx wrangler dev --local --config worker/wrangler.jsonc",
@@ -17,6 +18,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260305.0",
     "@effect/vitest": "catalog:",
     "vitest": "catalog:",
     "wrangler": "^4.0.0"

@@ -18,17 +18,6 @@ type NavItem = {
 
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
   {
-    href: "/sources",
-    label: "Sources",
-    icon: (
-      <svg viewBox="0 0 16 16" fill="none" className="size-4">
-        <circle cx="8" cy="4" r="2.5" stroke="currentColor" strokeWidth="1.3" />
-        <circle cx="8" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.3" />
-        <path d="M8 6.5v3" stroke="currentColor" strokeWidth="1.3" />
-      </svg>
-    ),
-  },
-  {
     href: "/tools",
     label: "Tools",
     icon: (

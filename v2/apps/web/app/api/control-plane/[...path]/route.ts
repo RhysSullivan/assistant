@@ -5,7 +5,7 @@ import { type NextRequest } from "next/server";
 import { isLocalControlPlaneUpstream, isWorkosEnabled } from "../../../../lib/workos";
 
 const controlPlaneUpstream =
-  process.env.CONTROL_PLANE_UPSTREAM_URL ?? "http://127.0.0.1:8787";
+  process.env.CONTROL_PLANE_UPSTREAM_URL ?? "http://127.0.0.1:8788";
 
 type TaggedControlPlaneError = {
   _tag:

@@ -11,73 +11,6 @@ import { query } from "../_generated/server";
 
 const decodeSource = Schema.decodeUnknownSync(SourceSchema);
 
-const OpenApiArtifactToolRowSchema = Schema.Struct({
-  id: Schema.String,
-  artifactId: Schema.String,
-  toolId: Schema.String,
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  method: Schema.String,
-  path: Schema.String,
-  operationHash: Schema.String,
-  invocationJson: Schema.String,
-  inputSchemaJson: Schema.optional(Schema.NullOr(Schema.String)),
-  outputSchemaJson: Schema.optional(Schema.NullOr(Schema.String)),
-  createdAt: Schema.Number,
-  updatedAt: Schema.Number,
-});
-
-type OpenApiArtifactToolRow = typeof OpenApiArtifactToolRowSchema.Type;
-
-const OpenApiArtifactRowSchema = Schema.Struct({
-  id: Schema.String,
-  sourceHash: Schema.String,
-  extractorVersion: Schema.String,
-  toolCount: Schema.Number,
-  refHintTableJson: Schema.optional(Schema.NullOr(Schema.String)),
-  createdAt: Schema.Number,
-  updatedAt: Schema.Number,
-});
-
-type OpenApiArtifactRow = typeof OpenApiArtifactRowSchema.Type;
-
-
-const GraphqlArtifactToolRowSchema = Schema.Struct({
-  id: Schema.String,
-  artifactId: Schema.String,
-  toolId: Schema.String,
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  operationType: Schema.String,
-  fieldName: Schema.String,
-  operationHash: Schema.String,
-  invocationJson: Schema.String,
-  createdAt: Schema.Number,
-  updatedAt: Schema.Number,
-});
-
-type GraphqlArtifactToolRow = typeof GraphqlArtifactToolRowSchema.Type;
-
-const McpArtifactToolRowSchema = Schema.Struct({
-  id: Schema.String,
-  artifactId: Schema.String,
-  toolId: Schema.String,
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  toolName: Schema.String,
-  operationHash: Schema.String,
-  invocationJson: Schema.String,
-  createdAt: Schema.Number,
-  updatedAt: Schema.Number,
-});
-
-type McpArtifactToolRow = typeof McpArtifactToolRowSchema.Type;
-
-const decodeOpenApiArtifactToolRow = Schema.decodeUnknownSync(OpenApiArtifactToolRowSchema);
-const decodeGraphqlArtifactToolRow = Schema.decodeUnknownSync(GraphqlArtifactToolRowSchema);
-const decodeMcpArtifactToolRow = Schema.decodeUnknownSync(McpArtifactToolRowSchema);
-const decodeOpenApiArtifactRow = Schema.decodeUnknownSync(OpenApiArtifactRowSchema);
-
 const stripConvexSystemFields = (
   value: Record<string, unknown>,
 ): Record<string, unknown> => {
@@ -88,78 +21,199 @@ const stripConvexSystemFields = (
 const toSource = (document: Record<string, unknown>): Source =>
   decodeSource(stripConvexSystemFields(document));
 
-const toOpenApiArtifactToolRow = (
-  document: Record<string, unknown>,
-): OpenApiArtifactToolRow =>
-  decodeOpenApiArtifactToolRow(stripConvexSystemFields(document));
+const parseJsonObject = (value: string | null | undefined): Record<string, unknown> => {
+  if (!value) {
+    return {};
+  }
 
-const toOpenApiArtifactRow = (
-  document: Record<string, unknown>,
-): OpenApiArtifactRow =>
-  decodeOpenApiArtifactRow(stripConvexSystemFields(document));
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+};
 
-const toGraphqlArtifactToolRow = (
-  document: Record<string, unknown>,
-): GraphqlArtifactToolRow =>
-  decodeGraphqlArtifactToolRow(stripConvexSystemFields(document));
+const parseJsonValue = (value: string | null | undefined): unknown | null => {
+  if (!value) {
+    return null;
+  }
 
-const toMcpArtifactToolRow = (
-  document: Record<string, unknown>,
-): McpArtifactToolRow =>
-  decodeMcpArtifactToolRow(stripConvexSystemFields(document));
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+};
 
-const toOpenApiSourceToolSummary = (
+const asNullableString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value : null;
+
+const normalizeNamespacePart = (value: string): string => {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return normalized.length > 0 ? normalized : "source";
+};
+
+const sourceNamespace = (source: Source): string => {
+  const sourceIdSuffix = source.id.slice(-6).toLowerCase();
+  return `${normalizeNamespacePart(source.name)}_${sourceIdSuffix}`;
+};
+
+const isMethod = (
+  value: string | null,
+): value is OpenApiHttpMethod | "post" =>
+  value === "get" ||
+  value === "post" ||
+  value === "put" ||
+  value === "patch" ||
+  value === "delete" ||
+  value === "head" ||
+  value === "options" ||
+  value === "trace";
+
+const methodFromCanonicalPath = (canonicalPath: string | null | undefined): OpenApiHttpMethod | "post" | null => {
+  if (!canonicalPath) {
+    return null;
+  }
+
+  const candidate = canonicalPath.trim().split(/\s+/)[0]?.toLowerCase() ?? null;
+  return isMethod(candidate) ? candidate : null;
+};
+
+const toMethod = (protocol: string, metadataJson: string | null | undefined): OpenApiHttpMethod | "post" => {
+  if (protocol !== "openapi") {
+    return "post";
+  }
+
+  const metadata = parseJsonObject(metadataJson);
+  const method = asNullableString(metadata.method)?.toLowerCase();
+
+  if (
+    method === "get" ||
+    method === "post" ||
+    method === "put" ||
+    method === "patch" ||
+    method === "delete" ||
+    method === "head" ||
+    method === "options" ||
+    method === "trace"
+  ) {
+    return method;
+  }
+
+  return "get";
+};
+
+const collectRefKeys = (value: unknown, refs: Set<string>): void => {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectRefKeys(item, refs);
+    }
+    return;
+  }
+
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  const refValue = record.$ref;
+  if (typeof refValue === "string" && refValue.startsWith("#/")) {
+    refs.add(refValue);
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    collectRefKeys(nestedValue, refs);
+  }
+};
+
+const resolveToolRefHintTableJson = async (
+  ctx: any,
+  artifactId: string,
+  inputSchemaJson: string | null | undefined,
+  outputSchemaJson: string | null | undefined,
+): Promise<string | null> => {
+  const initialRefs = new Set<string>();
+  collectRefKeys(parseJsonValue(inputSchemaJson), initialRefs);
+  collectRefKeys(parseJsonValue(outputSchemaJson), initialRefs);
+
+  if (initialRefs.size === 0) {
+    return null;
+  }
+
+  const queue = [...initialRefs];
+  const seen = new Set<string>();
+  const table: Record<string, string> = {};
+  const maxRefs = 5_000;
+
+  while (queue.length > 0 && seen.size < maxRefs) {
+    const refKey = queue.shift();
+    if (!refKey || seen.has(refKey)) {
+      continue;
+    }
+
+    seen.add(refKey);
+
+    const row = await ctx.db
+      .query("artifactSchemaRefs")
+      .withIndex("by_artifactId_refKey", (q) =>
+        q.eq("artifactId", artifactId).eq("refKey", refKey),
+      )
+      .unique();
+
+    if (!row || typeof row.schemaJson !== "string") {
+      continue;
+    }
+
+    table[refKey] = row.schemaJson;
+
+    const nestedRefs = new Set<string>();
+    collectRefKeys(parseJsonValue(row.schemaJson), nestedRefs);
+    for (const nestedRef of nestedRefs) {
+      if (!seen.has(nestedRef)) {
+        queue.push(nestedRef);
+      }
+    }
+  }
+
+  if (Object.keys(table).length === 0) {
+    return null;
+  }
+
+  return JSON.stringify(table);
+};
+
+const toSummary = (
   source: Source,
-  tool: OpenApiArtifactToolRow,
-): SourceToolSummary => ({
-  sourceId: source.id,
-  sourceName: source.name,
-  sourceKind: source.kind,
-  toolId: tool.toolId,
-  name: tool.name,
-  description: tool.description,
-  method: tool.method as OpenApiHttpMethod,
-  path: tool.path,
-  operationHash: tool.operationHash,
-});
+  toolRow: Record<string, unknown>,
+  metadataJson: string | null | undefined,
+): SourceToolSummary => {
+  const protocol = asNullableString(toolRow.protocol) ?? "openapi";
+  const canonicalPath = asNullableString(toolRow.canonicalPath);
+  const method = methodFromCanonicalPath(canonicalPath) ?? toMethod(protocol, metadataJson);
+  const toolId = asNullableString(toolRow.toolId) ?? "unknown";
+  const path = `${sourceNamespace(source)}.${toolId}`;
 
-const toGraphqlToolPath = (
-  source: Source,
-  tool: GraphqlArtifactToolRow,
-): string => `${source.endpoint}#${tool.operationType}.${tool.fieldName}`;
-
-const toGraphqlSourceToolSummary = (
-  source: Source,
-  tool: GraphqlArtifactToolRow,
-): SourceToolSummary => ({
-  sourceId: source.id,
-  sourceName: source.name,
-  sourceKind: source.kind,
-  toolId: tool.toolId,
-  name: tool.name,
-  description: tool.description,
-  method: "post",
-  path: toGraphqlToolPath(source, tool),
-  operationHash: tool.operationHash,
-});
-
-const toMcpToolPath = (source: Source, tool: McpArtifactToolRow): string =>
-  `${source.endpoint}#mcp.${tool.toolName}`;
-
-const toMcpSourceToolSummary = (
-  source: Source,
-  tool: McpArtifactToolRow,
-): SourceToolSummary => ({
-  sourceId: source.id,
-  sourceName: source.name,
-  sourceKind: source.kind,
-  toolId: tool.toolId,
-  name: tool.name,
-  description: tool.description,
-  method: "post",
-  path: toMcpToolPath(source, tool),
-  operationHash: tool.operationHash,
-});
+  return {
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceKind: source.kind,
+    toolId,
+    name: asNullableString(toolRow.name) ?? "Unnamed Tool",
+    description: asNullableString(toolRow.description),
+    method,
+    path,
+    operationPath: canonicalPath,
+    operationHash: asNullableString(toolRow.operationHash) ?? "",
+  };
+};
 
 const sortTools = (tools: ReadonlyArray<SourceToolSummary>): Array<SourceToolSummary> =>
   [...tools].sort((left, right) => {
@@ -190,82 +244,37 @@ export const listWorkspaceTools = query({
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
 
-    const sourcesById = new Map<string, Source>(
-      sourceRows.map((row) => {
-        const source = toSource(row as unknown as Record<string, unknown>);
-        return [source.id as string, source] as const;
-      }),
+    const sources = sourceRows
+      .map((row) => toSource(row as unknown as Record<string, unknown>))
+      .filter((source) => source.enabled);
+    const bindings = await ctx.db
+      .query("sourceArtifactBindings")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    const bindingBySourceId = new Map<string, string>(
+      bindings.map((row) => [String(row.sourceId), String(row.artifactId)] as const),
     );
 
-    const tools: Array<SourceToolSummary> = [];
+    const summaries: Array<SourceToolSummary> = [];
 
-    const openApiBindingRows = await ctx.db
-      .query("openApiSourceArtifactBindings")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-
-    for (const binding of openApiBindingRows) {
-      const source = sourcesById.get(binding.sourceId);
-      if (!source) {
+    for (const source of sources) {
+      const artifactId = bindingBySourceId.get(source.id);
+      if (!artifactId) {
         continue;
       }
 
-      const toolRows = await ctx.db
-        .query("openApiArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", binding.artifactId))
+      const artifactTools = await ctx.db
+        .query("artifactTools")
+        .withIndex("by_artifactId", (q) => q.eq("artifactId", artifactId))
         .collect();
 
-      for (const toolRow of toolRows) {
-        const tool = toOpenApiArtifactToolRow(toolRow as unknown as Record<string, unknown>);
-        tools.push(toOpenApiSourceToolSummary(source, tool));
+      for (const artifactTool of artifactTools) {
+        const row = stripConvexSystemFields(artifactTool as unknown as Record<string, unknown>);
+        summaries.push(toSummary(source, row, asNullableString(row.metadataJson)));
       }
     }
 
-    const graphqlBindingRows = await ctx.db
-      .query("graphqlSourceArtifactBindings")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-
-    for (const binding of graphqlBindingRows) {
-      const source = sourcesById.get(binding.sourceId);
-      if (!source) {
-        continue;
-      }
-
-      const toolRows = await ctx.db
-        .query("graphqlArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", binding.artifactId))
-        .collect();
-
-      for (const toolRow of toolRows) {
-        const tool = toGraphqlArtifactToolRow(toolRow as unknown as Record<string, unknown>);
-        tools.push(toGraphqlSourceToolSummary(source, tool));
-      }
-    }
-
-    const mcpBindingRows = await ctx.db
-      .query("mcpSourceArtifactBindings")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-
-    for (const binding of mcpBindingRows) {
-      const source = sourcesById.get(binding.sourceId);
-      if (!source) {
-        continue;
-      }
-
-      const toolRows = await ctx.db
-        .query("mcpArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", binding.artifactId))
-        .collect();
-
-      for (const toolRow of toolRows) {
-        const tool = toMcpArtifactToolRow(toolRow as unknown as Record<string, unknown>);
-        tools.push(toMcpSourceToolSummary(source, tool));
-      }
-    }
-
-    return sortTools(tools);
+    return sortTools(summaries);
   },
 });
 
@@ -285,115 +294,35 @@ export const listSourceTools = query({
     }
 
     const source = toSource(sourceRow as unknown as Record<string, unknown>);
-
-    if (source.kind === "openapi") {
-      const bindingRow = await ctx.db
-        .query("openApiSourceArtifactBindings")
-        .withIndex("by_workspaceId_sourceId", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId),
-        )
-        .unique();
-
-      if (!bindingRow) {
-        return [];
-      }
-
-      const toolRows = await ctx.db
-        .query("openApiArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", bindingRow.artifactId))
-        .collect();
-
-      return sortTools(
-        toolRows.map((toolRow) =>
-          toOpenApiSourceToolSummary(
-            source,
-            toOpenApiArtifactToolRow(toolRow as unknown as Record<string, unknown>),
-          ),
-        ),
-      );
+    if (!source.enabled) {
+      return [];
     }
 
-    if (source.kind === "graphql") {
-      const bindingRow = await ctx.db
-        .query("graphqlSourceArtifactBindings")
-        .withIndex("by_workspaceId_sourceId", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId),
-        )
-        .unique();
-
-      if (!bindingRow) {
-        return [];
-      }
-
-      const toolRows = await ctx.db
-        .query("graphqlArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", bindingRow.artifactId))
-        .collect();
-
-      return sortTools(
-        toolRows.map((toolRow) =>
-          toGraphqlSourceToolSummary(
-            source,
-            toGraphqlArtifactToolRow(toolRow as unknown as Record<string, unknown>),
-          ),
-        ),
-      );
+    const binding = await ctx.db
+      .query("sourceArtifactBindings")
+      .withIndex("by_workspaceId_sourceId", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId),
+      )
+      .unique();
+    if (!binding) {
+      return [];
     }
 
-    if (source.kind === "mcp") {
-      const bindingRow = await ctx.db
-        .query("mcpSourceArtifactBindings")
-        .withIndex("by_workspaceId_sourceId", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId),
-        )
-        .unique();
+    const artifactTools = await ctx.db
+      .query("artifactTools")
+      .withIndex("by_artifactId", (q) => q.eq("artifactId", binding.artifactId))
+      .collect();
 
-      if (!bindingRow) {
-        return [];
-      }
+    const summaries: Array<SourceToolSummary> = [];
 
-      const toolRows = await ctx.db
-        .query("mcpArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", bindingRow.artifactId))
-        .collect();
-
-      return sortTools(
-        toolRows.map((toolRow) =>
-          toMcpSourceToolSummary(
-            source,
-            toMcpArtifactToolRow(toolRow as unknown as Record<string, unknown>),
-          ),
-        ),
-      );
+    for (const artifactTool of artifactTools) {
+      const row = stripConvexSystemFields(artifactTool as unknown as Record<string, unknown>);
+      summaries.push(toSummary(source, row, asNullableString(row.metadataJson)));
     }
 
-    return [];
+    return sortTools(summaries);
   },
 });
-
-// ---------------------------------------------------------------------------
-// Helper: extract schema JSON from invocationJson
-// ---------------------------------------------------------------------------
-
-const extractMcpSchemas = (
-  invocationJson: string,
-): { inputSchemaJson: string | null; outputSchemaJson: string | null } => {
-  try {
-    const parsed = JSON.parse(invocationJson) as Record<string, unknown>;
-    const inputSchema = parsed.inputSchema;
-    const outputSchema = parsed.outputSchema;
-    return {
-      inputSchemaJson: inputSchema ? JSON.stringify(inputSchema) : null,
-      outputSchemaJson: outputSchema ? JSON.stringify(outputSchema) : null,
-    };
-  } catch {
-    return { inputSchemaJson: null, outputSchemaJson: null };
-  }
-};
-
-// ---------------------------------------------------------------------------
-// getToolDetail - returns a single tool with schema data
-// ---------------------------------------------------------------------------
 
 export const getToolDetail = query({
   args: {
@@ -412,118 +341,53 @@ export const getToolDetail = query({
     }
 
     const source = toSource(sourceRow as unknown as Record<string, unknown>);
-
-    if (source.kind === "openapi") {
-      const bindingRow = await ctx.db
-        .query("openApiSourceArtifactBindings")
-        .withIndex("by_workspaceId_sourceId", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId),
-        )
-        .unique();
-
-      if (!bindingRow) {
-        return null;
-      }
-
-      const toolRows = await ctx.db
-        .query("openApiArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", bindingRow.artifactId))
-        .collect();
-
-      const artifactRow = await ctx.db
-        .query("openApiArtifacts")
-        .withIndex("by_domainId", (q) => q.eq("id", bindingRow.artifactId))
-        .unique();
-
-      const artifact = artifactRow
-        ? toOpenApiArtifactRow(artifactRow as unknown as Record<string, unknown>)
-        : null;
-
-      const matched = toolRows
-        .map((toolRow) => toOpenApiArtifactToolRow(toolRow as unknown as Record<string, unknown>))
-        .find((tool) => tool.operationHash === args.operationHash);
-
-      if (!matched) {
-        return null;
-      }
-
-      return {
-        ...toOpenApiSourceToolSummary(source, matched),
-        inputSchemaJson: matched.inputSchemaJson ?? null,
-        outputSchemaJson: matched.outputSchemaJson ?? null,
-        refHintTableJson: artifact?.refHintTableJson ?? null,
-      };
+    const binding = await ctx.db
+      .query("sourceArtifactBindings")
+      .withIndex("by_workspaceId_sourceId", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId),
+      )
+      .unique();
+    if (!binding) {
+      return null;
     }
 
-    if (source.kind === "graphql") {
-      const bindingRow = await ctx.db
-        .query("graphqlSourceArtifactBindings")
-        .withIndex("by_workspaceId_sourceId", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId),
-        )
-        .unique();
+    const artifactRows = await ctx.db
+      .query("artifactTools")
+      .withIndex("by_artifactId", (q) => q.eq("artifactId", binding.artifactId))
+      .collect();
 
-      if (!bindingRow) {
-        return null;
-      }
-
-      const toolRows = await ctx.db
-        .query("graphqlArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", bindingRow.artifactId))
-        .collect();
-
-      const matched = toolRows
-        .map((toolRow) => toGraphqlArtifactToolRow(toolRow as unknown as Record<string, unknown>))
-        .find((tool) => tool.operationHash === args.operationHash);
-
-      if (!matched) {
-        return null;
-      }
-
-      return {
-        ...toGraphqlSourceToolSummary(source, matched),
-        // GraphQL tools don't have full JSON Schema in Convex
-        inputSchemaJson: null,
-        outputSchemaJson: null,
-        refHintTableJson: null,
-      };
+    const artifactTool = artifactRows.find((row) => row.operationHash === args.operationHash);
+    if (!artifactTool) {
+      return null;
     }
 
-    if (source.kind === "mcp") {
-      const bindingRow = await ctx.db
-        .query("mcpSourceArtifactBindings")
-        .withIndex("by_workspaceId_sourceId", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId),
-        )
-        .unique();
+    const artifact = await ctx.db
+      .query("artifacts")
+      .withIndex("by_domainId", (q) => q.eq("id", binding.artifactId))
+      .unique();
 
-      if (!bindingRow) {
-        return null;
-      }
+    const resolvedRefHintTableJson = source.kind === "openapi"
+      ? await resolveToolRefHintTableJson(
+        ctx,
+        binding.artifactId,
+        artifactTool.inputSchemaJson ?? null,
+        artifactTool.outputSchemaJson ?? null,
+      )
+      : null;
 
-      const toolRows = await ctx.db
-        .query("mcpArtifactTools")
-        .withIndex("by_artifactId", (q) => q.eq("artifactId", bindingRow.artifactId))
-        .collect();
+    const summary = toSummary(
+      source,
+      stripConvexSystemFields(artifactTool as unknown as Record<string, unknown>),
+      artifactTool.metadataJson ?? null,
+    );
 
-      const matched = toolRows
-        .map((toolRow) => toMcpArtifactToolRow(toolRow as unknown as Record<string, unknown>))
-        .find((tool) => tool.operationHash === args.operationHash);
-
-      if (!matched) {
-        return null;
-      }
-
-      const schemas = extractMcpSchemas(matched.invocationJson);
-      return {
-        ...toMcpSourceToolSummary(source, matched),
-        inputSchemaJson: schemas.inputSchemaJson,
-        outputSchemaJson: schemas.outputSchemaJson,
-        refHintTableJson: null,
-      };
-    }
-
-    return null;
+    return {
+      ...summary,
+      inputSchemaJson: artifactTool.inputSchemaJson ?? null,
+      outputSchemaJson: artifactTool.outputSchemaJson ?? null,
+      refHintTableJson: resolvedRefHintTableJson
+        ?? artifact?.refHintTableJson
+        ?? null,
+    };
   },
 });
-

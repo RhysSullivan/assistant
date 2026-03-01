@@ -15,11 +15,16 @@ import {
   toolDetailResult,
   workspaceToolsByWorkspace,
 } from "../../lib/control-plane/atoms";
+import { sourceToLegacyRecord, type LegacyToolSourceRecord } from "../../lib/control-plane/legacy-source";
 import { ToolSchemaSection } from "./schema-fields";
+import { getAddMcpInstallConfig } from "./install-configs";
 import { resolveSchemaJsonWithRefHints } from "../../lib/tool/openapi-schema-refs";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
+import { SourceManagementPanel } from "./source-management-panel";
+import { sourceFaviconSeedUrl } from "../../lib/tools/source-helpers";
+import { SourceFavicon, DefaultSourceIcon } from "./source-favicon";
 
 // ---------------------------------------------------------------------------
 // Streamdown code plugin (Shiki dual-theme syntax highlighting)
@@ -100,7 +105,18 @@ const toolMatchesSearch = (tool: ToolItem, terms: string[]): boolean => {
  * - folder path = all tokens except last; if only one token, use that token
  */
 function deriveFolderSegments(path: string): string[] {
-  const segments = path
+  const normalizedPath = path.replace(
+    /^(get|post|put|patch|delete|head|options|trace)\s+/i,
+    "",
+  );
+
+  // New registry paths are namespaced identifiers (e.g. "cloudflare_api_123.tool-id"),
+  // not URL paths. Treat them as direct tools to avoid one-folder-per-tool noise.
+  if (!normalizedPath.includes("/")) {
+    return [];
+  }
+
+  const segments = normalizedPath
     .split("/")
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
@@ -176,7 +192,7 @@ const buildGroups = (tools: ReadonlyArray<ToolItem>): SourceGroup[] => {
     const direct: ToolItem[] = [];
 
     for (const tool of sourceTools) {
-      const parts = deriveFolderSegments(tool.path);
+      const parts = deriveFolderSegments(tool.operationPath ?? tool.path);
       if (parts.length === 0) {
         direct.push(tool);
         continue;
@@ -234,213 +250,6 @@ const buildGroups = (tools: ReadonlyArray<ToolItem>): SourceGroup[] => {
 };
 
 // ---------------------------------------------------------------------------
-// Favicon helpers (ported from old executor source-helpers.ts)
-// ---------------------------------------------------------------------------
-
-const RAW_HOSTS = new Set([
-  "raw.githubusercontent.com",
-  "cdn.jsdelivr.net",
-  "unpkg.com",
-  "raw.github.com",
-]);
-
-
-/** Derive a Google favicon URL from any URL string */
-function getFaviconUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const hostname = new URL(url).hostname;
-    // Extract registrable domain: keep common 2-part public suffixes.
-    const parts = hostname.split(".").filter(Boolean);
-    const twoPartSuffixes = new Set([
-      "co.uk",
-      "org.uk",
-      "ac.uk",
-      "gov.uk",
-      "com.au",
-      "net.au",
-      "org.au",
-      "co.jp",
-      "co.kr",
-      "co.in",
-      "com.br",
-      "com.mx",
-      "com.sg",
-      "com.hk",
-    ]);
-
-    const domain = (() => {
-      if (parts.length <= 2) return hostname;
-      const suffix = parts.slice(-2).join(".");
-      if (twoPartSuffixes.has(suffix) && parts.length >= 3) {
-        return parts.slice(-3).join(".");
-      }
-      return parts.slice(-2).join(".");
-    })();
-
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
-  } catch {
-    return null;
-  }
-}
-
-function parseConfigJson(configJson: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(configJson) as unknown;
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function parseOrigin(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return null;
-  }
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
-
-function inferDomainFromRawUrl(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return null;
-  }
-
-  try {
-    const parsed = new URL(value);
-    if (!RAW_HOSTS.has(parsed.hostname)) {
-      return null;
-    }
-
-    const segments = parsed.pathname
-      .split("/")
-      .map((segment) => segment.trim())
-      .filter((segment) => segment.length > 0);
-
-    for (const segment of segments) {
-      const withoutExtension = segment.replace(/\.(ya?ml|json)$/i, "");
-      if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(withoutExtension)) {
-        return `https://${withoutExtension}`;
-      }
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-
-function sourceFaviconSeedUrl(source: {
-  kind: string;
-  endpoint: string;
-  configJson: string;
-}): string | null {
-  const config = parseConfigJson(source.configJson);
-
-  if (source.kind === "mcp") {
-    return parseOrigin(config.url) ?? parseOrigin(source.endpoint);
-  }
-
-  if (source.kind === "graphql") {
-    return parseOrigin(config.endpoint) ?? parseOrigin(source.endpoint);
-  }
-
-  const spec = config.spec;
-  if (typeof spec === "string" && spec.startsWith("postman:")) {
-    return null;
-  }
-
-  return (
-    parseOrigin(config.baseUrl)
-    ?? parseOrigin(config.collectionUrl)
-    ?? inferDomainFromRawUrl(config.specUrl)
-    ?? parseOrigin(config.specUrl)
-    ?? inferDomainFromRawUrl(spec)
-    ?? parseOrigin(spec)
-    ?? inferDomainFromRawUrl(source.endpoint)
-    ?? parseOrigin(source.endpoint)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SourceFavicon - tries Google favicon, falls back to kind-based SVG icon
-// ---------------------------------------------------------------------------
-
-function SourceFavicon({
-  endpoint,
-  kind,
-  className,
-  size = 16,
-}: {
-  endpoint?: string | null;
-  kind: string;
-  className?: string;
-  size?: number;
-}) {
-  const faviconUrl = useMemo(() => getFaviconUrl(endpoint), [endpoint]);
-  const [failed, setFailed] = useState<string | null>(null);
-  const isFailed = Boolean(faviconUrl && failed === faviconUrl);
-
-  if (!faviconUrl || isFailed) {
-    return <DefaultSourceIcon kind={kind} className={className} />;
-  }
-
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      key={faviconUrl}
-      src={faviconUrl}
-      alt=""
-      width={size}
-      height={size}
-      className={cn("size-full rounded-full object-cover", className)}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={() => setFailed(faviconUrl)}
-    />
-  );
-}
-
-/** Fallback SVG icon based on source kind */
-function DefaultSourceIcon({ kind, className }: { kind: string; className?: string }) {
-  const base = cn("shrink-0", className);
-  switch (kind) {
-    case "mcp":
-      return (
-        <svg viewBox="0 0 16 16" fill="none" className={base}>
-          <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-          <path d="M5 7h1M5 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-        </svg>
-      );
-    case "graphql":
-      return (
-        <svg viewBox="0 0 16 16" fill="none" className={base}>
-          <path d="M8 2L14 5.5V10.5L8 14L2 10.5V5.5L8 2Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-          <circle cx="8" cy="8" r="1.5" fill="currentColor" opacity="0.5" />
-        </svg>
-      );
-    case "openapi":
-      return (
-        <svg viewBox="0 0 16 16" fill="none" className={base}>
-          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
-          <path d="M5 6h6M5 8h4M5 10h5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-        </svg>
-      );
-    default:
-      return (
-        <svg viewBox="0 0 16 16" fill="none" className={base}>
-          <rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
-          <path d="M5 6h6M5 8h4M5 10h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-        </svg>
-      );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Method badge color
 // ---------------------------------------------------------------------------
 
@@ -459,6 +268,9 @@ const methodColor = (method: string): string => {
       return "text-muted-foreground bg-muted border-border";
   }
 };
+
+const inferServerName = (workspaceId: string): string =>
+  `executor-v2-${workspaceId.slice(0, 8).toLowerCase()}`;
 
 // ---------------------------------------------------------------------------
 // Streamdown description wrapper — Tailwind prose via [&_...] selectors
@@ -527,7 +339,10 @@ export function ToolsView() {
   // --- Local state ---
   const [search, setSearch] = useState("");
   const [focusedToolId, setFocusedToolId] = useState<string | null>(null);
+  const [focusedSourceId, setFocusedSourceId] = useState<string | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
+  const [copiedInstallCommand, setCopiedInstallCommand] = useState(false);
+  const [showCatalog, setShowCatalog] = useState(true);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // --- Derived data ---
@@ -549,6 +364,28 @@ export function ToolsView() {
   );
 
   const totalToolCount = workspaceTools.items.length;
+
+  const mcpUrl = useMemo(() => {
+    if (typeof window === "undefined") {
+      return `/v1/mcp?workspaceId=${encodeURIComponent(workspaceId)}`;
+    }
+
+    const url = new URL("/v1/mcp", window.location.origin);
+    url.searchParams.set("workspaceId", workspaceId);
+    return url.toString();
+  }, [workspaceId]);
+
+  const installConfig = useMemo(
+    () => getAddMcpInstallConfig(mcpUrl, inferServerName(workspaceId)),
+    [mcpUrl, workspaceId],
+  );
+
+  const copyInstallCommand = useCallback(() => {
+    void navigator.clipboard.writeText(installConfig.content).then(() => {
+      setCopiedInstallCommand(true);
+      setTimeout(() => setCopiedInstallCommand(false), 1500);
+    });
+  }, [installConfig.content]);
 
   // --- Collect all expandable keys ---
   const allKeys = useMemo(() => {
@@ -593,12 +430,12 @@ export function ToolsView() {
     }
   }, [searchTerms.length, allKeys]);
 
-  // Auto-focus first tool if nothing focused
+  // Auto-focus first tool if nothing focused and catalog is dismissed
   useEffect(() => {
-    if (focusedToolId === null && filteredTools.length > 0) {
+    if (focusedToolId === null && filteredTools.length > 0 && !showCatalog && !focusedSourceId) {
       setFocusedToolId(filteredTools[0]!.toolId);
     }
-  }, [focusedToolId, filteredTools]);
+  }, [focusedToolId, filteredTools, showCatalog, focusedSourceId]);
 
   // Clear focus if focused tool is filtered out
   useEffect(() => {
@@ -607,7 +444,41 @@ export function ToolsView() {
     }
   }, [focusedToolId, filteredTools]);
 
+  // --- Derived: focused source record for editing ---
+  const focusedSourceRecord: LegacyToolSourceRecord | undefined = useMemo(() => {
+    if (!focusedSourceId) return undefined;
+    const raw = sources.items.find((s) => s.id === focusedSourceId);
+    return raw ? sourceToLegacyRecord(raw) : undefined;
+  }, [focusedSourceId, sources.items]);
+
   // --- Handlers ---
+  const handleFocusTool = useCallback((toolId: string) => {
+    setFocusedToolId(toolId);
+    setFocusedSourceId(null);
+    setShowCatalog(false);
+  }, []);
+
+  const handleFocusSource = useCallback((sourceId: string) => {
+    setFocusedSourceId(sourceId);
+    setFocusedToolId(null);
+    setShowCatalog(false);
+  }, []);
+
+  const handleShowCatalog = useCallback(() => {
+    setShowCatalog(true);
+    setFocusedToolId(null);
+    setFocusedSourceId(null);
+  }, []);
+
+  const handleSourceDone = useCallback(() => {
+    setFocusedSourceId(null);
+    setShowCatalog(false);
+    // Auto-select first tool if available
+    if (filteredTools.length > 0) {
+      setFocusedToolId(filteredTools[0]!.toolId);
+    }
+  }, [filteredTools]);
+
   const toggleKey = useCallback((key: string) => {
     setExpandedKeys((current) => {
       const next = new Set(current);
@@ -659,9 +530,39 @@ export function ToolsView() {
               </span>
             )}
           </div>
-          {isLoading ? (
-            <span className="text-[11px] text-muted-foreground">Loading...</span>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {isLoading ? (
+              <span className="text-[11px] text-muted-foreground">Loading...</span>
+            ) : (
+              <Button
+                type="button"
+                variant={showCatalog ? "secondary" : "outline"}
+                size="sm"
+                className="h-6 text-[11px] px-2"
+                onClick={handleShowCatalog}
+              >
+                + Source
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="shrink-0 border-b border-border px-3 py-2">
+          <p className="text-[11px] text-muted-foreground">{installConfig.description}</p>
+          <div className="mt-2 rounded-md border border-border bg-muted/30 p-2.5">
+            <pre className="text-[11px] font-mono whitespace-pre-wrap break-all text-foreground">
+              <code>{installConfig.content}</code>
+            </pre>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2 h-7 text-[11px]"
+              onClick={copyInstallCommand}
+            >
+              {copiedInstallCommand ? "Copied" : "Copy command"}
+            </Button>
+          </div>
         </div>
 
         {/* Search bar */}
@@ -736,7 +637,9 @@ export function ToolsView() {
                 expandedKeys={expandedKeys}
                 onToggle={toggleKey}
                 focusedToolId={focusedToolId}
-                onFocusTool={setFocusedToolId}
+                focusedSourceId={focusedSourceId}
+                onFocusTool={handleFocusTool}
+                onSourceClick={handleFocusSource}
                 search={search}
                 sourceEndpoint={sourceEndpoints.get(group.sourceId)}
               />
@@ -749,7 +652,14 @@ export function ToolsView() {
       {/* Right panel: tool detail                                         */}
       {/* ---------------------------------------------------------------- */}
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-        {focusedTool ? (
+        {showCatalog ? (
+          <SourceManagementPanel onDone={handleSourceDone} />
+        ) : focusedSourceRecord ? (
+          <SourceManagementPanel
+            editSource={focusedSourceRecord}
+            onDone={handleSourceDone}
+          />
+        ) : focusedTool ? (
           <ToolDetailPanel
             tool={focusedTool}
             workspaceId={workspaceId}
@@ -772,7 +682,9 @@ function SourceGroupNode({
   expandedKeys,
   onToggle,
   focusedToolId,
+  focusedSourceId,
   onFocusTool,
+  onSourceClick,
   search,
   sourceEndpoint,
 }: {
@@ -780,26 +692,47 @@ function SourceGroupNode({
   expandedKeys: Set<string>;
   onToggle: (key: string) => void;
   focusedToolId: string | null;
+  focusedSourceId: string | null;
   onFocusTool: (toolId: string) => void;
+  onSourceClick: (sourceId: string) => void;
   search: string;
   sourceEndpoint?: string;
 }) {
   const sourceKey = `source:${group.sourceId}`;
   const isExpanded = expandedKeys.has(sourceKey);
   const hasFolders = group.folders.length > 0;
+  const isSourceFocused = focusedSourceId === group.sourceId;
+
+  const handleHeaderClick = () => {
+    // Toggle expand and also select this source for editing
+    if (!isExpanded) {
+      onToggle(sourceKey);
+    }
+    onSourceClick(group.sourceId);
+  };
 
   return (
     <div className="mb-0.5">
       {/* Source header */}
       <button
         type="button"
-        onClick={() => onToggle(sourceKey)}
+        onClick={handleHeaderClick}
         className={cn(
           "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-          "hover:bg-accent/60",
+          isSourceFocused
+            ? "bg-primary/10 border-l-2 border-l-primary -ml-px"
+            : "hover:bg-accent/60",
         )}
       >
-        <Chevron expanded={isExpanded} />
+        <span
+          role="button"
+          tabIndex={-1}
+          onClick={(e) => { e.stopPropagation(); onToggle(sourceKey); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onToggle(sourceKey); } }}
+          className="shrink-0 rounded p-0.5 hover:bg-accent/40"
+        >
+          <Chevron expanded={isExpanded} />
+        </span>
         <span className="flex size-4 shrink-0 items-center justify-center">
           <SourceFavicon
             endpoint={sourceEndpoint}

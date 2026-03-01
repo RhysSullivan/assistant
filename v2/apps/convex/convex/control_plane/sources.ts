@@ -3,8 +3,10 @@ import { SourceSchema, type Source } from "@executor-v2/schema";
 import { v } from "convex/values";
 import * as Schema from "effect/Schema";
 
-import { api } from "../_generated/api";
-import { internalQuery, internalMutation, mutation, query } from "../_generated/server";
+import { internal } from "../_generated/api";
+import { action, internalQuery, internalMutation, mutation, query } from "../_generated/server";
+
+const runtimeInternal = internal as any;
 
 const decodeSource = Schema.decodeUnknownSync(SourceSchema);
 
@@ -60,7 +62,7 @@ export const listSources = query({
   },
 });
 
-export const upsertSource = mutation({
+export const upsertSourceRecord = internalMutation({
   args: {
     workspaceId: v.string(),
     payload: v.object({
@@ -110,14 +112,41 @@ export const upsertSource = mutation({
       await ctx.db.insert("sources", source);
     }
 
-    await ctx.scheduler.runAfter(
-      0,
-      (api as any).control_plane.openapi_ingest.ingestSourceArtifact,
-      {
-        workspaceId: args.workspaceId,
-        sourceId,
+    return source;
+  },
+});
+
+export const upsertSource = action({
+  args: {
+    workspaceId: v.string(),
+    payload: v.object({
+      id: v.optional(v.string()),
+      name: v.string(),
+      kind: sourceKindValidator,
+      endpoint: v.string(),
+      status: v.optional(sourceStatusValidator),
+      enabled: v.optional(v.boolean()),
+      configJson: v.optional(v.string()),
+      sourceHash: v.optional(v.union(v.string(), v.null())),
+      lastError: v.optional(v.union(v.string(), v.null())),
+    }),
+  },
+  handler: async (ctx, args): Promise<Source> => {
+    const shouldIngest = args.payload.status !== "draft";
+    const source = await ctx.runMutation(runtimeInternal.control_plane.sources.upsertSourceRecord, {
+      workspaceId: args.workspaceId,
+      payload: {
+        ...args.payload,
+        status: args.payload.status ?? (shouldIngest ? "probing" : "draft"),
       },
-    );
+    });
+
+    if (shouldIngest && source.kind !== "internal") {
+      await ctx.runAction(runtimeInternal.control_plane.openapi_ingest.ingestSourceArtifact, {
+        workspaceId: source.workspaceId,
+        sourceId: source.id,
+      });
+    }
 
     return source;
   },
@@ -187,38 +216,10 @@ export const removeSource = mutation({
       return { removed: false };
     }
 
-    const existingOpenApiBinding = await ctx.db
-      .query("openApiSourceArtifactBindings")
-      .withIndex("by_workspaceId_sourceId", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId)
-      )
-      .unique();
-
-    if (existingOpenApiBinding) {
-      await ctx.db.delete(existingOpenApiBinding._id);
-    }
-
-    const existingGraphqlBinding = await ctx.db
-      .query("graphqlSourceArtifactBindings")
-      .withIndex("by_workspaceId_sourceId", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId)
-      )
-      .unique();
-
-    if (existingGraphqlBinding) {
-      await ctx.db.delete(existingGraphqlBinding._id);
-    }
-
-    const existingMcpBinding = await ctx.db
-      .query("mcpSourceArtifactBindings")
-      .withIndex("by_workspaceId_sourceId", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("sourceId", args.sourceId)
-      )
-      .unique();
-
-    if (existingMcpBinding) {
-      await ctx.db.delete(existingMcpBinding._id);
-    }
+    await ctx.runMutation(runtimeInternal.control_plane.tool_registry.removeSourceBindingsAndIndex, {
+      workspaceId: args.workspaceId,
+      sourceId: args.sourceId,
+    });
 
     await ctx.db.delete(existing._id);
 

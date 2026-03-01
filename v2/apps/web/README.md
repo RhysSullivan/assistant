@@ -11,7 +11,7 @@ Run:
 - `bun run --cwd apps/web dev`
 - Open `http://127.0.0.1:3000`
 
-By default, control-plane proxy target is `http://127.0.0.1:8787`.
+By default, control-plane proxy target is `http://127.0.0.1:8788`.
 Override with `CONTROL_PLANE_UPSTREAM_URL`.
 
 WorkOS auth setup (optional but recommended):

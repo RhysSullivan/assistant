@@ -1,0 +1,16 @@
+{
+  "name": "@executor-v2/app-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:disabled": "bunx vercel dev --listen 8788"
+  },
+  "dependencies": {
+    "convex": "^1.32.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.9",
+    "typescript": "^5.9.3"
+  }
+}

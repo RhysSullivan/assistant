@@ -23,7 +23,7 @@ export const makeConvexControlPlaneService = (
     upsertSource: (input) =>
       Effect.tryPromise({
         try: () =>
-          ctx.runMutation(api.controlPlane.upsertSource, {
+          ctx.runAction(api.controlPlane.upsertSource, {
             workspaceId: input.workspaceId,
             payload: input.payload,
           }),

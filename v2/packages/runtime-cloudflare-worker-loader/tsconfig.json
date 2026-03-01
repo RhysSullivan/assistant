@@ -1,4 +1,7 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["src"]
+  "compilerOptions": {
+    "types": ["node", "bun", "@cloudflare/workers-types"]
+  },
+  "include": ["src", "worker/src"]
 }
