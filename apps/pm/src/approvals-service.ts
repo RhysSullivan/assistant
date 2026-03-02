@@ -12,24 +12,13 @@ import {
 } from "@executor-v2/management-api";
 import { type Approval } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
 
 type ApprovalRows = Pick<SqlControlPlanePersistence["rows"], "approvals">;
 
 const sourceStoreError = createSqlSourceStoreErrorMapper("approvals");
-
-const findApprovalIndex = (
-  approvals: ReadonlyArray<Approval>,
-  workspaceId: string,
-  approvalId: string,
-): number =>
-  approvals.findIndex(
-    (approval) => approval.workspaceId === workspaceId && approval.id === approvalId,
-  );
-
-const sortApprovals = (approvals: ReadonlyArray<Approval>): Array<Approval> =>
-  [...approvals].sort((left, right) => right.requestedAt - left.requestedAt);
 
 const toPersistentApprovalStoreError = (
   operation: string,
@@ -69,50 +58,45 @@ export const createPmPersistentToolApprovalPolicy = (
 ): ToolApprovalPolicy => {
   const store: PersistentToolApprovalStore = {
     findByRunAndCall: (input) =>
-      rows.approvals.list().pipe(
+      rows.approvals
+        .findByRunAndCall(
+          input.workspaceId as Approval["workspaceId"],
+          input.runId as Approval["taskRunId"],
+          input.callId,
+        )
+        .pipe(
         Effect.mapError((error) =>
           toPersistentApprovalStoreErrorFromRowStore("approvals.read", error),
         ),
-        Effect.flatMap((approvals) => {
-          const approval =
-            approvals.find(
-              (candidate) =>
-                candidate.workspaceId === input.workspaceId &&
-                candidate.taskRunId === input.runId &&
-                candidate.callId === input.callId,
-            ) ?? null;
-
-          return Effect.succeed(approval ? toPersistentApprovalRecord(approval) : null);
+        Effect.flatMap((approvalOption) => {
+          const approval = Option.getOrNull(approvalOption);
+          return Effect.succeed(approval !== null ? toPersistentApprovalRecord(approval) : null);
         }),
       ),
 
     createPending: (input) =>
-      rows.approvals.list().pipe(
-        Effect.mapError((error) =>
-          toPersistentApprovalStoreErrorFromRowStore("approvals.read", error),
-        ),
-        Effect.flatMap(() => {
-          const pendingApproval = {
-            id: `apr_${crypto.randomUUID()}`,
-            workspaceId: input.workspaceId,
-            taskRunId: input.runId,
-            callId: input.callId,
-            toolPath: input.toolPath,
-            status: "pending",
-            inputPreviewJson: input.inputPreviewJson,
-            reason: null,
-            requestedAt: Date.now(),
-            resolvedAt: null,
-          } as Approval;
+      Effect.gen(function* () {
+        const pendingApproval: Approval = {
+          id: `apr_${crypto.randomUUID()}` as Approval["id"],
+          workspaceId: input.workspaceId as Approval["workspaceId"],
+          taskRunId: input.runId as Approval["taskRunId"],
+          callId: input.callId,
+          toolPath: input.toolPath,
+          status: "pending",
+          inputPreviewJson: input.inputPreviewJson,
+          reason: null,
+          requestedAt: Date.now(),
+          resolvedAt: null,
+        };
 
-          return rows.approvals.upsert(pendingApproval).pipe(
-            Effect.mapError((error) =>
-              toPersistentApprovalStoreErrorFromRowStore("approvals.write", error),
-            ),
-            Effect.as(toPersistentApprovalRecord(pendingApproval)),
-          );
-        }),
-      ),
+        yield* rows.approvals.upsert(pendingApproval).pipe(
+          Effect.mapError((error) =>
+            toPersistentApprovalStoreErrorFromRowStore("approvals.write", error),
+          ),
+        );
+
+        return toPersistentApprovalRecord(pendingApproval);
+      }),
   };
 
   return createPersistentToolApprovalPolicy({
@@ -128,34 +112,25 @@ export const createPmApprovalsService = (
   makeControlPlaneApprovalsService({
     listApprovals: (workspaceId) =>
       Effect.gen(function* () {
-        const approvals = yield* rows.approvals.list().pipe(
+        const approvals = yield* rows.approvals.listByWorkspaceId(workspaceId).pipe(
           Effect.mapError((error) =>
             sourceStoreError.fromRowStore("approvals.list", error),
           ),
         );
 
-        const scopedApprovals = approvals.filter(
-          (approval) => approval.workspaceId === workspaceId,
-        );
-
-        return sortApprovals(scopedApprovals);
+        return approvals;
       }),
 
     resolveApproval: (input) =>
       Effect.gen(function* () {
-        const approvals = yield* rows.approvals.list().pipe(
+        const approvalOption = yield* rows.approvals.getById(input.approvalId).pipe(
           Effect.mapError((error) =>
-            sourceStoreError.fromRowStore("approvals.resolve", error),
+            sourceStoreError.fromRowStore("approvals.get_by_id", error),
           ),
         );
 
-        const index = findApprovalIndex(
-          approvals,
-          input.workspaceId,
-          input.approvalId,
-        );
-
-        if (index < 0) {
+        const approval = Option.getOrNull(approvalOption);
+        if (approval === null || approval.workspaceId !== input.workspaceId) {
           return yield* sourceStoreError.fromMessage(
             "approvals.resolve",
             "Approval not found",
@@ -163,7 +138,6 @@ export const createPmApprovalsService = (
           );
         }
 
-        const approval = approvals[index];
         if (approval.status !== "pending") {
           return yield* sourceStoreError.fromMessage(
             "approvals.resolve",

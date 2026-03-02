@@ -103,14 +103,17 @@ const ensurePrincipalProvisioned = (
 ) =>
   Effect.gen(function* () {
     const now = Date.now();
-    const [organizations, memberships, workspaces, profileOption] = yield* Effect.all([
-      persistence.rows.organizations.list(),
-      persistence.rows.organizationMemberships.list(),
-      persistence.rows.workspaces.list(),
+    const [organizationOption, membershipOption, workspaceOption, profileOption] = yield* Effect.all([
+      persistence.rows.organizations.getById(principal.organizationId as Organization["id"]),
+      persistence.rows.organizationMemberships.getByOrganizationAndAccount(
+        principal.organizationId as OrganizationMembership["organizationId"],
+        principal.accountId as OrganizationMembership["accountId"],
+      ),
+      persistence.rows.workspaces.getById(principal.workspaceId as Workspace["id"]),
       persistence.rows.profile.get(),
     ]);
 
-    if (organizations.find((organization) => organization.id === principal.organizationId) === undefined) {
+    if (organizationOption._tag === "None") {
       yield* persistence.rows.organizations.upsert({
         id: principal.organizationId as Organization["id"],
         slug: principal.organizationId,
@@ -124,13 +127,7 @@ const ensurePrincipalProvisioned = (
       });
     }
 
-    if (
-      memberships.find(
-        (membership) =>
-          membership.organizationId === principal.organizationId
-          && membership.accountId === principal.accountId,
-      ) === undefined
-    ) {
+    if (membershipOption._tag === "None") {
       yield* persistence.rows.organizationMemberships.upsert({
         id: `org_member_${crypto.randomUUID()}` as OrganizationMembership["id"],
         organizationId: principal.organizationId as OrganizationMembership["organizationId"],
@@ -145,7 +142,7 @@ const ensurePrincipalProvisioned = (
       });
     }
 
-    if (workspaces.find((workspace) => workspace.id === principal.workspaceId) === undefined) {
+    if (workspaceOption._tag === "None") {
       yield* persistence.rows.workspaces.upsert({
         id: principal.workspaceId as Workspace["id"],
         organizationId: principal.organizationId as Workspace["organizationId"],

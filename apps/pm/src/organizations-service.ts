@@ -8,6 +8,7 @@ import {
   type OrganizationMembership,
 } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
 
@@ -49,28 +50,20 @@ export const createPmOrganizationsService = (
 
     upsertOrganization: (input) =>
       Effect.gen(function* () {
-        const organizations = yield* rows.organizations.list().pipe(
-          Effect.mapError((error) =>
-            sourceStoreError.fromRowStore("organizations.upsert", error),
-          ),
-        );
-
-        const memberships = yield* rows.organizationMemberships.list().pipe(
-          Effect.mapError((error) =>
-            sourceStoreError.fromRowStore(
-              "organizations.memberships.list",
-              error,
+        const existingOption = input.payload.id
+          ? yield* rows.organizations.getById(input.payload.id).pipe(
+            Effect.mapError((error) =>
+              sourceStoreError.fromRowStore("organizations.get_by_id", error),
             ),
-          ),
-        );
+          )
+          : yield* rows.organizations.getBySlug(input.payload.slug).pipe(
+            Effect.mapError((error) =>
+              sourceStoreError.fromRowStore("organizations.get_by_slug", error),
+            ),
+          );
 
         const now = Date.now();
-        const existingIndex = input.payload.id
-          ? organizations.findIndex((organization) => organization.id === input.payload.id)
-          : organizations.findIndex(
-              (organization) => organization.slug === input.payload.slug,
-            );
-        const existing = existingIndex >= 0 ? organizations[existingIndex] : null;
+        const existing = Option.getOrNull(existingOption);
 
         const nextOrganization: Organization = {
           id:
@@ -94,13 +87,21 @@ export const createPmOrganizationsService = (
         );
 
         if (existing === null && nextOrganization.createdByAccountId !== null) {
-          const existingMembership = memberships.find(
-            (membership) =>
-              membership.organizationId === nextOrganization.id
-              && membership.accountId === nextOrganization.createdByAccountId,
-          );
+          const existingMembership = yield* rows.organizationMemberships
+            .getByOrganizationAndAccount(
+              nextOrganization.id,
+              nextOrganization.createdByAccountId,
+            )
+            .pipe(
+              Effect.mapError((error) =>
+                sourceStoreError.fromRowStore(
+                  "organizations.membership_get",
+                  error,
+                ),
+              ),
+            );
 
-          if (!existingMembership) {
+          if (Option.isNone(existingMembership)) {
             const membership: OrganizationMembership = {
               id: `org_member_${crypto.randomUUID()}` as OrganizationMembership["id"],
               organizationId: nextOrganization.id,

@@ -109,10 +109,31 @@ const withPmProcess = (port: number, localDataDir: string) =>
       }),
     ),
     (child) =>
-      Effect.sync(() => {
-        if (!child.killed) {
-          child.kill("SIGTERM");
+      Effect.promise(async () => {
+        if (child.exitCode !== null || child.killed) {
+          return;
         }
+
+        child.kill("SIGTERM");
+
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            if (child.exitCode === null && !child.killed) {
+              child.kill("SIGKILL");
+            }
+            resolve();
+          }, 2_000);
+
+          child.once("exit", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+
+          child.once("error", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
       }),
   );
 

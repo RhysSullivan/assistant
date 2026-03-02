@@ -1,9 +1,4 @@
 import { SourceStoreError } from "@executor-v2/persistence-ports";
-import {
-  type OrganizationId,
-  type Workspace,
-  type WorkspaceId,
-} from "@executor-v2/schema";
 
 type RowStoreLikeError = {
   message: string;
@@ -56,17 +51,4 @@ export const createSqlSourceStoreErrorMapper = (
         details ?? null,
       ),
   };
-};
-
-export const resolveWorkspaceOrganizationId = (
-  workspaces: ReadonlyArray<Workspace>,
-  workspaceId: WorkspaceId,
-): OrganizationId => {
-  const workspace = workspaces.find((item) => item.id === workspaceId);
-
-  if (!workspace) {
-    throw new Error(`Workspace not found: ${workspaceId}`);
-  }
-
-  return workspace.organizationId;
 };

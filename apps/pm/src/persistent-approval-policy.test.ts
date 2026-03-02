@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { type Approval, type WorkspaceId } from "@executor-v2/schema";
 
 import {
@@ -15,6 +16,28 @@ describe("PM persistent approval policy", () => {
       const approvalRows = {
         approvals: {
           list: () => Effect.succeed(approvals),
+          listByWorkspaceId: (workspaceId: WorkspaceId) =>
+            Effect.succeed(approvals.filter((approval) => approval.workspaceId === workspaceId)),
+          getById: (approvalId: Approval["id"]) =>
+            Effect.succeed(
+              Option.fromNullable(
+                approvals.find((approval) => approval.id === approvalId) ?? null,
+              ),
+            ),
+          findByRunAndCall: (
+            workspaceId: Approval["workspaceId"],
+            taskRunId: Approval["taskRunId"],
+            callId: Approval["callId"],
+          ) =>
+            Effect.succeed(
+              Option.fromNullable(
+                approvals.find((approval) =>
+                  approval.workspaceId === workspaceId
+                  && approval.taskRunId === taskRunId
+                  && approval.callId === callId
+                ) ?? null,
+              ),
+            ),
           upsert: (approval: Approval) =>
             Effect.sync(() => {
               const index = approvals.findIndex((item) => item.id === approval.id);

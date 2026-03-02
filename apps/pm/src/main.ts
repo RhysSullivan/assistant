@@ -59,7 +59,7 @@ const pmStateRootDir = process.env.PM_STATE_ROOT_DIR ?? ".executor-v2/pm-state";
 
 const parsePort = (value: string | undefined): number => {
   const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8787;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8788;
 };
 
 const readConfiguredRuntimeKind = (value: string | undefined): string | undefined => {
@@ -102,17 +102,21 @@ const ensurePmBootstrap = (
 ) =>
   Effect.gen(function* () {
     const now = Date.now();
-    const [organizations, memberships, workspaces, profileOption] = yield* Effect.all([
-      persistence.rows.organizations.list(),
-      persistence.rows.organizationMemberships.list(),
-      persistence.rows.workspaces.list(),
-      persistence.rows.profile.get(),
-    ]);
 
     const organizationId = "org_local" as OrganizationId;
     const accountId = "acct_local" as AccountId;
 
-    if (organizations.find((item) => item.id === organizationId) === undefined) {
+    const [organizationOption, membershipOption, workspaceOption, profileOption] = yield* Effect.all([
+      persistence.rows.organizations.getById(organizationId),
+      persistence.rows.organizationMemberships.getByOrganizationAndAccount(
+        organizationId,
+        accountId,
+      ),
+      persistence.rows.workspaces.getById(workspaceId),
+      persistence.rows.profile.get(),
+    ]);
+
+    if (organizationOption._tag === "None") {
       yield* persistence.rows.organizations.upsert({
         id: organizationId,
         slug: organizationId,
@@ -124,11 +128,7 @@ const ensurePmBootstrap = (
       });
     }
 
-    if (
-      memberships.find(
-        (item) => item.organizationId === organizationId && item.accountId === accountId,
-      ) === undefined
-    ) {
+    if (membershipOption._tag === "None") {
       yield* persistence.rows.organizationMemberships.upsert({
         id: "org_member_local" as OrganizationMemberId,
         organizationId,
@@ -143,7 +143,7 @@ const ensurePmBootstrap = (
       });
     }
 
-    if (workspaces.find((item) => item.id === workspaceId) === undefined) {
+    if (workspaceOption._tag === "None") {
       yield* persistence.rows.workspaces.upsert({
         id: workspaceId,
         organizationId,

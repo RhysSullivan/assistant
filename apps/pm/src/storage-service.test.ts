@@ -6,6 +6,7 @@ import {
   type WorkspaceId,
 } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -39,10 +40,32 @@ describe("PM storage service", () => {
       const rows: StorageRows = {
         workspaces: {
           list: () => Effect.succeed([workspace]),
+          getById: (id) =>
+            Effect.succeed(id === workspace.id ? Option.some(workspace) : Option.none()),
+          listByOrganizationIds: (organizationIds) =>
+            Effect.succeed(
+              organizationIds.includes(workspace.organizationId) ? [workspace] : [],
+            ),
           upsert: () => Effect.void,
         },
         storageInstances: {
           list: () => Effect.succeed(storageInstances),
+          getById: (storageInstanceId) =>
+            Effect.succeed(
+              Option.fromNullable(
+                storageInstances.find((item) => item.id === storageInstanceId) ?? null,
+              ),
+            ),
+          listByWorkspaceScope: (scopeWorkspaceId, organizationId) =>
+            Effect.succeed(
+              storageInstances.filter((instance) =>
+                instance.workspaceId === scopeWorkspaceId
+                || (
+                  instance.workspaceId === null
+                  && instance.organizationId === organizationId
+                )
+              ),
+            ),
           upsert: (storageInstance) =>
             Effect.sync(() => {
               const index = storageInstances.findIndex((item) => item.id === storageInstance.id);

@@ -4,24 +4,25 @@ import {
 } from "@executor-v2/engine";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { createPmResolveToolCredentials } from "./credential-resolver";
 
 const emptyCredentialRows = {
   workspaces: {
-    list: () => Effect.succeed([]),
+    getById: () => Effect.succeed(Option.none()),
   },
   sourceAuthBindings: {
-    list: () => Effect.succeed([]),
+    listByWorkspaceScope: () => Effect.succeed([]),
   },
   authConnections: {
-    list: () => Effect.succeed([]),
+    getById: () => Effect.succeed(Option.none()),
   },
   authMaterials: {
-    list: () => Effect.succeed([]),
+    getByConnectionId: () => Effect.succeed(Option.none()),
   },
   oauthStates: {
-    list: () => Effect.succeed([]),
+    getByConnectionId: () => Effect.succeed(Option.none()),
   },
 };
 

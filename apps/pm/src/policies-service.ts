@@ -5,6 +5,7 @@ import {
 } from "@executor-v2/management-api";
 import { type Policy } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
 
@@ -29,36 +30,36 @@ export const createPmPoliciesService = (
   makeControlPlanePoliciesService({
     listPolicies: (workspaceId) =>
       Effect.gen(function* () {
-        const policies = yield* rows.policies.list().pipe(
+        const policies = yield* rows.policies.listByWorkspaceId(workspaceId).pipe(
           Effect.mapError((error) =>
             sourceStoreError.fromRowStore("policies.list", error),
           ),
         );
 
-        return sortPolicies(
-          policies.filter((policy) => policy.workspaceId === workspaceId),
-        );
+        return sortPolicies(policies);
       }),
 
     upsertPolicy: (input) =>
       Effect.gen(function* () {
-        const policies = yield* rows.policies.list().pipe(
-          Effect.mapError((error) =>
-            sourceStoreError.fromRowStore("policies.upsert", error),
-          ),
-        );
-
         const now = Date.now();
         const requestedId = input.payload.id;
 
-        const existingIndex = requestedId
-          ? policies.findIndex(
-              (policy) =>
-                policy.workspaceId === input.workspaceId && policy.id === requestedId,
-            )
-          : -1;
+        const existingOption = requestedId
+          ? yield* rows.policies.getById(requestedId).pipe(
+            Effect.mapError((error) =>
+              sourceStoreError.fromRowStore("policies.get_by_id", error),
+            ),
+          )
+          : Option.none<Policy>();
 
-        const existing = existingIndex >= 0 ? policies[existingIndex] : null;
+        const existing = Option.getOrNull(existingOption);
+        if (existing !== null && existing.workspaceId !== input.workspaceId) {
+          return yield* sourceStoreError.fromMessage(
+            "policies.upsert",
+            "Policy belongs to another workspace",
+            `workspace=${input.workspaceId} policy=${requestedId}`,
+          );
+        }
 
         const nextPolicy: Policy = {
           id: existing?.id ?? (requestedId ?? (`pol_${crypto.randomUUID()}` as Policy["id"])),
@@ -80,17 +81,15 @@ export const createPmPoliciesService = (
 
     removePolicy: (input) =>
       Effect.gen(function* () {
-        const policies = yield* rows.policies.list().pipe(
+        const existingOption = yield* rows.policies.getById(input.policyId).pipe(
           Effect.mapError((error) =>
-            sourceStoreError.fromRowStore("policies.remove", error),
+            sourceStoreError.fromRowStore("policies.get_by_id", error),
           ),
         );
 
-        const existing = policies.find(
-          (policy) => policy.workspaceId === input.workspaceId && policy.id === input.policyId,
-        );
+        const existing = Option.getOrNull(existingOption);
 
-        if (!existing) {
+        if (!existing || existing.workspaceId !== input.workspaceId) {
           return {
             removed: false,
           };

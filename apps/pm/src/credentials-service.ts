@@ -9,14 +9,11 @@ import {
   type OAuthState,
   type SourceAuthBinding,
   type SourceCredentialBinding,
-  type WorkspaceId,
 } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
-import {
-  createSqlSourceStoreErrorMapper,
-  resolveWorkspaceOrganizationId,
-} from "./control-plane-row-helpers";
+import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
 import {
   buildOAuthRefreshConfigFromPayload,
   encodeOAuthRefreshConfig,
@@ -46,38 +43,42 @@ export const createPmCredentialsService = (
   makeControlPlaneCredentialsService({
     listCredentialBindings: (workspaceId) =>
       Effect.gen(function* () {
-        const [bindings, connections, workspaces] = yield* Effect.all([
-          rows.sourceAuthBindings.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.bindings.list", error),
-            ),
+        const workspaceOption = yield* rows.workspaces.getById(workspaceId).pipe(
+          Effect.mapError((error) =>
+            sourceStoreError.fromRowStore("credentials.workspaces.get_by_id", error),
           ),
-          rows.authConnections.list().pipe(
+        );
+
+        const workspace = Option.getOrNull(workspaceOption);
+        if (workspace === null) {
+          return yield* sourceStoreError.fromMessage(
+            "credentials.list",
+            "Workspace not found",
+            `workspace=${workspaceId}`,
+          );
+        }
+
+        const [bindings, connections] = yield* Effect.all([
+          rows.sourceAuthBindings
+            .listByWorkspaceScope(workspaceId, workspace.organizationId)
+            .pipe(
+              Effect.mapError((error) =>
+                sourceStoreError.fromRowStore("credentials.bindings.list", error),
+              ),
+            ),
+          rows.authConnections.listByOrganizationId(workspace.organizationId).pipe(
             Effect.mapError((error) =>
               sourceStoreError.fromRowStore("credentials.connections.list", error),
             ),
           ),
-          rows.workspaces.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.workspaces.list", error),
-            ),
-          ),
         ]);
 
-        const organizationId = resolveWorkspaceOrganizationId(workspaces, workspaceId);
-
-        const scopedBindings = bindings.filter(
-          (binding) =>
-            binding.workspaceId === workspaceId
-            || (binding.workspaceId === null && binding.organizationId === organizationId),
-        );
+        const connectionById = new Map(connections.map((connection) => [connection.id, connection]));
 
         const compatBindings: Array<SourceCredentialBinding> = [];
 
-        for (const binding of scopedBindings) {
-          const connection = connections.find(
-            (candidate) => candidate.id === binding.connectionId,
-          );
+        for (const binding of bindings) {
+          const connection = connectionById.get(binding.connectionId);
 
           if (!connection) {
             continue;
@@ -91,33 +92,22 @@ export const createPmCredentialsService = (
 
     upsertCredentialBinding: (input) =>
       Effect.gen(function* () {
-        const [bindings, connections, materials, oauthStates, workspaces] = yield* Effect.all([
-          rows.sourceAuthBindings.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.bindings.list", error),
-            ),
+        const workspaceOption = yield* rows.workspaces.getById(input.workspaceId).pipe(
+          Effect.mapError((error) =>
+            sourceStoreError.fromRowStore("credentials.workspaces.get_by_id", error),
           ),
-          rows.authConnections.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.connections.list", error),
-            ),
-          ),
-          rows.authMaterials.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.materials.list", error),
-            ),
-          ),
-          rows.oauthStates.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.oauth_states.list", error),
-            ),
-          ),
-          rows.workspaces.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.workspaces.list", error),
-            ),
-          ),
-        ]);
+        );
+
+        const workspace = Option.getOrNull(workspaceOption);
+        if (workspace === null) {
+          return yield* sourceStoreError.fromMessage(
+            "credentials.upsert",
+            "Workspace not found",
+            `workspace=${input.workspaceId}`,
+          );
+        }
+
+        const organizationId = workspace.organizationId;
 
         if (input.payload.scopeType === "account" && input.payload.accountId === null) {
           return yield* sourceStoreError.fromMessage(
@@ -140,11 +130,29 @@ export const createPmCredentialsService = (
         const requestedId = input.payload.id;
         const requestedBindingId = requestedId as SourceAuthBinding["id"] | undefined;
 
-        const existingBinding = requestedBindingId
-          ? bindings.find((binding) => binding.id === requestedBindingId) ?? null
-          : null;
+        const existingBindingOption = requestedBindingId
+          ? yield* rows.sourceAuthBindings.getById(requestedBindingId).pipe(
+            Effect.mapError((error) =>
+              sourceStoreError.fromRowStore("credentials.binding.get_by_id", error),
+            ),
+          )
+          : Option.none<SourceAuthBinding>();
 
-        const organizationId = resolveWorkspaceOrganizationId(workspaces, input.workspaceId);
+        const existingBinding = Option.getOrNull(existingBindingOption);
+        if (
+          existingBinding !== null
+          && existingBinding.workspaceId !== input.workspaceId
+          && (
+            existingBinding.workspaceId !== null
+            || existingBinding.organizationId !== organizationId
+          )
+        ) {
+          return yield* sourceStoreError.fromMessage(
+            "credentials.upsert",
+            "Credential binding is outside workspace scope",
+            `workspace=${input.workspaceId} binding=${requestedBindingId}`,
+          );
+        }
 
         const scopeWorkspaceId =
           input.payload.scopeType === "workspace" ? input.workspaceId : null;
@@ -163,9 +171,15 @@ export const createPmCredentialsService = (
           ?? (`conn_${crypto.randomUUID()}` as AuthConnection["id"])
         ) as AuthConnection["id"];
 
-        const existingConnection = connections.find(
-          (connection) => connection.id === requestedConnectionId,
-        ) ?? null;
+        const existingConnectionOption = yield* rows.authConnections
+          .getById(requestedConnectionId)
+          .pipe(
+            Effect.mapError((error) =>
+              sourceStoreError.fromRowStore("credentials.connection.get_by_id", error),
+            ),
+          );
+
+        const existingConnection = Option.getOrNull(existingConnectionOption);
 
         if (existingConnection && existingConnection.organizationId !== organizationId) {
           return yield* sourceStoreError.fromMessage(
@@ -228,9 +242,15 @@ export const createPmCredentialsService = (
         );
 
         if (nextConnection.strategy === "oauth2") {
-          const existingOAuth = oauthStates.find(
-            (state) => state.connectionId === requestedConnectionId,
-          ) ?? null;
+          const existingOAuthOption = yield* rows.oauthStates
+            .getByConnectionId(requestedConnectionId)
+            .pipe(
+              Effect.mapError((error) =>
+                sourceStoreError.fromRowStore("credentials.oauth_states.get_by_connection", error),
+              ),
+            );
+          const existingOAuth = Option.getOrNull(existingOAuthOption);
+
           const refreshConfig = buildOAuthRefreshConfigFromPayload(
             input.payload,
             parseOAuthRefreshConfig(existingOAuth?.refreshConfigJson ?? null),
@@ -282,9 +302,14 @@ export const createPmCredentialsService = (
             ),
           );
         } else {
-          const existingMaterial = materials.find(
-            (material) => material.connectionId === requestedConnectionId,
-          ) ?? null;
+          const existingMaterialOption = yield* rows.authMaterials
+            .getByConnectionId(requestedConnectionId)
+            .pipe(
+              Effect.mapError((error) =>
+                sourceStoreError.fromRowStore("credentials.materials.get_by_connection", error),
+              ),
+            );
+          const existingMaterial = Option.getOrNull(existingMaterialOption);
 
           const material: AuthMaterial = {
             id:
@@ -312,30 +337,35 @@ export const createPmCredentialsService = (
 
     removeCredentialBinding: (input) =>
       Effect.gen(function* () {
-        const [bindings, workspaces] = yield* Effect.all([
-          rows.sourceAuthBindings.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.bindings.list", error),
-            ),
+        const workspaceOption = yield* rows.workspaces.getById(input.workspaceId).pipe(
+          Effect.mapError((error) =>
+            sourceStoreError.fromRowStore("credentials.workspaces.get_by_id", error),
           ),
-          rows.workspaces.list().pipe(
-            Effect.mapError((error) =>
-              sourceStoreError.fromRowStore("credentials.workspaces.list", error),
-            ),
-          ),
-        ]);
-
-        const organizationId = resolveWorkspaceOrganizationId(workspaces, input.workspaceId);
-        const binding = bindings.find(
-          (item) =>
-            item.id === input.credentialBindingId
-            && (
-              item.workspaceId === input.workspaceId
-              || (item.workspaceId === null && item.organizationId === organizationId)
-            ),
         );
 
-        if (!binding) {
+        const workspace = Option.getOrNull(workspaceOption);
+        if (workspace === null) {
+          return {
+            removed: false,
+          };
+        }
+
+        const bindingOption = yield* rows.sourceAuthBindings
+          .getById(input.credentialBindingId)
+          .pipe(
+            Effect.mapError((error) =>
+              sourceStoreError.fromRowStore("credentials.binding.get_by_id", error),
+            ),
+          );
+
+        const binding = Option.getOrNull(bindingOption);
+        if (
+          binding === null
+          || (
+            binding.workspaceId !== input.workspaceId
+            && (binding.workspaceId !== null || binding.organizationId !== workspace.organizationId)
+          )
+        ) {
           return {
             removed: false,
           };
@@ -355,10 +385,15 @@ export const createPmCredentialsService = (
           };
         }
 
-        const hasRemainingBindings = bindings.some(
-          (candidate) =>
-            candidate.id !== binding.id && candidate.connectionId === binding.connectionId,
-        );
+        const remainingBindings = yield* rows.sourceAuthBindings
+          .listByConnectionId(binding.connectionId)
+          .pipe(
+            Effect.mapError((error) =>
+              sourceStoreError.fromRowStore("credentials.bindings.list_by_connection", error),
+            ),
+          );
+
+        const hasRemainingBindings = remainingBindings.some((candidate) => candidate.id !== binding.id);
 
         if (!hasRemainingBindings) {
           yield* Effect.all([

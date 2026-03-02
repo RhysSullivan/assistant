@@ -37,14 +37,6 @@ const localAdminFallbackEnabled = (() => {
   return isTruthy(configured);
 })();
 
-const organizationMembershipsForAccount = (
-  memberships: ReadonlyArray<OrganizationMembership>,
-  accountId: OrganizationMembership["accountId"],
-): ReadonlyArray<OrganizationMembership> =>
-  memberships.filter(
-    (membership) => membership.accountId === accountId,
-  );
-
 const workspaceMembershipsForAccount = (
   workspaces: ReadonlyArray<Workspace>,
   accountId: OrganizationMembership["accountId"],
@@ -66,10 +58,20 @@ const resolveActorFromSnapshot = (
   Effect.gen(function* () {
     const principal = yield* requirePrincipalFromHeaders(headers);
 
-    const [memberships, workspaces] = yield* Effect.all([
-      rows.organizationMemberships.list(),
-      rows.workspaces.list(),
-    ]).pipe(
+    const memberships = yield* rows.organizationMemberships
+      .listByAccountId(principal.accountId)
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new ActorUnauthenticatedError({
+              message: `Unable to read local auth state (${error.operation})`,
+            }),
+        ),
+      );
+
+    const organizationIds = memberships.map((membership) => membership.organizationId);
+
+    const workspaces = yield* rows.workspaces.listByOrganizationIds(organizationIds).pipe(
       Effect.mapError(
         (error) =>
           new ActorUnauthenticatedError({
@@ -82,10 +84,7 @@ const resolveActorFromSnapshot = (
       return makeAllowAllActor(principal);
     }
 
-    const organizationMemberships = organizationMembershipsForAccount(
-      memberships,
-      principal.accountId,
-    );
+    const organizationMemberships = memberships;
     const workspaceMemberships = workspaceMembershipsForAccount(
       workspaces,
       principal.accountId,
@@ -106,10 +105,19 @@ export const PmActorLive = (rows: ActorRows) =>
       Effect.gen(function* () {
         const principal = yield* requirePrincipalFromHeaders(input.headers);
 
-        const [memberships, workspaces] = yield* Effect.all([
-          rows.organizationMemberships.list(),
-          rows.workspaces.list(),
-        ]).pipe(
+        const memberships = yield* rows.organizationMemberships
+          .listByAccountId(principal.accountId)
+          .pipe(
+            Effect.mapError(
+              (error) =>
+                new ActorUnauthenticatedError({
+                  message: `Unable to read local auth state (${error.operation})`,
+                }),
+            ),
+          );
+
+        const organizationIds = memberships.map((membership) => membership.organizationId);
+        const workspaces = yield* rows.workspaces.listByOrganizationIds(organizationIds).pipe(
           Effect.mapError(
             (error) =>
               new ActorUnauthenticatedError({
@@ -122,10 +130,7 @@ export const PmActorLive = (rows: ActorRows) =>
           return makeAllowAllActor(principal);
         }
 
-        const organizationMemberships = organizationMembershipsForAccount(
-          memberships,
-          principal.accountId,
-        );
+        const organizationMemberships = memberships;
 
         const workspace = workspaces.find((item) => item.id === input.workspaceId) ?? null;
 

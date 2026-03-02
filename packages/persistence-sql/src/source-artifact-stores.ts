@@ -15,21 +15,15 @@ import {
 } from "./persistence-errors";
 import { tableNames } from "./schema";
 import {
-  createDrizzleContext,
   type DrizzleDb,
   type DrizzleTables,
-  type SqlAdapter,
   type SqlBackend,
 } from "./sql-internals";
 
-type WriteLocked = <A>(run: () => Promise<A>) => Promise<A>;
-
 type CreateStoresInput = {
   backend: SqlBackend;
-  adapter: SqlAdapter;
   db: DrizzleDb;
   tables: DrizzleTables;
-  writeLocked: WriteLocked;
 };
 
 const sourceStoreKey = (source: Source): string => `${source.workspaceId}:${source.id}`;
@@ -76,10 +70,8 @@ const toToolArtifact = (
 
 export const createSourceAndArtifactStores = ({
   backend,
-  adapter,
   db,
   tables,
-  writeLocked,
 }: CreateStoresInput): {
   sourceStore: SourceStore;
   toolArtifactStore: ToolArtifactStore;
@@ -124,46 +116,40 @@ export const createSourceAndArtifactStores = ({
     upsert: (source: Source) =>
       Effect.tryPromise({
         try: async () => {
-          await writeLocked(async () => {
-            await adapter.transaction(async (transaction) => {
-              const transactionContext = createDrizzleContext(transaction);
-
-              await transactionContext.db
-                .insert(transactionContext.tables.sourcesTable)
-                .values({
-                  workspaceId: source.workspaceId,
-                  sourceId: source.id,
-                  name: source.name,
-                  kind: source.kind,
-                  endpoint: source.endpoint,
-                  status: source.status,
-                  enabled: source.enabled,
-                  configJson: source.configJson,
-                  sourceHash: source.sourceHash,
-                  lastError: source.lastError,
-                  createdAt: source.createdAt,
-                  updatedAt: source.updatedAt,
-                })
-                .onConflictDoUpdate({
-                  target: [
-                    transactionContext.tables.sourcesTable.workspaceId,
-                    transactionContext.tables.sourcesTable.sourceId,
-                  ],
-                  set: {
-                    name: source.name,
-                    kind: source.kind,
-                    endpoint: source.endpoint,
-                    status: source.status,
-                    enabled: source.enabled,
-                    configJson: source.configJson,
-                    sourceHash: source.sourceHash,
-                    lastError: source.lastError,
-                    createdAt: source.createdAt,
-                    updatedAt: source.updatedAt,
-                  },
-                });
+          await db
+            .insert(tables.sourcesTable)
+            .values({
+              workspaceId: source.workspaceId,
+              sourceId: source.id,
+              name: source.name,
+              kind: source.kind,
+              endpoint: source.endpoint,
+              status: source.status,
+              enabled: source.enabled,
+              configJson: source.configJson,
+              sourceHash: source.sourceHash,
+              lastError: source.lastError,
+              createdAt: source.createdAt,
+              updatedAt: source.updatedAt,
+            })
+            .onConflictDoUpdate({
+              target: [
+                tables.sourcesTable.workspaceId,
+                tables.sourcesTable.sourceId,
+              ],
+              set: {
+                name: source.name,
+                kind: source.kind,
+                endpoint: source.endpoint,
+                status: source.status,
+                enabled: source.enabled,
+                configJson: source.configJson,
+                sourceHash: source.sourceHash,
+                lastError: source.lastError,
+                createdAt: source.createdAt,
+                updatedAt: source.updatedAt,
+              },
             });
-          });
         },
         catch: (cause) =>
           toSourceStoreError(backend, "upsert", tableNames.sources, cause),
@@ -171,37 +157,33 @@ export const createSourceAndArtifactStores = ({
 
     removeById: (workspaceId: WorkspaceId, sourceId: SourceId) =>
       Effect.tryPromise({
-        try: async () =>
-          writeLocked(async () =>
-            adapter.transaction(async (transaction) => {
-              const transactionContext = createDrizzleContext(transaction);
-              const existing = await transactionContext.db
-                .select({ sourceId: transactionContext.tables.sourcesTable.sourceId })
-                .from(transactionContext.tables.sourcesTable)
-                .where(
-                  and(
-                    eq(transactionContext.tables.sourcesTable.workspaceId, workspaceId),
-                    eq(transactionContext.tables.sourcesTable.sourceId, sourceId),
-                  ),
-                )
-                .limit(1);
+        try: async () => {
+          const existing = await db
+            .select({ sourceId: tables.sourcesTable.sourceId })
+            .from(tables.sourcesTable)
+            .where(
+              and(
+                eq(tables.sourcesTable.workspaceId, workspaceId),
+                eq(tables.sourcesTable.sourceId, sourceId),
+              ),
+            )
+            .limit(1);
 
-              if (existing.length === 0) {
-                return false;
-              }
+          if (existing.length === 0) {
+            return false;
+          }
 
-              await transactionContext.db
-                .delete(transactionContext.tables.sourcesTable)
-                .where(
-                  and(
-                    eq(transactionContext.tables.sourcesTable.workspaceId, workspaceId),
-                    eq(transactionContext.tables.sourcesTable.sourceId, sourceId),
-                  ),
-                );
+          await db
+            .delete(tables.sourcesTable)
+            .where(
+              and(
+                eq(tables.sourcesTable.workspaceId, workspaceId),
+                eq(tables.sourcesTable.sourceId, sourceId),
+              ),
+            );
 
-              return true;
-            })
-          ),
+          return true;
+        },
         catch: (cause) =>
           toSourceStoreError(backend, "remove_by_id", tableNames.sources, cause),
       }),
@@ -241,38 +223,32 @@ export const createSourceAndArtifactStores = ({
     upsert: (artifact: ToolArtifact) =>
       Effect.tryPromise({
         try: async () => {
-          await writeLocked(async () => {
-            await adapter.transaction(async (transaction) => {
-              const transactionContext = createDrizzleContext(transaction);
-
-              await transactionContext.db
-                .insert(transactionContext.tables.toolArtifactsTable)
-                .values({
-                  id: artifact.id,
-                  workspaceId: artifact.workspaceId,
-                  sourceId: artifact.sourceId,
-                  sourceHash: artifact.sourceHash,
-                  toolCount: artifact.toolCount,
-                  manifestJson: artifact.manifestJson,
-                  createdAt: artifact.createdAt,
-                  updatedAt: artifact.updatedAt,
-                })
-                .onConflictDoUpdate({
-                  target: [
-                    transactionContext.tables.toolArtifactsTable.workspaceId,
-                    transactionContext.tables.toolArtifactsTable.sourceId,
-                  ],
-                  set: {
-                    id: artifact.id,
-                    sourceHash: artifact.sourceHash,
-                    toolCount: artifact.toolCount,
-                    manifestJson: artifact.manifestJson,
-                    createdAt: artifact.createdAt,
-                    updatedAt: artifact.updatedAt,
-                  },
-                });
+          await db
+            .insert(tables.toolArtifactsTable)
+            .values({
+              id: artifact.id,
+              workspaceId: artifact.workspaceId,
+              sourceId: artifact.sourceId,
+              sourceHash: artifact.sourceHash,
+              toolCount: artifact.toolCount,
+              manifestJson: artifact.manifestJson,
+              createdAt: artifact.createdAt,
+              updatedAt: artifact.updatedAt,
+            })
+            .onConflictDoUpdate({
+              target: [
+                tables.toolArtifactsTable.workspaceId,
+                tables.toolArtifactsTable.sourceId,
+              ],
+              set: {
+                id: artifact.id,
+                sourceHash: artifact.sourceHash,
+                toolCount: artifact.toolCount,
+                manifestJson: artifact.manifestJson,
+                createdAt: artifact.createdAt,
+                updatedAt: artifact.updatedAt,
+              },
             });
-          });
         },
         catch: (cause) =>
           toToolArtifactStoreError(backend, "upsert", tableNames.toolArtifacts, cause),

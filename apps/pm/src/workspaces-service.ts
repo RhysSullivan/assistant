@@ -5,6 +5,7 @@ import {
 } from "@executor-v2/management-api";
 import { type Workspace } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
 
@@ -41,17 +42,16 @@ export const createPmWorkspacesService = (
 
     upsertWorkspace: (input) =>
       Effect.gen(function* () {
-        const workspaces = yield* rows.workspaces.list().pipe(
-          Effect.mapError((error) =>
-            sourceStoreError.fromRowStore("workspaces.upsert", error),
-          ),
-        );
+        const existingOption = input.payload.id
+          ? yield* rows.workspaces.getById(input.payload.id).pipe(
+            Effect.mapError((error) =>
+              sourceStoreError.fromRowStore("workspaces.get_by_id", error),
+            ),
+          )
+          : Option.none<Workspace>();
 
         const now = Date.now();
-        const existingIndex = input.payload.id
-          ? workspaces.findIndex((workspace) => workspace.id === input.payload.id)
-          : -1;
-        const existing = existingIndex >= 0 ? workspaces[existingIndex] : null;
+        const existing = Option.getOrNull(existingOption);
 
         const nextWorkspace: Workspace = {
           id: existing?.id ?? (input.payload.id ?? (`ws_${crypto.randomUUID()}` as Workspace["id"])),

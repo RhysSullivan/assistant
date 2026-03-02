@@ -5,26 +5,19 @@ import {
   sourceIdFromSourceKey,
   type ResolveToolCredentials,
 } from "@executor-v2/engine";
-import { type RowStoreError } from "@executor-v2/persistence-ports";
-import {
-  type AuthConnection,
-  type AuthMaterial,
-  type OAuthState,
-  type SourceAuthBinding,
-  type Workspace,
-} from "@executor-v2/schema";
+import { type SqlControlPlanePersistence } from "@executor-v2/persistence-sql";
+import { type OrganizationId, type WorkspaceId } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 
-type RowReader<A> = {
-  list: () => Effect.Effect<ReadonlyArray<A>, RowStoreError>;
-};
-
 type CredentialResolverRows = {
-  workspaces: RowReader<Workspace>;
-  sourceAuthBindings: RowReader<SourceAuthBinding>;
-  authConnections: RowReader<AuthConnection>;
-  authMaterials: RowReader<AuthMaterial>;
-  oauthStates: RowReader<OAuthState>;
+  workspaces: Pick<SqlControlPlanePersistence["rows"]["workspaces"], "getById">;
+  sourceAuthBindings: Pick<
+    SqlControlPlanePersistence["rows"]["sourceAuthBindings"],
+    "listByWorkspaceScope"
+  >;
+  authConnections: Pick<SqlControlPlanePersistence["rows"]["authConnections"], "getById">;
+  authMaterials: Pick<SqlControlPlanePersistence["rows"]["authMaterials"], "getByConnectionId">;
+  oauthStates: Pick<SqlControlPlanePersistence["rows"]["oauthStates"], "getByConnectionId">;
 };
 
 const toCredentialResolverError = (
@@ -180,22 +173,6 @@ export const createPmResolveToolCredentials = (
         };
       }
 
-      const [workspaces, bindings, connections, oauthStates, materials] = yield* Effect.all([
-        rows.workspaces.list(),
-        rows.sourceAuthBindings.list(),
-        rows.authConnections.list(),
-        rows.oauthStates.list(),
-        rows.authMaterials.list(),
-      ]).pipe(
-        Effect.mapError((error) =>
-          toCredentialResolverError(
-            "read_credential_rows",
-            "Failed reading credential rows while resolving credentials",
-            error.details ?? error.message,
-          ),
-        ),
-      );
-
       const sourceId = sourceIdFromSourceKey(context.sourceKey);
       if (!sourceId) {
         return {
@@ -203,10 +180,37 @@ export const createPmResolveToolCredentials = (
         };
       }
 
-      const workspace = workspaces.find(
-        (item) => item.id === context.workspaceId,
+      const workspaceId = context.workspaceId as WorkspaceId;
+
+      const workspaceOption = yield* rows.workspaces.getById(workspaceId).pipe(
+        Effect.mapError((error) =>
+          toCredentialResolverError(
+            "read_workspace",
+            "Failed reading workspace while resolving credentials",
+            error.details ?? error.message,
+          ),
+        ),
       );
+
+      const workspace = workspaceOption._tag === "Some" ? workspaceOption.value : null;
       const organizationId = context.organizationId ?? workspace?.organizationId ?? null;
+      if (organizationId === null) {
+        return {
+          headers: {},
+        };
+      }
+
+      const bindings = yield* rows.sourceAuthBindings
+        .listByWorkspaceScope(workspaceId, organizationId as OrganizationId)
+        .pipe(
+          Effect.mapError((error) =>
+            toCredentialResolverError(
+              "read_bindings",
+              "Failed reading credential bindings",
+              error.details ?? error.message,
+            ),
+          ),
+        );
 
       const binding = bindings
         .filter((candidate) => candidate.sourceId === sourceId)
@@ -247,9 +251,19 @@ export const createPmResolveToolCredentials = (
         };
       }
 
-      const connection = connections.find(
-        (candidate) => candidate.id === binding.connectionId,
+      const connectionOption = yield* rows.authConnections.getById(binding.connectionId).pipe(
+        Effect.mapError((error) =>
+          toCredentialResolverError(
+            "read_connection",
+            "Failed reading auth connection",
+            error.details ?? error.message,
+          ),
+        ),
       );
+
+      const connection = connectionOption._tag === "Some"
+        ? connectionOption.value
+        : null;
       if (!connection || connection.status !== "active") {
         return {
           headers: {},
@@ -261,9 +275,18 @@ export const createPmResolveToolCredentials = (
       );
 
       if (connection.strategy === "oauth2") {
-        const oauthState = oauthStates.find(
-          (candidate) => candidate.connectionId === connection.id,
-        );
+        const oauthStateOption = yield* rows.oauthStates
+          .getByConnectionId(connection.id)
+          .pipe(
+            Effect.mapError((error) =>
+              toCredentialResolverError(
+                "read_oauth_state",
+                "Failed reading oauth state",
+                error.details ?? error.message,
+              ),
+            ),
+          );
+        const oauthState = oauthStateOption._tag === "Some" ? oauthStateOption.value : null;
 
         const accessToken = normalizeString(oauthState?.accessTokenCiphertext);
         const oauthHeaders = accessToken
@@ -275,9 +298,18 @@ export const createPmResolveToolCredentials = (
         };
       }
 
-      const material = materials.find(
-        (candidate) => candidate.connectionId === connection.id,
-      );
+      const materialOption = yield* rows.authMaterials
+        .getByConnectionId(connection.id)
+        .pipe(
+          Effect.mapError((error) =>
+            toCredentialResolverError(
+              "read_auth_material",
+              "Failed reading auth material",
+              error.details ?? error.message,
+            ),
+          ),
+        );
+      const material = materialOption._tag === "Some" ? materialOption.value : null;
 
       if (!material) {
         return {

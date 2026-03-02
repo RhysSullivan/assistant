@@ -10,11 +10,9 @@ import {
   type WorkspaceId,
 } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
-import {
-  createSqlSourceStoreErrorMapper,
-  resolveWorkspaceOrganizationId,
-} from "./control-plane-row-helpers";
+import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
 import {
   DEFAULT_EPHEMERAL_TTL_HOURS,
   initializeStorageInstanceFiles,
@@ -100,7 +98,7 @@ const loadStorageScope = (
   input: {
     workspaceId: WorkspaceId;
     instancesOperation: string;
-    workspacesOperation: string;
+    workspaceOperation: string;
   },
 ): Effect.Effect<
   {
@@ -109,22 +107,33 @@ const loadStorageScope = (
   },
   SourceStoreError
 > =>
-  Effect.all([
-    rows.storageInstances.list().pipe(
-      Effect.mapError((error) =>
-        sourceStoreError.fromRowStore(input.instancesOperation, error),
-      ),
+  rows.workspaces.getById(input.workspaceId).pipe(
+    Effect.mapError((error) =>
+      sourceStoreError.fromRowStore(input.workspaceOperation, error),
     ),
-    rows.workspaces.list().pipe(
-      Effect.mapError((error) =>
-        sourceStoreError.fromRowStore(input.workspacesOperation, error),
-      ),
-    ),
-  ]).pipe(
-    Effect.map(([storageInstances, workspaces]) => ({
-      storageInstances,
-      organizationId: resolveWorkspaceOrganizationId(workspaces, input.workspaceId),
-    })),
+    Effect.flatMap((workspaceOption) => {
+      const workspace = Option.getOrNull(workspaceOption);
+      if (workspace === null) {
+        return sourceStoreError.fromMessage(
+          input.workspaceOperation,
+          "Workspace not found",
+          `workspace=${input.workspaceId}`,
+        );
+      }
+
+      return rows.storageInstances.listByWorkspaceScope(
+        input.workspaceId,
+        workspace.organizationId,
+      ).pipe(
+        Effect.mapError((error) =>
+          sourceStoreError.fromRowStore(input.instancesOperation, error),
+        ),
+        Effect.map((storageInstances) => ({
+          storageInstances,
+          organizationId: workspace.organizationId,
+        })),
+      );
+    }),
   );
 
 export const createPmStorageService = (
@@ -139,14 +148,10 @@ export const createPmStorageService = (
         const { storageInstances, organizationId } = yield* loadStorageScope(rows, {
           workspaceId,
           instancesOperation: "storage.list_instances",
-          workspacesOperation: "storage.list_instances.workspaces",
+          workspaceOperation: "storage.list_instances.workspace",
         });
 
-        return sortStorageInstances(
-          storageInstances.filter((instance) =>
-            canAccessStorageInstance(instance, workspaceId, organizationId)
-          ),
-        );
+        return sortStorageInstances(storageInstances);
       }),
 
     openStorageInstance: (input) =>
@@ -159,14 +164,23 @@ export const createPmStorageService = (
           );
         }
 
-        const workspaces = yield* rows.workspaces.list().pipe(
+        const workspaceOption = yield* rows.workspaces.getById(input.workspaceId).pipe(
           Effect.mapError((error) =>
-            sourceStoreError.fromRowStore("storage.open.workspaces", error),
+            sourceStoreError.fromRowStore("storage.open.workspace", error),
           ),
         );
 
+        const workspace = Option.getOrNull(workspaceOption);
+        if (workspace === null) {
+          return yield* sourceStoreError.fromMessage(
+            "storage.open",
+            "Workspace not found",
+            `workspace=${input.workspaceId}`,
+          );
+        }
+
         const now = Date.now();
-        const organizationId = resolveWorkspaceOrganizationId(workspaces, input.workspaceId);
+        const organizationId = workspace.organizationId;
         const storageInstanceId =
           `storage_${crypto.randomUUID()}` as StorageInstance["id"];
         const ttlHours =
@@ -231,7 +245,7 @@ export const createPmStorageService = (
         const { storageInstances, organizationId } = yield* loadStorageScope(rows, {
           workspaceId: input.workspaceId,
           instancesOperation: "storage.close.instances",
-          workspacesOperation: "storage.close.workspaces",
+          workspaceOperation: "storage.close.workspace",
         });
 
         const found = findStorageInstance(storageInstances, organizationId, {
@@ -270,7 +284,7 @@ export const createPmStorageService = (
         const { storageInstances, organizationId } = yield* loadStorageScope(rows, {
           workspaceId: input.workspaceId,
           instancesOperation: "storage.remove.instances",
-          workspacesOperation: "storage.remove.workspaces",
+          workspaceOperation: "storage.remove.workspace",
         });
 
         const found = findStorageInstance(storageInstances, organizationId, {
@@ -311,7 +325,7 @@ export const createPmStorageService = (
         const { storageInstances, organizationId } = yield* loadStorageScope(rows, {
           workspaceId: input.workspaceId,
           instancesOperation: "storage.list_directory.instances",
-          workspacesOperation: "storage.list_directory.workspaces",
+          workspaceOperation: "storage.list_directory.workspace",
         });
 
         const found = findStorageInstance(storageInstances, organizationId, {
@@ -356,7 +370,7 @@ export const createPmStorageService = (
         const { storageInstances, organizationId } = yield* loadStorageScope(rows, {
           workspaceId: input.workspaceId,
           instancesOperation: "storage.read_file.instances",
-          workspacesOperation: "storage.read_file.workspaces",
+          workspaceOperation: "storage.read_file.workspace",
         });
 
         const found = findStorageInstance(storageInstances, organizationId, {
@@ -397,7 +411,7 @@ export const createPmStorageService = (
         const { storageInstances, organizationId } = yield* loadStorageScope(rows, {
           workspaceId: input.workspaceId,
           instancesOperation: "storage.list_kv.instances",
-          workspacesOperation: "storage.list_kv.workspaces",
+          workspaceOperation: "storage.list_kv.workspace",
         });
 
         const found = findStorageInstance(storageInstances, organizationId, {
@@ -438,7 +452,7 @@ export const createPmStorageService = (
         const { storageInstances, organizationId } = yield* loadStorageScope(rows, {
           workspaceId: input.workspaceId,
           instancesOperation: "storage.query_sql.instances",
-          workspacesOperation: "storage.query_sql.workspaces",
+          workspaceOperation: "storage.query_sql.workspace",
         });
 
         const found = findStorageInstance(storageInstances, organizationId, {
