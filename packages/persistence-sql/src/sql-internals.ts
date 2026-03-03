@@ -67,6 +67,20 @@ type SqlRuntime = {
   close: () => Promise<void>;
 };
 
+const resolvePostgresMaxConnections = (): number => {
+  const configured = process.env.CONTROL_PLANE_POSTGRES_MAX_CONNECTIONS
+    ?? process.env.POSTGRES_MAX_CONNECTIONS;
+
+  if (configured) {
+    const parsed = Number.parseInt(configured, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return process.env.NODE_ENV === "production" ? 1 : 10;
+};
+
 const sanitizePostgresUrl = (value: string): string => {
   try {
     const parsed = new URL(value);
@@ -108,7 +122,7 @@ const createPostgresRuntime = async (
 ): Promise<SqlRuntime> => {
   const client = postgres(sanitizePostgresUrl(databaseUrl), {
     prepare: false,
-    max: 10,
+    max: resolvePostgresMaxConnections(),
     ...(applicationName ? { connection: { application_name: applicationName } } : {}),
   });
 

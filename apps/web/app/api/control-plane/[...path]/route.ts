@@ -105,6 +105,11 @@ const handle = async (request: NextRequest, context: RouteContext): Promise<Resp
 
     return runtime.handleControlPlane(applyPrincipalHeaders(controlPlaneRequest, principal));
   } catch (cause) {
+    console.error("[control-plane] request failed", {
+      method: request.method,
+      path: request.nextUrl.pathname,
+      cause,
+    });
     return storageErrorResponse("control-plane.request", cause);
   }
 };
