@@ -19,9 +19,14 @@
     "prepare": "effect-language-service patch",
     "dev": "turbo run dev --parallel",
     "typecheck": "turbo run typecheck",
+    "env:pull:development": "better-env pull --environment development",
+    "env:pull:preview": "better-env pull --environment preview",
+    "env:pull:production": "better-env pull --environment production",
+    "env:validate:development": "better-env validate --environment development",
+    "env:validate:production": "better-env validate --environment production",
     "knip": "bunx knip --config knip.json",
-    "db:env:pull:prod": "vercel env pull .env.production --environment=production --yes",
-    "db:migrate:prod": "bun run db:env:pull:prod && bun run --filter=@executor-v2/persistence-sql --env-file=.env.production db:migrate"
+    "db:env:pull:prod": "bun run env:pull:production",
+    "db:migrate:prod": "bun run env:pull:production && bun run --filter=@executor-v2/persistence-sql --env-file=.env.production db:migrate"
   },
   "devDependencies": {
     "@effect/language-service": "^0.76.0",
@@ -31,6 +36,7 @@
     "typescript": "catalog:"
   },
   "dependencies": {
+    "better-env": "^0.3.1",
     "vercel": "^50.23.2"
   }
 }

@@ -11,14 +11,11 @@ import {
 import {
   createRunExecutor,
   createSourceToolRegistry,
-  defaultExecuteToolExposureMode,
   makeGraphqlToolProvider,
   makeMcpToolProvider,
   makeOpenApiToolProvider,
   makeRuntimeAdapterRegistry,
   makeToolProviderRegistry,
-  parseExecuteToolExposureMode,
-  type ExecuteToolExposureMode,
 } from "@executor-v2/engine";
 import {
   makeSqlControlPlanePersistence,
@@ -39,6 +36,7 @@ import { makeDenoSubprocessRuntimeAdapter } from "@executor-v2/runtime-deno-subp
 import { makeLocalInProcessRuntimeAdapter } from "@executor-v2/runtime-local-inproc";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { webServerEnvironment } from "../env/server";
 
 import { PmActorLive } from "../../../pm/src/actor";
 import {
@@ -54,11 +52,6 @@ import { createPmStorageService } from "../../../pm/src/storage-service";
 import { createPmToolsService } from "../../../pm/src/tools-service";
 import { createPmWorkspacesService } from "../../../pm/src/workspaces-service";
 
-const trim = (value: string | undefined): string | undefined => {
-  const candidate = value?.trim();
-  return candidate && candidate.length > 0 ? candidate : undefined;
-};
-
 const isPlanetScalePostgresUrl = (value: string): boolean => {
   try {
     const parsed = new URL(value);
@@ -72,7 +65,7 @@ const isPlanetScalePostgresUrl = (value: string): boolean => {
 };
 
 const deriveRuntimeDatabaseUrl = (value: string): string => {
-  const configuredTarget = trim(process.env.CONTROL_PLANE_POSTGRES_CONNECTION_TARGET)?.toLowerCase();
+  const configuredTarget = webServerEnvironment.controlPlanePostgresConnectionTarget;
 
   if (configuredTarget === "direct") {
     return value;
@@ -80,7 +73,7 @@ const deriveRuntimeDatabaseUrl = (value: string): string => {
 
   const shouldPreferPgbouncer =
     configuredTarget === "pgbouncer"
-    || (configuredTarget === undefined && process.env.NODE_ENV === "production");
+    || (configuredTarget === undefined && webServerEnvironment.nodeEnv === "production");
 
   if (!shouldPreferPgbouncer || !isPlanetScalePostgresUrl(value)) {
     return value;
@@ -138,7 +131,7 @@ const toAccountScopedIds = (subject: string) => {
 };
 
 const resolveDatabaseUrl = (): string | undefined => {
-  const value = trim(process.env.DATABASE_URL);
+  const value = webServerEnvironment.databaseUrl;
   return value ? deriveRuntimeDatabaseUrl(value) : undefined;
 };
 
@@ -147,22 +140,6 @@ const resolveControlPlaneDataDir = (): string =>
 
 const resolveStateRootDir = (): string =>
   defaultControlPlaneStateRootDir;
-
-const readConfiguredRuntimeKind = (value: string | undefined): string | undefined => {
-  const normalized = value?.trim();
-  return normalized && normalized.length > 0 ? normalized : undefined;
-};
-
-const readBooleanFlag = (value: string | undefined): boolean => {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-};
-
-const readConfiguredToolExposureMode = (
-  value: string | undefined,
-): ExecuteToolExposureMode =>
-  parseExecuteToolExposureMode(value ?? undefined) ??
-  defaultExecuteToolExposureMode;
 
 const openApiSyncRetryDelayMs = 300;
 
@@ -300,13 +277,11 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
   ];
   const runtimeAdapters = makeRuntimeAdapterRegistry(runtimeAdapterList);
   const defaultRuntimeKind =
-    readConfiguredRuntimeKind(process.env.PM_RUNTIME_KIND)
+    webServerEnvironment.pmRuntimeKind
     ?? runtimeAdapterList[0]?.kind
     ?? "local-inproc";
-  const requireToolApprovals = readBooleanFlag(process.env.PM_REQUIRE_TOOL_APPROVALS);
-  const defaultToolExposureMode = readConfiguredToolExposureMode(
-    process.env.PM_TOOL_EXPOSURE_MODE,
-  );
+  const requireToolApprovals = webServerEnvironment.pmRequireToolApprovals;
+  const defaultToolExposureMode = webServerEnvironment.pmToolExposureMode;
   const toolProviderRegistry = makeToolProviderRegistry([
     makeOpenApiToolProvider(),
     makeMcpToolProvider(),
@@ -339,6 +314,19 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
   }) =>
     sourceManager.refreshOpenApiArtifact(input).pipe(Effect.either);
 
+  const runWithSingleRetry = <T extends { _tag: string }>(
+    run: () => Effect.Effect<T>,
+  ): Effect.Effect<T> =>
+    Effect.gen(function* () {
+      let result = yield* run();
+      if (result._tag === "Left") {
+        yield* Effect.sleep(openApiSyncRetryDelayMs);
+        result = yield* run();
+      }
+
+      return result;
+    });
+
   const persistSourceErrorState = (source: Parameters<typeof sourceStore.upsert>[0], message: string) => {
     const failedSource = {
       ...source,
@@ -363,11 +351,9 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
           return source;
         }
 
-        let openApiSpecResult = yield* fetchOpenApiSpec(source.endpoint);
-        if (openApiSpecResult._tag === "Left") {
-          yield* Effect.sleep(openApiSyncRetryDelayMs);
-          openApiSpecResult = yield* fetchOpenApiSpec(source.endpoint);
-        }
+        const openApiSpecResult = yield* runWithSingleRetry(() =>
+          fetchOpenApiSpec(source.endpoint),
+        );
 
         if (openApiSpecResult._tag === "Left") {
           const details = formatCause(openApiSpecResult.left);
@@ -382,17 +368,12 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
           return yield* persistSourceErrorState(source, message);
         }
 
-        let refreshedResult = yield* refreshOpenApiTools({
-          source,
-          openApiSpec: openApiSpecResult.right,
-        });
-        if (refreshedResult._tag === "Left") {
-          yield* Effect.sleep(openApiSyncRetryDelayMs);
-          refreshedResult = yield* refreshOpenApiTools({
+        const refreshedResult = yield* runWithSingleRetry(() =>
+          refreshOpenApiTools({
             source,
             openApiSpec: openApiSpecResult.right,
-          });
-        }
+          }),
+        );
 
         if (refreshedResult._tag === "Left") {
           const details = formatCause(refreshedResult.left);

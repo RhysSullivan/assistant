@@ -1,4 +1,5 @@
 import { defineConfig } from "drizzle-kit";
+import { readPersistenceSqlEnvironment } from "./src/config";
 
 const sanitizePostgresUrl = (value: string): string => {
   try {
@@ -21,8 +22,9 @@ const sanitizePostgresUrl = (value: string): string => {
   }
 };
 
+const env = readPersistenceSqlEnvironment();
 const databaseUrl = sanitizePostgresUrl(
-  process.env.DATABASE_URL ?? "postgres://localhost:5432/executor_v2",
+  env.databaseUrl ?? "postgres://localhost:5432/executor_v2",
 );
 
 export default defineConfig({

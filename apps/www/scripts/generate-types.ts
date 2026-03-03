@@ -8,10 +8,10 @@
  *   public/types/manifest.json  — metadata about each source (tool count, file size)
  */
 
-import { prepareOpenApiSpec } from "../../../../executor/packages/core/src/openapi-prepare";
-import { buildOpenApiToolsFromPrepared } from "../../../../executor/packages/core/src/openapi/tool-builder";
-import { buildWorkspaceTypeBundle } from "../../../../executor/packages/core/src/tool-typing/typebundle";
-import type { OpenApiToolSourceConfig } from "../../../../executor/packages/core/src/tool/source-types";
+import { prepareOpenApiSpec } from "../../../legacy/executor/packages/core/src/openapi-prepare";
+import { buildOpenApiToolsFromPrepared } from "../../../legacy/executor/packages/core/src/openapi/tool-builder";
+import { buildWorkspaceTypeBundle } from "../../../legacy/executor/packages/core/src/tool-typing/typebundle";
+import type { OpenApiToolSourceConfig } from "../../../legacy/executor/packages/core/src/tool/source-types";
 import { mkdirSync } from "fs";
 import { join, dirname } from "path";
 

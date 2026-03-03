@@ -13,12 +13,10 @@ import {
   makeMcpToolProvider,
   createRunExecutor,
   createSourceToolRegistry,
-  defaultExecuteToolExposureMode,
   invokeRuntimeToolCallResult,
   makeOpenApiToolProvider,
   makeRuntimeAdapterRegistry,
   makeToolProviderRegistry,
-  parseExecuteToolExposureMode,
 } from "@executor-v2/engine";
 import {
   makeSqlControlPlanePersistence,
@@ -37,7 +35,6 @@ import { makeDenoSubprocessRuntimeAdapter } from "@executor-v2/runtime-deno-subp
 import { makeLocalInProcessRuntimeAdapter } from "@executor-v2/runtime-local-inproc";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as path from "node:path";
 
 import { PmActorLive } from "./actor";
 import {
@@ -54,48 +51,16 @@ import { createPmWorkspacesService } from "./workspaces-service";
 import { createPmMcpHandler } from "./mcp-handler";
 import { createPmExecuteRuntimeRun } from "./runtime-execution-port";
 import { createPmToolCallHttpHandler } from "./tool-call-handler";
-
-const pmStateRootDir = process.env.PM_STATE_ROOT_DIR ?? ".executor-v2/pm-state";
-
-const parsePort = (value: string | undefined): number => {
-  const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8788;
-};
-
-const readConfiguredRuntimeKind = (value: string | undefined): string | undefined => {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : undefined;
-};
-
-const readConfiguredWorkspaceId = (value: string | undefined): WorkspaceId => {
-  const normalized = value?.trim();
-  return (normalized && normalized.length > 0 ? normalized : "ws_local") as WorkspaceId;
-};
-
-const readBooleanFlag = (value: string | undefined): boolean => {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-};
-
-const readConfiguredToolExposureMode = (
-  value: string | undefined,
-): "all_tools" | "sources_only" =>
-  parseExecuteToolExposureMode(value ?? undefined) ??
-  defaultExecuteToolExposureMode;
+import { readPmEnvironment } from "./env";
 
 const formatRuntimeAdapterError = (error: RuntimeAdapterError): string =>
   error.details ? `${error.message}: ${error.details}` : error.message;
 
-const port = parsePort(process.env.PORT);
-const workspaceId = readConfiguredWorkspaceId(process.env.PM_WORKSPACE_ID);
-const requireToolApprovals = readBooleanFlag(process.env.PM_REQUIRE_TOOL_APPROVALS);
-const defaultToolExposureMode = readConfiguredToolExposureMode(
-  process.env.PM_TOOL_EXPOSURE_MODE,
-);
+const env = readPmEnvironment();
+const port = env.port;
+const workspaceId = env.workspaceId as WorkspaceId;
+const requireToolApprovals = env.requireToolApprovals;
+const defaultToolExposureMode = env.defaultToolExposureMode;
 
 const ensurePmBootstrap = (
   persistence: SqlControlPlanePersistence,
@@ -174,14 +139,12 @@ const pmRuntimeAdapters = [
 
 const runtimeAdapters = makeRuntimeAdapterRegistry(pmRuntimeAdapters);
 const defaultRuntimeKind =
-  readConfiguredRuntimeKind(process.env.PM_RUNTIME_KIND) ?? pmRuntimeAdapters[0].kind;
+  env.runtimeKind ?? pmRuntimeAdapters[0].kind;
 
 const persistence: SqlControlPlanePersistence = await Effect.runPromise(
   makeSqlControlPlanePersistence({
-    databaseUrl: process.env.PM_CONTROL_PLANE_DATABASE_URL,
-    localDataDir:
-      process.env.PM_CONTROL_PLANE_DATA_DIR
-      ?? path.resolve(pmStateRootDir, "control-plane-pgdata"),
+    databaseUrl: env.controlPlaneDatabaseUrl,
+    localDataDir: env.controlPlaneDataDir,
     postgresApplicationName: "executor-v2-pm",
   }),
 );
@@ -230,7 +193,7 @@ const organizationsService = createPmOrganizationsService(persistence.rows);
 const workspacesService = createPmWorkspacesService(persistence.rows);
 const toolsService = createPmToolsService(sourceStore, toolArtifactStore);
 const storageService = createPmStorageService(persistence.rows, {
-  stateRootDir: pmStateRootDir,
+  stateRootDir: env.stateRootDir,
 });
 const approvalsService = createPmApprovalsService(persistence.rows);
 const controlPlaneService = makeControlPlaneService({

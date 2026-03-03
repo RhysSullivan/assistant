@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
+import { webServerEnvironment } from "../env/server";
 import { externalOriginFromRequest } from "../workos";
 
 type McpAuthConfig = {
@@ -34,10 +35,10 @@ const toAuthorizationServerUrl = (value: string): string | null => {
 
 const resolveAuthorizationServer = (): string | null => {
   const candidates = [
-    process.env.MCP_AUTHORIZATION_SERVER,
-    process.env.MCP_AUTHORIZATION_SERVER_URL,
-    process.env.WORKOS_AUTHKIT_ISSUER,
-    process.env.WORKOS_AUTHKIT_DOMAIN,
+    webServerEnvironment.mcpAuthorizationServer,
+    webServerEnvironment.mcpAuthorizationServerUrl,
+    webServerEnvironment.workosAuthkitIssuer,
+    webServerEnvironment.workosAuthkitDomain,
   ];
 
   for (const candidate of candidates) {

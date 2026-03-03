@@ -16,26 +16,14 @@ import {
 } from "@executor-v2/schema";
 import * as PlatformHeaders from "@effect/platform/Headers";
 import * as Effect from "effect/Effect";
+import { readPmEnvironment } from "./env";
 
 type ActorRows = Pick<
   SqlControlPlanePersistence["rows"],
   "organizationMemberships" | "workspaces"
 >;
 
-const isTruthy = (value: string | undefined): boolean => {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-};
-
-const localAdminFallbackEnabled = (() => {
-  const configured = process.env.PM_ALLOW_LOCAL_ADMIN;
-
-  if (configured === undefined || configured.trim().length === 0) {
-    return process.env.NODE_ENV !== "production";
-  }
-
-  return isTruthy(configured);
-})();
+const localAdminFallbackEnabled = readPmEnvironment().localAdminFallbackEnabled;
 
 const workspaceMembershipsForAccount = (
   workspaces: ReadonlyArray<Workspace>,

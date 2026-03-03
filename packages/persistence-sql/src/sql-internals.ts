@@ -10,6 +10,7 @@ import { mkdir } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+import { readPersistenceSqlEnvironment } from "./config";
 
 import {
   approvalsTable,
@@ -79,8 +80,10 @@ const trim = (value: string | undefined): string | undefined => {
   return candidate && candidate.length > 0 ? candidate : undefined;
 };
 
+const env = readPersistenceSqlEnvironment();
+
 const resolvePostgresMaxConnections = (): number => {
-  return process.env.NODE_ENV === "production" ? 1 : 10;
+  return env.nodeEnv === "production" ? 1 : 10;
 };
 
 const sanitizePostgresUrl = (value: string): string => {
@@ -113,7 +116,7 @@ const isPlanetScalePostgresHost = (databaseUrl: string): boolean => {
 };
 
 const shouldUseNeonHttpDriver = (databaseUrl: string): boolean => {
-  const configured = trim(process.env.CONTROL_PLANE_POSTGRES_DRIVER)?.toLowerCase();
+  const configured = trim(env.controlPlanePostgresDriver);
 
   if (configured === "postgres-js") {
     return false;
@@ -123,8 +126,8 @@ const shouldUseNeonHttpDriver = (databaseUrl: string): boolean => {
     return true;
   }
 
-  return process.env.VERCEL === "1"
-    && process.env.NODE_ENV === "production"
+  return env.vercel === "1"
+    && env.nodeEnv === "production"
     && isPlanetScalePostgresHost(databaseUrl);
 };
 

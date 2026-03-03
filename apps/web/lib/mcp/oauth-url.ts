@@ -1,9 +1,11 @@
+import { webServerEnvironment } from "../env/server";
+
 const isLocalHost = (hostname: string): boolean =>
   hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 
 const localHttpAllowed = (): boolean =>
-  process.env.NODE_ENV !== "production"
-  || process.env.EXECUTOR_ALLOW_LOCAL_MCP_OAUTH === "1";
+  webServerEnvironment.nodeEnv !== "production"
+  || webServerEnvironment.executorAllowLocalMcpOauth;
 
 export const parseMcpSourceUrl = (raw: string): URL => {
   let url: URL;

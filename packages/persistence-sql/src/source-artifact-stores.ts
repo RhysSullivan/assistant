@@ -7,7 +7,7 @@ import {
 } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
 import {
   toSourceStoreError,
@@ -241,12 +241,11 @@ export const createSourceAndArtifactStores = ({
                 tables.toolArtifactsTable.sourceId,
               ],
               set: {
-                id: artifact.id,
-                sourceHash: artifact.sourceHash,
-                toolCount: artifact.toolCount,
-                manifestJson: artifact.manifestJson,
-                createdAt: artifact.createdAt,
-                updatedAt: artifact.updatedAt,
+                id: sql`excluded.id`,
+                sourceHash: sql`excluded.source_hash`,
+                toolCount: sql`excluded.tool_count`,
+                manifestJson: sql`excluded.manifest_json`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
         },

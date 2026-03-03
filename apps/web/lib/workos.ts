@@ -1,12 +1,13 @@
+import { webPublicEnvironment } from "./env/public";
+import { webServerEnvironment } from "./env/server";
+
 const trim = (value: string | undefined): string | undefined => {
   const candidate = value?.trim();
   return candidate && candidate.length > 0 ? candidate : undefined;
 };
 
 export const isWorkosEnabled = (): boolean => {
-  return Boolean(
-    trim(process.env.WORKOS_CLIENT_ID) && trim(process.env.WORKOS_API_KEY),
-  );
+  return Boolean(webServerEnvironment.workosClientId && webServerEnvironment.workosApiKey);
 };
 
 export const externalOriginFromRequest = (request: Request): string => {
@@ -22,19 +23,20 @@ export const externalOriginFromRequest = (request: Request): string => {
 };
 
 const fallbackOrigin = (): string | undefined => {
-  const explicit = trim(process.env.NEXT_PUBLIC_APP_ORIGIN);
+  const explicit = webPublicEnvironment.nextPublicAppOrigin;
   if (explicit) {
     return explicit;
   }
 
-  const vercelHost = trim(process.env.VERCEL_PROJECT_PRODUCTION_URL) ?? trim(process.env.VERCEL_URL);
+  const vercelHost =
+    webServerEnvironment.vercelProjectProductionUrl ?? webServerEnvironment.vercelUrl;
   if (vercelHost) {
     return vercelHost.startsWith("http://") || vercelHost.startsWith("https://")
       ? vercelHost
       : `https://${vercelHost}`;
   }
 
-  if (trim(process.env.NODE_ENV) !== "production") {
+  if (webServerEnvironment.nodeEnv !== "production") {
     return "http://localhost:4312";
   }
 
@@ -42,12 +44,12 @@ const fallbackOrigin = (): string | undefined => {
 };
 
 export const resolveWorkosRedirectUri = (request?: Request): string | undefined => {
-  const explicitRedirect = trim(process.env.WORKOS_REDIRECT_URI);
+  const explicitRedirect = webServerEnvironment.workosRedirectUri;
   if (explicitRedirect) {
     return explicitRedirect;
   }
 
-  const publicRedirect = trim(process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI);
+  const publicRedirect = webPublicEnvironment.nextPublicWorkosRedirectUri;
   if (publicRedirect) {
     return publicRedirect;
   }

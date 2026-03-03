@@ -1,3 +1,6 @@
+import { webPublicEnvironment } from "./env/public";
+import { webServerEnvironment } from "./env/server";
+
 const normalizeOriginCandidate = (value: string | undefined): string | null => {
   const trimmed = value?.trim();
   if (!trimmed) {
@@ -18,10 +21,10 @@ const normalizeOriginCandidate = (value: string | undefined): string | null => {
 
 export const configuredExternalOriginFromEnv = (): string | null => {
   const candidates = [
-    process.env.EXECUTOR_PUBLIC_ORIGIN,
-    process.env.NEXT_PUBLIC_APP_ORIGIN,
-    process.env.VERCEL_PROJECT_PRODUCTION_URL,
-    process.env.VERCEL_URL,
+    webServerEnvironment.executorPublicOrigin,
+    webPublicEnvironment.nextPublicAppOrigin,
+    webServerEnvironment.vercelProjectProductionUrl,
+    webServerEnvironment.vercelUrl,
   ];
 
   for (const candidate of candidates) {

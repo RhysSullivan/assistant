@@ -6,6 +6,9 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
+import { readPmEnvironment } from "./env";
+
+const pmEnvironment = readPmEnvironment();
 
 class PmToolCallHttpRequestError extends Data.TaggedError(
   "PmToolCallHttpRequestError",
@@ -44,10 +47,8 @@ const trim = (value: string | undefined): string | undefined => {
 const readHeader = (request: Request, name: string): string | null =>
   trim(request.headers.get(name) ?? undefined) ?? null;
 
-const readEnv = (name: string): string | undefined => trim(process.env[name]);
-
 const runtimeCallbackSecret = (): string | null =>
-  readEnv("CLOUDFLARE_SANDBOX_CALLBACK_SECRET") ?? null;
+  pmEnvironment.runtimeCallbackSecret ?? null;
 
 const toDeniedResult = (status: number, error: string): Response =>
   Response.json(
