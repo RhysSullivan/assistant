@@ -39,6 +39,48 @@ const trim = (value: string | undefined): string | undefined => {
   return candidate && candidate.length > 0 ? candidate : undefined;
 };
 
+const isPlanetScalePostgresUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    return (
+      (parsed.protocol === "postgres:" || parsed.protocol === "postgresql:")
+      && parsed.hostname.endsWith(".pg.psdb.cloud")
+    );
+  } catch {
+    return false;
+  }
+};
+
+const deriveRuntimeDatabaseUrl = (value: string): string => {
+  const configuredTarget = trim(process.env.CONTROL_PLANE_POSTGRES_CONNECTION_TARGET)?.toLowerCase();
+
+  if (configuredTarget === "direct") {
+    return value;
+  }
+
+  const shouldPreferPgbouncer =
+    configuredTarget === "pgbouncer"
+    || (configuredTarget === undefined && process.env.NODE_ENV === "production");
+
+  if (!shouldPreferPgbouncer || !isPlanetScalePostgresUrl(value)) {
+    return value;
+  }
+
+  try {
+    const parsed = new URL(value);
+    const port = parsed.port.length > 0 ? parsed.port : "5432";
+
+    if (port !== "5432") {
+      return value;
+    }
+
+    parsed.port = "6432";
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+};
+
 const defaultControlPlaneStateRootDir = ".executor-v2/web-state";
 const defaultControlPlaneDataDir = `${defaultControlPlaneStateRootDir}/control-plane-pgdata`;
 
@@ -75,16 +117,17 @@ const toAccountScopedIds = (subject: string) => {
 };
 
 const resolveDatabaseUrl = (): string | undefined => {
-  const candidates = [
-    process.env.CONTROL_PLANE_DATABASE_URL,
-    process.env.DATABASE_URL,
-    process.env.POSTGRES_URL,
-  ];
+  const override = trim(process.env.CONTROL_PLANE_DATABASE_URL);
+  if (override) {
+    return override;
+  }
+
+  const candidates = [process.env.DATABASE_URL, process.env.POSTGRES_URL];
 
   for (const candidate of candidates) {
     const value = trim(candidate);
     if (value) {
-      return value;
+      return deriveRuntimeDatabaseUrl(value);
     }
   }
 
