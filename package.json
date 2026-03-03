@@ -19,7 +19,9 @@
     "prepare": "effect-language-service patch",
     "dev": "turbo run dev --parallel",
     "typecheck": "turbo run typecheck",
-    "knip": "bunx knip --config knip.json"
+    "knip": "bunx knip --config knip.json",
+    "db:env:pull:prod": "vercel env pull .env.production --environment=production --yes",
+    "db:migrate:prod": "bun run db:env:pull:prod && bun run --filter=@executor-v2/persistence-sql --env-file=.env.production db:migrate"
   },
   "devDependencies": {
     "@effect/language-service": "^0.76.0",

@@ -67,6 +67,25 @@ type SqlRuntime = {
   close: () => Promise<void>;
 };
 
+const sanitizePostgresUrl = (value: string): string => {
+  try {
+    const parsed = new URL(value);
+
+    if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
+      return value;
+    }
+
+    parsed.searchParams.delete("sslrootcert");
+    parsed.searchParams.delete("sslcert");
+    parsed.searchParams.delete("sslkey");
+    parsed.searchParams.delete("sslcrl");
+
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+};
+
 const createPGliteRuntime = async (localDataDir: string): Promise<SqlRuntime> => {
   const resolvedDataDir = path.resolve(localDataDir);
   await mkdir(resolvedDataDir, { recursive: true });
@@ -87,7 +106,7 @@ const createPostgresRuntime = async (
   databaseUrl: string,
   applicationName: string | undefined,
 ): Promise<SqlRuntime> => {
-  const client = postgres(databaseUrl, {
+  const client = postgres(sanitizePostgresUrl(databaseUrl), {
     prepare: false,
     max: 10,
     ...(applicationName ? { connection: { application_name: applicationName } } : {}),
