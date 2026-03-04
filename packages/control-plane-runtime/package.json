@@ -1,0 +1,23 @@
+{
+  "name": "@executor-v2/control-plane-runtime",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@executor-v2/domain": "workspace:*",
+    "@executor-v2/engine": "workspace:*",
+    "@executor-v2/management-api": "workspace:*",
+    "@executor-v2/mcp-gateway": "workspace:*",
+    "@executor-v2/persistence-ports": "workspace:*",
+    "@executor-v2/persistence-sql": "workspace:*",
+    "@executor-v2/schema": "workspace:*",
+    "@executor-v2/sdk": "workspace:*",
+    "effect": "catalog:"
+  }
+}

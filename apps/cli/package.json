@@ -12,6 +12,7 @@
     "@effect/platform": "catalog:",
     "@effect/platform-bun": "^0.86.0",
     "@effect/typeclass": "^0.38.0",
+    "@executor-v2/api-http": "workspace:*",
     "@executor-v2/management-api": "workspace:*",
     "effect": "catalog:"
   }

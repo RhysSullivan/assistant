@@ -1,1 +1,0 @@
-export { readPmEnvironment } from "../../env";

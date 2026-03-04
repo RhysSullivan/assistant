@@ -21,6 +21,7 @@ const OpenApiToolArgsSchema = Schema.Record({
 });
 
 type OpenApiToolArgs = typeof OpenApiToolArgsSchema.Type;
+type OpenApiToolParameter = OpenApiInvocationPayload["parameters"][number];
 
 const decodeOpenApiManifestJson = Schema.decodeUnknown(
   Schema.parseJson(OpenApiToolManifestSchema),
@@ -62,6 +63,40 @@ const argsValueToString = (value: unknown): string => {
   }
 
   return String(value);
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parameterContainerKeys: Record<OpenApiToolParameter["location"], Array<string>> = {
+  path: ["path", "pathParams", "params"],
+  query: ["query", "queryParams", "params"],
+  header: ["headers", "header"],
+  cookie: ["cookies", "cookie"],
+};
+
+const readParameterValue = (
+  args: OpenApiToolArgs,
+  parameter: OpenApiToolParameter,
+): unknown => {
+  const directValue = args[parameter.name];
+  if (directValue !== undefined) {
+    return directValue;
+  }
+
+  for (const key of parameterContainerKeys[parameter.location]) {
+    const container = args[key];
+    if (!isRecord(container)) {
+      continue;
+    }
+
+    const nestedValue = container[parameter.name];
+    if (nestedValue !== undefined) {
+      return nestedValue;
+    }
+  }
+
+  return undefined;
 };
 
 const normalizeHttpUrl = (value: string): string | null => {
@@ -135,7 +170,7 @@ const replacePathTemplate = (
         continue;
       }
 
-      const parameterValue = args[parameter.name];
+      const parameterValue = readParameterValue(args, parameter);
       if (parameterValue === undefined || parameterValue === null) {
         if (parameter.required) {
           return yield* new ToolProviderError({
@@ -152,6 +187,20 @@ const replacePathTemplate = (
         `{${parameter.name}}`,
         encodePathSegment(parameterValue),
       );
+    }
+
+    const unresolvedPathParameters = [...resolvedPath.matchAll(/\{([^{}]+)\}/g)]
+      .map((match) => match[1])
+      .filter((value): value is string => typeof value === "string" && value.length > 0);
+
+    if (unresolvedPathParameters.length > 0) {
+      const names = [...new Set(unresolvedPathParameters)].sort().join(", ");
+      return yield* new ToolProviderError({
+        operation: "invoke.resolve_path",
+        providerKind: "openapi",
+        message: `Unresolved path parameters after substitution: ${names}`,
+        details: resolvedPath,
+      });
     }
 
     return resolvedPath;
@@ -187,7 +236,7 @@ const buildFetchRequest = (
         continue;
       }
 
-      const parameterValue = args[parameter.name];
+      const parameterValue = readParameterValue(args, parameter);
       if (parameterValue === undefined || parameterValue === null) {
         if (parameter.required) {
           return yield* new ToolProviderError({

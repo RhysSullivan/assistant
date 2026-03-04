@@ -317,9 +317,10 @@ source-manager + schema -> control-plane
 approvals/source-manager/engine -> mcp-gateway
 domain/features -> sdk -> ai-sdk-adapter
 
-apps/pm      -> mcp-gateway + domain + persistence-sql + control-plane
-apps/web     -> management-api + persistence-sql + control-plane routes
-apps/cli/web -> sdk (and/or ai-sdk bridge)
+packages/control-plane-runtime -> mcp-gateway + domain + persistence-sql + control-plane
+packages/api-http             -> management-api (request/response routing)
+apps/web                       -> management-api + persistence-sql + control-plane routes
+apps/cli                       -> sdk + api-http + control-plane-runtime
 ```
 Rules:
 - `schema` is backend-agnostic.

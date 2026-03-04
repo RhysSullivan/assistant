@@ -6,11 +6,13 @@ import { stdin, stdout } from "node:process";
 import { Command, Options } from "@effect/cli";
 import { FetchHttpClient } from "@effect/platform";
 import { BunContext, BunRuntime } from "@effect/platform-bun";
-import { ControlPlaneApi } from "@executor-v2/management-api";
+import {
+  createExecutorApiFetchHandler,
+  type ExecutorApiPrincipal,
+} from "@executor-v2/api-http";
 import { makeControlPlaneClient } from "@executor-v2/management-api/client";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { type EndpointCommand, fromApi } from "./http-api-cli";
 
 type ExecutorTarget = "local" | "cloud";
 
@@ -32,6 +34,20 @@ type RequestOptions = {
 
 type WorkspaceRecord = {
   id: string;
+};
+
+type SourceRecord = {
+  id: string;
+  name: string;
+  endpoint: string;
+  configJson: string;
+};
+
+type SourceToolSummaryRecord = {
+  toolId: string;
+  method: string;
+  path: string;
+  name: string;
 };
 
 type DeviceAuthorizationResponse = {
@@ -62,9 +78,11 @@ type CommonTargetOptions = {
 
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:8788";
 const DEFAULT_WORKOS_AUTH_BASE_URL = "https://api.workos.com";
+const DEFAULT_GITHUB_OPENAPI_SPEC_URL =
+  "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json";
+const DEFAULT_GITHUB_API_BASE_URL = "https://api.github.com";
+const DEFAULT_GITHUB_OPENAPI_SOURCE_ID = "src_github_openapi";
 const CONFIG_PATH = join(homedir(), ".config", "executor", "cli.json");
-
-const controlPlaneCli = fromApi(ControlPlaneApi);
 
 const toErrorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
@@ -72,11 +90,54 @@ const toErrorMessage = (cause: unknown): string =>
 const trimTrailingSlash = (input: string): string =>
   input.endsWith("/") ? input.slice(0, -1) : input;
 
+const normalizeCloudBaseUrl = (input: string): string => {
+  try {
+    const url = new URL(input);
+    const isLocalhost =
+      url.hostname === "localhost"
+      || url.hostname === "127.0.0.1"
+      || url.hostname === "::1";
+
+    if (isLocalhost && (url.pathname === "/" || url.pathname === "")) {
+      url.pathname = "/api/control-plane";
+    }
+
+    return trimTrailingSlash(url.toString());
+  } catch {
+    return trimTrailingSlash(input);
+  }
+};
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 const optionToUndefined = <A>(option: Option.Option<A>): A | undefined =>
   Option.getOrUndefined(option);
+
+const tokenExpiresAtEpochSeconds = (token: string): number | null => {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+      exp?: unknown;
+    };
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch {
+    return null;
+  }
+};
+
+const isTokenStale = (token: string, skewSeconds = 30): boolean => {
+  const exp = tokenExpiresAtEpochSeconds(token);
+  if (exp === null) {
+    return false;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  return exp <= now + skewSeconds;
+};
 
 const cleanEnv = (): Record<string, string> => {
   const env: Record<string, string> = {};
@@ -258,7 +319,7 @@ class ExecutorServerClient {
   async request<T>(options: RequestOptions): Promise<T> {
     const baseUrl = await this.#resolveBaseUrl();
     const url = `${baseUrl}${options.path}`;
-    const headers = this.#buildHeaders();
+    const headers = await this.#buildHeaders();
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
     }
@@ -289,7 +350,7 @@ class ExecutorServerClient {
     operation: (client: any) => Effect.Effect<T, unknown>,
   ): Promise<T> {
     const baseUrl = await this.#resolveBaseUrl();
-    const headers = this.#buildHeaders();
+    const headers = await this.#buildHeaders();
 
     const program = Effect.gen(function* () {
       const client = yield* makeControlPlaneClient({ baseUrl, headers });
@@ -299,16 +360,16 @@ class ExecutorServerClient {
     return Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer)));
   }
 
-  #buildHeaders(): Record<string, string> {
+  async #buildHeaders(): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       Accept: "application/json",
     };
 
     if (this.#target === "cloud") {
-      const token =
-        process.env.EXECUTOR_CLOUD_TOKEN?.trim()
-        || this.#config.cloudToken?.trim()
-        || undefined;
+      const envToken = process.env.EXECUTOR_CLOUD_TOKEN?.trim();
+      const token = envToken && envToken.length > 0
+        ? envToken
+        : await this.#resolveCloudAccessToken();
       if (token) {
         headers.Authorization = `Bearer ${token}`;
       }
@@ -320,9 +381,86 @@ class ExecutorServerClient {
     return headers;
   }
 
+  async #resolveCloudAccessToken(): Promise<string | undefined> {
+    const configuredToken = this.#config.cloudToken?.trim();
+    const staleConfiguredToken = configuredToken ? isTokenStale(configuredToken) : false;
+
+    if (configuredToken && !staleConfiguredToken) {
+      return configuredToken;
+    }
+
+    const refreshed = await this.#refreshCloudAccessToken();
+    if (refreshed) {
+      return refreshed;
+    }
+
+    if (configuredToken && staleConfiguredToken) {
+      throw new Error(
+        "Cloud access token expired and could not be refreshed. Run `executor auth login --client-id <WORKOS_CLIENT_ID>`.",
+      );
+    }
+
+    return configuredToken || undefined;
+  }
+
+  async #refreshCloudAccessToken(): Promise<string | undefined> {
+    const refreshToken = this.#config.cloudRefreshToken?.trim();
+    if (!refreshToken) {
+      return undefined;
+    }
+
+    const clientId =
+      process.env.EXECUTOR_CLOUD_AUTH_CLIENT_ID?.trim()
+      || process.env.WORKOS_CLIENT_ID?.trim()
+      || this.#config.cloudAuthClientId?.trim();
+    if (!clientId) {
+      return undefined;
+    }
+
+    const authBaseUrl =
+      process.env.EXECUTOR_CLOUD_AUTH_BASE_URL?.trim()
+      || this.#config.cloudAuthBaseUrl?.trim()
+      || DEFAULT_WORKOS_AUTH_BASE_URL;
+
+    const response = await postForm(
+      `${trimTrailingSlash(authBaseUrl)}/user_management/authenticate`,
+      {
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+      },
+      20000,
+    );
+
+    if (!response.ok || !response.payload || typeof response.payload !== "object") {
+      return undefined;
+    }
+
+    const payload = response.payload as Record<string, unknown>;
+    const accessToken = typeof payload.access_token === "string"
+      ? payload.access_token
+      : undefined;
+    if (!accessToken) {
+      return undefined;
+    }
+
+    this.#config.cloudToken = accessToken;
+    this.#config.cloudAuthClientId = clientId;
+    this.#config.cloudAuthBaseUrl = authBaseUrl;
+
+    if (typeof payload.refresh_token === "string" && payload.refresh_token.length > 0) {
+      this.#config.cloudRefreshToken = payload.refresh_token;
+    }
+
+    await saveConfig(this.#config);
+    return accessToken;
+  }
+
   async #resolveBaseUrl(): Promise<string> {
     if (this.#baseUrlOverride && this.#baseUrlOverride.length > 0) {
-      return trimTrailingSlash(this.#baseUrlOverride);
+      return this.#target === "cloud"
+        ? normalizeCloudBaseUrl(this.#baseUrlOverride)
+        : trimTrailingSlash(this.#baseUrlOverride);
     }
 
     if (this.#target === "cloud") {
@@ -335,7 +473,7 @@ class ExecutorServerClient {
           "Cloud target selected but no base URL configured. Set EXECUTOR_CLOUD_URL or run `executor init --target cloud --cloud-url <url>`.",
         );
       }
-      return trimTrailingSlash(cloudBaseUrl);
+      return normalizeCloudBaseUrl(cloudBaseUrl);
     }
 
     const localBaseUrl =
@@ -365,14 +503,29 @@ class ExecutorServerClient {
       return;
     }
 
-    const pmDir = resolve(import.meta.dir, "..", "..", "pm");
     const bunBinary = process.execPath;
-    const candidateMain = resolve(pmDir, "src", "main.ts");
+    const candidateMain = process.argv[1] && process.argv[1].length > 0
+      ? resolve(process.argv[1])
+      : resolve(import.meta.dir, "main.ts");
+    const localPort = (() => {
+      try {
+        const parsed = new URL(baseUrl);
+        return parsed.port.length > 0 ? parsed.port : "8788";
+      } catch {
+        return "8788";
+      }
+    })();
+    const childEnv = {
+      ...cleanEnv(),
+      PORT: localPort,
+      PM_RUNTIME_KIND:
+        process.env.EXECUTOR_LOCAL_RUNTIME_KIND?.trim() || "local-inproc",
+    };
 
     this.#localProcess = Bun.spawn({
-      cmd: [bunBinary, candidateMain],
-      cwd: pmDir,
-      env: cleanEnv(),
+      cmd: [bunBinary, candidateMain, "__local-server", "--port", localPort],
+      cwd: process.cwd(),
+      env: childEnv,
       stdin: "ignore",
       stdout: "ignore",
       stderr: "pipe",
@@ -422,16 +575,20 @@ const ensureWorkspaceId = async (
     return workspaceOverride.trim();
   }
 
-  if (config.workspaceId && config.workspaceId.trim().length > 0) {
-    return config.workspaceId;
-  }
-
   const workspaces = await client.runControlPlane((api) =>
     api.workspaces.list({}),
   ) as Array<WorkspaceRecord>;
 
   if (!Array.isArray(workspaces) || workspaces.length === 0) {
     throw new Error("No workspaces available. Create one first through the control plane API.");
+  }
+
+  const configuredWorkspaceId = config.workspaceId?.trim();
+  if (
+    configuredWorkspaceId
+    && workspaces.some((workspace) => workspace.id === configuredWorkspaceId)
+  ) {
+    return configuredWorkspaceId;
   }
 
   const workspaceId = workspaces[0].id;
@@ -448,6 +605,77 @@ const deriveSourceName = (kind: string, endpoint: string): string => {
   } catch {
     return `${kind}:source`;
   }
+};
+
+const bootstrapOpenApiSource = async (input: {
+  client: ExecutorServerClient;
+  config: ExecutorCliConfig;
+  workspaceOverride?: string;
+  specUrl: string;
+  baseUrl: string;
+  name?: string;
+  sourceId?: string;
+}): Promise<{
+  workspaceId: string;
+  source: SourceRecord;
+  tools: Array<SourceToolSummaryRecord>;
+  sampleToolPath: string | null;
+}> => {
+  const workspaceId = await ensureWorkspaceId(
+    input.client,
+    input.config,
+    input.workspaceOverride,
+  );
+  const normalizedSpecUrl = input.specUrl.trim();
+  const normalizedBaseUrl = input.baseUrl.trim();
+
+  if (normalizedSpecUrl.length === 0) {
+    throw new Error("OpenAPI bootstrap requires --spec-url.");
+  }
+
+  if (normalizedBaseUrl.length === 0) {
+    throw new Error("OpenAPI bootstrap requires --source-base-url.");
+  }
+
+  const source = await input.client.runControlPlane((api) =>
+    api.sources.upsert({
+      path: { workspaceId },
+      payload: {
+        ...(input.sourceId && input.sourceId.trim().length > 0
+          ? { id: input.sourceId.trim() }
+          : {}),
+        name:
+          input.name && input.name.trim().length > 0
+            ? input.name.trim()
+            : deriveSourceName("openapi", normalizedBaseUrl),
+        kind: "openapi",
+        endpoint: normalizedSpecUrl,
+        status: "connected",
+        enabled: true,
+        configJson: JSON.stringify({ baseUrl: normalizedBaseUrl }),
+      },
+    }),
+  ) as SourceRecord;
+
+  const tools = await input.client.runControlPlane((api) =>
+    api.tools.listSourceTools({
+      path: {
+        workspaceId,
+        sourceId: source.id,
+      },
+    }),
+  ) as Array<SourceToolSummaryRecord>;
+
+  const sampleToolPath = tools[0]?.toolId
+    ? `source.${source.id}.${tools[0].toolId}`
+    : null;
+
+  return {
+    workspaceId,
+    source,
+    tools,
+    sampleToolPath,
+  };
 };
 
 const postForm = async (
@@ -630,145 +858,61 @@ const commonTargetOptions = () => ({
   json: Options.boolean("json"),
 });
 
-const toKebabCase = (value: string): string =>
-  value
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/--+/g, "-")
-    .replace(/^-|-$/g, "")
-    .toLowerCase();
+const startEmbeddedLocalServer = async (port: number): Promise<void> => {
+  process.env.PM_RUNTIME_KIND =
+    process.env.EXECUTOR_LOCAL_RUNTIME_KIND?.trim() || "local-inproc";
 
-const readOptionalString = (value: unknown): string | undefined => {
-  if (typeof value === "string") {
-    return value;
-  }
+  const {
+    createLocalPrincipal,
+    getControlPlaneRuntime,
+    provisionPrincipal,
+  } = await import("../../web/lib/control-plane/server");
 
-  if (Option.isOption(value) && Option.isSome(value)) {
-    const some = value as Option.Some<unknown>;
-    return typeof some.value === "string" ? some.value : undefined;
-  }
+  const runtime = await getControlPlaneRuntime();
+  const defaultWorkspaceId = process.env.EXECUTOR_LOCAL_WORKSPACE_ID?.trim() || "ws_local";
+  const principal = {
+    ...createLocalPrincipal(),
+    accountId: "acct_local",
+    subject: "local:local",
+    displayName: "Local",
+    organizationId: "org_local",
+    workspaceId: defaultWorkspaceId,
+  } as ExecutorApiPrincipal;
 
-  return undefined;
-};
-
-const runGeneratedEndpoint = (
-  endpoint: EndpointCommand,
-  values: Record<string, unknown>,
-): Effect.Effect<void, string> =>
-  Effect.tryPromise({
-    try: async () => {
-      const common = {
-        target: values.target as Option.Option<ExecutorTarget>,
-        workspace: values.workspace as Option.Option<string>,
-        baseUrl: values.baseUrl as Option.Option<string>,
-        json: values.json === true,
-      } satisfies CommonTargetOptions;
-
-      await withClient(common, async ({ client, config, workspaceOverride, asJson }) => {
-        const flags: Record<string, string | boolean> = {};
-        for (const field of [
-          ...endpoint.pathFields,
-          ...endpoint.payloadFields,
-          ...endpoint.urlParamFields,
-        ]) {
-          const raw = readOptionalString(values[field.name]);
-          if (raw !== undefined) {
-            flags[field.name] = raw;
-          }
-        }
-
-        const payloadJson = readOptionalString(values.payloadJson);
-        if (payloadJson !== undefined) {
-          flags["payload-json"] = payloadJson;
-        }
-
-        const handled = await controlPlaneCli.execute({
-          groupName: endpoint.groupName,
-          endpointName: endpoint.endpointCliName,
-          flags,
-          resolveDefaultPathValue: async (name) => {
-            if (name === "workspaceId") {
-              return ensureWorkspaceId(client, config, workspaceOverride);
-            }
-            return undefined;
-          },
-          invoke: ({ command, request }) =>
-            client.runControlPlane((api: any) => {
-              const groupApi = api[command.groupName] as Record<string, unknown> | undefined;
-              const endpointFn = groupApi?.[command.endpointName];
-              if (typeof endpointFn !== "function") {
-                return Effect.dieMessage(
-                  `Endpoint not found on client: ${command.groupName}.${command.endpointName}`,
-                );
-              }
-              return (endpointFn as (input: Record<string, unknown>) => Effect.Effect<unknown>)(
-                request,
-              );
-            }),
-          print: (value) => printOutput(value, asJson),
-        });
-
-        if (!handled) {
-          throw new Error(
-            `Unhandled generated endpoint: ${endpoint.groupName}.${endpoint.endpointCliName}`,
-          );
-        }
-      });
+  const fetchHandler = createExecutorApiFetchHandler({
+    handlers: {
+      handleControlPlane: runtime.handleControlPlane,
+      handleMcp: runtime.handleMcp,
+      handleRuntimeToolCall: runtime.handleRuntimeToolCall,
+      executeRun: runtime.executeRun,
     },
-    catch: toErrorMessage,
+    resolvePrincipal: async () => principal,
+    ensurePrincipal: (nextPrincipal) => provisionPrincipal(runtime, nextPrincipal as any),
+    healthServiceName: "executor-local-server",
+    defaultMcpWorkspaceId: defaultWorkspaceId,
   });
 
-const makeGeneratedEndpointCommand = (endpoint: EndpointCommand): Command.Command<any, any, any, any> => {
-  const optionConfig: Record<string, unknown> = {
-    ...commonTargetOptions(),
-    ...(endpoint.hasPayloadSchema
-      ? { payloadJson: Options.text("payload-json").pipe(Options.optional) }
-      : {}),
-  };
+  const server = Bun.serve({
+    port,
+    hostname: "127.0.0.1",
+    fetch: fetchHandler,
+  });
 
-  const requiredFlags: Array<string> = [];
+  await new Promise<void>((resolvePromise) => {
+    let settled = false;
+    const cleanup = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      server.stop(true);
+      void runtime.dispose().finally(resolvePromise);
+    };
 
-  const allFields = [
-    ...endpoint.pathFields,
-    ...endpoint.payloadFields,
-    ...endpoint.urlParamFields,
-  ];
-
-  for (const field of allFields) {
-    const optionName = toKebabCase(field.name);
-    const canFallbackToCurrentWorkspace =
-      field.name === "workspaceId" && endpoint.pathFields.some((pathField) => pathField.name === "workspaceId");
-    const required = !field.optional && !canFallbackToCurrentWorkspace;
-
-    optionConfig[field.name] = required
-      ? Options.text(optionName)
-      : Options.text(optionName).pipe(Options.optional);
-
-    if (required) {
-      requiredFlags.push(`--${optionName}`);
-    }
-  }
-
-  const description =
-    requiredFlags.length > 0
-      ? `${endpoint.method} ${endpoint.path} | required: ${requiredFlags.join(" ")}`
-      : `${endpoint.method} ${endpoint.path}`;
-
-  return Command.make(
-    endpoint.endpointCliName,
-    optionConfig as any,
-    (values) => runGeneratedEndpoint(endpoint, values as Record<string, unknown>),
-  ).pipe(
-    Command.withDescription(description),
-  );
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+  });
 };
-
-const generatedByGroup = new Map<string, Array<EndpointCommand>>();
-for (const endpoint of controlPlaneCli.commands) {
-  const existing = generatedByGroup.get(endpoint.groupName) ?? [];
-  existing.push(endpoint);
-  generatedByGroup.set(endpoint.groupName, existing);
-}
 
 const authStatusCommand = Command.make("status", { json: Options.boolean("json") }, ({ json }) =>
   Effect.tryPromise({
@@ -872,6 +1016,27 @@ const authLoginCommand = Command.make(
 const authCommand = Command.make("auth").pipe(
   Command.withSubcommands([authLoginCommand, authStatusCommand] as any),
   Command.withDescription("Cloud authentication commands"),
+);
+
+const serverStartCommand = Command.make(
+  "start",
+  {
+    port: Options.integer("port").pipe(Options.withDefault(8788)),
+  },
+  ({ port }) =>
+    Effect.tryPromise({
+      try: async () => {
+        await startEmbeddedLocalServer(port);
+      },
+      catch: toErrorMessage,
+    }),
+).pipe(
+  Command.withDescription("Start local Executor API server (foreground)"),
+);
+
+const serverCommand = Command.make("server").pipe(
+  Command.withSubcommands([serverStartCommand] as any),
+  Command.withDescription("Local server host commands"),
 );
 
 const initCommand = Command.make(
@@ -998,10 +1163,12 @@ const workspaceCurrentCommand = Command.make(
   (common) =>
     Effect.tryPromise({
       try: async () => {
-        await withClient(common as CommonTargetOptions, async ({ client, config, workspaceOverride, asJson }) => {
-          const workspaceId = await ensureWorkspaceId(client, config, workspaceOverride);
-          printOutput({ workspaceId }, asJson);
-        });
+        const config = await loadConfig();
+        const workspaceOverride = optionToUndefined((common as CommonTargetOptions).workspace);
+        const workspaceId = workspaceOverride?.trim().length
+          ? workspaceOverride.trim()
+          : (config.workspaceId ?? null);
+        printOutput({ workspaceId }, (common as CommonTargetOptions).json);
       },
       catch: toErrorMessage,
     }),
@@ -1030,28 +1197,71 @@ const workspaceCommand = Command.make("workspace").pipe(
   Command.withDescription("Current workspace settings"),
 );
 
-const sourcesListCommand = Command.make("list", commonTargetOptions(), (common) =>
-  Effect.tryPromise({
-    try: async () => {
-      await withClient(common as CommonTargetOptions, async ({ client, config, workspaceOverride, asJson }) => {
-        const workspaceId = await ensureWorkspaceId(client, config, workspaceOverride);
-        const sources = await client.runControlPlane((api) =>
-          api.sources.list({ path: { workspaceId } }),
-        );
-        printOutput(sources, asJson);
-      });
-    },
-    catch: toErrorMessage,
-  }),
-);
-
-const sourcesAddCommand = Command.make(
-  "add",
+const runExecuteCommand = Command.make(
+  "execute",
   {
     ...commonTargetOptions(),
-    kind: Options.choice("kind", ["openapi", "mcp", "graphql", "internal"]),
-    url: Options.text("url"),
+    code: Options.text("code").pipe(Options.optional),
+    file: Options.text("file").pipe(Options.optional),
+    timeoutMs: Options.integer("timeout-ms").pipe(Options.optional),
+  },
+  (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const codeFromFlag = optionToUndefined(input.code)?.trim();
+        const filePath = optionToUndefined(input.file)?.trim();
+        const codeFromFile = filePath && filePath.length > 0
+          ? (await Bun.file(filePath).text()).trim()
+          : undefined;
+        const code = codeFromFile && codeFromFile.length > 0
+          ? codeFromFile
+          : (codeFromFlag && codeFromFlag.length > 0 ? codeFromFlag : undefined);
+
+        if (!code) {
+          throw new Error("Run execution requires --code or --file.");
+        }
+
+        const common: CommonTargetOptions = {
+          target: input.target,
+          workspace: input.workspace,
+          baseUrl: input.baseUrl,
+          json: input.json,
+        };
+
+        await withClient(common, async ({ client, config, workspaceOverride, asJson }) => {
+          const workspaceId = workspaceOverride?.trim().length
+            ? workspaceOverride.trim()
+            : (config.workspaceId?.trim().length ? config.workspaceId.trim() : undefined);
+          const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+
+          const result = await client.request<unknown>({
+            method: "POST",
+            path: `/execute${query}`,
+            body: {
+              code,
+              ...(Option.isSome(input.timeoutMs)
+                ? { timeoutMs: input.timeoutMs.value }
+                : {}),
+            },
+          });
+
+          printOutput(result, asJson);
+        });
+      },
+      catch: toErrorMessage,
+    }),
+).pipe(
+  Command.withDescription("Execute TypeScript code through Executor runtime"),
+);
+
+const runBootstrapOpenApiCommand = Command.make(
+  "openapi",
+  {
+    ...commonTargetOptions(),
+    specUrl: Options.text("spec-url"),
+    sourceBaseUrl: Options.text("source-base-url"),
     name: Options.text("name").pipe(Options.optional),
+    sourceId: Options.text("source-id").pipe(Options.optional),
   },
   (input) =>
     Effect.tryPromise({
@@ -1062,94 +1272,127 @@ const sourcesAddCommand = Command.make(
           baseUrl: input.baseUrl,
           json: input.json,
         };
+
         await withClient(common, async ({ client, config, workspaceOverride, asJson }) => {
-          const workspaceId = await ensureWorkspaceId(client, config, workspaceOverride);
-          const source = await client.runControlPlane((api) =>
-            api.sources.upsert({
-              path: { workspaceId },
-              payload: {
-                name: optionToUndefined(input.name) ?? deriveSourceName(input.kind, input.url),
-                kind: input.kind,
-                endpoint: input.url,
-                enabled: true,
+          const setup = await bootstrapOpenApiSource({
+            client,
+            config,
+            workspaceOverride,
+            specUrl: input.specUrl,
+            baseUrl: input.sourceBaseUrl,
+            name: optionToUndefined(input.name),
+            sourceId: optionToUndefined(input.sourceId),
+          });
+
+          printOutput(
+            {
+              ok: true,
+              workspaceId: setup.workspaceId,
+              source: {
+                id: setup.source.id,
+                name: setup.source.name,
+                endpoint: setup.source.endpoint,
+                configJson: setup.source.configJson,
               },
-            }),
+              toolCount: setup.tools.length,
+              sampleToolPath: setup.sampleToolPath,
+            },
+            asJson,
           );
-          printOutput(source, asJson);
         });
       },
       catch: toErrorMessage,
     }),
+).pipe(
+  Command.withDescription("Bootstrap an OpenAPI source with runtime base URL"),
 );
 
-const toolsListCommand = Command.make("list", commonTargetOptions(), (common) =>
-  Effect.tryPromise({
-    try: async () => {
-      await withClient(common as CommonTargetOptions, async ({ client, config, workspaceOverride, asJson }) => {
-        const workspaceId = await ensureWorkspaceId(client, config, workspaceOverride);
-        const tools = await client.runControlPlane((api) =>
-          api.tools.listWorkspaceTools({ path: { workspaceId } }),
-        );
-        printOutput(tools, asJson);
-      });
-    },
-    catch: toErrorMessage,
-  }),
+const runBootstrapGithubCommand = Command.make(
+  "github",
+  {
+    ...commonTargetOptions(),
+    name: Options.text("name").pipe(Options.optional),
+    sourceId: Options.text("source-id").pipe(Options.optional),
+    specUrl: Options.text("spec-url").pipe(Options.withDefault(DEFAULT_GITHUB_OPENAPI_SPEC_URL)),
+    sourceBaseUrl: Options.text("source-base-url").pipe(Options.withDefault(DEFAULT_GITHUB_API_BASE_URL)),
+  },
+  (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const common: CommonTargetOptions = {
+          target: input.target,
+          workspace: input.workspace,
+          baseUrl: input.baseUrl,
+          json: input.json,
+        };
+
+        await withClient(common, async ({ client, config, workspaceOverride, asJson }) => {
+          const setup = await bootstrapOpenApiSource({
+            client,
+            config,
+            workspaceOverride,
+            specUrl: input.specUrl,
+            baseUrl: input.sourceBaseUrl,
+            name: optionToUndefined(input.name) ?? "github:openapi",
+            sourceId: optionToUndefined(input.sourceId) ?? DEFAULT_GITHUB_OPENAPI_SOURCE_ID,
+          });
+
+          const suggestedTool =
+            setup.tools.find((tool) =>
+              tool.toolId.includes("issues-and-pull-requests"),
+            )
+            ?? setup.tools[0]
+            ?? null;
+
+          printOutput(
+            {
+              ok: true,
+              workspaceId: setup.workspaceId,
+              source: {
+                id: setup.source.id,
+                name: setup.source.name,
+                endpoint: setup.source.endpoint,
+                configJson: setup.source.configJson,
+              },
+              toolCount: setup.tools.length,
+              suggestedToolPath: suggestedTool
+                ? `source.${setup.source.id}.${suggestedTool.toolId}`
+                : null,
+              executeHint: suggestedTool
+                ? `executor run execute --code \"return await tools['source.${setup.source.id}.${suggestedTool.toolId}']({ q: 'repo:owner/repo is:issue state:open', per_page: 5 });\"`
+                : null,
+            },
+            asJson,
+          );
+        });
+      },
+      catch: toErrorMessage,
+    }),
+).pipe(
+  Command.withDescription("Bootstrap GitHub OpenAPI source for public issue queries"),
 );
 
-const generatedSourcesCommands = (generatedByGroup.get("sources") ?? [])
-  .filter((command) => command.endpointCliName !== "list")
-  .map(makeGeneratedEndpointCommand);
-
-const generatedToolsCommands = (generatedByGroup.get("tools") ?? [])
-  .filter((command) => command.endpointCliName !== "list-workspace-tools")
-  .map(makeGeneratedEndpointCommand);
-
-const sourcesCommand = Command.make("sources").pipe(
+const runBootstrapCommand = Command.make("bootstrap").pipe(
   Command.withSubcommands([
-    sourcesAddCommand,
-    sourcesListCommand,
-    ...(generatedSourcesCommands as any),
+    runBootstrapOpenApiCommand,
+    runBootstrapGithubCommand,
   ] as any),
-  Command.withDescription("Source management commands"),
+  Command.withDescription("Bootstrap source setup shortcuts for execution workflows"),
 );
 
-const toolsCommand = Command.make("tools").pipe(
-  Command.withSubcommands([
-    toolsListCommand,
-    ...(generatedToolsCommands as any),
-  ] as any),
-  Command.withDescription("Tool discovery commands"),
+const runCommand = Command.make("run").pipe(
+  Command.withSubcommands([runExecuteCommand, runBootstrapCommand] as any),
+  Command.withDescription("Code execution commands"),
 );
-
-const generatedGroupCommands: Array<Command.Command<any, any, any, any>> = [];
-for (const [groupName, commands] of generatedByGroup) {
-  if (groupName === "sources" || groupName === "tools") {
-    continue;
-  }
-
-  const endpointCommands = commands.map(makeGeneratedEndpointCommand);
-  if (endpointCommands.length === 0) {
-    continue;
-  }
-
-  generatedGroupCommands.push(
-    Command.make(groupName).pipe(
-      Command.withSubcommands(endpointCommands as any),
-      Command.withDescription(`Generated commands for ${groupName}`),
-    ),
-  );
-}
 
 const root = Command.make("executor").pipe(
   Command.withSubcommands([
     initCommand,
     authCommand,
+    serverCommand,
     targetCommand,
     workspaceCommand,
-    sourcesCommand,
-    toolsCommand,
-    ...(generatedGroupCommands as any),
+    runCommand,
   ] as any),
   Command.withDescription("Executor CLI"),
 );
@@ -1159,8 +1402,30 @@ const runCli = Command.run(root, {
   version: "0.1.0",
 });
 
-const program = runCli(process.argv).pipe(
-  Effect.provide(BunContext.layer as any),
-) as Effect.Effect<void, unknown, never>;
+const runInternalLocalServerIfRequested = (): Effect.Effect<void, unknown, never> | null => {
+  if (process.argv[2] !== "__local-server") {
+    return null;
+  }
+
+  const portFlagIndex = process.argv.findIndex((arg) => arg === "--port");
+  const rawPort =
+    portFlagIndex >= 0 && process.argv[portFlagIndex + 1]
+      ? process.argv[portFlagIndex + 1]
+      : undefined;
+  const parsedPort = rawPort ? Number(rawPort) : NaN;
+  const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 8788;
+
+  return Effect.tryPromise({
+    try: async () => {
+      await startEmbeddedLocalServer(port);
+    },
+    catch: toErrorMessage,
+  }).pipe(Effect.provide(BunContext.layer as any)) as Effect.Effect<void, unknown, never>;
+};
+
+const program = runInternalLocalServerIfRequested()
+  ?? (runCli(process.argv).pipe(
+    Effect.provide(BunContext.layer as any),
+  ) as Effect.Effect<void, unknown, never>);
 
 BunRuntime.runMain(program);

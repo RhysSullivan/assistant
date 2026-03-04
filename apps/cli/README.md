@@ -4,49 +4,35 @@ Executor CLI thin-client scaffold.
 
 The CLI proxies all operations to an Executor server target:
 
-- `local` target: connects to `http://127.0.0.1:8788` and auto-starts `apps/pm` as a
-  short-lived subprocess if the local server is not already running.
+- `local` target: connects to `http://127.0.0.1:8788` and auto-starts an embedded
+  Executor API server subprocess if the local server is not already running.
 - `cloud` target: proxies to a configured remote base URL.
 
 Implementation note:
 
-- Control-plane commands are executed through the typed `ControlPlaneApi` client from
-  `@executor-v2/management-api/client`, so client calls stay aligned with the same
-  HttpApi contract used by the server.
 - CLI parsing/help/completion behavior is powered by `@effect/cli`.
+- Local CLI server hosting and web API routing both use `@executor-v2/api-http` so
+  request/response handling stays in sync.
 
 Supported commands:
 
 - `executor init`
 - `executor auth login --client-id ...`
 - `executor auth status`
+- `executor server start`
 - `executor target show`
 - `executor target use <local|cloud>`
 - `executor workspace current`
 - `executor workspace use <workspace-id>`
-- `executor sources list`
-- `executor sources add --kind ... --url ...`
-- `executor tools list`
-
-Plus generated commands from `ControlPlaneApi` via `HttpApi.reflect`, for example:
-
-- `executor workspaces list`
-- `executor workspaces upsert --organization-id org_local --name "Local Workspace"`
-- `executor sources upsert --workspace-id ws_local --name sample --kind openapi --endpoint https://example.com/openapi.json`
-
-Generated endpoint commands accept:
-
-- `--<path-param>` for path parameters
-- `--<payload-field>` for struct payload fields
-- `--payload-json '{...}'` for raw payload JSON
-
-Generated command UX notes:
-
-- Required endpoint fields are marked as required in command help.
-- `workspaceId` path parameters can fall back to `--workspace` / current workspace config.
+- `executor run execute --code ...`
+- `executor run execute --file ...`
+- `executor run bootstrap openapi --spec-url ... --source-base-url ...`
+- `executor run bootstrap github`
 
 Run locally:
 
 - `bun run --cwd apps/cli start -- target show`
-- `bun run --cwd apps/cli start -- sources list --target local`
+- `bun run --cwd apps/cli start -- run execute --target local --code "return 1"`
+- `bun run --cwd apps/cli start -- run bootstrap github --target local`
 - `bun run --cwd apps/cli start -- --help`
+- `bun run --cwd apps/cli start -- server start --port 8788`

@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
 
 import { webServerEnvironment } from "../env/server";
 import { externalOriginFromRequest } from "../workos";
@@ -57,6 +57,47 @@ const resolveAuthorizationServer = (): string | null => {
 };
 
 let cachedAuthConfig: McpAuthConfig | null = null;
+const dynamicJwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
+const resolveDynamicJwksInfo = (issuer: string): {
+  issuer: string;
+  cacheKey: string;
+  jwksUrl: URL;
+} | null => {
+  let parsedIssuer: URL;
+
+  try {
+    parsedIssuer = new URL(issuer);
+  } catch {
+    return null;
+  }
+
+  if (parsedIssuer.protocol !== "https:") {
+    return null;
+  }
+
+  const normalizedPathname = parsedIssuer.pathname.replace(/\/+$/, "");
+
+  const workosUserMgmtMatch = normalizedPathname.match(/^\/user_management\/(client_[A-Za-z0-9]+)$/);
+  if (
+    parsedIssuer.hostname === "api.workos.com"
+    && workosUserMgmtMatch
+    && workosUserMgmtMatch[1]
+  ) {
+    const clientId = workosUserMgmtMatch[1];
+    return {
+      issuer,
+      cacheKey: `workos:${clientId}`,
+      jwksUrl: new URL(`/sso/jwks/${clientId}`, "https://api.workos.com"),
+    };
+  }
+
+  return {
+    issuer,
+    cacheKey: `issuer:${parsedIssuer.origin}`,
+    jwksUrl: new URL("/oauth2/jwks", parsedIssuer.origin),
+  };
+};
 
 export const getMcpAuthConfig = (): McpAuthConfig => {
   const authorizationServer = resolveAuthorizationServer();
@@ -150,20 +191,12 @@ export const verifyMcpBearerToken = async (
   request: Request,
   config: McpAuthConfig,
 ): Promise<VerifiedMcpToken | null> => {
-  if (!config.enabled || !config.authorizationServer || !config.jwks) {
-    return null;
-  }
-
   const token = parseBearerToken(request);
   if (!token) {
     return null;
   }
 
-  try {
-    const { payload } = await jwtVerify(token, config.jwks, {
-      issuer: config.authorizationServer,
-    });
-
+  const toVerifiedToken = (payload: Record<string, unknown>): VerifiedMcpToken | null => {
     if (typeof payload.sub !== "string" || payload.sub.length === 0) {
       return null;
     }
@@ -176,6 +209,44 @@ export const verifyMcpBearerToken = async (
       email,
       displayName,
     };
+  };
+
+  if (config.enabled && config.authorizationServer && config.jwks) {
+    try {
+      const { payload } = await jwtVerify(token, config.jwks, {
+        issuer: config.authorizationServer,
+      });
+      return toVerifiedToken(payload) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  if (webServerEnvironment.nodeEnv === "production") {
+    return null;
+  }
+
+  try {
+    const decoded = decodeJwt(token);
+    if (typeof decoded.iss !== "string" || decoded.iss.trim().length === 0) {
+      return null;
+    }
+
+    const jwksInfo = resolveDynamicJwksInfo(decoded.iss);
+    if (!jwksInfo) {
+      return null;
+    }
+
+    const jwks =
+      dynamicJwksCache.get(jwksInfo.cacheKey)
+      ?? createRemoteJWKSet(jwksInfo.jwksUrl);
+    dynamicJwksCache.set(jwksInfo.cacheKey, jwks);
+
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer: jwksInfo.issuer,
+    });
+
+    return toVerifiedToken(payload) ?? null;
   } catch {
     return null;
   }

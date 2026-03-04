@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const workspaceDirs = [
   "apps/web",
-  "apps/pm",
+  "apps/cli",
   "packages/persistence-sql",
 ] as const;
 

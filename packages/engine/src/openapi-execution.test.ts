@@ -243,8 +243,65 @@ describe("OpenAPI execution vertical slice", () => {
         },
       });
 
-      expect(testServer.requests).toHaveLength(1);
+      const executionWithNestedPathArgs = yield* executeJavaScriptWithTools({
+        runId: "run_openapi_2",
+        code: `return await tools[${quoteJavaScriptString(githubTool.toolId)}]({ path: { owner: "octocat", repo: "hello-world" } });`,
+        toolCallService: {
+          callTool: (input) => {
+            if (input.toolPath !== githubTool.toolId) {
+              return new RuntimeAdapterError({
+                operation: "call_tool",
+                runtimeKind: "local-inproc",
+                message: `Unknown tool path: ${input.toolPath}`,
+                details: null,
+              });
+            }
+
+            return registry
+              .invoke({
+                source,
+                tool: githubTool,
+                args: input.input ?? {},
+              })
+              .pipe(
+                Effect.mapError(
+                  (error) =>
+                    new RuntimeAdapterError({
+                      operation: "call_tool",
+                      runtimeKind: "local-inproc",
+                      message: error.message,
+                      details: null,
+                    }),
+                ),
+                Effect.flatMap((result) =>
+                  result.isError
+                    ? Effect.fail(
+                        new RuntimeAdapterError({
+                          operation: "call_tool",
+                          runtimeKind: "local-inproc",
+                          message: `Tool call returned error: ${input.toolPath}`,
+                          details: null,
+                        }),
+                      )
+                    : Effect.succeed(result.output),
+                ),
+              );
+          },
+        },
+      });
+
+      expect(executionWithNestedPathArgs).toMatchObject({
+        status: 200,
+        body: {
+          full_name: "octocat/hello-world",
+          stargazers_count: 42,
+          private: false,
+        },
+      });
+
+      expect(testServer.requests).toHaveLength(2);
       expect(testServer.requests[0]?.path).toBe("/repos/octocat/hello-world");
+      expect(testServer.requests[1]?.path).toBe("/repos/octocat/hello-world");
     }),
   );
 });

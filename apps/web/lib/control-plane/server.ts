@@ -10,6 +10,7 @@ import {
 } from "@executor-v2/management-api";
 import {
   RuntimeToolInvokerError,
+  createStaticToolRegistry,
   createRuntimeToolCallHandler,
   createRunExecutor,
   createSourceToolRegistry,
@@ -22,7 +23,29 @@ import {
   makeToolProviderRegistry,
   parseExecuteToolExposureMode,
   sourceIdFromToolPath,
+  type ToolRegistry,
+  type ToolRegistryCallInput,
+  type ToolRegistryCatalogNamespacesOutput,
+  type ToolRegistryCatalogToolsOutput,
+  type ToolRegistryDiscoverOutput,
 } from "@executor-v2/engine";
+import {
+  PmActorLive,
+  createKeychainSecretMaterialStore,
+  createPmApprovalsService,
+  createPmCredentialsService,
+  createPmExecuteRuntimeRun,
+  createPmMcpHandler,
+  createPmOrganizationsService,
+  createPmPersistentToolApprovalPolicy,
+  createPmPoliciesService,
+  createPmResolveToolCredentials,
+  createPmStorageService,
+  createPmToolsService,
+  createPmWorkspacesService,
+  createSqlSecretMaterialStore,
+  parseSecretMaterialBackendKind,
+} from "@executor-v2/control-plane-runtime";
 import {
   makeSqlControlPlanePersistence,
   type SqlControlPlanePersistence,
@@ -37,32 +60,16 @@ import {
   type OrganizationMembership,
   type Workspace,
 } from "@executor-v2/schema";
+import {
+  type ExecuteRunInput,
+  type ExecuteRunResult,
+} from "@executor-v2/sdk";
 import { makeCloudflareWorkerLoaderRuntimeAdapter } from "@executor-v2/runtime-cloudflare-worker-loader";
 import { makeDenoSubprocessRuntimeAdapter } from "@executor-v2/runtime-deno-subprocess";
 import { makeLocalInProcessRuntimeAdapter } from "@executor-v2/runtime-local-inproc";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { webServerEnvironment } from "../env/server";
-
-import { PmActorLive } from "../../../pm/src/actor";
-import {
-  createPmApprovalsService,
-  createPmPersistentToolApprovalPolicy,
-} from "../../../pm/src/approvals-service";
-import { createPmResolveToolCredentials } from "../../../pm/src/credential-resolver";
-import { createPmCredentialsService } from "../../../pm/src/credentials-service";
-import { createPmMcpHandler } from "../../../pm/src/mcp-handler";
-import { createPmOrganizationsService } from "../../../pm/src/organizations-service";
-import { createPmPoliciesService } from "../../../pm/src/policies-service";
-import { createPmExecuteRuntimeRun } from "../../../pm/src/runtime-execution-port";
-import {
-  createKeychainSecretMaterialStore,
-  createSqlSecretMaterialStore,
-  parseSecretMaterialBackendKind,
-} from "../../../pm/src/secret-material-store";
-import { createPmStorageService } from "../../../pm/src/storage-service";
-import { createPmToolsService } from "../../../pm/src/tools-service";
-import { createPmWorkspacesService } from "../../../pm/src/workspaces-service";
 
 const isPlanetScalePostgresUrl = (value: string): boolean => {
   try {
@@ -117,6 +124,7 @@ type ControlPlaneRuntime = {
   handleControlPlane: (request: Request) => Promise<Response>;
   handleMcp: (request: Request, workspaceId: string) => Promise<Response>;
   handleRuntimeToolCall: (request: Request) => Promise<Response>;
+  executeRun: (input: ExecuteRunInput, workspaceId: string) => Promise<ExecuteRunResult>;
   dispose: () => Promise<void>;
 };
 
@@ -186,6 +194,10 @@ const resolveStateRootDir = (): string =>
 
 const openApiSyncRetryDelayMs = 300;
 const runtimeToolCallRetentionMs = 15 * 60 * 1000;
+const defaultGithubOpenApiSpecUrl =
+  "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json";
+const defaultGithubApiBaseUrl = "https://api.github.com";
+const defaultGithubSourceId = "src_github_openapi";
 
 const formatCause = (cause: unknown): string => {
   if (cause && typeof cause === "object") {
@@ -245,6 +257,202 @@ const normalizeRuntimeToolCallInput = (
 
   return {};
 };
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+
+const readOptionalString = (
+  input: Record<string, unknown>,
+  ...keys: Array<string>
+): string | undefined => {
+  for (const key of keys) {
+    const raw = input[key];
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  return undefined;
+};
+
+const readOptionalBoolean = (
+  input: Record<string, unknown>,
+  ...keys: Array<string>
+): boolean | undefined => {
+  for (const key of keys) {
+    const raw = input[key];
+    if (typeof raw === "boolean") {
+      return raw;
+    }
+  }
+
+  return undefined;
+};
+
+const dedupeToolSummariesByPath = <T extends { path: string }>(
+  values: ReadonlyArray<T>,
+): Array<T> => {
+  const byPath = new Map<string, T>();
+  for (const value of values) {
+    if (!byPath.has(value.path)) {
+      byPath.set(value.path, value);
+    }
+  }
+
+  return [...byPath.values()];
+};
+
+const mergeDiscoverOutput = (
+  left: ToolRegistryDiscoverOutput,
+  right: ToolRegistryDiscoverOutput,
+  limit: number | undefined,
+): ToolRegistryDiscoverOutput => {
+  const mergedResults = dedupeToolSummariesByPath([
+    ...left.results,
+    ...right.results,
+  ]);
+  const boundedResults =
+    typeof limit === "number" && Number.isFinite(limit)
+      ? mergedResults.slice(0, Math.max(1, Math.floor(limit)))
+      : mergedResults;
+
+  const mergedPerQuery = left.perQuery.map((entry, index) => {
+    const rightEntry = right.perQuery[index];
+    if (!rightEntry) {
+      return entry;
+    }
+
+    const merged = dedupeToolSummariesByPath([
+      ...entry.results,
+      ...rightEntry.results,
+    ]);
+    const bounded =
+      typeof limit === "number" && Number.isFinite(limit)
+        ? merged.slice(0, Math.max(1, Math.floor(limit)))
+        : merged;
+
+    return {
+      ...entry,
+      bestPath: entry.bestPath ?? rightEntry.bestPath ?? bounded[0]?.path ?? null,
+      results: bounded,
+      total: merged.length,
+    };
+  });
+
+  return {
+    bestPath: left.bestPath ?? right.bestPath ?? boundedResults[0]?.path ?? null,
+    results: boundedResults,
+    total: mergedResults.length,
+    perQuery: mergedPerQuery,
+    refHintTable: {
+      ...(left.refHintTable ?? {}),
+      ...(right.refHintTable ?? {}),
+    },
+  };
+};
+
+const mergeCatalogNamespacesOutput = (
+  left: ToolRegistryCatalogNamespacesOutput,
+  right: ToolRegistryCatalogNamespacesOutput,
+): ToolRegistryCatalogNamespacesOutput => {
+  const merged = new Map<string, ToolRegistryCatalogNamespacesOutput["namespaces"][number]>();
+
+  for (const namespace of [...left.namespaces, ...right.namespaces]) {
+    const existing = merged.get(namespace.namespace);
+    if (!existing) {
+      merged.set(namespace.namespace, {
+        ...namespace,
+        samplePaths: [...namespace.samplePaths],
+      });
+      continue;
+    }
+
+    const samplePaths = [...new Set([...existing.samplePaths, ...namespace.samplePaths])]
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, 3);
+
+    merged.set(namespace.namespace, {
+      ...existing,
+      toolCount: existing.toolCount + namespace.toolCount,
+      samplePaths,
+      source: existing.source ?? namespace.source,
+      sourceKey: existing.sourceKey ?? namespace.sourceKey,
+      description: existing.description ?? namespace.description,
+    });
+  }
+
+  const namespaces = [...merged.values()].sort((a, b) =>
+    a.namespace.localeCompare(b.namespace),
+  );
+
+  return {
+    namespaces,
+    total: namespaces.length,
+  };
+};
+
+const mergeCatalogToolsOutput = (
+  left: ToolRegistryCatalogToolsOutput,
+  right: ToolRegistryCatalogToolsOutput,
+  limit: number | undefined,
+): ToolRegistryCatalogToolsOutput => {
+  const mergedResults = dedupeToolSummariesByPath([
+    ...left.results,
+    ...right.results,
+  ]);
+  const boundedResults =
+    typeof limit === "number" && Number.isFinite(limit)
+      ? mergedResults.slice(0, Math.max(1, Math.floor(limit)))
+      : mergedResults;
+
+  return {
+    results: boundedResults,
+    total: mergedResults.length,
+    refHintTable: {
+      ...(left.refHintTable ?? {}),
+      ...(right.refHintTable ?? {}),
+    },
+  };
+};
+
+const createCompositeToolRegistry = (
+  executorRegistry: ToolRegistry,
+  sourceRegistry: ToolRegistry,
+): ToolRegistry => ({
+  callTool: (input: ToolRegistryCallInput) =>
+    input.toolPath.startsWith("executor.")
+      ? executorRegistry.callTool(input)
+      : sourceRegistry.callTool(input),
+
+  discover: (input) =>
+    Effect.zip(executorRegistry.discover(input), sourceRegistry.discover(input)).pipe(
+      Effect.map(([executorOutput, sourceOutput]) =>
+        mergeDiscoverOutput(executorOutput, sourceOutput, input.limit),
+      ),
+    ),
+
+  catalogNamespaces: (input) =>
+    Effect.zip(
+      executorRegistry.catalogNamespaces(input),
+      sourceRegistry.catalogNamespaces(input),
+    ).pipe(
+      Effect.map(([executorOutput, sourceOutput]) =>
+        mergeCatalogNamespacesOutput(executorOutput, sourceOutput),
+      ),
+    ),
+
+  catalogTools: (input) =>
+    Effect.zip(executorRegistry.catalogTools(input), sourceRegistry.catalogTools(input)).pipe(
+      Effect.map(([executorOutput, sourceOutput]) =>
+        mergeCatalogToolsOutput(executorOutput, sourceOutput, input.limit),
+      ),
+    ),
+});
 
 const parseRuntimeToolCallRequest = async (
   request: Request,
@@ -371,9 +579,9 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
     ? createSqlSecretMaterialStore(persistence.rows.secretMaterials)
     : createKeychainSecretMaterialStore();
   const runtimeAdapterList = [
-    // makeLocalInProcessRuntimeAdapter(),
     makeCloudflareWorkerLoaderRuntimeAdapter(),
     makeDenoSubprocessRuntimeAdapter(),
+    makeLocalInProcessRuntimeAdapter(),
   ];
   const runtimeAdapters = makeRuntimeAdapterRegistry(runtimeAdapterList);
   const defaultRuntimeKind =
@@ -401,6 +609,7 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
   );
   const mcpSessions = new Map<string, {
     handler: (request: Request) => Promise<Response>;
+    executeRun: (input: ExecuteRunInput) => Effect.Effect<ExecuteRunResult>;
     toolRegistry: ReturnType<typeof createSourceToolRegistry>;
     runtimeToolCallHandler: ReturnType<typeof createRuntimeToolCallHandler>;
   }>();
@@ -547,6 +756,7 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
 
   const resolveMcpSession = (workspaceId: string): {
     handler: (request: Request) => Promise<Response>;
+    executeRun: (input: ExecuteRunInput) => Effect.Effect<ExecuteRunResult>;
     toolRegistry: ReturnType<typeof createSourceToolRegistry>;
     runtimeToolCallHandler: ReturnType<typeof createRuntimeToolCallHandler>;
   } => {
@@ -581,6 +791,7 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
 
     const session = {
       handler: next,
+      executeRun: runExecutor.executeRun,
       toolRegistry,
       runtimeToolCallHandler: createRuntimeToolCallHandler({
         resolveCredentials,
@@ -626,6 +837,10 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
     handleMcp: async (request, workspaceId) => {
       const session = resolveMcpSession(workspaceId);
       return session.handler(request);
+    },
+    executeRun: async (input, workspaceId) => {
+      const session = resolveMcpSession(workspaceId);
+      return Effect.runPromise(session.executeRun(input));
     },
     handleRuntimeToolCall: async (request) => {
       if (request.method.toUpperCase() !== "POST") {

@@ -2,12 +2,19 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 import type { NextRequest } from "next/server";
 
 import {
-  applyPrincipalHeaders,
+  createExecutorApiFetchHandler,
+  type ExecutorApiPrincipal,
+} from "@executor-v2/api-http";
+import {
   createLocalPrincipal,
   createWorkosPrincipal,
   getControlPlaneRuntime,
   provisionPrincipal,
 } from "../../../../lib/control-plane/server";
+import {
+  getMcpAuthConfig,
+  verifyMcpBearerToken,
+} from "../../../../lib/mcp/resource-auth";
 import { isWorkosEnabled } from "../../../../lib/workos";
 
 export const dynamic = "force-dynamic";
@@ -45,19 +52,44 @@ const storageErrorResponse = (operation: string, cause: unknown): Response => {
   );
 };
 
+const unauthorizedResponse = (operation: string, details: string): Response =>
+  Response.json(
+    {
+      _tag: "ControlPlaneUnauthorizedError",
+      operation,
+      message: "Unauthorized",
+      details,
+    },
+    { status: 401 },
+  );
+
+const forbiddenResponse = (operation: string, details: string): Response =>
+  Response.json(
+    {
+      _tag: "ControlPlaneForbiddenError",
+      operation,
+      message: "Forbidden",
+      details,
+    },
+    { status: 403 },
+  );
+
 const handle = async (request: NextRequest, context: RouteContext): Promise<Response> => {
   try {
     const method = request.method.toUpperCase();
     const { path = [] } = await context.params;
 
-    if (path.length === 0 || path[0] !== "v1") {
+    if (
+      path.length === 0
+      || (path[0] !== "v1" && !(path.length === 1 && path[0] === "execute"))
+    ) {
       return Response.json({ error: "Not found" }, { status: 404 });
     }
 
     if (!isCsrfSafeMethod(method)) {
       const origin = request.headers.get("origin");
       if (origin && origin !== request.nextUrl.origin) {
-        return Response.json({ error: "Invalid origin" }, { status: 403 });
+        return forbiddenResponse("control-plane.request", "Invalid origin");
       }
     }
 
@@ -69,41 +101,65 @@ const handle = async (request: NextRequest, context: RouteContext): Promise<Resp
     if (!isWorkosEnabled()) {
       principal = createLocalPrincipal();
     } else {
-      let user:
-        | {
-            id: string;
-            email?: string | null;
-            firstName?: string | null;
-            lastName?: string | null;
-          }
-        | null
-        | undefined;
-
-      try {
-        ({ user } = await withAuth());
-      } catch {
-        return Response.json({ error: "Authentication unavailable" }, { status: 503 });
+      const bearerPrincipal = await verifyMcpBearerToken(
+        controlPlaneRequest,
+        getMcpAuthConfig(),
+      );
+      if (bearerPrincipal) {
+        principal = createWorkosPrincipal({
+          subject: bearerPrincipal.subject,
+          email: bearerPrincipal.email,
+          displayName: bearerPrincipal.displayName,
+        });
       }
 
-      if (!user) {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (!bearerPrincipal) {
+        let user:
+          | {
+              id: string;
+              email?: string | null;
+              firstName?: string | null;
+              lastName?: string | null;
+            }
+          | null
+          | undefined;
+
+        try {
+          ({ user } = await withAuth());
+        } catch {
+          return unauthorizedResponse("control-plane.auth", "Authentication unavailable");
+        }
+
+        if (!user) {
+          return unauthorizedResponse("control-plane.auth", "Unauthorized");
+        }
+
+        const displayName = [user.firstName, user.lastName]
+          .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+          .join(" ")
+          || null;
+
+        principal = createWorkosPrincipal({
+          subject: user.id,
+          email: user.email ?? null,
+          displayName,
+        });
       }
-
-      const displayName = [user.firstName, user.lastName]
-        .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-        .join(" ")
-        || null;
-
-      principal = createWorkosPrincipal({
-        subject: user.id,
-        email: user.email ?? null,
-        displayName,
-      });
     }
 
-    await provisionPrincipal(runtime, principal);
+    const fetchHandler = createExecutorApiFetchHandler({
+      handlers: {
+        handleControlPlane: runtime.handleControlPlane,
+        handleMcp: runtime.handleMcp,
+        handleRuntimeToolCall: runtime.handleRuntimeToolCall,
+        executeRun: runtime.executeRun,
+      },
+      resolvePrincipal: async () => principal as ExecutorApiPrincipal,
+      ensurePrincipal: (nextPrincipal) => provisionPrincipal(runtime, nextPrincipal as any),
+      healthServiceName: "executor-web-control-plane",
+    });
 
-    return runtime.handleControlPlane(applyPrincipalHeaders(controlPlaneRequest, principal));
+    return fetchHandler(controlPlaneRequest);
   } catch (cause) {
     console.error("[control-plane] request failed", {
       method: request.method,
