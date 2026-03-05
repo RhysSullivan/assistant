@@ -1,145 +1,34 @@
+import type {
+  CodeExecutor,
+  ExecuteResult,
+  ToolInvoker,
+} from "@executor-v3/codemode-core";
 import * as Effect from "effect/Effect";
-import * as Runtime from "effect/Runtime";
-import * as Exit from "effect/Exit";
-import * as Cause from "effect/Cause";
-import * as Option from "effect/Option";
 
-import {
-  RuntimeAdapterError,
-  type RuntimeAdapter,
-  type RuntimeToolCallService,
-} from "@executor-v3/engine";
-
-const runtimeKind = "local-inproc";
-const runCallResultCache = new Map<string, unknown>();
-
-export type ExecuteJavaScriptInput = {
-  runId: string;
-  code: string;
-  toolCallService?: RuntimeToolCallService;
+export type InProcessExecutorOptions = {
+  timeoutMs?: number;
+  allowFetch?: boolean;
 };
 
-const runtimeError = (
-  operation: string,
-  message: string,
-  details: string | null,
-): RuntimeAdapterError =>
-  new RuntimeAdapterError({
-    operation,
-    runtimeKind,
-    message,
-    details,
-  });
+const DEFAULT_TIMEOUT_MS = 30_000;
 
-const missingToolCallServiceError = (toolPath: string): RuntimeAdapterError =>
-  runtimeError(
-    "call_tool",
-    `No tool call service configured for tool path: ${toolPath}`,
-    null,
-  );
-
-const isRuntimeAdapterErrorLike = (
-  cause: unknown,
-): cause is {
-  operation: string;
-  runtimeKind: string;
-  details: string | null;
-  _tag?: string;
-} => {
-  if (!cause || typeof cause !== "object") {
-    return false;
+const formatLogArg = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value;
   }
 
-  const record = cause as Record<string, unknown>;
-  return (record._tag === "RuntimeAdapterError" || record.name === "RuntimeAdapterError")
-    && typeof record.operation === "string"
-    && typeof record.runtimeKind === "string"
-    && (typeof record.details === "string" || record.details === null || record.details === undefined);
-};
-
-const toExecutionError = (cause: unknown): RuntimeAdapterError =>
-  cause instanceof RuntimeAdapterError
-    ? cause
-    : isRuntimeAdapterErrorLike(cause)
-      ? new RuntimeAdapterError({
-        operation: cause.operation,
-        runtimeKind: cause.runtimeKind,
-        message: cause instanceof Error && cause.message.length > 0
-          ? cause.message
-          : "Runtime adapter error",
-        details: cause.details ?? null,
-      })
-      : runtimeError(
-        "execute",
-        "JavaScript execution failed",
-        cause instanceof Error ? cause.stack ?? cause.message : String(cause),
-      );
-
-const normalizeToolInput = (args: unknown): Record<string, unknown> | undefined => {
-  if (!args || typeof args !== "object" || Array.isArray(args)) {
-    return undefined;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
-
-  return args as Record<string, unknown>;
 };
 
-const invokeTool = (
-  runId: string,
-  callId: string,
-  toolPath: string,
-  args: unknown,
-  toolCallService: RuntimeToolCallService | undefined,
-): Effect.Effect<unknown, RuntimeAdapterError> =>
-  Effect.gen(function* () {
-    if (!toolCallService) {
-      return yield* missingToolCallServiceError(toolPath);
-    }
-
-    const cacheKey = `${runId}:${callId}`;
-    if (runCallResultCache.has(cacheKey)) {
-      return runCallResultCache.get(cacheKey);
-    }
-
-    const result = yield* toolCallService.callTool({
-      runId,
-      callId,
-      toolPath,
-      input: normalizeToolInput(args),
-    });
-
-    runCallResultCache.set(cacheKey, result);
-    return result;
-  });
-
-const nextDeterministicCallId = (counter: { value: number }): string => {
-  const callId = `call_${String(counter.value).padStart(6, "0")}`;
-  counter.value += 1;
-  return callId;
-};
-
-const runPromiseWithTypedError = (
-  runtime: Runtime.Runtime<never>,
-): (<A, E>(effect: Effect.Effect<A, E>) => Promise<A>) =>
-  async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
-    const exit = await Runtime.runPromiseExit(runtime)(effect);
-    if (Exit.isSuccess(exit)) {
-      return exit.value;
-    }
-
-    const failure = Cause.failureOption(exit.cause);
-    if (Option.isSome(failure)) {
-      throw failure.value;
-    }
-
-    throw new Error(Cause.pretty(exit.cause));
-  };
+const formatLogLine = (args: unknown[]): string => args.map(formatLogArg).join(" ");
 
 const createToolsProxy = (
-  runId: string,
-  runPromise: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>,
-  toolCallService: RuntimeToolCallService | undefined,
-  callCounter: { value: number },
-  path: ReadonlyArray<string> = [],
+  toolInvoker: ToolInvoker,
+  path: readonly string[] = [],
 ): unknown => {
   const callable = () => undefined;
 
@@ -153,7 +42,7 @@ const createToolsProxy = (
         return undefined;
       }
 
-      return createToolsProxy(runId, runPromise, toolCallService, callCounter, [...path, prop]);
+      return createToolsProxy(toolInvoker, [...path, prop]);
     },
     apply(_target, _thisArg, args) {
       const toolPath = path.join(".");
@@ -161,53 +50,133 @@ const createToolsProxy = (
         throw new Error("Tool path missing in invocation");
       }
 
-      const toolArgs = args.length > 0 ? args[0] : undefined;
-      const callId = nextDeterministicCallId(callCounter);
-      return runPromise(invokeTool(runId, callId, toolPath, toolArgs, toolCallService));
+      return Effect.runPromise(
+        toolInvoker.invoke({ path: toolPath, args: args[0] }),
+      );
     },
   });
 };
 
-const runJavaScript = (
-  code: string,
-  tools: unknown,
-): Effect.Effect<unknown, RuntimeAdapterError> =>
-  Effect.tryPromise({
-    try: async () => {
-      const execute = new Function(
-        "tools",
-        `"use strict"; return (async () => {\n${code}\n})();`,
-      ) as (tools: unknown) => Promise<unknown>;
+const buildExecutionSource = (code: string): string => {
+  const trimmed = code.trim();
+  const looksLikeArrowFunction =
+    (trimmed.startsWith("async") || trimmed.startsWith("("))
+    && trimmed.includes("=>");
 
-      return await execute(tools);
-    },
-    catch: toExecutionError,
+  if (looksLikeArrowFunction) {
+    return [
+      '"use strict";',
+      "return (async () => {",
+      `const __fn = (${trimmed});`,
+      "if (typeof __fn !== 'function') throw new Error('Code must evaluate to a function');",
+      "return await __fn();",
+      "})();",
+    ].join("\n");
+  }
+
+  return [
+    '"use strict";',
+    "return (async () => {",
+    code,
+    "})();",
+  ].join("\n");
+};
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<T>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`Execution timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
   });
 
-export const executeJavaScriptWithTools = (
-  input: ExecuteJavaScriptInput,
-): Effect.Effect<unknown, RuntimeAdapterError> =>
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+};
+
+const toError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+const runInProcess = (
+  options: InProcessExecutorOptions,
+  code: string,
+  toolInvoker: ToolInvoker,
+): Effect.Effect<ExecuteResult, never> =>
   Effect.gen(function* () {
-    const runtime = yield* Effect.runtime<never>();
-    const runPromise = runPromiseWithTypedError(runtime);
-    const callCounter = { value: 0 };
-    const toolsProxy = createToolsProxy(
-      input.runId,
-      runPromise,
-      input.toolCallService,
-      callCounter,
+    const logs: string[] = [];
+
+    const sandboxConsole = {
+      log: (...args: unknown[]) => {
+        logs.push(`[log] ${formatLogLine(args)}`);
+      },
+      warn: (...args: unknown[]) => {
+        logs.push(`[warn] ${formatLogLine(args)}`);
+      },
+      error: (...args: unknown[]) => {
+        logs.push(`[error] ${formatLogLine(args)}`);
+      },
+    };
+
+    const blockedFetch = async (..._args: unknown[]): Promise<never> => {
+      throw new Error("fetch is disabled in in-process executor");
+    };
+
+    const sandboxFetch: unknown = options.allowFetch ? fetch : blockedFetch;
+    const tools = createToolsProxy(toolInvoker);
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+    const run = new Function(
+      "tools",
+      "console",
+      "fetch",
+      buildExecutionSource(code),
+    ) as (
+      toolsArg: unknown,
+      consoleArg: Pick<Console, "log" | "warn" | "error">,
+      fetchArg: unknown,
+    ) => Promise<unknown>;
+
+    const result = yield* Effect.match(
+      Effect.tryPromise({
+        try: () => withTimeout(run(tools, sandboxConsole, sandboxFetch), timeoutMs),
+        catch: toError,
+      }),
+      {
+        onFailure: (error: Error) => ({
+          ok: false as const,
+          error,
+        }),
+        onSuccess: (value: unknown) => ({
+          ok: true as const,
+          value,
+        }),
+      },
     );
 
-    return yield* runJavaScript(input.code, toolsProxy);
+    if (!result.ok) {
+      return {
+        result: null,
+        error: result.error.stack ?? result.error.message,
+        logs,
+      } satisfies ExecuteResult;
+    }
+
+    return {
+      result: result.value,
+      logs,
+    } satisfies ExecuteResult;
   });
 
-export const makeLocalInProcessRuntimeAdapter = (): RuntimeAdapter => ({
-  kind: runtimeKind,
-  isAvailable: () => Effect.succeed(true),
-  execute: (input) =>
-    executeJavaScriptWithTools({
-      runId: input.runId,
-      code: input.code,
-      toolCallService: input.toolCallService,
-    }),
+export const makeInProcessExecutor = (
+  options: InProcessExecutorOptions = {},
+): CodeExecutor => ({
+  execute: (code: string, toolInvoker: ToolInvoker) =>
+    runInProcess(options, code, toolInvoker),
 });
+

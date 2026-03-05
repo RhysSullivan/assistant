@@ -7,13 +7,17 @@
     "./ai": "./src/ai.ts",
     "./example": "./src/example.ts",
     "./example-static": "./src/example-static.ts",
-    "./example-dynamic": "./src/example-dynamic.ts"
+    "./example-dynamic": "./src/example-dynamic.ts",
+    "./example-codemode-inproc": "./src/example-codemode-inproc.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@executor-v3/codemode-core": "workspace:*",
+    "@executor-v3/runtime-local-inproc": "workspace:*",
     "ai": "^6.0.0",
+    "effect": "^3.19.19",
     "zod": "^4.3.6"
   },
   "devDependencies": {

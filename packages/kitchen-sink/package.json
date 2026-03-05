@@ -1,0 +1,22 @@
+{
+  "name": "@executor-v3/kitchen-sink",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "bun run src/playground.ts"
+  },
+  "dependencies": {
+    "@executor-v3/ai-sdk-adapter": "workspace:*",
+    "@executor-v3/runtime-local-inproc": "workspace:*",
+    "effect": "^3.19.19"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^0.27.0",
+    "@types/node": "^24.3.1",
+    "bun-types": "^1.2.22",
+    "vitest": "^3.2.4"
+  }
+}

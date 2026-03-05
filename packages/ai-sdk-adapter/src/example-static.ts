@@ -1,4 +1,4 @@
-import { convertFileListToFileUIParts, tool } from "ai";
+import { tool } from "ai";
 import { z } from "zod";
 
 import { createStaticDiscoveryFromTools, toExecutorTool } from "./index";
@@ -40,3 +40,4 @@ export const staticDemo = createStaticDiscoveryFromTools({
   tools: wrappedTools,
   sourceKey: "api.github",
 });
+

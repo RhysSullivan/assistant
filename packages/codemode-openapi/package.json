@@ -1,0 +1,26 @@
+{
+  "name": "@executor-v3/codemode-openapi",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@executor-v3/codemode-core": "workspace:*",
+    "effect": "^3.19.19",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@effect/platform": "^0.94.5",
+    "@effect/platform-node": "^0.104.1",
+    "@effect/vitest": "^0.27.0",
+    "@types/node": "^24.3.1",
+    "bun-types": "^1.2.22",
+    "vitest": "^3.2.4"
+  }
+}

@@ -9,8 +9,8 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor-v3/engine": "workspace:*",
-    "effect": "^3.19.8"
+    "@executor-v3/codemode-core": "workspace:*",
+    "effect": "^3.19.19"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

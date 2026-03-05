@@ -9,5 +9,7 @@
     "lib": ["ES2022"],
     "types": ["bun-types", "node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }
