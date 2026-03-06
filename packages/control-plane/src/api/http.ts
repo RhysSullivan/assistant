@@ -25,7 +25,7 @@ export const ControlPlaneApiLive = HttpApiBuilder.api(ControlPlaneApi).pipe(
   Layer.provide(ControlPlaneExecutionsLive),
 );
 
-export const makeControlPlaneApiLayer = <EService, EResolver>(
+export const createControlPlaneApiLayer = <EService, EResolver>(
   serviceLayer: Layer.Layer<ControlPlaneService, EService, never>,
   actorResolverLayer: Layer.Layer<ControlPlaneActorResolver, EResolver, never>,
 ) =>

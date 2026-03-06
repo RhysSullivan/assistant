@@ -7,8 +7,8 @@ import { NodeHttpServer } from "@effect/platform-node";
 import {
   ControlPlaneActorResolver,
   ControlPlaneService,
-  makeControlPlaneApiLayer,
-  makeSqlControlPlaneRuntime,
+  createControlPlaneApiLayer,
+  createSqlControlPlaneRuntime,
   type ResolveExecutionEnvironment,
   type ResolveSecretMaterial,
   type SqlControlPlaneRuntime,
@@ -42,7 +42,7 @@ export type StartLocalExecutorServerOptions = {
 const disposeRuntime = (runtime: SqlControlPlaneRuntime) =>
   Effect.promise(() => runtime.close()).pipe(Effect.orDie);
 
-const makeControlPlaneServerLayer = (input: {
+const createControlPlaneServerLayer = (input: {
   runtime: SqlControlPlaneRuntime;
   host: string;
   port: number;
@@ -52,7 +52,7 @@ const makeControlPlaneServerLayer = (input: {
     ControlPlaneActorResolver,
     input.runtime.actorResolver,
   );
-  const apiLayer = makeControlPlaneApiLayer(serviceLayer, actorResolverLayer);
+  const apiLayer = createControlPlaneApiLayer(serviceLayer, actorResolverLayer);
 
   return HttpApiBuilder.serve().pipe(
     Layer.provide(apiLayer),
@@ -65,7 +65,7 @@ const makeControlPlaneServerLayer = (input: {
   );
 };
 
-export const makeLocalExecutorServer = (
+export const createLocalExecutorServer = (
   options: StartLocalExecutorServerOptions = {},
 ): Effect.Effect<LocalExecutorServer, Error, Scope.Scope> =>
   Effect.gen(function* () {
@@ -83,7 +83,7 @@ export const makeLocalExecutorServer = (
     let baseUrlRef: string | undefined;
 
     const runtime = yield* Effect.acquireRelease(
-      makeSqlControlPlaneRuntime({
+      createSqlControlPlaneRuntime({
         localDataDir,
         executionResolver: options.executionResolver,
         resolveSecretMaterial: options.resolveSecretMaterial,
@@ -97,7 +97,7 @@ export const makeLocalExecutorServer = (
     );
 
     const serverContext = yield* Layer.build(
-      makeControlPlaneServerLayer({
+      createControlPlaneServerLayer({
         runtime,
         host,
         port,
@@ -128,7 +128,7 @@ export const runLocalExecutorServer = (
 ): Effect.Effect<void, Error, never> =>
   Effect.scoped(
     Effect.gen(function* () {
-      const server = yield* makeLocalExecutorServer(options);
+      const server = yield* createLocalExecutorServer(options);
       console.error(`executor server listening on ${server.baseUrl}`);
 
       yield* Effect.async<void, never>((resume) => {

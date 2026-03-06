@@ -48,7 +48,7 @@ export class Actor extends Context.Tag("#domain/auth/Actor")<
   ActorShape
 >() {}
 
-export type MakeActorInput = {
+export type CreateActorInput = {
   principal: Principal | null;
   workspaceMemberships: ReadonlyArray<WorkspaceMembership>;
   organizationMemberships: ReadonlyArray<OrganizationMembership>;
@@ -208,7 +208,7 @@ const toActorShape = (input: {
   };
 };
 
-export const makeAllowAllActor = (principal: Principal): ActorShape => ({
+export const createAllowAllActor = (principal: Principal): ActorShape => ({
   principal,
   workspaceMemberships: [],
   organizationMemberships: [],
@@ -218,8 +218,8 @@ export const makeAllowAllActor = (principal: Principal): ActorShape => ({
   requireWorkspaceAccess: () => Effect.void,
 });
 
-export const makeActor = (
-  input: MakeActorInput,
+export const createActor = (
+  input: CreateActorInput,
 ): Effect.Effect<ActorShape, ActorUnauthenticatedError> =>
   input.principal === null
     ? Effect.fail(

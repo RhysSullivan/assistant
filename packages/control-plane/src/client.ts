@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import { ControlPlaneApi } from "./api";
 import { ControlPlaneAuthHeaders } from "./runtime";
 
-export const makeControlPlaneClient = (input: {
+export const createControlPlaneClient = (input: {
   baseUrl: string;
   accountId?: string;
 }) => {
@@ -32,5 +32,5 @@ export const makeControlPlaneClient = (input: {
 };
 
 export type ControlPlaneClient = Effect.Effect.Success<
-  ReturnType<typeof makeControlPlaneClient>
+  ReturnType<typeof createControlPlaneClient>
 >;

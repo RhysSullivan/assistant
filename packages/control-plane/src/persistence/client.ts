@@ -58,7 +58,7 @@ export const createDrizzleClient = (input: {
     run: (tx: DrizzleSession) => Promise<A>,
   ): Effect.Effect<A, ControlPlanePersistenceError> =>
     use(operation, () =>
-      input.db.transaction(async (tx) => run(tx as unknown as DrizzleSession)),
+      input.db.transaction(async (tx) => run(tx)),
     );
 
   return {

@@ -14,7 +14,7 @@ import { discoverMcpToolsFromConnector } from "@executor-v3/codemode-mcp";
 import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
 
 import {
-  makeSqlControlPlaneRuntime,
+  createSqlControlPlaneRuntime,
   type ResolveExecutionEnvironment,
 } from "./index";
 import { withControlPlaneClient } from "./test-http-client";
@@ -280,7 +280,7 @@ describe("execution-mcp-resume", () => {
     Effect.gen(function* () {
       const mcpServer = yield* makeFormElicitationServer;
       const runtime = yield* Effect.acquireRelease(
-        makeSqlControlPlaneRuntime({
+        createSqlControlPlaneRuntime({
           localDataDir: ":memory:",
           executionResolver: makeMcpExecutionResolver(mcpServer.endpoint),
         }),

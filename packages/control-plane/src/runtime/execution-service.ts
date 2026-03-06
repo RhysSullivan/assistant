@@ -9,7 +9,11 @@ import {
   ControlPlanePersistenceError,
   type SqlControlPlaneRows,
 } from "#persistence";
-import type { Execution, ExecutionEnvelope } from "#schema";
+import {
+  ExecutionIdSchema,
+  type Execution,
+  type ExecutionEnvelope,
+} from "#schema";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -20,7 +24,7 @@ import {
   ResumeUnsupportedError,
 } from "./execution-state";
 import {
-  makeLiveExecutionManager,
+  createLiveExecutionManager,
   type LiveExecutionManager,
 } from "./live-execution";
 
@@ -108,7 +112,7 @@ const defaultExecutionResolver: ResolveExecutionEnvironment = () =>
     new Error("Execution environment resolver is not configured"),
   );
 
-const defaultLiveExecutionManager = makeLiveExecutionManager();
+const defaultLiveExecutionManager = createLiveExecutionManager();
 
 const withExecutionInvocationContext = (input: {
   executionId: Execution["id"];
@@ -184,7 +188,7 @@ const fetchExecutionEnvelope = (
     };
   });
 
-export const makeRuntimeExecutionsService = (
+export const createRuntimeExecutionsService = (
   rows: SqlControlPlaneRows,
   executionResolver: ResolveExecutionEnvironment = defaultExecutionResolver,
   liveExecutionManager: LiveExecutionManager = defaultLiveExecutionManager,
@@ -193,13 +197,15 @@ export const makeRuntimeExecutionsService = (
   | "createExecution"
   | "getExecution"
   | "resumeExecution"
-> => ({
-    createExecution: ({ workspaceId, payload, createdByAccountId }) =>
-      (Effect.gen(function* () {
+> => {
+  const createExecution: ControlPlaneServiceShape["createExecution"] = (
+    { workspaceId, payload, createdByAccountId },
+  ) =>
+    Effect.gen(function* () {
         const code = yield* requireTrimmed("executions.create", "code", payload.code);
         const now = Date.now();
         const execution: Execution = {
-          id: `exec_${crypto.randomUUID()}` as Execution["id"],
+          id: ExecutionIdSchema.make(`exec_${crypto.randomUUID()}`),
           workspaceId,
           createdByAccountId,
           status: "pending",
@@ -327,11 +333,10 @@ export const makeRuntimeExecutionsService = (
           executionId: execution.id,
           operation: "executions.create",
         });
-      }) as Effect.Effect<
-        ExecutionEnvelope,
-        ControlPlaneBadRequestError | ControlPlaneNotFoundError | ControlPlaneStorageError
-      >),
+      });
 
+  return {
+    createExecution,
     getExecution: ({ workspaceId, executionId }) =>
       fetchExecutionEnvelope(rows, {
         workspaceId,
@@ -407,4 +412,5 @@ export const makeRuntimeExecutionsService = (
           operation: "executions.resume",
         });
       }),
-  });
+  };
+};

@@ -3,11 +3,11 @@ import * as Effect from "effect/Effect";
 
 import { WorkspaceIdSchema, type AccountId } from "#schema";
 
-import { makeSqlControlPlaneRuntime } from "./index";
+import { createSqlControlPlaneRuntime } from "./index";
 import { withControlPlaneClient } from "./test-http-client";
 
 const makeRuntime = Effect.acquireRelease(
-  makeSqlControlPlaneRuntime({ localDataDir: ":memory:" }),
+  createSqlControlPlaneRuntime({ localDataDir: ":memory:" }),
   (runtime) => Effect.promise(() => runtime.close()).pipe(Effect.orDie),
 );
 

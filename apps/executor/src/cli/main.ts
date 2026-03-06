@@ -10,7 +10,7 @@ import {
 } from "@effect/platform-node";
 import {
   ExecutionIdSchema,
-  makeControlPlaneClient,
+  createControlPlaneClient,
   type ControlPlaneClient,
   type ExecutionEnvelope,
   type ExecutionInteraction,
@@ -100,7 +100,7 @@ const readCode = (input: {
   });
 
 const getBootstrapClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
-  makeControlPlaneClient({ baseUrl });
+  createControlPlaneClient({ baseUrl });
 
 const decodeExecutionId = Schema.decodeUnknown(ExecutionIdSchema);
 
@@ -108,7 +108,7 @@ const getLocalAuthedClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
   Effect.gen(function* () {
     const bootstrapClient = yield* getBootstrapClient(baseUrl);
     const installation = yield* bootstrapClient.local.installation({});
-    const client = yield* makeControlPlaneClient({
+    const client = yield* createControlPlaneClient({
       baseUrl,
       accountId: installation.accountId,
     });
@@ -397,7 +397,7 @@ const serverStartCommand = Command.make(
 ).pipe(Command.withDescription("Start the local executor server"));
 
 const serverCommand = Command.make("server").pipe(
-  Command.withSubcommands([serverStartCommand] as any),
+  Command.withSubcommands([serverStartCommand] as const),
   Command.withDescription("Local server commands"),
 );
 
@@ -525,12 +525,12 @@ const devSeedGithubCommand = Command.make(
 );
 
 const devCommand = Command.make("dev").pipe(
-  Command.withSubcommands([devSeedMcpDemoCommand, devSeedGithubCommand] as any),
+  Command.withSubcommands([devSeedMcpDemoCommand, devSeedGithubCommand] as const),
   Command.withDescription("Development helpers"),
 );
 
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([serverCommand, runCommand, resumeCommand, devCommand] as any),
+  Command.withSubcommands([serverCommand, runCommand, resumeCommand, devCommand] as const),
   Command.withDescription("Executor local CLI"),
 );
 

@@ -3,10 +3,10 @@ export {
   ActorForbiddenError,
   ActorLive,
   ActorUnauthenticatedError,
-  makeActor,
-  makeAllowAllActor,
+  createActor,
+  createAllowAllActor,
   type ActorShape,
-  type MakeActorInput,
+  type CreateActorInput,
   type PermissionRequest,
 } from "./actor";
 

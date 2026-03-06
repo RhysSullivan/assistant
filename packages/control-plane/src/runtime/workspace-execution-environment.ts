@@ -27,7 +27,7 @@ import type {
 import { createExecutorToolMap } from "./executor-tools";
 import { projectSourcesFromStorage } from "./source-definitions";
 import {
-  makeDbBackedSecretMaterialResolver,
+  createDbBackedSecretMaterialResolver,
   type ResolveSecretMaterial,
   type RuntimeSourceAuthService,
 } from "./source-auth-service";
@@ -46,7 +46,7 @@ const namespaceFromSourceName = (name: string): string => {
   return normalized.length > 0 ? normalized : "source";
 };
 
-export const makeEnvSecretMaterialResolver = (): ResolveSecretMaterial =>
+export const createEnvSecretMaterialResolver = (): ResolveSecretMaterial =>
   (ref) =>
     Effect.gen(function* () {
       if (ref.providerId !== "env") {
@@ -202,16 +202,16 @@ const loadSourceTools = (input: {
   return Effect.succeed({});
 };
 
-export const makeWorkspaceExecutionEnvironmentResolver = (input: {
+export const createWorkspaceExecutionEnvironmentResolver = (input: {
   rows: SqlControlPlaneRows;
   resolveSecretMaterial?: ResolveSecretMaterial;
   sourceAuthService: RuntimeSourceAuthService;
 }): ResolveExecutionEnvironment => {
   const resolveSecretMaterial =
     input.resolveSecretMaterial
-    ?? makeDbBackedSecretMaterialResolver({
+    ?? createDbBackedSecretMaterialResolver({
       rows: input.rows,
-      fallback: makeEnvSecretMaterialResolver(),
+      fallback: createEnvSecretMaterialResolver(),
     });
 
   return ({ workspaceId, onElicitation }) =>

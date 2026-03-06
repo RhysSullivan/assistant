@@ -1,18 +1,29 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
+import { createDrizzleClient, type DrizzleClient } from "./client";
 import {
-  createControlPlaneRows,
-  type SqlControlPlaneRows,
-} from "./control-plane-rows";
-import { createDrizzleClient } from "./client";
+  createAccountsRepo,
+  createExecutionInteractionsRepo,
+  createExecutionsRepo,
+  createLocalInstallationsRepo,
+  createOrganizationMembershipsRepo,
+  createOrganizationsRepo,
+  createPoliciesRepo,
+  createSecretMaterialsRepo,
+  createSourceAuthSessionsRepo,
+  createSourceCredentialBindingsRepo,
+  createSourcesRepo,
+  createWorkspacesRepo,
+} from "./repos";
+import { drizzleSchema, tableNames, type DrizzleTables } from "./schema";
 import {
-  createDrizzleContext,
   createSqlRuntime,
   runMigrations,
   type CreateSqlRuntimeOptions,
   type DrizzleDb,
   type SqlBackend,
+  type SqlRuntime,
 } from "./sql-runtime";
 
 export { tableNames, type DrizzleTables } from "./schema";
@@ -24,17 +35,29 @@ export {
 export { createDrizzleClient, type DrizzleClient } from "./client";
 export {
   createSqlRuntime,
-  createDrizzleContext,
   runMigrations,
   type SqlRuntime,
   type SqlBackend,
   type DrizzleDb,
   type CreateSqlRuntimeOptions,
 } from "./sql-runtime";
-export {
-  createControlPlaneRows,
-  type SqlControlPlaneRows,
-} from "./control-plane-rows";
+
+const createRows = (client: DrizzleClient, tables: DrizzleTables = drizzleSchema) => ({
+  accounts: createAccountsRepo(client, tables),
+  organizations: createOrganizationsRepo(client, tables),
+  organizationMemberships: createOrganizationMembershipsRepo(client, tables),
+  workspaces: createWorkspacesRepo(client, tables),
+  sources: createSourcesRepo(client, tables),
+  sourceCredentialBindings: createSourceCredentialBindingsRepo(client, tables),
+  secretMaterials: createSecretMaterialsRepo(client, tables),
+  sourceAuthSessions: createSourceAuthSessionsRepo(client, tables),
+  policies: createPoliciesRepo(client, tables),
+  localInstallations: createLocalInstallationsRepo(client, tables),
+  executions: createExecutionsRepo(client, tables),
+  executionInteractions: createExecutionInteractionsRepo(client, tables),
+});
+
+export type SqlControlPlaneRows = ReturnType<typeof createRows>;
 
 export type SqlControlPlanePersistence = {
   backend: SqlBackend;
@@ -50,35 +73,56 @@ export class SqlPersistenceBootstrapError extends Data.TaggedError(
   details: string | null;
 }> {}
 
-export const makeSqlControlPlanePersistence = (
+const toBootstrapError = (cause: unknown): SqlPersistenceBootstrapError => {
+  const details = cause instanceof Error ? cause.message : String(cause);
+  return new SqlPersistenceBootstrapError({
+    message: `Failed initializing SQL control-plane persistence: ${details}`,
+    details,
+  });
+};
+
+const createRuntimeEffect = (options: CreateSqlRuntimeOptions) =>
+  Effect.tryPromise({
+    try: () => createSqlRuntime(options),
+    catch: toBootstrapError,
+  });
+
+const runMigrationsEffect = (
+  runtime: SqlRuntime,
+  migrationsFolder: string | undefined,
+) =>
+  Effect.tryPromise({
+    try: () => runMigrations(runtime, { migrationsFolder }),
+    catch: toBootstrapError,
+  });
+
+const closeRuntimeEffect = (runtime: SqlRuntime) =>
+  Effect.tryPromise({
+    try: () => runtime.close(),
+    catch: () => undefined,
+  }).pipe(Effect.orDie);
+
+export const createSqlControlPlanePersistence = (
   options: CreateSqlRuntimeOptions,
 ): Effect.Effect<SqlControlPlanePersistence, SqlPersistenceBootstrapError> =>
-  Effect.tryPromise({
-    try: async () => {
-      const runtime = await createSqlRuntime(options);
-      await runMigrations(runtime, { migrationsFolder: options.migrationsFolder });
-      const drizzleContext = createDrizzleContext(runtime.db);
-      const client = createDrizzleClient({
-        backend: runtime.backend,
-        db: drizzleContext.db,
-      });
-      const rows = createControlPlaneRows({
-        client,
-        tables: drizzleContext.tables,
-      });
+  Effect.flatMap(createRuntimeEffect(options), (runtime) =>
+    runMigrationsEffect(runtime, options.migrationsFolder).pipe(
+      Effect.map(() => {
+        const client = createDrizzleClient({
+          backend: runtime.backend,
+          db: runtime.db,
+        });
 
-      return {
-        backend: runtime.backend,
-        db: runtime.db,
-        rows,
-        close: () => runtime.close(),
-      };
-    },
-    catch: (cause) => {
-      const details = cause instanceof Error ? cause.message : String(cause);
-      return new SqlPersistenceBootstrapError({
-        message: `Failed initializing SQL control-plane persistence: ${details}`,
-        details,
-      });
-    },
-  });
+        return {
+          backend: runtime.backend,
+          db: runtime.db,
+          rows: createRows(client),
+          close: () => runtime.close(),
+        } satisfies SqlControlPlanePersistence;
+      }),
+      Effect.catchAll((error) =>
+        closeRuntimeEffect(runtime).pipe(
+          Effect.zipRight(Effect.fail(error)),
+        )),
+    ));
+

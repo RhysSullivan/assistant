@@ -5,7 +5,7 @@ import {
   type ControlPlaneServiceShape,
 } from "#api";
 import {
-  makeSqlControlPlanePersistence,
+  createSqlControlPlanePersistence,
   SqlPersistenceBootstrapError,
   type CreateSqlRuntimeOptions,
   type SqlControlPlanePersistence,
@@ -13,7 +13,7 @@ import {
 
 import {
   ControlPlaneAuthHeaders,
-  makeHeaderActorResolver,
+  createHeaderActorResolver,
 } from "./actor-resolver";
 import type { LocalInstallation } from "#schema";
 import {
@@ -23,21 +23,21 @@ import {
   type ResolveExecutionEnvironment,
 } from "./execution-state";
 import {
-  makeLiveExecutionManager,
+  createLiveExecutionManager,
 } from "./live-execution";
 import {
-  makeWorkspaceExecutionEnvironmentResolver,
+  createWorkspaceExecutionEnvironmentResolver,
 } from "./workspace-execution-environment";
 import {
-  makeRuntimeSourceAuthService,
+  createRuntimeSourceAuthService,
   type ResolveSecretMaterial,
 } from "./source-auth-service";
-import { makeRuntimeControlPlaneService } from "./services";
+import { createRuntimeControlPlaneService } from "./services";
 
 export {
   ControlPlaneAuthHeaders,
-  makeHeaderActorResolver,
-  makeRuntimeControlPlaneService,
+  createHeaderActorResolver,
+  createRuntimeControlPlaneService,
 };
 
 export * from "./execution-state";
@@ -54,31 +54,31 @@ export type RuntimeControlPlaneInput = {
   getLocalServerBaseUrl?: () => string | undefined;
 };
 
-export const makeRuntimeControlPlane = (
+export const createRuntimeControlPlane = (
   input: RuntimeControlPlaneInput,
 ): {
   service: ControlPlaneServiceShape;
   actorResolver: ControlPlaneActorResolverShape;
 } => {
-  const liveExecutionManager = makeLiveExecutionManager();
-  const sourceAuthService = makeRuntimeSourceAuthService({
+  const liveExecutionManager = createLiveExecutionManager();
+  const sourceAuthService = createRuntimeSourceAuthService({
     rows: input.persistence.rows,
     liveExecutionManager,
     getLocalServerBaseUrl: input.getLocalServerBaseUrl,
   });
   const executionResolver =
     input.executionResolver
-    ?? makeWorkspaceExecutionEnvironmentResolver({
+    ?? createWorkspaceExecutionEnvironmentResolver({
       rows: input.persistence.rows,
       resolveSecretMaterial: input.resolveSecretMaterial,
       sourceAuthService,
     });
-  const service = makeRuntimeControlPlaneService(input.persistence.rows, {
+  const service = createRuntimeControlPlaneService(input.persistence.rows, {
     executionResolver,
     liveExecutionManager,
     sourceAuthService,
   });
-  const actorResolver = input.actorResolver ?? makeHeaderActorResolver(input.persistence.rows);
+  const actorResolver = input.actorResolver ?? createHeaderActorResolver(input.persistence.rows);
 
   return {
     service,
@@ -101,12 +101,12 @@ export type CreateSqlControlPlaneRuntimeOptions = CreateSqlRuntimeOptions & {
   getLocalServerBaseUrl?: () => string | undefined;
 };
 
-export const makeSqlControlPlaneRuntime = (
+export const createSqlControlPlaneRuntime = (
   options: CreateSqlControlPlaneRuntimeOptions,
 ): Effect.Effect<SqlControlPlaneRuntime, SqlPersistenceBootstrapError> =>
-  Effect.flatMap(makeSqlControlPlanePersistence(options), (persistence) =>
+  Effect.flatMap(createSqlControlPlanePersistence(options), (persistence) =>
     Effect.gen(function* () {
-      const runtime = makeRuntimeControlPlane({
+      const runtime = createRuntimeControlPlane({
         persistence,
         actorResolver: options.actorResolver,
         executionResolver: options.executionResolver,

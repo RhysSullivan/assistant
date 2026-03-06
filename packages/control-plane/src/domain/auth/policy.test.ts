@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { AccountIdSchema, WorkspaceIdSchema } from "#schema";
 import * as Effect from "effect/Effect";
 
-import { Actor, makeAllowAllActor } from "./actor";
+import { Actor, createAllowAllActor } from "./actor";
 import { requirePermission, withPolicy } from "./policy";
 
 describe("control-plane-domain policy", () => {
@@ -25,7 +25,7 @@ describe("control-plane-domain policy", () => {
           workspaceId,
         }),
       )(Effect.succeed("ok")).pipe(
-        Effect.provideService(Actor, makeAllowAllActor(principal)),
+        Effect.provideService(Actor, createAllowAllActor(principal)),
       );
 
       expect(result).toBe("ok");

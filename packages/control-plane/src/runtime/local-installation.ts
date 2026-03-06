@@ -1,18 +1,23 @@
 import { type SqlControlPlaneRows } from "#persistence";
-import type {
-  Account,
-  LocalInstallation,
-  Organization,
-  OrganizationMembership,
-  Workspace,
+import {
+  AccountIdSchema,
+  InstallationIdSchema,
+  OrganizationIdSchema,
+  OrganizationMemberIdSchema,
+  WorkspaceIdSchema,
+  type Account,
+  type LocalInstallation,
+  type Organization,
+  type OrganizationMembership,
+  type Workspace,
 } from "#schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-const LOCAL_INSTALLATION_ID = "local_default" as LocalInstallation["id"];
+const LOCAL_INSTALLATION_ID = InstallationIdSchema.make("local_default");
 
 const buildAccount = (now: number): Account => {
-  const id = `acc_${crypto.randomUUID()}` as Account["id"];
+  const id = AccountIdSchema.make(`acc_${crypto.randomUUID()}`);
 
   return {
     id,
@@ -29,7 +34,7 @@ const buildOrganization = (
   accountId: Account["id"],
   now: number,
 ): Organization => ({
-  id: `org_${crypto.randomUUID()}` as Organization["id"],
+  id: OrganizationIdSchema.make(`org_${crypto.randomUUID()}`),
   slug: "personal",
   name: "Personal",
   status: "active",
@@ -43,7 +48,7 @@ const buildOwnerMembership = (
   accountId: Account["id"],
   now: number,
 ): OrganizationMembership => ({
-  id: `org_mem_${crypto.randomUUID()}` as OrganizationMembership["id"],
+  id: OrganizationMemberIdSchema.make(`org_mem_${crypto.randomUUID()}`),
   organizationId,
   accountId,
   role: "owner",
@@ -60,7 +65,7 @@ const buildWorkspace = (
   accountId: Account["id"],
   now: number,
 ): Workspace => ({
-  id: `ws_${crypto.randomUUID()}` as Workspace["id"],
+  id: WorkspaceIdSchema.make(`ws_${crypto.randomUUID()}`),
   organizationId,
   name: "Default",
   createdByAccountId: accountId,

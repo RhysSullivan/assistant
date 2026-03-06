@@ -3,9 +3,10 @@ import type {
   OnElicitation,
 } from "@executor-v3/codemode-core";
 import { type SqlControlPlaneRows } from "#persistence";
-import type {
-  Execution,
-  ExecutionInteraction,
+import {
+  ExecutionInteractionIdSchema,
+  type Execution,
+  type ExecutionInteraction,
 } from "#schema";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -55,7 +56,7 @@ const serializeJson = (value: unknown): string | null => {
   return JSON.stringify(value);
 };
 
-export const makeLiveExecutionManager = (): LiveExecutionManager => {
+export const createLiveExecutionManager = (): LiveExecutionManager => {
   const runs = new Map<Execution["id"], LiveRunEntry>();
 
   const getOrCreateRun = (executionId: Execution["id"]): LiveRunEntry => {
@@ -100,7 +101,7 @@ export const makeLiveExecutionManager = (): LiveExecutionManager => {
           const response = yield* Deferred.make<ElicitationResponse>();
           const now = Date.now();
           const interaction: ExecutionInteraction = {
-            id: `${executionId}:${input.interactionId}` as ExecutionInteraction["id"],
+            id: ExecutionInteractionIdSchema.make(`${executionId}:${input.interactionId}`),
             executionId,
             status: "pending",
             kind: input.elicitation.mode === "url" ? "url" : "form",

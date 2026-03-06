@@ -10,10 +10,10 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import { makeSqlControlPlanePersistence } from "./index";
+import { createSqlControlPlanePersistence } from "./index";
 
 const makePersistence = Effect.acquireRelease(
-  makeSqlControlPlanePersistence({
+  createSqlControlPlanePersistence({
     localDataDir: ":memory:",
   }),
   (persistence) =>

@@ -17,13 +17,19 @@ import type {
   SourceCredentialBinding,
   Workspace,
 } from "#schema";
-import { SourceIdSchema } from "#schema";
+import {
+  OrganizationIdSchema,
+  OrganizationMemberIdSchema,
+  PolicyIdSchema,
+  SourceIdSchema,
+  WorkspaceIdSchema,
+} from "#schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import { type ResolveExecutionEnvironment } from "./execution-state";
 import { type LiveExecutionManager } from "./live-execution";
-import { makeRuntimeExecutionsService } from "./execution-service";
+import { createRuntimeExecutionsService } from "./execution-service";
 import { loadLocalInstallation } from "./local-installation";
 import { type RuntimeSourceAuthService } from "./source-auth-service";
 import {
@@ -34,6 +40,8 @@ import {
   updateSourceFromPayload,
 } from "./source-definitions";
 import { slugify } from "./slug";
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 const badRequest = (
   operation: string,
@@ -184,7 +192,7 @@ const ensureOrganizationExists = (
     return organization.value;
   });
 
-export const makeRuntimeOrganizationsService = (
+const createOrganizationsService = (
   rows: SqlControlPlaneRows,
 ): Pick<
   ControlPlaneServiceShape,
@@ -234,7 +242,7 @@ export const makeRuntimeOrganizationsService = (
           : yield* ensureUniqueOrganizationSlug(rows, name);
 
         const organization: Organization = {
-          id: (`org_${crypto.randomUUID()}` as unknown) as Organization["id"],
+          id: OrganizationIdSchema.make(`org_${crypto.randomUUID()}`),
           slug,
           name,
           status: "active",
@@ -245,7 +253,7 @@ export const makeRuntimeOrganizationsService = (
 
         const ownerMembership: OrganizationMembership | null = createdByAccountId
           ? {
-              id: (`org_mem_${crypto.randomUUID()}` as unknown) as OrganizationMembership["id"],
+              id: OrganizationMemberIdSchema.make(`org_mem_${crypto.randomUUID()}`),
               organizationId: organization.id,
               accountId: createdByAccountId,
               role: "owner",
@@ -303,7 +311,7 @@ export const makeRuntimeOrganizationsService = (
 
     updateOrganization: ({ organizationId, payload }) =>
       Effect.gen(function* () {
-        const patch: Record<string, unknown> = {
+        const patch: Partial<Omit<Mutable<Organization>, "id" | "createdAt">> = {
           updatedAt: Date.now(),
         };
 
@@ -320,7 +328,7 @@ export const makeRuntimeOrganizationsService = (
 
         const updated = yield* mapPersistenceError(
           "organizations.update",
-          rows.organizations.update(organizationId, patch as any),
+          rows.organizations.update(organizationId, patch),
         );
 
         if (Option.isNone(updated)) {
@@ -343,7 +351,7 @@ export const makeRuntimeOrganizationsService = (
       ).pipe(Effect.map((removed) => ({ removed }))),
   });
 
-export const makeRuntimeMembershipsService = (
+const createMembershipsService = (
   rows: SqlControlPlaneRows,
 ): Pick<
   ControlPlaneServiceShape,
@@ -368,7 +376,7 @@ export const makeRuntimeMembershipsService = (
 
         const now = Date.now();
         const membership: OrganizationMembership = {
-          id: (`org_mem_${crypto.randomUUID()}` as unknown) as OrganizationMembership["id"],
+          id: OrganizationMemberIdSchema.make(`org_mem_${crypto.randomUUID()}`),
           organizationId,
           accountId: payload.accountId,
           role: payload.role,
@@ -465,7 +473,7 @@ export const makeRuntimeMembershipsService = (
       }),
   });
 
-export const makeRuntimeWorkspacesService = (
+const createWorkspacesService = (
   rows: SqlControlPlaneRows,
 ): Pick<
   ControlPlaneServiceShape,
@@ -497,7 +505,7 @@ export const makeRuntimeWorkspacesService = (
         const now = Date.now();
 
         const workspace: Workspace = {
-          id: (`ws_${crypto.randomUUID()}` as unknown) as Workspace["id"],
+          id: WorkspaceIdSchema.make(`ws_${crypto.randomUUID()}`),
           organizationId,
           name,
           createdByAccountId: createdByAccountId ?? null,
@@ -535,7 +543,9 @@ export const makeRuntimeWorkspacesService = (
 
     updateWorkspace: ({ workspaceId, payload }) =>
       Effect.gen(function* () {
-        const patch: Record<string, unknown> = {
+        const patch: Partial<
+          Omit<Mutable<Workspace>, "id" | "organizationId" | "createdAt">
+        > = {
           updatedAt: Date.now(),
         };
 
@@ -549,7 +559,7 @@ export const makeRuntimeWorkspacesService = (
 
         const updated = yield* mapPersistenceError(
           "workspaces.update",
-          rows.workspaces.update(workspaceId, patch as any),
+          rows.workspaces.update(workspaceId, patch),
         );
 
         if (Option.isNone(updated)) {
@@ -572,7 +582,7 @@ export const makeRuntimeWorkspacesService = (
       ).pipe(Effect.map((removed) => ({ removed }))),
   });
 
-export const makeRuntimeSourcesService = (
+const createSourcesService = (
   rows: SqlControlPlaneRows,
 ): Pick<
   ControlPlaneServiceShape,
@@ -626,7 +636,7 @@ export const makeRuntimeSourcesService = (
 
         const source = yield* createSourceFromPayload({
           workspaceId,
-          sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`) as SourceId,
+          sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
           payload: {
             ...payload,
             name,
@@ -811,7 +821,7 @@ export const makeRuntimeSourcesService = (
       ).pipe(Effect.map((removed) => ({ removed }))),
   });
 
-export const makeRuntimePoliciesService = (
+const createPoliciesService = (
   rows: SqlControlPlaneRows,
 ): Pick<
   ControlPlaneServiceShape,
@@ -832,7 +842,7 @@ export const makeRuntimePoliciesService = (
         const now = Date.now();
 
         const policy: Policy = {
-          id: (`pol_${crypto.randomUUID()}` as unknown) as Policy["id"],
+          id: PolicyIdSchema.make(`pol_${crypto.randomUUID()}`),
           workspaceId,
           targetAccountId: payload.targetAccountId ?? null,
           clientId: payload.clientId ?? null,
@@ -903,7 +913,7 @@ export const makeRuntimePoliciesService = (
           );
         }
 
-        const patch: Record<string, unknown> = {
+        const patch: Partial<Omit<Mutable<Policy>, "id" | "workspaceId" | "createdAt">> = {
           updatedAt: Date.now(),
         };
 
@@ -947,7 +957,7 @@ export const makeRuntimePoliciesService = (
 
         const updated = yield* mapPersistenceError(
           "policies.update",
-          rows.policies.update(policyId, patch as any),
+          rows.policies.update(policyId, patch),
         );
         if (Option.isNone(updated)) {
           return yield* Effect.fail(
@@ -981,7 +991,7 @@ export const makeRuntimePoliciesService = (
       }),
   });
 
-export const makeRuntimeLocalService = (
+const createLocalService = (
   rows: SqlControlPlaneRows,
   sourceAuthService?: RuntimeSourceAuthService,
 ): Pick<ControlPlaneServiceShape, "getLocalInstallation" | "completeSourceAuthCallback"> => ({
@@ -1036,7 +1046,7 @@ export const makeRuntimeLocalService = (
       }),
   });
 
-export const makeRuntimeControlPlaneService = (
+export const createRuntimeControlPlaneService = (
   rows: SqlControlPlaneRows,
   options: {
     executionResolver?: ResolveExecutionEnvironment;
@@ -1044,13 +1054,13 @@ export const makeRuntimeControlPlaneService = (
     sourceAuthService?: RuntimeSourceAuthService;
   } = {},
 ): ControlPlaneServiceShape => ({
-  ...makeRuntimeLocalService(rows, options.sourceAuthService),
-  ...makeRuntimeOrganizationsService(rows),
-  ...makeRuntimeMembershipsService(rows),
-  ...makeRuntimeWorkspacesService(rows),
-  ...makeRuntimeSourcesService(rows),
-  ...makeRuntimePoliciesService(rows),
-  ...makeRuntimeExecutionsService(
+  ...createLocalService(rows, options.sourceAuthService),
+  ...createOrganizationsService(rows),
+  ...createMembershipsService(rows),
+  ...createWorkspacesService(rows),
+  ...createSourcesService(rows),
+  ...createPoliciesService(rows),
+  ...createRuntimeExecutionsService(
     rows,
     options.executionResolver,
     options.liveExecutionManager,

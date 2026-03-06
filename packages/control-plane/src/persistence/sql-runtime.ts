@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 
-import { drizzleSchema, type DrizzleTables } from "./schema";
+import { drizzleSchema } from "./schema";
 
 export type SqlBackend = "pglite" | "postgres";
 
@@ -34,11 +34,6 @@ export type SqlRuntime = {
   backend: SqlBackend;
   db: DrizzleDb;
   close: () => Promise<void>;
-};
-
-export type DrizzleContext = {
-  db: DrizzleDb;
-  tables: DrizzleTables;
 };
 
 const trim = (value: string | undefined): string | undefined => {
@@ -168,8 +163,3 @@ export const createSqlRuntime = async (
 
   return runtime;
 };
-
-export const createDrizzleContext = (db: DrizzleDb): DrizzleContext => ({
-  db,
-  tables: drizzleSchema,
-});

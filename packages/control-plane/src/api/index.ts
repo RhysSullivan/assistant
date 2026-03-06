@@ -38,7 +38,7 @@ export {
 export {
   ControlPlaneApiLive,
   ControlPlaneActorResolverLive,
-  makeControlPlaneApiLayer,
+  createControlPlaneApiLayer,
 } from "./http";
 
 export {

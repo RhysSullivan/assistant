@@ -3,7 +3,7 @@ import { AccountIdSchema, WorkspaceIdSchema } from "#schema";
 import * as Effect from "effect/Effect";
 
 import {
-  makeActor,
+  createActor,
   ActorForbiddenError,
   ActorUnauthenticatedError,
 } from "./actor";
@@ -14,7 +14,7 @@ describe("control-plane-domain actor", () => {
       const accountId = AccountIdSchema.make("acc_1");
       const workspaceId = WorkspaceIdSchema.make("ws_1");
 
-      const actor = yield* makeActor({
+      const actor = yield* createActor({
         principal: {
           accountId,
           provider: "local",
@@ -47,7 +47,7 @@ describe("control-plane-domain actor", () => {
       const accountId = AccountIdSchema.make("acc_1");
       const workspaceId = WorkspaceIdSchema.make("ws_1");
 
-      const actor = yield* makeActor({
+      const actor = yield* createActor({
         principal: {
           accountId,
           provider: "local",
@@ -85,7 +85,7 @@ describe("control-plane-domain actor", () => {
   it.effect("fails when principal is missing", () =>
     Effect.gen(function* () {
       const result = yield* Effect.either(
-        makeActor({
+        createActor({
           principal: null,
           workspaceMemberships: [],
           organizationMemberships: [],

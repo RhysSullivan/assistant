@@ -16,7 +16,7 @@ import { startMcpElicitationDemoServer } from "@executor-v3/mcp-elicitation-demo
 import { makeToolInvokerFromTools } from "@executor-v3/codemode-core";
 import {
   ControlPlaneStorageError,
-  makeControlPlaneClient,
+  createControlPlaneClient,
   type ControlPlaneClient,
   type ResolveExecutionEnvironment,
 } from "@executor-v3/control-plane";
@@ -30,7 +30,7 @@ import {
   seedDemoMcpSourceInWorkspace,
   seedGithubOpenApiSourceInWorkspace,
 } from "../cli/dev";
-import { makeLocalExecutorServer } from ".";
+import { createLocalExecutorServer } from ".";
 
 const executionResolver: ResolveExecutionEnvironment = () =>
   Effect.succeed({
@@ -51,7 +51,7 @@ const executionResolver: ResolveExecutionEnvironment = () =>
     }),
   });
 
-const makeServer = makeLocalExecutorServer({
+const makeServer = createLocalExecutorServer({
   port: 0,
   localDataDir: ":memory:",
   executionResolver,
@@ -430,11 +430,11 @@ describe("local-executor-server", () => {
   it.scoped("serves the control-plane API and executes code", () =>
     Effect.gen(function* () {
       const server = yield* makeServer;
-      const bootstrapClient = yield* makeControlPlaneClient({
+      const bootstrapClient = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
       });
       const installation = yield* bootstrapClient.local.installation({});
-      const client = yield* makeControlPlaneClient({
+      const client = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
         accountId: installation.accountId,
       });
@@ -460,16 +460,16 @@ describe("local-executor-server", () => {
         (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
       );
 
-      const server = yield* makeLocalExecutorServer({
+      const server = yield* createLocalExecutorServer({
         port: 0,
         localDataDir: ":memory:",
       });
 
-      const bootstrapClient = yield* makeControlPlaneClient({
+      const bootstrapClient = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
       });
       const installation = yield* bootstrapClient.local.installation({});
-      const client = yield* makeControlPlaneClient({
+      const client = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
         accountId: installation.accountId,
       });
@@ -536,16 +536,16 @@ describe("local-executor-server", () => {
         (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
       );
 
-      const server = yield* makeLocalExecutorServer({
+      const server = yield* createLocalExecutorServer({
         port: 0,
         localDataDir: ":memory:",
       });
 
-      const bootstrapClient = yield* makeControlPlaneClient({
+      const bootstrapClient = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
       });
       const installation = yield* bootstrapClient.local.installation({});
-      const client = yield* makeControlPlaneClient({
+      const client = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
         accountId: installation.accountId,
       });
@@ -605,16 +605,16 @@ describe("local-executor-server", () => {
 
   it.scoped("updates an existing demo MCP source instead of creating a duplicate", () =>
     Effect.gen(function* () {
-      const server = yield* makeLocalExecutorServer({
+      const server = yield* createLocalExecutorServer({
         port: 0,
         localDataDir: ":memory:",
       });
 
-      const bootstrapClient = yield* makeControlPlaneClient({
+      const bootstrapClient = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
       });
       const installation = yield* bootstrapClient.local.installation({});
-      const client = yield* makeControlPlaneClient({
+      const client = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
         accountId: installation.accountId,
       });
@@ -669,16 +669,16 @@ describe("local-executor-server", () => {
       const previousGithubToken = process.env.GITHUB_TOKEN;
       process.env.GITHUB_TOKEN = "ghp_test_executor";
 
-      const server = yield* makeLocalExecutorServer({
+      const server = yield* createLocalExecutorServer({
         port: 0,
         localDataDir: ":memory:",
       });
 
-      const bootstrapClient = yield* makeControlPlaneClient({
+      const bootstrapClient = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
       });
       const installation = yield* bootstrapClient.local.installation({});
-      const client = yield* makeControlPlaneClient({
+      const client = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
         accountId: installation.accountId,
       });
@@ -725,16 +725,16 @@ describe("local-executor-server", () => {
         (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
       );
 
-      const server = yield* makeLocalExecutorServer({
+      const server = yield* createLocalExecutorServer({
         port: 0,
         localDataDir: ":memory:",
       });
 
-      const bootstrapClient = yield* makeControlPlaneClient({
+      const bootstrapClient = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
       });
       const installation = yield* bootstrapClient.local.installation({});
-      const client = yield* makeControlPlaneClient({
+      const client = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
         accountId: installation.accountId,
       });
@@ -803,16 +803,16 @@ describe("local-executor-server", () => {
 
   it.scoped("returns a typed storage error when a configured MCP endpoint is invalid", () =>
     Effect.gen(function* () {
-      const server = yield* makeLocalExecutorServer({
+      const server = yield* createLocalExecutorServer({
         port: 0,
         localDataDir: ":memory:",
       });
 
-      const bootstrapClient = yield* makeControlPlaneClient({
+      const bootstrapClient = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
       });
       const installation = yield* bootstrapClient.local.installation({});
-      const client = yield* makeControlPlaneClient({
+      const client = yield* createControlPlaneClient({
         baseUrl: server.baseUrl,
         accountId: installation.accountId,
       });

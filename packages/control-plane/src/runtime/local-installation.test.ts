@@ -1,11 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { makeSqlControlPlaneRuntime } from "./index";
+import { createSqlControlPlaneRuntime } from "./index";
 import { getOrProvisionLocalInstallation } from "./local-installation";
 
 const makeRuntime = Effect.acquireRelease(
-  makeSqlControlPlaneRuntime({ localDataDir: ":memory:" }),
+  createSqlControlPlaneRuntime({ localDataDir: ":memory:" }),
   (runtime) => Effect.promise(() => runtime.close()).pipe(Effect.orDie),
 );
 

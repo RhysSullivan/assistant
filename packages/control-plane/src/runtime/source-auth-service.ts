@@ -3,7 +3,10 @@ import {
   type OAuthClientProvider,
   type OAuthDiscoveryState,
 } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  OAuthClientInformationMixed,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import {
   createSdkMcpConnector,
   discoverMcpToolsFromConnector,
@@ -90,6 +93,9 @@ const normalizeEndpoint = (endpoint: string): string => {
   const url = new URL(endpoint.trim());
   return url.toString();
 };
+
+const toError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
 
 const loadSourcesInWorkspace = (rows: SqlControlPlaneRows, workspaceId: WorkspaceId) =>
   Effect.gen(function* () {
@@ -178,7 +184,7 @@ const probeMcpSourceWithoutAuth = (source: Source) =>
     });
   });
 
-const makeAddSourceClientMetadata = (redirectUrl: string) => ({
+const createSourceClientMetadata = (redirectUrl: string) => ({
   redirect_uris: [redirectUrl],
   grant_types: ["authorization_code", "refresh_token"],
   response_types: ["code"],
@@ -201,69 +207,72 @@ const startOAuthAuthorization = (input: {
   redirectUrl: string;
   state: string;
 }): Effect.Effect<PendingOAuthStart, Error, never> =>
-  Effect.tryPromise({
-    try: async () => {
-      const captured: {
-        authorizationUrl?: URL;
-        codeVerifier?: string;
-        discoveryState?: OAuthDiscoveryState;
-        clientInformation?: unknown;
-      } = {};
+  Effect.gen(function* () {
+    const captured: {
+      authorizationUrl?: URL;
+      codeVerifier?: string;
+      discoveryState?: OAuthDiscoveryState;
+      clientInformation?: OAuthClientInformationMixed;
+    } = {};
 
-      const provider: OAuthClientProvider = {
-        get redirectUrl() {
-          return input.redirectUrl;
-        },
-        get clientMetadata() {
-          return makeAddSourceClientMetadata(input.redirectUrl);
-        },
-        state: () => input.state,
-        clientInformation: () => captured.clientInformation as any,
-        saveClientInformation: (clientInformation) => {
-          captured.clientInformation = clientInformation;
-        },
-        tokens: () => undefined,
-        saveTokens: () => undefined,
-        redirectToAuthorization: (authorizationUrl) => {
-          captured.authorizationUrl = authorizationUrl;
-        },
-        saveCodeVerifier: (codeVerifier) => {
-          captured.codeVerifier = codeVerifier;
-        },
-        codeVerifier: () => {
-          if (!captured.codeVerifier) {
-            throw new Error("OAuth code verifier was not captured");
-          }
+    const provider: OAuthClientProvider = {
+      get redirectUrl() {
+        return input.redirectUrl;
+      },
+      get clientMetadata() {
+        return createSourceClientMetadata(input.redirectUrl);
+      },
+      state: () => input.state,
+      clientInformation: () => captured.clientInformation,
+      saveClientInformation: (clientInformation) => {
+        captured.clientInformation = clientInformation;
+      },
+      tokens: () => undefined,
+      saveTokens: () => undefined,
+      redirectToAuthorization: (authorizationUrl) => {
+        captured.authorizationUrl = authorizationUrl;
+      },
+      saveCodeVerifier: (codeVerifier) => {
+        captured.codeVerifier = codeVerifier;
+      },
+      codeVerifier: () => {
+        if (!captured.codeVerifier) {
+          throw new Error("OAuth code verifier was not captured");
+        }
 
-          return captured.codeVerifier;
-        },
-        saveDiscoveryState: (state) => {
-          captured.discoveryState = state;
-        },
-        discoveryState: () => captured.discoveryState,
-      };
+        return captured.codeVerifier;
+      },
+      saveDiscoveryState: (state) => {
+        captured.discoveryState = state;
+      },
+      discoveryState: () => captured.discoveryState,
+    };
 
-      const result = await auth(provider, {
-        serverUrl: input.endpoint,
-      });
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        auth(provider, {
+          serverUrl: input.endpoint,
+        }),
+      catch: toError,
+    });
 
-      if (result !== "REDIRECT" || !captured.authorizationUrl || !captured.codeVerifier) {
-        throw new Error("OAuth flow did not produce an authorization redirect");
-      }
+    if (result !== "REDIRECT" || !captured.authorizationUrl || !captured.codeVerifier) {
+      return yield* Effect.fail(
+        new Error("OAuth flow did not produce an authorization redirect"),
+      );
+    }
 
-      return {
-        authorizationUrl: captured.authorizationUrl.toString(),
-        codeVerifier: captured.codeVerifier,
-        resourceMetadataUrl: captured.discoveryState?.resourceMetadataUrl ?? null,
-        authorizationServerUrl: captured.discoveryState?.authorizationServerUrl ?? null,
-        resourceMetadataJson: serializeJson(captured.discoveryState?.resourceMetadata),
-        authorizationServerMetadataJson: serializeJson(
-          captured.discoveryState?.authorizationServerMetadata,
-        ),
-        clientInformationJson: serializeJson(captured.clientInformation),
-      } satisfies PendingOAuthStart;
-    },
-    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+    return {
+      authorizationUrl: captured.authorizationUrl.toString(),
+      codeVerifier: captured.codeVerifier,
+      resourceMetadataUrl: captured.discoveryState?.resourceMetadataUrl ?? null,
+      authorizationServerUrl: captured.discoveryState?.authorizationServerUrl ?? null,
+      resourceMetadataJson: serializeJson(captured.discoveryState?.resourceMetadata),
+      authorizationServerMetadataJson: serializeJson(
+        captured.discoveryState?.authorizationServerMetadata,
+      ),
+      clientInformationJson: serializeJson(captured.clientInformation),
+    } satisfies PendingOAuthStart;
   });
 
 type ExchangedTokens = {
@@ -279,84 +288,85 @@ const exchangeOAuthAuthorizationCode = (input: {
   session: SourceAuthSession;
   code: string;
 }): Effect.Effect<ExchangedTokens, Error, never> =>
-  Effect.tryPromise({
-    try: async () => {
-      const captured: {
-        tokens?: OAuthTokens;
-        discoveryState?: OAuthDiscoveryState;
-        clientInformation?: unknown;
-      } = {
-        discoveryState: {
-          authorizationServerUrl: input.session.authorizationServerUrl ?? new URL("/", input.session.endpoint).toString(),
-          resourceMetadataUrl: input.session.resourceMetadataUrl ?? undefined,
-          resourceMetadata: decodeJson({
-            value: input.session.resourceMetadataJson,
-            fallback: undefined,
-          }),
-          authorizationServerMetadata: decodeJson({
-            value: input.session.authorizationServerMetadataJson,
-            fallback: undefined,
-          }),
-        },
-        clientInformation: decodeJson({
-          value: input.session.clientInformationJson,
+  Effect.gen(function* () {
+    const captured: {
+      tokens?: OAuthTokens;
+      discoveryState?: OAuthDiscoveryState;
+      clientInformation?: OAuthClientInformationMixed;
+    } = {
+      discoveryState: {
+        authorizationServerUrl: input.session.authorizationServerUrl ?? new URL("/", input.session.endpoint).toString(),
+        resourceMetadataUrl: input.session.resourceMetadataUrl ?? undefined,
+        resourceMetadata: decodeJson({
+          value: input.session.resourceMetadataJson,
           fallback: undefined,
         }),
-      };
+        authorizationServerMetadata: decodeJson({
+          value: input.session.authorizationServerMetadataJson,
+          fallback: undefined,
+        }),
+      },
+      clientInformation: decodeJson<OAuthClientInformationMixed | undefined>({
+        value: input.session.clientInformationJson,
+        fallback: undefined,
+      }),
+    };
 
-      const provider: OAuthClientProvider = {
-        get redirectUrl() {
-          return input.session.redirectUri;
-        },
-        get clientMetadata() {
-          return makeAddSourceClientMetadata(input.session.redirectUri);
-        },
-        clientInformation: () => captured.clientInformation as any,
-        saveClientInformation: (clientInformation) => {
-          captured.clientInformation = clientInformation;
-        },
-        tokens: () => undefined,
-        saveTokens: (tokens) => {
-          captured.tokens = tokens;
-        },
-        redirectToAuthorization: () => {
-          throw new Error("Unexpected redirect during OAuth callback completion");
-        },
-        saveCodeVerifier: () => undefined,
-        codeVerifier: () => {
-          if (!input.session.codeVerifier) {
-            throw new Error("OAuth session is missing the PKCE code verifier");
-          }
+    const provider: OAuthClientProvider = {
+      get redirectUrl() {
+        return input.session.redirectUri;
+      },
+      get clientMetadata() {
+        return createSourceClientMetadata(input.session.redirectUri);
+      },
+      clientInformation: () => captured.clientInformation,
+      saveClientInformation: (clientInformation) => {
+        captured.clientInformation = clientInformation;
+      },
+      tokens: () => undefined,
+      saveTokens: (tokens) => {
+        captured.tokens = tokens;
+      },
+      redirectToAuthorization: () => {
+        throw new Error("Unexpected redirect during OAuth callback completion");
+      },
+      saveCodeVerifier: () => undefined,
+      codeVerifier: () => {
+        if (!input.session.codeVerifier) {
+          throw new Error("OAuth session is missing the PKCE code verifier");
+        }
 
-          return input.session.codeVerifier;
-        },
-        saveDiscoveryState: (state) => {
-          captured.discoveryState = state;
-        },
-        discoveryState: () => captured.discoveryState,
-      };
+        return input.session.codeVerifier;
+      },
+      saveDiscoveryState: (state) => {
+        captured.discoveryState = state;
+      },
+      discoveryState: () => captured.discoveryState,
+    };
 
-      const result = await auth(provider, {
-        serverUrl: input.session.endpoint,
-        authorizationCode: input.code,
-      });
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        auth(provider, {
+          serverUrl: input.session.endpoint,
+          authorizationCode: input.code,
+        }),
+      catch: toError,
+    });
 
-      if (result !== "AUTHORIZED" || !captured.tokens) {
-        throw new Error("OAuth callback did not complete authorization");
-      }
+    if (result !== "AUTHORIZED" || !captured.tokens) {
+      return yield* Effect.fail(new Error("OAuth callback did not complete authorization"));
+    }
 
-      return {
-        tokens: captured.tokens,
-        clientInformationJson: serializeJson(captured.clientInformation),
-        resourceMetadataUrl: captured.discoveryState?.resourceMetadataUrl ?? null,
-        authorizationServerUrl: captured.discoveryState?.authorizationServerUrl ?? null,
-        resourceMetadataJson: serializeJson(captured.discoveryState?.resourceMetadata),
-        authorizationServerMetadataJson: serializeJson(
-          captured.discoveryState?.authorizationServerMetadata,
-        ),
-      } satisfies ExchangedTokens;
-    },
-    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+    return {
+      tokens: captured.tokens,
+      clientInformationJson: serializeJson(captured.clientInformation),
+      resourceMetadataUrl: captured.discoveryState?.resourceMetadataUrl ?? null,
+      authorizationServerUrl: captured.discoveryState?.authorizationServerUrl ?? null,
+      resourceMetadataJson: serializeJson(captured.discoveryState?.resourceMetadata),
+      authorizationServerMetadataJson: serializeJson(
+        captured.discoveryState?.authorizationServerMetadata,
+      ),
+    } satisfies ExchangedTokens;
   });
 
 const completeLiveInteraction = (input: {
@@ -456,7 +466,7 @@ export type RuntimeSourceAuthService = {
 
 export type ResolveSecretMaterial = (ref: SecretRef) => Effect.Effect<string, Error, never>;
 
-export const makeDbBackedSecretMaterialResolver = (input: {
+export const createDbBackedSecretMaterialResolver = (input: {
   rows: SqlControlPlaneRows;
   fallback?: ResolveSecretMaterial;
 }): ResolveSecretMaterial =>
@@ -483,7 +493,7 @@ export const makeDbBackedSecretMaterialResolver = (input: {
       );
     });
 
-export const makeRuntimeSourceAuthService = (input: {
+export const createRuntimeSourceAuthService = (input: {
   rows: SqlControlPlaneRows;
   liveExecutionManager: LiveExecutionManager;
   getLocalServerBaseUrl?: () => string | undefined;

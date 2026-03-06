@@ -5,7 +5,7 @@ import {
 } from "#api";
 import {
   ActorUnauthenticatedError,
-  makeActor,
+  createActor,
 } from "#domain";
 import { type SqlControlPlaneRows } from "#persistence";
 import {
@@ -95,7 +95,7 @@ const readPrincipalFromHeaders = (
     );
   });
 
-export const makeHeaderActorResolver = (
+export const createHeaderActorResolver = (
   rows: SqlControlPlaneRows,
 ): ControlPlaneActorResolverShape => ({
   resolveActor: ({ headers }) =>
@@ -109,7 +109,7 @@ export const makeHeaderActorResolver = (
           ),
         );
 
-      return yield* makeActor({
+      return yield* createActor({
         principal,
         workspaceMemberships: [],
         organizationMemberships,
@@ -141,7 +141,7 @@ export const makeHeaderActorResolver = (
         organizationMemberships,
       });
 
-      return yield* makeActor({
+      return yield* createActor({
         principal,
         workspaceMemberships,
         organizationMemberships,

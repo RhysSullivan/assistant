@@ -12,42 +12,10 @@ import { firstOption, withoutCreatedAt } from "./shared";
 
 const decodeSourceAuthSession = Schema.decodeUnknownSync(SourceAuthSessionSchema);
 
-const toUpdateSet = (
-  patch: Partial<Omit<SourceAuthSession, "id" | "workspaceId" | "sourceId" | "createdAt">>,
-): Partial<DrizzleTables["sourceAuthSessionsTable"]["$inferInsert"]> => {
-  const set: Partial<DrizzleTables["sourceAuthSessionsTable"]["$inferInsert"]> = {};
-
-  if (patch.executionId !== undefined) set.executionId = patch.executionId;
-  if (patch.interactionId !== undefined) set.interactionId = patch.interactionId;
-  if (patch.strategy !== undefined) set.strategy = patch.strategy;
-  if (patch.status !== undefined) set.status = patch.status;
-  if (patch.endpoint !== undefined) set.endpoint = patch.endpoint;
-  if (patch.state !== undefined) set.state = patch.state;
-  if (patch.redirectUri !== undefined) set.redirectUri = patch.redirectUri;
-  if (patch.scope !== undefined) set.scope = patch.scope;
-  if (patch.resourceMetadataUrl !== undefined) {
-    set.resourceMetadataUrl = patch.resourceMetadataUrl;
-  }
-  if (patch.authorizationServerUrl !== undefined) {
-    set.authorizationServerUrl = patch.authorizationServerUrl;
-  }
-  if (patch.resourceMetadataJson !== undefined) {
-    set.resourceMetadataJson = patch.resourceMetadataJson;
-  }
-  if (patch.authorizationServerMetadataJson !== undefined) {
-    set.authorizationServerMetadataJson = patch.authorizationServerMetadataJson;
-  }
-  if (patch.clientInformationJson !== undefined) {
-    set.clientInformationJson = patch.clientInformationJson;
-  }
-  if (patch.codeVerifier !== undefined) set.codeVerifier = patch.codeVerifier;
-  if (patch.authorizationUrl !== undefined) set.authorizationUrl = patch.authorizationUrl;
-  if (patch.errorText !== undefined) set.errorText = patch.errorText;
-  if (patch.completedAt !== undefined) set.completedAt = patch.completedAt;
-  if (patch.updatedAt !== undefined) set.updatedAt = patch.updatedAt;
-
-  return set;
-};
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+type SourceAuthSessionPatch = Partial<
+  Omit<Mutable<SourceAuthSession>, "id" | "workspaceId" | "sourceId" | "createdAt">
+>;
 
 export const createSourceAuthSessionsRepo = (
   client: DrizzleClient,
@@ -123,12 +91,12 @@ export const createSourceAuthSessionsRepo = (
 
   update: (
     id: SourceAuthSession["id"],
-    patch: Partial<Omit<SourceAuthSession, "id" | "workspaceId" | "sourceId" | "createdAt">>,
+    patch: SourceAuthSessionPatch,
   ) =>
     client.use("rows.source_auth_sessions.update", async (db) => {
       const rows = await db
         .update(tables.sourceAuthSessionsTable)
-        .set(toUpdateSet(patch))
+        .set(patch)
         .where(eq(tables.sourceAuthSessionsTable.id, id))
         .returning();
 

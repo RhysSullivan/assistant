@@ -6,7 +6,7 @@ import { makeToolInvokerFromTools } from "@executor-v3/codemode-core";
 import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
 
 import {
-  makeSqlControlPlaneRuntime,
+  createSqlControlPlaneRuntime,
 } from "./index";
 import { withControlPlaneClient } from "./test-http-client";
 
@@ -37,7 +37,7 @@ const makeExecutionResolver = () => {
 };
 
 const makeRuntime = Effect.acquireRelease(
-  makeSqlControlPlaneRuntime({
+  createSqlControlPlaneRuntime({
     localDataDir: ":memory:",
     executionResolver: makeExecutionResolver(),
   }),

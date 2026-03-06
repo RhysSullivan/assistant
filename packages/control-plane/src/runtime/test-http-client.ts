@@ -12,7 +12,7 @@ import {
   ControlPlaneActorResolver,
   ControlPlaneApi,
   ControlPlaneService,
-  makeControlPlaneApiLayer,
+  createControlPlaneApiLayer,
 } from "#api";
 
 import {
@@ -20,13 +20,13 @@ import {
   type SqlControlPlaneRuntime,
 } from "./index";
 
-const makeClientLayer = (runtime: SqlControlPlaneRuntime) => {
+const createClientLayer = (runtime: SqlControlPlaneRuntime) => {
   const serviceLayer = Layer.succeed(ControlPlaneService, runtime.service);
   const actorResolverLayer = Layer.succeed(
     ControlPlaneActorResolver,
     runtime.actorResolver,
   );
-  const apiLayer = makeControlPlaneApiLayer(serviceLayer, actorResolverLayer);
+  const apiLayer = createControlPlaneApiLayer(serviceLayer, actorResolverLayer);
 
   return HttpApiBuilder.serve().pipe(
     Layer.provide(apiLayer),
@@ -34,7 +34,7 @@ const makeClientLayer = (runtime: SqlControlPlaneRuntime) => {
   );
 };
 
-const makeControlPlaneClient = (accountId?: string) =>
+const createControlPlaneClient = (accountId?: string) =>
   HttpApiClient.make(ControlPlaneApi, {
     transformClient: accountId
       ? (client) =>
@@ -50,7 +50,7 @@ const makeControlPlaneClient = (accountId?: string) =>
   });
 
 export type ControlPlaneClient = Effect.Effect.Success<
-  ReturnType<typeof makeControlPlaneClient>
+  ReturnType<typeof createControlPlaneClient>
 >;
 
 export const withControlPlaneClient = <A, E>(
@@ -61,6 +61,6 @@ export const withControlPlaneClient = <A, E>(
   f: (client: ControlPlaneClient) => Effect.Effect<A, E, never>,
 ): Effect.Effect<A, E, never> =>
   Effect.gen(function* () {
-    const client = yield* makeControlPlaneClient(input.accountId);
+    const client = yield* createControlPlaneClient(input.accountId);
     return yield* f(client);
-  }).pipe(Effect.provide(makeClientLayer(input.runtime).pipe(Layer.orDie)));
+  }).pipe(Effect.provide(createClientLayer(input.runtime).pipe(Layer.orDie)));
