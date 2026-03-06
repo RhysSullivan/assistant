@@ -5,55 +5,12 @@ import { z } from "zod";
 
 import {
   createToolsFromRecord,
-  executeCodeWithTools,
   type CodeExecutor,
   type CodeToolOutput,
-  type ExecutableTool,
-  type OnElicitation,
-  type OnToolInteraction,
-  type ToolMap,
-} from "@executor-v3/codemode-core";
-
-export {
-  allowAllToolInteractions,
-  buildExecuteDescription,
-  createDiscoveryPrimitives,
-  createDynamicDiscovery,
-  createStaticDiscoveryFromTools,
-  createSystemToolMap,
-  executeCodeWithTools,
-  makeToolInvokerFromTools,
-  mergeToolMaps,
-  toExecutorTool,
-  toTool,
-  ToolInteractionDeniedError,
-  ToolInteractionPendingError,
-  toolDescriptorsFromTools,
-  wrapTool,
-  type CatalogPrimitive,
-  type CodeExecutor,
-  type CodeToolOutput,
-  type CreateSystemToolMapInput,
-  type DescribePrimitive,
-  type DiscoverPrimitive,
-  type DiscoveryPrimitives,
   type ExecuteResult,
   type ExecutableTool,
-  type MergeToolMapsOptions,
-  type SearchHit,
-  type SearchProvider,
-  type StandardSchema,
-  type ToolDefinition,
-  type ToolDescriptor,
-  type ToolDirectory,
-  type ToolInput,
-  type OnElicitation,
-  type OnToolInteraction,
-  type ToolInvocationInput,
-  type ToolInvoker,
   type ToolMap,
-  type ToolMetadata,
-  type ToolPath,
+  type ToolInvoker,
 } from "@executor-v3/codemode-core";
 
 export type AiSdkToolMap = ToolSet;
@@ -75,10 +32,8 @@ export function createToolsFromAiSdkTools(input: {
 }
 
 export function createCodeTool(input: {
-  tools: ToolMap;
+  toolInvoker: ToolInvoker;
   executor: CodeExecutor;
-  onToolInteraction?: OnToolInteraction;
-  onElicitation?: OnElicitation;
   description?: string;
 }) {
   return tool({
@@ -91,13 +46,20 @@ export function createCodeTool(input: {
     inputSchema: CodeToolInputSchema,
     execute: ({ code }: CodeToolInput): Promise<CodeToolOutput> =>
       Effect.runPromise(
-        executeCodeWithTools({
-          code,
-          tools: input.tools,
-          executor: input.executor,
-          onToolInteraction: input.onToolInteraction,
-          onElicitation: input.onElicitation,
-        }),
+        input.executor.execute(code, input.toolInvoker).pipe(
+          Effect.flatMap((result: ExecuteResult) =>
+            result.error
+              ? Effect.fail(new Error(result.error))
+              : Effect.succeed({
+                  code,
+                  result: result.result,
+                  logs: result.logs,
+                } satisfies CodeToolOutput),
+          ),
+          Effect.mapError((cause) =>
+            cause instanceof Error ? cause : new Error(String(cause)),
+          ),
+        ),
       ),
   });
 }

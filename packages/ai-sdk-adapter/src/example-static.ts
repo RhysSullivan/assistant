@@ -1,7 +1,9 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import { createStaticDiscoveryFromTools, createToolsFromAiSdkTools } from "./index";
+import { createStaticDiscoveryFromTools } from "@executor-v3/codemode-core";
+
+import { createToolsFromAiSdkTools } from "./index";
 
 const listIssues = tool({
   description: "List repository issues",

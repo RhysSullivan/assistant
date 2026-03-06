@@ -8,7 +8,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { z } from "zod/v4";
 
-import { executeCodeWithTools } from "@executor-v3/codemode-core";
+import { makeToolInvokerFromTools } from "@executor-v3/codemode-core";
 import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
 
 import { createSdkMcpConnector } from "./mcp-connection";
@@ -250,24 +250,25 @@ describe("codemode-mcp URL elicitation", () => {
         sourceKey: "mcp.url",
       });
 
-      const output = yield* executeCodeWithTools({
-        code: 'return await tools.source.url.url_blocking_echo({ value: "from-url-blocking" });',
-        tools: discovered.tools,
-        executor: makeInProcessExecutor(),
-        onElicitation: ({ elicitation }) =>
-          Effect.gen(function* () {
-            yield* Effect.sync(() => {
-              elicitations.push({
-                mode: elicitation.mode,
-                message: elicitation.message,
+      const output = yield* makeInProcessExecutor().execute(
+        'return await tools.source.url.url_blocking_echo({ value: "from-url-blocking" });',
+        makeToolInvokerFromTools({
+          tools: discovered.tools,
+          onElicitation: ({ elicitation }) =>
+            Effect.gen(function* () {
+              yield* Effect.sync(() => {
+                elicitations.push({
+                  mode: elicitation.mode,
+                  message: elicitation.message,
+                });
               });
-            });
 
-            return {
-              action: "accept" as const,
-            };
-          }),
-      });
+              return {
+                action: "accept" as const,
+              };
+            }),
+        }),
+      );
 
       expect(output.result).toEqual({
         content: [{ type: "text", text: "approved:from-url-blocking" }],
@@ -292,24 +293,25 @@ describe("codemode-mcp URL elicitation", () => {
         sourceKey: "mcp.url",
       });
 
-      const output = yield* executeCodeWithTools({
-        code: 'return await tools.source.url.url_retry_echo({ value: "from-url-retry" });',
-        tools: discovered.tools,
-        executor: makeInProcessExecutor(),
-        onElicitation: ({ elicitation }) =>
-          Effect.gen(function* () {
-            yield* Effect.sync(() => {
-              elicitations.push({
-                mode: elicitation.mode,
-                message: elicitation.message,
+      const output = yield* makeInProcessExecutor().execute(
+        'return await tools.source.url.url_retry_echo({ value: "from-url-retry" });',
+        makeToolInvokerFromTools({
+          tools: discovered.tools,
+          onElicitation: ({ elicitation }) =>
+            Effect.gen(function* () {
+              yield* Effect.sync(() => {
+                elicitations.push({
+                  mode: elicitation.mode,
+                  message: elicitation.message,
+                });
               });
-            });
 
-            return {
-              action: "accept" as const,
-            };
-          }),
-      });
+              return {
+                action: "accept" as const,
+              };
+            }),
+        }),
+      );
 
       expect(output.result).toEqual({
         content: [{ type: "text", text: "approved-after-retry:from-url-retry" }],

@@ -10,7 +10,6 @@ import {
   createDynamicDiscovery,
   createStaticDiscoveryFromTools,
   createSystemToolMap,
-  executeCodeWithTools,
   makeToolInvokerFromTools,
   mergeToolMaps,
   standardSchemaFromJsonSchema,
@@ -429,16 +428,17 @@ describe("codemode-core", () => {
           }),
       };
 
-      const output = yield* executeCodeWithTools({
-        code: "return await tools.math.add({ a: 2, b: 3 });",
-        tools,
-        executor,
-        onToolInteraction: allowAllToolInteractions,
-      });
+      const code = "return await tools.math.add({ a: 2, b: 3 });";
+      const output = yield* executor.execute(
+        code,
+        makeToolInvokerFromTools({
+          tools,
+          onToolInteraction: allowAllToolInteractions,
+        }),
+      );
 
-      expect(output.code).toContain("tools.math.add");
       expect(output.result).toEqual({
-        code: "return await tools.math.add({ a: 2, b: 3 });",
+        code,
         math: { sum: 5 },
         notification: { delivered: true, message: "sum is 5" },
       });
@@ -476,43 +476,31 @@ describe("codemode-core", () => {
           }),
       };
 
-      const output = yield* executeCodeWithTools({
-        code: "return await tools.math.add({ a: 20, b: 22 });",
-        executor,
-        toolInvoker,
-      });
+      const code = "return await tools.math.add({ a: 20, b: 22 });";
+      const output = yield* executor.execute(code, toolInvoker);
 
       expect(mathCalls).toBe(1);
       expect(output.result).toEqual({
-        code: "return await tools.math.add({ a: 20, b: 22 });",
+        code,
         math: { sum: 42 },
       });
       expect(output.logs).toEqual(["lazy"]);
     }),
   );
 
-  it.effect("surfaces executor errors from executeCodeWithTools", () =>
+  it.effect("surfaces executor-reported errors", () =>
     Effect.gen(function* () {
       const executor: CodeExecutor = {
         execute: (_code, _toolInvoker) =>
           Effect.succeed({ result: null, error: "boom" }),
       };
 
-      const outcome = yield* Effect.either(
-        executeCodeWithTools({
-          code: "return 1",
-          tools: {},
-          executor,
-        }),
+      const output = yield* executor.execute(
+        "return 1",
+        makeToolInvokerFromTools({ tools: {} }),
       );
 
-      expect(outcome._tag).toBe("Left");
-      if (outcome._tag === "Left") {
-        expect(outcome.left).toBeInstanceOf(Error);
-        if (outcome.left instanceof Error) {
-          expect(outcome.left.message).toBe("boom");
-        }
-      }
+      expect(output.error).toBe("boom");
     }),
   );
 });

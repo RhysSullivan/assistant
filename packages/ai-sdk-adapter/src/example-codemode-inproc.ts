@@ -2,12 +2,12 @@ import { tool } from "ai";
 import * as Effect from "effect/Effect";
 import { z } from "zod";
 
+import { makeToolInvokerFromTools } from "@executor-v3/codemode-core";
 import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
 
 import {
   createCodeTool,
   createToolsFromAiSdkTools,
-  executeCodeWithTools,
 } from "./index";
 
 const addNumbers = tool({
@@ -31,21 +31,21 @@ const tools = createToolsFromAiSdkTools({
 });
 
 const executor = makeInProcessExecutor();
+const toolInvoker = makeToolInvokerFromTools({ tools });
 
 export const codemode = createCodeTool({
-  tools,
+  toolInvoker,
   executor,
 });
 
 export const runCodemodeDemo = async () =>
   Effect.runPromise(
-    executeCodeWithTools({
-      tools,
-      executor,
-      code: [
+    executor.execute(
+      [
         "const math = await tools.math.add({ a: 2, b: 3 });",
         "await tools.notifications.send({ message: `sum is ${math.sum}` });",
         "return math;",
       ].join("\n"),
-    }),
+      toolInvoker,
+    ),
   );

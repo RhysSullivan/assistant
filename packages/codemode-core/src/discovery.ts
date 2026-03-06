@@ -40,25 +40,18 @@ export function createStaticDiscoveryFromTools(input: {
 export function createDynamicDiscovery(input: {
   directory: ToolDirectory;
   search?: SearchProvider;
-  preloadedTools?: readonly ToolDescriptor[];
 }): {
-  preloadedTools: readonly ToolDescriptor[];
   primitives: DiscoveryPrimitives;
   executeDescription: string;
 } {
-  const preloadedTools = input.preloadedTools ?? [];
   const primitives = createDiscoveryPrimitives({
     directory: input.directory,
     search: input.search,
   });
 
   return {
-    preloadedTools,
     primitives,
-    executeDescription: buildExecuteDescription({
-      preloadedTools,
-      primitives,
-    }),
+    executeDescription: buildDynamicExecuteDescription({ primitives }),
   };
 }
 
@@ -166,6 +159,17 @@ export function buildExecuteDescription(input: {
       "Do not use fetch; use tools.* only.",
     ].join("\n");
   }
+
+  return buildDynamicExecuteDescription({ primitives });
+}
+
+export function buildDynamicExecuteDescription(input: {
+  primitives: DiscoveryPrimitives;
+}): string {
+  const { primitives } = input;
+  const hasCatalog = Boolean(primitives.catalog);
+  const hasDescribe = Boolean(primitives.describe);
+  const hasDiscover = Boolean(primitives.discover);
 
   return [
     "Execute TypeScript in sandbox; call tools via helper workflow.",

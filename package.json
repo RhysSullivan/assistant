@@ -6,6 +6,15 @@
   "workspaces": [
     "packages/*"
   ],
+  "catalog": {
+    "@effect/platform": "^0.94.5",
+    "@effect/vitest": "^0.27.0",
+    "@types/node": "^24.3.1",
+    "bun-types": "^1.2.22",
+    "effect": "^3.19.19",
+    "vitest": "^3.2.4",
+    "zod": "^4.3.6"
+  },
   "scripts": {
     "typecheck": "bun run --filter='*' typecheck"
   },

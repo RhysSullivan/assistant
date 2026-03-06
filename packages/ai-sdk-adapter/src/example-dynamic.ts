@@ -1,11 +1,11 @@
 import * as Effect from "effect/Effect";
 
 import {
-  createDynamicDiscovery,
   type SearchProvider,
   type ToolDirectory,
   type ToolPath,
-} from "./index";
+  createDynamicDiscovery,
+} from "@executor-v3/codemode-core";
 
 const asToolPath = (value: string): ToolPath => value as ToolPath;
 

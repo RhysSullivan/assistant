@@ -10,10 +10,10 @@
   },
   "dependencies": {
     "@executor-v3/codemode-core": "workspace:*",
-    "effect": "^3.19.19"
+    "effect": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "^24.3.1",
-    "bun-types": "^1.2.22"
+    "@types/node": "catalog:",
+    "bun-types": "catalog:"
   }
 }

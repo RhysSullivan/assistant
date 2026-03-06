@@ -15,15 +15,15 @@
   },
   "dependencies": {
     "@executor-v3/codemode-core": "workspace:*",
-    "effect": "^3.19.19",
+    "effect": "catalog:",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
-    "@effect/platform": "^0.94.5",
+    "@effect/platform": "catalog:",
     "@effect/platform-node": "^0.104.1",
-    "@effect/vitest": "^0.27.0",
-    "@types/node": "^24.3.1",
-    "bun-types": "^1.2.22",
-    "vitest": "^3.2.4"
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
   }
 }

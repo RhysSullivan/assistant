@@ -3,12 +3,13 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
-  allowAllToolInteractions,
   createCodeTool,
-  executeCodeWithTools,
+} from "@executor-v3/ai-sdk-adapter/ai";
+import {
+  allowAllToolInteractions,
   makeToolInvokerFromTools,
   toExecutorTool,
-} from "@executor-v3/ai-sdk-adapter/ai";
+} from "@executor-v3/codemode-core";
 import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
 
 const numberPairInputSchema = Schema.standardSchemaV1(
@@ -23,7 +24,6 @@ const messageInputSchema = Schema.standardSchemaV1(
     message: Schema.String,
   }),
 );
-
 
 const tools = {
   "math.add": {
@@ -47,17 +47,19 @@ describe("kitchen-sink", () => {
   it.effect("executes code with in-process runtime", () =>
     Effect.gen(function* () {
       const executor = makeInProcessExecutor();
+      const toolInvoker = makeToolInvokerFromTools({
+        tools,
+        onToolInteraction: allowAllToolInteractions,
+      });
 
-      const output = yield* executeCodeWithTools({
-        code: [
+      const output = yield* executor.execute(
+        [
           "const math = await tools.math.add({ a: 19, b: 23 });",
           "await tools.notifications.send({ message: `sum is ${math.sum}` });",
           "return math;",
         ].join("\n"),
-        tools,
-        executor,
-        onToolInteraction: allowAllToolInteractions,
-      });
+        toolInvoker,
+      );
 
       expect(output.result).toEqual({ sum: 42 });
     }),
@@ -68,11 +70,10 @@ describe("kitchen-sink", () => {
       const executor = makeInProcessExecutor();
       const toolInvoker = makeToolInvokerFromTools({ tools });
 
-      const output = yield* executeCodeWithTools({
-        code: "return await tools.math.add({ a: 40, b: 2 });",
-        executor,
+      const output = yield* executor.execute(
+        "return await tools.math.add({ a: 40, b: 2 });",
         toolInvoker,
-      });
+      );
 
       expect(output.result).toEqual({ sum: 42 });
     }),
@@ -81,7 +82,8 @@ describe("kitchen-sink", () => {
   it.effect("createCodeTool wraps Effect execution for AI SDK", () =>
     Effect.gen(function* () {
       const executor = makeInProcessExecutor();
-      const codemode = createCodeTool({ tools, executor });
+      const toolInvoker = makeToolInvokerFromTools({ tools });
+      const codemode = createCodeTool({ toolInvoker, executor });
       const execute = (codemode as unknown as {
         execute?: (input: { code: string }) => Promise<unknown>;
       }).execute;
@@ -107,19 +109,14 @@ describe("kitchen-sink", () => {
   it.effect("fetch is disabled by default", () =>
     Effect.gen(function* () {
       const executor = makeInProcessExecutor();
+      const toolInvoker = makeToolInvokerFromTools({ tools });
 
-      const outcome = yield* Effect.either(
-        executeCodeWithTools({
-          code: 'await fetch("https://example.com"); return 1;',
-          tools,
-          executor,
-        }),
+      const output = yield* executor.execute(
+        'await fetch("https://example.com"); return 1;',
+        toolInvoker,
       );
 
-      expect(outcome._tag).toBe("Left");
-      if (outcome._tag === "Left") {
-        expect(outcome.left.message).toContain("fetch is disabled in in-process executor");
-      }
+      expect(output.error).toContain("fetch is disabled in in-process executor");
     }),
   );
 });

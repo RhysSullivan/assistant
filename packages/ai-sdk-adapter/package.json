@@ -17,11 +17,11 @@
     "@executor-v3/codemode-core": "workspace:*",
     "@executor-v3/runtime-local-inproc": "workspace:*",
     "ai": "^6.0.0",
-    "effect": "^3.19.19",
-    "zod": "^4.3.6"
+    "effect": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "^24.3.1",
-    "bun-types": "^1.2.22"
+    "@types/node": "catalog:",
+    "bun-types": "catalog:"
   }
 }

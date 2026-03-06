@@ -2,10 +2,9 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
-  executeCodeWithTools,
   makeToolInvokerFromTools,
   toExecutorTool,
-} from "@executor-v3/ai-sdk-adapter/ai";
+} from "@executor-v3/codemode-core";
 import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
 
 const numberPairInputSchema = Schema.standardSchemaV1(
@@ -36,17 +35,15 @@ const tools = {
 };
 
 const run = Effect.gen(function* () {
-  const outputWithTools = yield* executeCodeWithTools({
-    code: "return await tools.math.add({ a: 20, b: 22 });",
-    tools,
-    executor: makeInProcessExecutor(),
-  });
+  const outputWithTools = yield* makeInProcessExecutor().execute(
+    "return await tools.math.add({ a: 20, b: 22 });",
+    makeToolInvokerFromTools({ tools }),
+  );
 
-  const outputWithInvoker = yield* executeCodeWithTools({
-    code: "return await tools.math.add({ a: 39, b: 3 });",
-    toolInvoker: makeToolInvokerFromTools({ tools }),
-    executor: makeInProcessExecutor(),
-  });
+  const outputWithInvoker = yield* makeInProcessExecutor().execute(
+    "return await tools.math.add({ a: 39, b: 3 });",
+    makeToolInvokerFromTools({ tools }),
+  );
 
   return {
     outputWithTools,

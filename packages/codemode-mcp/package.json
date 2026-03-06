@@ -14,13 +14,13 @@
     "@executor-v3/codemode-core": "workspace:*",
     "@executor-v3/runtime-local-inproc": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "effect": "^3.19.19"
+    "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.27.0",
-    "@types/node": "^24.3.1",
-    "bun-types": "^1.2.22",
-    "vitest": "^3.2.4",
-    "zod": "^4.3.6"
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
   }
 }

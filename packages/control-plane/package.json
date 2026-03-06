@@ -18,16 +18,16 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@effect/platform": "^0.94.5",
+    "@effect/platform": "catalog:",
     "@electric-sql/pglite": "^0.3.12",
     "drizzle-orm": "1.0.0-beta.15-859cf75",
-    "effect": "^3.19.19",
+    "effect": "catalog:",
     "postgres": "^3.4.7"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.27.0",
-    "@types/node": "^24.3.1",
-    "bun-types": "^1.2.22",
-    "vitest": "^3.2.4"
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
   }
 }
