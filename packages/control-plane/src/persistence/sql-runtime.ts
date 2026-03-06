@@ -85,6 +85,20 @@ const createPostgresRuntime = async (
 
 const ddlStatements = [
   `
+create table if not exists accounts (
+  id text primary key,
+  provider text not null,
+  subject text not null,
+  email text,
+  display_name text,
+  created_at bigint not null,
+  updated_at bigint not null,
+  constraint accounts_provider_check check (provider in ('local', 'workos', 'service'))
+);
+`,
+  "create unique index if not exists accounts_provider_subject_idx on accounts (provider, subject);",
+  "create index if not exists accounts_updated_idx on accounts (updated_at, id);",
+  `
 create table if not exists organizations (
   id text primary key,
   slug text not null,
@@ -172,6 +186,48 @@ create table if not exists policies (
 );
 `,
   "create index if not exists policies_workspace_idx on policies (workspace_id, updated_at, id);",
+  `
+create table if not exists local_installations (
+  id text primary key,
+  account_id text not null,
+  organization_id text not null,
+  workspace_id text not null,
+  created_at bigint not null,
+  updated_at bigint not null
+);
+`,
+  `
+create table if not exists executions (
+  id text primary key,
+  workspace_id text not null,
+  created_by_account_id text not null,
+  status text not null,
+  code text not null,
+  result_json text,
+  error_text text,
+  logs_json text,
+  started_at bigint,
+  completed_at bigint,
+  created_at bigint not null,
+  updated_at bigint not null,
+  constraint executions_status_check check (status in ('pending', 'running', 'waiting_for_interaction', 'completed', 'failed', 'cancelled'))
+);
+`,
+  "create index if not exists executions_workspace_idx on executions (workspace_id, updated_at, id);",
+  `
+create table if not exists execution_interactions (
+  id text primary key,
+  execution_id text not null,
+  status text not null,
+  kind text not null,
+  payload_json text not null,
+  response_json text,
+  created_at bigint not null,
+  updated_at bigint not null,
+  constraint execution_interactions_status_check check (status in ('pending', 'resolved', 'cancelled'))
+);
+`,
+  "create index if not exists execution_interactions_execution_idx on execution_interactions (execution_id, updated_at, id);",
 ];
 
 export const ensureSchema = async (db: any): Promise<void> => {

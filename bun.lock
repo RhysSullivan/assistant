@@ -79,10 +79,15 @@
         "postgres": "^3.4.7",
       },
       "devDependencies": {
+        "@effect/platform-node": "^0.104.1",
         "@effect/vitest": "catalog:",
+        "@executor-v3/codemode-mcp": "workspace:*",
+        "@executor-v3/runtime-local-inproc": "workspace:*",
+        "@modelcontextprotocol/sdk": "^1.26.0",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
         "vitest": "catalog:",
+        "zod": "catalog:",
       },
     },
     "packages/kitchen-sink": {

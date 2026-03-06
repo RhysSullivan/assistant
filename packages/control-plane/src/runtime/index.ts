@@ -24,6 +24,16 @@ import {
   makeSecretStore,
   type SecretStore,
 } from "./secret-store";
+import type { LocalInstallation } from "#schema";
+import {
+  getOrProvisionLocalInstallation,
+} from "./local-installation";
+import {
+  type ResolveExecutionEnvironment,
+} from "./execution-state";
+import {
+  makeLiveExecutionManager,
+} from "./live-execution";
 import { makeRuntimeControlPlaneService } from "./services";
 
 export {
@@ -35,12 +45,16 @@ export {
 };
 
 export type { SecretHandle, SecretProvider, SecretStore } from "./secret-store";
+export * from "./execution-state";
+export * from "./live-execution";
+export * from "./local-installation";
 export * from "./source-runtime";
 
 export type RuntimeControlPlaneInput = {
   persistence: SqlControlPlanePersistence;
   actorResolver?: ControlPlaneActorResolverShape;
   secretStore?: SecretStore;
+  executionResolver?: ResolveExecutionEnvironment;
 };
 
 export const makeRuntimeControlPlane = (
@@ -51,7 +65,11 @@ export const makeRuntimeControlPlane = (
   secretStore: SecretStore;
   webHandler: ReturnType<typeof makeControlPlaneWebHandler>;
 } => {
-  const service = makeRuntimeControlPlaneService(input.persistence.rows);
+  const liveExecutionManager = makeLiveExecutionManager();
+  const service = makeRuntimeControlPlaneService(input.persistence.rows, {
+    executionResolver: input.executionResolver,
+    liveExecutionManager,
+  });
   const actorResolver = input.actorResolver ?? makeHeaderActorResolver(input.persistence.rows);
   const secretStore =
     input.secretStore
@@ -75,6 +93,7 @@ export const makeRuntimeControlPlane = (
 
 export type SqlControlPlaneRuntime = {
   persistence: SqlControlPlanePersistence;
+  localInstallation: LocalInstallation;
   service: ControlPlaneServiceShape;
   actorResolver: ControlPlaneActorResolverShape;
   secretStore: SecretStore;
@@ -85,24 +104,39 @@ export type SqlControlPlaneRuntime = {
 export type CreateSqlControlPlaneRuntimeOptions = CreateSqlRuntimeOptions & {
   secretStore?: SecretStore;
   actorResolver?: ControlPlaneActorResolverShape;
+  executionResolver?: ResolveExecutionEnvironment;
 };
 
 export const makeSqlControlPlaneRuntime = (
   options: CreateSqlControlPlaneRuntimeOptions,
 ): Effect.Effect<SqlControlPlaneRuntime, SqlPersistenceBootstrapError> =>
-  Effect.map(makeSqlControlPlanePersistence(options), (persistence) => {
-    const runtime = makeRuntimeControlPlane({
-      persistence,
-      actorResolver: options.actorResolver,
-      secretStore: options.secretStore,
-    });
+  Effect.flatMap(makeSqlControlPlanePersistence(options), (persistence) =>
+    Effect.gen(function* () {
+      const runtime = makeRuntimeControlPlane({
+        persistence,
+        actorResolver: options.actorResolver,
+        secretStore: options.secretStore,
+        executionResolver: options.executionResolver,
+      });
+      const localInstallation = yield* getOrProvisionLocalInstallation(persistence.rows).pipe(
+        Effect.mapError((cause) =>
+          new SqlPersistenceBootstrapError({
+            message: `Failed provisioning local installation: ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+            details: cause instanceof Error ? cause.message : String(cause),
+          }),
+        ),
+      );
 
-    return {
-      persistence,
-      service: runtime.service,
-      actorResolver: runtime.actorResolver,
-      secretStore: runtime.secretStore,
-      webHandler: runtime.webHandler,
-      close: () => persistence.close(),
-    };
-  });
+      return {
+        persistence,
+        localInstallation,
+        service: runtime.service,
+        actorResolver: runtime.actorResolver,
+        secretStore: runtime.secretStore,
+        webHandler: runtime.webHandler,
+        close: () => persistence.close(),
+      };
+    })
+  );

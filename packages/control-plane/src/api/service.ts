@@ -1,5 +1,7 @@
 import type {
   AccountId,
+  Execution,
+  ExecutionId,
   Organization,
   OrganizationId,
   OrganizationMembership,
@@ -29,6 +31,10 @@ import type {
   CreateSourcePayload,
   UpdateSourcePayload,
 } from "./sources/api";
+import type {
+  CreateExecutionPayload,
+  ResumeExecutionPayload,
+} from "./executions/api";
 import type {
   CreateWorkspacePayload,
   UpdateWorkspacePayload,
@@ -108,6 +114,24 @@ export type RemoveSourceInput = {
 export type CreatePolicyInput = {
   workspaceId: WorkspaceId;
   payload: CreatePolicyPayload;
+};
+
+export type CreateExecutionInput = {
+  workspaceId: WorkspaceId;
+  payload: CreateExecutionPayload;
+  createdByAccountId: AccountId;
+};
+
+export type GetExecutionInput = {
+  workspaceId: WorkspaceId;
+  executionId: ExecutionId;
+};
+
+export type ResumeExecutionInput = {
+  workspaceId: WorkspaceId;
+  executionId: ExecutionId;
+  payload: ResumeExecutionPayload;
+  resumedByAccountId: AccountId;
 };
 
 export type GetPolicyInput = {
@@ -209,6 +233,22 @@ export type ControlPlaneServiceShape = {
   removeSource: (
     input: RemoveSourceInput,
   ) => Effect.Effect<{ removed: boolean }, ControlPlaneStorageError>;
+
+  createExecution: (
+    input: CreateExecutionInput,
+  ) => Effect.Effect<
+    Execution,
+    ControlPlaneBadRequestError | ControlPlaneNotFoundError | ControlPlaneStorageError
+  >;
+  getExecution: (
+    input: GetExecutionInput,
+  ) => Effect.Effect<Execution, ControlPlaneNotFoundError | ControlPlaneStorageError>;
+  resumeExecution: (
+    input: ResumeExecutionInput,
+  ) => Effect.Effect<
+    Execution,
+    ControlPlaneBadRequestError | ControlPlaneNotFoundError | ControlPlaneStorageError
+  >;
 
   listPolicies: (
     workspaceId: WorkspaceId,

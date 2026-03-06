@@ -11,12 +11,37 @@ import {
 import { sql } from "drizzle-orm";
 
 export const tableNames = {
+  accounts: "accounts",
   organizations: "organizations",
   organizationMemberships: "organization_memberships",
   workspaces: "workspaces",
   sources: "sources",
   policies: "policies",
+  localInstallations: "local_installations",
+  executions: "executions",
+  executionInteractions: "execution_interactions",
 } as const;
+
+export const accountsTable = pgTable(
+  tableNames.accounts,
+  {
+    id: text("id").notNull().primaryKey(),
+    provider: text("provider").notNull(),
+    subject: text("subject").notNull(),
+    email: text("email"),
+    displayName: text("display_name"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("accounts_provider_subject_idx").on(table.provider, table.subject),
+    index("accounts_updated_idx").on(table.updatedAt, table.id),
+    check(
+      "accounts_provider_check",
+      sql`${table.provider} in ('local', 'workos', 'service')`,
+    ),
+  ],
+);
 
 export const organizationsTable = pgTable(tableNames.organizations, {
   id: text("id").notNull().primaryKey(),
@@ -154,12 +179,75 @@ export const policiesTable = pgTable(
   ],
 );
 
+export const localInstallationsTable = pgTable(tableNames.localInstallations, {
+  id: text("id").notNull().primaryKey(),
+  accountId: text("account_id").notNull(),
+  organizationId: text("organization_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const executionsTable = pgTable(
+  tableNames.executions,
+  {
+    id: text("id").notNull().primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    createdByAccountId: text("created_by_account_id").notNull(),
+    status: text("status").notNull(),
+    code: text("code").notNull(),
+    resultJson: text("result_json"),
+    errorText: text("error_text"),
+    logsJson: text("logs_json"),
+    startedAt: bigint("started_at", { mode: "number" }),
+    completedAt: bigint("completed_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("executions_workspace_idx").on(table.workspaceId, table.updatedAt, table.id),
+    check(
+      "executions_status_check",
+      sql`${table.status} in ('pending', 'running', 'waiting_for_interaction', 'completed', 'failed', 'cancelled')`,
+    ),
+  ],
+);
+
+export const executionInteractionsTable = pgTable(
+  tableNames.executionInteractions,
+  {
+    id: text("id").notNull().primaryKey(),
+    executionId: text("execution_id").notNull(),
+    status: text("status").notNull(),
+    kind: text("kind").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    responseJson: text("response_json"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("execution_interactions_execution_idx").on(
+      table.executionId,
+      table.updatedAt,
+      table.id,
+    ),
+    check(
+      "execution_interactions_status_check",
+      sql`${table.status} in ('pending', 'resolved', 'cancelled')`,
+    ),
+  ],
+);
+
 export const drizzleSchema = {
+  accountsTable,
   organizationsTable,
   organizationMembershipsTable,
   workspacesTable,
   sourcesTable,
   policiesTable,
+  localInstallationsTable,
+  executionsTable,
+  executionInteractionsTable,
 };
 
 export type DrizzleTables = typeof drizzleSchema;

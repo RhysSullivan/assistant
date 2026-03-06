@@ -6,6 +6,7 @@ import {
   ControlPlaneActorResolver,
   type ControlPlaneActorResolverShape,
 } from "./auth/actor-resolver";
+import { ControlPlaneExecutionsLive } from "./executions/http";
 import { ControlPlaneMembershipsLive } from "./memberships/http";
 import { ControlPlaneOrganizationsLive } from "./organizations/http";
 import { ControlPlanePoliciesLive } from "./policies/http";
@@ -19,6 +20,7 @@ export const ControlPlaneApiLive = HttpApiBuilder.api(ControlPlaneApi).pipe(
   Layer.provide(ControlPlaneWorkspacesLive),
   Layer.provide(ControlPlaneSourcesLive),
   Layer.provide(ControlPlanePoliciesLive),
+  Layer.provide(ControlPlaneExecutionsLive),
 );
 
 export const makeControlPlaneWebHandler = <EService, EResolver>(

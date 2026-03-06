@@ -1,5 +1,6 @@
 import { HttpApi, OpenApi } from "@effect/platform";
 
+import { ExecutionsApi } from "./executions/api";
 import { MembershipsApi } from "./memberships/api";
 import { OrganizationsApi } from "./organizations/api";
 import { PoliciesApi } from "./policies/api";
@@ -13,6 +14,13 @@ export {
   ControlPlaneStorageError,
   ControlPlaneUnauthorizedError,
 } from "./errors";
+
+export {
+  CreateExecutionPayloadSchema,
+  ResumeExecutionPayloadSchema,
+  type CreateExecutionPayload,
+  type ResumeExecutionPayload,
+} from "./executions/api";
 
 export {
   CreateOrganizationPayloadSchema,
@@ -55,6 +63,7 @@ export class ControlPlaneApi extends HttpApi.make("controlPlane")
   .add(WorkspacesApi)
   .add(SourcesApi)
   .add(PoliciesApi)
+  .add(ExecutionsApi)
   .annotateContext(
     OpenApi.annotations({
       title: "Executor v3 Control Plane API",

@@ -30,9 +30,12 @@ const createEndpoint = (
   return url;
 };
 
+type FetchInput = Parameters<typeof fetch>[0];
+type FetchInit = Parameters<typeof fetch>[1];
+
 const mergeHeadersForFetch = (
-  input: RequestInfo | URL,
-  init: RequestInit | undefined,
+  input: FetchInput,
+  init: FetchInit,
   headers: Record<string, string>,
 ): Promise<Response> => {
   const mergedHeaders = new Headers(init?.headers ?? {});
@@ -84,7 +87,7 @@ export const createSdkMcpConnector = (
         requestInit,
         eventSourceInit: requestInit
           ? {
-              fetch: (requestInput: RequestInfo | URL, requestOptions: RequestInit | undefined) =>
+              fetch: (requestInput: FetchInput, requestOptions: FetchInit) =>
                 mergeHeadersForFetch(requestInput, requestOptions, headers),
             }
           : undefined,
@@ -100,7 +103,7 @@ export const createSdkMcpConnector = (
         requestInit,
         eventSourceInit: requestInit
           ? {
-              fetch: (requestInput: RequestInfo | URL, requestOptions: RequestInit | undefined) =>
+              fetch: (requestInput: FetchInput, requestOptions: FetchInit) =>
                 mergeHeadersForFetch(requestInput, requestOptions, headers),
             }
           : undefined,

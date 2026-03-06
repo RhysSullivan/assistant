@@ -1,4 +1,8 @@
 import {
+  type Account,
+  type Execution,
+  type ExecutionInteraction,
+  type LocalInstallation,
   type Organization,
   type OrganizationMembership,
   type Policy,
@@ -49,6 +53,60 @@ export const createControlPlaneRows = ({
   db,
   tables,
 }: CreateControlPlaneRowsInput) => ({
+  accounts: {
+    getById: (accountId: Account["id"]) =>
+      rowEffect(backend, "rows.accounts.get_by_id", tableNames.accounts, async () => {
+        const row = await db
+          .select()
+          .from(tables.accountsTable)
+          .where(eq(tables.accountsTable.id, accountId))
+          .limit(1);
+
+        return row[0] ? Option.some(asDomain<Account>(row[0])) : Option.none<Account>();
+      }),
+
+    getByProviderAndSubject: (provider: Account["provider"], subject: Account["subject"]) =>
+      rowEffect(
+        backend,
+        "rows.accounts.get_by_provider_and_subject",
+        tableNames.accounts,
+        async () => {
+          const row = await db
+            .select()
+            .from(tables.accountsTable)
+            .where(
+              and(
+                eq(tables.accountsTable.provider, provider),
+                eq(tables.accountsTable.subject, subject),
+              ),
+            )
+            .limit(1);
+
+          return row[0] ? Option.some(asDomain<Account>(row[0])) : Option.none<Account>();
+        },
+      ),
+
+    insert: (account: Account) =>
+      rowEffect(backend, "rows.accounts.insert", tableNames.accounts, async () => {
+        await db.insert(tables.accountsTable).values(account);
+      }),
+
+    upsert: (account: Account) =>
+      rowEffect(backend, "rows.accounts.upsert", tableNames.accounts, async () => {
+        await db
+          .insert(tables.accountsTable)
+          .values(account)
+          .onConflictDoUpdate({
+            target: [tables.accountsTable.provider, tables.accountsTable.subject],
+            set: {
+              email: account.email,
+              displayName: account.displayName,
+              updatedAt: account.updatedAt,
+            },
+          });
+      }),
+  },
+
   organizations: {
     list: () =>
       rowEffect(backend, "rows.organizations.list", tableNames.organizations, async () => {
@@ -568,6 +626,179 @@ export const createControlPlaneRows = ({
 
         return deleted.length > 0;
       }),
+  },
+
+  localInstallations: {
+    getById: (installationId: LocalInstallation["id"]) =>
+      rowEffect(
+        backend,
+        "rows.local_installations.get_by_id",
+        tableNames.localInstallations,
+        async () => {
+          const row = await db
+            .select()
+            .from(tables.localInstallationsTable)
+            .where(eq(tables.localInstallationsTable.id, installationId))
+            .limit(1);
+
+          return row[0]
+            ? Option.some(asDomain<LocalInstallation>(row[0]))
+            : Option.none<LocalInstallation>();
+        },
+      ),
+
+    upsert: (installation: LocalInstallation) =>
+      rowEffect(
+        backend,
+        "rows.local_installations.upsert",
+        tableNames.localInstallations,
+        async () => {
+          await db
+            .insert(tables.localInstallationsTable)
+            .values(installation)
+            .onConflictDoUpdate({
+              target: tables.localInstallationsTable.id,
+              set: {
+                accountId: installation.accountId,
+                organizationId: installation.organizationId,
+                workspaceId: installation.workspaceId,
+                updatedAt: installation.updatedAt,
+              },
+            });
+        },
+      ),
+  },
+
+  executions: {
+    getById: (executionId: Execution["id"]) =>
+      rowEffect(backend, "rows.executions.get_by_id", tableNames.executions, async () => {
+        const row = await db
+          .select()
+          .from(tables.executionsTable)
+          .where(eq(tables.executionsTable.id, executionId))
+          .limit(1);
+
+        return row[0] ? Option.some(asDomain<Execution>(row[0])) : Option.none<Execution>();
+      }),
+
+    getByWorkspaceAndId: (workspaceId: Execution["workspaceId"], executionId: Execution["id"]) =>
+      rowEffect(
+        backend,
+        "rows.executions.get_by_workspace_and_id",
+        tableNames.executions,
+        async () => {
+          const row = await db
+            .select()
+            .from(tables.executionsTable)
+            .where(
+              and(
+                eq(tables.executionsTable.workspaceId, workspaceId),
+                eq(tables.executionsTable.id, executionId),
+              ),
+            )
+            .limit(1);
+
+          return row[0] ? Option.some(asDomain<Execution>(row[0])) : Option.none<Execution>();
+        },
+      ),
+
+    insert: (execution: Execution) =>
+      rowEffect(backend, "rows.executions.insert", tableNames.executions, async () => {
+        await db.insert(tables.executionsTable).values(execution);
+      }),
+
+    update: (
+      executionId: Execution["id"],
+      patch: Partial<Omit<Execution, "id" | "workspaceId" | "createdByAccountId" | "createdAt">>,
+    ) =>
+      rowEffect(backend, "rows.executions.update", tableNames.executions, async () => {
+        const rows = await db
+          .update(tables.executionsTable)
+          .set(patch)
+          .where(eq(tables.executionsTable.id, executionId))
+          .returning();
+
+        return rows[0] ? Option.some(asDomain<Execution>(rows[0])) : Option.none<Execution>();
+      }),
+  },
+
+  executionInteractions: {
+    listByExecutionId: (executionId: ExecutionInteraction["executionId"]) =>
+      rowEffect(
+        backend,
+        "rows.execution_interactions.list_by_execution_id",
+        tableNames.executionInteractions,
+        async () => {
+          const rows = await db
+            .select()
+            .from(tables.executionInteractionsTable)
+            .where(eq(tables.executionInteractionsTable.executionId, executionId))
+            .orderBy(
+              desc(tables.executionInteractionsTable.updatedAt),
+              desc(tables.executionInteractionsTable.id),
+            );
+
+          return asDomainArray<ExecutionInteraction>(rows);
+        },
+      ),
+
+    getPendingByExecutionId: (executionId: ExecutionInteraction["executionId"]) =>
+      rowEffect(
+        backend,
+        "rows.execution_interactions.get_pending_by_execution_id",
+        tableNames.executionInteractions,
+        async () => {
+          const row = await db
+            .select()
+            .from(tables.executionInteractionsTable)
+            .where(
+              and(
+                eq(tables.executionInteractionsTable.executionId, executionId),
+                eq(tables.executionInteractionsTable.status, "pending"),
+              ),
+            )
+            .orderBy(
+              desc(tables.executionInteractionsTable.updatedAt),
+              desc(tables.executionInteractionsTable.id),
+            )
+            .limit(1);
+
+          return row[0]
+            ? Option.some(asDomain<ExecutionInteraction>(row[0]))
+            : Option.none<ExecutionInteraction>();
+        },
+      ),
+
+    insert: (interaction: ExecutionInteraction) =>
+      rowEffect(
+        backend,
+        "rows.execution_interactions.insert",
+        tableNames.executionInteractions,
+        async () => {
+          await db.insert(tables.executionInteractionsTable).values(interaction);
+        },
+      ),
+
+    update: (
+      interactionId: ExecutionInteraction["id"],
+      patch: Partial<Omit<ExecutionInteraction, "id" | "executionId" | "createdAt">>,
+    ) =>
+      rowEffect(
+        backend,
+        "rows.execution_interactions.update",
+        tableNames.executionInteractions,
+        async () => {
+          const rows = await db
+            .update(tables.executionInteractionsTable)
+            .set(patch)
+            .where(eq(tables.executionInteractionsTable.id, interactionId))
+            .returning();
+
+          return rows[0]
+            ? Option.some(asDomain<ExecutionInteraction>(rows[0]))
+            : Option.none<ExecutionInteraction>();
+        },
+      ),
   },
 });
 

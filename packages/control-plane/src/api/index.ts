@@ -50,6 +50,13 @@ export { deriveWorkspaceMembershipsForPrincipal } from "./auth/workspace-members
 
 
 export {
+  CreateExecutionPayloadSchema,
+  ResumeExecutionPayloadSchema,
+  type CreateExecutionPayload,
+  type ResumeExecutionPayload,
+} from "./executions/api";
+
+export {
   CreateOrganizationPayloadSchema,
   UpdateOrganizationPayloadSchema,
   type CreateOrganizationPayload,

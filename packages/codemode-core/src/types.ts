@@ -51,10 +51,10 @@ export type ToolInteractionDecision =
   | { kind: "execute" }
   | { kind: "decline"; reason: string }
   | {
-      kind: "elicit";
-      elicitation: ElicitationRequest;
-      interactionId?: string;
-    };
+    kind: "elicit";
+    elicitation: ElicitationRequest;
+    interactionId?: string;
+  };
 
 export type ToolElicitationRequest = {
   interactionId: string;

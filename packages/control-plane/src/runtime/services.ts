@@ -18,6 +18,9 @@ import type {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import { type ResolveExecutionEnvironment } from "./execution-state";
+import { type LiveExecutionManager } from "./live-execution";
+import { makeRuntimeExecutionsService } from "./execution-service";
 import { slugify } from "./slug";
 
 const badRequest = (
@@ -857,10 +860,19 @@ export const makeRuntimePoliciesService = (
 
 export const makeRuntimeControlPlaneService = (
   rows: SqlControlPlaneRows,
+  options: {
+    executionResolver?: ResolveExecutionEnvironment;
+    liveExecutionManager?: LiveExecutionManager;
+  } = {},
 ): ControlPlaneServiceShape => ({
   ...makeRuntimeOrganizationsService(rows),
   ...makeRuntimeMembershipsService(rows),
   ...makeRuntimeWorkspacesService(rows),
   ...makeRuntimeSourcesService(rows),
   ...makeRuntimePoliciesService(rows),
+  ...makeRuntimeExecutionsService(
+    rows,
+    options.executionResolver,
+    options.liveExecutionManager,
+  ),
 });
