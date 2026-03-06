@@ -16,11 +16,13 @@
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
     "@executor-v3/codemode-core": "workspace:*",
+    "@executor-v3/codemode-mcp": "workspace:*",
     "@executor-v3/control-plane": "workspace:*",
     "@executor-v3/runtime-local-inproc": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@executor-v3/mcp-elicitation-demo": "workspace:*",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "bun-types": "catalog:",

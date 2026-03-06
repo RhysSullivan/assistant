@@ -4,7 +4,8 @@
   "type": "module",
   "packageManager": "bun@1.2.22",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "catalog": {
     "@effect/cli": "^0.73.2",

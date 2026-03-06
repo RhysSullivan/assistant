@@ -8,6 +8,40 @@
         "typescript": "^5.9.3",
       },
     },
+    "apps/executor": {
+      "name": "executor",
+      "bin": {
+        "executor": "./bin/executor",
+      },
+      "dependencies": {
+        "@effect/cli": "catalog:",
+        "@effect/platform": "catalog:",
+        "@effect/platform-node": "catalog:",
+        "@executor-v3/codemode-core": "workspace:*",
+        "@executor-v3/codemode-mcp": "workspace:*",
+        "@executor-v3/control-plane": "workspace:*",
+        "@executor-v3/runtime-local-inproc": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@executor-v3/mcp-elicitation-demo": "workspace:*",
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "apps/mcp-elicitation-demo": {
+      "name": "@executor-v3/mcp-elicitation-demo",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.26.0",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
     "packages/ai-sdk-adapter": {
       "name": "@executor-v3/ai-sdk-adapter",
       "dependencies": {
@@ -88,27 +122,6 @@
         "bun-types": "catalog:",
         "vitest": "catalog:",
         "zod": "catalog:",
-      },
-    },
-    "packages/executor": {
-      "name": "executor",
-      "bin": {
-        "executor": "./bin/executor",
-      },
-      "dependencies": {
-        "@effect/cli": "catalog:",
-        "@effect/platform": "catalog:",
-        "@effect/platform-node": "catalog:",
-        "@executor-v3/codemode-core": "workspace:*",
-        "@executor-v3/control-plane": "workspace:*",
-        "@executor-v3/runtime-local-inproc": "workspace:*",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "@types/node": "catalog:",
-        "bun-types": "catalog:",
-        "vitest": "catalog:",
       },
     },
     "packages/kitchen-sink": {
@@ -284,6 +297,8 @@
     "@executor-v3/control-plane": ["@executor-v3/control-plane@workspace:packages/control-plane"],
 
     "@executor-v3/kitchen-sink": ["@executor-v3/kitchen-sink@workspace:packages/kitchen-sink"],
+
+    "@executor-v3/mcp-elicitation-demo": ["@executor-v3/mcp-elicitation-demo@workspace:apps/mcp-elicitation-demo"],
 
     "@executor-v3/runtime-local-inproc": ["@executor-v3/runtime-local-inproc@workspace:packages/runtime-local-inproc"],
 
@@ -525,7 +540,7 @@
 
     "eventsource-parser": ["eventsource-parser@3.0.6", "", {}, "sha512-Vo1ab+QXPzZ4tCa8SwIHJFaSzy4R6SHf7BY79rFBDf0idraZWAkYrDjDj8uWaSm3S2TK+hJ7/t1CEmZ7jXw+pg=="],
 
-    "executor": ["executor@workspace:packages/executor"],
+    "executor": ["executor@workspace:apps/executor"],
 
     "expect-type": ["expect-type@1.3.0", "", {}, "sha512-knvyeauYhqjOYvQ66MznSMs83wmHrCycNEN6Ao+2AeYEfxUIkuiVxdEa1qlGEPK+We3n0THiDciYSsCcgW/DoA=="],
 

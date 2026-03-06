@@ -4,7 +4,6 @@ import { dirname } from "node:path";
 
 import { HttpApiBuilder, HttpServer } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
-import { makeToolInvokerFromTools } from "@executor-v3/codemode-core";
 import {
   ControlPlaneActorResolver,
   ControlPlaneService,
@@ -13,7 +12,6 @@ import {
   type ResolveExecutionEnvironment,
   type SqlControlPlaneRuntime,
 } from "@executor-v3/control-plane";
-import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -24,6 +22,7 @@ import {
   DEFAULT_SERVER_HOST,
   DEFAULT_SERVER_PORT,
 } from "./config";
+import { makeControlPlaneExecutionResolver } from "./control-plane-execution-resolver";
 
 export type LocalExecutorServer = {
   readonly runtime: SqlControlPlaneRuntime;
@@ -38,12 +37,6 @@ export type StartLocalExecutorServerOptions = {
   readonly localDataDir?: string;
   readonly executionResolver?: ResolveExecutionEnvironment;
 };
-
-const defaultExecutionResolver: ResolveExecutionEnvironment = () =>
-  Effect.succeed({
-    executor: makeInProcessExecutor(),
-    toolInvoker: makeToolInvokerFromTools({ tools: {} }),
-  });
 
 const disposeRuntime = (runtime: SqlControlPlaneRuntime) =>
   Effect.promise(() => runtime.close()).pipe(Effect.orDie);
@@ -86,10 +79,14 @@ export const makeLocalExecutorServer = (
       });
     }
 
+    let runtimeRef: SqlControlPlaneRuntime | null = null;
+    const executionResolver =
+      options.executionResolver ?? makeControlPlaneExecutionResolver(() => runtimeRef);
+
     const runtime = yield* Effect.acquireRelease(
       makeSqlControlPlaneRuntime({
         localDataDir,
-        executionResolver: options.executionResolver ?? defaultExecutionResolver,
+        executionResolver,
       }).pipe(
         Effect.mapError((cause) =>
           cause instanceof Error ? cause : new Error(String(cause)),
@@ -97,6 +94,7 @@ export const makeLocalExecutorServer = (
       ),
       disposeRuntime,
     );
+    runtimeRef = runtime;
 
     const serverContext = yield* Layer.build(
       makeControlPlaneServerLayer({

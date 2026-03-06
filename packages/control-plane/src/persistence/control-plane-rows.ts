@@ -37,25 +37,44 @@ const withoutCreatedAt = <A extends { createdAt: unknown }>(
   return rest;
 };
 
-const rowEffect = <A>(
-  _backend: SqlBackend,
-  operation: string,
-  _location: string,
-  run: () => Promise<A>,
-): Effect.Effect<A, ControlPlanePersistenceError> =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) => toPersistenceError(operation, cause),
-  });
+const makeRowEffect = (backend: SqlBackend) => {
+  let queue = Promise.resolve<void>(undefined);
+
+  const serialize = <A>(run: () => Promise<A>) => {
+    if (backend !== "pglite") {
+      return run();
+    }
+
+    const next: Promise<A> = queue.then(() => run(), () => run());
+    queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  };
+
+  return <A>(
+    operation: string,
+    _location: string,
+    run: () => Promise<A>,
+  ): Effect.Effect<A, ControlPlanePersistenceError> =>
+    Effect.tryPromise({
+      try: () => serialize(run),
+      catch: (cause) => toPersistenceError(operation, cause),
+    });
+};
 
 export const createControlPlaneRows = ({
   backend,
   db,
   tables,
-}: CreateControlPlaneRowsInput) => ({
+}: CreateControlPlaneRowsInput) => {
+  const rowEffect = makeRowEffect(backend);
+
+  return {
   accounts: {
     getById: (accountId: Account["id"]) =>
-      rowEffect(backend, "rows.accounts.get_by_id", tableNames.accounts, async () => {
+      rowEffect("rows.accounts.get_by_id", tableNames.accounts, async () => {
         const row = await db
           .select()
           .from(tables.accountsTable)
@@ -67,7 +86,6 @@ export const createControlPlaneRows = ({
 
     getByProviderAndSubject: (provider: Account["provider"], subject: Account["subject"]) =>
       rowEffect(
-        backend,
         "rows.accounts.get_by_provider_and_subject",
         tableNames.accounts,
         async () => {
@@ -87,12 +105,12 @@ export const createControlPlaneRows = ({
       ),
 
     insert: (account: Account) =>
-      rowEffect(backend, "rows.accounts.insert", tableNames.accounts, async () => {
+      rowEffect("rows.accounts.insert", tableNames.accounts, async () => {
         await db.insert(tables.accountsTable).values(account);
       }),
 
     upsert: (account: Account) =>
-      rowEffect(backend, "rows.accounts.upsert", tableNames.accounts, async () => {
+      rowEffect("rows.accounts.upsert", tableNames.accounts, async () => {
         await db
           .insert(tables.accountsTable)
           .values(account)
@@ -109,7 +127,7 @@ export const createControlPlaneRows = ({
 
   organizations: {
     list: () =>
-      rowEffect(backend, "rows.organizations.list", tableNames.organizations, async () => {
+      rowEffect("rows.organizations.list", tableNames.organizations, async () => {
         const rows = await db
           .select()
           .from(tables.organizationsTable)
@@ -120,7 +138,6 @@ export const createControlPlaneRows = ({
 
     getById: (organizationId: Organization["id"]) =>
       rowEffect(
-        backend,
         "rows.organizations.get_by_id",
         tableNames.organizations,
         async () => {
@@ -138,7 +155,6 @@ export const createControlPlaneRows = ({
 
     getBySlug: (slug: Organization["slug"]) =>
       rowEffect(
-        backend,
         "rows.organizations.get_by_slug",
         tableNames.organizations,
         async () => {
@@ -155,7 +171,7 @@ export const createControlPlaneRows = ({
       ),
 
     insert: (organization: Organization) =>
-      rowEffect(backend, "rows.organizations.insert", tableNames.organizations, async () => {
+      rowEffect("rows.organizations.insert", tableNames.organizations, async () => {
         await db.insert(tables.organizationsTable).values(organization);
       }),
 
@@ -164,7 +180,6 @@ export const createControlPlaneRows = ({
       ownerMembership: OrganizationMembership | null,
     ) =>
       rowEffect(
-        backend,
         "rows.organizations.insert_with_owner_membership",
         tableNames.organizations,
         async () => {
@@ -194,7 +209,7 @@ export const createControlPlaneRows = ({
       organizationId: Organization["id"],
       patch: Partial<Omit<Organization, "id" | "createdAt">>,
     ) =>
-      rowEffect(backend, "rows.organizations.update", tableNames.organizations, async () => {
+      rowEffect("rows.organizations.update", tableNames.organizations, async () => {
         const rows = await db
           .update(tables.organizationsTable)
           .set(patch)
@@ -207,7 +222,7 @@ export const createControlPlaneRows = ({
       }),
 
     removeById: (organizationId: Organization["id"]) =>
-      rowEffect(backend, "rows.organizations.remove", tableNames.organizations, async () => {
+      rowEffect("rows.organizations.remove", tableNames.organizations, async () => {
         const deleted = await db
           .delete(tables.organizationsTable)
           .where(eq(tables.organizationsTable.id, organizationId))
@@ -218,7 +233,6 @@ export const createControlPlaneRows = ({
 
     removeTreeById: (organizationId: Organization["id"]) =>
       rowEffect(
-        backend,
         "rows.organizations.remove_tree",
         tableNames.organizations,
         async () => {
@@ -259,7 +273,6 @@ export const createControlPlaneRows = ({
   organizationMemberships: {
     listByOrganizationId: (organizationId: OrganizationMembership["organizationId"]) =>
       rowEffect(
-        backend,
         "rows.organization_memberships.list_by_organization",
         tableNames.organizationMemberships,
         async () => {
@@ -278,7 +291,6 @@ export const createControlPlaneRows = ({
 
     listByAccountId: (accountId: OrganizationMembership["accountId"]) =>
       rowEffect(
-        backend,
         "rows.organization_memberships.list_by_account",
         tableNames.organizationMemberships,
         async () => {
@@ -300,7 +312,6 @@ export const createControlPlaneRows = ({
       accountId: OrganizationMembership["accountId"],
     ) =>
       rowEffect(
-        backend,
         "rows.organization_memberships.get_by_organization_and_account",
         tableNames.organizationMemberships,
         async () => {
@@ -323,7 +334,6 @@ export const createControlPlaneRows = ({
 
     upsert: (membership: OrganizationMembership) =>
       rowEffect(
-        backend,
         "rows.organization_memberships.upsert",
         tableNames.organizationMemberships,
         async () => {
@@ -348,7 +358,6 @@ export const createControlPlaneRows = ({
       accountId: OrganizationMembership["accountId"],
     ) =>
       rowEffect(
-        backend,
         "rows.organization_memberships.remove",
         tableNames.organizationMemberships,
         async () => {
@@ -369,7 +378,7 @@ export const createControlPlaneRows = ({
 
   workspaces: {
     listByOrganizationId: (organizationId: Workspace["organizationId"]) =>
-      rowEffect(backend, "rows.workspaces.list_by_organization", tableNames.workspaces, async () => {
+      rowEffect("rows.workspaces.list_by_organization", tableNames.workspaces, async () => {
         const rows = await db
           .select()
           .from(tables.workspacesTable)
@@ -380,7 +389,7 @@ export const createControlPlaneRows = ({
       }),
 
     getById: (workspaceId: Workspace["id"]) =>
-      rowEffect(backend, "rows.workspaces.get_by_id", tableNames.workspaces, async () => {
+      rowEffect("rows.workspaces.get_by_id", tableNames.workspaces, async () => {
         const row = await db
           .select()
           .from(tables.workspacesTable)
@@ -393,7 +402,7 @@ export const createControlPlaneRows = ({
       }),
 
     insert: (workspace: Workspace) =>
-      rowEffect(backend, "rows.workspaces.insert", tableNames.workspaces, async () => {
+      rowEffect("rows.workspaces.insert", tableNames.workspaces, async () => {
         await db.insert(tables.workspacesTable).values(workspace);
       }),
 
@@ -401,7 +410,7 @@ export const createControlPlaneRows = ({
       workspaceId: Workspace["id"],
       patch: Partial<Omit<Workspace, "id" | "createdAt">>,
     ) =>
-      rowEffect(backend, "rows.workspaces.update", tableNames.workspaces, async () => {
+      rowEffect("rows.workspaces.update", tableNames.workspaces, async () => {
         const rows = await db
           .update(tables.workspacesTable)
           .set(patch)
@@ -414,7 +423,7 @@ export const createControlPlaneRows = ({
       }),
 
     removeById: (workspaceId: Workspace["id"]) =>
-      rowEffect(backend, "rows.workspaces.remove", tableNames.workspaces, async () => {
+      rowEffect("rows.workspaces.remove", tableNames.workspaces, async () => {
         const deleted = await db
           .delete(tables.workspacesTable)
           .where(eq(tables.workspacesTable.id, workspaceId))
@@ -426,7 +435,7 @@ export const createControlPlaneRows = ({
 
   sources: {
     listByWorkspaceId: (workspaceId: Source["workspaceId"]) =>
-      rowEffect(backend, "rows.sources.list_by_workspace", tableNames.sources, async () => {
+      rowEffect("rows.sources.list_by_workspace", tableNames.sources, async () => {
         const rows = await db
           .select()
           .from(tables.sourcesTable)
@@ -455,7 +464,7 @@ export const createControlPlaneRows = ({
       workspaceId: Source["workspaceId"],
       sourceId: Source["id"],
     ) =>
-      rowEffect(backend, "rows.sources.get_by_workspace_and_id", tableNames.sources, async () => {
+      rowEffect("rows.sources.get_by_workspace_and_id", tableNames.sources, async () => {
         const rows = await db
           .select()
           .from(tables.sourcesTable)
@@ -491,7 +500,7 @@ export const createControlPlaneRows = ({
       }),
 
     insert: (source: Source) =>
-      rowEffect(backend, "rows.sources.insert", tableNames.sources, async () => {
+      rowEffect("rows.sources.insert", tableNames.sources, async () => {
         await db.insert(tables.sourcesTable).values({
           workspaceId: source.workspaceId,
           sourceId: source.id,
@@ -513,7 +522,7 @@ export const createControlPlaneRows = ({
       sourceId: Source["id"],
       patch: Partial<Omit<Source, "id" | "workspaceId" | "createdAt">>,
     ) =>
-      rowEffect(backend, "rows.sources.update", tableNames.sources, async () => {
+      rowEffect("rows.sources.update", tableNames.sources, async () => {
         const updateSet: Record<string, unknown> = { ...patch };
         if ("id" in updateSet) {
           delete updateSet.id;
@@ -560,7 +569,7 @@ export const createControlPlaneRows = ({
       workspaceId: Source["workspaceId"],
       sourceId: Source["id"],
     ) =>
-      rowEffect(backend, "rows.sources.remove", tableNames.sources, async () => {
+      rowEffect("rows.sources.remove", tableNames.sources, async () => {
         const deleted = await db
           .delete(tables.sourcesTable)
           .where(
@@ -577,7 +586,7 @@ export const createControlPlaneRows = ({
 
   policies: {
     listByWorkspaceId: (workspaceId: Policy["workspaceId"]) =>
-      rowEffect(backend, "rows.policies.list_by_workspace", tableNames.policies, async () => {
+      rowEffect("rows.policies.list_by_workspace", tableNames.policies, async () => {
         const rows = await db
           .select()
           .from(tables.policiesTable)
@@ -588,7 +597,7 @@ export const createControlPlaneRows = ({
       }),
 
     getById: (policyId: Policy["id"]) =>
-      rowEffect(backend, "rows.policies.get_by_id", tableNames.policies, async () => {
+      rowEffect("rows.policies.get_by_id", tableNames.policies, async () => {
         const row = await db
           .select()
           .from(tables.policiesTable)
@@ -599,7 +608,7 @@ export const createControlPlaneRows = ({
       }),
 
     insert: (policy: Policy) =>
-      rowEffect(backend, "rows.policies.insert", tableNames.policies, async () => {
+      rowEffect("rows.policies.insert", tableNames.policies, async () => {
         await db.insert(tables.policiesTable).values(policy);
       }),
 
@@ -607,7 +616,7 @@ export const createControlPlaneRows = ({
       policyId: Policy["id"],
       patch: Partial<Omit<Policy, "id" | "workspaceId" | "createdAt">>,
     ) =>
-      rowEffect(backend, "rows.policies.update", tableNames.policies, async () => {
+      rowEffect("rows.policies.update", tableNames.policies, async () => {
         const rows = await db
           .update(tables.policiesTable)
           .set(patch)
@@ -618,7 +627,7 @@ export const createControlPlaneRows = ({
       }),
 
     removeById: (policyId: Policy["id"]) =>
-      rowEffect(backend, "rows.policies.remove", tableNames.policies, async () => {
+      rowEffect("rows.policies.remove", tableNames.policies, async () => {
         const deleted = await db
           .delete(tables.policiesTable)
           .where(eq(tables.policiesTable.id, policyId))
@@ -631,7 +640,6 @@ export const createControlPlaneRows = ({
   localInstallations: {
     getById: (installationId: LocalInstallation["id"]) =>
       rowEffect(
-        backend,
         "rows.local_installations.get_by_id",
         tableNames.localInstallations,
         async () => {
@@ -649,7 +657,6 @@ export const createControlPlaneRows = ({
 
     upsert: (installation: LocalInstallation) =>
       rowEffect(
-        backend,
         "rows.local_installations.upsert",
         tableNames.localInstallations,
         async () => {
@@ -671,7 +678,7 @@ export const createControlPlaneRows = ({
 
   executions: {
     getById: (executionId: Execution["id"]) =>
-      rowEffect(backend, "rows.executions.get_by_id", tableNames.executions, async () => {
+      rowEffect("rows.executions.get_by_id", tableNames.executions, async () => {
         const row = await db
           .select()
           .from(tables.executionsTable)
@@ -683,7 +690,6 @@ export const createControlPlaneRows = ({
 
     getByWorkspaceAndId: (workspaceId: Execution["workspaceId"], executionId: Execution["id"]) =>
       rowEffect(
-        backend,
         "rows.executions.get_by_workspace_and_id",
         tableNames.executions,
         async () => {
@@ -703,7 +709,7 @@ export const createControlPlaneRows = ({
       ),
 
     insert: (execution: Execution) =>
-      rowEffect(backend, "rows.executions.insert", tableNames.executions, async () => {
+      rowEffect("rows.executions.insert", tableNames.executions, async () => {
         await db.insert(tables.executionsTable).values(execution);
       }),
 
@@ -711,7 +717,7 @@ export const createControlPlaneRows = ({
       executionId: Execution["id"],
       patch: Partial<Omit<Execution, "id" | "workspaceId" | "createdByAccountId" | "createdAt">>,
     ) =>
-      rowEffect(backend, "rows.executions.update", tableNames.executions, async () => {
+      rowEffect("rows.executions.update", tableNames.executions, async () => {
         const rows = await db
           .update(tables.executionsTable)
           .set(patch)
@@ -725,7 +731,6 @@ export const createControlPlaneRows = ({
   executionInteractions: {
     listByExecutionId: (executionId: ExecutionInteraction["executionId"]) =>
       rowEffect(
-        backend,
         "rows.execution_interactions.list_by_execution_id",
         tableNames.executionInteractions,
         async () => {
@@ -744,7 +749,6 @@ export const createControlPlaneRows = ({
 
     getPendingByExecutionId: (executionId: ExecutionInteraction["executionId"]) =>
       rowEffect(
-        backend,
         "rows.execution_interactions.get_pending_by_execution_id",
         tableNames.executionInteractions,
         async () => {
@@ -771,7 +775,6 @@ export const createControlPlaneRows = ({
 
     insert: (interaction: ExecutionInteraction) =>
       rowEffect(
-        backend,
         "rows.execution_interactions.insert",
         tableNames.executionInteractions,
         async () => {
@@ -784,7 +787,6 @@ export const createControlPlaneRows = ({
       patch: Partial<Omit<ExecutionInteraction, "id" | "executionId" | "createdAt">>,
     ) =>
       rowEffect(
-        backend,
         "rows.execution_interactions.update",
         tableNames.executionInteractions,
         async () => {
@@ -800,6 +802,7 @@ export const createControlPlaneRows = ({
         },
       ),
   },
-});
+  };
+};
 
 export type SqlControlPlaneRows = ReturnType<typeof createControlPlaneRows>;
