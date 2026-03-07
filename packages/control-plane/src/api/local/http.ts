@@ -1,7 +1,8 @@
-import { HttpApiBuilder, HttpServerRequest } from "@effect/platform";
-import * as Effect from "effect/Effect";
 import {
-  completeSourceAuthCallback,
+  HttpApiBuilder,
+} from "@effect/platform";
+
+import {
   getLocalInstallation,
 } from "../../runtime/local-operations";
 
@@ -14,20 +15,5 @@ export const ControlPlaneLocalLive = HttpApiBuilder.group(
     handlers
       .handle("installation", () =>
         getLocalInstallation(),
-      )
-      .handle("oauthCallback", () =>
-        Effect.gen(function* () {
-          const request = yield* HttpServerRequest.HttpServerRequest;
-          const requestUrl = new URL(request.url, "http://127.0.0.1");
-
-          const source = yield* completeSourceAuthCallback({
-            state: requestUrl.searchParams.get("state") ?? "",
-            code: requestUrl.searchParams.get("code"),
-            error: requestUrl.searchParams.get("error"),
-            errorDescription: requestUrl.searchParams.get("error_description"),
-          });
-
-          return `Source connected: ${source.id}. You can close this window.`;
-        }),
       ),
 );

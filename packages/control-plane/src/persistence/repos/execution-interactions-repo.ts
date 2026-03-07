@@ -18,6 +18,20 @@ export const createExecutionInteractionsRepo = (
   client: DrizzleClient,
   tables: DrizzleTables,
 ) => ({
+  getById: (interactionId: ExecutionInteraction["id"]) =>
+    client.use("rows.execution_interactions.get_by_id", async (db) => {
+      const rows = await db
+        .select()
+        .from(tables.executionInteractionsTable)
+        .where(eq(tables.executionInteractionsTable.id, interactionId))
+        .limit(1);
+
+      const row = firstOption(rows);
+      return Option.isSome(row)
+        ? Option.some(decodeExecutionInteraction(row.value))
+        : Option.none<ExecutionInteraction>();
+    }),
+
   listByExecutionId: (executionId: ExecutionInteraction["executionId"]) =>
     client.use("rows.execution_interactions.list_by_execution_id", async (db) => {
       const rows = await db

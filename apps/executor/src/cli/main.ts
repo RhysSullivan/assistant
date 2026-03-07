@@ -45,6 +45,27 @@ const toError = (cause: unknown): Error =>
 const sleep = (ms: number) =>
   Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
+const openUrlInBrowser = (url: string): Effect.Effect<void, never, never> =>
+  Effect.sync(() => {
+    const cmd =
+      process.platform === "darwin"
+        ? ["open", url]
+        : process.platform === "win32"
+          ? ["cmd", "/c", "start", "", url]
+          : ["xdg-open", url];
+
+    try {
+      const child = spawn(cmd[0]!, cmd.slice(1), {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.on("error", () => undefined);
+      child.unref();
+    } catch {
+      // Best-effort browser launch only; always leave the URL in stdout.
+    }
+  }).pipe(Effect.catchAll(() => Effect.void));
+
 const promptLine = (prompt: string): Effect.Effect<string, Error, never> =>
   Effect.tryPromise({
     try: async () => {
@@ -254,8 +275,8 @@ const printRootHelp = (workflow: string) =>
       "",
       "USAGE",
       "",
-      "  executor call [code] [--file text] [--stdin] [--base-url text]",
-      "  executor resume --execution-id text [--base-url text]",
+      "  executor call [code] [--file text] [--stdin] [--base-url text] [--no-open]",
+      "  executor resume --execution-id text [--base-url text] [--no-open]",
       "",
       "CALL WORKFLOW",
       "",
@@ -281,7 +302,7 @@ const printCallHelp = (workflow: string) =>
       "",
       "USAGE",
       "",
-      "  executor call [code] [--file text] [--stdin] [--base-url text]",
+      "  executor call [code] [--file text] [--stdin] [--base-url text] [--no-open]",
       "",
       "DESCRIPTION",
       "",
@@ -301,15 +322,18 @@ const printCallHelp = (workflow: string) =>
       "    Read code from stdin.",
       "  --base-url text",
       "    Override the executor server base URL.",
+      "  --no-open",
+      "    Print interaction URLs without opening a browser.",
       "",
       "EXAMPLES",
       "",
       '  executor call \'const matches = await tools.discover({ query: "github issues", limit: 5 }); return matches;\'',
       '  executor call \'const matches = await tools.discover({ query: "repo details", limit: 1 }); const path = matches.bestPath; return await tools.describe.tool({ path, includeSchemas: true });\'',
       '  executor call \'return await tools.executor.sources.add({ endpoint: "https://example.com/mcp", name: "Example", namespace: "example" });\'',
-      '  executor call \'return await tools.executor.sources.add({ kind: "openapi", endpoint: "https://api.github.com", specUrl: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json", name: "GitHub", namespace: "github", auth: { kind: "bearer" } });\'',
+      '  executor call \'return await tools.executor.sources.add({ kind: "openapi", endpoint: "https://api.github.com", specUrl: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json", name: "GitHub", namespace: "github" });\'',
       "  cat script.ts | executor call --stdin",
       "  executor call --file script.ts",
+      "  executor call --no-open --file script.ts",
       "  executor resume --execution-id exec_123",
     ].join("\n"));
   });
@@ -564,17 +588,37 @@ const promptStructuredInteraction = (parsed: {
     return content;
   });
 
-const promptInteraction = (interaction: ExecutionInteraction) =>
+const printUrlInteraction = (input: {
+  message: string;
+  url: string | null;
+  shouldOpen: boolean;
+}) =>
   Effect.gen(function* () {
-    const parsed = parseInteractionPayload(interaction);
+    yield* Effect.sync(() => {
+      process.stdout.write(`${input.message}\n${input.url ?? ""}\n`);
+    });
+
+    if (input.shouldOpen && input.url) {
+      yield* openUrlInBrowser(input.url);
+    }
+  });
+
+const promptInteraction = (input: {
+  interaction: ExecutionInteraction;
+  shouldOpenUrls: boolean;
+}) =>
+  Effect.gen(function* () {
+    const parsed = parseInteractionPayload(input.interaction);
 
     if (!process.stdin.isTTY || !process.stdout.isTTY || parsed === null) {
       return null;
     }
 
     if (parsed.mode === "url") {
-      yield* Effect.sync(() => {
-        process.stdout.write(`${parsed.message}\n${parsed.url ?? ""}\n`);
+      yield* printUrlInteraction({
+        message: parsed.message,
+        url: parsed.url ?? null,
+        shouldOpen: input.shouldOpenUrls,
       });
       return null;
     }
@@ -708,6 +752,7 @@ const driveExecution = (input: {
   client: ControlPlaneClient;
   workspaceId: ExecutionEnvelope["execution"]["workspaceId"];
   envelope: ExecutionEnvelope;
+  shouldOpenUrls: boolean;
 }) =>
   Effect.gen(function* () {
     let current = input.envelope;
@@ -721,8 +766,10 @@ const driveExecution = (input: {
 
       const parsed = parseInteractionPayload(pending);
       if (parsed?.mode === "url") {
-        yield* Effect.sync(() => {
-          process.stdout.write(`${parsed.message}\n${parsed.url ?? ""}\n`);
+        yield* printUrlInteraction({
+          message: parsed.message,
+          url: parsed.url ?? null,
+          shouldOpen: input.shouldOpenUrls,
         });
 
         if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -738,7 +785,10 @@ const driveExecution = (input: {
         continue;
       }
 
-      const responseJson = yield* promptInteraction(pending);
+      const responseJson = yield* promptInteraction({
+        interaction: pending,
+        shouldOpenUrls: input.shouldOpenUrls,
+      });
       if (responseJson === null) {
         yield* Effect.sync(() => {
           console.log(JSON.stringify({
@@ -790,8 +840,9 @@ const callCommand = Command.make(
     file: Options.text("file").pipe(Options.optional),
     stdin: Options.boolean("stdin").pipe(Options.withDefault(false)),
     baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
+    noOpen: Options.boolean("no-open").pipe(Options.withDefault(false)),
   },
-  ({ code, file, stdin, baseUrl }) =>
+  ({ code, file, stdin, baseUrl, noOpen }) =>
     Effect.gen(function* () {
       const resolvedCode = yield* readCode({
         code: Option.getOrUndefined(code),
@@ -814,6 +865,7 @@ const callCommand = Command.make(
         client,
         workspaceId: installation.workspaceId,
         envelope: created,
+        shouldOpenUrls: !noOpen,
       });
 
       yield* printExecution(settled);
@@ -825,8 +877,9 @@ const resumeCommand = Command.make(
   {
     executionId: Options.text("execution-id"),
     baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
+    noOpen: Options.boolean("no-open").pipe(Options.withDefault(false)),
   },
-  ({ executionId, baseUrl }) =>
+  ({ executionId, baseUrl, noOpen }) =>
     Effect.gen(function* () {
       yield* ensureServer(baseUrl);
       const { installation, client } = yield* getLocalAuthedClient(baseUrl);
@@ -844,6 +897,7 @@ const resumeCommand = Command.make(
         client,
         workspaceId: installation.workspaceId,
         envelope: execution,
+        shouldOpenUrls: !noOpen,
       });
 
       yield* printExecution(settled);

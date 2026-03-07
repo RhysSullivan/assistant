@@ -1,7 +1,19 @@
 import { ControlPlanePersistenceError } from "#persistence";
+import type {
+  Execution,
+  ExecutionInteraction,
+  Source,
+  WorkspaceId,
+} from "#schema";
+import {
+  SourceIdSchema,
+  WorkspaceIdSchema,
+} from "#schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { loadLocalInstallation } from "./local-installation";
+import { LiveExecutionManagerService } from "./live-execution";
 import {
   operationErrors,
 } from "./operation-errors";
@@ -10,8 +22,144 @@ import { ControlPlaneStore } from "./store";
 
 const localOps = {
   installation: operationErrors("local.installation.get"),
-  oauthCallback: operationErrors("local.oauth.callback"),
+  sourceCredentialComplete: operationErrors("sources.credentials.complete"),
+  sourceCredentialPage: operationErrors("sources.credentials.page"),
+  sourceCredentialSubmit: operationErrors("sources.credentials.submit"),
 } as const;
+
+type SourceCredentialInteraction = {
+  interactionId: ExecutionInteraction["id"];
+  executionId: Execution["id"];
+  status: ExecutionInteraction["status"];
+  message: string;
+  workspaceId: WorkspaceId;
+  sourceId: Source["id"];
+  sourceLabel: string;
+  endpoint: string;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const asString = (value: unknown): string | null =>
+  typeof value === "string" ? value : null;
+
+const trimOrNull = (value: string | null | undefined): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const decodeSourceCredentialInteraction = (
+  interaction: ExecutionInteraction,
+): Omit<SourceCredentialInteraction, "sourceLabel" | "endpoint"> | null => {
+  try {
+    const payload = JSON.parse(interaction.payloadJson) as unknown;
+    if (!isRecord(payload)) {
+      return null;
+    }
+
+    const args = payload.args;
+    const elicitation = payload.elicitation;
+    if (!isRecord(args) || !isRecord(elicitation)) {
+      return null;
+    }
+
+    if (
+      payload.path !== "executor.sources.add"
+      || args.kind !== "openapi"
+      || elicitation.mode !== "url"
+    ) {
+      return null;
+    }
+
+    const workspaceId = trimOrNull(asString(args.workspaceId));
+    const sourceId = trimOrNull(asString(args.sourceId));
+    const message = trimOrNull(asString(elicitation.message));
+    if (workspaceId === null || sourceId === null || message === null) {
+      return null;
+    }
+
+    return {
+      interactionId: interaction.id,
+      executionId: interaction.executionId,
+      status: interaction.status,
+      message,
+      workspaceId: WorkspaceIdSchema.make(workspaceId),
+      sourceId: SourceIdSchema.make(sourceId),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const loadSourceCredentialInteraction = (input: {
+  workspaceId: WorkspaceId;
+  sourceId: Source["id"];
+  interactionId: ExecutionInteraction["id"];
+  operation:
+    | typeof localOps.sourceCredentialPage
+    | typeof localOps.sourceCredentialSubmit;
+}) =>
+  Effect.gen(function* () {
+    const store = yield* ControlPlaneStore;
+    const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
+
+    const stored = yield* store.executionInteractions.getById(input.interactionId).pipe(
+      Effect.mapError((error) =>
+        error instanceof ControlPlanePersistenceError
+          ? input.operation.storage(error)
+          : input.operation.unknownStorage(
+              error,
+              `Failed loading execution interaction ${input.interactionId}`,
+            ),
+      ),
+    );
+
+    if (Option.isNone(stored)) {
+      return yield* Effect.fail(
+        input.operation.notFound(
+          "Source credential request not found",
+          `interactionId=${input.interactionId}`,
+        ),
+      );
+    }
+
+    const decoded = decodeSourceCredentialInteraction(stored.value);
+    if (
+      decoded === null
+      || decoded.workspaceId !== input.workspaceId
+      || decoded.sourceId !== input.sourceId
+    ) {
+      return yield* Effect.fail(
+        input.operation.notFound(
+          "Source credential request not found",
+          `workspaceId=${input.workspaceId} sourceId=${input.sourceId} interactionId=${input.interactionId}`,
+        ),
+      );
+    }
+
+    const source = yield* sourceAuthService.getSourceById({
+      workspaceId: input.workspaceId,
+      sourceId: input.sourceId,
+    }).pipe(
+      Effect.mapError((error) =>
+        input.operation.unknownStorage(
+          error,
+          `Failed loading source ${input.sourceId}`,
+        ),
+      ),
+    );
+
+    return {
+      ...decoded,
+      sourceLabel: source.name,
+      endpoint: source.endpoint,
+    } satisfies SourceCredentialInteraction;
+  });
 
 export const getLocalInstallation = () =>
   Effect.gen(function* () {
@@ -40,7 +188,147 @@ export const getLocalInstallation = () =>
     return installation;
   });
 
-export const completeSourceAuthCallback = (input: {
+export const getSourceCredentialInteraction = (input: {
+  workspaceId: WorkspaceId;
+  sourceId: Source["id"];
+  interactionId: ExecutionInteraction["id"];
+}) =>
+  loadSourceCredentialInteraction({
+    ...input,
+    operation: localOps.sourceCredentialPage,
+  });
+
+export const submitSourceCredentialInteraction = (input: {
+  workspaceId: WorkspaceId;
+  sourceId: Source["id"];
+  interactionId: ExecutionInteraction["id"];
+  action: "submit" | "continue" | "cancel";
+  token?: string | null;
+}) =>
+  Effect.gen(function* () {
+    const interaction = yield* loadSourceCredentialInteraction({
+      workspaceId: input.workspaceId,
+      sourceId: input.sourceId,
+      interactionId: input.interactionId,
+      operation: localOps.sourceCredentialSubmit,
+    });
+
+    if (interaction.status !== "pending") {
+      return yield* Effect.fail(
+        localOps.sourceCredentialSubmit.badRequest(
+          "Source credential request is no longer active",
+          `interactionId=${interaction.interactionId} status=${interaction.status}`,
+        ),
+      );
+    }
+
+    const liveExecutionManager = yield* LiveExecutionManagerService;
+
+    if (input.action === "cancel") {
+      const resumed = yield* liveExecutionManager.resolveInteraction({
+        executionId: interaction.executionId,
+        response: {
+          action: "cancel",
+        },
+      });
+
+      if (!resumed) {
+        return yield* Effect.fail(
+          localOps.sourceCredentialSubmit.badRequest(
+            "Source credential request is no longer resumable",
+            `interactionId=${interaction.interactionId}`,
+          ),
+        );
+      }
+
+      return {
+        kind: "cancelled" as const,
+        sourceLabel: interaction.sourceLabel,
+        endpoint: interaction.endpoint,
+      };
+    }
+
+    if (input.action === "continue") {
+      const resumed = yield* liveExecutionManager.resolveInteraction({
+        executionId: interaction.executionId,
+        response: {
+          action: "accept",
+          content: {
+            authKind: "none",
+          },
+        },
+      });
+
+      if (!resumed) {
+        return yield* Effect.fail(
+          localOps.sourceCredentialSubmit.badRequest(
+            "Source credential request is no longer resumable",
+            `interactionId=${interaction.interactionId}`,
+          ),
+        );
+      }
+
+      return {
+        kind: "continued" as const,
+        sourceLabel: interaction.sourceLabel,
+        endpoint: interaction.endpoint,
+      };
+    }
+
+    const token = trimOrNull(input.token);
+    if (token === null) {
+      return yield* Effect.fail(
+        localOps.sourceCredentialSubmit.badRequest(
+          "Missing token",
+          `interactionId=${interaction.interactionId}`,
+        ),
+      );
+    }
+
+    const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
+    const tokenSecretMaterialId = yield* sourceAuthService.storeSecretMaterial({
+      purpose: "auth_material",
+      value: token,
+    }).pipe(
+      Effect.mapError((error) =>
+        error instanceof ControlPlanePersistenceError
+          ? localOps.sourceCredentialSubmit.storage(error)
+          : localOps.sourceCredentialSubmit.unknownStorage(
+              error,
+              `Failed storing credential material for interaction ${interaction.interactionId}`,
+            ),
+      ),
+    );
+    const resumed = yield* liveExecutionManager.resolveInteraction({
+      executionId: interaction.executionId,
+      response: {
+        action: "accept",
+        content: {
+          authKind: "bearer",
+          tokenSecretMaterialId,
+        },
+      },
+    });
+
+    if (!resumed) {
+      return yield* Effect.fail(
+        localOps.sourceCredentialSubmit.badRequest(
+          "Source credential request is no longer resumable",
+          `interactionId=${interaction.interactionId}`,
+        ),
+      );
+    }
+
+    return {
+      kind: "stored" as const,
+      sourceLabel: interaction.sourceLabel,
+      endpoint: interaction.endpoint,
+    };
+  });
+
+export const completeSourceCredentialSetup = (input: {
+  workspaceId: WorkspaceId;
+  sourceId: Source["id"];
   state: string;
   code?: string | null;
   error?: string | null;
@@ -49,11 +337,11 @@ export const completeSourceAuthCallback = (input: {
   Effect.gen(function* () {
     const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
 
-    return yield* sourceAuthService.completeSourceAuthCallback(input).pipe(
+    return yield* sourceAuthService.completeSourceCredentialSetup(input).pipe(
       Effect.mapError((error) =>
-        localOps.oauthCallback.unknownStorage(
+        localOps.sourceCredentialComplete.unknownStorage(
           error,
-          "Failed completing source auth callback",
+          "Failed completing source credential setup",
         ),
       ),
     );

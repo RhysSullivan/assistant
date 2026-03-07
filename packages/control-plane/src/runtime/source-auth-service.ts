@@ -18,6 +18,7 @@ import {
 } from "#persistence";
 import {
   ExecutionIdSchema,
+  type SecretMaterialId,
   SecretMaterialIdSchema,
   Source,
   SourceAuthSession,
@@ -52,7 +53,6 @@ import {
 } from "./tool-artifacts";
 
 export const CONTROL_PLANE_SECRET_PROVIDER_ID = "control-plane";
-const OAUTH_CALLBACK_PATH = "/v1/local/oauth/callback";
 
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value === null || value === undefined) {
@@ -101,8 +101,15 @@ const decodeJson = <A>(input: {
   }
 };
 
-const resolveRedirectUrl = (baseUrl: string): string =>
-  new URL(OAUTH_CALLBACK_PATH, baseUrl).toString();
+const resolveSourceCredentialOauthCompleteUrl = (input: {
+  baseUrl: string;
+  workspaceId: WorkspaceId;
+  sourceId: Source["id"];
+}): string =>
+  new URL(
+    `/v1/workspaces/${encodeURIComponent(input.workspaceId)}/sources/${encodeURIComponent(input.sourceId)}/credentials/oauth/complete`,
+    input.baseUrl,
+  ).toString();
 
 const normalizeEndpoint = (endpoint: string): string => {
   const url = new URL(endpoint.trim());
@@ -347,7 +354,7 @@ const exchangeOAuthAuthorizationCode = (input: {
         captured.tokens = tokens;
       },
       redirectToAuthorization: () => {
-        throw new Error("Unexpected redirect during OAuth callback completion");
+        throw new Error("Unexpected redirect while completing source credential setup");
       },
       saveCodeVerifier: () => undefined,
       codeVerifier: () => {
@@ -373,7 +380,7 @@ const exchangeOAuthAuthorizationCode = (input: {
     });
 
     if (result !== "AUTHORIZED" || !captured.tokens) {
-      return yield* Effect.fail(new Error("OAuth callback did not complete authorization"));
+      return yield* Effect.fail(new Error("OAuth redirect did not complete source credential setup"));
     }
 
     return {
@@ -456,6 +463,10 @@ export type ExecutorSourceAddResult =
       source: Source;
     }
   | {
+      kind: "credential_required";
+      source: Source;
+    }
+  | {
       kind: "oauth_required";
       source: Source;
       sessionId: SourceAuthSession["id"];
@@ -472,6 +483,7 @@ export type ExecutorOpenApiSourceAuthInput =
       prefix?: string | null;
       token?: string | null;
       tokenEnvVar?: string | null;
+      tokenSecretMaterialId?: string | null;
     };
 
 export type ExecutorAddSourceInput =
@@ -496,6 +508,17 @@ export type ExecutorAddSourceInput =
       auth?: ExecutorOpenApiSourceAuthInput | null;
     };
 
+const shouldPromptForOpenApiCredentialSetup = (input: {
+  existing?: Source;
+  auth?: ExecutorOpenApiSourceAuthInput | null;
+}): boolean => {
+  if (input.auth !== undefined) {
+    return false;
+  }
+
+  return !(input.existing?.kind === "openapi" && input.existing.auth.kind === "bearer");
+};
+
 const materializeExecutorOpenApiAuth = (input: {
   rows: SqlControlPlaneRows;
   existing?: Source;
@@ -515,10 +538,21 @@ const materializeExecutorOpenApiAuth = (input: {
     const prefix = auth.prefix ?? "Bearer ";
     const token = trimOrNull(auth.token);
     const tokenEnvVar = trimOrNull(auth.tokenEnvVar);
+    const tokenSecretMaterialId = trimOrNull(auth.tokenSecretMaterialId);
 
-    if (token === null && tokenEnvVar === null) {
+    if (
+      token === null
+      && tokenEnvVar === null
+      && tokenSecretMaterialId === null
+      && input.existing?.kind === "openapi"
+      && input.existing.auth.kind === "bearer"
+    ) {
+      return input.existing.auth;
+    }
+
+    if (token === null && tokenEnvVar === null && tokenSecretMaterialId === null) {
       return yield* Effect.fail(
-        new Error("Bearer auth requires either token or tokenEnvVar"),
+        new Error("Bearer auth requires token, tokenEnvVar, or tokenSecretMaterialId"),
       );
     }
 
@@ -530,6 +564,11 @@ const materializeExecutorOpenApiAuth = (input: {
             value: token,
           }),
         }
+      : tokenSecretMaterialId !== null
+        ? {
+            providerId: CONTROL_PLANE_SECRET_PROVIDER_ID,
+            handle: tokenSecretMaterialId,
+          }
       : {
           providerId: "env",
           handle: tokenEnvVar!,
@@ -548,13 +587,20 @@ type RuntimeSourceAuthServiceShape = {
     workspaceId: WorkspaceId;
     sourceId: Source["id"];
   }) => Effect.Effect<Source, Error, never>;
+  getLocalServerBaseUrl: () => string | null;
+  storeSecretMaterial: (input: {
+    purpose: "auth_material" | "oauth_access_token" | "oauth_refresh_token";
+    value: string;
+  }) => Effect.Effect<SecretMaterialId, Error, never>;
   addExecutorSource: (
     input: ExecutorAddSourceInput,
     options?: {
       mcpDiscoveryElicitation?: McpDiscoveryElicitationContext;
     },
   ) => Effect.Effect<ExecutorSourceAddResult, Error, never>;
-  completeSourceAuthCallback: (input: {
+  completeSourceCredentialSetup: (input: {
+    workspaceId: WorkspaceId;
+    sourceId: Source["id"];
     state: string;
     code?: string | null;
     error?: string | null;
@@ -602,6 +648,14 @@ export const createRuntimeSourceAuthService = (input: {
   });
 
   return {
+  getLocalServerBaseUrl: () => input.getLocalServerBaseUrl?.() ?? null,
+
+  storeSecretMaterial: ({ purpose, value }) =>
+    upsertSecretMaterial(input.rows, {
+      purpose,
+      value,
+    }),
+
   getSourceById: ({ workspaceId, sourceId }) =>
     loadSourceById(input.rows, {
       workspaceId,
@@ -632,12 +686,56 @@ export const createRuntimeSourceAuthService = (input: {
             trimOrNull(sourceInput.namespace)
             ?? existing?.namespace
             ?? defaultNamespaceFromName(chosenName);
+          const now = Date.now();
+
+          if (shouldPromptForOpenApiCredentialSetup({
+            existing,
+            auth: sourceInput.auth,
+          })) {
+            const draftSource = existing
+              ? yield* updateSourceFromPayload({
+                  source: existing,
+                  payload: {
+                    name: chosenName,
+                    endpoint: normalizedEndpoint,
+                    namespace: chosenNamespace,
+                    kind: "openapi",
+                    status: "auth_required",
+                    enabled: true,
+                    specUrl: normalizedSpecUrl,
+                    auth: { kind: "none" },
+                    lastError: null,
+                  },
+                  now,
+                })
+              : yield* createSourceFromPayload({
+                  workspaceId: sourceInput.workspaceId,
+                  sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
+                  payload: {
+                    name: chosenName,
+                    kind: "openapi",
+                    endpoint: normalizedEndpoint,
+                    namespace: chosenNamespace,
+                    status: "auth_required",
+                    enabled: true,
+                    specUrl: normalizedSpecUrl,
+                    auth: { kind: "none" },
+                  },
+                  now,
+                });
+
+            const persistedDraft = yield* persistSource(input.rows, draftSource);
+            return {
+              kind: "credential_required",
+              source: persistedDraft,
+            } satisfies ExecutorSourceAddResult;
+          }
+
           const auth = yield* materializeExecutorOpenApiAuth({
             rows: input.rows,
             existing,
             auth: sourceInput.auth,
           });
-          const now = Date.now();
 
           const draftSource = existing
             ? yield* updateSourceFromPayload({
@@ -812,13 +910,17 @@ export const createRuntimeSourceAuthService = (input: {
           const localServerBaseUrl = input.getLocalServerBaseUrl?.();
           if (!localServerBaseUrl) {
             return yield* Effect.fail(
-              new Error("Local executor server base URL is unavailable for OAuth callback handling"),
+              new Error("Local executor server base URL is unavailable for source credential setup"),
             );
           }
 
           const sessionId = SourceAuthSessionIdSchema.make(`src_auth_${crypto.randomUUID()}`);
           const state = crypto.randomUUID();
-          const redirectUrl = resolveRedirectUrl(localServerBaseUrl);
+          const redirectUrl = resolveSourceCredentialOauthCompleteUrl({
+            baseUrl: localServerBaseUrl,
+            workspaceId: sourceInput.workspaceId,
+            sourceId: persistedDraft.id,
+          });
           const oauthStart = yield* startOAuthAuthorization({
             endpoint: normalizedEndpoint,
             redirectUrl,
@@ -864,7 +966,14 @@ export const createRuntimeSourceAuthService = (input: {
           } satisfies ExecutorSourceAddResult;
         }),
 
-  completeSourceAuthCallback: ({ state, code, error, errorDescription }) =>
+  completeSourceCredentialSetup: ({
+    workspaceId,
+    sourceId,
+    state,
+    code,
+    error,
+    errorDescription,
+  }) =>
     Effect.gen(function* () {
       const sessionOption = yield* input.rows.sourceAuthSessions.getByState(state);
       if (Option.isNone(sessionOption)) {
@@ -872,6 +981,14 @@ export const createRuntimeSourceAuthService = (input: {
       }
 
       const session = sessionOption.value;
+      if (session.workspaceId !== workspaceId || session.sourceId !== sourceId) {
+        return yield* Effect.fail(
+          new Error(
+            `Source auth session ${session.id} does not match workspaceId=${workspaceId} sourceId=${sourceId}`,
+          ),
+        );
+      }
+
       const source = yield* loadSourceById(input.rows, {
         workspaceId: session.workspaceId,
         sourceId: session.sourceId,
@@ -1015,9 +1132,7 @@ export const createRuntimeSourceAuthService = (input: {
   } satisfies RuntimeSourceAuthServiceShape;
 };
 
-export type RuntimeSourceAuthService = ReturnType<
-  typeof createRuntimeSourceAuthService
->;
+export type RuntimeSourceAuthService = RuntimeSourceAuthServiceShape;
 
 export class RuntimeSourceAuthServiceTag extends Context.Tag(
   "#runtime/RuntimeSourceAuthServiceTag",
@@ -1043,6 +1158,10 @@ export const RuntimeSourceAuthServiceLive = (input: {
 export const ExecutorAddSourceResultSchema = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("connected"),
+    source: SourceSchema,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("credential_required"),
     source: SourceSchema,
   }),
   Schema.Struct({

@@ -178,7 +178,7 @@ export const createToolArtifactsRepo = (
     },
   ) =>
     client.use("rows.tool_artifacts.search_by_workspace", async (db) => {
-      const rows = await db
+      const baseQuery = db
         .select()
         .from(tables.toolArtifactsTable)
         .where(
@@ -191,8 +191,10 @@ export const createToolArtifactsRepo = (
         .orderBy(
           asc(tables.toolArtifactsTable.searchNamespace),
           asc(tables.toolArtifactsTable.path),
-        )
-        .limit(input.limit ?? 500);
+        );
+      const rows = input.limit !== undefined
+        ? await baseQuery.limit(input.limit)
+        : await baseQuery;
 
       return rows.map((row) => decodeStoredToolArtifactRecord(row));
     }),

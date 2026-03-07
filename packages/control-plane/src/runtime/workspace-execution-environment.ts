@@ -55,17 +55,157 @@ const tokenize = (value: string): string[] =>
   value
     .trim()
     .toLowerCase()
-    .split(/\s+/)
+    .split(/[^a-z0-9]+/)
     .filter(Boolean);
+
+const LOW_SIGNAL_QUERY_TOKENS = new Set([
+  "a",
+  "an",
+  "the",
+  "am",
+  "as",
+  "for",
+  "from",
+  "get",
+  "i",
+  "in",
+  "is",
+  "list",
+  "me",
+  "my",
+  "of",
+  "on",
+  "or",
+  "signed",
+  "to",
+  "who",
+]);
+
+const singularizeToken = (value: string): string =>
+  value.length > 3 && value.endsWith("s")
+    ? value.slice(0, -1)
+    : value;
+
+const tokenEquals = (left: string, right: string): boolean =>
+  left === right || singularizeToken(left) === singularizeToken(right);
+
+const hasTokenMatch = (tokens: readonly string[], queryToken: string): boolean =>
+  tokens.some((token) => tokenEquals(token, queryToken));
+
+const hasSubstringMatch = (value: string, queryToken: string): boolean => {
+  if (value.includes(queryToken)) {
+    return true;
+  }
+
+  const singular = singularizeToken(queryToken);
+  return singular !== queryToken && value.includes(singular);
+};
+
+const queryTokenWeight = (token: string): number =>
+  LOW_SIGNAL_QUERY_TOKENS.has(token) ? 0.25 : 1;
 
 const scoreArtifact = (
   queryTokens: readonly string[],
-  searchText: string,
-): number =>
-  queryTokens.reduce(
-    (total, token) => total + (searchText.includes(token) ? 1 : 0),
-    0,
-  );
+  artifact: StoredToolArtifactRecord,
+): number => {
+  const pathText = artifact.path.toLowerCase();
+  const namespaceText = artifact.searchNamespace.toLowerCase();
+  const toolIdText = artifact.toolId.toLowerCase();
+  const titleText = artifact.title?.toLowerCase() ?? "";
+  const descriptionText = artifact.description?.toLowerCase() ?? "";
+  const templateText = artifact.openApiPathTemplate?.toLowerCase() ?? "";
+
+  const pathTokens = tokenize(`${artifact.path} ${artifact.toolId}`);
+  const namespaceTokens = tokenize(artifact.searchNamespace);
+  const titleTokens = tokenize(artifact.title ?? "");
+  const templateTokens = tokenize(artifact.openApiPathTemplate ?? "");
+
+  let score = 0;
+  let structuralHits = 0;
+  let namespaceHits = 0;
+  let pathHits = 0;
+
+  for (const token of queryTokens) {
+    const weight = queryTokenWeight(token);
+
+    if (hasTokenMatch(pathTokens, token)) {
+      score += 12 * weight;
+      structuralHits += 1;
+      pathHits += 1;
+      continue;
+    }
+
+    if (hasTokenMatch(namespaceTokens, token)) {
+      score += 11 * weight;
+      structuralHits += 1;
+      namespaceHits += 1;
+      continue;
+    }
+
+    if (hasTokenMatch(titleTokens, token)) {
+      score += 9 * weight;
+      structuralHits += 1;
+      continue;
+    }
+
+    if (hasTokenMatch(templateTokens, token)) {
+      score += 8 * weight;
+      structuralHits += 1;
+      continue;
+    }
+
+    if (hasSubstringMatch(pathText, token) || hasSubstringMatch(toolIdText, token)) {
+      score += 6 * weight;
+      structuralHits += 1;
+      pathHits += 1;
+      continue;
+    }
+
+    if (hasSubstringMatch(namespaceText, token)) {
+      score += 5 * weight;
+      structuralHits += 1;
+      namespaceHits += 1;
+      continue;
+    }
+
+    if (hasSubstringMatch(titleText, token) || hasSubstringMatch(templateText, token)) {
+      score += 4 * weight;
+      structuralHits += 1;
+      continue;
+    }
+
+    if (hasSubstringMatch(descriptionText, token)) {
+      score += 0.5 * weight;
+    }
+  }
+
+  const strongTokens = queryTokens.filter((token) => queryTokenWeight(token) >= 1);
+  if (strongTokens.length >= 2) {
+    for (let index = 0; index < strongTokens.length - 1; index += 1) {
+      const current = strongTokens[index]!;
+      const next = strongTokens[index + 1]!;
+      const phrases = [
+        `${current}-${next}`,
+        `${current}.${next}`,
+        `${current}/${next}`,
+      ];
+
+      if (phrases.some((phrase) => pathText.includes(phrase) || templateText.includes(phrase))) {
+        score += 10;
+      }
+    }
+  }
+
+  if (namespaceHits > 0 && pathHits > 0) {
+    score += 8;
+  }
+
+  if (structuralHits === 0 && score > 0) {
+    score *= 0.25;
+  }
+
+  return score;
+};
 
 const toDescriptor = (input: {
   artifact: StoredToolArtifactRecord;
@@ -263,7 +403,6 @@ const createWorkspaceToolCatalog = (input: {
           : input.rows.toolArtifacts.searchByWorkspaceId(input.workspaceId, {
               namespace,
               query,
-              limit: Math.max(limit * 8, 50),
             }).pipe(
               Effect.mapError((cause) =>
                 cause instanceof Error ? cause : new Error(String(cause)),
@@ -279,7 +418,7 @@ const createWorkspaceToolCatalog = (input: {
       const persistedHits: SearchHit[] = persisted
         .map((artifact) => ({
           path: asToolPath(artifact.path),
-          score: scoreArtifact(queryTokens, artifact.searchText),
+          score: scoreArtifact(queryTokens, artifact),
         }))
         .filter((hit) => hit.score > 0);
 

@@ -16,6 +16,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   AccountIdSchema,
   ExecutionIdSchema,
+  SecretMaterialIdSchema,
   SourceIdSchema,
   WorkspaceIdSchema,
 } from "#schema";
@@ -413,13 +414,126 @@ const persistConnectedEchoTool = (input: {
     });
   });
 
+const persistConnectedGithubSearchArtifacts = (input: {
+  persistence: SqlControlPlanePersistence;
+  workspaceId: WorkspaceId;
+  sourceId: SourceId;
+}) =>
+  Effect.gen(function* () {
+    const now = Date.now();
+
+    yield* input.persistence.rows.sources.insert({
+      id: input.sourceId,
+      workspaceId: input.workspaceId,
+      name: "GitHub",
+      kind: "openapi",
+      endpoint: "https://api.github.com",
+      status: "connected",
+      enabled: true,
+      namespace: "github",
+      transport: null,
+      queryParamsJson: null,
+      headersJson: null,
+      specUrl: "https://example.com/github-openapi.json",
+      defaultHeadersJson: null,
+      authKind: "none",
+      authHeaderName: null,
+      authPrefix: null,
+      sourceHash: null,
+      lastError: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    yield* input.persistence.rows.toolArtifacts.replaceForSource({
+      workspaceId: input.workspaceId,
+      sourceId: input.sourceId,
+      artifacts: [
+        {
+          artifact: {
+            workspaceId: input.workspaceId,
+            path: "github.actions/get-environment-secret",
+            toolId: "actions/get-environment-secret",
+            sourceId: input.sourceId,
+            title: "Get an environment secret",
+            description:
+              "Gets a single environment secret without revealing its encrypted value. Authenticated users must have collaborator access to a repository to create, update, or read secrets.",
+            searchNamespace: "github.actions",
+            searchText:
+              "github.actions/get-environment-secret github.actions get an environment secret gets a single environment secret without revealing its encrypted value authenticated users must have collaborator access to a repository to create update or read secrets GET /repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}",
+            inputSchemaJson: null,
+            outputSchemaJson: null,
+            providerKind: "openapi",
+            mcpToolName: null,
+            openApiMethod: "get",
+            openApiPathTemplate: "/repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}",
+            openApiOperationHash: "op_actions_get_environment_secret",
+            openApiRequestBodyRequired: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          artifact: {
+            workspaceId: input.workspaceId,
+            path: "github.actions/get-self-hosted-runner-for-org",
+            toolId: "actions/get-self-hosted-runner-for-org",
+            sourceId: input.sourceId,
+            title: "Get a self-hosted runner for an organization",
+            description:
+              "Gets a specific self-hosted runner configured in an organization. Authenticated users must have admin access to the organization to use this endpoint.",
+            searchNamespace: "github.actions",
+            searchText:
+              "github.actions/get-self-hosted-runner-for-org github.actions get a self hosted runner for an organization gets a specific self hosted runner configured in an organization authenticated users must have admin access to the organization to use this endpoint GET /orgs/{org}/actions/runners/{runner_id}",
+            inputSchemaJson: null,
+            outputSchemaJson: null,
+            providerKind: "openapi",
+            mcpToolName: null,
+            openApiMethod: "get",
+            openApiPathTemplate: "/orgs/{org}/actions/runners/{runner_id}",
+            openApiOperationHash: "op_actions_get_self_hosted_runner_for_org",
+            openApiRequestBodyRequired: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          artifact: {
+            workspaceId: input.workspaceId,
+            path: "github.users/get-authenticated",
+            toolId: "users/get-authenticated",
+            sourceId: input.sourceId,
+            title: "Get the authenticated user",
+            description:
+              "Gets the authenticated user. OAuth app tokens and personal access tokens need the user scope to include private profile information.",
+            searchNamespace: "github.users",
+            searchText:
+              "github.users/get-authenticated github.users get the authenticated user gets the authenticated user oauth app tokens and personal access tokens need the user scope to include private profile information GET /user",
+            inputSchemaJson: null,
+            outputSchemaJson: null,
+            providerKind: "openapi",
+            mcpToolName: null,
+            openApiMethod: "get",
+            openApiPathTemplate: "/user",
+            openApiOperationHash: "op_users_get_authenticated",
+            openApiRequestBodyRequired: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      ],
+    });
+  });
+
 const makeResolver = (persistence: SqlControlPlanePersistence) =>
   createWorkspaceExecutionEnvironmentResolver({
     rows: persistence.rows,
     sourceAuthService: {
+      getLocalServerBaseUrl: () => null,
+      storeSecretMaterial: () => Effect.fail(new Error("not implemented in test")),
       getSourceById: () => Effect.fail(new Error("not implemented in test")),
       addExecutorSource: () => Effect.fail(new Error("not implemented in test")),
-      completeSourceAuthCallback: () => Effect.fail(new Error("not implemented in test")),
+      completeSourceCredentialSetup: () => Effect.fail(new Error("not implemented in test")),
     } as RuntimeSourceAuthService,
   });
 
@@ -429,6 +543,7 @@ const makeResolverWithLiveSourceAuth = (persistence: SqlControlPlanePersistence)
     sourceAuthService: createRuntimeSourceAuthService({
       rows: persistence.rows,
       liveExecutionManager: createLiveExecutionManager(),
+      getLocalServerBaseUrl: () => "http://127.0.0.1:8788",
     }),
   });
 
@@ -477,6 +592,54 @@ describe("workspace-execution-environment", () => {
     }),
   );
 
+  it.scoped("prefers namespace and path matches over noisy GitHub boilerplate", () =>
+    Effect.gen(function* () {
+      const persistence = yield* makePersistence;
+      const workspaceId = WorkspaceIdSchema.make("ws_github_discovery");
+      const sourceId = SourceIdSchema.make("src_github_discovery");
+      yield* persistConnectedGithubSearchArtifacts({
+        persistence,
+        workspaceId,
+        sourceId,
+      });
+
+      const resolveEnvironment = makeResolver(persistence);
+      const environment = yield* resolveEnvironment({
+        workspaceId,
+        accountId: AccountIdSchema.make("acc_github_discovery"),
+        executionId: ExecutionIdSchema.make("exec_github_discovery"),
+      });
+
+      const firstQuery = (yield* environment.toolInvoker.invoke({
+        path: "discover",
+        args: {
+          query: "get authenticated user",
+          limit: 5,
+        },
+      })) as {
+        bestPath: string | null;
+        results: Array<{ path: string }>;
+      };
+
+      expect(firstQuery.bestPath).toBe("github.users/get-authenticated");
+      expect(firstQuery.results[0]?.path).toBe("github.users/get-authenticated");
+
+      const secondQuery = (yield* environment.toolInvoker.invoke({
+        path: "discover",
+        args: {
+          query: "users get myself current user profile",
+          limit: 5,
+        },
+      })) as {
+        bestPath: string | null;
+        results: Array<{ path: string }>;
+      };
+
+      expect(secondQuery.bestPath).toBe("github.users/get-authenticated");
+      expect(secondQuery.results[0]?.path).toBe("github.users/get-authenticated");
+    }),
+  );
+
   it.scoped("invokes persisted MCP tools on demand without re-listing", () =>
     Effect.gen(function* () {
       const server = yield* makeCountedMcpServer;
@@ -518,10 +681,22 @@ describe("workspace-execution-environment", () => {
       const persistence = yield* makePersistence;
       const workspaceId = WorkspaceIdSchema.make("ws_add_openapi");
       const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence);
+      const now = Date.now();
+      const tokenSecretMaterialId = SecretMaterialIdSchema.make(
+        "sec_test_openapi_bearer",
+      );
+      yield* persistence.rows.secretMaterials.upsert({
+        id: tokenSecretMaterialId,
+        purpose: "auth_material",
+        value: "ghp_test_token",
+        createdAt: now,
+        updatedAt: now,
+      });
       let capturedElicitation:
         | {
             mode?: string;
-            requestedSchema?: Record<string, unknown>;
+            url?: string;
+            elicitationId?: string;
           }
         | null = null;
 
@@ -533,13 +708,15 @@ describe("workspace-execution-environment", () => {
           Effect.sync(() => {
             capturedElicitation = request.elicitation as {
               mode?: string;
-              requestedSchema?: Record<string, unknown>;
+              url?: string;
+              elicitationId?: string;
             };
 
             return {
               action: "accept" as const,
               content: {
-                token: "ghp_test_token",
+                authKind: "bearer",
+                tokenSecretMaterialId,
               },
             };
           }),
@@ -553,9 +730,6 @@ describe("workspace-execution-environment", () => {
           specUrl: specServer.specUrl,
           name: "GitHub",
           namespace: "github",
-          auth: {
-            kind: "bearer",
-          },
         },
         context: {
           runId: "exec_add_openapi",
@@ -576,11 +750,13 @@ describe("workspace-execution-environment", () => {
       expect(added.auth.kind).toBe("bearer");
       expect(added.auth.token?.providerId).toBe("control-plane");
       expect(capturedElicitation).toMatchObject({
-        mode: "form",
-        requestedSchema: {
-          type: "object",
-        },
+        mode: "url",
+        url: expect.stringContaining("/v1/workspaces/"),
+        elicitationId: expect.stringContaining("executor.sources.add:"),
       });
+      expect((capturedElicitation as { url?: string } | null)?.url).toContain(
+        encodeURIComponent("exec_add_openapi:executor.sources.add:"),
+      );
 
       const storedArtifacts = yield* persistence.rows.toolArtifacts.listByWorkspaceId(
         workspaceId,
@@ -656,7 +832,9 @@ describe("workspace-execution-environment", () => {
       expect(described?.path).toBe("executor.sources.add");
       expect(described?.description).toContain("Source add input shapes:");
       expect(described?.description).toContain("specUrl");
+      expect(described?.description).toContain("credential setup");
       expect(described?.inputHint).toContain("endpoint");
+      expect(described?.inputHint).not.toContain("auth");
 
       const inputSchema = described?.inputSchemaJson
         ? JSON.parse(described.inputSchemaJson) as Record<string, unknown>
@@ -664,6 +842,7 @@ describe("workspace-execution-environment", () => {
       expect(inputSchema).not.toBeNull();
       expect(JSON.stringify(inputSchema)).toContain("specUrl");
       expect(JSON.stringify(inputSchema)).toContain("endpoint");
+      expect(JSON.stringify(inputSchema)).not.toContain("\"auth\"");
     }),
   );
 });

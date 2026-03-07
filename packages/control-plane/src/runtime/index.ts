@@ -103,10 +103,19 @@ const createRuntimeLayerFromContext = (
     | RuntimeSourceAuthServiceTag
     | RuntimeExecutionResolverService
   >,
-): RuntimeControlPlaneLayer =>
-  Layer.succeedContext(
-    context.pipe(Context.pick(...runtimeContextTags)),
-  );
+): RuntimeControlPlaneLayer => {
+  const runtimeContext = context.pipe(
+    Context.pick(...runtimeContextTags),
+  ) as Context.Context<
+    ControlPlaneActorResolver
+    | ControlPlaneStore
+    | LiveExecutionManagerService
+    | RuntimeSourceAuthServiceTag
+    | RuntimeExecutionResolverService
+  >;
+
+  return Layer.succeedContext(runtimeContext);
+};
 
 export const createRuntimeControlPlaneLayer = (
   options: RuntimeControlPlaneOptions = {},

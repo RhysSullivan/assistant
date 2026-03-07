@@ -10,7 +10,7 @@ export type InProcessExecutorOptions = {
   allowFetch?: boolean;
 };
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
 const formatLogArg = (value: unknown): string => {
   if (typeof value === "string") {
@@ -179,4 +179,3 @@ export const makeInProcessExecutor = (
   execute: (code: string, toolInvoker: ToolInvoker) =>
     runInProcess(options, code, toolInvoker),
 });
-

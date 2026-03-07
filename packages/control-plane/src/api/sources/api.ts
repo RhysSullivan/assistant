@@ -1,5 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
+  ExecutionInteractionIdSchema,
   SourceAuthSchema,
   SourceIdSchema,
   SourceKindSchema,
@@ -72,6 +73,26 @@ export type UpdateSourcePayload = typeof UpdateSourcePayloadSchema.Type;
 const workspaceIdParam = HttpApiSchema.param("workspaceId", WorkspaceIdSchema);
 const sourceIdParam = HttpApiSchema.param("sourceId", SourceIdSchema);
 
+const CredentialPageUrlParamsSchema = Schema.Struct({
+  interactionId: ExecutionInteractionIdSchema,
+});
+
+const CredentialSubmitPayloadSchema = Schema.Struct({
+  action: Schema.optional(Schema.Literal("submit", "continue", "cancel")),
+  token: Schema.optional(Schema.String),
+});
+
+const CredentialOauthCompleteUrlParamsSchema = Schema.Struct({
+  state: Schema.String,
+  code: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+  error_description: Schema.optional(Schema.String),
+});
+
+const HtmlSchema = HttpApiSchema.Text({
+  contentType: "text/html",
+});
+
 export class SourcesApi extends HttpApiGroup.make("sources")
   .add(
     HttpApiEndpoint.get("list")`/workspaces/${workspaceIdParam}/sources`
@@ -115,6 +136,31 @@ export class SourcesApi extends HttpApiGroup.make("sources")
       .addError(ControlPlaneBadRequestError)
       .addError(ControlPlaneUnauthorizedError)
       .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.get("credentialPage")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}/credentials`
+      .setUrlParams(CredentialPageUrlParamsSchema)
+      .addSuccess(HtmlSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("credentialSubmit")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}/credentials`
+      .setUrlParams(CredentialPageUrlParamsSchema)
+      .setPayload(CredentialSubmitPayloadSchema)
+      .addSuccess(HtmlSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.get("credentialComplete")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}/credentials/oauth/complete`
+      .setUrlParams(CredentialOauthCompleteUrlParamsSchema)
+      .addSuccess(Schema.String)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneNotFoundError)
       .addError(ControlPlaneStorageError),
   )
   .prefix("/v1") {}

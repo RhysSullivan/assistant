@@ -1,10 +1,22 @@
 import { describe, expect, it } from "@effect/vitest";
 import { assertTrue } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 
 import type { AccountId } from "#schema";
+import {
+  ExecutionIdSchema,
+  ExecutionInteractionIdSchema,
+  SecretMaterialIdSchema,
+  SourceIdSchema,
+} from "#schema";
+import type { ToolPath } from "@executor-v3/codemode-core";
 
-import { createSqlControlPlaneRuntime } from "./index";
+import {
+  createSqlControlPlaneRuntime,
+  LiveExecutionManagerService,
+} from "./index";
 import { withControlPlaneClient } from "./test-http-client";
 
 const makeRuntime = Effect.acquireRelease(
@@ -99,6 +111,275 @@ describe("control-plane-runtime", () => {
           }),
       );
       expect(listPolicies.length).toBe(1);
+    }),
+  );
+
+  it.scoped("captures credential requests through the local HTML flow without persisting raw tokens", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makeRuntime;
+      const installation = runtime.localInstallation;
+      const executionId = ExecutionIdSchema.make("exec_local_credential");
+      const sourceId = SourceIdSchema.make("src_local_credential");
+      const interactionSuffix = "executor.sources.add:test";
+      const interactionId = ExecutionInteractionIdSchema.make(
+        `${executionId}:${interactionSuffix}`,
+      );
+      const now = Date.now();
+
+      yield* runtime.persistence.rows.executions.insert({
+        id: executionId,
+        workspaceId: installation.workspaceId,
+        createdByAccountId: installation.accountId,
+        status: "running",
+        code: "return await tools.executor.sources.add(...)",
+        resultJson: null,
+        errorText: null,
+        logsJson: null,
+        startedAt: now,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      yield* runtime.persistence.rows.sources.insert({
+        id: sourceId,
+        workspaceId: installation.workspaceId,
+        name: "GitHub",
+        kind: "openapi",
+        endpoint: "https://api.github.com",
+        status: "auth_required",
+        enabled: true,
+        namespace: "github",
+        transport: null,
+        queryParamsJson: null,
+        headersJson: null,
+        specUrl: "https://example.com/github-openapi.yaml",
+        defaultHeadersJson: null,
+        authKind: "none",
+        authHeaderName: null,
+        authPrefix: null,
+        sourceHash: null,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const interactionFiber = yield* Effect.gen(function* () {
+        const liveExecutionManager = yield* LiveExecutionManagerService;
+        const onElicitation = liveExecutionManager.createOnElicitation({
+          rows: runtime.persistence.rows,
+          executionId,
+        });
+
+        return yield* onElicitation({
+          interactionId: interactionSuffix,
+          path: "executor.sources.add" as ToolPath,
+          sourceKey: "executor",
+          args: {
+            kind: "openapi",
+            endpoint: "https://api.github.com",
+            specUrl: "https://example.com/github-openapi.yaml",
+            name: "GitHub",
+            workspaceId: installation.workspaceId,
+            sourceId,
+          },
+          elicitation: {
+            mode: "url",
+            message: "Open the secure credential page to connect GitHub",
+            url: `http://127.0.0.1/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/${encodeURIComponent(sourceId)}/credentials?interactionId=${encodeURIComponent(interactionId)}`,
+            elicitationId: interactionSuffix,
+          },
+        });
+      }).pipe(
+        Effect.provide(runtime.runtimeLayer),
+        Effect.fork,
+      );
+
+      yield* Effect.yieldNow();
+
+      const pendingInteraction = yield* runtime.persistence.rows.executionInteractions
+        .getPendingByExecutionId(executionId);
+      assertTrue(Option.isSome(pendingInteraction));
+      expect(pendingInteraction.value.id).toBe(interactionId);
+
+      const page = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.sources.credentialPage({
+            path: {
+              workspaceId: installation.workspaceId,
+              sourceId,
+            },
+            urlParams: {
+              interactionId: pendingInteraction.value.id,
+            },
+          }),
+      );
+      expect(page).toContain("Configure Source Access");
+      expect(page).toContain("GitHub");
+      expect(page).toContain("Continue without auth");
+
+      const submittedPage = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.sources.credentialSubmit({
+            path: {
+              workspaceId: installation.workspaceId,
+              sourceId,
+            },
+            urlParams: {
+              interactionId: pendingInteraction.value.id,
+            },
+            payload: {
+              action: "submit",
+              token: "ghp_local_test_token",
+            },
+          }),
+      );
+      expect(submittedPage).toContain("Credential Stored");
+
+      const response = yield* Fiber.join(interactionFiber);
+      expect(response.action).toBe("accept");
+      expect(response.content?.authKind).toBe("bearer");
+      expect(typeof response.content?.tokenSecretMaterialId).toBe("string");
+
+      const tokenSecretMaterialId = SecretMaterialIdSchema.make(
+        String(response.content?.tokenSecretMaterialId),
+      );
+      const storedSecret = yield* runtime.persistence.rows.secretMaterials.getById(
+        tokenSecretMaterialId,
+      );
+      assertTrue(Option.isSome(storedSecret));
+      expect(storedSecret.value.value).toBe("ghp_local_test_token");
+
+      const storedInteraction = yield* runtime.persistence.rows.executionInteractions.getById(
+        pendingInteraction.value.id,
+      );
+      assertTrue(Option.isSome(storedInteraction));
+      expect(storedInteraction.value.responseJson).toContain("\"authKind\":\"bearer\"");
+      expect(storedInteraction.value.responseJson).toContain("tokenSecretMaterialId");
+      expect(storedInteraction.value.responseJson).not.toContain("ghp_local_test_token");
+    }),
+  );
+
+  it.scoped("allows continuing an OpenAPI source credential request without auth", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makeRuntime;
+      const installation = runtime.localInstallation;
+      const executionId = ExecutionIdSchema.make("exec_local_credential_continue");
+      const sourceId = SourceIdSchema.make("src_local_credential_continue");
+      const interactionSuffix = "executor.sources.add:continue";
+      const interactionId = ExecutionInteractionIdSchema.make(
+        `${executionId}:${interactionSuffix}`,
+      );
+      const now = Date.now();
+
+      yield* runtime.persistence.rows.executions.insert({
+        id: executionId,
+        workspaceId: installation.workspaceId,
+        createdByAccountId: installation.accountId,
+        status: "running",
+        code: "return await tools.executor.sources.add(...)",
+        resultJson: null,
+        errorText: null,
+        logsJson: null,
+        startedAt: now,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      yield* runtime.persistence.rows.sources.insert({
+        id: sourceId,
+        workspaceId: installation.workspaceId,
+        name: "GitHub",
+        kind: "openapi",
+        endpoint: "https://api.github.com",
+        status: "auth_required",
+        enabled: true,
+        namespace: "github",
+        transport: null,
+        queryParamsJson: null,
+        headersJson: null,
+        specUrl: "https://example.com/github-openapi.yaml",
+        defaultHeadersJson: null,
+        authKind: "none",
+        authHeaderName: null,
+        authPrefix: null,
+        sourceHash: null,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const interactionFiber = yield* Effect.gen(function* () {
+        const liveExecutionManager = yield* LiveExecutionManagerService;
+        const onElicitation = liveExecutionManager.createOnElicitation({
+          rows: runtime.persistence.rows,
+          executionId,
+        });
+
+        return yield* onElicitation({
+          interactionId: interactionSuffix,
+          path: "executor.sources.add" as ToolPath,
+          sourceKey: "executor",
+          args: {
+            kind: "openapi",
+            endpoint: "https://api.github.com",
+            specUrl: "https://example.com/github-openapi.yaml",
+            name: "GitHub",
+            workspaceId: installation.workspaceId,
+            sourceId,
+          },
+          elicitation: {
+            mode: "url",
+            message: "Open the secure credential page to connect GitHub",
+            url: `http://127.0.0.1/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/${encodeURIComponent(sourceId)}/credentials?interactionId=${encodeURIComponent(interactionId)}`,
+            elicitationId: interactionSuffix,
+          },
+        });
+      }).pipe(
+        Effect.provide(runtime.runtimeLayer),
+        Effect.fork,
+      );
+
+      yield* Effect.yieldNow();
+
+      const pendingInteraction = yield* runtime.persistence.rows.executionInteractions
+        .getPendingByExecutionId(executionId);
+      assertTrue(Option.isSome(pendingInteraction));
+
+      const submittedPage = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.sources.credentialSubmit({
+            path: {
+              workspaceId: installation.workspaceId,
+              sourceId,
+            },
+            urlParams: {
+              interactionId: pendingInteraction.value.id,
+            },
+            payload: {
+              action: "continue",
+            },
+          }),
+      );
+
+      expect(submittedPage).toContain("Continuing without auth");
+
+      const response = yield* Fiber.join(interactionFiber);
+      expect(response.action).toBe("accept");
+      expect(response.content).toEqual({
+        authKind: "none",
+      });
+
+      const storedInteraction = yield* runtime.persistence.rows.executionInteractions.getById(
+        pendingInteraction.value.id,
+      );
+      assertTrue(Option.isSome(storedInteraction));
+      expect(storedInteraction.value.responseJson).toContain("\"authKind\":\"none\"");
+      expect(storedInteraction.value.responseJson).not.toContain("tokenSecretMaterialId");
     }),
   );
 
