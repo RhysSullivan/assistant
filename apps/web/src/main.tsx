@@ -14,6 +14,7 @@ import { AppShell } from "./components/shell";
 import { HomePage } from "./views/home";
 import { EditSourcePage, NewSourcePage } from "./views/source-editor";
 import { SourceDetailPage } from "./views/source-detail";
+import { SecretsPage } from "./views/secrets";
 
 // ---------------------------------------------------------------------------
 // Route search schema
@@ -67,6 +68,13 @@ const editSourceRoute = createRoute({
   component: EditSourcePageWrapper,
 });
 
+const secretsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/secrets",
+  component: SecretsPage,
+});
+
+
 function SourceDetailPageWrapper() {
   const { sourceId } = sourceRoute.useParams();
   const search = sourceRoute.useSearch();
@@ -90,7 +98,7 @@ function EditSourcePageWrapper() {
 // Router
 // ---------------------------------------------------------------------------
 
-const routeTree = rootRoute.addChildren([homeRoute, newSourceRoute, sourceRoute, editSourceRoute]);
+const routeTree = rootRoute.addChildren([homeRoute, newSourceRoute, sourceRoute, editSourceRoute, secretsRoute]);
 
 const router = createRouter({
   routeTree,

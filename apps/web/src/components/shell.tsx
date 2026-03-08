@@ -20,7 +20,7 @@ export function AppShell() {
   const sources = useSources();
   const matchRoute = useMatchRoute();
   const isHome = matchRoute({ to: "/" });
-
+  const isSecrets = matchRoute({ to: "/secrets" });
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
@@ -40,6 +40,7 @@ export function AppShell() {
         {/* Main nav */}
         <nav className="flex flex-1 flex-col p-2 overflow-y-auto">
           <NavItem to="/" label="Dashboard" active={!!isHome} />
+          <NavItem to="/secrets" label="Secrets" active={!!isSecrets} />
 
           {/* Sources */}
           <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
@@ -74,7 +75,7 @@ export function AppShell() {
         {/* Footer */}
         <div className="shrink-0 border-t border-sidebar-border px-4 py-2.5">
           <div className="text-[10px] text-muted-foreground/30">
-            Local instance
+            executor v3
           </div>
         </div>
       </aside>

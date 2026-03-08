@@ -1,11 +1,20 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
+  type ConnectMcpSourcePayload,
   type CreateSourcePayload,
+  type InstanceConfig,
+  type Loadable,
+  type SecretListItem,
   type Source,
   type UpdateSourcePayload,
+  useConnectMcpSource,
+  useCreateSecret,
   useCreateSource,
+  useInvalidateExecutorQueries,
+  useInstanceConfig,
   useRemoveSource,
+  useSecrets,
   useSource,
   useUpdateSource,
 } from "@executor-v3/react";
@@ -16,6 +25,7 @@ import {
   IconArrowLeft,
   IconPencil,
   IconPlus,
+  IconSpinner,
   IconTrash,
 } from "../components/icons";
 import { cn } from "../lib/utils";
@@ -24,6 +34,20 @@ type StatusBannerState = {
   tone: "info" | "success" | "error";
   text: string;
 };
+
+type SourceOAuthPopupMessage =
+  | {
+      type: "executor-v3:source-oauth-result";
+      ok: true;
+      sourceId: string;
+    }
+  | {
+      type: "executor-v3:source-oauth-result";
+      ok: false;
+      error: string;
+    };
+
+const SOURCE_OAUTH_POPUP_RESULT_TIMEOUT_MS = 2 * 60_000;
 
 type SourceTemplate = {
   id: string;
@@ -130,6 +154,89 @@ const trimToNull = (value: string): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const startSourceOAuthPopup = async (authorizationUrl: string): Promise<void> => {
+  if (typeof window === "undefined") {
+    throw new Error("OAuth popup is only available in a browser context");
+  }
+
+  const popup = window.open(
+    authorizationUrl,
+    "executor-v3-source-oauth",
+    "popup=yes,width=520,height=720",
+  );
+
+  if (!popup) {
+    throw new Error("Popup blocked. Allow popups and try again.");
+  }
+
+  popup.focus();
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let closedPoll = 0;
+    let resultTimeout = 0;
+
+    const cleanup = () => {
+      window.removeEventListener("message", onMessage);
+      if (closedPoll) {
+        window.clearInterval(closedPoll);
+      }
+      if (resultTimeout) {
+        window.clearTimeout(resultTimeout);
+      }
+      if (!popup.closed) {
+        popup.close();
+      }
+    };
+
+    const settleWithError = (message: string) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(new Error(message));
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const data = event.data as SourceOAuthPopupMessage | undefined;
+      if (!data || data.type !== "executor-v3:source-oauth-result") {
+        return;
+      }
+
+      if (!data.ok) {
+        settleWithError(data.error || "OAuth failed");
+        return;
+      }
+
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    window.addEventListener("message", onMessage);
+
+    resultTimeout = window.setTimeout(() => {
+      settleWithError("OAuth popup timed out before completion. Please try again.");
+    }, SOURCE_OAUTH_POPUP_RESULT_TIMEOUT_MS);
+
+    closedPoll = window.setInterval(() => {
+      if (popup.closed) {
+        settleWithError("OAuth popup was closed before completion.");
+      }
+    }, 300);
+  });
+};
+
 const stringMapToEditor = (value: Source["queryParams"] | Source["headers"] | Source["defaultHeaders"]): string =>
   value === null ? "" : JSON.stringify(value, null, 2);
 
@@ -224,7 +331,7 @@ const buildAuthPayload = (state: SourceFormState): CreateSourcePayload["auth"] =
     const providerId = state.bearerProviderId.trim();
     const handle = state.bearerHandle.trim();
     if (!providerId || !handle) {
-      throw new Error("Bearer auth requires both a provider ID and a secret handle.");
+      throw new Error("Bearer auth requires a token. Select or create a secret.");
     }
 
     return {
@@ -241,7 +348,7 @@ const buildAuthPayload = (state: SourceFormState): CreateSourcePayload["auth"] =
   const accessProviderId = state.oauthAccessProviderId.trim();
   const accessHandle = state.oauthAccessHandle.trim();
   if (!accessProviderId || !accessHandle) {
-    throw new Error("OAuth2 auth requires an access token provider ID and handle.");
+    throw new Error("OAuth2 auth requires an access token. Select or create a secret.");
   }
 
   const refreshProviderId = trimToNull(state.oauthRefreshProviderId);
@@ -330,6 +437,31 @@ const buildUpdatePayload = (state: SourceFormState): UpdateSourcePayload => ({
   ...buildSourcePayload(state),
 });
 
+const buildMcpConnectPayload = (
+  state: SourceFormState,
+  sourceId?: Source["id"],
+): ConnectMcpSourcePayload => {
+  if (state.kind !== "mcp") {
+    throw new Error("OAuth sign-in is only available for MCP sources.");
+  }
+
+  const endpoint = state.endpoint.trim();
+  if (!endpoint) {
+    throw new Error("Source endpoint is required before starting OAuth.");
+  }
+
+  return {
+    ...(sourceId ? { sourceId } : {}),
+    endpoint,
+    name: trimToNull(state.name),
+    namespace: trimToNull(state.namespace),
+    enabled: state.enabled,
+    transport: state.transport === "" ? "auto" : state.transport,
+    queryParams: parseJsonStringMap("Query params", state.queryParamsText),
+    headers: parseJsonStringMap("Request headers", state.headersText),
+  };
+};
+
 export function NewSourcePage() {
   return <SourceEditor mode="create" />;
 }
@@ -347,13 +479,18 @@ export function EditSourcePage(props: { sourceId: string }) {
 function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
   const navigate = useNavigate();
   const createSource = useCreateSource();
+  const connectMcpSource = useConnectMcpSource();
   const updateSource = useUpdateSource();
   const removeSource = useRemoveSource();
+  const invalidateQueries = useInvalidateExecutorQueries();
+  const instanceConfig = useInstanceConfig();
+  const secrets = useSecrets();
   const [formState, setFormState] = useState<SourceFormState>(() =>
     props.source ? formStateFromSource(props.source) : defaultFormState(),
   );
   const [statusBanner, setStatusBanner] = useState<StatusBannerState | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [oauthPopupBusy, setOauthPopupBusy] = useState(false);
 
   useEffect(() => {
     if (props.source) {
@@ -364,6 +501,7 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
 
   const isSubmitting = createSource.status === "pending" || updateSource.status === "pending";
   const isDeleting = removeSource.status === "pending";
+  const isOAuthSubmitting = connectMcpSource.status === "pending" || oauthPopupBusy;
 
   const setField = <K extends keyof SourceFormState>(key: K, value: SourceFormState[K]) => {
     setFormState((current) => ({ ...current, [key]: value }));
@@ -422,6 +560,47 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
       setStatusBanner({
         tone: "error",
         text: error instanceof Error ? error.message : "Failed saving source.",
+      });
+    }
+  };
+
+  const handleMcpOAuthConnect = async () => {
+    setStatusBanner(null);
+
+    try {
+      const result = await connectMcpSource.mutateAsync(
+        buildMcpConnectPayload(formState, props.source?.id),
+      );
+
+      if (result.kind === "connected") {
+        invalidateQueries();
+        void navigate({
+          to: "/sources/$sourceId",
+          params: { sourceId: result.source.id },
+          search: { tab: "model" },
+        });
+        return;
+      }
+
+      setStatusBanner({
+        tone: "info",
+        text: `Finish OAuth in the popup to connect ${result.source.name}.`,
+      });
+
+      setOauthPopupBusy(true);
+      await startSourceOAuthPopup(result.authorizationUrl);
+      setOauthPopupBusy(false);
+      invalidateQueries();
+      void navigate({
+        to: "/sources/$sourceId",
+        params: { sourceId: result.source.id },
+        search: { tab: "model" },
+      });
+    } catch (error) {
+      setOauthPopupBusy(false);
+      setStatusBanner({
+        tone: "error",
+        text: error instanceof Error ? error.message : "Failed starting OAuth.",
       });
     }
   };
@@ -610,6 +789,27 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
 
           <Section title="Authentication">
             <div className="grid gap-4 sm:grid-cols-2">
+              {formState.kind === "mcp" && (
+                <div className="sm:col-span-2 rounded-lg border border-border bg-card/70 px-4 py-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-[13px] font-medium text-foreground">Sign in with OAuth</p>
+                      <p className="text-[12px] text-muted-foreground">
+                        Starts the same MCP connection flow used by `executor.sources.add`.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleMcpOAuthConnect}
+                      disabled={isSubmitting || isDeleting || isOAuthSubmitting}
+                    >
+                      {isOAuthSubmitting ? <IconSpinner className="size-3.5" /> : null}
+                      {props.source?.auth.kind === "oauth2" ? "Reconnect with OAuth" : "Sign in with OAuth"}
+                    </Button>
+                  </div>
+                </div>
+              )}
               <Field label="Auth mode">
                 <SelectInput
                   value={formState.authKind}
@@ -637,58 +837,42 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
               )}
 
               {formState.authKind === "bearer" && (
-                <>
-                  <Field label="Provider ID">
-                    <TextInput
-                      value={formState.bearerProviderId}
-                      onChange={(value) => setField("bearerProviderId", value)}
-                      placeholder="keychain"
-                      mono
-                    />
-                  </Field>
-                  <Field label="Token handle">
-                    <TextInput
-                      value={formState.bearerHandle}
-                      onChange={(value) => setField("bearerHandle", value)}
-                      placeholder="oauth_access_token_123"
-                      mono
-                    />
-                  </Field>
-                </>
+                <Field label="Token" className="sm:col-span-2">
+                  <SecretPicker
+                    secrets={secrets}
+                    providerId={formState.bearerProviderId}
+                    handle={formState.bearerHandle}
+                    onSelect={(providerId, handle) => {
+                      setField("bearerProviderId", providerId);
+                      setField("bearerHandle", handle);
+                    }}
+                  />
+                </Field>
               )}
 
               {formState.authKind === "oauth2" && (
                 <>
-                  <Field label="Access token provider">
-                    <TextInput
-                      value={formState.oauthAccessProviderId}
-                      onChange={(value) => setField("oauthAccessProviderId", value)}
-                      placeholder="keychain"
-                      mono
+                  <Field label="Access token" className="sm:col-span-2">
+                    <SecretPicker
+                      secrets={secrets}
+                      providerId={formState.oauthAccessProviderId}
+                      handle={formState.oauthAccessHandle}
+                      onSelect={(providerId, handle) => {
+                        setField("oauthAccessProviderId", providerId);
+                        setField("oauthAccessHandle", handle);
+                      }}
                     />
                   </Field>
-                  <Field label="Access token handle">
-                    <TextInput
-                      value={formState.oauthAccessHandle}
-                      onChange={(value) => setField("oauthAccessHandle", value)}
-                      placeholder="oauth_access_token_123"
-                      mono
-                    />
-                  </Field>
-                  <Field label="Refresh token provider">
-                    <TextInput
-                      value={formState.oauthRefreshProviderId}
-                      onChange={(value) => setField("oauthRefreshProviderId", value)}
-                      placeholder="keychain"
-                      mono
-                    />
-                  </Field>
-                  <Field label="Refresh token handle">
-                    <TextInput
-                      value={formState.oauthRefreshHandle}
-                      onChange={(value) => setField("oauthRefreshHandle", value)}
-                      placeholder="oauth_refresh_token_123"
-                      mono
+                  <Field label="Refresh token (optional)" className="sm:col-span-2">
+                    <SecretPicker
+                      secrets={secrets}
+                      providerId={formState.oauthRefreshProviderId}
+                      handle={formState.oauthRefreshHandle}
+                      onSelect={(providerId, handle) => {
+                        setField("oauthRefreshProviderId", providerId);
+                        setField("oauthRefreshHandle", handle);
+                      }}
+                      allowEmpty
                     />
                   </Field>
                 </>
@@ -851,6 +1035,153 @@ function StatusBanner(props: { state: StatusBannerState; className?: string }) {
       )}
     >
       {props.state.text}
+    </div>
+  );
+}
+
+const CREATE_NEW_VALUE = "__create_new__";
+
+function SecretPicker(props: {
+  secrets: Loadable<ReadonlyArray<SecretListItem>>;
+  providerId: string;
+  handle: string;
+  onSelect: (providerId: string, handle: string) => void;
+  allowEmpty?: boolean;
+}) {
+  const { secrets, providerId, handle, onSelect, allowEmpty } = props;
+  const createSecret = useCreateSecret();
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  // Build the selected value key: if handle is set, use it (it's the secret ID)
+  const selectedValue = handle || "";
+
+  const handleSelectChange = (value: string) => {
+    if (value === CREATE_NEW_VALUE) {
+      setShowCreate(true);
+      setNewName("");
+      setNewValue("");
+      setCreateError(null);
+      return;
+    }
+    if (value === "") {
+      onSelect("", "");
+      return;
+    }
+    // Selecting an existing secret: providerId is always "postgres"
+    onSelect("postgres", value);
+  };
+
+  const handleCreate = async () => {
+    setCreateError(null);
+    const trimmedName = newName.trim();
+    if (!trimmedName) {
+      setCreateError("Name is required.");
+      return;
+    }
+    if (!newValue) {
+      setCreateError("Value is required.");
+      return;
+    }
+
+    try {
+      const result = await createSecret.mutateAsync({ name: trimmedName, value: newValue });
+      onSelect(result.providerId, result.id);
+      setShowCreate(false);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed creating secret.");
+    }
+  };
+
+  if (secrets.status !== "ready") {
+    return (
+      <select
+        disabled
+        className="h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-muted-foreground outline-none opacity-60"
+      >
+        <option>Loading…</option>
+      </select>
+    );
+  }
+
+  const items = secrets.data;
+
+  // Check if the current handle matches a known secret
+  const matchedSecret = items.find((s) => s.id === handle);
+  const isExternalRef = handle && !matchedSecret && providerId !== "postgres";
+
+  return (
+    <div className="space-y-2">
+      <select
+        value={showCreate ? CREATE_NEW_VALUE : selectedValue}
+        onChange={(e) => handleSelectChange(e.target.value)}
+        className="h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+      >
+        {allowEmpty && <option value="">None</option>}
+        {!allowEmpty && !selectedValue && <option value="">Select a secret…</option>}
+        {items.map((secret) => (
+          <option key={secret.id} value={secret.id}>
+            {secret.name || secret.id}
+          </option>
+        ))}
+        {isExternalRef && (
+          <option value={handle}>
+            {providerId}:{handle}
+          </option>
+        )}
+        <option value={CREATE_NEW_VALUE}>+ Create new secret</option>
+      </select>
+
+      {showCreate && (
+        <div className="rounded-lg border border-primary/20 bg-card/80 p-3 space-y-3">
+          {createError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/8 px-3 py-2 text-[12px] text-destructive">
+              {createError}
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-muted-foreground">Name</span>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="GitHub PAT"
+                className="h-8 w-full rounded-lg border border-input bg-background px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                autoFocus
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-muted-foreground">Value</span>
+              <input
+                type="password"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                placeholder="ghp_..."
+                className="h-8 w-full rounded-lg border border-input bg-background px-3 font-mono text-[11px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+              />
+            </label>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCreate(false)}
+              className="rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <Button
+              size="sm"
+              onClick={handleCreate}
+              disabled={createSecret.status === "pending"}
+            >
+              {createSecret.status === "pending" && <IconSpinner className="size-3" />}
+              Store & use
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
