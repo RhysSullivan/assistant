@@ -1,4 +1,5 @@
 import type {
+  ConnectMcpSourcePayload,
   CreateSourcePayload,
   UpdateSourcePayload,
 } from "../api/sources/api";
@@ -23,6 +24,7 @@ import {
   operationErrors,
 } from "./operation-errors";
 import { createDefaultSecretMaterialResolver } from "./secret-material-providers";
+import { RuntimeSourceAuthServiceTag } from "./source-auth-service";
 import { ControlPlaneStore, type ControlPlaneStoreShape } from "./store";
 import { syncSourceToolArtifacts } from "./tool-artifacts";
 import {
@@ -37,6 +39,7 @@ const sourceOps = {
   create: operationErrors("sources.create"),
   get: operationErrors("sources.get"),
   update: operationErrors("sources.update"),
+  connectMcp: operationErrors("sources.connectMcp"),
   remove: operationErrors("sources.remove"),
 } as const;
 
@@ -209,6 +212,40 @@ export const updateSource = (input: {
         operation: sourceOps.update,
       });
     }));
+
+export const connectMcpSource = (input: {
+  workspaceId: WorkspaceId;
+  payload: ConnectMcpSourcePayload;
+}) =>
+  Effect.gen(function* () {
+    const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
+
+    return yield* sourceAuthService.connectMcpSource({
+      workspaceId: input.workspaceId,
+      sourceId: input.payload.sourceId,
+      endpoint: input.payload.endpoint,
+      name: input.payload.name,
+      namespace: input.payload.namespace,
+      enabled: input.payload.enabled,
+      transport: input.payload.transport,
+      queryParams: input.payload.queryParams,
+      headers: input.payload.headers,
+    }).pipe(
+      Effect.mapError((cause) => {
+        if (cause instanceof Error && cause.message.startsWith("Source not found:")) {
+          return sourceOps.connectMcp.notFound(
+            "Source not found",
+            `workspaceId=${input.workspaceId} sourceId=${input.payload.sourceId}`,
+          );
+        }
+
+        return sourceOps.connectMcp.unknownStorage(
+          cause,
+          "Failed preparing MCP source OAuth flow",
+        );
+      }),
+    );
+  });
 
 export const removeSource = (input: {
   workspaceId: WorkspaceId;

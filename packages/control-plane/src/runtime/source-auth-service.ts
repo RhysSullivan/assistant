@@ -461,6 +461,22 @@ export type ExecutorAddSourceInput =
       auth?: ExecutorOpenApiSourceAuthInput | null;
     };
 
+export type ConnectMcpSourceInput = {
+  workspaceId: WorkspaceId;
+  sourceId?: Source["id"] | null;
+  endpoint: string;
+  name?: string | null;
+  namespace?: string | null;
+  enabled?: boolean;
+  transport?: Source["transport"];
+  queryParams?: Source["queryParams"];
+  headers?: Source["headers"];
+};
+
+export type McpSourceConnectResult = Extract<ExecutorSourceAddResult, {
+  kind: "connected" | "oauth_required";
+}>;
+
 export const shouldPromptForOpenApiCredentialSetup = (input: {
   existing?: Source;
   auth?: ExecutorOpenApiSourceAuthInput | null;
@@ -539,6 +555,208 @@ const materializeExecutorOpenApiAuth = (input: {
     } satisfies Source["auth"];
   });
 
+const connectMcpSourceInternal = (input: {
+  rows: SqlControlPlaneRows;
+  getLocalServerBaseUrl?: () => string | undefined;
+  workspaceId: WorkspaceId;
+  sourceId?: Source["id"] | null;
+  executionId?: SourceAuthSession["executionId"];
+  interactionId?: SourceAuthSession["interactionId"];
+  endpoint: string;
+  name?: string | null;
+  namespace?: string | null;
+  enabled?: boolean;
+  transport?: Source["transport"];
+  queryParams?: Source["queryParams"];
+  headers?: Source["headers"];
+  mcpDiscoveryElicitation?: McpDiscoveryElicitationContext;
+  resolveSecretMaterial: ResolveSecretMaterial;
+}): Effect.Effect<McpSourceConnectResult, Error, never> =>
+  Effect.gen(function* () {
+    const normalizedEndpoint = normalizeEndpoint(input.endpoint);
+    const existing = yield* (
+      input.sourceId
+        ? loadSourceById(input.rows, {
+            workspaceId: input.workspaceId,
+            sourceId: input.sourceId,
+          }).pipe(
+            Effect.flatMap((source) =>
+              source.kind === "mcp"
+                ? Effect.succeed(source)
+                : Effect.fail(new Error(`Expected MCP source, received ${source.kind}`)),
+            ),
+          )
+        : loadSourcesInWorkspace(input.rows, input.workspaceId).pipe(
+            Effect.map((sources) =>
+              sources.find(
+                (source) =>
+                  source.kind === "mcp" && normalizeEndpoint(source.endpoint) === normalizedEndpoint,
+              ),
+            ),
+          )
+    );
+
+    const chosenName =
+      trimOrNull(input.name) ?? existing?.name ?? defaultSourceNameFromEndpoint(normalizedEndpoint);
+    const chosenNamespace =
+      trimOrNull(input.namespace)
+      ?? existing?.namespace
+      ?? defaultNamespaceFromName(chosenName);
+    const chosenEnabled = input.enabled ?? existing?.enabled ?? true;
+    const chosenTransport = input.transport ?? existing?.transport ?? "auto";
+    const chosenQueryParams =
+      input.queryParams !== undefined ? input.queryParams : (existing?.queryParams ?? null);
+    const chosenHeaders =
+      input.headers !== undefined ? input.headers : (existing?.headers ?? null);
+    const now = Date.now();
+
+    const draftSource = existing
+      ? yield* updateSourceFromPayload({
+          source: existing,
+          payload: {
+            name: chosenName,
+            endpoint: normalizedEndpoint,
+            namespace: chosenNamespace,
+            kind: "mcp",
+            status: "probing",
+            enabled: chosenEnabled,
+            transport: chosenTransport,
+            queryParams: chosenQueryParams,
+            headers: chosenHeaders,
+            auth: { kind: "none" },
+            lastError: null,
+          },
+          now,
+        })
+      : yield* createSourceFromPayload({
+          workspaceId: input.workspaceId,
+          sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
+          payload: {
+            name: chosenName,
+            kind: "mcp",
+            endpoint: normalizedEndpoint,
+            namespace: chosenNamespace,
+            status: "probing",
+            enabled: chosenEnabled,
+            transport: chosenTransport,
+            queryParams: chosenQueryParams,
+            headers: chosenHeaders,
+            auth: { kind: "none" },
+          },
+          now,
+        });
+
+    const persistedDraft = yield* persistSource(input.rows, draftSource);
+    yield* syncSourceToolArtifacts({
+      rows: input.rows,
+      source: persistedDraft,
+      resolveSecretMaterial: input.resolveSecretMaterial,
+    });
+
+    const discovered = yield* Effect.either(
+      probeMcpSourceWithoutAuth(
+        persistedDraft,
+        input.mcpDiscoveryElicitation,
+      ),
+    );
+
+    const connectedResult = yield* Either.match(discovered, {
+      onLeft: () => Effect.succeed(null),
+      onRight: (result) =>
+        Effect.gen(function* () {
+          const connected = yield* updateSourceStatus(input.rows, persistedDraft, {
+            status: "connected",
+            lastError: null,
+            auth: { kind: "none" },
+          });
+          const indexed = yield* Effect.either(
+            persistMcpToolArtifactsFromManifest({
+              rows: input.rows,
+              source: connected,
+              manifestEntries: result.manifest.tools,
+            }),
+          );
+
+          return yield* Either.match(indexed, {
+            onLeft: (error) =>
+              updateSourceStatus(input.rows, connected, {
+                status: "error",
+                lastError: error.message,
+              }).pipe(
+                Effect.zipRight(Effect.fail(error)),
+              ),
+            onRight: () =>
+              Effect.succeed({
+                kind: "connected",
+                source: connected,
+              } satisfies McpSourceConnectResult),
+          });
+        }),
+    });
+
+    if (connectedResult) {
+      return connectedResult;
+    }
+
+    const localServerBaseUrl = input.getLocalServerBaseUrl?.();
+    if (!localServerBaseUrl) {
+      return yield* Effect.fail(
+        new Error("Local executor server base URL is unavailable for source credential setup"),
+      );
+    }
+
+    const sessionId = SourceAuthSessionIdSchema.make(`src_auth_${crypto.randomUUID()}`);
+    const state = crypto.randomUUID();
+    const redirectUrl = resolveSourceCredentialOauthCompleteUrl({
+      baseUrl: localServerBaseUrl,
+      workspaceId: input.workspaceId,
+      sourceId: persistedDraft.id,
+    });
+    const oauthStart = yield* startOAuthAuthorization({
+      endpoint: normalizedEndpoint,
+      redirectUrl,
+      state,
+    });
+
+    const authRequiredSource = yield* updateSourceStatus(input.rows, persistedDraft, {
+      status: "auth_required",
+      lastError: null,
+    });
+
+    const sessionNow = Date.now();
+    yield* input.rows.sourceAuthSessions.upsert({
+      id: sessionId,
+      workspaceId: input.workspaceId,
+      sourceId: authRequiredSource.id,
+      executionId: input.executionId ?? null,
+      interactionId: input.interactionId ?? null,
+      strategy: "oauth2_authorization_code",
+      status: "pending",
+      endpoint: normalizedEndpoint,
+      state,
+      redirectUri: redirectUrl,
+      scope: null,
+      resourceMetadataUrl: oauthStart.resourceMetadataUrl,
+      authorizationServerUrl: oauthStart.authorizationServerUrl,
+      resourceMetadataJson: oauthStart.resourceMetadataJson,
+      authorizationServerMetadataJson: oauthStart.authorizationServerMetadataJson,
+      clientInformationJson: oauthStart.clientInformationJson,
+      codeVerifier: oauthStart.codeVerifier,
+      authorizationUrl: oauthStart.authorizationUrl,
+      errorText: null,
+      completedAt: null,
+      createdAt: sessionNow,
+      updatedAt: sessionNow,
+    });
+
+    return {
+      kind: "oauth_required",
+      source: authRequiredSource,
+      sessionId,
+      authorizationUrl: oauthStart.authorizationUrl,
+    } satisfies McpSourceConnectResult;
+  });
+
 type RuntimeSourceAuthServiceShape = {
   getSourceById: (input: {
     workspaceId: WorkspaceId;
@@ -555,6 +773,9 @@ type RuntimeSourceAuthServiceShape = {
       mcpDiscoveryElicitation?: McpDiscoveryElicitationContext;
     },
   ) => Effect.Effect<ExecutorSourceAddResult, Error, never>;
+  connectMcpSource: (
+    input: ConnectMcpSourceInput,
+  ) => Effect.Effect<McpSourceConnectResult, Error, never>;
   completeSourceCredentialSetup: (input: {
     workspaceId: WorkspaceId;
     sourceId: Source["id"];
@@ -733,168 +954,36 @@ export const createRuntimeSourceAuthService = (input: {
               ),
           });
         })
-      : Effect.gen(function* () {
-          const normalizedEndpoint = normalizeEndpoint(sourceInput.endpoint);
-          const existingSources = yield* loadSourcesInWorkspace(
-            input.rows,
-            sourceInput.workspaceId,
-          );
-          const existing = existingSources.find(
-            (source) => source.kind === "mcp" && normalizeEndpoint(source.endpoint) === normalizedEndpoint,
-          );
-
-          const chosenName =
-            trimOrNull(sourceInput.name)
-            ?? existing?.name
-            ?? defaultSourceNameFromEndpoint(normalizedEndpoint);
-          const chosenNamespace =
-            trimOrNull(sourceInput.namespace)
-            ?? existing?.namespace
-            ?? defaultNamespaceFromName(chosenName);
-          const now = Date.now();
-
-          const draftSource = existing
-            ? yield* updateSourceFromPayload({
-                source: existing,
-                payload: {
-                  name: chosenName,
-                  endpoint: normalizedEndpoint,
-                  namespace: chosenNamespace,
-                  kind: "mcp",
-                  status: "probing",
-                  enabled: true,
-                  transport: existing.transport ?? "auto",
-                  auth: { kind: "none" },
-                  lastError: null,
-                },
-                now,
-              })
-            : yield* createSourceFromPayload({
-                workspaceId: sourceInput.workspaceId,
-                sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
-                payload: {
-                  name: chosenName,
-                  kind: "mcp",
-                  endpoint: normalizedEndpoint,
-                  namespace: chosenNamespace,
-                  status: "probing",
-                  enabled: true,
-                  transport: "auto",
-                  auth: { kind: "none" },
-                },
-                now,
-              });
-
-          const persistedDraft = yield* persistSource(input.rows, draftSource);
-          yield* syncSourceToolArtifacts({
-            rows: input.rows,
-            source: persistedDraft,
-            resolveSecretMaterial,
-          });
-
-          const discovered = yield* Effect.either(
-            probeMcpSourceWithoutAuth(
-              persistedDraft,
-              options?.mcpDiscoveryElicitation,
-            ),
-          );
-
-          const connectedResult = yield* Either.match(discovered, {
-            onLeft: () => Effect.succeed(null),
-            onRight: (result) =>
-              Effect.gen(function* () {
-                const connected = yield* updateSourceStatus(input.rows, persistedDraft, {
-                  status: "connected",
-                  lastError: null,
-                  auth: { kind: "none" },
-                });
-                const indexed = yield* Effect.either(
-                  persistMcpToolArtifactsFromManifest({
-                    rows: input.rows,
-                    source: connected,
-                    manifestEntries: result.manifest.tools,
-                  }),
-                );
-
-                return yield* Either.match(indexed, {
-                  onLeft: (error) =>
-                    updateSourceStatus(input.rows, connected, {
-                      status: "error",
-                      lastError: error.message,
-                    }).pipe(
-                      Effect.zipRight(Effect.fail(error)),
-                    ),
-                  onRight: () =>
-                    Effect.succeed({
-                      kind: "connected",
-                      source: connected,
-                    } satisfies ExecutorSourceAddResult),
-                });
-              }),
-          });
-
-          if (connectedResult) {
-            return connectedResult;
-          }
-
-          const localServerBaseUrl = input.getLocalServerBaseUrl?.();
-          if (!localServerBaseUrl) {
-            return yield* Effect.fail(
-              new Error("Local executor server base URL is unavailable for source credential setup"),
-            );
-          }
-
-          const sessionId = SourceAuthSessionIdSchema.make(`src_auth_${crypto.randomUUID()}`);
-          const state = crypto.randomUUID();
-          const redirectUrl = resolveSourceCredentialOauthCompleteUrl({
-            baseUrl: localServerBaseUrl,
-            workspaceId: sourceInput.workspaceId,
-            sourceId: persistedDraft.id,
-          });
-          const oauthStart = yield* startOAuthAuthorization({
-            endpoint: normalizedEndpoint,
-            redirectUrl,
-            state,
-          });
-
-          const authRequiredSource = yield* updateSourceStatus(input.rows, persistedDraft, {
-            status: "auth_required",
-            lastError: null,
-          });
-
-          const sessionNow = Date.now();
-          yield* input.rows.sourceAuthSessions.upsert({
-            id: sessionId,
-            workspaceId: sourceInput.workspaceId,
-            sourceId: authRequiredSource.id,
-            executionId: sourceInput.executionId,
-            interactionId: sourceInput.interactionId,
-            strategy: "oauth2_authorization_code",
-            status: "pending",
-            endpoint: normalizedEndpoint,
-            state,
-            redirectUri: redirectUrl,
-            scope: null,
-            resourceMetadataUrl: oauthStart.resourceMetadataUrl,
-            authorizationServerUrl: oauthStart.authorizationServerUrl,
-            resourceMetadataJson: oauthStart.resourceMetadataJson,
-            authorizationServerMetadataJson: oauthStart.authorizationServerMetadataJson,
-            clientInformationJson: oauthStart.clientInformationJson,
-            codeVerifier: oauthStart.codeVerifier,
-            authorizationUrl: oauthStart.authorizationUrl,
-            errorText: null,
-            completedAt: null,
-            createdAt: sessionNow,
-            updatedAt: sessionNow,
-          });
-
-          return {
-            kind: "oauth_required",
-            source: authRequiredSource,
-            sessionId,
-            authorizationUrl: oauthStart.authorizationUrl,
-          } satisfies ExecutorSourceAddResult;
+      : connectMcpSourceInternal({
+          rows: input.rows,
+          getLocalServerBaseUrl: input.getLocalServerBaseUrl,
+          workspaceId: sourceInput.workspaceId,
+          executionId: sourceInput.executionId,
+          interactionId: sourceInput.interactionId,
+          endpoint: sourceInput.endpoint,
+          name: sourceInput.name,
+          namespace: sourceInput.namespace,
+          mcpDiscoveryElicitation: options?.mcpDiscoveryElicitation,
+          resolveSecretMaterial,
         }),
+
+  connectMcpSource: (sourceInput) =>
+    connectMcpSourceInternal({
+      rows: input.rows,
+      getLocalServerBaseUrl: input.getLocalServerBaseUrl,
+      workspaceId: sourceInput.workspaceId,
+      sourceId: sourceInput.sourceId,
+      executionId: null,
+      interactionId: null,
+      endpoint: sourceInput.endpoint,
+      name: sourceInput.name,
+      namespace: sourceInput.namespace,
+      enabled: sourceInput.enabled,
+      transport: sourceInput.transport,
+      queryParams: sourceInput.queryParams,
+      headers: sourceInput.headers,
+      resolveSecretMaterial,
+    }),
 
   completeSourceCredentialSetup: ({
     workspaceId,

@@ -2,6 +2,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
   ExecutionInteractionIdSchema,
   SourceAuthSchema,
+  SourceAuthSessionIdSchema,
   SourceIdSchema,
   SourceInspectionDiscoverPayloadSchema,
   SourceInspectionDiscoverResultSchema,
@@ -74,6 +75,34 @@ export const UpdateSourcePayloadSchema = Schema.Struct({
 
 export type UpdateSourcePayload = typeof UpdateSourcePayloadSchema.Type;
 
+export const ConnectMcpSourcePayloadSchema = Schema.Struct({
+  sourceId: Schema.optional(SourceIdSchema),
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+  endpoint: TrimmedNonEmptyStringSchema,
+  namespace: Schema.optional(Schema.NullOr(Schema.String)),
+  enabled: Schema.optional(Schema.Boolean),
+  transport: Schema.optional(SourceTransportSchema),
+  queryParams: Schema.optional(Schema.NullOr(StringMapSchema)),
+  headers: Schema.optional(Schema.NullOr(StringMapSchema)),
+});
+
+export type ConnectMcpSourcePayload = typeof ConnectMcpSourcePayloadSchema.Type;
+
+export const ConnectMcpSourceResultSchema = Schema.Union(
+  Schema.Struct({
+    kind: Schema.Literal("connected"),
+    source: SourceSchema,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("oauth_required"),
+    source: SourceSchema,
+    sessionId: SourceAuthSessionIdSchema,
+    authorizationUrl: Schema.String,
+  }),
+);
+
+export type ConnectMcpSourceResult = typeof ConnectMcpSourceResultSchema.Type;
+
 const workspaceIdParam = HttpApiSchema.param("workspaceId", WorkspaceIdSchema);
 const sourceIdParam = HttpApiSchema.param("sourceId", SourceIdSchema);
 const toolPathParam = HttpApiSchema.param("toolPath", Schema.String);
@@ -136,6 +165,16 @@ export class SourcesApi extends HttpApiGroup.make("sources")
       .addError(ControlPlaneStorageError),
   )
   .add(
+    HttpApiEndpoint.post("connectMcp")`/workspaces/${workspaceIdParam}/sources/mcp/oauth/start`
+      .setPayload(ConnectMcpSourcePayloadSchema)
+      .addSuccess(ConnectMcpSourceResultSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneUnauthorizedError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
     HttpApiEndpoint.del("remove")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}`
       .addSuccess(Schema.Struct({ removed: Schema.Boolean }))
       .addError(ControlPlaneBadRequestError)
@@ -163,7 +202,7 @@ export class SourcesApi extends HttpApiGroup.make("sources")
   .add(
     HttpApiEndpoint.get("credentialComplete")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}/credentials/oauth/complete`
       .setUrlParams(CredentialOauthCompleteUrlParamsSchema)
-      .addSuccess(Schema.String)
+      .addSuccess(HtmlSchema)
       .addError(ControlPlaneBadRequestError)
       .addError(ControlPlaneNotFoundError)
       .addError(ControlPlaneStorageError),

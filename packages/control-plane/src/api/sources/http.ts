@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 
 import { requirePermission, withPolicy } from "#domain";
 import {
+  connectMcpSource,
   createSource,
   getSource,
   listSources,
@@ -55,6 +56,12 @@ const escapeHtml = (value: string): string =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+
+const serializeJsonForScript = (value: unknown): string =>
+  JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026");
 
 const credentialPageDocument = (input: {
   title: string;
@@ -419,6 +426,122 @@ const credentialPageDocument = (input: {
   </body>
 </html>`;
 
+const sourceOAuthPopupResultDocument = (input: {
+  title: string;
+  message: string;
+  state: "stored" | "cancelled";
+  payload:
+    | {
+        type: "executor-v3:source-oauth-result";
+        ok: true;
+        sourceId: Source["id"];
+      }
+    | {
+        type: "executor-v3:source-oauth-result";
+        ok: false;
+        error: string;
+      };
+}) => `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(input.title)}</title>
+    <style>
+      :root {
+        --bg: #fafaf9;
+        --surface: #ffffff;
+        --text: #1c1917;
+        --text-secondary: #78716c;
+        --border: #e7e5e4;
+        --green: #16a34a;
+        --green-light: #f0fdf4;
+        --green-border: #bbf7d0;
+        --red: #dc2626;
+        --red-light: #fef2f2;
+        --red-border: #fecaca;
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, sans-serif;
+        padding: 24px;
+      }
+
+      .card {
+        width: 100%;
+        max-width: 420px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 28px;
+        text-align: center;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 14px;
+      }
+
+      .status[data-state='stored'] {
+        background: var(--green-light);
+        border: 1px solid var(--green-border);
+        color: var(--green);
+      }
+
+      .status[data-state='cancelled'] {
+        background: var(--red-light);
+        border: 1px solid var(--red-border);
+        color: var(--red);
+      }
+
+      h1 {
+        font-size: 22px;
+        line-height: 1.2;
+        margin-bottom: 10px;
+      }
+
+      p {
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="status" data-state="${escapeHtml(input.state)}">${escapeHtml(input.state === "stored" ? "connected" : "failed")}</div>
+      <h1>${escapeHtml(input.title)}</h1>
+      <p>${escapeHtml(input.message)}</p>
+    </main>
+    <script>
+      (() => {
+        const payload = ${serializeJsonForScript(input.payload)};
+        try {
+          if (window.opener) {
+            window.opener.postMessage(payload, window.location.origin);
+          }
+        } finally {
+          window.setTimeout(() => window.close(), 60);
+        }
+      })();
+    </script>
+  </body>
+</html>`;
+
 const htmlResponse = (html: string, status = 200) =>
   HttpServerResponse.html(html).pipe(
     HttpServerResponse.setStatus(status),
@@ -560,6 +683,16 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           ),
         ),
       )
+      .handle("connectMcp", ({ path, payload }) =>
+        withWorkspaceRequestActor("sources.connectMcp", path.workspaceId, () =>
+          withPolicy(requireWriteSources(path.workspaceId))(
+            connectMcpSource({
+              workspaceId: path.workspaceId,
+              payload,
+            }),
+          ),
+        ),
+      )
       .handle("remove", ({ path }) =>
         withWorkspaceRequestActor("sources.remove", path.workspaceId, () =>
           withPolicy(requireWriteSources(path.workspaceId))(
@@ -687,7 +820,37 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           error: urlParams.error,
           errorDescription: urlParams.error_description,
         }).pipe(
-          Effect.map((source) => `Source connected: ${source.id}. You can close this window.`),
+          Effect.map((source) =>
+            htmlResponse(
+              sourceOAuthPopupResultDocument({
+                title: "Source connected",
+                message: `Source connected: ${source.id}. You can close this window.`,
+                state: "stored",
+                payload: {
+                  type: "executor-v3:source-oauth-result",
+                  ok: true,
+                  sourceId: source.id,
+                },
+              }),
+            ),
+          ),
+          Effect.catchAll((error) =>
+            Effect.succeed(
+              htmlResponse(
+                sourceOAuthPopupResultDocument({
+                  title: "OAuth failed",
+                  message: error instanceof Error ? error.message : "Failed completing OAuth",
+                  state: "cancelled",
+                  payload: {
+                    type: "executor-v3:source-oauth-result",
+                    ok: false,
+                    error: error instanceof Error ? error.message : "Failed completing OAuth",
+                  },
+                }),
+                500,
+              ),
+            ),
+          ),
         ),
       ),
 );

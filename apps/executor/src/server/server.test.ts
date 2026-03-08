@@ -802,6 +802,83 @@ describe("local-executor-server", () => {
     }),
   );
 
+  it.scoped("starts MCP OAuth from the sources API and completes the popup callback flow", () =>
+    Effect.gen(function* () {
+      const oauthServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOAuthProtectedMcpServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+
+      const server = yield* createLocalExecutorServer({
+        port: 0,
+        localDataDir: ":memory:",
+      });
+
+      const bootstrapClient = yield* createControlPlaneClient({
+        baseUrl: server.baseUrl,
+      });
+      const installation = yield* bootstrapClient.local.installation({});
+
+      const startResponse = yield* Effect.promise(() =>
+        fetch(`${server.baseUrl}/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/mcp/oauth/start`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-executor-account-id": installation.accountId,
+          },
+          body: JSON.stringify({
+            endpoint: oauthServer.endpoint,
+            name: "Axiom",
+            namespace: "axiom",
+            transport: "auto",
+          }),
+        }),
+      );
+
+      assertTrue(startResponse.ok);
+      const started: {
+        kind: "connected" | "oauth_required";
+        source: { id: string; status: string; auth: { kind: string } };
+        authorizationUrl?: string;
+      } = yield* Effect.promise(() => startResponse.json() as Promise<{
+        kind: "connected" | "oauth_required";
+        source: { id: string; status: string; auth: { kind: string } };
+        authorizationUrl?: string;
+      }>);
+
+      expect(started.kind).toBe("oauth_required");
+      expect(started.source.status).toBe("auth_required");
+      expect(started.authorizationUrl).toBeDefined();
+
+      const callbackResponse = yield* Effect.promise(() =>
+        fetch(started.authorizationUrl!, {
+          redirect: "follow",
+        }),
+      );
+
+      assertTrue(callbackResponse.ok);
+      const callbackHtml = yield* Effect.promise(() => callbackResponse.text());
+      expect(callbackHtml).toContain("Source connected:");
+      expect(callbackHtml).toContain("executor-v3:source-oauth-result");
+
+      const client = yield* createControlPlaneClient({
+        baseUrl: server.baseUrl,
+        accountId: installation.accountId,
+      });
+      const sources = yield* client.sources.list({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+      });
+      const source = sources.find((candidate) => candidate.id === started.source.id);
+
+      assertTrue(Boolean(source));
+
+      expect(source?.status).toBe("connected");
+      expect(source?.auth.kind).toBe("oauth2");
+    }),
+  );
+
   it.scoped("returns a typed storage error when a configured MCP endpoint is invalid", () =>
     Effect.gen(function* () {
       const server = yield* createLocalExecutorServer({
