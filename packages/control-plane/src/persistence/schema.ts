@@ -83,8 +83,16 @@ export const organizationMembershipsTable = pgTable(
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("organization_memberships_org_idx").on(table.organizationId),
-    index("organization_memberships_account_idx").on(table.accountId),
+    index("organization_memberships_org_updated_idx").on(
+      table.organizationId,
+      table.updatedAt,
+      table.id,
+    ),
+    index("organization_memberships_account_updated_idx").on(
+      table.accountId,
+      table.updatedAt,
+      table.id,
+    ),
     uniqueIndex("organization_memberships_org_account_idx").on(
       table.organizationId,
       table.accountId,
@@ -111,7 +119,11 @@ export const workspacesTable = pgTable(
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("workspaces_org_idx").on(table.organizationId),
+    index("workspaces_org_updated_idx").on(
+      table.organizationId,
+      table.updatedAt,
+      table.id,
+    ),
     uniqueIndex("workspaces_org_name_idx").on(table.organizationId, table.name),
   ],
 );
@@ -142,6 +154,11 @@ export const sourcesTable = pgTable(
     primaryKey({
       columns: [table.workspaceId, table.sourceId],
     }),
+    index("sources_workspace_updated_idx").on(
+      table.workspaceId,
+      table.updatedAt,
+      table.sourceId,
+    ),
     uniqueIndex("sources_workspace_name_idx").on(table.workspaceId, table.name),
     check(
       "sources_kind_check",
@@ -249,6 +266,10 @@ export const toolArtifactsTable = pgTable(
       table.searchNamespace,
       table.path,
     ),
+    index("tool_artifacts_search_text_idx").using(
+      "gin",
+      sql`to_tsvector('simple', ${table.searchText})`,
+    ),
     check(
       "tool_artifacts_provider_kind_check",
       sql`${table.providerKind} in ('mcp', 'openapi')`,
@@ -296,11 +317,6 @@ export const toolArtifactParametersTable = pgTable(
     primaryKey({
       columns: [table.workspaceId, table.path, table.position],
     }),
-    index("tool_artifact_parameters_lookup_idx").on(
-      table.workspaceId,
-      table.path,
-      table.position,
-    ),
     check(
       "tool_artifact_parameters_location_check",
       sql`${table.location} in ('path', 'query', 'header', 'cookie')`,
@@ -320,11 +336,6 @@ export const toolArtifactRequestBodyContentTypesTable = pgTable(
     primaryKey({
       columns: [table.workspaceId, table.path, table.position],
     }),
-    index("tool_artifact_request_body_content_types_lookup_idx").on(
-      table.workspaceId,
-      table.path,
-      table.position,
-    ),
   ],
 );
 
@@ -340,11 +351,6 @@ export const toolArtifactRefHintKeysTable = pgTable(
     primaryKey({
       columns: [table.workspaceId, table.path, table.position],
     }),
-    index("tool_artifact_ref_hint_keys_lookup_idx").on(
-      table.workspaceId,
-      table.path,
-      table.position,
-    ),
   ],
 );
 
@@ -352,6 +358,7 @@ export const secretMaterialsTable = pgTable(
   tableNames.secretMaterials,
   {
     id: text("id").notNull().primaryKey(),
+    name: text("name"),
     purpose: text("purpose").notNull(),
     value: text("value").notNull(),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
@@ -398,6 +405,13 @@ export const sourceAuthSessionsTable = pgTable(
       table.updatedAt,
       table.id,
     ),
+    index("source_auth_sessions_pending_idx").on(
+      table.workspaceId,
+      table.sourceId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
     uniqueIndex("source_auth_sessions_state_idx").on(table.state),
     check(
       "source_auth_sessions_strategy_check",
@@ -429,7 +443,12 @@ export const policiesTable = pgTable(
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("policies_workspace_idx").on(table.workspaceId, table.updatedAt, table.id),
+    index("policies_workspace_priority_idx").on(
+      table.workspaceId,
+      table.priority.desc(),
+      table.updatedAt,
+      table.id,
+    ),
     check(
       "policies_resource_type_check",
       sql`${table.resourceType} in ('all_tools', 'source', 'namespace', 'tool_path')`,
@@ -449,14 +468,21 @@ export const policiesTable = pgTable(
   ],
 );
 
-export const localInstallationsTable = pgTable(tableNames.localInstallations, {
-  id: text("id").notNull().primaryKey(),
-  accountId: text("account_id").notNull(),
-  organizationId: text("organization_id").notNull(),
-  workspaceId: text("workspace_id").notNull(),
-  createdAt: bigint("created_at", { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-});
+export const localInstallationsTable = pgTable(
+  tableNames.localInstallations,
+  {
+    id: text("id").notNull().primaryKey(),
+    accountId: text("account_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("local_installations_organization_idx").on(table.organizationId),
+    index("local_installations_workspace_idx").on(table.workspaceId),
+  ],
+);
 
 export const executionsTable = pgTable(
   tableNames.executions,

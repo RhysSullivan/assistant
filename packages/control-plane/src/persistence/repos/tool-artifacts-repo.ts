@@ -15,8 +15,8 @@ import {
   asc,
   count,
   eq,
-  ilike,
   or,
+  sql,
 } from "drizzle-orm";
 
 import type { DrizzleClient } from "../client";
@@ -59,12 +59,33 @@ const tokenizeQuery = (value: string | undefined): string[] =>
   value
     ?.trim()
     .toLowerCase()
+    .replaceAll(/[^\p{L}\p{N}_]+/gu, " ")
     .split(/\s+/)
     .filter(Boolean)
     ?? [];
 
-const likePattern = (token: string): string =>
-  `%${token.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+const toTsQuery = (
+  value: string | undefined,
+  operator: "&" | "|",
+): string | undefined => {
+  const tokens = tokenizeQuery(value);
+  if (tokens.length === 0) {
+    return undefined;
+  }
+
+  return tokens.join(` ${operator} `);
+};
+
+const buildSearchTextClause = (
+  table: DrizzleTables["toolArtifactsTable"],
+  value: string | undefined,
+  operator: "&" | "|",
+) => {
+  const tsQuery = toTsQuery(value, operator);
+  return tsQuery
+    ? sql`to_tsvector('simple', ${table.searchText}) @@ to_tsquery('simple', ${tsQuery})`
+    : undefined;
+};
 
 const buildListWhereClause = (
   table: DrizzleTables["toolArtifactsTable"],
@@ -75,15 +96,11 @@ const buildListWhereClause = (
     query?: string;
   },
 ) => {
-  const queryTokens = tokenizeQuery(input.query);
-
   return and(
     eq(table.workspaceId, input.workspaceId),
     input.sourceId ? eq(table.sourceId, input.sourceId) : undefined,
     input.namespace ? eq(table.searchNamespace, input.namespace) : undefined,
-    ...queryTokens.map((token) =>
-      ilike(table.searchText, likePattern(token)),
-    ),
+    buildSearchTextClause(table, input.query, "&"),
   );
 };
 
@@ -95,8 +112,7 @@ const buildSearchWhereClause = (
     query: string;
   },
 ) => {
-  const queryTokens = tokenizeQuery(input.query);
-  if (queryTokens.length === 0) {
+  if (tokenizeQuery(input.query).length === 0) {
     return and(
       eq(table.workspaceId, input.workspaceId),
       input.namespace ? eq(table.searchNamespace, input.namespace) : undefined,
@@ -107,7 +123,7 @@ const buildSearchWhereClause = (
   return and(
     eq(table.workspaceId, input.workspaceId),
     input.namespace ? eq(table.searchNamespace, input.namespace) : undefined,
-    or(...queryTokens.map((token) => ilike(table.searchText, likePattern(token)))),
+    buildSearchTextClause(table, input.query, "|"),
   );
 };
 
