@@ -12,6 +12,7 @@ import "./globals.css";
 
 import { AppShell } from "./components/shell";
 import { HomePage } from "./views/home";
+import { EditSourcePage, NewSourcePage } from "./views/source-editor";
 import { SourceDetailPage } from "./views/source-detail";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,12 @@ const homeRoute = createRoute({
   component: HomePage,
 });
 
+const newSourceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sources/new",
+  component: NewSourcePage,
+});
+
 const sourceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sources/$sourceId",
@@ -52,6 +59,12 @@ const sourceRoute = createRoute({
     query: typeof search.query === "string" ? search.query : undefined,
   }),
   component: SourceDetailPageWrapper,
+});
+
+const editSourceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sources/$sourceId/edit",
+  component: EditSourcePageWrapper,
 });
 
 function SourceDetailPageWrapper() {
@@ -68,11 +81,16 @@ function SourceDetailPageWrapper() {
   );
 }
 
+function EditSourcePageWrapper() {
+  const { sourceId } = editSourceRoute.useParams();
+  return <EditSourcePage sourceId={sourceId} />;
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
-const routeTree = rootRoute.addChildren([homeRoute, sourceRoute]);
+const routeTree = rootRoute.addChildren([homeRoute, newSourceRoute, sourceRoute, editSourceRoute]);
 
 const router = createRouter({
   routeTree,
