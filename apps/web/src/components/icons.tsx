@@ -117,3 +117,36 @@ export function IconInfo({ className, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function IconPlus({ className, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={cn("size-4", className)} {...props}>
+      <path d="M8 3.25v9.5M3.25 8h9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconPencil({ className, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={cn("size-4", className)} {...props}>
+      <path d="M3 11.75L11.6 3.15a1.2 1.2 0 011.7 0l.55.55a1.2 1.2 0 010 1.7L5.25 14H3v-2.25z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M9.75 5l1.25 1.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconTrash({ className, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={cn("size-4", className)} {...props}>
+      <path d="M3.5 4.5h9M6 2.75h4M5 4.5v7.25m3-7.25v7.25m3-7.25v7.25M4.5 4.5l.4 8.1c.03.52.46.9.98.9h4.24c.52 0 .95-.38.98-.9l.4-8.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconArrowLeft({ className, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={cn("size-4", className)} {...props}>
+      <path d="M12.75 8H3.25M6.75 4.5L3.25 8l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

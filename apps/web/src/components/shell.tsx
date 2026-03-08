@@ -1,7 +1,7 @@
 import { Link, Outlet, useMatchRoute } from "@tanstack/react-router";
 import { useSources, type Source } from "@executor-v3/react";
 import { cn } from "../lib/utils";
-import { IconSources } from "./icons";
+import { IconPlus, IconSources } from "./icons";
 import { LoadableBlock } from "./loadable";
 
 // ── Status dot color ─────────────────────────────────────────────────────
@@ -43,7 +43,16 @@ export function AppShell() {
 
           {/* Sources */}
           <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
-            Sources
+            <div className="flex items-center justify-between gap-2">
+              <span>Sources</span>
+              <Link
+                to="/sources/new"
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium normal-case tracking-normal text-primary transition-colors hover:bg-sidebar-active hover:text-foreground"
+              >
+                <IconPlus className="size-3" />
+                Add
+              </Link>
+            </div>
           </div>
           <LoadableBlock loadable={sources} loading="Loading...">
             {(items) =>

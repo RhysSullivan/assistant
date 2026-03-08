@@ -6,7 +6,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "bunx vitest run",
+    "test:watch": "bunx vitest"
   },
   "dependencies": {
     "@effect-atom/atom": "0.5.3",
@@ -18,7 +20,16 @@
     "react": ">=18 <20"
   },
   "devDependencies": {
+    "@effect/platform": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "catalog:",
     "@types/react": "^19.2.10",
-    "bun-types": "catalog:"
+    "@types/react-dom": "^19.2.3",
+    "bun-types": "catalog:",
+    "jsdom": "^26.1.0",
+    "react-dom": "^19.2.0",
+    "vitest": "catalog:"
   }
 }

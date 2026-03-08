@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   useSourceInspection,
   useSourceToolDetail,
@@ -23,8 +23,7 @@ import {
   IconCopy,
   IconCheck,
   IconClose,
-  IconEmpty,
-  IconInfo,
+  IconPencil,
 } from "../components/icons";
 import { Markdown } from "../components/markdown";
 
@@ -38,12 +37,9 @@ type SourceRouteSearch = {
   query?: string;
 };
 
-const sourceTabs: Array<{ id: SourceRouteSearch["tab"]; label: string }> = [
-  { id: "model", label: "Model" },
-  { id: "discover", label: "Discover" },
-  { id: "manifest", label: "Manifest" },
-  { id: "definitions", label: "Definitions" },
-  { id: "raw", label: "Raw" },
+const visibleTabs: Array<{ id: SourceRouteSearch["tab"]; label: string }> = [
+  { id: "model", label: "Tools" },
+  { id: "discover", label: "Search" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -82,7 +78,7 @@ export function SourceDetailPage(props: {
   }, [inspection, navigate, search.tab, search.tool]);
 
   return (
-    <LoadableBlock loadable={inspection} loading="Resolving inspection bundle...">
+    <LoadableBlock loadable={inspection} loading="Loading source...">
       {(bundle) => {
         const selectedTool =
           bundle.tools.find((t) => t.path === selectedToolPath) ?? bundle.tools[0] ?? null;
@@ -95,27 +91,37 @@ export function SourceDetailPage(props: {
                 <h2 className="truncate text-sm font-semibold text-foreground">
                   {bundle.source.name}
                 </h2>
-                <Badge variant="outline">{bundle.pipelineKind}</Badge>
-                <span className="hidden text-[11px] text-muted-foreground/50 font-mono sm:block">
-                  {bundle.namespace}
+                <Badge variant="outline">{bundle.source.kind}</Badge>
+                <span className="hidden text-[11px] tabular-nums text-muted-foreground/50 sm:block">
+                  {bundle.toolCount} {bundle.toolCount === 1 ? "tool" : "tools"}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
-                {sourceTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => void navigate({ search: (prev) => ({ ...prev, tab: tab.id }) })}
-                    className={cn(
-                      "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
-                      tab.id === search.tab
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-0.5 rounded-lg bg-muted/50 p-0.5">
+                  {visibleTabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => void navigate({ search: (prev) => ({ ...prev, tab: tab.id }) })}
+                      className={cn(
+                        "rounded-md px-3 py-1 text-[12px] font-medium transition-colors",
+                        tab.id === search.tab
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <Link
+                  to="/sources/$sourceId/edit"
+                  params={{ sourceId }}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-accent/50"
+                >
+                  <IconPencil className="size-3" />
+                  Edit
+                </Link>
               </div>
             </div>
 
@@ -147,17 +153,17 @@ export function SourceDetailPage(props: {
               )}
               {search.tab === "manifest" && (
                 <div className="flex-1 overflow-y-auto p-4">
-                  <DocumentPanel title="Extracted manifest" body={bundle.manifestJson} empty="No manifest snapshot available." />
+                  <DocumentPanel title="Manifest" body={bundle.manifestJson} empty="No manifest available." />
                 </div>
               )}
               {search.tab === "definitions" && (
                 <div className="flex-1 overflow-y-auto p-4">
-                  <DocumentPanel title="Compiled tool definitions" body={bundle.definitionsJson} empty="No compiled definitions snapshot available." />
+                  <DocumentPanel title="Definitions" body={bundle.definitionsJson} empty="No definitions available." />
                 </div>
               )}
               {search.tab === "raw" && (
                 <div className="flex-1 overflow-y-auto p-4">
-                  <DocumentPanel title="Raw source document" body={bundle.rawDocumentText} empty="No raw source document stored." />
+                  <DocumentPanel title="Raw document" body={bundle.rawDocumentText} empty="No raw document." />
                 </div>
               )}
             </div>
@@ -169,7 +175,7 @@ export function SourceDetailPage(props: {
 }
 
 // ---------------------------------------------------------------------------
-// ModelView — full-screen two-panel: tool list + tool detail
+// ModelView — two-panel: tool list + tool detail
 // ---------------------------------------------------------------------------
 
 function ModelView(props: {
@@ -209,7 +215,7 @@ function ModelView(props: {
 
   return (
     <>
-      {/* Left panel: tool tree */}
+      {/* Left panel: tool list */}
       <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card/30 lg:w-80 xl:w-[22rem]">
         {/* Search */}
         <div className="shrink-0 border-b border-border px-3 py-2">
@@ -219,7 +225,7 @@ function ModelView(props: {
               ref={searchRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={`Search ${props.bundle.toolCount} tools...`}
+              placeholder={`Filter ${props.bundle.toolCount} tools\u2026`}
               className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-8 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/30"
             />
             {search.length > 0 ? (
@@ -238,23 +244,11 @@ function ModelView(props: {
           </div>
         </div>
 
-        {/* Tool header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
-            Tools
-          </span>
-          <span className="text-[11px] tabular-nums text-muted-foreground/40">
-            {filteredTools.length !== props.bundle.toolCount
-              ? `${filteredTools.length} / ${props.bundle.toolCount}`
-              : props.bundle.toolCount}
-          </span>
-        </div>
-
-        {/* Tool tree */}
+        {/* Tool list */}
         <div className="flex-1 overflow-y-auto">
           {filteredTools.length === 0 ? (
             <div className="p-4 text-center text-[13px] text-muted-foreground/50">
-              {terms.length > 0 ? "No tools match your search" : "No tools available"}
+              {terms.length > 0 ? "No tools match your filter" : "No tools available"}
             </div>
           ) : (
             <div className="p-1.5">
@@ -273,14 +267,14 @@ function ModelView(props: {
 
       {/* Right panel: tool detail */}
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-        <LoadableBlock loadable={props.detail} loading="Loading tool detail...">
+        <LoadableBlock loadable={props.detail} loading="Loading tool...">
           {(detail) =>
             detail ? (
               <ToolDetailPanel detail={detail} />
             ) : (
               <EmptyState
-                title={props.bundle.toolCount > 0 ? "Select a tool to view its details" : "No tools available"}
-                description={props.bundle.toolCount > 0 ? "Browse the tree on the left or press / to search" : undefined}
+                title={props.bundle.toolCount > 0 ? "Select a tool" : "No tools available"}
+                description={props.bundle.toolCount > 0 ? "Choose from the list or press / to search" : undefined}
               />
             )
           }
@@ -363,7 +357,6 @@ function ToolTreeNodeView(props: {
   const hasChildren = node.children.size > 0;
   const isLeaf = !!node.tool && !hasChildren;
 
-  // Check if any descendant is the selected tool
   const hasSelectedDescendant = useMemo(() => {
     if (!selectedToolPath) return false;
     function check(n: ToolTreeNode): boolean {
@@ -378,12 +371,10 @@ function ToolTreeNodeView(props: {
 
   const [open, setOpen] = useState(defaultOpen || hasSelectedDescendant);
 
-  // Auto-open when search filter is active or selection moves into this group
   useEffect(() => {
     if (defaultOpen || hasSelectedDescendant) setOpen(true);
   }, [defaultOpen, hasSelectedDescendant]);
 
-  // Leaf: render as a tool item
   if (isLeaf) {
     return (
       <ToolListItem
@@ -398,7 +389,6 @@ function ToolTreeNodeView(props: {
     );
   }
 
-  // Folder: collapsible group
   const paddingLeft = 8 + depth * 16;
   const sortedChildren = [...node.children.values()].sort((a, b) =>
     a.segment.localeCompare(b.segment),
@@ -409,7 +399,6 @@ function ToolTreeNodeView(props: {
   return (
     <div>
       {node.tool ? (
-        // Node is both a folder AND a tool (rare)
         <div className="flex items-center">
           <button
             type="button"
@@ -436,7 +425,6 @@ function ToolTreeNodeView(props: {
           />
         </div>
       ) : (
-        // Pure folder
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
@@ -523,7 +511,6 @@ function ToolListItem(props: {
     }
   }, [props.active]);
 
-  // Prefetch when visible in viewport
   useEffect(() => {
     const el = ref.current;
     if (!el || prefetchedRef.current) return;
@@ -542,7 +529,6 @@ function ToolListItem(props: {
     return () => observer.disconnect();
   }, [props.prefetch, props.sourceId, props.tool.path]);
 
-  // Show only the last segment (the actual method name) since parents show the namespace
   const label = props.depth >= 0
     ? props.tool.path.split(".").pop() ?? props.tool.path
     : props.tool.path;
@@ -574,34 +560,9 @@ function ToolListItem(props: {
 // ToolDetailPanel
 // ---------------------------------------------------------------------------
 
-type OutputTypeExplanation = {
-  title: string;
-  description: string;
-};
-
-const getOutputTypeExplanation = (outputType: string | null | undefined): OutputTypeExplanation | null => {
-  if (outputType === "void") {
-    return {
-      title: "No response body",
-      description: "This operation succeeds without returning JSON. The HTTP response carries status only.",
-    };
-  }
-
-  if (outputType === "{}") {
-    return {
-      title: "Empty JSON object",
-      description: "This operation returns a response body, but the schema has no fields.",
-    };
-  }
-
-  return null;
-};
-
-
 function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
   const { detail } = props;
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const outputTypeExplanation = getOutputTypeExplanation(detail.summary.outputType);
 
   const copy = useCallback((text: string, field: string) => {
     void navigator.clipboard.writeText(text).then(() => {
@@ -612,7 +573,7 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Sticky header */}
+      {/* Header */}
       <div className="shrink-0 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="flex items-start gap-3 px-5 py-3.5">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -626,10 +587,10 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
               <CopyButton text={detail.summary.path} field="path" copiedField={copiedField} onCopy={copy} />
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline">{detail.summary.providerKind}</Badge>
-              {detail.summary.operationId && (
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {detail.summary.operationId}
+              {detail.summary.method && <MethodBadge method={detail.summary.method} />}
+              {detail.summary.pathTemplate && (
+                <span className="font-mono text-[11px] text-muted-foreground/60">
+                  {detail.summary.pathTemplate}
                 </span>
               )}
             </div>
@@ -637,7 +598,7 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
         </div>
       </div>
 
-      {/* Scrollable body */}
+      {/* Body */}
       <div className="flex-1 overflow-y-auto">
         <div className="px-5 py-4 space-y-4">
           {/* Description */}
@@ -647,38 +608,20 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
 
           {/* Type signatures */}
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <DocumentPanel title="Input type" body={detail.summary.inputType ?? null} lang="typescript" empty="No input type." />
-            <DocumentPanel title="Output type" body={detail.summary.outputType ?? null} lang="typescript" empty="No output type." />
-          </div>
-          {outputTypeExplanation && (
-            <div className="flex items-start gap-2 rounded-lg border border-border bg-card/40 px-3 py-2.5 text-[12px] text-muted-foreground">
-              <IconInfo className="mt-0.5 size-3.5 shrink-0 text-primary/80" />
-              <div>
-                <div className="font-medium text-foreground/90">{outputTypeExplanation.title}</div>
-                <p className="mt-0.5 leading-relaxed">{outputTypeExplanation.description}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Metadata row */}
-          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <MetricPill label="Tool ID" value={detail.summary.toolId} />
-            {detail.summary.pathTemplate && (
-              <MetricPill label="Path" value={detail.summary.pathTemplate} />
-            )}
-            {detail.summary.method && (
-              <MethodBadge method={detail.summary.method} />
-            )}
+            <DocumentPanel title="Input" body={detail.summary.inputType ?? null} lang="typescript" empty="No input." />
+            <DocumentPanel title="Output" body={detail.summary.outputType ?? null} lang="typescript" empty="No output." />
           </div>
 
-          {/* Schema panels */}
+          {/* Schemas */}
           <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
             <DocumentPanel title="Input schema" body={detail.inputSchemaJson} empty="No input schema." compact />
             <DocumentPanel title="Output schema" body={detail.outputSchemaJson} empty="No output schema." compact />
-            <DocumentPanel title="Example input" body={detail.exampleInputJson} empty="No example input." compact />
-            <DocumentPanel title="Example output" body={detail.exampleOutputJson} empty="No example output." compact />
-            <DocumentPanel title="Provider detail" body={detail.providerDataJson} empty="No provider detail." compact />
-            <DocumentPanel title="Definition" body={detail.definitionJson} empty="No compiled definition." compact />
+            {detail.exampleInputJson && (
+              <DocumentPanel title="Example request" body={detail.exampleInputJson} empty="" compact />
+            )}
+            {detail.exampleOutputJson && (
+              <DocumentPanel title="Example response" body={detail.exampleOutputJson} empty="" compact />
+            )}
           </div>
         </div>
       </div>
@@ -708,98 +651,72 @@ function DiscoveryView(props: {
       {/* Search bar */}
       <div className="shrink-0 border-b border-border px-4 py-3">
         <form
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 max-w-2xl"
           onSubmit={(e) => {
             e.preventDefault();
             props.onSubmitQuery(draftQuery.trim());
           }}
         >
-          <input
-            value={draftQuery}
-            onChange={(e) => setDraftQuery(e.target.value)}
-            placeholder="Search repos, issues, webhooks..."
-            className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/30"
-          />
-          <Button type="submit" size="sm">Run</Button>
+          <div className="relative flex-1">
+            <IconSearch className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/40" />
+            <input
+              value={draftQuery}
+              onChange={(e) => setDraftQuery(e.target.value)}
+              placeholder="Search tools\u2026"
+              className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/30"
+            />
+          </div>
+          <Button type="submit" size="sm">Search</Button>
         </form>
       </div>
 
       {/* Results */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar stats */}
-        <aside className="hidden w-56 shrink-0 border-r border-border p-3 space-y-2 lg:block">
-          <MetricCard label="Source" value={props.bundle.source.name} />
-          <MetricCard label="Namespace" value={props.bundle.namespace} />
-          <MetricCard label="Tool count" value={String(props.bundle.toolCount)} />
-        </aside>
-
-        {/* Results list */}
-        <div className="flex-1 overflow-y-auto p-3">
-          <LoadableBlock loadable={props.discovery} loading="Scoring candidate tools...">
-            {(result) =>
-              result.query.length === 0 ? (
-                <EmptyState
-                  title="Enter a query"
-                  description="Search terms live in the URL so you can deep-link ranking investigations."
-                />
-              ) : result.results.length === 0 ? (
-                <EmptyState
-                  title="No ranked matches"
-                  description="Try a provider noun, operation verb, tag, or path fragment."
-                />
-              ) : (
-                <div className="space-y-2">
-                  {result.results.map((item, index) => (
-                    <article
-                      key={item.path}
-                      className="rounded-lg border border-border bg-card/60 p-3 space-y-2"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-muted-foreground">
-                            #{index + 1}
-                          </span>
-                          <h4 className="truncate font-mono text-[13px] font-medium text-foreground">
-                            {item.path}
-                          </h4>
-                        </div>
-                        <span className="shrink-0 font-mono text-sm font-semibold text-primary">
-                          {item.score.toFixed(2)}
+      <div className="flex-1 overflow-y-auto p-4">
+        <LoadableBlock loadable={props.discovery} loading="Searching\u2026">
+          {(result) =>
+            result.query.length === 0 ? (
+              <EmptyState
+                title="Search your tools"
+                description="Type a query to find matching tools across this source."
+              />
+            ) : result.results.length === 0 ? (
+              <EmptyState
+                title="No results"
+                description="Try different search terms."
+              />
+            ) : (
+              <div className="max-w-3xl space-y-2">
+                {result.results.map((item, index) => (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => props.onOpenTool(item.path)}
+                    className="group w-full rounded-lg border border-border bg-card/60 p-3.5 text-left transition-all hover:border-primary/30 hover:shadow-sm"
+                  >
+                    <div className="flex items-center justify-between gap-3 mb-1.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-[10px] font-mono tabular-nums text-muted-foreground/60">
+                          {index + 1}
                         </span>
+                        <h4 className="truncate font-mono text-[13px] font-medium text-foreground group-hover:text-primary transition-colors">
+                          {item.path}
+                        </h4>
                       </div>
-                      <p className="text-[12px] text-muted-foreground leading-relaxed">
-                        {item.description ?? "No description"}
+                      <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground/50">
+                        {item.score.toFixed(2)}
+                      </span>
+                    </div>
+                    {item.description && (
+                      <p className="text-[12px] text-muted-foreground leading-relaxed line-clamp-2">
+                        {item.description}
                       </p>
-                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
-                        <span>{item.inputType ?? "unknown input"}</span>
-                        <span>&rarr;</span>
-                        <span>{item.outputType ?? "unknown output"}</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {item.reasons.map((reason) => (
-                          <span
-                            key={reason}
-                            className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
-                          >
-                            {reason}
-                          </span>
-                        ))}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-[11px]"
-                        onClick={() => props.onOpenTool(item.path)}
-                      >
-                        Open tool detail &rarr;
-                      </Button>
-                    </article>
-                  ))}
-                </div>
-              )
-            }
-          </LoadableBlock>
-        </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )
+          }
+        </LoadableBlock>
       </div>
     </div>
   );
@@ -808,36 +725,6 @@ function DiscoveryView(props: {
 // ---------------------------------------------------------------------------
 // Shared sub-components
 // ---------------------------------------------------------------------------
-
-function MetricCard(props: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-lg border border-border bg-card/60 px-3 py-2">
-      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-        {props.label}
-      </div>
-      <div className={cn(
-        "mt-0.5 truncate text-[13px] text-foreground/85",
-        props.mono && "font-mono text-[12px]",
-      )}>
-        {props.value}
-      </div>
-    </div>
-  );
-}
-
-function MetricPill(props: { label: string; value: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card/60 px-2 py-1">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
-        {props.label}
-      </span>
-      <span className="font-mono text-[11px] text-foreground/70">
-        {props.value}
-      </span>
-    </span>
-  );
-}
-
 
 function CopyButton(props: {
   text: string;
