@@ -204,7 +204,7 @@ export const buildDistributionPackage = async (
   await mkdir(binDir, { recursive: true });
   await mkdir(resourcesDir, { recursive: true });
 
-  if (options.buildWeb ?? true) {
+  if ((options.buildWeb ?? true) || !existsSync(webDistDir)) {
     await runCommand({
       command: "bun",
       args: ["run", "build"],
