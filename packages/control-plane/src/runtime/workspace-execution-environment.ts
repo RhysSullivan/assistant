@@ -29,6 +29,7 @@ import {
   type SqlControlPlaneRows,
 } from "#persistence";
 import type {
+  AccountId,
   Source,
   StoredToolArtifactRecord,
 } from "#schema";
@@ -70,6 +71,10 @@ import {
   resolveSourceAuthMaterial,
   storedToolIdFromArtifact,
 } from "./tool-artifacts";
+import {
+  evaluateInvocationPolicy,
+  type InvocationDescriptor,
+} from "./invocation-policy-engine";
 
 const asToolPath = (value: string): ToolPath => value as ToolPath;
 
@@ -382,7 +387,11 @@ const loadOpenApiWorkspaceTools = (input: {
                 path,
                 sourceKey: source.id,
                 description: definition.description,
-                interaction: "auto",
+                interaction:
+                  definition.method.toUpperCase() === "GET"
+                  || definition.method.toUpperCase() === "HEAD"
+                    ? "auto"
+                    : "required",
                 inputType: presentation.inputType,
                 outputType: presentation.outputType,
                 ...(input.includeSchemas && presentation.inputSchemaJson
@@ -518,6 +527,185 @@ const loadSourceById = (input: {
       cause instanceof Error ? cause : new Error(String(cause)),
     ),
   );
+
+const approvalSchema = {
+  type: "object",
+  properties: {
+    approve: {
+      type: "boolean",
+      description: "Whether to approve this tool execution",
+    },
+  },
+  required: ["approve"],
+  additionalProperties: false,
+} satisfies Record<string, unknown>;
+
+const approvalMessageForInvocation = (descriptor: InvocationDescriptor): string => {
+  if (descriptor.httpMethod && descriptor.httpPathTemplate) {
+    return `Allow ${descriptor.httpMethod.toUpperCase()} ${descriptor.httpPathTemplate}?`;
+  }
+
+  if (descriptor.graphqlOperationType) {
+    return `Allow GraphQL ${descriptor.graphqlOperationType} ${descriptor.toolPath}?`;
+  }
+
+  return `Allow tool call: ${descriptor.toolPath}?`;
+};
+
+const toInvocationDescriptorFromOpenApiTool = (input: {
+  tool: OpenApiWorkspaceTool;
+}): InvocationDescriptor => {
+  const method = input.tool.definition.method.toUpperCase();
+  return {
+    toolPath: input.tool.path,
+    sourceId: input.tool.source.id,
+    sourceName: input.tool.source.name,
+    sourceKind: input.tool.source.kind,
+    sourceNamespace: input.tool.source.namespace ?? namespaceFromSourceName(input.tool.source.name),
+    operationKind:
+      method === "GET" || method === "HEAD"
+        ? "read"
+        : method === "DELETE"
+          ? "delete"
+          : "write",
+    httpMethod: method,
+    httpPathTemplate: input.tool.definition.path,
+    graphqlOperationType: null,
+  };
+};
+
+const toInvocationDescriptorFromGraphqlTool = (input: {
+  tool: GraphqlWorkspaceTool;
+}): InvocationDescriptor => ({
+  toolPath: input.tool.path,
+  sourceId: input.tool.source.id,
+  sourceName: input.tool.source.name,
+  sourceKind: input.tool.source.kind,
+  sourceNamespace: input.tool.source.namespace ?? namespaceFromSourceName(input.tool.source.name),
+  operationKind:
+    input.tool.definition.operationType === "query"
+      ? "read"
+      : input.tool.definition.operationType === "mutation"
+        ? "write"
+        : "unknown",
+  httpMethod: null,
+  httpPathTemplate: null,
+  graphqlOperationType: input.tool.definition.operationType,
+});
+
+const toInvocationDescriptorFromArtifact = (input: {
+  toolPath: string;
+  source: Source;
+  artifact: StoredToolArtifactRecord;
+}): InvocationDescriptor => ({
+  toolPath: input.toolPath,
+  sourceId: input.source.id,
+  sourceName: input.source.name,
+  sourceKind: input.source.kind,
+  sourceNamespace: input.source.namespace ?? namespaceFromSourceName(input.source.name),
+  operationKind: "unknown",
+  httpMethod: input.artifact.openApiMethod?.toUpperCase() ?? null,
+  httpPathTemplate: input.artifact.openApiPathTemplate,
+  graphqlOperationType: null,
+});
+
+const authorizePersistedToolInvocation = (input: {
+  rows: SqlControlPlaneRows;
+  workspaceId: Source["workspaceId"];
+  accountId: AccountId;
+  descriptor: InvocationDescriptor;
+  args: unknown;
+  source: Source;
+  context?: Record<string, unknown>;
+  onElicitation?: Parameters<typeof makeToolInvokerFromTools>[0]["onElicitation"];
+}): Effect.Effect<void, Error, never> =>
+  Effect.gen(function* () {
+    const workspace = yield* input.rows.workspaces.getById(input.workspaceId).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      ),
+    );
+    const policies = Option.isSome(workspace)
+      ? yield* input.rows.policies.listForWorkspaceContext({
+          organizationId: workspace.value.organizationId,
+          workspaceId: input.workspaceId,
+        }).pipe(
+          Effect.mapError((cause) =>
+            cause instanceof Error ? cause : new Error(String(cause)),
+          ),
+        )
+      : [];
+
+    const decision = evaluateInvocationPolicy({
+      descriptor: input.descriptor,
+      args: input.args,
+      policies,
+      context: {
+        workspaceId: input.workspaceId,
+        organizationId: Option.isSome(workspace)
+          ? workspace.value.organizationId
+          : ("org_unknown" as never),
+        accountId: input.accountId,
+        clientId:
+          typeof input.context?.clientId === "string"
+          && input.context.clientId.length > 0
+            ? input.context.clientId
+            : null,
+      },
+    });
+
+    if (decision.kind === "allow") {
+      return;
+    }
+
+    if (decision.kind === "deny") {
+      return yield* Effect.fail(new Error(decision.reason));
+    }
+
+    if (!input.onElicitation) {
+      return yield* Effect.fail(
+        new Error(`Approval required for ${input.descriptor.toolPath}, but no elicitation-capable host is available`),
+      );
+    }
+
+    const interactionId = typeof input.context?.callId === "string" && input.context.callId.length > 0
+      ? `tool_execution_gate:${input.context.callId}`
+      : `tool_execution_gate:${crypto.randomUUID()}`;
+    const response = yield* input.onElicitation({
+      interactionId,
+      path: asToolPath(input.descriptor.toolPath),
+      sourceKey: input.source.id,
+      args: input.args,
+      context: {
+        ...(input.context ?? {}),
+        interactionPurpose: "tool_execution_gate",
+        interactionReason: decision.reason,
+        invocationDescriptor: {
+          operationKind: input.descriptor.operationKind,
+          httpMethod: input.descriptor.httpMethod,
+          httpPathTemplate: input.descriptor.httpPathTemplate,
+          graphqlOperationType: input.descriptor.graphqlOperationType,
+          sourceId: input.source.id,
+          sourceName: input.source.name,
+        },
+      },
+      elicitation: {
+        mode: "form",
+        message: approvalMessageForInvocation(input.descriptor),
+        requestedSchema: approvalSchema,
+      },
+    }).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      ),
+    );
+
+    if (response.action !== "accept") {
+      return yield* Effect.fail(
+        new Error(`Tool invocation not approved for ${input.descriptor.toolPath}`),
+      );
+    }
+  });
 
 const createWorkspaceToolCatalog = (input: {
   workspaceId: Source["workspaceId"];
@@ -780,6 +968,7 @@ const createWorkspaceToolCatalog = (input: {
 
 const createWorkspaceToolInvoker = (input: {
   workspaceId: Source["workspaceId"];
+  accountId: AccountId;
   rows: SqlControlPlaneRows;
   resolveSecretMaterial: ResolveSecretMaterial;
   sourceAuthService: RuntimeSourceAuthService;
@@ -825,6 +1014,17 @@ const createWorkspaceToolInvoker = (input: {
       });
       const openApiTool = openApiTools.find((tool) => tool.path === invocation.path);
       if (openApiTool) {
+        yield* authorizePersistedToolInvocation({
+          rows: input.rows,
+          workspaceId: input.workspaceId,
+          accountId: input.accountId,
+          descriptor: toInvocationDescriptorFromOpenApiTool({ tool: openApiTool }),
+          args: invocation.args,
+          source: openApiTool.source,
+          context: invocation.context,
+          onElicitation: input.onElicitation,
+        });
+
         const auth = yield* resolveSourceAuthMaterial({
           source: openApiTool.source,
           resolveSecretMaterial: input.resolveSecretMaterial,
@@ -857,6 +1057,17 @@ const createWorkspaceToolInvoker = (input: {
       });
       const graphqlTool = graphqlTools.find((tool) => tool.path === invocation.path);
       if (graphqlTool) {
+        yield* authorizePersistedToolInvocation({
+          rows: input.rows,
+          workspaceId: input.workspaceId,
+          accountId: input.accountId,
+          descriptor: toInvocationDescriptorFromGraphqlTool({ tool: graphqlTool }),
+          args: invocation.args,
+          source: graphqlTool.source,
+          context: invocation.context,
+          onElicitation: input.onElicitation,
+        });
+
         const auth = yield* resolveSourceAuthMaterial({
           source: graphqlTool.source,
           resolveSecretMaterial: input.resolveSecretMaterial,
@@ -906,6 +1117,21 @@ const createWorkspaceToolInvoker = (input: {
           new Error(`Source for tool path ${invocation.path} is not connected`),
         );
       }
+
+      yield* authorizePersistedToolInvocation({
+        rows: input.rows,
+        workspaceId: input.workspaceId,
+        accountId: input.accountId,
+        descriptor: toInvocationDescriptorFromArtifact({
+          toolPath: invocation.path,
+          source,
+          artifact,
+        }),
+        args: invocation.args,
+        source,
+        context: invocation.context,
+        onElicitation: input.onElicitation,
+      });
 
       const auth = yield* resolveSourceAuthMaterial({
         source,
@@ -977,10 +1203,11 @@ export const createWorkspaceExecutionEnvironmentResolver = (input: {
       rows: input.rows,
     });
 
-  return ({ workspaceId, onElicitation }) =>
+  return ({ workspaceId, accountId, onElicitation }) =>
     Effect.sync(() => {
       const { catalog, toolInvoker } = createWorkspaceToolInvoker({
         workspaceId,
+        accountId,
         rows: input.rows,
         resolveSecretMaterial,
         sourceAuthService: input.sourceAuthService,

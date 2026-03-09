@@ -93,6 +93,21 @@ export const sanitizePersistedElicitationResponse = (
   };
 };
 
+const interactionPurposeFromInput = (input: Parameters<OnElicitation>[0]): string => {
+  const explicitPurpose = input.context?.interactionPurpose;
+  if (typeof explicitPurpose === "string" && explicitPurpose.length > 0) {
+    return explicitPurpose;
+  }
+
+  if (input.path === "executor.sources.add") {
+    return input.elicitation.mode === "url"
+      ? "source_connect_oauth2"
+      : "source_connect_secret";
+  }
+
+  return "elicitation";
+};
+
 
 export const createLiveExecutionManager = () => {
   const runs = new Map<Execution["id"], LiveRunEntry>();
@@ -143,6 +158,7 @@ export const createLiveExecutionManager = () => {
             executionId,
             status: "pending",
             kind: input.elicitation.mode === "url" ? "url" : "form",
+            purpose: interactionPurposeFromInput(input),
             payloadJson:
               serializeJson({
                 path: input.path,

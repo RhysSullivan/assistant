@@ -1229,6 +1229,10 @@ describe("workspace-execution-environment", () => {
         workspaceId,
         accountId: AccountIdSchema.make("acc_add_graphql_fresh"),
         executionId: ExecutionIdSchema.make("exec_add_graphql_fresh"),
+        onElicitation: () =>
+          Effect.succeed({
+            action: "accept" as const,
+          }),
       });
 
       const discovered = (yield* freshEnvironment.toolInvoker.invoke({

@@ -1074,7 +1074,7 @@ export const graphqlToolDescriptorFromDefinition = (input: {
     path: asToolPath(input.path),
     sourceKey: input.sourceKey,
     description: input.definition.description,
-    interaction: "auto",
+    interaction: input.definition.operationType === "query" ? "auto" : "required",
     inputType: presentation.inputType,
     outputType: presentation.outputType,
     ...(input.includeSchemas && presentation.inputSchemaJson

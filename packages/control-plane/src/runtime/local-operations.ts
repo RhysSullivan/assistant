@@ -61,6 +61,12 @@ const decodeSourceCredentialInteraction = (
   interaction: ExecutionInteraction,
 ): Omit<SourceCredentialInteraction, "sourceLabel" | "endpoint"> | null => {
   try {
+    if (interaction.purpose !== "source_connect_oauth2"
+      && interaction.purpose !== "source_connect_secret"
+      && interaction.purpose !== "elicitation") {
+      return null;
+    }
+
     const payload = JSON.parse(interaction.payloadJson) as unknown;
     if (!isRecord(payload)) {
       return null;
@@ -72,11 +78,18 @@ const decodeSourceCredentialInteraction = (
       return null;
     }
 
-    if (
-      payload.path !== "executor.sources.add"
-      || args.kind !== "openapi"
-      || elicitation.mode !== "url"
-    ) {
+    if (payload.path !== "executor.sources.add" || args.kind !== "openapi") {
+      return null;
+    }
+    const effectivePurpose = interaction.purpose === "elicitation"
+      ? elicitation.mode === "url"
+        ? "source_connect_oauth2"
+        : "source_connect_secret"
+      : interaction.purpose;
+    if (effectivePurpose === "source_connect_oauth2" && elicitation.mode !== "url") {
+      return null;
+    }
+    if (effectivePurpose === "source_connect_secret" && elicitation.mode !== "form") {
       return null;
     }
 

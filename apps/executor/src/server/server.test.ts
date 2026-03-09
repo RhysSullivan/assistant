@@ -129,6 +129,99 @@ const startOpenApiDemoServer = async () => {
   };
 };
 
+const startMutatingOpenApiDemoServer = async () => {
+  const createdBodies: Array<Record<string, unknown>> = [];
+  const openApiDocument = JSON.stringify({
+    openapi: "3.0.3",
+    info: {
+      title: "Executor DNS Demo API",
+      version: "1.0.0",
+    },
+    paths: {
+      "/records": {
+        post: {
+          operationId: "records.createRecord",
+          tags: ["records"],
+          summary: "Create a DNS record",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    type: { type: "string" },
+                    name: { type: "string" },
+                    value: { type: "string" },
+                  },
+                  required: ["type", "value"],
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "ok",
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const handler = (req: IncomingMessage, res: ServerResponse) => {
+    if (req.url === "/openapi.json") {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(openApiDocument);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/records") {
+      const chunks: Array<Buffer> = [];
+      req.on("data", (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        createdBodies.push(parsed);
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({
+          ok: true,
+          id: `rec_${createdBodies.length}`,
+          record: parsed,
+        }));
+      });
+      return;
+    }
+
+    res.statusCode = 404;
+    res.end("not found");
+  };
+
+  const server = createServer(handler);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to bind mutating OpenAPI demo server");
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    specUrl: `http://127.0.0.1:${address.port}/openapi.json`,
+    createdBodies,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
+};
+
 const DEMO_OAUTH_ACCESS_TOKEN = "demo-access-token";
 const DEMO_OAUTH_REFRESH_TOKEN = "demo-refresh-token";
 
@@ -799,6 +892,107 @@ describe("local-executor-server", () => {
       expect(toolCall.execution.status).toBe("completed");
       expect(toolCall.pendingInteraction).toBeNull();
       expect(toolCall.execution.resultJson).toContain("oauth-demo");
+    }),
+  );
+
+  it.scoped("gates mutating OpenAPI tools by default and allows them via organization policy", () =>
+    Effect.gen(function* () {
+      const openApiServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startMutatingOpenApiDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const server = yield* createLocalExecutorServer({
+        port: 0,
+        localDataDir: ":memory:",
+      });
+      const bootstrapClient = yield* createControlPlaneClient({
+        baseUrl: server.baseUrl,
+      });
+      const installation = yield* bootstrapClient.local.installation({});
+      const client = yield* createControlPlaneClient({
+        baseUrl: server.baseUrl,
+        accountId: installation.accountId,
+      });
+
+      const connected = yield* client.sources.connect({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          kind: "openapi",
+          name: "DNS",
+          namespace: "dns",
+          endpoint: openApiServer.baseUrl,
+          specUrl: openApiServer.specUrl,
+          auth: {
+            kind: "none",
+          },
+        },
+      });
+      expect(connected.kind).toBe("connected");
+
+      const gated = yield* client.executions.create({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          code: 'return await tools.dns.records.createRecord({ body: { type: "TXT", name: "", value: "hello world" } });',
+        },
+      });
+
+      expect(gated.execution.status).toBe("waiting_for_interaction");
+      expect(gated.pendingInteraction).not.toBeNull();
+      if (gated.pendingInteraction === null) {
+        throw new Error("Expected pending approval interaction");
+      }
+      expect(gated.pendingInteraction.kind).toBe("form");
+      expect(gated.pendingInteraction.payloadJson).toContain("Allow POST /records?");
+      expect(gated.pendingInteraction.payloadJson).toContain("\"approve\"");
+
+      const approved = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.workspaceId,
+          executionId: gated.execution.id,
+        },
+        payload: {
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(approved.execution.status).toBe("completed");
+      expect(openApiServer.createdBodies).toHaveLength(1);
+
+      const policy = yield* client.policies.createOrganization({
+        path: {
+          organizationId: installation.organizationId,
+        },
+        payload: {
+          resourceType: "tool_path",
+          resourcePattern: "dns.records.createRecord",
+          matchType: "exact",
+          effect: "allow",
+          approvalMode: "auto",
+        },
+      });
+      expect(policy.scopeType).toBe("organization");
+
+      const automatic = yield* client.executions.create({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          code: 'return await tools.dns.records.createRecord({ body: { type: "TXT", name: "", value: "hello again" } });',
+        },
+      });
+
+      expect(automatic.execution.status).toBe("completed");
+      expect(automatic.pendingInteraction).toBeNull();
+      expect(openApiServer.createdBodies).toHaveLength(2);
     }),
   );
 
