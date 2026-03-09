@@ -47,6 +47,10 @@ import {
   resolveRuntimeWebAssetsDir,
   resolveSelfCommand,
 } from "./runtime-paths";
+import {
+  buildPausedExecutionOutput,
+  parseInteractionPayload,
+} from "./pending-interaction-output";
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
@@ -683,41 +687,7 @@ const ensureServer = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
     yield* waitForReachability(baseUrl, true);
   });
 
-const parseInteractionPayload = (interaction: ExecutionInteraction): {
-  message: string;
-  mode: "form" | "url";
-  url?: string;
-  requestedSchema?: Record<string, unknown>;
-} | null => {
-  try {
-    const parsed = JSON.parse(interaction.payloadJson) as {
-      elicitation?: {
-        message?: string;
-        mode?: "form" | "url";
-        url?: string;
-        requestedSchema?: Record<string, unknown>;
-      };
-    };
 
-    if (!parsed.elicitation || typeof parsed.elicitation.message !== "string") {
-      return null;
-    }
-
-    return {
-      message: parsed.elicitation.message,
-      mode: parsed.elicitation.mode === "url" ? "url" : "form",
-      url: parsed.elicitation.url,
-      requestedSchema:
-        typeof parsed.elicitation.requestedSchema === "object"
-        && parsed.elicitation.requestedSchema !== null
-        && !Array.isArray(parsed.elicitation.requestedSchema)
-          ? parsed.elicitation.requestedSchema
-          : undefined,
-    };
-  } catch {
-    return null;
-  }
-};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -964,6 +934,10 @@ const printExecution = (envelope: ExecutionEnvelope) =>
       process.exitCode = 1;
       return;
     }
+    if (execution.status === "waiting_for_interaction" && envelope.pendingInteraction !== null) {
+      return;
+    }
+
 
     console.log(JSON.stringify({
       id: execution.id,
@@ -1023,6 +997,7 @@ const driveExecution = (input: {
   client: ControlPlaneClient;
   workspaceId: ExecutionEnvelope["execution"]["workspaceId"];
   envelope: ExecutionEnvelope;
+  baseUrl: string;
   shouldOpenUrls: boolean;
 }) =>
   Effect.gen(function* () {
@@ -1036,16 +1011,28 @@ const driveExecution = (input: {
       }
 
       const parsed = parseInteractionPayload(pending);
+      const isInteractiveTerminal = process.stdin.isTTY && process.stdout.isTTY;
+      if (!isInteractiveTerminal) {
+        const paused = buildPausedExecutionOutput({
+          executionId: current.execution.id,
+          interaction: pending,
+          baseUrl: input.baseUrl,
+          shouldOpenUrls: input.shouldOpenUrls,
+          cliName: CLI_NAME,
+        });
+        yield* Effect.sync(() => {
+          console.log(JSON.stringify(paused));
+          process.exitCode = 20;
+        });
+        return current;
+      }
+
       if (parsed?.mode === "url") {
         yield* printUrlInteraction({
           message: parsed.message,
           url: parsed.url ?? null,
           shouldOpen: input.shouldOpenUrls,
         });
-
-        if (!process.stdin.isTTY || !process.stdout.isTTY) {
-          return current;
-        }
 
         current = yield* waitForExecutionProgress({
           client: input.client,
@@ -1061,14 +1048,15 @@ const driveExecution = (input: {
         shouldOpenUrls: input.shouldOpenUrls,
       });
       if (responseJson === null) {
+        const paused = buildPausedExecutionOutput({
+          executionId: current.execution.id,
+          interaction: pending,
+          baseUrl: input.baseUrl,
+          shouldOpenUrls: input.shouldOpenUrls,
+          cliName: CLI_NAME,
+        });
         yield* Effect.sync(() => {
-          console.log(JSON.stringify({
-            id: current.execution.id,
-            status: current.execution.status,
-            interactionId: pending.id,
-            message: parseInteractionPayload(pending)?.message ?? "Interaction required",
-            resumeCommand: `executor resume --execution-id ${current.execution.id}`,
-          }));
+          console.log(JSON.stringify(paused));
           process.exitCode = 20;
         });
         return current;
@@ -1190,6 +1178,7 @@ const callCommand = Command.make(
         client,
         workspaceId: installation.workspaceId,
         envelope: created,
+        baseUrl,
         shouldOpenUrls: !noOpen,
       });
 
@@ -1222,6 +1211,7 @@ const resumeCommand = Command.make(
         client,
         workspaceId: installation.workspaceId,
         envelope: execution,
+        baseUrl,
         shouldOpenUrls: !noOpen,
       });
 
