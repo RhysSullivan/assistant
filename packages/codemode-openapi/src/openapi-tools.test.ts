@@ -305,13 +305,8 @@ describe("openapi-tools", () => {
       );
 
       expect(result).toEqual({
-        ok: true,
-        status: 200,
-        headers: expect.any(Object),
-        body: {
-          full_name: "octocat/hello-world",
-          include: null,
-        },
+        full_name: "octocat/hello-world",
+        include: null,
       });
       expect(server.requests).toHaveLength(1);
       expect(server.requests[0]?.path).toBe("/repos/octocat/hello-world");
@@ -340,13 +335,8 @@ describe("openapi-tools", () => {
       );
 
       expect(getResult).toEqual({
-        ok: true,
-        status: 200,
-        headers: expect.any(Object),
-        body: {
-          full_name: "octocat/hello-world",
-          include: "all",
-        },
+        full_name: "octocat/hello-world",
+        include: "all",
       });
 
       const postResult = yield* Effect.promise(() =>
@@ -358,15 +348,10 @@ describe("openapi-tools", () => {
       );
 
       expect(postResult).toEqual({
-        ok: true,
-        status: 201,
-        headers: expect.any(Object),
-        body: {
-          created: true,
-          owner: "octocat",
-          repo: "hello-world",
-          body: { title: "Bug report" },
-        },
+        created: true,
+        owner: "octocat",
+        repo: "hello-world",
+        body: { title: "Bug report" },
       });
 
       const missingBody = yield* Effect.either(
@@ -395,6 +380,50 @@ describe("openapi-tools", () => {
         "/repos/octocat/hello-world/issues",
       ]);
       expect(server.requests[0]?.query).toContain("include=all");
+    }),
+  );
+
+  it.effect("throws on non-2xx OpenAPI responses", () =>
+    Effect.gen(function* () {
+      const manifest = yield* extractOpenApiManifest("generated", generatedOpenApiSpec);
+      const httpClientLayer = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.sync(() =>
+            HttpClientResponse.fromWeb(
+              request,
+              new Response(
+                JSON.stringify({ error: "missing" }),
+                {
+                  status: 404,
+                  headers: {
+                    "content-type": "application/json",
+                  },
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      const tools = createOpenApiToolsFromManifest({
+        manifest,
+        baseUrl: "https://example.com",
+        namespace: "source.generated",
+        httpClientLayer,
+      });
+      const getRepo = resolveToolExecutor(tools, "source.generated.repos.getRepo");
+      const failure = yield* Effect.either(
+        Effect.tryPromise({
+          try: () => getRepo({ owner: "octocat", repo: "hello-world" }),
+          catch: (error: unknown) =>
+            error instanceof Error ? error : new Error(String(error)),
+        }),
+      );
+
+      assertTrue(failure._tag === "Left");
+      if (failure._tag === "Left" && failure.left instanceof Error) {
+        assertInclude(failure.left.message, "HTTP 404");
+      }
     }),
   );
 
@@ -438,13 +467,8 @@ describe("openapi-tools", () => {
       );
 
       expect(result).toEqual({
-        ok: true,
-        status: 200,
-        headers: expect.any(Object),
-        body: {
-          full_name: "octocat/hello-world",
-          include: null,
-        },
+        full_name: "octocat/hello-world",
+        include: null,
       });
 
       expect(capturedUrl).toBe("https://example.com/api/v3/repos/octocat/hello-world");
@@ -488,13 +512,8 @@ describe("openapi-tools", () => {
       );
 
       expect(result).toEqual({
-        ok: true,
-        status: 200,
-        headers: expect.any(Object),
-        body: {
-          full_name: "octocat/hello-world",
-          include: null,
-        },
+        full_name: "octocat/hello-world",
+        include: null,
       });
       expect(server.requests).toHaveLength(1);
       expect(server.requests[0]?.path).toBe("/repos/octocat/hello-world");

@@ -34,6 +34,21 @@ export const sourceTemplates: ReadonlyArray<SourceTemplate> = [
     endpoint: "https://mcp.axiom.co/mcp",
   },
   {
+    id: "neon-mcp",
+    name: "Neon MCP",
+    summary: "Manage Postgres databases, branches, and queries via MCP.",
+    kind: "mcp",
+    endpoint: "https://mcp.neon.tech/mcp",
+  },
+  {
+    id: "neon-api",
+    name: "Neon API",
+    summary: "Projects, branches, endpoints, databases, and API keys.",
+    kind: "openapi",
+    endpoint: "https://console.neon.tech/api/v2",
+    specUrl: "https://neon.com/api_spec/release/v2.json",
+  },
+  {
     id: "github-rest",
     name: "GitHub REST API",
     summary: "Repos, issues, pull requests, actions, and org settings.",

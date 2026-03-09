@@ -40,44 +40,6 @@ export class OpenApiToolInvocationError extends Data.TaggedError(
   details: string | null;
 }> {}
 
-const BLOCKED_RESPONSE_HEADER_NAMES = new Set([
-  "authorization",
-  "authentication-info",
-  "cookie",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "set-cookie",
-  "set-cookie2",
-  "www-authenticate",
-  "x-api-key",
-  "x-auth-token",
-  "x-csrf-token",
-]);
-
-const NOISY_RESPONSE_HEADER_NAMES = new Set([
-  "alt-svc",
-  "cf-ray",
-  "server",
-  "traceparent",
-  "tracestate",
-  "via",
-  "x-cache",
-  "x-cache-hits",
-  "x-powered-by",
-  "x-request-id",
-  "x-runtime",
-  "x-served-by",
-  "x-trace-id",
-]);
-
-const NOISY_RESPONSE_HEADER_PREFIXES = [
-  "cf-",
-  "trace-",
-  "x-amz-cf-",
-  "x-b3-",
-  "x-cloud-trace-",
-];
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -244,27 +206,7 @@ const normalizeHttpUrl = (value: string): string => {
   }
 };
 
-const shouldDropResponseHeader = (headerName: string): boolean =>
-  BLOCKED_RESPONSE_HEADER_NAMES.has(headerName)
-  || NOISY_RESPONSE_HEADER_NAMES.has(headerName)
-  || NOISY_RESPONSE_HEADER_PREFIXES.some((prefix) => headerName.startsWith(prefix));
 
-const sanitizeResponseHeaders = (
-  headers: Readonly<Record<string, string>>,
-): Record<string, string> => {
-  const sanitized: Record<string, string> = {};
-
-  for (const [rawName, rawValue] of Object.entries(headers)) {
-    const name = rawName.trim().toLowerCase();
-    if (name.length === 0 || shouldDropResponseHeader(name)) {
-      continue;
-    }
-
-    sanitized[name] = rawValue.length > 4000 ? `${rawValue.slice(0, 4000)}...` : rawValue;
-  }
-
-  return sanitized;
-};
 
 const decodeHttpClientResponseBody = (
   response: Awaited<ReturnType<HttpClient.HttpClient["execute"]>> extends Effect.Effect<
@@ -290,6 +232,28 @@ const decodeHttpClientResponseBody = (
       cause instanceof Error ? cause : new Error(String(cause)),
     ),
   );
+};
+
+const summarizeHttpResponseBody = (body: unknown): string | null => {
+  if (body === null || body === undefined) {
+    return null;
+  }
+
+  if (typeof body === "string") {
+    const trimmed = body.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+
+    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
+  }
+
+  try {
+    const serialized = JSON.stringify(body);
+    return serialized.length > 500 ? `${serialized.slice(0, 500)}...` : serialized;
+  } catch {
+    return String(body);
+  }
 };
 
 const inputSchemaFromTypingJson = (inputSchemaJson: string | undefined) => {
@@ -491,12 +455,15 @@ export const createOpenApiToolsFromManifest = (
               );
               const body = yield* decodeHttpClientResponseBody(response);
 
-              return {
-                ok: response.status >= 200 && response.status < 300,
-                status: response.status,
-                headers: sanitizeResponseHeaders(response.headers),
-                body,
-              };
+              if (response.status < 200 || response.status >= 300) {
+                throw new OpenApiToolInvocationError({
+                  operation: "http_response",
+                  message: `OpenAPI request failed with HTTP ${response.status}`,
+                  details: summarizeHttpResponseBody(body),
+                });
+              }
+
+              return body;
             }).pipe(
               Effect.provide(httpClientLayer),
             ),

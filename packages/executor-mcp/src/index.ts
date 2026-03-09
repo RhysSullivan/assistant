@@ -77,6 +77,24 @@ const parseJsonValue = (value: string | null): unknown => {
   }
 };
 
+const maxResultPreviewChars = 30_000;
+
+const truncateText = (value: string, maxLength: number): string =>
+  value.length > maxLength
+    ? `${value.slice(0, maxLength)}\n... [result preview truncated ${value.length - maxLength} chars]`
+    : value;
+
+const formatResultPreview = (resultJson: string): string => {
+  try {
+    const parsed = JSON.parse(resultJson) as unknown;
+    const serialized = typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2) ?? String(parsed);
+    return truncateText(serialized, maxResultPreviewChars);
+  } catch {
+    return truncateText(resultJson, maxResultPreviewChars);
+  }
+};
+
+
 const parseInteractionPayload = (
   interaction: ExecutionInteraction,
 ): ParsedInteractionPayload | null => {
@@ -205,8 +223,13 @@ const loadExecuteDescription = (runtime: SqlControlPlaneRuntime): Promise<string
 
 const summarizeExecution = (execution: ExecutionEnvelope["execution"]): string => {
   switch (execution.status) {
-    case "completed":
-      return `Execution ${execution.id} completed.`;
+    case "completed": {
+      if (execution.resultJson === null) {
+        return `Execution ${execution.id} completed.`;
+      }
+
+      return `Execution ${execution.id} completed.\nResult:\n${formatResultPreview(execution.resultJson)}`;
+    }
     case "failed":
       return execution.errorText
         ? `Execution ${execution.id} failed: ${execution.errorText}`

@@ -625,6 +625,39 @@ describe("local-executor-server", () => {
     }),
   );
 
+  it.scoped("includes completed MCP return values in text content", () =>
+    Effect.gen(function* () {
+      const server = yield* makeServer;
+      const mcp = yield* makeExecutorMcpClient({
+        baseUrl: server.baseUrl,
+      });
+
+      const executed = yield* Effect.promise(
+        () =>
+          mcp.client.callTool({
+            name: "execute",
+            arguments: {
+              code: "return await tools.math.add({ a: 20, b: 22 });",
+            },
+          }) as Promise<{
+            content?: Array<{
+              type?: string;
+              text?: string;
+            }>;
+            structuredContent?: {
+              status?: string;
+              result?: unknown;
+            };
+          }>,
+      );
+
+      expect(executed.structuredContent?.status).toBe("completed");
+      expect(executed.structuredContent?.result).toEqual({ sum: 42 });
+      expect(executed.content?.find((item) => item.type === "text")?.text).toContain("Result:");
+      expect(executed.content?.find((item) => item.type === "text")?.text).toContain('"sum": 42');
+    }),
+  );
+
   it.scoped("serves only execute over MCP when elicitation is supported", () =>
     Effect.gen(function* () {
       const server = yield* createLocalExecutorServer({
@@ -665,6 +698,10 @@ describe("local-executor-server", () => {
               code: 'return await tools.demo.gated_echo({ value: "from-mcp" });',
             },
           }) as Promise<{
+            content?: Array<{
+              type?: string;
+              text?: string;
+            }>;
             structuredContent?: {
               status?: string;
               result?: unknown;
@@ -674,6 +711,7 @@ describe("local-executor-server", () => {
 
       expect(executed.structuredContent?.status).toBe("completed");
       expect(executed.structuredContent?.result).toBe("approved:from-mcp");
+      expect(executed.content?.find((item) => item.type === "text")?.text).toContain("approved:from-mcp");
     }),
   );
 
@@ -734,6 +772,10 @@ describe("local-executor-server", () => {
               },
             },
           }) as Promise<{
+            content?: Array<{
+              type?: string;
+              text?: string;
+            }>;
             structuredContent?: {
               status?: string;
               result?: unknown;
@@ -743,6 +785,7 @@ describe("local-executor-server", () => {
 
       expect(resumed.structuredContent?.status).toBe("completed");
       expect(resumed.structuredContent?.result).toBe("approved:manual-mcp");
+      expect(resumed.content?.find((item) => item.type === "text")?.text).toContain("approved:manual-mcp");
     }),
   );
 

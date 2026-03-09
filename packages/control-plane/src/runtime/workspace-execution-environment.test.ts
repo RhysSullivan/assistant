@@ -1136,15 +1136,11 @@ describe("workspace-execution-environment", () => {
           repo: "ai",
         },
       })) as {
-        status: number;
-        body: {
-          ok: boolean;
-          full_name: string;
-        };
+        ok: boolean;
+        full_name: string;
       };
 
-      expect(invoked.status).toBe(200);
-      expect(invoked.body).toEqual({
+      expect(invoked).toEqual({
         ok: true,
         full_name: "vercel/ai",
       });
@@ -1383,15 +1379,11 @@ describe("workspace-execution-environment", () => {
           },
         },
       })) as {
-        status: number;
-        body: {
-          ok: boolean;
-          full_name: string;
-        };
+        ok: boolean;
+        full_name: string;
       };
 
-      expect(invoked.status).toBe(200);
-      expect(invoked.body).toEqual({
+      expect(invoked).toEqual({
         ok: true,
         full_name: "vercel/ai",
       });

@@ -816,13 +816,8 @@ describe("source runtime", () => {
         },
         result: {
           ok: true,
-          status: 200,
-          headers: expect.any(Object),
-          body: {
-            ok: true,
-            path: "/repos/vercel/ai",
-            authorization: "Bearer ghp_from_keychain",
-          },
+          path: "/repos/vercel/ai",
+          authorization: "Bearer ghp_from_keychain",
         },
       });
       expect(yield* discoveryBacked.executeDescription).toBe(
