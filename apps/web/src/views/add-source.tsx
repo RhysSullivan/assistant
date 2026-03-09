@@ -18,6 +18,7 @@ import {
 } from "@executor-v3/react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { LocalMcpInstallCard } from "../components/local-mcp-install-card";
 import { SourceFavicon } from "../components/source-favicon";
 import {
   IconArrowLeft,
@@ -737,6 +738,14 @@ export function AddSourcePage() {
 
         {statusBanner && <StatusBanner state={statusBanner} className="mb-6" />}
 
+
+        {(phase === "idle" || phase === "discovering") && (
+          <LocalMcpInstallCard
+            className="mb-6 rounded-xl border border-border bg-card/80 p-5"
+            title="Install this executor as MCP"
+            description="Prefer a one-command setup? Install this local executor server into your MCP client, or add an external MCP source below."
+          />
+        )}
         {/* Step 1: Discovery */}
         {(phase === "idle" || phase === "discovering") && (
           <div className="space-y-6">

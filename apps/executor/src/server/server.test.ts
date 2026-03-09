@@ -647,12 +647,13 @@ describe("local-executor-server", () => {
       });
 
       const listed = yield* Effect.promise(
-        () => mcp.client.listTools() as Promise<{ tools: Array<{ name: string }> }>,
+        () => mcp.client.listTools() as Promise<{ tools: Array<{ name: string; description?: string }> }>,
       );
       expect(listed.tools.map((tool) => tool.name)).toEqual(["execute"]);
-      expect(mcp.client.getInstructions()).toContain(
-        `npx add-mcp \"${server.baseUrl}/mcp\" --transport http --name \"executor\"`,
-      );
+      expect(listed.tools[0]?.description).toContain("Workflow:");
+      expect(listed.tools[0]?.description).toContain("tools.discover");
+      expect(listed.tools[0]?.description).toContain("tools.executor.sources.add");
+
 
       const executed = yield* Effect.promise(
         () =>
@@ -686,12 +687,12 @@ describe("local-executor-server", () => {
       });
 
       const listed = yield* Effect.promise(
-        () => mcp.client.listTools() as Promise<{ tools: Array<{ name: string }> }>,
+        () => mcp.client.listTools() as Promise<{ tools: Array<{ name: string; description?: string }> }>,
       );
       expect(listed.tools.map((tool) => tool.name).sort()).toEqual(["execute", "resume"]);
-      expect(mcp.client.getInstructions()).toContain(
-        `npx add-mcp \"${server.baseUrl}/mcp\" --transport http --name \"executor\"`,
-      );
+      expect(listed.tools.find((tool) => tool.name === "execute")?.description).toContain("Workflow:");
+      expect(listed.tools.find((tool) => tool.name === "execute")?.description).toContain("tools.discover");
+
 
       const executed = yield* Effect.promise(
         () =>

@@ -80,7 +80,11 @@ export type LocalExecutorRequestHandler = {
 };
 
 const disposeRuntime = (runtime: SqlControlPlaneRuntime) =>
-  Effect.promise(() => runtime.close()).pipe(Effect.orDie);
+  Effect.tryPromise({
+    try: () => runtime.close(),
+    catch: (cause) =>
+      cause instanceof Error ? cause : new Error(String(cause ?? "runtime close failed")),
+  }).pipe(Effect.orDie);
 
 const createControlPlaneWebHandler = (runtime: SqlControlPlaneRuntime) =>
   Effect.acquireRelease(
@@ -92,7 +96,7 @@ const createControlPlaneWebHandler = (runtime: SqlControlPlaneRuntime) =>
         ),
       ),
     ),
-    (handler) => Effect.promise(() => handler.dispose()).pipe(Effect.orDie),
+    (handler) => Effect.tryPromise({ try: () => handler.dispose(), catch: (cause) => cause instanceof Error ? cause : new Error(String(cause ?? "web handler dispose failed")) }).pipe(Effect.orDie),
   );
 
 const safeFilePath = (assetsDir: string, pathname: string): string | null => {
@@ -280,7 +284,7 @@ export const createLocalExecutorRequestHandler = (
     const apiHandler = yield* createControlPlaneWebHandler(runtime);
     const mcpHandler = yield* Effect.acquireRelease(
       Effect.sync(() => createExecutorMcpRequestHandler(runtime)),
-      (handler) => Effect.promise(() => handler.close()).pipe(Effect.orDie),
+      (handler) => Effect.tryPromise({ try: () => handler.close(), catch: (cause) => cause instanceof Error ? cause : new Error(String(cause ?? "mcp handler close failed")) }).pipe(Effect.orDie),
     );
 
     return {
@@ -389,7 +393,8 @@ export const runLocalExecutorServer = (
         }),
         () => Effect.tryPromise({
           try: () => rm(pidFile, { force: true }),
-          catch: () => undefined,
+          catch: (cause) =>
+            cause instanceof Error ? cause : new Error(String(cause ?? "pid file cleanup failed")),
         }).pipe(Effect.orDie),
       );
 

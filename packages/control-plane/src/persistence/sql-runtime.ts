@@ -3,8 +3,8 @@ import { drizzle as drizzlePGlite } from "drizzle-orm/pglite";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import { migrate as migratePostgres } from "drizzle-orm/postgres-js/migrator";
-import { existsSync, readdirSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdir, unlink } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
@@ -44,6 +44,46 @@ const trim = (value: string | undefined): string | undefined => {
 const isPostgresUrl = (value: string): boolean =>
   value.startsWith("postgres://") || value.startsWith("postgresql://");
 
+/**
+ * Remove a stale PGlite `postmaster.pid` lock file if present.
+ *
+ * PGlite writes this file on open and removes it on close. When a process
+ * exits without calling `PGlite.close()` (e.g. the Vite dev server is
+ * killed with SIGKILL, or the terminal is closed), the lock file is left
+ * behind and prevents subsequent PGlite instances from opening the
+ * database. PGlite uses a synthetic PID (e.g. `-42`) that is never a real
+ * OS process, so we cannot use it to detect a live owner. Instead we rely
+ * on the fact that in the local single-user context only one process
+ * should ever own this database at a time.
+ */
+const cleanupStalePGliteLock = async (dataDir: string): Promise<void> => {
+  const lockPath = path.join(dataDir, "postmaster.pid");
+  if (!existsSync(lockPath)) {
+    return;
+  }
+
+  // PGlite's synthetic PID is always negative (e.g. -42). A real Postgres
+  // postmaster would write a positive PID. If we ever see a positive PID
+  // we leave the file alone.
+  try {
+    const content = readFileSync(lockPath, "utf-8");
+    const firstLine = content.split("\n")[0]?.trim();
+    const pid = Number(firstLine);
+    if (!Number.isNaN(pid) && pid > 0) {
+      // Looks like a real Postgres PID — don't touch it.
+      return;
+    }
+  } catch {
+    // If we can't read the file, try to remove it anyway.
+  }
+
+  try {
+    await unlink(lockPath);
+  } catch {
+    // Best-effort cleanup; PGlite will report the real error if this fails.
+  }
+};
+
 const createPGliteRuntime = async (localDataDir: string): Promise<SqlRuntime> => {
   const normalized = trim(localDataDir) ?? ".executor-v3/control-plane-pgdata";
 
@@ -55,6 +95,7 @@ const createPGliteRuntime = async (localDataDir: string): Promise<SqlRuntime> =>
     if (!existsSync(resolvedDataDir)) {
       await mkdir(resolvedDataDir, { recursive: true });
     }
+    await cleanupStalePGliteLock(resolvedDataDir);
     client = new PGlite(resolvedDataDir);
   }
 

@@ -15,7 +15,16 @@ import {
   type WorkspaceId,
 } from "#schema";
 import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
+
+/** Run an Effect as a Promise, preserving the original error (not FiberFailure). */
+const runEffect = async <A>(effect: Effect.Effect<A, unknown, never>): Promise<A> => {
+  const exit = await Effect.runPromiseExit(effect);
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw Cause.squash(exit.cause);
+};
 
 import {
   type ExecutorAddSourceInput,
@@ -277,7 +286,7 @@ export const createExecutorToolMap = (input: {
               executionId,
               interactionId,
             };
-        const result = await Effect.runPromise(
+        const result = await runEffect(
           input.sourceAuthService.addExecutorSource(
             preparedArgs,
             context?.onElicitation
@@ -304,7 +313,7 @@ export const createExecutorToolMap = (input: {
             ExecutorAddSourceInput,
             { kind: "openapi" | "graphql" }
           >;
-          const selectedAuth = await Effect.runPromise(
+          const selectedAuth = await runEffect(
             promptForSourceCredentialSelection({
               args: {
                 ...preparedHttpArgs,
@@ -323,7 +332,7 @@ export const createExecutorToolMap = (input: {
             }),
           );
 
-          const completed = await Effect.runPromise(
+          const completed = await runEffect(
             input.sourceAuthService.addExecutorSource(
               {
                 ...preparedHttpArgs,
@@ -355,7 +364,7 @@ export const createExecutorToolMap = (input: {
           throw new Error("executor.sources.add requires an elicitation-capable host");
         }
 
-        const response: ElicitationResponse = await Effect.runPromise(
+        const response: ElicitationResponse = await runEffect(
           context.onElicitation({
             interactionId,
             path: context.path ?? asToolPath("executor.sources.add"),
@@ -376,7 +385,7 @@ export const createExecutorToolMap = (input: {
           throw new Error(`Source add was not completed for ${result.source.id}`);
         }
 
-        return await Effect.runPromise(
+        return await runEffect(
           input.sourceAuthService.getSourceById({
             workspaceId: input.workspaceId,
             sourceId: result.source.id,

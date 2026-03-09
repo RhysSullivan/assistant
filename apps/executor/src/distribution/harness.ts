@@ -176,7 +176,8 @@ export const LocalDistributionHarnessLive = Layer.scoped(
       }),
       (path) => Effect.tryPromise({
         try: () => rm(path, { recursive: true, force: true }),
-        catch: () => undefined,
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause ?? "temp dir cleanup failed")),
       }).pipe(Effect.orDie),
     );
 

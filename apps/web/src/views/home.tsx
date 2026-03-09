@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useSources, type Source } from "@executor-v3/react";
 import { LoadableBlock } from "../components/loadable";
+import { LocalMcpInstallCard } from "../components/local-mcp-install-card";
 import { SourceFavicon } from "../components/source-favicon";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -29,6 +30,8 @@ export function HomePage() {
             </Button>
           </Link>
         </div>
+
+        <LocalMcpInstallCard className="mb-8" />
 
         {/* Source list */}
         <LoadableBlock loadable={sources} loading="Loading sources...">

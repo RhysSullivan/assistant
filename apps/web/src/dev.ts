@@ -5,7 +5,10 @@
  * control-plane handler. Everything else (frontend assets, HMR) is
  * handled by Vite itself.
  */
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Runtime from "effect/Runtime";
 import * as Scope from "effect/Scope";
 import { createLocalExecutorRequestHandler } from "@executor-v3/server";
 
@@ -16,28 +19,53 @@ const truncateForLog = (value: string): string =>
     ? `${value.slice(0, MAX_LOGGED_ERROR_BODY_LENGTH)}... [truncated]`
     : value;
 
-const formatErrorForLog = (error: unknown) =>
-  error instanceof Error
-    ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-      }
-    : error;
+/**
+ * Extract a detailed, human-readable description from an error.
+ *
+ * When Effect rejects via `runPromise`, the thrown value is a
+ * `FiberFailure` wrapping a `Cause`. `Cause.pretty` renders the full
+ * failure tree (defects, interrupts, tagged errors, etc.) rather than the
+ * opaque fallback message ("An error has occurred").
+ */
+const formatErrorForLog = (error: unknown): string => {
+  if (Runtime.isFiberFailure(error)) {
+    const cause = error[Runtime.FiberFailureCauseId];
+    return Cause.pretty(cause);
+  }
+
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  return String(error);
+};
 
 // Create a long-lived scope that stays open for the lifetime of the process.
-const handlerPromise = Effect.runPromise(
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const handler = yield* createLocalExecutorRequestHandler().pipe(
-      Effect.provideService(Scope.Scope, scope),
-    );
-    return handler;
-  }),
-).catch((error) => {
-  console.error("[executor dev api] failed to initialize request handler", formatErrorForLog(error));
-  throw error;
-});
+const handlerPromise = (async () => {
+  const exit = await Effect.runPromiseExit(
+    Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      const handler = yield* createLocalExecutorRequestHandler().pipe(
+        Effect.provideService(Scope.Scope, scope),
+      );
+      return handler;
+    }),
+  );
+
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+
+  // Log the full Cause tree — this captures typed errors, defects (uncaught
+  // throws), and interrupts with their original stack traces.
+  console.error(
+    "[executor dev api] failed to initialize request handler\n\n" +
+      Cause.pretty(exit.cause),
+  );
+
+  // Re-throw so every subsequent request sees the init failure.
+  throw Cause.squash(exit.cause);
+})();
 
 export default {
   async fetch(request: Request) {

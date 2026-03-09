@@ -4,11 +4,16 @@ import type {
   SqlControlPlaneRuntime,
 } from "@executor-v3/control-plane";
 import {
+  EXECUTOR_SOURCES_ADD_HELP_LINES,
+  ExecutionIdSchema,
+  RuntimeExecutionResolverService,
   createExecution,
   getExecution,
   resumeExecution,
 } from "@executor-v3/control-plane";
 import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod/v4";
@@ -110,13 +115,26 @@ const parseInteractionPayload = (
   }
 };
 
-const runControlPlane = <A, E, R>(
+const runControlPlane = async <A, E, R>(
   runtime: SqlControlPlaneRuntime,
   effect: Effect.Effect<A, E, R>,
-): Promise<A> =>
-  Effect.runPromise(
+): Promise<A> => {
+  const exit = await Effect.runPromiseExit(
     effect.pipe(Effect.provide(runtime.runtimeLayer)) as Effect.Effect<A, E, never>,
   );
+
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+
+  const error = Cause.squash(exit.cause);
+  if (error instanceof Error) {
+    // Preserve the original error with its stack trace and message rather
+    // than wrapping it in an opaque FiberFailure.
+    throw error;
+  }
+  throw error;
+};
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -127,6 +145,63 @@ const supportsManagedElicitation = (server: McpServer): boolean => {
   const capabilities = server.server.getClientCapabilities();
   return Boolean(capabilities?.elicitation?.form) && Boolean(capabilities?.elicitation?.url);
 };
+
+type CatalogLike = {
+  listNamespaces: (input: { limit: number }) => Effect.Effect<
+    ReadonlyArray<{ namespace: string; displayName?: string }>,
+    unknown
+  >;
+};
+
+const buildExecuteWorkflowText = (namespaces: readonly string[] = []): string =>
+  [
+    "Execute TypeScript in sandbox; call tools via discovery workflow.",
+    ...(namespaces.length > 0
+      ? [
+          "Available namespaces:",
+          ...namespaces.map((namespace) => `- ${namespace}`),
+        ]
+      : []),
+    "Workflow:",
+    '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
+    "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
+    "3) Call selected tools.<path>(input).",
+    '4) To connect a source, call tools.executor.sources.add(...) for MCP, OpenAPI, or GraphQL APIs.',
+    ...EXECUTOR_SOURCES_ADD_HELP_LINES,
+    "5) If execution pauses for interaction, resume it with the returned resumePayload or the available resume flow.",
+    "Do not use fetch; use tools.* only.",
+  ].join("\n");
+
+const defaultExecuteDescription = buildExecuteWorkflowText();
+
+const loadExecuteDescription = (runtime: SqlControlPlaneRuntime): Promise<string> =>
+  runControlPlane(
+    runtime,
+    Effect.gen(function* () {
+      const resolveExecutionEnvironment = yield* RuntimeExecutionResolverService;
+      const environment = yield* resolveExecutionEnvironment({
+        workspaceId: runtime.localInstallation.workspaceId,
+        accountId: runtime.localInstallation.accountId,
+        executionId: ExecutionIdSchema.make("exec_mcp_help"),
+      });
+
+      const catalog = environment.catalog as CatalogLike | undefined;
+      if (!catalog) {
+        return defaultExecuteDescription;
+      }
+
+      const namespaces = yield* catalog.listNamespaces({ limit: 200 }).pipe(
+        Effect.map((items) =>
+          items.length > 0
+            ? items.map((item) => item.displayName ?? item.namespace)
+            : ["none discovered yet"],
+        ),
+        Effect.catchAll(() => Effect.succeed(["none discovered yet"])),
+      );
+
+      return buildExecuteWorkflowText(namespaces);
+    }).pipe(Effect.catchAll(() => Effect.succeed(defaultExecuteDescription))),
+  );
 
 const summarizeExecution = (execution: ExecutionEnvelope["execution"]): string => {
   switch (execution.status) {
@@ -348,26 +423,16 @@ const driveExecutionWithoutElicitation = async (input: {
   return current;
 };
 
-const buildInstallInstructions = (baseUrl: string): string => {
-  const mcpUrl = new URL("/mcp", baseUrl).toString();
-
-  return [
-    "Run once to install for supported MCP clients (via add-mcp):",
-    `npx add-mcp \"${mcpUrl}\" --transport http --name \"executor\"`,
-  ].join("\n");
-};
-
-const createExecutorMcpServer = (config: {
+const createExecutorMcpServer = async (config: {
   runtime: SqlControlPlaneRuntime;
-  baseUrl: string;
-}): McpServer => {
+}): Promise<McpServer> => {
+  const executeDescription = await loadExecuteDescription(config.runtime);
   const server = new McpServer(
     { name: "executor", version: "1.0.0" },
     {
       capabilities: {
         tools: {},
       },
-      instructions: buildInstallInstructions(config.baseUrl),
     },
   );
 
@@ -377,10 +442,7 @@ const createExecutorMcpServer = (config: {
   const executeTool = server.registerTool(
     "execute",
     {
-      description: [
-        "Execute TypeScript against the local executor runtime.",
-        "Use the in-sandbox tool catalog via tools.* rather than direct fetch calls.",
-      ].join("\n"),
+      description: executeDescription,
       inputSchema: executeInputSchema,
     },
     async ({ code }: { code: string }) => {
@@ -430,7 +492,6 @@ const createExecutorMcpServer = (config: {
       return buildToolResult(resumed);
     },
   );
-
 
   const syncToolAvailability = () => {
     if (supportsManagedElicitation(server)) {
@@ -524,9 +585,8 @@ export const createExecutorMcpRequestHandler = (
       };
 
       try {
-        createdServer = createExecutorMcpServer({
+        createdServer = await createExecutorMcpServer({
           runtime,
-          baseUrl: new URL(request.url).origin,
         });
         await createdServer.connect(transport);
         const response = await transport.handleRequest(request);

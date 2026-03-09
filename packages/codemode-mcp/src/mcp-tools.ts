@@ -2,6 +2,8 @@ import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import * as Data from "effect/Data";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
 import * as PartitionedSemaphore from "effect/PartitionedSemaphore";
 
 import {
@@ -88,10 +90,11 @@ const inputSchemaFromManifest = (inputSchemaJson: string | undefined) => {
 const closeConnection = (connection: McpConnection): Effect.Effect<void> =>
   Effect.tryPromise({
     try: () => connection.close?.() ?? Promise.resolve(),
-    catch: () => undefined,
+    catch: (cause) =>
+      cause instanceof Error ? cause : new Error(String(cause ?? "mcp connection close failed")),
   }).pipe(
     Effect.asVoid,
-    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.catchAll(() => Effect.void),
   );
 
 const withConnectionEffect = <A, E>(input: {
@@ -192,7 +195,13 @@ const installMcpElicitationHandler = (input: {
               }),
             ),
             Effect.map(toMcpElicitationResponse),
-            Effect.catchAll(() => Effect.succeed({ action: "cancel" as const })),
+            Effect.catchAll((error) => {
+              console.error(
+                `[mcp-tools] elicitation failed for ${input.toolName}, treating as cancel:`,
+                error instanceof Error ? error.message : String(error),
+              );
+              return Effect.succeed({ action: "cancel" as const });
+            }),
           ),
         );
       });
@@ -427,8 +436,8 @@ export const createMcpToolsFromManifest = (input: {
           tool: {
             description: entry.description ?? `MCP tool: ${entry.toolName}`,
             inputSchema: inputSchemaFromManifest(entry.inputSchemaJson),
-            execute: (args: unknown, executionContext?: ToolExecutionContext) =>
-              Effect.runPromise(
+            execute: async (args: unknown, executionContext?: ToolExecutionContext) => {
+              const exit = await Effect.runPromiseExit(
                 withConnectionEffect({
                   connect: input.connect,
                   onConnectError: (cause) =>
@@ -453,7 +462,10 @@ export const createMcpToolsFromManifest = (input: {
                       : callEffect;
                   },
                 }),
-              ),
+              );
+              if (Exit.isSuccess(exit)) return exit.value;
+              throw Cause.squash(exit.cause);
+            },
           },
           metadata: {
             sourceKey,

@@ -192,6 +192,6 @@ export const createSqlControlPlaneRuntime = (
       persistence,
       localInstallation,
       runtimeLayer: concreteRuntimeLayer,
-      close: () => Effect.runPromise(Scope.close(scope, Exit.void)),
+      close: () => Effect.runPromise(Scope.close(scope, Exit.void)).catch(() => {}),
     };
   });

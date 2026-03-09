@@ -11,8 +11,8 @@ export default defineConfig({
     devServer({
       entry: "src/dev.ts",
       exclude: [
-        // Only let /v1 requests reach the API handler
-        /^\/(?!v1(\/|$))/,
+        // Only let /v1 and /mcp requests reach the API handler
+        /^\/(?!(v1|mcp)(\/|$))/,
         /^\/(src|node_modules|@vite|@id|@react-refresh)/,
         /\.(css|ts|tsx|js|jsx|svg|png|jpg|gif|ico|woff2?|json|map)(\?.*)?$/,
       ],

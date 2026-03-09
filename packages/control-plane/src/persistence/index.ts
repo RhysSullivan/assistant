@@ -113,7 +113,8 @@ const runMigrationsEffect = (
 const closeRuntimeEffect = (runtime: SqlRuntime) =>
   Effect.tryPromise({
     try: () => runtime.close(),
-    catch: () => undefined,
+    catch: (cause) =>
+      cause instanceof Error ? cause : new Error(String(cause ?? "unknown close error")),
   }).pipe(Effect.orDie);
 
 export const createSqlControlPlanePersistence = (
@@ -150,7 +151,8 @@ export const SqlControlPlanePersistenceLive = (
       (persistence) =>
         Effect.tryPromise({
           try: () => persistence.close(),
-          catch: () => undefined,
+          catch: (cause) =>
+            cause instanceof Error ? cause : new Error(String(cause ?? "unknown close error")),
         }).pipe(Effect.orDie),
     ),
   );

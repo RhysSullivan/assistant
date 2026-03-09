@@ -652,18 +652,16 @@ const stopServer = (baseUrl: string) =>
     const pid = typeof pidRecord?.pid === "number" ? pidRecord.pid : null;
 
     if (pid === null) {
-      yield* Effect.tryPromise({
-        try: () => rm(DEFAULT_SERVER_PID_FILE, { force: true }),
-        catch: () => undefined,
-      });
+      yield* Effect.tryPromise(() => rm(DEFAULT_SERVER_PID_FILE, { force: true })).pipe(
+        Effect.ignore,
+      );
       return false;
     }
 
     if (!isPidRunning(pid)) {
-      yield* Effect.tryPromise({
-        try: () => rm(DEFAULT_SERVER_PID_FILE, { force: true }),
-        catch: () => undefined,
-      });
+      yield* Effect.tryPromise(() => rm(DEFAULT_SERVER_PID_FILE, { force: true })).pipe(
+        Effect.ignore,
+      );
       return false;
     }
 
@@ -674,10 +672,10 @@ const stopServer = (baseUrl: string) =>
 
     yield* waitForReachability(baseUrl, false).pipe(
       Effect.catchAll(() =>
-        Effect.tryPromise({
-          try: () => rm(DEFAULT_SERVER_PID_FILE, { force: true }),
-          catch: () => undefined,
-        }).pipe(Effect.zipRight(Effect.fail(new Error(`Timed out stopping local executor server pid ${pid}`)))),
+        Effect.tryPromise(() => rm(DEFAULT_SERVER_PID_FILE, { force: true })).pipe(
+          Effect.ignore,
+          Effect.zipRight(Effect.fail(new Error(`Timed out stopping local executor server pid ${pid}`))),
+        ),
       ),
     );
 

@@ -28,6 +28,8 @@ import type {
 } from "@executor-v3/control-plane";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Runtime from "effect/Runtime";
 import * as React from "react";
 
 const DEFAULT_EXECUTOR_API_BASE_URL = "http://127.0.0.1:8788";
@@ -177,6 +179,15 @@ const shouldLogExecutorDevErrors = (): boolean => {
 };
 
 const describeExecutorDevError = (cause: unknown): Record<string, unknown> => {
+  if (Runtime.isFiberFailure(cause)) {
+    const inner = cause[Runtime.FiberFailureCauseId];
+    return {
+      name: cause.name,
+      message: cause.message,
+      cause: Cause.pretty(inner),
+    };
+  }
+
   if (cause instanceof Error) {
     return {
       name: cause.name,
@@ -198,26 +209,31 @@ const logExecutorDevError = (label: string, details: Record<string, unknown>): v
   console.error(`[executor react] ${label}`, details);
 };
 
-const runControlPlane = <A>(input: {
+const runControlPlane = async <A>(input: {
   accountId?: string;
   execute: (client: ControlPlaneClient) => Effect.Effect<A, unknown, never>;
 }): Promise<A> => {
   const accountId = input.accountId;
 
-  return Effect.runPromise(
+  const exit = await Effect.runPromiseExit(
     createControlPlaneClient({
       baseUrl: apiBaseUrl,
       ...(accountId !== undefined ? { accountId } : {}),
     }).pipe(Effect.flatMap(input.execute)),
-  ).catch((cause) => {
-    logExecutorDevError("control-plane request failed", {
-      baseUrl: apiBaseUrl,
-      accountId,
-      error: describeExecutorDevError(cause),
-      cause,
-    });
-    throw cause;
+  );
+
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+
+  const error = Cause.squash(exit.cause);
+  logExecutorDevError("control-plane request failed", {
+    baseUrl: apiBaseUrl,
+    accountId,
+    error: describeExecutorDevError(error),
+    cause: Cause.pretty(exit.cause),
   });
+  throw error;
 };
 
 const controlPlaneRequest = <A>(input: {
