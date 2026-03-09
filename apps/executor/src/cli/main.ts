@@ -52,6 +52,7 @@ import {
   buildPausedExecutionOutput,
   parseInteractionPayload,
 } from "./pending-interaction-output";
+import { decideInteractionHandling } from "./interaction-handling";
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
@@ -1020,8 +1021,32 @@ const driveExecution = (input: {
       }
 
       const parsed = parseInteractionPayload(pending);
-      const isInteractiveTerminal = process.stdin.isTTY && process.stdout.isTTY;
-      if (!isInteractiveTerminal) {
+      const handling = decideInteractionHandling({
+        parsed,
+        isInteractiveTerminal: process.stdin.isTTY && process.stdout.isTTY,
+      });
+
+      if (handling === "url_interactive" && parsed?.mode === "url") {
+        yield* printUrlInteraction({
+          message: parsed.message,
+          url: parsed.url ?? null,
+          shouldOpen: input.shouldOpenUrls,
+        });
+
+        current = yield* waitForExecutionProgress({
+          client: input.client,
+          workspaceId: input.workspaceId,
+          executionId: current.execution.id,
+          pendingInteractionId: pending.id,
+        });
+        continue;
+      }
+
+      if (handling === "url_paused") {
+        if (input.shouldOpenUrls && parsed?.mode === "url" && parsed.url) {
+          yield* openUrlInBrowser(parsed.url);
+        }
+
         const paused = buildPausedExecutionOutput({
           executionId: current.execution.id,
           interaction: pending,
@@ -1036,20 +1061,19 @@ const driveExecution = (input: {
         return current;
       }
 
-      if (parsed?.mode === "url") {
-        yield* printUrlInteraction({
-          message: parsed.message,
-          url: parsed.url ?? null,
-          shouldOpen: input.shouldOpenUrls,
-        });
-
-        current = yield* waitForExecutionProgress({
-          client: input.client,
-          workspaceId: input.workspaceId,
+      if (handling === "form_paused") {
+        const paused = buildPausedExecutionOutput({
           executionId: current.execution.id,
-          pendingInteractionId: pending.id,
+          interaction: pending,
+          baseUrl: input.baseUrl,
+          shouldOpenUrls: input.shouldOpenUrls,
+          cliName: CLI_NAME,
         });
-        continue;
+        yield* Effect.sync(() => {
+          console.log(JSON.stringify(paused));
+          process.exitCode = 20;
+        });
+        return current;
       }
 
       const responseJson = yield* promptInteraction({
