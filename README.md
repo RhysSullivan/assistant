@@ -13,6 +13,12 @@ At runtime, `executor` behaves like one local product:
 
 The current codebase is the v3 rewrite. Older experiments live in `legacy/` and `legacy2/`, but the active architecture is the one in `apps/` and `packages/`.
 
+## Attribution
+
+- The npm package name `executor` is used with attribution to [Crystian](https://www.linkedin.com/in/crystian/).
+- The `codemode` concept in this project is inspired by Cloudflare's [Code Mode announcement](https://blog.cloudflare.com/code-mode/).
+
+
 ## Why this exists
 
 `executor` is built around a simple idea: agents should work against a structured tool environment instead of guessing at raw HTTP calls, carrying huge MCP definitions in context, or running arbitrary local commands with broad permissions.
