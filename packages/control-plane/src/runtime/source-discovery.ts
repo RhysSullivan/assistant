@@ -619,10 +619,12 @@ const tryDetectOpenApi = (input: {
     }));
 
     if (response._tag === "Left") {
+      console.warn(`[discovery] OpenAPI probe HTTP fetch failed for ${input.normalizedUrl}:`, response.left.message);
       return null;
     }
 
     if (response.right.status < 200 || response.right.status >= 300) {
+      console.warn(`[discovery] OpenAPI probe got status ${response.right.status} for ${input.normalizedUrl}`);
       return null;
     }
 
@@ -630,6 +632,7 @@ const tryDetectOpenApi = (input: {
       extractOpenApiManifest(input.normalizedUrl, response.right.text),
     );
     if (manifest._tag === "Left") {
+      console.warn(`[discovery] OpenAPI manifest extraction failed for ${input.normalizedUrl}:`, manifest.left instanceof Error ? manifest.left.message : String(manifest.left));
       return null;
     }
 
@@ -662,7 +665,10 @@ const tryDetectOpenApi = (input: {
         warnings: [],
       },
     } satisfies OpenApiProbeResult;
-  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+  }).pipe(Effect.catchAll((error: unknown) => {
+    console.warn(`[discovery] OpenAPI detection unexpected error for ${input.normalizedUrl}:`, error instanceof Error ? error.message : String(error));
+    return Effect.succeed(null);
+  }));
 
 const looksLikeGraphqlEndpoint = (normalizedUrl: string): boolean =>
   /graphql/i.test(new URL(normalizedUrl).pathname);
