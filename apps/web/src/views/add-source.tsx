@@ -441,6 +441,10 @@ const startSourceOAuthPopup = async (input: {
         return;
       }
       if (popup.closed) {
+        // Stop polling — only run one final deferred check to give the
+        // callback page time to write localStorage before we give up.
+        window.clearInterval(closedPoll);
+        closedPoll = 0;
         window.setTimeout(() => {
           const delayedStored = readStoredSourceOAuthPopupResult(input.sessionId);
           if (delayedStored) {
@@ -448,7 +452,7 @@ const startSourceOAuthPopup = async (input: {
             return;
           }
           settleWithError("OAuth popup was closed before completion.");
-        }, 400);
+        }, 1500);
       }
     }, 300);
   });

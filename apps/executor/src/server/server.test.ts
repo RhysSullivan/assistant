@@ -107,10 +107,12 @@ type ExecutorMcpClient = {
   close: () => Promise<void>;
 };
 
+type ElicitationHandler = NonNullable<Parameters<Client["setRequestHandler"]>[1]>;
+
 const makeExecutorMcpClient = (input: {
   baseUrl: string;
   capabilities?: Record<string, unknown>;
-  onElicitation?: (request: { params: { message?: string } }) => Promise<unknown>;
+  onElicitation?: ElicitationHandler;
 }) =>
   Effect.acquireRelease(
     Effect.promise<ExecutorMcpClient>(async () => {
@@ -898,6 +900,11 @@ describe("local-executor-server", () => {
 
   it.scoped("updates an existing demo MCP source instead of creating a duplicate", () =>
     Effect.gen(function* () {
+      const demoServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startMcpElicitationDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+
       const server = yield* createLocalExecutorServer({
         port: 0,
         localDataDir: ":memory:",
@@ -933,7 +940,7 @@ describe("local-executor-server", () => {
       const seeded = yield* seedDemoMcpSourceInWorkspace({
         client,
         workspaceId: installation.workspaceId,
-        endpoint: "http://127.0.0.1:58506/mcp",
+        endpoint: demoServer.endpoint,
         name: "Demo",
         namespace: "demo",
       });
@@ -948,7 +955,7 @@ describe("local-executor-server", () => {
       });
 
       expect(sources).toHaveLength(1);
-      expect(sources[0]?.endpoint).toBe("http://127.0.0.1:58506/mcp");
+      expect(sources[0]?.endpoint).toBe(demoServer.endpoint);
     }),
   );
 
@@ -1295,9 +1302,10 @@ describe("local-executor-server", () => {
         accountId: installation.accountId,
       });
 
+      const sourceId = SourceIdSchema.make("src_invalid_mcp_endpoint");
       const now = Date.now();
       yield* server.runtime.persistence.rows.sources.insert({
-        id: SourceIdSchema.make("src_invalid_mcp_endpoint"),
+        id: sourceId,
         workspaceId: installation.workspaceId,
         name: "Demo",
         kind: "mcp",
@@ -1315,6 +1323,44 @@ describe("local-executor-server", () => {
         lastError: null,
         createdAt: now,
         updatedAt: now,
+      });
+      yield* server.runtime.persistence.rows.toolArtifacts.replaceForSource({
+        workspaceId: installation.workspaceId,
+        sourceId,
+        artifacts: [{
+          artifact: {
+            workspaceId: installation.workspaceId,
+            path: "demo.gated_echo",
+            toolId: "gated_echo",
+            sourceId,
+            title: "gated_echo",
+            description: "Asks for approval before echoing a value",
+            searchNamespace: "demo.gated_echo",
+            searchText: "demo.gated_echo gated echo approval",
+            inputSchemaJson: JSON.stringify({
+              type: "object",
+              properties: {
+                value: {
+                  type: "string",
+                },
+              },
+              required: ["value"],
+              additionalProperties: false,
+            }),
+            outputSchemaJson: null,
+            providerKind: "mcp",
+            mcpToolName: "gated_echo",
+            openApiMethod: null,
+            openApiPathTemplate: null,
+            openApiOperationHash: null,
+            openApiRawToolId: null,
+            openApiOperationId: null,
+            openApiTagsJson: null,
+            openApiRequestBodyRequired: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }],
       });
 
       const failure = yield* client.executions

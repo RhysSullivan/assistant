@@ -1116,9 +1116,14 @@ const invokeGraphqlHttpRequest = (input: GraphqlHttpInvocation) =>
       catch: (cause) => graphqlToolError(`Failed decoding GraphQL response for ${input.path}`, cause),
     });
 
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
     return {
       status: response.status,
-      headers: sanitizeResponseHeaders(Object.fromEntries(response.headers)),
+      headers: sanitizeResponseHeaders(responseHeaders),
       body,
       isError: response.status >= 400 || hasGraphqlErrors(body),
     };
