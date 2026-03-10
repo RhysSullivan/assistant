@@ -26,34 +26,15 @@ import { firstOption } from "./shared";
 const decodeStoredToolArtifactRecord = Schema.decodeUnknownSync(
   StoredToolArtifactRecordSchema,
 );
-const encodeStoredToolArtifactRecord = Schema.encodeSync(
-  StoredToolArtifactRecordSchema,
-);
 const decodeStoredToolArtifactParameterRecord = Schema.decodeUnknownSync(
-  StoredToolArtifactParameterRecordSchema,
-);
-const encodeStoredToolArtifactParameterRecord = Schema.encodeSync(
   StoredToolArtifactParameterRecordSchema,
 );
 const decodeStoredToolArtifactRequestBodyContentTypeRecord = Schema.decodeUnknownSync(
   StoredToolArtifactRequestBodyContentTypeRecordSchema,
 );
-const encodeStoredToolArtifactRequestBodyContentTypeRecord = Schema.encodeSync(
-  StoredToolArtifactRequestBodyContentTypeRecordSchema,
-);
 const decodeStoredToolArtifactRefHintKeyRecord = Schema.decodeUnknownSync(
   StoredToolArtifactRefHintKeyRecordSchema,
 );
-const encodeStoredToolArtifactRefHintKeyRecord = Schema.encodeSync(
-  StoredToolArtifactRefHintKeyRecordSchema,
-);
-
-type ReplaceableToolArtifactRecord = {
-  artifact: StoredToolArtifactRecord;
-  parameters?: readonly StoredToolArtifactParameterRecord[];
-  requestBodyContentTypes?: readonly StoredToolArtifactRequestBodyContentTypeRecord[];
-  refHintKeys?: readonly StoredToolArtifactRefHintKeyRecord[];
-};
 
 const tokenizeQuery = (value: string | undefined): string[] =>
   value
@@ -295,103 +276,6 @@ export const createToolArtifactsRepo = (
         .orderBy(asc(tables.toolArtifactRefHintKeysTable.position));
 
       return rows.map((row) => decodeStoredToolArtifactRefHintKeyRecord(row));
-    }),
-
-  replaceForSource: (input: {
-    workspaceId: StoredToolArtifactRecord["workspaceId"];
-    sourceId: StoredToolArtifactRecord["sourceId"];
-    artifacts: readonly ReplaceableToolArtifactRecord[];
-  }) =>
-    client.useTx("rows.tool_artifacts.replace_for_source", async (tx) => {
-      const existingPaths = (
-        await tx
-          .select({
-            path: tables.toolArtifactsTable.path,
-          })
-          .from(tables.toolArtifactsTable)
-          .where(
-            and(
-              eq(tables.toolArtifactsTable.workspaceId, input.workspaceId),
-              eq(tables.toolArtifactsTable.sourceId, input.sourceId),
-            ),
-          )
-      ).map((row) => row.path);
-
-      if (existingPaths.length > 0) {
-        await tx
-          .delete(tables.toolArtifactParametersTable)
-          .where(
-            and(
-              eq(tables.toolArtifactParametersTable.workspaceId, input.workspaceId),
-              or(...existingPaths.map((path) => eq(tables.toolArtifactParametersTable.path, path))),
-            ),
-          );
-        await tx
-          .delete(tables.toolArtifactRequestBodyContentTypesTable)
-          .where(
-            and(
-              eq(
-                tables.toolArtifactRequestBodyContentTypesTable.workspaceId,
-                input.workspaceId,
-              ),
-              or(
-                ...existingPaths.map((path) =>
-                  eq(tables.toolArtifactRequestBodyContentTypesTable.path, path)
-                ),
-              ),
-            ),
-          );
-        await tx
-          .delete(tables.toolArtifactRefHintKeysTable)
-          .where(
-            and(
-              eq(tables.toolArtifactRefHintKeysTable.workspaceId, input.workspaceId),
-              or(...existingPaths.map((path) => eq(tables.toolArtifactRefHintKeysTable.path, path))),
-            ),
-          );
-      }
-
-      await tx
-        .delete(tables.toolArtifactsTable)
-        .where(
-          and(
-            eq(tables.toolArtifactsTable.workspaceId, input.workspaceId),
-            eq(tables.toolArtifactsTable.sourceId, input.sourceId),
-          ),
-        );
-
-      if (input.artifacts.length === 0) {
-        return;
-      }
-
-      await tx.insert(tables.toolArtifactsTable).values(
-        input.artifacts.map(({ artifact }) => encodeStoredToolArtifactRecord(artifact)),
-      );
-
-      const parameterRows = input.artifacts.flatMap(({ parameters = [] }) => parameters);
-      if (parameterRows.length > 0) {
-        await tx.insert(tables.toolArtifactParametersTable).values(
-          parameterRows.map((record) => encodeStoredToolArtifactParameterRecord(record)),
-        );
-      }
-
-      const requestBodyContentTypeRows = input.artifacts.flatMap(
-        ({ requestBodyContentTypes = [] }) => requestBodyContentTypes,
-      );
-      if (requestBodyContentTypeRows.length > 0) {
-        await tx.insert(tables.toolArtifactRequestBodyContentTypesTable).values(
-          requestBodyContentTypeRows.map((record) =>
-            encodeStoredToolArtifactRequestBodyContentTypeRecord(record)
-          ),
-        );
-      }
-
-      const refHintKeyRows = input.artifacts.flatMap(({ refHintKeys = [] }) => refHintKeys);
-      if (refHintKeyRows.length > 0) {
-        await tx.insert(tables.toolArtifactRefHintKeysTable).values(
-          refHintKeyRows.map((record) => encodeStoredToolArtifactRefHintKeyRecord(record)),
-        );
-      }
     }),
 
   removeByWorkspaceAndSourceId: (

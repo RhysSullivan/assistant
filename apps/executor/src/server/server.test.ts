@@ -20,6 +20,8 @@ import {
   type ControlPlaneClient,
   type ResolveExecutionEnvironment,
   SourceIdSchema,
+  SourceRecipeIdSchema,
+  SourceRecipeRevisionIdSchema,
 } from "@executor/control-plane";
 import { makeSesExecutor } from "@executor/runtime-ses";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -1346,10 +1348,61 @@ describe("local-executor-server", () => {
       });
 
       const sourceId = SourceIdSchema.make("src_invalid_mcp_endpoint");
+      const recipeId = SourceRecipeIdSchema.make(`src_recipe_${sourceId}`);
+      const recipeRevisionId = SourceRecipeRevisionIdSchema.make(`src_recipe_rev_${sourceId}`);
       const now = Date.now();
+      const manifest = {
+        version: 1 as const,
+        tools: [{
+          toolId: "gated_echo",
+          toolName: "gated_echo",
+          description: "Asks for approval before echoing a value",
+          inputSchemaJson: JSON.stringify({
+            type: "object",
+            properties: {
+              value: {
+                type: "string",
+              },
+            },
+            required: ["value"],
+            additionalProperties: false,
+          }),
+        }],
+      };
+      const manifestJson = JSON.stringify(manifest);
+      yield* server.runtime.persistence.rows.sourceRecipes.upsert({
+        id: recipeId,
+        kind: "mcp_recipe",
+        importerKind: "mcp_manifest",
+        providerKey: "generic_mcp",
+        name: "Demo",
+        summary: null,
+        visibility: "workspace",
+        latestRevisionId: recipeRevisionId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* server.runtime.persistence.rows.sourceRecipeRevisions.upsert({
+        id: recipeRevisionId,
+        recipeId,
+        revisionNumber: 1,
+        sourceConfigJson: JSON.stringify({
+          kind: "mcp",
+          endpoint: "http://127.0.0.1:PORT/mcp",
+          transport: "streamable-http",
+          queryParams: null,
+          headers: null,
+        }),
+        manifestJson,
+        manifestHash: null,
+        createdAt: now,
+        updatedAt: now,
+      });
       yield* server.runtime.persistence.rows.sources.insert({
         id: sourceId,
         workspaceId: installation.workspaceId,
+        recipeId,
+        recipeRevisionId,
         name: "Demo",
         kind: "mcp",
         endpoint: "http://127.0.0.1:PORT/mcp",
@@ -1357,6 +1410,7 @@ describe("local-executor-server", () => {
         enabled: true,
         namespace: "demo",
         transport: "streamable-http",
+        bindingConfigJson: null,
         queryParamsJson: null,
         headersJson: null,
         specUrl: null,
@@ -1367,42 +1421,48 @@ describe("local-executor-server", () => {
         createdAt: now,
         updatedAt: now,
       });
-      yield* server.runtime.persistence.rows.toolArtifacts.replaceForSource({
-        workspaceId: installation.workspaceId,
-        sourceId,
-        artifacts: [{
-          artifact: {
-            workspaceId: installation.workspaceId,
-            path: "demo.gated_echo",
-            toolId: "gated_echo",
-            sourceId,
-            title: "gated_echo",
-            description: "Asks for approval before echoing a value",
-            searchNamespace: "demo.gated_echo",
-            searchText: "demo.gated_echo gated echo approval",
-            inputSchemaJson: JSON.stringify({
-              type: "object",
-              properties: {
-                value: {
-                  type: "string",
-                },
-              },
-              required: ["value"],
-              additionalProperties: false,
-            }),
-            outputSchemaJson: null,
-            providerKind: "mcp",
-            mcpToolName: "gated_echo",
-            openApiMethod: null,
-            openApiPathTemplate: null,
-            openApiOperationHash: null,
-            openApiRawToolId: null,
-            openApiOperationId: null,
-            openApiTagsJson: null,
-            openApiRequestBodyRequired: null,
-            createdAt: now,
-            updatedAt: now,
-          },
+      yield* server.runtime.persistence.rows.sourceRecipeDocuments.replaceForRevision({
+        recipeRevisionId,
+        documents: [{
+          id: `src_recipe_doc_${sourceId}`,
+          recipeRevisionId,
+          documentKind: "mcp_manifest",
+          documentKey: "manifest",
+          contentText: manifestJson,
+          contentHash: `manifest_${sourceId}`,
+          fetchedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        }],
+      });
+      yield* server.runtime.persistence.rows.sourceRecipeOperations.replaceForRevision({
+        recipeRevisionId,
+        operations: [{
+          id: `src_recipe_op_${sourceId}`,
+          recipeRevisionId,
+          operationKey: "gated_echo",
+          transportKind: "mcp",
+          toolId: "gated_echo",
+          title: "gated_echo",
+          description: "Asks for approval before echoing a value",
+          operationKind: "unknown",
+          searchText: "demo.gated_echo gated echo approval",
+          inputSchemaJson: manifest.tools[0]!.inputSchemaJson ?? null,
+          outputSchemaJson: null,
+          providerKind: "mcp",
+          providerDataJson: null,
+          mcpToolName: "gated_echo",
+          openApiMethod: null,
+          openApiPathTemplate: null,
+          openApiOperationHash: null,
+          openApiRawToolId: null,
+          openApiOperationId: null,
+          openApiTagsJson: null,
+          openApiRequestBodyRequired: null,
+          graphqlOperationType: null,
+          graphqlOperationName: null,
+          createdAt: now,
+          updatedAt: now,
         }],
       });
 

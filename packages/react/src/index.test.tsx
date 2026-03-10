@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
 import { HttpApiBuilder, HttpServer, OpenApi } from "@effect/platform";
@@ -9,7 +8,6 @@ import {
   createSqlControlPlaneRuntime,
   type LocalInstallation,
   type Source,
-  SourceIdSchema,
   type SqlControlPlaneRuntime,
 } from "@executor/control-plane";
 import * as Context from "effect/Context";
@@ -329,8 +327,6 @@ const seedStoredOpenApiSource = async (input: {
   name: string;
   specUrl?: string;
 }): Promise<Source> => {
-  const now = Date.now();
-  const sourceId = SourceIdSchema.make(`src_${randomUUID()}`);
   const sourceDocumentText = JSON.stringify({
     openapi: "3.0.3",
     info: {
@@ -362,33 +358,23 @@ const seedStoredOpenApiSource = async (input: {
   });
   const specUrl = input.specUrl ?? `data:application/json,${encodeURIComponent(sourceDocumentText)}`;
 
-  await Effect.runPromise(
-    input.server.runtime.persistence.rows.sources.insert({
-      id: sourceId,
-      workspaceId: input.installation.workspaceId,
+  return requestJson<Source>({
+    baseUrl: input.server.baseUrl,
+    path: `/v1/workspaces/${input.installation.workspaceId}/sources`,
+    method: "POST",
+    accountId: input.installation.accountId,
+    payload: {
       name: input.name,
       kind: "openapi",
       endpoint: "https://example.com/api",
       status: "connected",
       enabled: true,
       namespace: "hooks-test",
-      transport: null,
-      queryParamsJson: null,
-      headersJson: null,
       specUrl,
-      defaultHeadersJson: null,
-      sourceHash: null,
-      sourceDocumentText,
-      lastError: null,
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
-
-  return requestJson<Source>({
-    baseUrl: input.server.baseUrl,
-    path: `/v1/workspaces/${input.installation.workspaceId}/sources/${sourceId}`,
-    accountId: input.installation.accountId,
+      auth: {
+        kind: "none",
+      },
+    },
   });
 };
 
