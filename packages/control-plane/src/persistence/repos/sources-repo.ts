@@ -46,6 +46,20 @@ export const createSourcesRepo = (
   client: DrizzleClient,
   tables: DrizzleTables,
 ) => ({
+  listAll: () =>
+    client.use("rows.sources.list_all", async (db) => {
+      const rows = await db
+        .select()
+        .from(tables.sourcesTable)
+        .orderBy(
+          asc(tables.sourcesTable.workspaceId),
+          asc(tables.sourcesTable.updatedAt),
+          asc(tables.sourcesTable.sourceId),
+        );
+
+      return rows.map((row) => decodeStoredSourceRecord(row));
+    }),
+
   listByWorkspaceId: (workspaceId: StoredSourceRecord["workspaceId"]) =>
     client.use("rows.sources.list_by_workspace", async (db) => {
       const rows = await db

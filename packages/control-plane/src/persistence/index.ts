@@ -33,6 +33,7 @@ import {
   type SqlBackend,
   type SqlRuntime,
 } from "./sql-runtime";
+import { runPostMigrationRepairs } from "./post-migrations";
 
 export { tableNames, type DrizzleTables } from "./schema";
 export {
@@ -135,14 +136,20 @@ export const createSqlControlPlanePersistence = (
           backend: runtime.backend,
           db: runtime.db,
         });
+        const rows = createRows(client);
 
         return {
           backend: runtime.backend,
           db: runtime.db,
-          rows: createRows(client),
+          rows,
           close: () => runtime.close(),
         } satisfies SqlControlPlanePersistence;
       }),
+      Effect.flatMap((persistence) =>
+        runPostMigrationRepairs(persistence.rows).pipe(
+          Effect.mapError(toBootstrapError),
+          Effect.map(() => persistence),
+        )),
       Effect.catchAll((error) =>
         closeRuntimeEffect(runtime).pipe(
           Effect.zipRight(Effect.fail(error)),

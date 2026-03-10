@@ -189,4 +189,78 @@ describe("source-store", () => {
       expect(yield* persistence.rows.sourceAuthSessions.listByWorkspaceId(workspaceId)).toHaveLength(0);
     }),
   );
+
+  it.scoped("creates a fresh actor-scoped credential when a shared credential already exists", () =>
+    Effect.gen(function* () {
+      const persistence = yield* makePersistence;
+      const now = Date.now();
+      const accountId = AccountIdSchema.make("acc_actor_scoped");
+      const organizationId = OrganizationIdSchema.make("org_actor_scoped");
+      const workspaceId = WorkspaceIdSchema.make("ws_actor_scoped");
+      const sourceId = SourceIdSchema.make("src_actor_scoped");
+      const sharedTokenId = SecretMaterialIdSchema.make("sec_actor_scoped_shared");
+
+      yield* persistence.rows.organizations.insert({
+        id: organizationId,
+        slug: "actor-scoped",
+        name: "Actor Scoped",
+        status: "active",
+        createdByAccountId: accountId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* persistence.rows.workspaces.insert({
+        id: workspaceId,
+        organizationId,
+        name: "Primary",
+        createdByAccountId: accountId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* persistence.rows.secretMaterials.upsert({
+        id: sharedTokenId,
+        name: null,
+        purpose: "auth_material",
+        value: "ghp_shared",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const source = makeOpenApiSource({
+        workspaceId,
+        sourceId,
+        now,
+        auth: {
+          kind: "bearer",
+          headerName: "Authorization",
+          prefix: "Bearer ",
+          token: {
+            providerId: "postgres",
+            handle: sharedTokenId,
+          },
+        },
+      });
+
+      yield* persistSource(persistence.rows, source);
+      yield* persistSource(
+        persistence.rows,
+        {
+          ...source,
+          updatedAt: now + 1,
+        },
+        {
+          actorAccountId: accountId,
+        },
+      );
+
+      const credentials = yield* persistence.rows.credentials.listByWorkspaceAndSourceId({
+        workspaceId,
+        sourceId,
+      });
+      expect(credentials).toHaveLength(2);
+      expect(credentials.some((credential) => credential.actorAccountId === null)).toBe(true);
+      expect(credentials.some((credential) => credential.actorAccountId === accountId)).toBe(true);
+      expect(new Set(credentials.map((credential) => credential.id)).size).toBe(2);
+    }),
+  );
 });

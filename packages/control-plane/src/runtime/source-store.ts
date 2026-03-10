@@ -75,6 +75,14 @@ const selectPreferredCredential = (input: {
   return input.credentials.find((credential) => credential.actorAccountId === null) ?? null;
 };
 
+const selectExactCredential = (input: {
+  credentials: ReadonlyArray<Credential>;
+  actorAccountId?: AccountId | null;
+}): Credential | null =>
+  input.credentials.find(
+    (credential) => credential.actorAccountId === (input.actorAccountId ?? null),
+  ) ?? null;
+
 export const loadSourcesInWorkspace = (
   rows: SqlControlPlaneRows,
   workspaceId: WorkspaceId,
@@ -237,7 +245,7 @@ export const persistSource = (
       workspaceId: source.workspaceId,
       sourceId: source.id,
     });
-    const existingCredential = selectPreferredCredential({
+    const existingCredential = selectExactCredential({
       credentials: existingCredentials,
       actorAccountId: options.actorAccountId,
     });
