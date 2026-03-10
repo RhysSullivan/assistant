@@ -19,7 +19,7 @@ import {
 import * as Effect from "effect/Effect";
 import { getIntrospectionQuery } from "graphql";
 import { startMcpOAuthAuthorization } from "./mcp-oauth";
-import { namespaceFromSourceName } from "./tool-artifacts";
+import { namespaceFromSourceName } from "./source-names";
 
 const GRAPHQL_INTROSPECTION_QUERY = getIntrospectionQuery();
 

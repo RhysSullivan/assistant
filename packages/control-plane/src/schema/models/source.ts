@@ -12,12 +12,7 @@ import {
   WorkspaceIdSchema,
 } from "../ids";
 
-export const SourceKindSchema = Schema.Literal(
-  "mcp",
-  "openapi",
-  "graphql",
-  "internal",
-);
+export const SourceKindSchema = Schema.String;
 
 export const SourceStatusSchema = Schema.Literal(
   "draft",
@@ -31,6 +26,12 @@ export const SourceTransportSchema = Schema.Literal(
   "auto",
   "streamable-http",
   "sse",
+);
+
+export const SourceImportAuthPolicySchema = Schema.Literal(
+  "none",
+  "reuse_runtime",
+  "separate",
 );
 
 export const SecretRefSchema = Schema.Struct({
@@ -69,7 +70,7 @@ const sourceRowSchemaOverrides = {
   recipeRevisionId: SourceRecipeRevisionIdSchema,
   kind: SourceKindSchema,
   status: SourceStatusSchema,
-  transport: Schema.NullOr(SourceTransportSchema),
+  importAuthPolicy: SourceImportAuthPolicySchema,
   createdAt: TimestampMsSchema,
   updatedAt: TimestampMsSchema,
 } as const;
@@ -89,14 +90,9 @@ export const StoredSourceRecordSchema = Schema.transform(
     status: SourceStatusSchema,
     enabled: Schema.Boolean,
     namespace: Schema.NullOr(Schema.String),
-    bindingConfigJson: Schema.NullOr(Schema.String),
-    transport: Schema.NullOr(SourceTransportSchema),
-    queryParamsJson: Schema.NullOr(Schema.String),
-    headersJson: Schema.NullOr(Schema.String),
-    specUrl: Schema.NullOr(Schema.String),
-    defaultHeadersJson: Schema.NullOr(Schema.String),
+    importAuthPolicy: SourceImportAuthPolicySchema,
+    bindingConfigJson: Schema.String,
     sourceHash: Schema.NullOr(Schema.String),
-    sourceDocumentText: Schema.NullOr(Schema.String),
     lastError: Schema.NullOr(Schema.String),
     createdAt: TimestampMsSchema,
     updatedAt: TimestampMsSchema,
@@ -114,14 +110,9 @@ export const StoredSourceRecordSchema = Schema.transform(
       status: row.status,
       enabled: row.enabled,
       namespace: row.namespace,
+      importAuthPolicy: row.importAuthPolicy,
       bindingConfigJson: row.bindingConfigJson,
-      transport: row.transport,
-      queryParamsJson: row.queryParamsJson,
-      headersJson: row.headersJson,
-      specUrl: row.specUrl,
-      defaultHeadersJson: row.defaultHeadersJson,
       sourceHash: row.sourceHash,
-      sourceDocumentText: row.sourceDocumentText,
       lastError: row.lastError,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -137,14 +128,9 @@ export const StoredSourceRecordSchema = Schema.transform(
       status: source.status,
       enabled: source.enabled,
       namespace: source.namespace,
+      importAuthPolicy: source.importAuthPolicy,
       bindingConfigJson: source.bindingConfigJson,
-      transport: source.transport,
-      queryParamsJson: source.queryParamsJson,
-      headersJson: source.headersJson,
-      specUrl: source.specUrl,
-      defaultHeadersJson: source.defaultHeadersJson,
       sourceHash: source.sourceHash,
-      sourceDocumentText: source.sourceDocumentText,
       lastError: source.lastError,
       createdAt: source.createdAt,
       updatedAt: source.updatedAt,
@@ -166,6 +152,8 @@ export const SourceSchema = Schema.Struct({
   headers: Schema.NullOr(StringMapSchema),
   specUrl: Schema.NullOr(Schema.String),
   defaultHeaders: Schema.NullOr(StringMapSchema),
+  importAuthPolicy: SourceImportAuthPolicySchema,
+  importAuth: SourceAuthSchema,
   auth: SourceAuthSchema,
   sourceHash: Schema.NullOr(Schema.String),
   lastError: Schema.NullOr(Schema.String),
@@ -176,6 +164,7 @@ export const SourceSchema = Schema.Struct({
 export type SourceKind = typeof SourceKindSchema.Type;
 export type SourceStatus = typeof SourceStatusSchema.Type;
 export type SourceTransport = typeof SourceTransportSchema.Type;
+export type SourceImportAuthPolicy = typeof SourceImportAuthPolicySchema.Type;
 export type SecretRef = typeof SecretRefSchema.Type;
 export type SourceAuth = typeof SourceAuthSchema.Type;
 export type StoredSourceRecord = typeof StoredSourceRecordSchema.Type;

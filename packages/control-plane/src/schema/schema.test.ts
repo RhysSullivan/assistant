@@ -16,10 +16,10 @@ describe("control-plane-schema", () => {
     expect(RolePermissions.owner).toContain("policies:manage");
   });
 
-  it("enforces provider-specific source recipe operation shapes", () => {
+  it("accepts canonical source recipe operation rows and rejects invalid transport kinds", () => {
     const decode = Schema.decodeUnknownEither(StoredSourceRecipeOperationRecordSchema);
 
-    const openApiRecord = decode({
+    const operationRecord = decode({
       id: "src_recipe_op_1",
       recipeRevisionId: "src_recipe_rev_1",
       operationKey: "getRepo",
@@ -32,28 +32,20 @@ describe("control-plane-schema", () => {
       inputSchemaJson: null,
       outputSchemaJson: null,
       providerKind: "openapi",
-      providerDataJson: null,
-      mcpToolName: null,
-      openApiMethod: "get",
-      openApiPathTemplate: "/repos/{owner}/{repo}",
-      openApiOperationHash: "hash",
-      openApiRawToolId: "repos_getRepo",
-      openApiOperationId: "repos.getRepo",
-      openApiTagsJson: "[]",
-      openApiRequestBodyRequired: null,
-      graphqlOperationType: null,
-      graphqlOperationName: null,
+      providerDataJson: JSON.stringify({
+        kind: "openapi",
+      }),
       createdAt: 1,
       updatedAt: 1,
     });
 
-    expect(Either.isRight(openApiRecord)).toBe(true);
+    expect(Either.isRight(operationRecord)).toBe(true);
 
-    const invalidGraphqlRecord = decode({
+    const invalidRecord = decode({
       id: "src_recipe_op_2",
       recipeRevisionId: "src_recipe_rev_1",
       operationKey: "viewer",
-      transportKind: "graphql",
+      transportKind: "ftp",
       toolId: "viewer",
       title: "Viewer",
       description: null,
@@ -62,21 +54,13 @@ describe("control-plane-schema", () => {
       inputSchemaJson: null,
       outputSchemaJson: null,
       providerKind: "graphql",
-      providerDataJson: null,
-      mcpToolName: null,
-      openApiMethod: "get",
-      openApiPathTemplate: null,
-      openApiOperationHash: null,
-      openApiRawToolId: null,
-      openApiOperationId: null,
-      openApiTagsJson: null,
-      openApiRequestBodyRequired: null,
-      graphqlOperationType: "query",
-      graphqlOperationName: "viewer",
+      providerDataJson: JSON.stringify({
+        kind: "graphql",
+      }),
       createdAt: 1,
       updatedAt: 1,
     });
 
-    expect(Either.isLeft(invalidGraphqlRecord)).toBe(true);
+    expect(Either.isLeft(invalidRecord)).toBe(true);
   });
 });

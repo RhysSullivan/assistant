@@ -1,14 +1,13 @@
 import { typeSignatureFromSchemaJson } from "@executor/codemode-core";
 
-import {
-  resolveTypingSchemasWithRefHints,
-} from "./openapi-schema-refs";
 import type {
   OpenApiExample,
   OpenApiToolDocumentation,
-  OpenApiToolManifest,
 } from "./openapi-types";
-import type { OpenApiToolDefinition } from "./openapi-definitions";
+import {
+  openApiProviderDataJsonFromDefinition,
+  type OpenApiToolDefinition,
+} from "./openapi-definitions";
 
 const parseJson = (value: string): unknown | undefined => {
   try {
@@ -104,15 +103,10 @@ export type OpenApiToolPresentation = {
 };
 
 export const buildOpenApiToolPresentation = (input: {
-  manifest: OpenApiToolManifest;
   definition: OpenApiToolDefinition;
 }): OpenApiToolPresentation => {
-  const resolvedSchemas = resolveTypingSchemasWithRefHints(
-    input.definition.typing,
-    input.manifest.refHintTable,
-  );
-  const inputSchemaJson = resolvedSchemas.inputSchemaJson ?? undefined;
-  const outputSchemaJson = resolvedSchemas.outputSchemaJson ?? undefined;
+  const inputSchemaJson = input.definition.typing?.inputSchemaJson;
+  const outputSchemaJson = input.definition.typing?.outputSchemaJson;
   const exampleInputJson = buildExampleInputJson(input.definition.documentation);
   const exampleOutputJson = buildExampleOutputJson(input.definition.documentation);
 
@@ -123,19 +117,6 @@ export const buildOpenApiToolPresentation = (input: {
     ...(outputSchemaJson ? { outputSchemaJson } : {}),
     ...(exampleInputJson ? { exampleInputJson } : {}),
     ...(exampleOutputJson ? { exampleOutputJson } : {}),
-    providerDataJson: JSON.stringify({
-      kind: "openapi",
-      toolId: input.definition.toolId,
-      rawToolId: input.definition.rawToolId,
-      operationId: input.definition.operationId,
-      group: input.definition.group,
-      leaf: input.definition.leaf,
-      tags: input.definition.tags,
-      versionSegment: input.definition.versionSegment,
-      method: input.definition.method,
-      path: input.definition.path,
-      operationHash: input.definition.operationHash,
-      documentation: input.definition.documentation,
-    }),
+    providerDataJson: openApiProviderDataJsonFromDefinition(input.definition),
   };
 };

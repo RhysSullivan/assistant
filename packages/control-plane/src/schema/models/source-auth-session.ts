@@ -11,6 +11,7 @@ import {
   SourceIdSchema,
   WorkspaceIdSchema,
 } from "../ids";
+import { CredentialSlotSchema } from "./credential";
 
 export const SourceAuthSessionProviderKindSchema = Schema.Literal(
   "mcp_oauth",
@@ -78,6 +79,7 @@ const sourceAuthSessionSchemaOverrides = {
   workspaceId: WorkspaceIdSchema,
   sourceId: SourceIdSchema,
   actorAccountId: Schema.NullOr(AccountIdSchema),
+  credentialSlot: CredentialSlotSchema,
   executionId: Schema.NullOr(ExecutionIdSchema),
   interactionId: Schema.NullOr(ExecutionInteractionIdSchema),
   providerKind: SourceAuthSessionProviderKindSchema,

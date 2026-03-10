@@ -63,6 +63,19 @@ export const DiscoveryTypingPayloadSchema = Schema.Struct({
   refHintKeys: Schema.optional(Schema.Array(Schema.String)),
 });
 
+export const OpenApiRefHintValueSchema = Schema.Union(
+  Schema.String,
+  Schema.Record({
+    key: Schema.String,
+    value: Schema.Unknown,
+  }),
+);
+
+export const OpenApiRefHintTableSchema = Schema.Record({
+  key: Schema.String,
+  value: OpenApiRefHintValueSchema,
+});
+
 export const OpenApiExampleSchema = Schema.Struct({
   valueJson: Schema.String,
   mediaType: Schema.optional(Schema.String),
@@ -97,6 +110,22 @@ export const OpenApiToolDocumentationSchema = Schema.Struct({
   response: Schema.optional(OpenApiResponseDocumentationSchema),
 });
 
+export const OpenApiToolProviderDataSchema = Schema.Struct({
+  kind: Schema.Literal("openapi"),
+  toolId: Schema.String,
+  rawToolId: Schema.String,
+  operationId: Schema.optional(Schema.String),
+  group: Schema.String,
+  leaf: Schema.String,
+  tags: Schema.Array(Schema.String),
+  versionSegment: Schema.optional(Schema.String),
+  method: OpenApiHttpMethodSchema,
+  path: Schema.String,
+  operationHash: Schema.String,
+  invocation: OpenApiInvocationPayloadSchema,
+  documentation: Schema.optional(OpenApiToolDocumentationSchema),
+});
+
 export const OpenApiExtractedToolSchema = Schema.Struct({
   toolId: Schema.String,
   operationId: Schema.optional(Schema.String),
@@ -129,10 +158,13 @@ export type OpenApiToolParameter = typeof OpenApiToolParameterSchema.Type;
 export type OpenApiToolRequestBody = typeof OpenApiToolRequestBodySchema.Type;
 export type OpenApiInvocationPayload = typeof OpenApiInvocationPayloadSchema.Type;
 export type DiscoveryTypingPayload = typeof DiscoveryTypingPayloadSchema.Type;
+export type OpenApiRefHintValue = typeof OpenApiRefHintValueSchema.Type;
+export type OpenApiRefHintTable = typeof OpenApiRefHintTableSchema.Type;
 export type OpenApiExample = typeof OpenApiExampleSchema.Type;
 export type OpenApiParameterDocumentation = typeof OpenApiParameterDocumentationSchema.Type;
 export type OpenApiRequestBodyDocumentation = typeof OpenApiRequestBodyDocumentationSchema.Type;
 export type OpenApiResponseDocumentation = typeof OpenApiResponseDocumentationSchema.Type;
 export type OpenApiToolDocumentation = typeof OpenApiToolDocumentationSchema.Type;
+export type OpenApiToolProviderData = typeof OpenApiToolProviderDataSchema.Type;
 export type OpenApiExtractedTool = typeof OpenApiExtractedToolSchema.Type;
 export type OpenApiToolManifest = typeof OpenApiToolManifestSchema.Type;

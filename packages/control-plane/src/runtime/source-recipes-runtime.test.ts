@@ -38,6 +38,19 @@ const makePersistence = () =>
     }),
   );
 
+const openApiBindingConfigJson = (specUrl: string): string =>
+  JSON.stringify({
+    adapterKey: "openapi",
+    specUrl,
+    defaultHeaders: null,
+  });
+
+const graphqlBindingConfigJson = (): string =>
+  JSON.stringify({
+    adapterKey: "graphql",
+    defaultHeaders: null,
+  });
+
 const makeSource = (overrides: Partial<Source> = {}): Source => ({
   id: SourceIdSchema.make("src_runtime_recipe"),
   workspaceId: WorkspaceIdSchema.make("ws_runtime_recipe"),
@@ -52,6 +65,8 @@ const makeSource = (overrides: Partial<Source> = {}): Source => ({
   headers: null,
   specUrl: "https://api.github.com/openapi.json",
   defaultHeaders: null,
+  importAuthPolicy: "reuse_runtime",
+  importAuth: { kind: "none" },
   auth: { kind: "none" },
   sourceHash: null,
   lastError: null,
@@ -61,8 +76,8 @@ const makeSource = (overrides: Partial<Source> = {}): Source => ({
 });
 
 const makeOperation = (
-  overrides: Partial<Extract<StoredSourceRecipeOperationRecord, { providerKind: "openapi" }>> = {},
-): Extract<StoredSourceRecipeOperationRecord, { providerKind: "openapi" }> => ({
+  overrides: Partial<StoredSourceRecipeOperationRecord> = {},
+): StoredSourceRecipeOperationRecord => ({
   id: "src_recipe_op_runtime",
   recipeRevisionId: SourceRecipeRevisionIdSchema.make("src_recipe_rev_runtime"),
   operationKey: "getRepo",
@@ -85,25 +100,30 @@ const makeOperation = (
   providerKind: "openapi",
   providerDataJson: JSON.stringify({
     kind: "openapi",
+    toolId: "getRepo",
+    rawToolId: "repos_getRepo",
+    operationId: "repos.getRepo",
+    group: "repos",
+    leaf: "getRepo",
+    tags: ["repos"],
+    method: "get",
+    path: "/repos/{owner}/{repo}",
+    operationHash: "hash",
+    invocation: {
+      method: "get",
+      pathTemplate: "/repos/{owner}/{repo}",
+      parameters: [],
+      requestBody: null,
+    },
   }),
-  mcpToolName: null,
-  openApiMethod: "get",
-  openApiPathTemplate: "/repos/{owner}/{repo}",
-  openApiOperationHash: "hash",
-  openApiRawToolId: "repos_getRepo",
-  openApiOperationId: "repos.getRepo",
-  openApiTagsJson: JSON.stringify(["repos"]),
-  openApiRequestBodyRequired: null,
-  graphqlOperationType: null,
-  graphqlOperationName: null,
   createdAt: 1000,
   updatedAt: 1000,
   ...overrides,
 });
 
 const makeGraphqlOperation = (
-  overrides: Partial<Extract<StoredSourceRecipeOperationRecord, { providerKind: "graphql" }>> = {},
-): Extract<StoredSourceRecipeOperationRecord, { providerKind: "graphql" }> => ({
+  overrides: Partial<StoredSourceRecipeOperationRecord> = {},
+): StoredSourceRecipeOperationRecord => ({
   id: "src_recipe_op_graphql_runtime",
   recipeRevisionId: SourceRecipeRevisionIdSchema.make("src_recipe_rev_runtime"),
   operationKey: "viewer",
@@ -126,25 +146,27 @@ const makeGraphqlOperation = (
   providerKind: "graphql",
   providerDataJson: JSON.stringify({
     kind: "graphql",
+    toolKind: "field",
+    toolId: "viewer",
+    rawToolId: "viewer",
+    group: "query",
+    leaf: "viewer",
+    fieldName: "viewer",
+    operationType: "query",
+    operationName: "viewer",
+    operationDocument: "query Viewer { viewer { login } }",
+    queryTypeName: "Query",
+    mutationTypeName: null,
+    subscriptionTypeName: null,
   }),
-  mcpToolName: null,
-  openApiMethod: null,
-  openApiPathTemplate: null,
-  openApiOperationHash: null,
-  openApiRawToolId: null,
-  openApiOperationId: null,
-  openApiTagsJson: null,
-  openApiRequestBodyRequired: null,
-  graphqlOperationType: "query",
-  graphqlOperationName: "viewer",
   createdAt: 1000,
   updatedAt: 1000,
   ...overrides,
 });
 
 const makeMcpOperation = (
-  overrides: Partial<Extract<StoredSourceRecipeOperationRecord, { providerKind: "mcp" }>> = {},
-): Extract<StoredSourceRecipeOperationRecord, { providerKind: "mcp" }> => ({
+  overrides: Partial<StoredSourceRecipeOperationRecord> = {},
+): StoredSourceRecipeOperationRecord => ({
   id: "src_recipe_op_mcp_runtime",
   recipeRevisionId: SourceRecipeRevisionIdSchema.make("src_recipe_rev_runtime"),
   operationKey: "echo",
@@ -159,17 +181,10 @@ const makeMcpOperation = (
   providerKind: "mcp",
   providerDataJson: JSON.stringify({
     kind: "mcp",
+    toolId: "echo",
+    toolName: "echo",
+    description: "Echo a value",
   }),
-  mcpToolName: "echo",
-  openApiMethod: null,
-  openApiPathTemplate: null,
-  openApiOperationHash: null,
-  openApiRawToolId: null,
-  openApiOperationId: null,
-  openApiTagsJson: null,
-  openApiRequestBodyRequired: null,
-  graphqlOperationType: null,
-  graphqlOperationName: null,
   createdAt: 1000,
   updatedAt: 1000,
   ...overrides,
@@ -248,19 +263,14 @@ describe("source-recipes-runtime", () => {
       expect(recipeToolSearchNamespace({
         source: graphqlSource,
         path: "ignored.path",
-        operation: makeGraphqlOperation({
-          graphqlOperationType: "query",
-          graphqlOperationName: "viewer",
-        }),
+        operation: makeGraphqlOperation(),
       })).toBe("issues");
     });
 
     it("computes interaction modes and descriptor fields correctly", () => {
       expect(recipeToolDescriptor({
         source: makeSource(),
-        operation: makeOperation({
-          openApiMethod: "get",
-        }),
+        operation: makeOperation(),
         path: "github.getRepo",
         includeSchemas: true,
       }).interaction).toBe("auto");
@@ -268,7 +278,7 @@ describe("source-recipes-runtime", () => {
       expect(recipeToolDescriptor({
         source: makeSource(),
         operation: makeOperation({
-          openApiMethod: "delete",
+          operationKind: "delete",
         }),
         path: "github.deleteRepo",
         includeSchemas: true,
@@ -280,10 +290,7 @@ describe("source-recipes-runtime", () => {
           endpoint: "https://example.com/graphql",
           specUrl: null,
         }),
-        operation: makeGraphqlOperation({
-          graphqlOperationType: "query",
-          graphqlOperationName: "viewer",
-        }),
+        operation: makeGraphqlOperation(),
         path: "graphql.viewer",
         includeSchemas: true,
       }).interaction).toBe("auto");
@@ -295,8 +302,7 @@ describe("source-recipes-runtime", () => {
           specUrl: null,
         }),
         operation: makeGraphqlOperation({
-          graphqlOperationType: "mutation",
-          graphqlOperationName: "createIssue",
+          operationKind: "write",
         }),
         path: "graphql.createIssue",
         includeSchemas: true,
@@ -309,9 +315,7 @@ describe("source-recipes-runtime", () => {
           specUrl: null,
           transport: "streamable-http",
         }),
-        operation: makeMcpOperation({
-          mcpToolName: "echo",
-        }),
+        operation: makeMcpOperation(),
         path: "mcp.echo",
         includeSchemas: true,
       }).interaction).toBe("auto");
@@ -349,14 +353,9 @@ describe("source-recipes-runtime", () => {
           status: "connected",
           enabled: true,
           namespace: "github",
-          bindingConfigJson: null,
-          transport: null,
-          queryParamsJson: null,
-          headersJson: null,
-          specUrl: "https://api.github.com/openapi.json",
-          defaultHeadersJson: null,
+          importAuthPolicy: "reuse_runtime",
+          bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
           sourceHash: null,
-          sourceDocumentText: null,
           lastError: null,
           createdAt: 1000,
           updatedAt: 1000,
@@ -368,30 +367,36 @@ describe("source-recipes-runtime", () => {
           sourceConfigJson: "{}",
           manifestJson: null,
           manifestHash: null,
+          materializationHash: null,
           createdAt: 1000,
           updatedAt: 1000,
         },
         documents: [],
+        schemaBundles: [],
         operations: [makeOperation({
           searchText: "",
         })],
         manifest: null,
       };
 
-      const expanded = expandRecipeTools({
-        recipes: [recipe],
-        includeSchemas: false,
-      });
+      const expanded = Effect.runSync(
+        expandRecipeTools({
+          recipes: [recipe],
+          includeSchemas: false,
+        }),
+      );
       expect(expanded).toHaveLength(1);
-      expect(expanded[0]?.searchText).toBe("github.getrepo github.getrepo github api");
+      expect(expanded[0]?.searchText).toBe(
+        "github.getrepo github.getrepo github api github.getrepo getrepo get repo read a repository repos_getrepo repos.getrepo get /repos/{owner}/{repo} repos getrepo repos",
+      );
 
-      expect(expandRecipeTools({
+      expect(Effect.runSync(expandRecipeTools({
         recipes: [{
           ...recipe,
           operations: [],
         }],
         includeSchemas: false,
-      })).toEqual([]);
+      }))).toEqual([]);
     });
   });
 
@@ -440,7 +445,6 @@ describe("source-recipes-runtime", () => {
         const manifest = await Effect.runPromise(extractOpenApiManifest("GitHub", openApiDocument));
         const definition = compileOpenApiToolDefinitions(manifest)[0]!;
         const presentation = buildOpenApiToolPresentation({
-          manifest,
           definition,
         });
 
@@ -452,7 +456,7 @@ describe("source-recipes-runtime", () => {
         });
         await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
           id: recipeId,
-          kind: "http_recipe",
+          kind: "http_api",
           importerKind: "openapi",
           providerKey: "generic_http",
           name: "GitHub",
@@ -474,6 +478,7 @@ describe("source-recipes-runtime", () => {
           }),
           manifestJson: JSON.stringify(manifest),
           manifestHash: manifest.sourceHash,
+          materializationHash: manifest.sourceHash,
           createdAt: 1000,
           updatedAt: 1000,
         }));
@@ -504,13 +509,6 @@ describe("source-recipes-runtime", () => {
             inputSchemaJson: presentation.inputSchemaJson ?? null,
             outputSchemaJson: presentation.outputSchemaJson ?? null,
             providerDataJson: presentation.providerDataJson,
-            openApiMethod: definition.method,
-            openApiPathTemplate: definition.path,
-            openApiOperationHash: definition.operationHash,
-            openApiRawToolId: definition.rawToolId,
-            openApiOperationId: definition.operationId ?? null,
-            openApiTagsJson: JSON.stringify(definition.tags),
-            openApiRequestBodyRequired: definition.invocation.requestBody?.required ?? null,
           })],
         }));
 
@@ -526,14 +524,9 @@ describe("source-recipes-runtime", () => {
             status: "connected",
             enabled: true,
             namespace: "github",
-            bindingConfigJson: null,
-            transport: null,
-            queryParamsJson: null,
-            headersJson: null,
-            specUrl: "https://api.github.com/openapi.json",
-            defaultHeadersJson: null,
+            importAuthPolicy: "reuse_runtime",
+            bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
             sourceHash: manifest.sourceHash,
-            sourceDocumentText: null,
             lastError: null,
             createdAt: 1000 + index,
             updatedAt: 1000 + index,
@@ -573,7 +566,7 @@ describe("source-recipes-runtime", () => {
         });
         await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
           id: recipeId,
-          kind: "graphql_recipe",
+          kind: "http_api",
           importerKind: "graphql_introspection",
           providerKey: "generic_graphql",
           name: "GraphQL Demo",
@@ -594,6 +587,7 @@ describe("source-recipes-runtime", () => {
           }),
           manifestJson: null,
           manifestHash: null,
+          materializationHash: null,
           createdAt: 1000,
           updatedAt: 1000,
         }));
@@ -608,14 +602,9 @@ describe("source-recipes-runtime", () => {
           status: "connected",
           enabled: true,
           namespace: "graphql",
-          bindingConfigJson: null,
-          transport: null,
-          queryParamsJson: null,
-          headersJson: null,
-          specUrl: null,
-          defaultHeadersJson: null,
+          importAuthPolicy: "reuse_runtime",
+          bindingConfigJson: graphqlBindingConfigJson(),
           sourceHash: null,
-          sourceDocumentText: null,
           lastError: null,
           createdAt: 1000,
           updatedAt: 1000,
@@ -659,7 +648,7 @@ describe("source-recipes-runtime", () => {
         });
         await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
           id: recipeId,
-          kind: "http_recipe",
+          kind: "http_api",
           importerKind: "openapi",
           providerKey: "generic_http",
           name: "Broken GitHub",
@@ -680,14 +669,9 @@ describe("source-recipes-runtime", () => {
           status: "connected",
           enabled: true,
           namespace: "github",
-          bindingConfigJson: null,
-          transport: null,
-          queryParamsJson: null,
-          headersJson: null,
-          specUrl: "https://api.github.com/openapi.json",
-          defaultHeadersJson: null,
+          importAuthPolicy: "reuse_runtime",
+          bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
           sourceHash: null,
-          sourceDocumentText: null,
           lastError: null,
           createdAt: 1000,
           updatedAt: 1000,
@@ -711,6 +695,7 @@ describe("source-recipes-runtime", () => {
           }),
           manifestJson: "{bad-json",
           manifestHash: null,
+          materializationHash: null,
           createdAt: 1000,
           updatedAt: 1000,
         }));

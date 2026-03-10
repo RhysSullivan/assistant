@@ -88,6 +88,7 @@ export const createCredentialsRepo = (
           ),
         )
         .orderBy(
+          asc(tables.credentialsTable.slot),
           asc(tables.credentialsTable.actorAccountId),
           asc(tables.credentialsTable.updatedAt),
           asc(tables.credentialsTable.id),
@@ -100,6 +101,7 @@ export const createCredentialsRepo = (
     workspaceId: Credential["workspaceId"];
     sourceId: Credential["sourceId"];
     actorAccountId: Credential["actorAccountId"];
+    slot: Credential["slot"];
   }) =>
     client.use("rows.credentials.get_by_workspace_source_actor", async (db) => {
       const rows = await db
@@ -109,6 +111,7 @@ export const createCredentialsRepo = (
           and(
             eq(tables.credentialsTable.workspaceId, input.workspaceId),
             eq(tables.credentialsTable.sourceId, input.sourceId),
+            eq(tables.credentialsTable.slot, input.slot),
             input.actorAccountId === null
               ? isNull(tables.credentialsTable.actorAccountId)
               : eq(tables.credentialsTable.actorAccountId, input.actorAccountId),
@@ -134,6 +137,7 @@ export const createCredentialsRepo = (
             and(
               eq(tables.credentialsTable.workspaceId, credential.workspaceId),
               eq(tables.credentialsTable.sourceId, credential.sourceId),
+              eq(tables.credentialsTable.slot, credential.slot),
               isNull(tables.credentialsTable.actorAccountId),
             ),
           )
@@ -170,6 +174,7 @@ export const createCredentialsRepo = (
             tables.credentialsTable.workspaceId,
             tables.credentialsTable.sourceId,
             tables.credentialsTable.actorAccountId,
+            tables.credentialsTable.slot,
           ],
           set: {
             ...credentialUpdateSet(credential),
@@ -181,6 +186,7 @@ export const createCredentialsRepo = (
     workspaceId: Credential["workspaceId"];
     sourceId: Credential["sourceId"];
     actorAccountId: Credential["actorAccountId"];
+    slot?: Credential["slot"];
   }) =>
     client.use("rows.credentials.remove_by_workspace_source_actor", async (db) => {
       const deleted = await db
@@ -189,6 +195,9 @@ export const createCredentialsRepo = (
           and(
             eq(tables.credentialsTable.workspaceId, input.workspaceId),
             eq(tables.credentialsTable.sourceId, input.sourceId),
+            input.slot === undefined
+              ? undefined
+              : eq(tables.credentialsTable.slot, input.slot),
             input.actorAccountId === null
               ? isNull(tables.credentialsTable.actorAccountId)
               : eq(tables.credentialsTable.actorAccountId, input.actorAccountId),

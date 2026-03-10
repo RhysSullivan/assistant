@@ -1,15 +1,6 @@
 import {
   type ToolDescriptor,
-  type ToolPath,
-  typeSignatureFromSchemaJson,
 } from "@executor/codemode-core";
-import type {
-  McpToolManifest,
-} from "@executor/codemode-mcp";
-import {
-  openApiOutputTypeSignatureFromSchemaJson,
-  type OpenApiToolManifest,
-} from "@executor/codemode-openapi";
 import type { SqlControlPlaneRows } from "#persistence";
 import type {
   AccountId,
@@ -17,29 +8,30 @@ import type {
   StoredSourceRecord,
   StoredSourceRecipeDocumentRecord,
   StoredSourceRecipeOperationRecord,
+  StoredSourceRecipeSchemaBundleRecord,
   StoredSourceRecipeRevisionRecord,
   WorkspaceId,
 } from "#schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import type { GraphqlToolManifest } from "./graphql-tools";
+import { namespaceFromSourceName } from "./source-names";
+import {
+  getSourceAdapterForOperation,
+  getSourceAdapterForSource,
+} from "./source-adapters";
+import type { SourceAdapterPersistedOperationMetadata } from "./source-adapters/types";
+import { firstSchemaBundle } from "./source-adapters/shared";
 import { loadSourceById, loadSourcesInWorkspace } from "./source-store";
-import { namespaceFromSourceName } from "./tool-artifacts";
 
-type RecipeManifest =
-  | OpenApiToolManifest
-  | GraphqlToolManifest
-  | McpToolManifest
-  | null;
-
-const asToolPath = (value: string): ToolPath => value as ToolPath;
+type RecipeManifest = unknown | null;
 
 export type LoadedSourceRecipe = {
   source: Source;
   sourceRecord: StoredSourceRecord;
   revision: StoredSourceRecipeRevisionRecord;
   documents: readonly StoredSourceRecipeDocumentRecord[];
+  schemaBundles: readonly StoredSourceRecipeSchemaBundleRecord[];
   operations: readonly StoredSourceRecipeOperationRecord[];
   manifest: RecipeManifest;
 };
@@ -52,58 +44,31 @@ export type LoadedSourceRecipeTool = {
   sourceRecord: StoredSourceRecord;
   revision: StoredSourceRecipeRevisionRecord;
   operation: StoredSourceRecipeOperationRecord;
+  metadata: SourceAdapterPersistedOperationMetadata;
+  schemaBundleId: string | null;
   manifest: RecipeManifest;
   descriptor: ToolDescriptor;
 };
 
-const parseJson = <T>(input: {
-  label: string;
-  value: string | null;
-}): Effect.Effect<T | null, Error, never> =>
-  input.value === null
-    ? Effect.succeed<T | null>(null)
-    : Effect.try({
-        try: () => {
-          const value = input.value!;
-          return JSON.parse(value) as T;
-        },
-        catch: (cause) =>
-          cause instanceof Error
-            ? new Error(`Invalid ${input.label}: ${cause.message}`)
-            : new Error(`Invalid ${input.label}: ${String(cause)}`),
-      });
+export type LoadedSourceRecipeToolIndexEntry = {
+  path: string;
+  searchNamespace: string;
+  searchText: string;
+  source: Source;
+  sourceRecord: StoredSourceRecord;
+  operation: StoredSourceRecipeOperationRecord;
+  metadata: SourceAdapterPersistedOperationMetadata;
+  schemaBundleId: string | null;
+  descriptor: ToolDescriptor;
+};
 
 const parseManifestForRecipe = (input: {
   source: Source;
   revision: StoredSourceRecipeRevisionRecord;
 }): Effect.Effect<RecipeManifest, Error, never> =>
-  Effect.gen(function* () {
-    if (input.revision.manifestJson === null) {
-      return null;
-    }
-
-    if (input.source.kind === "openapi") {
-      return yield* parseJson<OpenApiToolManifest>({
-        label: `OpenAPI manifest for ${input.source.id}`,
-        value: input.revision.manifestJson,
-      });
-    }
-
-    if (input.source.kind === "graphql") {
-      return yield* parseJson<GraphqlToolManifest>({
-        label: `GraphQL manifest for ${input.source.id}`,
-        value: input.revision.manifestJson,
-      });
-    }
-
-    if (input.source.kind === "mcp") {
-      return yield* parseJson<McpToolManifest>({
-        label: `MCP manifest for ${input.source.id}`,
-        value: input.revision.manifestJson,
-      });
-    }
-
-    return null;
+  getSourceAdapterForSource(input.source).parseManifest({
+    source: input.source,
+    manifestJson: input.revision.manifestJson,
   });
 
 const catalogNamespaceFromPath = (path: string): string => {
@@ -124,74 +89,34 @@ export const recipeToolSearchNamespace = (input: {
   path: string;
   operation: StoredSourceRecipeOperationRecord;
 }): string =>
-  input.operation.providerKind === "graphql"
-    ? (input.source.namespace ?? namespaceFromSourceName(input.source.name))
-    : catalogNamespaceFromPath(input.path);
+  getSourceAdapterForOperation(input.operation).searchNamespace?.({
+    source: input.source,
+    path: input.path,
+    operation: input.operation,
+  })
+  ?? catalogNamespaceFromPath(input.path);
 
 export const recipeToolDescriptor = (input: {
   source: Source;
   operation: StoredSourceRecipeOperationRecord;
   path: string;
+  schemaBundleId?: string | null;
   includeSchemas: boolean;
-}): ToolDescriptor => {
-  const interaction =
-    input.operation.providerKind === "openapi"
-      ? (
-        input.operation.openApiMethod?.toUpperCase() === "GET"
-        || input.operation.openApiMethod?.toUpperCase() === "HEAD"
-          ? "auto"
-          : "required"
-      )
-      : input.operation.providerKind === "graphql"
-        ? input.operation.graphqlOperationType === "query"
-          ? "auto"
-          : "required"
-        : "auto";
+}): ToolDescriptor =>
+  getSourceAdapterForOperation(input.operation).createToolDescriptor(input);
 
-  return {
-    path: asToolPath(input.path),
-    sourceKey: input.source.id,
-    description: input.operation.description ?? input.operation.title ?? undefined,
-    interaction,
-    inputType: typeSignatureFromSchemaJson(
-      input.operation.inputSchemaJson ?? undefined,
-      "unknown",
-      320,
-    ),
-    outputType:
-      input.operation.providerKind === "openapi"
-        ? openApiOutputTypeSignatureFromSchemaJson(
-            input.operation.outputSchemaJson ?? undefined,
-            320,
-          )
-        : typeSignatureFromSchemaJson(
-            input.operation.outputSchemaJson ?? undefined,
-            "unknown",
-            320,
-          ),
-    inputSchemaJson: input.includeSchemas ? input.operation.inputSchemaJson ?? undefined : undefined,
-    outputSchemaJson: input.includeSchemas ? input.operation.outputSchemaJson ?? undefined : undefined,
-    ...(input.operation.providerKind
-      ? { providerKind: input.operation.providerKind }
-      : {}),
-    ...(input.operation.providerDataJson
-      ? { providerDataJson: input.operation.providerDataJson }
-      : {}),
-  };
-};
+export const recipeToolMetadata = (input: {
+  source: Source;
+  operation: StoredSourceRecipeOperationRecord;
+  path: string;
+}): Effect.Effect<SourceAdapterPersistedOperationMetadata, Error, never> =>
+  getSourceAdapterForOperation(input.operation).describePersistedOperation(input);
 
 const sourceRecipeDocumentForSource = (input: {
   source: Source;
   documents: readonly StoredSourceRecipeDocumentRecord[];
 }): StoredSourceRecipeDocumentRecord | null => {
-  const preferredKind =
-    input.source.kind === "openapi"
-      ? "openapi"
-      : input.source.kind === "graphql"
-        ? "graphql_introspection"
-        : input.source.kind === "mcp"
-          ? "mcp_manifest"
-          : null;
+  const preferredKind = getSourceAdapterForSource(input.source).primaryDocumentKind;
 
   if (preferredKind === null) {
     return null;
@@ -205,6 +130,25 @@ export const recipePrimaryDocumentText = (input: {
   documents: readonly StoredSourceRecipeDocumentRecord[];
 }): string | null =>
   sourceRecipeDocumentForSource(input)?.contentText ?? null;
+
+const primarySchemaBundleForRevision = (input: {
+  source: Source;
+  schemaBundles: readonly StoredSourceRecipeSchemaBundleRecord[];
+}): StoredSourceRecipeSchemaBundleRecord | null => {
+  const selected = firstSchemaBundle({
+    schemaBundles: input.schemaBundles.map((schemaBundle) => ({
+      id: schemaBundle.id,
+      kind: schemaBundle.bundleKind,
+      hash: schemaBundle.contentHash,
+      refsJson: schemaBundle.refsJson,
+    })),
+    preferredKind: getSourceAdapterForSource(input.source).primarySchemaBundleKind,
+  });
+
+  return selected
+    ? input.schemaBundles.find((schemaBundle) => schemaBundle.id === selected.id) ?? null
+    : null;
+};
 
 export const loadWorkspaceSourceRecipes = (input: {
   rows: SqlControlPlaneRows;
@@ -224,11 +168,18 @@ export const loadWorkspaceSourceRecipes = (input: {
     const revisions = yield* input.rows.sourceRecipeRevisions.listByIds(revisionIds);
     const revisionById = new Map(revisions.map((revision) => [revision.id, revision]));
     const documents = yield* input.rows.sourceRecipeDocuments.listByRevisionIds(revisionIds);
+    const schemaBundles = yield* input.rows.sourceRecipeSchemaBundles.listByRevisionIds(revisionIds);
     const documentsByRevisionId = new Map<string, StoredSourceRecipeDocumentRecord[]>();
     for (const document of documents) {
       const existing = documentsByRevisionId.get(document.recipeRevisionId) ?? [];
       existing.push(document);
       documentsByRevisionId.set(document.recipeRevisionId, existing);
+    }
+    const schemaBundlesByRevisionId = new Map<string, StoredSourceRecipeSchemaBundleRecord[]>();
+    for (const schemaBundle of schemaBundles) {
+      const existing = schemaBundlesByRevisionId.get(schemaBundle.recipeRevisionId) ?? [];
+      existing.push(schemaBundle);
+      schemaBundlesByRevisionId.set(schemaBundle.recipeRevisionId, existing);
     }
     const operations = yield* input.rows.sourceRecipeOperations.listByRevisionIds(revisionIds);
     const operationsByRevisionId = new Map<string, StoredSourceRecipeOperationRecord[]>();
@@ -264,6 +215,7 @@ export const loadWorkspaceSourceRecipes = (input: {
           sourceRecord,
           revision,
           documents: documentsByRevisionId.get(sourceRecord.recipeRevisionId) ?? [],
+          schemaBundles: schemaBundlesByRevisionId.get(sourceRecord.recipeRevisionId) ?? [],
           operations: operationsByRevisionId.get(sourceRecord.recipeRevisionId) ?? [],
           manifest,
         } satisfies LoadedSourceRecipe;
@@ -299,8 +251,9 @@ export const loadSourceRecipe = (input: {
         new Error(`Recipe revision missing for source ${input.sourceId}`),
       );
     }
-    const [documents, operations, manifest] = yield* Effect.all([
+    const [documents, schemaBundles, operations, manifest] = yield* Effect.all([
       input.rows.sourceRecipeDocuments.listByRevisionId(sourceRecord.value.recipeRevisionId),
+      input.rows.sourceRecipeSchemaBundles.listByRevisionId(sourceRecord.value.recipeRevisionId),
       input.rows.sourceRecipeOperations.listByRevisionId(sourceRecord.value.recipeRevisionId),
       parseManifestForRecipe({
         source,
@@ -313,6 +266,7 @@ export const loadSourceRecipe = (input: {
       sourceRecord: sourceRecord.value,
       revision: revision.value,
       documents,
+      schemaBundles,
       operations,
       manifest,
     } satisfies LoadedSourceRecipe;
@@ -321,17 +275,244 @@ export const loadSourceRecipe = (input: {
 export const expandRecipeTools = (input: {
   recipes: readonly LoadedSourceRecipe[];
   includeSchemas: boolean;
-}): readonly LoadedSourceRecipeTool[] =>
-  input.recipes.flatMap((recipe) =>
-    recipe.operations.map((operation) => {
+}): Effect.Effect<readonly LoadedSourceRecipeTool[], Error, never> =>
+  Effect.map(
+    Effect.forEach(input.recipes, (recipe) =>
+      Effect.forEach(recipe.operations, (operation) =>
+        Effect.gen(function* () {
+          const path = recipeToolPath({
+            source: recipe.source,
+            operation,
+          });
+          const searchNamespace = recipeToolSearchNamespace({
+            source: recipe.source,
+            path,
+            operation,
+          });
+          const schemaBundleId = primarySchemaBundleForRevision({
+            source: recipe.source,
+            schemaBundles: recipe.schemaBundles,
+          })?.id ?? null;
+          const metadata = yield* recipeToolMetadata({
+            source: recipe.source,
+            operation,
+            path,
+          });
+
+          return {
+            path,
+            searchNamespace,
+            searchText: [
+              path,
+              searchNamespace,
+              recipe.source.name,
+              metadata.searchText,
+            ]
+              .filter((part) => part.length > 0)
+              .join(" ")
+              .toLowerCase(),
+            source: recipe.source,
+            sourceRecord: recipe.sourceRecord,
+            revision: recipe.revision,
+            operation,
+            metadata,
+            schemaBundleId,
+            manifest: recipe.manifest,
+            descriptor: recipeToolDescriptor({
+              source: recipe.source,
+              operation,
+              path,
+              schemaBundleId,
+              includeSchemas: input.includeSchemas,
+            }),
+          } satisfies LoadedSourceRecipeTool;
+        })
+      ),
+    ),
+    (recipes) => recipes.flat(),
+  );
+
+export const loadWorkspaceSourceRecipeToolIndex = (input: {
+  rows: SqlControlPlaneRows;
+  workspaceId: WorkspaceId;
+  actorAccountId?: AccountId | null;
+  includeSchemas: boolean;
+}): Effect.Effect<readonly LoadedSourceRecipeToolIndexEntry[], Error, never> =>
+  Effect.gen(function* () {
+    const sourceRecords = yield* input.rows.sources.listByWorkspaceId(input.workspaceId);
+    const sources = yield* loadSourcesInWorkspace(input.rows, input.workspaceId, {
+      actorAccountId: input.actorAccountId,
+    });
+    const sourceById = new Map(sources.map((source) => [source.id, source]));
+    const relevantSourceRecords = sourceRecords.filter((sourceRecord) => sourceById.has(sourceRecord.id));
+    const revisionIds = [...new Set(relevantSourceRecords.map((sourceRecord) => sourceRecord.recipeRevisionId))];
+    const [operations, schemaBundles] = yield* Effect.all([
+      input.rows.sourceRecipeOperations.listByRevisionIds(revisionIds),
+      input.rows.sourceRecipeSchemaBundles.listByRevisionIds(revisionIds),
+    ]);
+
+    const operationsByRevisionId = new Map<string, StoredSourceRecipeOperationRecord[]>();
+    for (const operation of operations) {
+      const existing = operationsByRevisionId.get(operation.recipeRevisionId) ?? [];
+      existing.push(operation);
+      operationsByRevisionId.set(operation.recipeRevisionId, existing);
+    }
+
+    const schemaBundlesByRevisionId = new Map<string, StoredSourceRecipeSchemaBundleRecord[]>();
+    for (const schemaBundle of schemaBundles) {
+      const existing = schemaBundlesByRevisionId.get(schemaBundle.recipeRevisionId) ?? [];
+      existing.push(schemaBundle);
+      schemaBundlesByRevisionId.set(schemaBundle.recipeRevisionId, existing);
+    }
+
+    const entryGroups = yield* Effect.forEach(
+      relevantSourceRecords,
+      (sourceRecord) => {
+        const source = sourceById.get(sourceRecord.id);
+        if (!source) {
+          return Effect.succeed<readonly LoadedSourceRecipeToolIndexEntry[]>([]);
+        }
+
+        return Effect.forEach(
+          operationsByRevisionId.get(sourceRecord.recipeRevisionId) ?? [],
+          (operation) =>
+            Effect.gen(function* () {
+              const path = recipeToolPath({
+                source,
+                operation,
+              });
+              const searchNamespace = recipeToolSearchNamespace({
+                source,
+                path,
+                operation,
+              });
+              const schemaBundleId = primarySchemaBundleForRevision({
+                source,
+                schemaBundles: schemaBundlesByRevisionId.get(sourceRecord.recipeRevisionId) ?? [],
+              })?.id ?? null;
+              const metadata = yield* recipeToolMetadata({
+                source,
+                operation,
+                path,
+              });
+
+              return {
+                path,
+                searchNamespace,
+                searchText: [
+                  path,
+                  searchNamespace,
+                  source.name,
+                  metadata.searchText,
+                ]
+                  .filter((part) => part.length > 0)
+                  .join(" ")
+                  .toLowerCase(),
+                source,
+                sourceRecord,
+                operation,
+                metadata,
+                schemaBundleId,
+                descriptor: recipeToolDescriptor({
+                  source,
+                  operation,
+                  path,
+                  schemaBundleId,
+                  includeSchemas: input.includeSchemas,
+                }),
+              } satisfies LoadedSourceRecipeToolIndexEntry;
+            }),
+        );
+      },
+    );
+
+    return entryGroups.flat();
+  });
+
+export const loadWorkspaceSourceRecipeToolByPath = (input: {
+  rows: SqlControlPlaneRows;
+  workspaceId: WorkspaceId;
+  path: string;
+  actorAccountId?: AccountId | null;
+  includeSchemas: boolean;
+}): Effect.Effect<LoadedSourceRecipeToolIndexEntry | null, Error, never> =>
+  Effect.gen(function* () {
+    const sourceRecords = yield* input.rows.sources.listByWorkspaceId(input.workspaceId);
+    const sources = yield* loadSourcesInWorkspace(input.rows, input.workspaceId, {
+      actorAccountId: input.actorAccountId,
+    });
+    const sourceById = new Map(sources.map((source) => [source.id, source]));
+    const relevantSourceRecords = sourceRecords.filter((sourceRecord) => sourceById.has(sourceRecord.id));
+
+    const candidates = relevantSourceRecords.flatMap((sourceRecord) => {
+      const source = sourceById.get(sourceRecord.id);
+      if (!source) {
+        return [];
+      }
+
+      const namespace = source.namespace ?? namespaceFromSourceName(source.name);
+      if (namespace.length > 0) {
+        if (!input.path.startsWith(`${namespace}.`)) {
+          return [];
+        }
+
+        return [{
+          source,
+          sourceRecord,
+          toolId: input.path.slice(namespace.length + 1),
+        }];
+      }
+
+      return [{
+        source,
+        sourceRecord,
+        toolId: input.path,
+      }];
+    });
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const revisionIds = [...new Set(candidates.map((candidate) => candidate.sourceRecord.recipeRevisionId))];
+    const [operations, schemaBundles] = yield* Effect.all([
+      input.rows.sourceRecipeOperations.listByRevisionIds(revisionIds),
+      input.rows.sourceRecipeSchemaBundles.listByRevisionIds(revisionIds),
+    ]);
+    const schemaBundlesByRevisionId = new Map<string, StoredSourceRecipeSchemaBundleRecord[]>();
+    for (const schemaBundle of schemaBundles) {
+      const existing = schemaBundlesByRevisionId.get(schemaBundle.recipeRevisionId) ?? [];
+      existing.push(schemaBundle);
+      schemaBundlesByRevisionId.set(schemaBundle.recipeRevisionId, existing);
+    }
+
+    for (const candidate of candidates) {
+      const operation = operations.find((entry) =>
+        entry.recipeRevisionId === candidate.sourceRecord.recipeRevisionId
+        && entry.toolId === candidate.toolId
+      );
+      if (!operation) {
+        continue;
+      }
+
       const path = recipeToolPath({
-        source: recipe.source,
+        source: candidate.source,
         operation,
       });
       const searchNamespace = recipeToolSearchNamespace({
-        source: recipe.source,
+        source: candidate.source,
         path,
         operation,
+      });
+      const schemaBundleId = primarySchemaBundleForRevision({
+        source: candidate.source,
+        schemaBundles:
+          schemaBundlesByRevisionId.get(candidate.sourceRecord.recipeRevisionId) ?? [],
+      })?.id ?? null;
+      const metadata = yield* recipeToolMetadata({
+        source: candidate.source,
+        operation,
+        path,
       });
 
       return {
@@ -340,23 +521,26 @@ export const expandRecipeTools = (input: {
         searchText: [
           path,
           searchNamespace,
-          recipe.source.name,
-          operation.searchText,
+          candidate.source.name,
+          metadata.searchText,
         ]
           .filter((part) => part.length > 0)
           .join(" ")
           .toLowerCase(),
-        source: recipe.source,
-        sourceRecord: recipe.sourceRecord,
-        revision: recipe.revision,
+        source: candidate.source,
+        sourceRecord: candidate.sourceRecord,
         operation,
-        manifest: recipe.manifest,
+        metadata,
+        schemaBundleId,
         descriptor: recipeToolDescriptor({
-          source: recipe.source,
+          source: candidate.source,
           operation,
           path,
+          schemaBundleId,
           includeSchemas: input.includeSchemas,
         }),
-      } satisfies LoadedSourceRecipeTool;
-    })
-  );
+      } satisfies LoadedSourceRecipeToolIndexEntry;
+    }
+
+    return null;
+  });

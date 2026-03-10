@@ -9,11 +9,13 @@ import {
 } from "#persistence";
 import {
   AccountId,
+  type CredentialSlot,
   ExecutionIdSchema,
   McpSourceAuthSessionDataJsonSchema,
   type McpSourceAuthSessionData,
   type SecretMaterialPurpose,
   Source,
+  type SourceImportAuthPolicy,
   SourceAuthSession,
   SourceAuthSessionIdSchema,
   SourceIdSchema,
@@ -41,6 +43,8 @@ import {
   createSourceFromPayload,
   updateSourceFromPayload,
 } from "./source-definitions";
+import { hasSourceAdapterFamily } from "./source-adapters";
+import { isSourceCredentialRequiredError } from "./source-adapters/shared";
 import {
   createDefaultSecretMaterialResolver,
   createDefaultSecretMaterialStorer,
@@ -48,9 +52,9 @@ import {
   type StoreSecretMaterial,
 } from "./secret-material-providers";
 import {
-  persistMcpToolArtifactsFromManifest,
-  syncSourceToolArtifacts,
-} from "./tool-artifacts";
+  persistMcpRecipeMaterializationFromManifest,
+  syncSourceMaterialization,
+} from "./source-materialization";
 import {
   loadSourceById,
   loadSourcesInWorkspace,
@@ -255,6 +259,7 @@ const updateSourceStatus = (rows: SqlControlPlaneRows, source: Source, input: {
   status: Source["status"];
   lastError?: string | null;
   auth?: Source["auth"];
+  importAuth?: Source["importAuth"];
 }) =>
   Effect.gen(function* () {
     const latest = yield* loadSourceById(rows, {
@@ -268,6 +273,7 @@ const updateSourceStatus = (rows: SqlControlPlaneRows, source: Source, input: {
       status: input.status,
       lastError: input.lastError ?? null,
       auth: input.auth ?? latest.auth,
+      importAuth: input.importAuth ?? latest.importAuth,
       updatedAt: Date.now(),
     }, {
       actorAccountId: input.actorAccountId,
@@ -282,6 +288,7 @@ export type ExecutorSourceAddResult =
   | {
       kind: "credential_required";
       source: Source;
+      credentialSlot: CredentialSlot;
     }
   | {
       kind: "oauth_required";
@@ -332,6 +339,8 @@ export type ExecutorAddSourceInput =
       specUrl: string;
       name?: string | null;
       namespace?: string | null;
+      importAuthPolicy?: SourceImportAuthPolicy | null;
+      importAuth?: ExecutorHttpSourceAuthInput | null;
       auth?: ExecutorHttpSourceAuthInput | null;
     }
   | {
@@ -343,6 +352,8 @@ export type ExecutorAddSourceInput =
       endpoint: string;
       name?: string | null;
       namespace?: string | null;
+      importAuthPolicy?: SourceImportAuthPolicy | null;
+      importAuth?: ExecutorHttpSourceAuthInput | null;
       auth?: ExecutorHttpSourceAuthInput | null;
     };
 
@@ -390,20 +401,6 @@ export type CompleteSourceOAuthSessionResult = {
   auth: Extract<Source["auth"], { kind: "oauth2" }>;
 };
 
-export const shouldPromptForHttpCredentialSetup = (input: {
-  existing?: Source;
-  auth?: ExecutorHttpSourceAuthInput | null;
-}): boolean => {
-  if (input.auth !== undefined) {
-    return false;
-  }
-
-  return !(
-    (input.existing?.kind === "openapi" || input.existing?.kind === "graphql")
-    && input.existing.auth.kind !== "none"
-  );
-};
-
 const materializeSecretRefInput = (input: {
   rawValue?: string | null;
   ref?: SecretRef | null;
@@ -436,11 +433,10 @@ const materializeExecutorHttpAuth = (input: {
   storeSecretMaterial: StoreSecretMaterial;
 }): Effect.Effect<Source["auth"], Error, never> =>
   Effect.gen(function* () {
-    if (
-      input.auth === undefined
-      && (input.existing?.kind === "openapi" || input.existing?.kind === "graphql")
-    ) {
-      return input.existing.auth;
+    const existing = input.existing;
+
+    if (input.auth === undefined && existing && hasSourceAdapterFamily(existing.kind, "http_api")) {
+      return existing.auth;
     }
 
     const auth = input.auth ?? { kind: "none" } satisfies ExecutorHttpSourceAuthInput;
@@ -458,10 +454,11 @@ const materializeExecutorHttpAuth = (input: {
       if (
         token === null
         && tokenRefInput === null
-        && (input.existing?.kind === "openapi" || input.existing?.kind === "graphql")
-        && input.existing.auth.kind === "bearer"
+        && existing
+        && hasSourceAdapterFamily(existing.kind, "http_api")
+        && existing.auth.kind === "bearer"
       ) {
-        return input.existing.auth;
+        return existing.auth;
       }
 
       const tokenRef = yield* materializeSecretRefInput({
@@ -488,10 +485,11 @@ const materializeExecutorHttpAuth = (input: {
       && auth.accessTokenRef == null
       && trimOrNull(auth.refreshToken) === null
       && auth.refreshTokenRef == null
-      && (input.existing?.kind === "openapi" || input.existing?.kind === "graphql")
-      && input.existing.auth.kind === "oauth2"
+      && existing
+      && hasSourceAdapterFamily(existing.kind, "http_api")
+      && existing.auth.kind === "oauth2"
     ) {
-      return input.existing.auth;
+      return existing.auth;
     }
 
     const accessTokenRef = yield* materializeSecretRefInput({
@@ -519,6 +517,61 @@ const materializeExecutorHttpAuth = (input: {
       refreshToken: refreshTokenRef,
     } satisfies Source["auth"];
   });
+
+const materializeExecutorHttpImportAuth = (input: {
+  sourceKind: "openapi" | "graphql";
+  existing?: Source;
+  importAuthPolicy?: SourceImportAuthPolicy | null;
+  importAuth?: ExecutorHttpSourceAuthInput | null;
+  storeSecretMaterial: StoreSecretMaterial;
+}): Effect.Effect<{
+  importAuthPolicy: SourceImportAuthPolicy;
+  importAuth: Source["importAuth"];
+}, Error, never> =>
+  Effect.gen(function* () {
+    const adapterDefault = input.sourceKind === "openapi" || input.sourceKind === "graphql"
+      ? "reuse_runtime"
+      : "none";
+    const importAuthPolicy = input.importAuthPolicy ?? input.existing?.importAuthPolicy ?? adapterDefault;
+
+    if (importAuthPolicy === "none" || importAuthPolicy === "reuse_runtime") {
+      return {
+        importAuthPolicy,
+        importAuth: { kind: "none" } satisfies Source["importAuth"],
+      };
+    }
+
+    if (
+      input.importAuth === undefined
+      && input.existing
+      && input.existing.importAuthPolicy === "separate"
+    ) {
+      return {
+        importAuthPolicy,
+        importAuth: input.existing.importAuth,
+      };
+    }
+
+    const importAuth = yield* materializeExecutorHttpAuth({
+      existing: undefined,
+      auth: input.importAuth ?? { kind: "none" },
+      storeSecretMaterial: input.storeSecretMaterial,
+    });
+
+    return {
+      importAuthPolicy,
+      importAuth,
+    };
+  });
+
+const shouldPromptForExecutorHttpRuntimeCredentialSetup = (input: {
+  existing?: Source;
+  explicitAuthProvided: boolean;
+  auth: Source["auth"];
+}): boolean =>
+  !input.explicitAuthProvided
+  && input.auth.kind === "none"
+  && (input.existing?.auth.kind ?? "none") === "none";
 
 const connectMcpSourceInternal = (input: {
   rows: SqlControlPlaneRows;
@@ -549,7 +602,7 @@ const connectMcpSourceInternal = (input: {
             actorAccountId: input.actorAccountId,
           }).pipe(
             Effect.flatMap((source) =>
-              source.kind === "mcp"
+              hasSourceAdapterFamily(source.kind, "mcp")
                 ? Effect.succeed(source)
                 : Effect.fail(new Error(`Expected MCP source, received ${source.kind}`)),
             ),
@@ -560,7 +613,8 @@ const connectMcpSourceInternal = (input: {
             Effect.map((sources) =>
               sources.find(
                 (source) =>
-                  source.kind === "mcp" && normalizeEndpoint(source.endpoint) === normalizedEndpoint,
+                  hasSourceAdapterFamily(source.kind, "mcp")
+                  && normalizeEndpoint(source.endpoint) === normalizedEndpoint,
               ),
             ),
           )
@@ -593,6 +647,8 @@ const connectMcpSourceInternal = (input: {
             transport: chosenTransport,
             queryParams: chosenQueryParams,
             headers: chosenHeaders,
+            importAuthPolicy: "reuse_runtime",
+            importAuth: { kind: "none" },
             auth: { kind: "none" },
             lastError: null,
           },
@@ -611,6 +667,8 @@ const connectMcpSourceInternal = (input: {
             transport: chosenTransport,
             queryParams: chosenQueryParams,
             headers: chosenHeaders,
+            importAuthPolicy: "reuse_runtime",
+            importAuth: { kind: "none" },
             auth: { kind: "none" },
           },
           now,
@@ -619,7 +677,7 @@ const connectMcpSourceInternal = (input: {
     const persistedDraft = yield* persistSource(input.rows, draftSource, {
       actorAccountId: input.actorAccountId,
     });
-    yield* syncSourceToolArtifacts({
+    yield* syncSourceMaterialization({
       rows: input.rows,
       source: persistedDraft,
       resolveSecretMaterial: input.resolveSecretMaterial,
@@ -643,7 +701,7 @@ const connectMcpSourceInternal = (input: {
             auth: { kind: "none" },
           });
           const indexed = yield* Effect.either(
-            persistMcpToolArtifactsFromManifest({
+            persistMcpRecipeMaterializationFromManifest({
               rows: input.rows,
               source: connected,
               manifestEntries: result.manifest.tools,
@@ -704,6 +762,7 @@ const connectMcpSourceInternal = (input: {
       workspaceId: input.workspaceId,
       sourceId: authRequiredSource.id,
       actorAccountId: input.actorAccountId ?? null,
+      credentialSlot: "runtime",
       executionId: input.executionId ?? null,
       interactionId: input.interactionId ?? null,
       providerKind: "mcp_oauth",
@@ -780,54 +839,16 @@ const addExecutorHttpSource = (input: {
       ?? defaultNamespaceFromName(chosenName);
     const now = Date.now();
 
-    if (shouldPromptForHttpCredentialSetup({
-      existing,
-      auth: input.sourceInput.auth,
-    })) {
-      const draftSource = existing
-        ? yield* updateSourceFromPayload({
-            source: existing,
-            payload: {
-              name: chosenName,
-              endpoint: normalizedEndpoint,
-              namespace: chosenNamespace,
-              kind: input.sourceInput.kind,
-              status: "auth_required",
-              enabled: true,
-              specUrl: normalizedSpecUrl,
-              auth: { kind: "none" },
-              lastError: null,
-            },
-            now,
-          })
-        : yield* createSourceFromPayload({
-            workspaceId: input.sourceInput.workspaceId,
-            sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
-            payload: {
-              name: chosenName,
-              kind: input.sourceInput.kind,
-              endpoint: normalizedEndpoint,
-              namespace: chosenNamespace,
-              status: "auth_required",
-              enabled: true,
-              specUrl: normalizedSpecUrl,
-              auth: { kind: "none" },
-            },
-            now,
-          });
-
-      const persistedDraft = yield* persistSource(input.rows, draftSource, {
-        actorAccountId: input.sourceInput.actorAccountId,
-      });
-      return {
-        kind: "credential_required",
-        source: persistedDraft,
-      } satisfies ExecutorSourceAddResult;
-    }
-
     const auth = yield* materializeExecutorHttpAuth({
       existing,
       auth: input.sourceInput.auth,
+      storeSecretMaterial: input.storeSecretMaterial,
+    });
+    const importAuth = yield* materializeExecutorHttpImportAuth({
+      sourceKind: input.sourceInput.kind,
+      existing,
+      importAuthPolicy: input.sourceInput.importAuthPolicy ?? null,
+      importAuth: input.sourceInput.importAuth ?? null,
       storeSecretMaterial: input.storeSecretMaterial,
     });
 
@@ -842,6 +863,8 @@ const addExecutorHttpSource = (input: {
             status: "probing",
             enabled: true,
             specUrl: normalizedSpecUrl,
+            importAuthPolicy: importAuth.importAuthPolicy,
+            importAuth: importAuth.importAuth,
             auth,
             lastError: null,
           },
@@ -858,6 +881,8 @@ const addExecutorHttpSource = (input: {
             status: "probing",
             enabled: true,
             specUrl: normalizedSpecUrl,
+            importAuthPolicy: importAuth.importAuthPolicy,
+            importAuth: importAuth.importAuth,
             auth,
           },
           now,
@@ -866,8 +891,27 @@ const addExecutorHttpSource = (input: {
     const persistedDraft = yield* persistSource(input.rows, draftSource, {
       actorAccountId: input.sourceInput.actorAccountId,
     });
+
+    if (shouldPromptForExecutorHttpRuntimeCredentialSetup({
+      existing,
+      explicitAuthProvided: input.sourceInput.auth !== undefined,
+      auth: persistedDraft.auth,
+    })) {
+      const authRequiredSource = yield* updateSourceStatus(input.rows, persistedDraft, {
+        actorAccountId: input.sourceInput.actorAccountId,
+        status: "auth_required",
+        lastError: null,
+      });
+
+      return {
+        kind: "credential_required",
+        source: authRequiredSource,
+        credentialSlot: "runtime",
+      } satisfies ExecutorSourceAddResult;
+    }
+
     const synced = yield* Effect.either(
-      syncSourceToolArtifacts({
+      syncSourceMaterialization({
         rows: input.rows,
         source: {
           ...persistedDraft,
@@ -879,13 +923,27 @@ const addExecutorHttpSource = (input: {
 
     return yield* Either.match(synced, {
       onLeft: (error) =>
-        updateSourceStatus(input.rows, persistedDraft, {
-          actorAccountId: input.sourceInput.actorAccountId,
-          status: "error",
-          lastError: error.message,
-        }).pipe(
-          Effect.zipRight(Effect.fail(error)),
-        ),
+        isSourceCredentialRequiredError(error)
+          ? updateSourceStatus(input.rows, persistedDraft, {
+              actorAccountId: input.sourceInput.actorAccountId,
+              status: "auth_required",
+              lastError: null,
+            }).pipe(
+              Effect.map((source) =>
+                ({
+                  kind: "credential_required",
+                  source,
+                  credentialSlot: error.slot,
+                } satisfies ExecutorSourceAddResult)
+              ),
+            )
+          : updateSourceStatus(input.rows, persistedDraft, {
+              actorAccountId: input.sourceInput.actorAccountId,
+              status: "error",
+              lastError: error.message,
+            }).pipe(
+              Effect.zipRight(Effect.fail(error)),
+            ),
       onRight: () =>
         updateSourceStatus(input.rows, persistedDraft, {
           actorAccountId: input.sourceInput.actorAccountId,
@@ -972,10 +1030,13 @@ export const createRuntimeSourceAuthService = (input: {
     }),
 
   addExecutorSource: (sourceInput, options) =>
-    sourceInput.kind === "openapi" || sourceInput.kind === "graphql"
+    hasSourceAdapterFamily(sourceInput.kind ?? "mcp", "http_api")
       ? addExecutorHttpSource({
           rows: input.rows,
-          sourceInput,
+          sourceInput: sourceInput as Extract<
+            ExecutorAddSourceInput,
+            { kind: "openapi" | "graphql" }
+          >,
           storeSecretMaterial,
           resolveSecretMaterial,
         })
@@ -1043,6 +1104,7 @@ export const createRuntimeSourceAuthService = (input: {
         workspaceId: oauthInput.workspaceId,
         sourceId: SourceIdSchema.make(`oauth_draft_${crypto.randomUUID()}`),
         actorAccountId: oauthInput.actorAccountId ?? null,
+        credentialSlot: "runtime",
         executionId: null,
         interactionId: null,
         providerKind: "mcp_oauth",
@@ -1257,7 +1319,7 @@ export const createRuntimeSourceAuthService = (input: {
           status: "error",
           lastError: reason,
         });
-        yield* syncSourceToolArtifacts({
+        yield* syncSourceMaterialization({
           rows: input.rows,
           source: failedSource,
           resolveSecretMaterial,
@@ -1328,7 +1390,7 @@ export const createRuntimeSourceAuthService = (input: {
         },
       });
       const indexed = yield* Effect.either(
-        syncSourceToolArtifacts({
+        syncSourceMaterialization({
           rows: input.rows,
           source: connectedSource,
           resolveSecretMaterial,
@@ -1410,6 +1472,7 @@ export const ExecutorAddSourceResultSchema = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("credential_required"),
     source: SourceSchema,
+    credentialSlot: Schema.Literal("runtime", "import"),
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth_required"),

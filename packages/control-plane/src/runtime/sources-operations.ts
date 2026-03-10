@@ -18,6 +18,7 @@ import {
   createSourceFromPayload,
   updateSourceFromPayload,
 } from "./source-definitions";
+import { getSourceAdapterForSource } from "./source-adapters";
 import {
   mapPersistenceError,
 } from "./operations-shared";
@@ -26,7 +27,7 @@ import {
 } from "./operation-errors";
 import { createDefaultSecretMaterialResolver } from "./secret-material-providers";
 import { ControlPlaneStore, type ControlPlaneStoreShape } from "./store";
-import { syncSourceToolArtifacts } from "./tool-artifacts";
+import { syncSourceMaterialization } from "./source-materialization";
 import {
   loadSourceById,
   loadSourcesInWorkspace,
@@ -43,12 +44,7 @@ const sourceOps = {
 } as const;
 
 const shouldAutoProbeSource = (source: Source): boolean =>
-  source.enabled
-  && (
-    (source.kind === "openapi" && !!source.specUrl)
-    || source.kind === "graphql"
-  )
-  && (source.status === "draft" || source.status === "probing");
+  getSourceAdapterForSource(source).shouldAutoProbe(source);
 
 const syncArtifactsForSource = (input: {
   store: ControlPlaneStoreShape;
@@ -73,7 +69,7 @@ const syncArtifactsForSource = (input: {
       : input.source;
 
     const synced = yield* Effect.either(
-      syncSourceToolArtifacts({
+      syncSourceMaterialization({
         rows: input.store,
         source: sourceForSync,
         resolveSecretMaterial,

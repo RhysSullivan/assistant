@@ -11,6 +11,7 @@ import {
 } from "./organizations/api";
 import { CreatePolicyPayloadSchema } from "./policies/api";
 import {
+  ConnectSourcePayloadSchema,
   CreateSourcePayloadSchema,
   UpdateSourcePayloadSchema,
 } from "./sources/api";
@@ -57,6 +58,18 @@ describe("control-plane payload schemas", () => {
     });
 
     expect(
+      Schema.decodeUnknownSync(ConnectSourcePayloadSchema)({
+        kind: "openapi",
+        endpoint: "  https://api.github.com  ",
+        specUrl: "  https://example.com/openapi.json  ",
+      }),
+    ).toEqual({
+      kind: "openapi",
+      endpoint: "https://api.github.com",
+      specUrl: "https://example.com/openapi.json",
+    });
+
+    expect(
       Schema.decodeUnknownSync(CreatePolicyPayloadSchema)({
         resourcePattern: "  source.github.*  ",
       }),
@@ -80,6 +93,13 @@ describe("control-plane payload schemas", () => {
 
     throws(() =>
       Schema.decodeUnknownSync(UpdateSourcePayloadSchema)({
+        endpoint: "   ",
+      })
+    );
+
+    throws(() =>
+      Schema.decodeUnknownSync(ConnectSourcePayloadSchema)({
+        kind: "graphql",
         endpoint: "   ",
       })
     );

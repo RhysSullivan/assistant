@@ -19,11 +19,9 @@ export const tableNames = {
   sourceRecipes: "source_recipes",
   sourceRecipeRevisions: "source_recipe_revisions",
   sourceRecipeDocuments: "source_recipe_documents",
+  sourceRecipeSchemaBundles: "source_recipe_schema_bundles",
   sourceRecipeOperations: "source_recipe_operations",
-  toolArtifacts: "tool_artifacts",
-  toolArtifactParameters: "tool_artifact_parameters",
-  toolArtifactRequestBodyContentTypes: "tool_artifact_request_body_content_types",
-  toolArtifactRefHintKeys: "tool_artifact_ref_hint_keys",
+  dataMigrations: "control_plane_data_migrations",
   credentials: "workspace_source_credentials",
   workspaceSourceOauthClients: "workspace_source_oauth_clients",
   secretMaterials: "secret_materials",
@@ -145,14 +143,9 @@ export const sourcesTable = pgTable(
     status: text("status").notNull(),
     enabled: boolean("enabled").notNull(),
     namespace: text("namespace"),
-    bindingConfigJson: text("binding_config_json"),
-    transport: text("transport"),
-    queryParamsJson: text("query_params_json"),
-    headersJson: text("headers_json"),
-    specUrl: text("spec_url"),
-    defaultHeadersJson: text("default_headers_json"),
+    importAuthPolicy: text("import_auth_policy").notNull(),
+    bindingConfigJson: text("binding_config_json").notNull(),
     sourceHash: text("source_hash"),
-    sourceDocumentText: text("source_document_text"),
     lastError: text("last_error"),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
@@ -174,16 +167,12 @@ export const sourcesTable = pgTable(
     ),
     uniqueIndex("sources_workspace_name_idx").on(table.workspaceId, table.name),
     check(
-      "sources_kind_check",
-      sql`${table.kind} in ('mcp', 'openapi', 'graphql', 'internal')`,
-    ),
-    check(
       "sources_status_check",
       sql`${table.status} in ('draft', 'probing', 'auth_required', 'connected', 'error')`,
     ),
     check(
-      "sources_transport_check",
-      sql`${table.transport} is null or ${table.transport} in ('auto', 'streamable-http', 'sse')`,
+      "sources_import_auth_policy_check",
+      sql`${table.importAuthPolicy} in ('none', 'reuse_runtime', 'separate')`,
     ),
   ],
 );
@@ -215,19 +204,7 @@ export const sourceRecipesTable = pgTable(
     ),
     check(
       "source_recipes_kind_check",
-      sql`${table.kind} in ('http_recipe', 'graphql_recipe', 'mcp_recipe', 'internal_recipe')`,
-    ),
-    check(
-      "source_recipes_importer_kind_check",
-      sql`${table.importerKind} in (
-        'openapi',
-        'google_discovery',
-        'postman_collection',
-        'snippet_bundle',
-        'graphql_introspection',
-        'mcp_manifest',
-        'internal_manifest'
-      )`,
+      sql`${table.kind} in ('http_api', 'mcp', 'internal')`,
     ),
     check(
       "source_recipes_visibility_check",
@@ -245,6 +222,7 @@ export const sourceRecipeRevisionsTable = pgTable(
     sourceConfigJson: text("source_config_json").notNull(),
     manifestJson: text("manifest_json"),
     manifestHash: text("manifest_hash"),
+    materializationHash: text("materialization_hash"),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
@@ -253,7 +231,11 @@ export const sourceRecipeRevisionsTable = pgTable(
       table.recipeId,
       table.revisionNumber,
     ),
-    uniqueIndex("source_recipe_revisions_recipe_manifest_idx").on(
+    uniqueIndex("source_recipe_revisions_recipe_materialization_idx").on(
+      table.recipeId,
+      table.materializationHash,
+    ),
+    index("source_recipe_revisions_recipe_manifest_idx").on(
       table.recipeId,
       table.manifestHash,
     ),
@@ -289,16 +271,29 @@ export const sourceRecipeDocumentsTable = pgTable(
       table.createdAt,
       table.id,
     ),
-    check(
-      "source_recipe_documents_kind_check",
-      sql`${table.documentKind} in (
-        'google_discovery',
-        'openapi',
-        'postman_collection',
-        'postman_environment',
-        'graphql_introspection',
-        'mcp_manifest'
-      )`,
+  ],
+);
+
+export const sourceRecipeSchemaBundlesTable = pgTable(
+  tableNames.sourceRecipeSchemaBundles,
+  {
+    id: text("id").notNull().primaryKey(),
+    recipeRevisionId: text("recipe_revision_id").notNull(),
+    bundleKind: text("bundle_kind").notNull(),
+    refsJson: text("refs_json").notNull(),
+    contentHash: text("content_hash").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("source_recipe_schema_bundles_revision_kind_idx").on(
+      table.recipeRevisionId,
+      table.bundleKind,
+    ),
+    index("source_recipe_schema_bundles_revision_created_idx").on(
+      table.recipeRevisionId,
+      table.createdAt,
+      table.id,
     ),
   ],
 );
@@ -319,16 +314,6 @@ export const sourceRecipeOperationsTable = pgTable(
     outputSchemaJson: text("output_schema_json"),
     providerKind: text("provider_kind").notNull(),
     providerDataJson: text("provider_data_json"),
-    mcpToolName: text("mcp_tool_name"),
-    openApiMethod: text("openapi_method"),
-    openApiPathTemplate: text("openapi_path_template"),
-    openApiOperationHash: text("openapi_operation_hash"),
-    openApiRawToolId: text("openapi_raw_tool_id"),
-    openApiOperationId: text("openapi_operation_id"),
-    openApiTagsJson: text("openapi_tags_json"),
-    openApiRequestBodyRequired: boolean("openapi_request_body_required"),
-    graphqlOperationType: text("graphql_operation_type"),
-    graphqlOperationName: text("graphql_operation_name"),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
@@ -355,11 +340,15 @@ export const sourceRecipeOperationsTable = pgTable(
       "source_recipe_operations_kind_check",
       sql`${table.operationKind} in ('read', 'write', 'delete', 'unknown')`,
     ),
-    check(
-      "source_recipe_operations_provider_kind_check",
-      sql`${table.providerKind} in ('mcp', 'openapi', 'graphql', 'internal')`,
-    ),
   ],
+);
+
+export const dataMigrationsTable = pgTable(
+  tableNames.dataMigrations,
+  {
+    id: text("id").notNull().primaryKey(),
+    appliedAt: bigint("applied_at", { mode: "number" }).notNull(),
+  },
 );
 
 export const credentialsTable = pgTable(
@@ -369,6 +358,7 @@ export const credentialsTable = pgTable(
     workspaceId: text("workspace_id").notNull(),
     sourceId: text("source_id").notNull(),
     actorAccountId: text("actor_account_id"),
+    slot: text("slot").notNull(),
     authKind: text("auth_kind").notNull(),
     authHeaderName: text("auth_header_name").notNull(),
     authPrefix: text("auth_prefix").notNull(),
@@ -389,6 +379,7 @@ export const credentialsTable = pgTable(
       table.workspaceId,
       table.sourceId,
       table.actorAccountId,
+      table.slot,
     ),
     index("credentials_workspace_source_idx").on(
       table.workspaceId,
@@ -399,6 +390,10 @@ export const credentialsTable = pgTable(
     check(
       "credentials_auth_kind_check",
       sql`${table.authKind} in ('bearer', 'oauth2')`,
+    ),
+    check(
+      "credentials_slot_check",
+      sql`${table.slot} in ('runtime', 'import')`,
     ),
   ],
 );
@@ -431,134 +426,6 @@ export const workspaceSourceOauthClientsTable = pgTable(
   ],
 );
 
-export const toolArtifactsTable = pgTable(
-  tableNames.toolArtifacts,
-  {
-    workspaceId: text("workspace_id").notNull(),
-    path: text("path").notNull(),
-    toolId: text("tool_id").notNull(),
-    sourceId: text("source_id").notNull(),
-    title: text("title"),
-    description: text("description"),
-    searchNamespace: text("search_namespace").notNull(),
-    searchText: text("search_text").notNull(),
-    inputSchemaJson: text("input_schema_json"),
-    outputSchemaJson: text("output_schema_json"),
-    providerKind: text("provider_kind").notNull(),
-    mcpToolName: text("mcp_tool_name"),
-    openApiMethod: text("openapi_method"),
-    openApiPathTemplate: text("openapi_path_template"),
-    openApiOperationHash: text("openapi_operation_hash"),
-    openApiRawToolId: text("openapi_raw_tool_id"),
-    openApiOperationId: text("openapi_operation_id"),
-    openApiTagsJson: text("openapi_tags_json"),
-    openApiRequestBodyRequired: boolean("openapi_request_body_required"),
-    createdAt: bigint("created_at", { mode: "number" }).notNull(),
-    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.workspaceId, table.path],
-    }),
-    index("tool_artifacts_workspace_source_idx").on(
-      table.workspaceId,
-      table.sourceId,
-      table.updatedAt,
-      table.path,
-    ),
-    index("tool_artifacts_workspace_namespace_idx").on(
-      table.workspaceId,
-      table.searchNamespace,
-      table.path,
-    ),
-    index("tool_artifacts_search_text_idx").using(
-      "gin",
-      sql`to_tsvector('simple', ${table.searchText})`,
-    ),
-    check(
-      "tool_artifacts_provider_kind_check",
-      sql`${table.providerKind} in ('mcp', 'openapi')`,
-    ),
-    check(
-      "tool_artifacts_mcp_shape_check",
-      sql`${table.providerKind} <> 'mcp'
-        or (
-          ${table.mcpToolName} is not null
-          and ${table.openApiMethod} is null
-          and ${table.openApiPathTemplate} is null
-          and ${table.openApiOperationHash} is null
-          and ${table.openApiRawToolId} is null
-          and ${table.openApiOperationId} is null
-          and ${table.openApiTagsJson} is null
-          and ${table.openApiRequestBodyRequired} is null
-        )`,
-    ),
-    check(
-      "tool_artifacts_openapi_shape_check",
-      sql`${table.providerKind} <> 'openapi'
-        or (
-          ${table.mcpToolName} is null
-          and ${table.openApiMethod} in ('get', 'put', 'post', 'delete', 'patch', 'head', 'options', 'trace')
-          and ${table.openApiPathTemplate} is not null
-          and ${table.openApiOperationHash} is not null
-          and ${table.openApiRawToolId} is not null
-          and ${table.openApiTagsJson} is not null
-        )`,
-    ),
-  ],
-);
-
-export const toolArtifactParametersTable = pgTable(
-  tableNames.toolArtifactParameters,
-  {
-    workspaceId: text("workspace_id").notNull(),
-    path: text("path").notNull(),
-    position: bigint("position", { mode: "number" }).notNull(),
-    name: text("name").notNull(),
-    location: text("location").notNull(),
-    required: boolean("required").notNull(),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.workspaceId, table.path, table.position],
-    }),
-    check(
-      "tool_artifact_parameters_location_check",
-      sql`${table.location} in ('path', 'query', 'header', 'cookie')`,
-    ),
-  ],
-);
-
-export const toolArtifactRequestBodyContentTypesTable = pgTable(
-  tableNames.toolArtifactRequestBodyContentTypes,
-  {
-    workspaceId: text("workspace_id").notNull(),
-    path: text("path").notNull(),
-    position: bigint("position", { mode: "number" }).notNull(),
-    contentType: text("content_type").notNull(),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.workspaceId, table.path, table.position],
-    }),
-  ],
-);
-
-export const toolArtifactRefHintKeysTable = pgTable(
-  tableNames.toolArtifactRefHintKeys,
-  {
-    workspaceId: text("workspace_id").notNull(),
-    path: text("path").notNull(),
-    position: bigint("position", { mode: "number" }).notNull(),
-    refHintKey: text("ref_hint_key").notNull(),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.workspaceId, table.path, table.position],
-    }),
-  ],
-);
-
 export const secretMaterialsTable = pgTable(
   tableNames.secretMaterials,
   {
@@ -585,6 +452,7 @@ export const sourceAuthSessionsTable = pgTable(
     workspaceId: text("workspace_id").notNull(),
     sourceId: text("source_id").notNull(),
     actorAccountId: text("actor_account_id"),
+    credentialSlot: text("credential_slot").notNull(),
     executionId: text("execution_id"),
     interactionId: text("interaction_id"),
     providerKind: text("provider_kind").notNull(),
@@ -606,6 +474,7 @@ export const sourceAuthSessionsTable = pgTable(
       table.workspaceId,
       table.sourceId,
       table.actorAccountId,
+      table.credentialSlot,
       table.status,
       table.updatedAt,
       table.id,
@@ -618,6 +487,10 @@ export const sourceAuthSessionsTable = pgTable(
     check(
       "source_auth_sessions_status_check",
       sql`${table.status} in ('pending', 'completed', 'failed', 'cancelled')`,
+    ),
+    check(
+      "source_auth_sessions_credential_slot_check",
+      sql`${table.credentialSlot} in ('runtime', 'import')`,
     ),
   ],
 );
@@ -762,13 +635,11 @@ export const drizzleSchema = {
   sourceRecipesTable,
   sourceRecipeRevisionsTable,
   sourceRecipeDocumentsTable,
+  sourceRecipeSchemaBundlesTable,
   sourceRecipeOperationsTable,
+  dataMigrationsTable,
   credentialsTable,
   workspaceSourceOauthClientsTable,
-  toolArtifactsTable,
-  toolArtifactParametersTable,
-  toolArtifactRequestBodyContentTypesTable,
-  toolArtifactRefHintKeysTable,
   secretMaterialsTable,
   sourceAuthSessionsTable,
   policiesTable,

@@ -5,6 +5,7 @@ import {
   OpenApiHttpMethodSchema,
   OpenApiInvocationPayloadSchema,
   OpenApiToolDocumentationSchema,
+  OpenApiToolProviderDataSchema,
   type OpenApiExtractedTool,
   type OpenApiToolManifest,
 } from "./openapi-types";
@@ -250,5 +251,6 @@ export const openApiProviderDataJsonFromDefinition = (
     method: definition.method,
     path: definition.path,
     operationHash: definition.operationHash,
+    invocation: definition.invocation,
     documentation: definition.documentation,
-  });
+  } satisfies typeof OpenApiToolProviderDataSchema.Type);

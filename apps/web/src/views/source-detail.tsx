@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
+  useSource,
+  useSources,
   useSourceInspection,
+  useSourceSchemaBundle,
   useSourceToolDetail,
   useSourceDiscovery,
-  usePrefetchToolDetail,
   type Loadable,
+  type Source,
   type SourceInspection,
   type SourceInspectionToolDetail,
   type SourceInspectionDiscoverResult,
@@ -15,6 +18,7 @@ import { Badge, MethodBadge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { LoadableBlock, EmptyState } from "../components/loadable";
 import { DocumentPanel } from "../components/document-panel";
+import { SourceNotFoundState } from "../components/source-not-found-state";
 import {
   IconSearch,
   IconChevron,
@@ -32,7 +36,7 @@ import { Markdown } from "../components/markdown";
 // ---------------------------------------------------------------------------
 
 type SourceRouteSearch = {
-  tab: "model" | "discover" | "manifest" | "definitions" | "raw";
+  tab: "model" | "discover";
   tool?: string;
   query?: string;
 };
@@ -41,6 +45,122 @@ const visibleTabs: Array<{ id: SourceRouteSearch["tab"]; label: string }> = [
   { id: "model", label: "Tools" },
   { id: "discover", label: "Search" },
 ];
+
+const isSourceNotFoundError = (loadable: Loadable<unknown>): boolean =>
+  loadable.status === "error"
+  && loadable.error.message.toLowerCase().includes("source not found");
+
+const listExcludesSource = (
+  sources: Loadable<ReadonlyArray<Source>>,
+  sourceId: string,
+): boolean => sources.status === "ready" && !sources.data.some((source) => source.id === sourceId);
+
+const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parseJson = (value: string): unknown | null => {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+};
+
+const resolveSchemaNode = (
+  value: unknown,
+  refHintTable: Readonly<Record<string, unknown>>,
+  parsedHintCache: Map<string, unknown>,
+  activeRefs: ReadonlySet<string>,
+): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      resolveSchemaNode(item, refHintTable, parsedHintCache, activeRefs)
+    );
+  }
+
+  if (!isJsonObject(value)) {
+    return value;
+  }
+
+  const ref = typeof value.$ref === "string" ? value.$ref : null;
+  if (ref && ref.startsWith("#/") && !activeRefs.has(ref)) {
+    let resolvedRefValue = parsedHintCache.get(ref);
+
+    if (resolvedRefValue === undefined) {
+      const rawHint = refHintTable[ref];
+      resolvedRefValue = typeof rawHint === "string"
+        ? parseJson(rawHint)
+        : isJsonObject(rawHint)
+          ? rawHint
+          : null;
+      parsedHintCache.set(ref, resolvedRefValue);
+    }
+
+    if (resolvedRefValue !== null && resolvedRefValue !== undefined) {
+      const nextActiveRefs = new Set(activeRefs);
+      nextActiveRefs.add(ref);
+
+      const { $ref: _ignoredRef, ...rest } = value;
+      const resolvedTarget = resolveSchemaNode(
+        resolvedRefValue,
+        refHintTable,
+        parsedHintCache,
+        nextActiveRefs,
+      );
+
+      if (Object.keys(rest).length === 0) {
+        return resolvedTarget;
+      }
+
+      const resolvedRest = resolveSchemaNode(
+        rest,
+        refHintTable,
+        parsedHintCache,
+        activeRefs,
+      );
+
+      if (isJsonObject(resolvedTarget) && isJsonObject(resolvedRest)) {
+        return { ...resolvedTarget, ...resolvedRest };
+      }
+
+      return resolvedTarget;
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => [
+      key,
+      resolveSchemaNode(nestedValue, refHintTable, parsedHintCache, activeRefs),
+    ]),
+  );
+};
+
+const resolveSchemaJsonWithRefHints = (
+  schemaJson: string | undefined,
+  refHintTable: Readonly<Record<string, unknown>>,
+): string | null => {
+  if (!schemaJson) {
+    return null;
+  }
+
+  const parsedSchema = parseJson(schemaJson);
+  if (parsedSchema === null) {
+    return schemaJson;
+  }
+
+  const resolved = resolveSchemaNode(
+    parsedSchema,
+    refHintTable,
+    new Map<string, unknown>(),
+    new Set<string>(),
+  );
+
+  try {
+    return JSON.stringify(resolved);
+  } catch {
+    return schemaJson;
+  }
+};
 
 // ---------------------------------------------------------------------------
 // SourceDetailPage (main export)
@@ -52,7 +172,13 @@ export function SourceDetailPage(props: {
   navigate: (opts: { search: (prev: SourceRouteSearch) => SourceRouteSearch; replace?: boolean }) => void;
 }) {
   const { sourceId, search, navigate } = props;
+  const sources = useSources();
+  const source = useSource(sourceId);
   const inspection = useSourceInspection(sourceId);
+  const missingSource =
+    listExcludesSource(sources, sourceId)
+    || isSourceNotFoundError(source)
+    || isSourceNotFoundError(inspection);
 
   const selectedToolPath =
     search.tool
@@ -76,6 +202,10 @@ export function SourceDetailPage(props: {
     if (!firstTool) return;
     void navigate({ search: (prev) => ({ ...prev, tool: firstTool }), replace: true });
   }, [inspection, navigate, search.tab, search.tool]);
+
+  if (missingSource) {
+    return <SourceNotFoundState />;
+  }
 
   return (
     <LoadableBlock loadable={inspection} loading="Loading source...">
@@ -151,21 +281,6 @@ export function SourceDetailPage(props: {
                   }
                 />
               )}
-              {search.tab === "manifest" && (
-                <div className="flex-1 overflow-y-auto p-4">
-                  <DocumentPanel title="Manifest" body={bundle.manifestJson} empty="No manifest available." />
-                </div>
-              )}
-              {search.tab === "definitions" && (
-                <div className="flex-1 overflow-y-auto p-4">
-                  <DocumentPanel title="Definitions" body={bundle.definitionsJson} empty="No definitions available." />
-                </div>
-              )}
-              {search.tab === "raw" && (
-                <div className="flex-1 overflow-y-auto p-4">
-                  <DocumentPanel title="Raw document" body={bundle.rawDocumentText} empty="No raw document." />
-                </div>
-              )}
             </div>
           </div>
         );
@@ -191,7 +306,7 @@ function ModelView(props: {
 
   const filteredTools = props.bundle.tools.filter((tool) => {
     if (terms.length === 0) return true;
-    const corpus = [tool.path, tool.description ?? "", tool.title ?? "", tool.method ?? ""]
+    const corpus = [tool.path, tool.method ?? ""]
       .join(" ")
       .toLowerCase();
     return terms.every((t) => corpus.includes(t));
@@ -258,7 +373,6 @@ function ModelView(props: {
                 onSelectTool={props.onSelectTool}
                 search={search}
                 isFiltered={terms.length > 0}
-                sourceId={props.sourceId}
               />
             </div>
           )}
@@ -270,7 +384,7 @@ function ModelView(props: {
         <LoadableBlock loadable={props.detail} loading="Loading tool...">
           {(detail) =>
             detail ? (
-              <ToolDetailPanel detail={detail} />
+              <ToolDetailPanel sourceId={props.sourceId} detail={detail} />
             ) : (
               <EmptyState
                 title={props.bundle.toolCount > 0 ? "Select a tool" : "No tools available"}
@@ -316,10 +430,8 @@ function ToolTree(props: {
   onSelectTool: (path: string) => void;
   search: string;
   isFiltered: boolean;
-  sourceId: string;
 }) {
   const tree = useMemo(() => buildToolTree(props.tools), [props.tools]);
-  const prefetch = usePrefetchToolDetail();
   const entries = [...tree.children.values()].sort((a, b) =>
     a.segment.localeCompare(b.segment),
   );
@@ -335,8 +447,6 @@ function ToolTree(props: {
           onSelectTool={props.onSelectTool}
           search={props.search}
           defaultOpen={props.isFiltered}
-          sourceId={props.sourceId}
-          prefetch={prefetch}
         />
       ))}
     </div>
@@ -350,10 +460,8 @@ function ToolTreeNodeView(props: {
   onSelectTool: (path: string) => void;
   search: string;
   defaultOpen: boolean;
-  sourceId: string;
-  prefetch: (sourceId: string, toolPath: string) => () => void;
 }) {
-  const { node, depth, selectedToolPath, onSelectTool, search, defaultOpen, sourceId, prefetch } = props;
+  const { node, depth, selectedToolPath, onSelectTool, search, defaultOpen } = props;
   const hasChildren = node.children.size > 0;
   const isLeaf = !!node.tool && !hasChildren;
 
@@ -383,8 +491,6 @@ function ToolTreeNodeView(props: {
         onSelect={() => onSelectTool(node.tool!.path)}
         search={search}
         depth={depth}
-        sourceId={sourceId}
-        prefetch={prefetch}
       />
     );
   }
@@ -420,8 +526,6 @@ function ToolTreeNodeView(props: {
             search={search}
             depth={-1}
             className="flex-1 pl-1"
-            sourceId={sourceId}
-            prefetch={prefetch}
           />
         </div>
       ) : (
@@ -469,8 +573,6 @@ function ToolTreeNodeView(props: {
               onSelectTool={onSelectTool}
               search={search}
               defaultOpen={defaultOpen}
-              sourceId={sourceId}
-              prefetch={prefetch}
             />
           ))}
         </div>
@@ -498,36 +600,15 @@ function ToolListItem(props: {
   search: string;
   depth: number;
   className?: string;
-  sourceId: string;
-  prefetch: (sourceId: string, toolPath: string) => () => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
   const paddingLeft = props.depth >= 0 ? 8 + props.depth * 16 + 8 : undefined;
-  const prefetchedRef = useRef(false);
 
   useEffect(() => {
     if (props.active && ref.current) {
       ref.current.scrollIntoView({ block: "nearest" });
     }
   }, [props.active]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || prefetchedRef.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && !prefetchedRef.current) {
-          prefetchedRef.current = true;
-          props.prefetch(props.sourceId, props.tool.path);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0 },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [props.prefetch, props.sourceId, props.tool.path]);
 
   const label = props.depth >= 0
     ? props.tool.path.split(".").pop() ?? props.tool.path
@@ -560,9 +641,14 @@ function ToolListItem(props: {
 // ToolDetailPanel
 // ---------------------------------------------------------------------------
 
-function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
+function ToolDetailPanel(props: { sourceId: string; detail: SourceInspectionToolDetail }) {
   const { detail } = props;
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [resolveRefs, setResolveRefs] = useState(false);
+  const schemaBundle = useSourceSchemaBundle(
+    props.sourceId,
+    resolveRefs ? detail.schemaBundleId : null,
+  );
 
   const copy = useCallback((text: string, field: string) => {
     void navigator.clipboard.writeText(text).then(() => {
@@ -570,6 +656,43 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
       setTimeout(() => setCopiedField(null), 1500);
     });
   }, []);
+
+  useEffect(() => {
+    setResolveRefs(false);
+  }, [detail.summary.path]);
+
+  const resolvedSchemas = useMemo(() => {
+    if (!resolveRefs || schemaBundle.status !== "ready" || schemaBundle.data === null) {
+      return {
+        inputSchemaJson: detail.inputSchemaJson,
+        outputSchemaJson: detail.outputSchemaJson,
+      };
+    }
+
+    try {
+      const refHintTable = JSON.parse(schemaBundle.data.refsJson) as Record<string, unknown>;
+      return {
+        inputSchemaJson: resolveSchemaJsonWithRefHints(
+          detail.inputSchemaJson ?? undefined,
+          refHintTable,
+        ) ?? detail.inputSchemaJson,
+        outputSchemaJson: resolveSchemaJsonWithRefHints(
+          detail.outputSchemaJson ?? undefined,
+          refHintTable,
+        ) ?? detail.outputSchemaJson,
+      };
+    } catch {
+      return {
+        inputSchemaJson: detail.inputSchemaJson,
+        outputSchemaJson: detail.outputSchemaJson,
+      };
+    }
+  }, [
+    detail.inputSchemaJson,
+    detail.outputSchemaJson,
+    resolveRefs,
+    schemaBundle,
+  ]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -613,9 +736,30 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
           </div>
 
           {/* Schemas */}
+          {detail.schemaBundleId && (
+            <div className="flex items-center justify-between rounded-md border border-border bg-card/40 px-3 py-2">
+              <div className="text-[12px] text-muted-foreground">
+                {resolveRefs
+                  ? schemaBundle.status === "loading"
+                    ? "Loading shared refs..."
+                    : schemaBundle.status === "error"
+                      ? "Showing compact root schemas because shared refs failed to load."
+                      : "Showing schemas with shared refs resolved client-side."
+                  : "Showing compact root schemas. Shared refs are available on demand."}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setResolveRefs((value) => !value)}
+              >
+                {resolveRefs ? "Show compact roots" : "Resolve shared refs"}
+              </Button>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-            <DocumentPanel title="Input schema" body={detail.inputSchemaJson} empty="No input schema." compact />
-            <DocumentPanel title="Output schema" body={detail.outputSchemaJson} empty="No output schema." compact />
+            <DocumentPanel title="Input schema" body={resolvedSchemas.inputSchemaJson} empty="No input schema." compact />
+            <DocumentPanel title="Output schema" body={resolvedSchemas.outputSchemaJson} empty="No output schema." compact />
             {detail.exampleInputJson && (
               <DocumentPanel title="Example request" body={detail.exampleInputJson} empty="" compact />
             )}

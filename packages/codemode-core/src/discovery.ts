@@ -111,6 +111,7 @@ export function createToolCatalogFromTools(input: {
             })
           : null,
       ),
+    getSchemaBundle: () => Effect.succeed(null),
     searchTools: ({ query, namespace, limit }) => {
       const queryTokens = tokenize(query);
 
@@ -184,6 +185,7 @@ export function createDiscoveryPrimitivesFromToolCatalog(input: {
   const describe: DescribePrimitive = {
     tool: ({ path, includeSchemas = false }) =>
       catalog.getToolByPath({ path, includeSchemas }),
+    schemaBundle: ({ id }) => catalog.getSchemaBundle({ id }),
   };
 
   const discover: DiscoverPrimitive = ({
@@ -234,6 +236,7 @@ export function createDiscoveryPrimitivesFromToolCatalog(input: {
               ? {
                   inputSchemaJson: descriptor.inputSchemaJson,
                   outputSchemaJson: descriptor.outputSchemaJson,
+                  schemaBundleId: descriptor.schemaBundleId,
                 }
               : {}),
           };
@@ -296,7 +299,8 @@ export function buildDynamicExecuteDescription(input: {
       "Workflow:",
       '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
       "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
-      "3) Call selected tools.<path>(input).",
+      "3) If details.schemaBundleId is present, fetch it once with tools.describe.schemaBundle({ id }).",
+      "4) Call selected tools.<path>(input).",
       "Do not use fetch; use tools.* only.",
     ].join("\n");
   });

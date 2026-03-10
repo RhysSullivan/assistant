@@ -21,6 +21,7 @@ import {
 import {
   discoverSourceInspectionTools,
   getSourceInspection,
+  getSourceInspectionSchemaBundle,
   getSourceInspectionToolDetail,
 } from "../../runtime/source-inspection";
 import {
@@ -29,6 +30,7 @@ import {
   submitSourceCredentialInteraction,
 } from "../../runtime/local-operations";
 import { discoverSource } from "../../runtime/source-discovery";
+import { hasSourceAdapterFamily } from "../../runtime/source-adapters";
 import { RuntimeSourceAuthServiceTag } from "../../runtime/source-auth-service";
 
 import {
@@ -682,7 +684,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
               const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
               const baseUrl = resolveRequestOrigin(request);
 
-              if (payload.kind === "mcp") {
+              if (payload.kind === "mcp" && hasSourceAdapterFamily(payload.kind, "mcp")) {
                 return yield* sourceAuthService.connectMcpSource({
                   workspaceId: path.workspaceId,
                   actorAccountId: actor.principal.accountId,
@@ -696,35 +698,13 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
                 });
               }
 
-              if (payload.kind === "openapi") {
-                return yield* sourceAuthService.addExecutorSource(
-                  {
-                    workspaceId: path.workspaceId,
-                    actorAccountId: actor.principal.accountId,
-                    executionId: null,
-                    interactionId: null,
-                    kind: "openapi",
-                    endpoint: payload.endpoint,
-                    specUrl: payload.specUrl,
-                    name: payload.name,
-                    namespace: payload.namespace,
-                    auth: payload.auth,
-                  },
-                  { baseUrl },
-                );
-              }
-
               return yield* sourceAuthService.addExecutorSource(
                 {
                   workspaceId: path.workspaceId,
                   actorAccountId: actor.principal.accountId,
                   executionId: null,
                   interactionId: null,
-                  kind: "graphql",
-                  endpoint: payload.endpoint,
-                  name: payload.name,
-                  namespace: payload.namespace,
-                  auth: payload.auth,
+                  ...payload,
                 },
                 { baseUrl },
               );
@@ -777,6 +757,17 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
               workspaceId: path.workspaceId,
               sourceId: path.sourceId,
               toolPath: path.toolPath,
+            }),
+          ),
+        ),
+      )
+      .handle("inspectionSchemaBundle", ({ path }) =>
+        withWorkspaceRequestActor("sources.inspection_schema_bundle", path.workspaceId, () =>
+          withPolicy(requireReadSources(path.workspaceId))(
+            getSourceInspectionSchemaBundle({
+              workspaceId: path.workspaceId,
+              sourceId: path.sourceId,
+              schemaBundleId: path.schemaBundleId,
             }),
           ),
         ),

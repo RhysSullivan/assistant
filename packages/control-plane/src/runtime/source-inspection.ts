@@ -1,11 +1,3 @@
-import { typeSignatureFromSchemaJson } from "@executor/codemode-core";
-import {
-  buildOpenApiToolPresentation,
-  compileOpenApiToolDefinitions,
-  openApiOutputTypeSignatureFromSchemaJson,
-  type OpenApiToolDefinition,
-  type OpenApiToolManifest,
-} from "@executor/codemode-openapi";
 import type {
   Source,
   SourceId,
@@ -13,10 +5,14 @@ import type {
   SourceInspectionDiscoverPayload,
   SourceInspectionDiscoverResult,
   SourceInspectionDiscoverResultItem,
+  SourceInspectionSchemaBundle,
+  SourceInspectionToolListItem,
   SourceInspectionToolDetail,
   SourceInspectionToolSummary,
+  StoredSourceRecipeOperationRecord,
   WorkspaceId,
 } from "#schema";
+import { SourceRecipeSchemaBundleIdSchema } from "#schema";
 import {
   ControlPlaneNotFoundError,
   ControlPlaneStorageError,
@@ -25,29 +21,24 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import { operationErrors } from "./operation-errors";
-import { formatJsonIfNeeded, formatWithPrettier } from "./prettier-format";
+import { formatWithPrettier } from "./prettier-format";
 import {
-  buildGraphqlToolPresentation,
-  compileGraphqlToolDefinitions,
-  type GraphqlToolDefinition,
-  type GraphqlToolManifest,
-} from "./graphql-tools";
+  getSourceAdapterForOperation,
+} from "./source-adapters";
 import {
-  loadSourceRecipe,
-  recipePrimaryDocumentText,
+  recipeToolMetadata,
   recipeToolPath,
-  type LoadedSourceRecipe,
 } from "./source-recipes-runtime";
+import type { SourceAdapterPersistedOperationMetadata } from "./source-adapters/types";
+import { namespaceFromSourceName } from "./source-names";
+import { loadSourceById } from "./source-store";
 import { ControlPlaneStore } from "./store";
-import { namespaceFromSourceName } from "./tool-artifacts";
 
 const sourceInspectOps = {
   bundle: operationErrors("sources.inspect.bundle"),
   tool: operationErrors("sources.inspect.tool"),
   discover: operationErrors("sources.inspect.discover"),
 } as const;
-
-const asPrettyJson = (value: unknown): string => JSON.stringify(value, null, 2);
 
 const tokenize = (value: string): Array<string> =>
   value
@@ -56,26 +47,10 @@ const tokenize = (value: string): Array<string> =>
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
 
-const searchTextFromSummary = (summary: SourceInspectionToolSummary): string =>
-  [
-    summary.path,
-    summary.toolId,
-    summary.rawToolId ?? "",
-    summary.operationId ?? "",
-    summary.title ?? "",
-    summary.description ?? "",
-    summary.method ?? "",
-    summary.pathTemplate ?? "",
-    summary.tags.join(" "),
-    summary.inputType ?? "",
-    summary.outputType ?? "",
-  ]
-    .join(" ")
-    .toLowerCase();
-
 type InspectionToolRecord = {
-  summary: SourceInspectionToolSummary;
-  detail: SourceInspectionToolDetail;
+  operation: StoredSourceRecipeOperationRecord;
+  metadata: SourceAdapterPersistedOperationMetadata;
+  listItem: SourceInspectionToolListItem;
   searchText: string;
 };
 
@@ -83,9 +58,7 @@ type ResolvedSourceInspection = {
   source: Source;
   namespace: string;
   pipelineKind: SourceInspection["pipelineKind"];
-  rawDocumentText: string | null;
-  manifestJson: string | null;
-  definitionsJson: string | null;
+  schemaBundleId: string | null;
   tools: ReadonlyArray<InspectionToolRecord>;
 };
 
@@ -111,40 +84,25 @@ const formatToolSummary = (summary: SourceInspectionToolSummary) =>
     } satisfies SourceInspectionToolSummary)),
   );
 
-const formatInspectionToolRecord = (record: InspectionToolRecord) =>
+const formatInspectionToolDetail = (detail: SourceInspectionToolDetail) =>
   Effect.gen(function* () {
-    const summary = yield* formatToolSummary(record.summary);
+    const summary = yield* formatToolSummary(detail.summary);
     const detailFields = yield* Effect.all({
-      definitionJson: formatOptionalJson(record.detail.definitionJson),
-      documentationJson: formatOptionalJson(record.detail.documentationJson),
-      providerDataJson: formatOptionalJson(record.detail.providerDataJson),
-      inputSchemaJson: formatOptionalJson(record.detail.inputSchemaJson),
-      outputSchemaJson: formatOptionalJson(record.detail.outputSchemaJson),
-      exampleInputJson: formatOptionalJson(record.detail.exampleInputJson),
-      exampleOutputJson: formatOptionalJson(record.detail.exampleOutputJson),
+      definitionJson: formatOptionalJson(detail.definitionJson),
+      documentationJson: formatOptionalJson(detail.documentationJson),
+      providerDataJson: formatOptionalJson(detail.providerDataJson),
+      inputSchemaJson: formatOptionalJson(detail.inputSchemaJson),
+      outputSchemaJson: formatOptionalJson(detail.outputSchemaJson),
+      exampleInputJson: formatOptionalJson(detail.exampleInputJson),
+      exampleOutputJson: formatOptionalJson(detail.exampleOutputJson),
     });
 
     return {
+      ...detail,
+      ...detailFields,
       summary,
-      detail: {
-        ...record.detail,
-        ...detailFields,
-        summary,
-      },
-      searchText: record.searchText,
-    } satisfies InspectionToolRecord;
+    } satisfies SourceInspectionToolDetail;
   });
-
-const loadStoredDocumentText = (recipe: LoadedSourceRecipe) => {
-  const rawDocumentText = recipePrimaryDocumentText({
-    source: recipe.source,
-    documents: recipe.documents,
-  });
-
-  return rawDocumentText === null
-    ? Effect.succeed<string | null>(null)
-    : Effect.promise(() => formatJsonIfNeeded(rawDocumentText));
-};
 
 const loadSourceRecipeRecord = (input: {
   workspaceId: WorkspaceId;
@@ -164,316 +122,146 @@ const loadSourceRecipeRecord = (input: {
         );
       }
 
-      const recipe = yield* loadSourceRecipe({
-        rows: store,
+      const source = yield* loadSourceById(store, {
         workspaceId: input.workspaceId,
         sourceId: input.sourceId,
       }).pipe(
         Effect.mapError((cause) =>
           sourceInspectOps.bundle.unknownStorage(
             cause,
-            "Failed loading source recipe",
+            "Failed loading source",
           ),
         ),
       );
+      const operations = yield* sourceInspectOps.bundle.child("operations").mapStorage(
+        store.sourceRecipeOperations.listByRevisionId(sourceRecord.value.recipeRevisionId),
+      );
+      const schemaBundles = yield* sourceInspectOps.bundle.child("schema_bundles").mapStorage(
+        store.sourceRecipeSchemaBundles.listByRevisionId(sourceRecord.value.recipeRevisionId),
+      );
 
       return {
-        store,
-        sourceRecord: sourceRecord.value,
-        recipe,
+        source,
+        operations,
+        schemaBundleId: schemaBundles.find((bundle) => bundle.bundleKind === "json_schema_ref_map")?.id
+          ?? schemaBundles[0]?.id
+          ?? null,
       };
     }),
   );
 
-const persistedToolSummaryFromRecipeOperation = (input: {
+const inspectionToolListItemFromOperation = (input: {
   source: Source;
-  operation: LoadedSourceRecipe["operations"][number];
-}): SourceInspectionToolSummary => ({
+  operation: StoredSourceRecipeOperationRecord;
+  metadata: SourceAdapterPersistedOperationMetadata;
+}): SourceInspectionToolListItem => ({
   path: recipeToolPath({
     source: input.source,
     operation: input.operation,
   }),
-  sourceKey: input.source.id,
-  ...(input.operation.title ? { title: input.operation.title } : {}),
-  ...(input.operation.description ? { description: input.operation.description } : {}),
-  providerKind: input.operation.providerKind,
-  toolId: input.operation.toolId,
-  rawToolId: input.operation.openApiRawToolId,
-  operationId: input.operation.graphqlOperationName ?? input.operation.openApiOperationId,
-  group: null,
-  leaf: null,
-  tags: input.operation.openApiTagsJson
-    ? ((JSON.parse(input.operation.openApiTagsJson) as Array<string>) ?? [])
-    : [],
-  method: input.operation.openApiMethod,
-  pathTemplate: input.operation.openApiPathTemplate,
-  ...(input.operation.inputSchemaJson
-    ? {
-        inputType: typeSignatureFromSchemaJson(
-          input.operation.inputSchemaJson,
-          "unknown",
-          Infinity,
-        ),
-      }
-    : {}),
-  ...(input.operation.providerKind === "openapi"
-    ? {
-        outputType: openApiOutputTypeSignatureFromSchemaJson(
-          input.operation.outputSchemaJson ?? undefined,
-          Infinity,
-        ),
-      }
-    : input.operation.outputSchemaJson
-      ? {
-          outputType: typeSignatureFromSchemaJson(
-            input.operation.outputSchemaJson,
-            "unknown",
-            Infinity,
-          ),
-        }
-      : {}),
+  method: input.metadata.method,
 });
 
-const openApiToolRecord = (input: {
+const persistedToolSummaryFromRecipeOperation = (input: {
   source: Source;
-  namespace: string;
-  manifest: OpenApiToolManifest;
-  definition: OpenApiToolDefinition;
-}): InspectionToolRecord => {
-  const presentation = buildOpenApiToolPresentation({
-    manifest: input.manifest,
-    definition: input.definition,
-  });
-  const path = `${input.namespace}.${input.definition.toolId}`;
-  const summary: SourceInspectionToolSummary = {
-    path,
-    sourceKey: input.source.id,
-    title: input.definition.name,
-    description: input.definition.description,
-    providerKind: "openapi",
-    toolId: input.definition.toolId,
-    rawToolId: input.definition.rawToolId,
-    operationId: input.definition.operationId ?? null,
-    group: input.definition.group,
-    leaf: input.definition.leaf,
-    tags: [...input.definition.tags],
-    method: input.definition.method,
-    pathTemplate: input.definition.path,
-    inputType: presentation.inputType,
-    outputType: presentation.outputType,
-  };
+  operation: StoredSourceRecipeOperationRecord;
+  metadata: SourceAdapterPersistedOperationMetadata;
+  includeTypes: boolean;
+}): SourceInspectionToolSummary => {
+  const path = inspectionToolListItemFromOperation(input).path;
+  const descriptor = input.includeTypes
+    ? getSourceAdapterForOperation(input.operation).createToolDescriptor({
+        source: input.source,
+        operation: input.operation,
+        path,
+        includeSchemas: false,
+      })
+    : null;
 
   return {
-    summary,
-    detail: {
-      summary,
-      definitionJson: asPrettyJson(input.definition),
-      documentationJson: input.definition.documentation
-        ? asPrettyJson(input.definition.documentation)
-        : null,
-      providerDataJson: presentation.providerDataJson,
-      inputSchemaJson: presentation.inputSchemaJson ?? null,
-      outputSchemaJson: presentation.outputSchemaJson ?? null,
-      exampleInputJson: presentation.exampleInputJson ?? null,
-      exampleOutputJson: presentation.exampleOutputJson ?? null,
-    },
-    searchText: searchTextFromSummary(summary),
+    path,
+    sourceKey: input.source.id,
+    ...(input.operation.title ? { title: input.operation.title } : {}),
+    ...(input.operation.description ? { description: input.operation.description } : {}),
+    providerKind: input.operation.providerKind,
+    toolId: input.operation.toolId,
+    rawToolId: input.metadata.rawToolId,
+    operationId: input.metadata.operationId,
+    group: input.metadata.group,
+    leaf: input.metadata.leaf,
+    tags: [...input.metadata.tags],
+    method: input.metadata.method,
+    pathTemplate: input.metadata.pathTemplate,
+    ...(descriptor?.inputType ? { inputType: descriptor.inputType } : {}),
+    ...(descriptor?.outputType ? { outputType: descriptor.outputType } : {}),
   };
 };
 
-const graphqlToolRecord = (input: {
+const inspectionToolDetailFromOperation = (input: {
   source: Source;
-  namespace: string;
-  manifest: GraphqlToolManifest;
-  definition: GraphqlToolDefinition;
-}): InspectionToolRecord => {
-  const presentation = buildGraphqlToolPresentation({
-    manifest: input.manifest,
-    definition: input.definition,
+  operation: StoredSourceRecipeOperationRecord;
+  metadata: SourceAdapterPersistedOperationMetadata;
+  schemaBundleId: string | null;
+}): SourceInspectionToolDetail => {
+  const summary = persistedToolSummaryFromRecipeOperation({
+    source: input.source,
+    operation: input.operation,
+    metadata: input.metadata,
+    includeTypes: true,
   });
-  const path = `${input.namespace}.${input.definition.toolId}`;
-  const summary: SourceInspectionToolSummary = {
-    path,
-    sourceKey: input.source.id,
-    title: input.definition.name,
-    description: input.definition.description,
-    providerKind: "graphql",
-    toolId: input.definition.toolId,
-    rawToolId: input.definition.rawToolId,
-    operationId: input.definition.operationName,
-    group: input.definition.group,
-    leaf: input.definition.leaf,
-    tags: [],
-    method: null,
-    pathTemplate: null,
-    inputType: presentation.inputType,
-    outputType: presentation.outputType,
-  };
 
   return {
     summary,
-    detail: {
-      summary,
-      definitionJson: asPrettyJson(input.definition),
-      documentationJson: null,
-      providerDataJson: presentation.providerDataJson,
-      inputSchemaJson: presentation.inputSchemaJson ?? null,
-      outputSchemaJson: presentation.outputSchemaJson ?? null,
-      exampleInputJson: presentation.exampleInputJson ?? null,
-      exampleOutputJson: null,
-    },
-    searchText: searchTextFromSummary(summary),
-  };
+    definitionJson: null,
+    documentationJson: null,
+    providerDataJson: input.operation.providerDataJson,
+    inputSchemaJson: input.operation.inputSchemaJson,
+    outputSchemaJson: input.operation.outputSchemaJson,
+    schemaBundleId: input.schemaBundleId,
+    exampleInputJson: null,
+    exampleOutputJson: null,
+  } satisfies SourceInspectionToolDetail;
 };
-
-const loadPersistedInspection = (input: {
-  recipe: LoadedSourceRecipe;
-}): Effect.Effect<ResolvedSourceInspection, Error, never> =>
-  Effect.gen(function* () {
-    const namespace =
-      input.recipe.source.namespace ?? namespaceFromSourceName(input.recipe.source.name);
-    const tools = yield* Effect.forEach(input.recipe.operations, (operation) => {
-      const summary = persistedToolSummaryFromRecipeOperation({
-        source: input.recipe.source,
-        operation,
-      });
-      return formatInspectionToolRecord({
-        summary,
-        detail: {
-          summary,
-          definitionJson: null,
-          documentationJson: null,
-          providerDataJson: operation.providerDataJson,
-          inputSchemaJson: operation.inputSchemaJson,
-          outputSchemaJson: operation.outputSchemaJson,
-          exampleInputJson: null,
-          exampleOutputJson: null,
-        },
-        searchText: searchTextFromSummary(summary),
-      } satisfies InspectionToolRecord);
-    });
-    const rawDocumentText = yield* loadStoredDocumentText(input.recipe);
-    const manifestJson = yield* formatOptionalJson(input.recipe.revision.manifestJson);
-
-    return {
-      source: input.recipe.source,
-      namespace,
-      pipelineKind: "persisted",
-      rawDocumentText,
-      manifestJson,
-      definitionsJson: null,
-      tools,
-    } satisfies ResolvedSourceInspection;
-  });
-
-const loadOpenApiInspection = (input: {
-  recipe: LoadedSourceRecipe;
-}): Effect.Effect<ResolvedSourceInspection, Error, never> =>
-  Effect.gen(function* () {
-    if (input.recipe.manifest === null) {
-      return yield* Effect.fail(new Error("Missing stored OpenAPI manifest"));
-    }
-
-    const manifest = input.recipe.manifest as OpenApiToolManifest;
-    const definitions = compileOpenApiToolDefinitions(manifest);
-    const namespace =
-      input.recipe.source.namespace ?? namespaceFromSourceName(input.recipe.source.name);
-    const tools = yield* Effect.forEach(definitions, (definition) =>
-      formatInspectionToolRecord(openApiToolRecord({
-        source: input.recipe.source,
-        namespace,
-        manifest,
-        definition,
-      })),
-    );
-    const manifestJson = yield* formatOptionalJson(input.recipe.revision.manifestJson);
-    const definitionsJson = yield* Effect.promise(() =>
-      formatWithPrettier(asPrettyJson(definitions), "json"),
-    );
-    const rawDocumentText = yield* loadStoredDocumentText(input.recipe);
-
-    return {
-      source: input.recipe.source,
-      namespace,
-      pipelineKind: "openapi",
-      rawDocumentText,
-      manifestJson,
-      definitionsJson,
-      tools,
-    } satisfies ResolvedSourceInspection;
-  });
-
-const loadGraphqlInspection = (input: {
-  recipe: LoadedSourceRecipe;
-}): Effect.Effect<ResolvedSourceInspection, Error, never> =>
-  Effect.gen(function* () {
-    if (input.recipe.manifest === null) {
-      return yield* Effect.fail(new Error("Missing stored GraphQL manifest"));
-    }
-
-    const manifest = input.recipe.manifest as GraphqlToolManifest;
-    const definitions = compileGraphqlToolDefinitions(manifest);
-    const namespace =
-      input.recipe.source.namespace ?? namespaceFromSourceName(input.recipe.source.name);
-    const tools = yield* Effect.forEach(definitions, (definition) =>
-      formatInspectionToolRecord(graphqlToolRecord({
-        source: input.recipe.source,
-        namespace,
-        manifest,
-        definition,
-      })),
-    );
-    const manifestJson = yield* formatOptionalJson(input.recipe.revision.manifestJson);
-    const definitionsJson = yield* Effect.promise(() =>
-      formatWithPrettier(asPrettyJson(definitions), "json"),
-    );
-    const rawDocumentText = yield* loadStoredDocumentText(input.recipe);
-
-    return {
-      source: input.recipe.source,
-      namespace,
-      pipelineKind: "graphql",
-      rawDocumentText,
-      manifestJson,
-      definitionsJson,
-      tools,
-    } satisfies ResolvedSourceInspection;
-  });
 
 const resolveSourceInspection = (input: {
   workspaceId: WorkspaceId;
   sourceId: SourceId;
 }) =>
   Effect.gen(function* () {
-    const { recipe } = yield* loadSourceRecipeRecord(input);
+    const { source, operations, schemaBundleId } = yield* loadSourceRecipeRecord(input);
+    const namespace = source.namespace ?? namespaceFromSourceName(source.name);
 
-    if (recipe.source.kind === "openapi" && recipe.manifest !== null) {
-      return yield* loadOpenApiInspection({
-        recipe,
-      }).pipe(
-        Effect.catchAll(() =>
-          loadPersistedInspection({
-            recipe,
-          }),
-        ),
-      );
-    }
+    return {
+      source,
+      namespace,
+      pipelineKind: "persisted",
+      schemaBundleId,
+      tools: yield* Effect.forEach(operations, (operation) =>
+        Effect.gen(function* () {
+          const path = recipeToolPath({
+            source,
+            operation,
+          });
+          const metadata = yield* recipeToolMetadata({
+            source,
+            operation,
+            path,
+          });
+          const listItem = inspectionToolListItemFromOperation({
+            source,
+            operation,
+            metadata,
+          });
 
-    if (recipe.source.kind === "graphql" && recipe.manifest !== null) {
-      return yield* loadGraphqlInspection({
-        recipe,
-      }).pipe(
-        Effect.catchAll(() =>
-          loadPersistedInspection({
-            recipe,
-          }),
-        ),
-      );
-    }
-
-    return yield* loadPersistedInspection({
-      recipe,
-    });
+          return {
+            operation,
+            metadata,
+            listItem,
+            searchText: metadata.searchText,
+          } satisfies InspectionToolRecord;
+        })
+      ),
+    } satisfies ResolvedSourceInspection;
   });
 
 const scoreTool = (input: {
@@ -482,15 +270,12 @@ const scoreTool = (input: {
 }): SourceInspectionDiscoverResultItem | null => {
   let score = 0;
   const reasons: Array<string> = [];
-  const pathTokens = tokenize(input.tool.summary.path);
-  const titleTokens = tokenize(input.tool.summary.title ?? "");
-  const descriptionTokens = tokenize(input.tool.summary.description ?? "");
-  const tagTokens = input.tool.summary.tags.flatMap(tokenize);
-  const typeTokens = tokenize(
-    `${input.tool.summary.inputType ?? ""} ${input.tool.summary.outputType ?? ""}`,
-  );
+  const pathTokens = tokenize(input.tool.listItem.path);
+  const titleTokens = tokenize(input.tool.operation.title ?? "");
+  const descriptionTokens = tokenize(input.tool.operation.description ?? "");
+  const tagTokens = input.tool.metadata.tags.flatMap(tokenize);
   const methodPathTokens = tokenize(
-    `${input.tool.summary.method ?? ""} ${input.tool.summary.pathTemplate ?? ""}`,
+    `${input.tool.listItem.method ?? ""} ${input.tool.metadata.pathTemplate ?? ""}`,
   );
 
   for (const token of input.queryTokens) {
@@ -514,11 +299,6 @@ const scoreTool = (input: {
       reasons.push(`method/path matches ${token} (+6)`);
       continue;
     }
-    if (typeTokens.includes(token)) {
-      score += 4;
-      reasons.push(`type signature matches ${token} (+4)`);
-      continue;
-    }
     if (descriptionTokens.includes(token) || input.tool.searchText.includes(token)) {
       score += 2;
       reasons.push(`description/text matches ${token} (+2)`);
@@ -530,16 +310,10 @@ const scoreTool = (input: {
   }
 
   return {
-    path: input.tool.summary.path,
+    path: input.tool.listItem.path,
     score,
-    ...(input.tool.summary.description
-      ? { description: input.tool.summary.description }
-      : {}),
-    ...(input.tool.summary.inputType
-      ? { inputType: input.tool.summary.inputType }
-      : {}),
-    ...(input.tool.summary.outputType
-      ? { outputType: input.tool.summary.outputType }
+    ...(input.tool.operation.description
+      ? { description: input.tool.operation.description }
       : {}),
     reasons,
   } satisfies SourceInspectionDiscoverResultItem;
@@ -575,10 +349,7 @@ export const getSourceInspection = (input: {
       namespace: inspection.namespace,
       pipelineKind: inspection.pipelineKind,
       toolCount: inspection.tools.length,
-      rawDocumentText: inspection.rawDocumentText,
-      manifestJson: inspection.manifestJson,
-      definitionsJson: inspection.definitionsJson,
-      tools: inspection.tools.map((tool) => tool.summary),
+      tools: inspection.tools.map((tool) => tool.listItem),
     } satisfies SourceInspection;
   }).pipe(
     Effect.mapError((cause) =>
@@ -599,7 +370,7 @@ export const getSourceInspectionToolDetail = (input: {
       workspaceId: input.workspaceId,
       sourceId: input.sourceId,
     });
-    const tool = inspection.tools.find((candidate) => candidate.summary.path === input.toolPath);
+    const tool = inspection.tools.find((candidate) => candidate.listItem.path === input.toolPath);
 
     if (!tool) {
       return yield* Effect.fail(
@@ -610,13 +381,70 @@ export const getSourceInspectionToolDetail = (input: {
       );
     }
 
-    return tool.detail;
+    return yield* formatInspectionToolDetail(inspectionToolDetailFromOperation({
+      source: inspection.source,
+      operation: tool.operation,
+      metadata: tool.metadata,
+      schemaBundleId: inspection.schemaBundleId,
+    }));
   }).pipe(
     Effect.mapError((cause) =>
       mapInspectionError(
         sourceInspectOps.tool,
         cause,
         "Failed building source inspection tool detail",
+      )),
+  );
+
+export const getSourceInspectionSchemaBundle = (input: {
+  workspaceId: WorkspaceId;
+  sourceId: SourceId;
+  schemaBundleId: string;
+}) =>
+  Effect.flatMap(ControlPlaneStore, (store) =>
+    Effect.gen(function* () {
+      const sourceRecord = yield* sourceInspectOps.tool.child("bundle_record").mapStorage(
+        store.sources.getByWorkspaceAndId(input.workspaceId, input.sourceId),
+      );
+      if (Option.isNone(sourceRecord)) {
+        return yield* Effect.fail(
+          sourceInspectOps.tool.notFound(
+            "Source not found",
+            `workspaceId=${input.workspaceId} sourceId=${input.sourceId}`,
+          ),
+        );
+      }
+
+      const schemaBundle = yield* sourceInspectOps.tool.child("schema_bundle").mapStorage(
+        store.sourceRecipeSchemaBundles.getById(
+          SourceRecipeSchemaBundleIdSchema.make(input.schemaBundleId),
+        ),
+      );
+      if (
+        Option.isNone(schemaBundle)
+        || schemaBundle.value.recipeRevisionId !== sourceRecord.value.recipeRevisionId
+      ) {
+        return yield* Effect.fail(
+          sourceInspectOps.tool.notFound(
+            "Schema bundle not found",
+            `workspaceId=${input.workspaceId} sourceId=${input.sourceId} schemaBundleId=${input.schemaBundleId}`,
+          ),
+        );
+      }
+
+      return {
+        id: schemaBundle.value.id,
+        kind: schemaBundle.value.bundleKind,
+        hash: schemaBundle.value.contentHash,
+        refsJson: schemaBundle.value.refsJson,
+      } satisfies SourceInspectionSchemaBundle;
+    }),
+  ).pipe(
+    Effect.mapError((cause) =>
+      mapInspectionError(
+        sourceInspectOps.tool,
+        cause,
+        "Failed loading source inspection schema bundle",
       )),
   );
 

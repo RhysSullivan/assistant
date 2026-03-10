@@ -7,27 +7,19 @@ import {
   type ToolInvoker,
   type ToolNamespace,
   type ToolPath,
+  type ToolSchemaBundle,
 } from "@executor/codemode-core";
 import {
-  createSdkMcpConnector,
-  createMcpToolsFromManifest,
-  type McpToolManifest,
-} from "@executor/codemode-mcp";
-import {
-  createOpenApiToolsFromManifest,
-  type OpenApiToolManifest,
-} from "@executor/codemode-openapi";
-import { isDenoAvailable,
-  makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
+  isDenoAvailable,
+  makeDenoSubprocessExecutor,
+} from "@executor/runtime-deno-subprocess";
 import { makeSesExecutor } from "@executor/runtime-ses";
 import {
   SqlControlPlaneRowsService,
   type SqlControlPlaneRows,
 } from "#persistence";
-import type {
-  AccountId,
-  Source,
-} from "#schema";
+import type { AccountId, Source, SourceRecipeSchemaBundleId } from "#schema";
+import { SourceRecipeSchemaBundleIdSchema } from "#schema";
 import * as Context from "effect/Context";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
@@ -41,27 +33,22 @@ import type {
 } from "./execution-state";
 import { createExecutorToolMap } from "./executor-tools";
 import {
-  createGraphqlToolsFromManifest,
-  type GraphqlToolManifest,
-} from "./graphql-tools";
-import {
   RuntimeSourceAuthServiceTag,
   type RuntimeSourceAuthService,
 } from "./source-auth-service";
 import {
-  expandRecipeTools,
-  loadWorkspaceSourceRecipes,
-  type LoadedSourceRecipeTool,
+  loadWorkspaceSourceRecipeToolByPath,
+  loadWorkspaceSourceRecipeToolIndex,
+  type LoadedSourceRecipeToolIndexEntry,
 } from "./source-recipes-runtime";
+import { resolveSourceAuthMaterial } from "./source-auth-material";
+import { namespaceFromSourceName } from "./source-names";
+import { getSourceAdapterForOperation } from "./source-adapters";
 import {
   createDefaultSecretMaterialResolver,
   type ResolveSecretMaterial,
   type SecretMaterialResolveContext,
 } from "./secret-material-providers";
-import {
-  namespaceFromSourceName,
-  resolveSourceAuthMaterial,
-} from "./tool-artifacts";
 import {
   evaluateInvocationPolicy,
   type InvocationDescriptor,
@@ -75,7 +62,6 @@ const tokenize = (value: string): string[] =>
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
-
 
 const LOW_SIGNAL_QUERY_TOKENS = new Set([
   "a",
@@ -101,15 +87,15 @@ const LOW_SIGNAL_QUERY_TOKENS = new Set([
 ]);
 
 const singularizeToken = (value: string): string =>
-  value.length > 3 && value.endsWith("s")
-    ? value.slice(0, -1)
-    : value;
+  value.length > 3 && value.endsWith("s") ? value.slice(0, -1) : value;
 
 const tokenEquals = (left: string, right: string): boolean =>
   left === right || singularizeToken(left) === singularizeToken(right);
 
-const hasTokenMatch = (tokens: readonly string[], queryToken: string): boolean =>
-  tokens.some((token) => tokenEquals(token, queryToken));
+const hasTokenMatch = (
+  tokens: readonly string[],
+  queryToken: string,
+): boolean => tokens.some((token) => tokenEquals(token, queryToken));
 
 const hasSubstringMatch = (value: string, queryToken: string): boolean => {
   if (value.includes(queryToken)) {
@@ -132,7 +118,6 @@ const SecretResolutionContextEnvelopeSchema = Schema.Struct({
 const decodeSecretResolutionContextEnvelope = Schema.decodeUnknownEither(
   SecretResolutionContextEnvelopeSchema,
 );
-
 const toSecretResolutionContext = (
   value: unknown,
 ): SecretMaterialResolveContext | undefined => {
@@ -154,37 +139,89 @@ const loadWorkspaceRecipeTools = (input: {
   workspaceId: Source["workspaceId"];
   accountId: AccountId;
   includeSchemas: boolean;
-}): Effect.Effect<readonly LoadedSourceRecipeTool[], Error, never> =>
-  Effect.gen(function* () {
-    const recipes = yield* loadWorkspaceSourceRecipes({
+}): Effect.Effect<readonly LoadedSourceRecipeToolIndexEntry[], Error, never> =>
+  Effect.map(
+    loadWorkspaceSourceRecipeToolIndex({
       rows: input.rows,
       workspaceId: input.workspaceId,
       actorAccountId: input.accountId,
-    });
-
-    return expandRecipeTools({
-      recipes: recipes.filter((recipe) =>
-        recipe.source.enabled && recipe.source.status === "connected"
-      ),
       includeSchemas: input.includeSchemas,
-    });
+    }),
+    (tools) =>
+      tools.filter(
+        (tool) => tool.source.enabled && tool.source.status === "connected",
+      ),
+  );
+
+const loadWorkspaceRecipeToolByPath = (input: {
+  rows: SqlControlPlaneRows;
+  workspaceId: Source["workspaceId"];
+  accountId: AccountId;
+  path: string;
+  includeSchemas: boolean;
+}): Effect.Effect<LoadedSourceRecipeToolIndexEntry | null, Error, never> =>
+  loadWorkspaceSourceRecipeToolByPath({
+    rows: input.rows,
+    workspaceId: input.workspaceId,
+    path: input.path,
+    actorAccountId: input.accountId,
+    includeSchemas: input.includeSchemas,
+  }).pipe(
+    Effect.map((tool) =>
+      tool && tool.source.enabled && tool.source.status === "connected"
+        ? tool
+        : null,
+    ),
+  );
+
+const loadWorkspaceSchemaBundle = (input: {
+  rows: SqlControlPlaneRows;
+  workspaceId: Source["workspaceId"];
+  id: SourceRecipeSchemaBundleId;
+}): Effect.Effect<ToolSchemaBundle | null, Error, never> =>
+  Effect.gen(function* () {
+    const bundle = yield* input.rows.sourceRecipeSchemaBundles.getById(
+      input.id,
+    );
+    if (Option.isNone(bundle)) {
+      return null;
+    }
+
+    const sourceRecords = yield* input.rows.sources.listByWorkspaceId(
+      input.workspaceId,
+    );
+    if (
+      !sourceRecords.some(
+        (sourceRecord) =>
+          sourceRecord.recipeRevisionId === bundle.value.recipeRevisionId,
+      )
+    ) {
+      return null;
+    }
+
+    return {
+      id: bundle.value.id,
+      kind: bundle.value.bundleKind,
+      hash: bundle.value.contentHash,
+      refsJson: bundle.value.refsJson,
+    };
   });
 
 const scoreRecipeTool = (
   queryTokens: readonly string[],
-  tool: LoadedSourceRecipeTool,
+  tool: LoadedSourceRecipeToolIndexEntry,
 ): number => {
   const pathText = tool.path.toLowerCase();
   const namespaceText = tool.searchNamespace.toLowerCase();
   const toolIdText = tool.operation.toolId.toLowerCase();
   const titleText = tool.operation.title?.toLowerCase() ?? "";
   const descriptionText = tool.operation.description?.toLowerCase() ?? "";
-  const templateText = tool.operation.openApiPathTemplate?.toLowerCase() ?? "";
+  const templateText = tool.metadata.pathTemplate?.toLowerCase() ?? "";
 
   const pathTokens = tokenize(`${tool.path} ${tool.operation.toolId}`);
   const namespaceTokens = tokenize(tool.searchNamespace);
   const titleTokens = tokenize(tool.operation.title ?? "");
-  const templateTokens = tokenize(tool.operation.openApiPathTemplate ?? "");
+  const templateTokens = tokenize(tool.metadata.pathTemplate ?? "");
 
   let score = 0;
   let structuralHits = 0;
@@ -220,7 +257,10 @@ const scoreRecipeTool = (
       continue;
     }
 
-    if (hasSubstringMatch(pathText, token) || hasSubstringMatch(toolIdText, token)) {
+    if (
+      hasSubstringMatch(pathText, token) ||
+      hasSubstringMatch(toolIdText, token)
+    ) {
       score += 6 * weight;
       structuralHits += 1;
       pathHits += 1;
@@ -234,7 +274,10 @@ const scoreRecipeTool = (
       continue;
     }
 
-    if (hasSubstringMatch(titleText, token) || hasSubstringMatch(templateText, token)) {
+    if (
+      hasSubstringMatch(titleText, token) ||
+      hasSubstringMatch(templateText, token)
+    ) {
       score += 4 * weight;
       structuralHits += 1;
       continue;
@@ -245,7 +288,9 @@ const scoreRecipeTool = (
     }
   }
 
-  const strongTokens = queryTokens.filter((token) => queryTokenWeight(token) >= 1);
+  const strongTokens = queryTokens.filter(
+    (token) => queryTokenWeight(token) >= 1,
+  );
   if (strongTokens.length >= 2) {
     for (let index = 0; index < strongTokens.length - 1; index += 1) {
       const current = strongTokens[index]!;
@@ -256,7 +301,12 @@ const scoreRecipeTool = (
         `${current}/${next}`,
       ];
 
-      if (phrases.some((phrase) => pathText.includes(phrase) || templateText.includes(phrase))) {
+      if (
+        phrases.some(
+          (phrase) =>
+            pathText.includes(phrase) || templateText.includes(phrase),
+        )
+      ) {
         score += 10;
       }
     }
@@ -285,39 +335,29 @@ const approvalSchema = {
   additionalProperties: false,
 } satisfies Record<string, unknown>;
 
-const approvalMessageForInvocation = (descriptor: InvocationDescriptor): string => {
-  if (descriptor.httpMethod && descriptor.httpPathTemplate) {
-    return `Allow ${descriptor.httpMethod.toUpperCase()} ${descriptor.httpPathTemplate}?`;
-  }
-
-  if (descriptor.graphqlOperationType) {
-    return `Allow GraphQL ${descriptor.graphqlOperationType} ${descriptor.toolPath}?`;
+const approvalMessageForInvocation = (
+  descriptor: InvocationDescriptor,
+): string => {
+  if (descriptor.approvalLabel) {
+    return `Allow ${descriptor.approvalLabel}?`;
   }
 
   return `Allow tool call: ${descriptor.toolPath}?`;
 };
 
-const toGraphqlInvocationOperationType = (
-  value: string | null,
-): InvocationDescriptor["graphqlOperationType"] =>
-  value === "query" || value === "mutation" || value === "subscription"
-    ? value
-    : null;
-
 const toInvocationDescriptorFromRecipeTool = (input: {
-  tool: LoadedSourceRecipeTool;
+  tool: LoadedSourceRecipeToolIndexEntry;
 }): InvocationDescriptor => ({
   toolPath: input.tool.path,
   sourceId: input.tool.source.id,
   sourceName: input.tool.source.name,
   sourceKind: input.tool.source.kind,
-  sourceNamespace: input.tool.source.namespace ?? namespaceFromSourceName(input.tool.source.name),
+  sourceNamespace:
+    input.tool.source.namespace ??
+    namespaceFromSourceName(input.tool.source.name),
   operationKind: input.tool.operation.operationKind,
-  httpMethod: input.tool.operation.openApiMethod?.toUpperCase() ?? null,
-  httpPathTemplate: input.tool.operation.openApiPathTemplate,
-  graphqlOperationType: toGraphqlInvocationOperationType(
-    input.tool.operation.graphqlOperationType,
-  ),
+  interaction: input.tool.metadata.interaction,
+  approvalLabel: input.tool.metadata.approvalLabel,
 });
 
 const authorizePersistedToolInvocation = (input: {
@@ -328,23 +368,29 @@ const authorizePersistedToolInvocation = (input: {
   args: unknown;
   source: Source;
   context?: Record<string, unknown>;
-  onElicitation?: Parameters<typeof makeToolInvokerFromTools>[0]["onElicitation"];
+  onElicitation?: Parameters<
+    typeof makeToolInvokerFromTools
+  >[0]["onElicitation"];
 }): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
-    const workspace = yield* input.rows.workspaces.getById(input.workspaceId).pipe(
-      Effect.mapError((cause) =>
-        cause instanceof Error ? cause : new Error(String(cause)),
-      ),
-    );
-    const policies = Option.isSome(workspace)
-      ? yield* input.rows.policies.listForWorkspaceContext({
-        organizationId: workspace.value.organizationId,
-        workspaceId: input.workspaceId,
-      }).pipe(
+    const workspace = yield* input.rows.workspaces
+      .getById(input.workspaceId)
+      .pipe(
         Effect.mapError((cause) =>
           cause instanceof Error ? cause : new Error(String(cause)),
         ),
-      )
+      );
+    const policies = Option.isSome(workspace)
+      ? yield* input.rows.policies
+          .listForWorkspaceContext({
+            organizationId: workspace.value.organizationId,
+            workspaceId: input.workspaceId,
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
+            ),
+          )
       : [];
 
     const decision = evaluateInvocationPolicy({
@@ -358,8 +404,8 @@ const authorizePersistedToolInvocation = (input: {
           : ("org_unknown" as never),
         accountId: input.accountId,
         clientId:
-          typeof input.context?.clientId === "string"
-            && input.context.clientId.length > 0
+          typeof input.context?.clientId === "string" &&
+          input.context.clientId.length > 0
             ? input.context.clientId
             : null,
       },
@@ -375,45 +421,52 @@ const authorizePersistedToolInvocation = (input: {
 
     if (!input.onElicitation) {
       return yield* Effect.fail(
-        new Error(`Approval required for ${input.descriptor.toolPath}, but no elicitation-capable host is available`),
+        new Error(
+          `Approval required for ${input.descriptor.toolPath}, but no elicitation-capable host is available`,
+        ),
       );
     }
 
-    const interactionId = typeof input.context?.callId === "string" && input.context.callId.length > 0
-      ? `tool_execution_gate:${input.context.callId}`
-      : `tool_execution_gate:${crypto.randomUUID()}`;
-    const response = yield* input.onElicitation({
-      interactionId,
-      path: asToolPath(input.descriptor.toolPath),
-      sourceKey: input.source.id,
-      args: input.args,
-      context: {
-        ...(input.context ?? {}),
-        interactionPurpose: "tool_execution_gate",
-        interactionReason: decision.reason,
-        invocationDescriptor: {
-          operationKind: input.descriptor.operationKind,
-          httpMethod: input.descriptor.httpMethod,
-          httpPathTemplate: input.descriptor.httpPathTemplate,
-          graphqlOperationType: input.descriptor.graphqlOperationType,
-          sourceId: input.source.id,
-          sourceName: input.source.name,
+    const interactionId =
+      typeof input.context?.callId === "string" &&
+      input.context.callId.length > 0
+        ? `tool_execution_gate:${input.context.callId}`
+        : `tool_execution_gate:${crypto.randomUUID()}`;
+    const response = yield* input
+      .onElicitation({
+        interactionId,
+        path: asToolPath(input.descriptor.toolPath),
+        sourceKey: input.source.id,
+        args: input.args,
+        context: {
+          ...(input.context ?? {}),
+          interactionPurpose: "tool_execution_gate",
+          interactionReason: decision.reason,
+          invocationDescriptor: {
+            operationKind: input.descriptor.operationKind,
+            interaction: input.descriptor.interaction,
+            approvalLabel: input.descriptor.approvalLabel,
+            sourceId: input.source.id,
+            sourceName: input.source.name,
+          },
         },
-      },
-      elicitation: {
-        mode: "form",
-        message: approvalMessageForInvocation(input.descriptor),
-        requestedSchema: approvalSchema,
-      },
-    }).pipe(
-      Effect.mapError((cause) =>
-        cause instanceof Error ? cause : new Error(String(cause)),
-      ),
-    );
+        elicitation: {
+          mode: "form",
+          message: approvalMessageForInvocation(input.descriptor),
+          requestedSchema: approvalSchema,
+        },
+      })
+      .pipe(
+        Effect.mapError((cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+        ),
+      );
 
     if (response.action !== "accept") {
       return yield* Effect.fail(
-        new Error(`Tool invocation not approved for ${input.descriptor.toolPath}`),
+        new Error(
+          `Tool invocation not approved for ${input.descriptor.toolPath}`,
+        ),
       );
     }
   });
@@ -450,7 +503,8 @@ const createWorkspaceToolCatalog = (input: {
           namespace: namespace.namespace,
           displayName: namespace.displayName ?? existing?.displayName,
           toolCount:
-            namespace.toolCount !== undefined || existing?.toolCount === undefined
+            namespace.toolCount !== undefined ||
+            existing?.toolCount === undefined
               ? namespace.toolCount
               : existing.toolCount,
         });
@@ -478,7 +532,9 @@ const createWorkspaceToolCatalog = (input: {
               if (!query) {
                 return true;
               }
-              return tokenize(query).every((token) => tool.searchText.includes(token));
+              return tokenize(query).every((token) =>
+                tool.searchText.includes(token),
+              );
             }),
           ),
         ),
@@ -490,10 +546,7 @@ const createWorkspaceToolCatalog = (input: {
         }),
       ]);
 
-      return [
-        ...recipeTools.map((tool) => tool.descriptor),
-        ...executor,
-      ]
+      return [...recipeTools.map((tool) => tool.descriptor), ...executor]
         .sort((left, right) => left.path.localeCompare(right.path))
         .slice(0, limit);
     }),
@@ -508,13 +561,21 @@ const createWorkspaceToolCatalog = (input: {
         return executor;
       }
 
-      const recipeTools = yield* loadWorkspaceRecipeTools({
+      const recipeTool = yield* loadWorkspaceRecipeToolByPath({
         rows: input.rows,
         workspaceId: input.workspaceId,
         accountId: input.accountId,
+        path,
         includeSchemas,
       });
-      return recipeTools.find((tool) => tool.path === path)?.descriptor ?? null;
+      return recipeTool?.descriptor ?? null;
+    }),
+
+  getSchemaBundle: ({ id }) =>
+    loadWorkspaceSchemaBundle({
+      rows: input.rows,
+      workspaceId: input.workspaceId,
+      id: SourceRecipeSchemaBundleIdSchema.make(id),
     }),
 
   searchTools: ({ query, namespace, limit }) =>
@@ -528,7 +589,9 @@ const createWorkspaceToolCatalog = (input: {
           includeSchemas: false,
         }).pipe(
           Effect.map((tools) =>
-            tools.filter((tool) => !namespace || tool.searchNamespace === namespace),
+            tools.filter(
+              (tool) => !namespace || tool.searchNamespace === namespace,
+            ),
           ),
         ),
         input.executorCatalog.searchTools({
@@ -546,8 +609,9 @@ const createWorkspaceToolCatalog = (input: {
         .filter((hit) => hit.score > 0);
 
       return [...recipeHits, ...executor]
-        .sort((left, right) =>
-          right.score - left.score || left.path.localeCompare(right.path),
+        .sort(
+          (left, right) =>
+            right.score - left.score || left.path.localeCompare(right.path),
         )
         .slice(0, limit);
     }),
@@ -559,11 +623,13 @@ const createWorkspaceToolInvoker = (input: {
   rows: SqlControlPlaneRows;
   resolveSecretMaterial: ResolveSecretMaterial;
   sourceAuthService: RuntimeSourceAuthService;
-  onElicitation?: Parameters<typeof makeToolInvokerFromTools>[0]["onElicitation"];
+  onElicitation?: Parameters<
+    typeof makeToolInvokerFromTools
+  >[0]["onElicitation"];
 }): {
   catalog: ToolCatalog;
   toolInvoker: ToolInvoker;
-  } => {
+} => {
   const executorTools = createExecutorToolMap({
     workspaceId: input.workspaceId,
     accountId: input.accountId,
@@ -596,15 +662,17 @@ const createWorkspaceToolInvoker = (input: {
     context?: Record<string, unknown>;
   }) =>
     Effect.gen(function* () {
-      const recipeTools = yield* loadWorkspaceRecipeTools({
+      const recipeTool = yield* loadWorkspaceRecipeToolByPath({
         rows: input.rows,
         workspaceId: input.workspaceId,
         accountId: input.accountId,
+        path: invocation.path,
         includeSchemas: false,
       });
-      const recipeTool = recipeTools.find((tool) => tool.path === invocation.path);
       if (!recipeTool) {
-        return yield* Effect.fail(new Error(`Unknown tool path: ${invocation.path}`));
+        return yield* Effect.fail(
+          new Error(`Unknown tool path: ${invocation.path}`),
+        );
       }
 
       yield* authorizePersistedToolInvocation({
@@ -623,94 +691,40 @@ const createWorkspaceToolInvoker = (input: {
         resolveSecretMaterial: input.resolveSecretMaterial,
         context: toSecretResolutionContext(invocation.context),
       });
-
-      if (recipeTool.operation.providerKind === "openapi") {
-        if (recipeTool.manifest === null) {
-          return yield* Effect.fail(
-            new Error(`Missing OpenAPI manifest for ${recipeTool.source.id}`),
-          );
-        }
-
-        const tools = createOpenApiToolsFromManifest({
-          manifest: recipeTool.manifest as OpenApiToolManifest,
-          baseUrl: recipeTool.source.endpoint,
-          namespace: recipeTool.source.namespace ?? namespaceFromSourceName(recipeTool.source.name),
-          sourceKey: recipeTool.source.id,
-          defaultHeaders: recipeTool.source.defaultHeaders ?? {},
-          credentialHeaders: auth.headers,
-        });
-
-        return yield* makeToolInvokerFromTools({
-          tools,
-          onElicitation: input.onElicitation,
-        }).invoke({
-          path: invocation.path,
-          args: invocation.args,
-          context: invocation.context,
-        });
-      }
-
-      if (recipeTool.operation.providerKind === "graphql") {
-        if (recipeTool.manifest === null) {
-          return yield* Effect.fail(
-            new Error(`Missing GraphQL manifest for ${recipeTool.source.id}`),
-          );
-        }
-
-        const tools = createGraphqlToolsFromManifest({
-          manifest: recipeTool.manifest as GraphqlToolManifest,
-          endpoint: recipeTool.source.endpoint,
-          namespace: recipeTool.source.namespace ?? namespaceFromSourceName(recipeTool.source.name),
-          sourceKey: recipeTool.source.id,
-          defaultHeaders: recipeTool.source.defaultHeaders ?? {},
-          credentialHeaders: auth.headers,
-        });
-
-        return yield* makeToolInvokerFromTools({
-          tools,
-          onElicitation: input.onElicitation,
-        }).invoke({
-          path: invocation.path,
-          args: invocation.args,
-          context: invocation.context,
-        });
-      }
-
-      if (recipeTool.operation.providerKind === "mcp") {
-        if (recipeTool.manifest === null) {
-          return yield* Effect.fail(
-            new Error(`Missing MCP manifest for ${recipeTool.source.id}`),
-          );
-        }
-
-        const tools = createMcpToolsFromManifest({
-          manifest: recipeTool.manifest as McpToolManifest,
-          connect: createSdkMcpConnector({
-            endpoint: recipeTool.source.endpoint,
-            transport: recipeTool.source.transport ?? undefined,
-            queryParams: recipeTool.source.queryParams ?? undefined,
-            headers: {
-              ...(recipeTool.source.headers ?? {}),
-              ...auth.headers,
-            },
-          }),
-          namespace: recipeTool.source.namespace ?? namespaceFromSourceName(recipeTool.source.name),
-          sourceKey: recipeTool.source.id,
-        });
-
-        return yield* makeToolInvokerFromTools({
-          tools,
-          onElicitation: input.onElicitation,
-        }).invoke({
-          path: invocation.path,
-          args: invocation.args,
-          context: invocation.context,
-        });
-      }
-
-      return yield* Effect.fail(
-        new Error(`Unsupported stored tool provider for ${invocation.path}`),
+      const schemaBundle = recipeTool.schemaBundleId
+        ? yield* loadWorkspaceSchemaBundle({
+            rows: input.rows,
+            workspaceId: input.workspaceId,
+            id: SourceRecipeSchemaBundleIdSchema.make(recipeTool.schemaBundleId),
+          })
+        : null;
+      const sourceRecord = yield* input.rows.sources.getByWorkspaceAndId(
+        input.workspaceId,
+        recipeTool.source.id,
       );
+      let manifestJson: string | null = null;
+      if (Option.isSome(sourceRecord)) {
+        const revision = yield* input.rows.sourceRecipeRevisions.getById(
+          sourceRecord.value.recipeRevisionId,
+        );
+        manifestJson = Option.isSome(revision) ? revision.value.manifestJson : null;
+      }
+
+      return yield* getSourceAdapterForOperation(recipeTool.operation)
+        .invokePersistedTool({
+          rows: input.rows,
+          workspaceId: input.workspaceId,
+          accountId: input.accountId,
+          source: recipeTool.source,
+          path: invocation.path,
+          operation: recipeTool.operation,
+          schemaBundle,
+          manifestJson,
+          auth,
+          args: invocation.args,
+          context: invocation.context,
+          onElicitation: input.onElicitation,
+        });
     });
 
   return {
@@ -732,8 +746,8 @@ export const createWorkspaceExecutionEnvironmentResolver = (input: {
   sourceAuthService: RuntimeSourceAuthService;
 }): ResolveExecutionEnvironment => {
   const resolveSecretMaterial =
-    input.resolveSecretMaterial
-    ?? createDefaultSecretMaterialResolver({
+    input.resolveSecretMaterial ??
+    createDefaultSecretMaterialResolver({
       rows: input.rows,
     });
 
@@ -765,25 +779,26 @@ export class RuntimeExecutionResolverService extends Context.Tag(
 )<
   RuntimeExecutionResolverService,
   ReturnType<typeof createWorkspaceExecutionEnvironmentResolver>
->() {
-}
+>() {}
 
-export const RuntimeExecutionResolverLive = (input: {
-  executionResolver?: ResolveExecutionEnvironment;
-  resolveSecretMaterial?: ResolveSecretMaterial;
-} = {}) =>
+export const RuntimeExecutionResolverLive = (
+  input: {
+    executionResolver?: ResolveExecutionEnvironment;
+    resolveSecretMaterial?: ResolveSecretMaterial;
+  } = {},
+) =>
   input.executionResolver
     ? Layer.succeed(RuntimeExecutionResolverService, input.executionResolver)
     : Layer.effect(
-      RuntimeExecutionResolverService,
-      Effect.gen(function* () {
-        const rows = yield* SqlControlPlaneRowsService;
-        const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
+        RuntimeExecutionResolverService,
+        Effect.gen(function* () {
+          const rows = yield* SqlControlPlaneRowsService;
+          const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
 
-        return createWorkspaceExecutionEnvironmentResolver({
-          rows,
-          sourceAuthService,
-          resolveSecretMaterial: input.resolveSecretMaterial,
-        });
-      }),
-    );
+          return createWorkspaceExecutionEnvironmentResolver({
+            rows,
+            sourceAuthService,
+            resolveSecretMaterial: input.resolveSecretMaterial,
+          });
+        }),
+      );

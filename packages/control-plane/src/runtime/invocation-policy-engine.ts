@@ -18,9 +18,8 @@ export type InvocationDescriptor = {
   sourceKind: Source["kind"];
   sourceNamespace: string | null;
   operationKind: InvocationOperationKind;
-  httpMethod: string | null;
-  httpPathTemplate: string | null;
-  graphqlOperationType: "query" | "mutation" | "subscription" | null;
+  interaction: "auto" | "required";
+  approvalLabel: string | null;
 };
 
 export type InvocationPolicyContext = {
@@ -223,42 +222,17 @@ const policySpecificity = (
 const defaultDecisionForInvocation = (
   descriptor: InvocationDescriptor,
 ): InvocationAuthorizationDecision => {
-  if (descriptor.sourceKind === "openapi") {
-    const method = descriptor.httpMethod?.toUpperCase() ?? null;
-    if (method === "GET" || method === "HEAD") {
-      return {
-        kind: "allow",
-        reason: `${method} defaults to allow`,
-        matchedPolicyId: null,
-      };
-    }
-
+  if (descriptor.interaction === "auto") {
     return {
-      kind: "require_interaction",
-      reason: `${method ?? "unknown HTTP method"} defaults to approval`,
-      matchedPolicyId: null,
-    };
-  }
-
-  if (descriptor.sourceKind === "graphql") {
-    if (descriptor.graphqlOperationType === "query") {
-      return {
-        kind: "allow",
-        reason: "GraphQL query defaults to allow",
-        matchedPolicyId: null,
-      };
-    }
-
-    return {
-      kind: "require_interaction",
-      reason: `${descriptor.graphqlOperationType ?? "Unknown GraphQL operation"} defaults to approval`,
+      kind: "allow",
+      reason: `${descriptor.approvalLabel ?? descriptor.toolPath} defaults to allow`,
       matchedPolicyId: null,
     };
   }
 
   return {
-    kind: "allow",
-    reason: "No invocation-specific approval required by default",
+    kind: "require_interaction",
+    reason: `${descriptor.approvalLabel ?? descriptor.toolPath} defaults to approval`,
     matchedPolicyId: null,
   };
 };

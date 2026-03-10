@@ -74,6 +74,7 @@ export const createSourceAuthSessionsRepo = (
     workspaceId: SourceAuthSession["workspaceId"];
     sourceId: SourceAuthSession["sourceId"];
     actorAccountId: SourceAuthSession["actorAccountId"];
+    credentialSlot?: SourceAuthSession["credentialSlot"];
   }) =>
     client.use(
       "rows.source_auth_sessions.get_pending_by_workspace_source_actor",
@@ -85,6 +86,9 @@ export const createSourceAuthSessionsRepo = (
             and(
               eq(tables.sourceAuthSessionsTable.workspaceId, input.workspaceId),
               eq(tables.sourceAuthSessionsTable.sourceId, input.sourceId),
+              input.credentialSlot === undefined
+                ? undefined
+                : eq(tables.sourceAuthSessionsTable.credentialSlot, input.credentialSlot),
               input.actorAccountId === null
                 ? isNull(tables.sourceAuthSessionsTable.actorAccountId)
                 : eq(tables.sourceAuthSessionsTable.actorAccountId, input.actorAccountId),

@@ -16,7 +16,7 @@ import {
   stableSourceRecipeRevisionId,
   updateSourceFromPayload,
 } from "./source-definitions";
-import { namespaceFromSourceName } from "./tool-artifacts";
+import { namespaceFromSourceName } from "./source-names";
 
 const makeSource = (overrides: Partial<Source> = {}): Source => ({
   id: SourceIdSchema.make("src_source_definitions"),
@@ -32,6 +32,8 @@ const makeSource = (overrides: Partial<Source> = {}): Source => ({
   headers: null,
   specUrl: "https://api.github.com/openapi.json",
   defaultHeaders: null,
+  importAuthPolicy: "reuse_runtime",
+  importAuth: { kind: "none" },
   auth: { kind: "none" },
   sourceHash: null,
   lastError: null,
@@ -276,7 +278,7 @@ describe("source-definitions", () => {
           },
         } as never,
         now: 1234,
-      }))).rejects.toThrow("internal sources cannot define OpenAPI settings");
+      }))).rejects.toThrow("internal sources cannot define HTTP source settings");
     });
 
     it("normalizes new auth during updates", async () => {
@@ -313,9 +315,12 @@ describe("source-definitions", () => {
   describe("storage roundtrip", () => {
     it("roundtrips bearer auth and serialized maps", async () => {
       const source = makeSource({
+        kind: "mcp",
+        specUrl: null,
+        defaultHeaders: null,
+        transport: "auto",
         queryParams: { page: "1" },
         headers: { "x-api-key": "secret" },
-        defaultHeaders: { accept: "application/json" },
         auth: {
           kind: "bearer",
           headerName: "Authorization",
@@ -330,21 +335,25 @@ describe("source-definitions", () => {
       const recipeRevisionId = stableSourceRecipeRevisionId(source);
       const existingCredentialId = CredentialIdSchema.make("cred_existing");
 
-      const { sourceRecord, credential } = splitSourceForStorage({
+      const { sourceRecord, runtimeCredential } = splitSourceForStorage({
         source,
         recipeId,
         recipeRevisionId,
-        existingCredentialId,
+        existingRuntimeCredentialId: existingCredentialId,
       });
 
-      expect(credential?.id).toBe(existingCredentialId);
-      expect(sourceRecord.queryParamsJson).toBe(JSON.stringify(source.queryParams));
-      expect(sourceRecord.headersJson).toBe(JSON.stringify(source.headers));
-      expect(sourceRecord.defaultHeadersJson).toBe(JSON.stringify(source.defaultHeaders));
+      expect(runtimeCredential?.id).toBe(existingCredentialId);
+      expect(JSON.parse(sourceRecord.bindingConfigJson ?? "{}")).toEqual({
+        adapterKey: "mcp",
+        transport: source.transport,
+        queryParams: source.queryParams,
+        headers: source.headers,
+      });
 
       const projected = await Effect.runPromise(projectSourceFromStorage({
         sourceRecord,
-        credential: credential ?? null,
+        runtimeCredential: runtimeCredential ?? null,
+        importCredential: null,
       }));
 
       expect(projected).toEqual(source);
@@ -389,14 +398,15 @@ describe("source-definitions", () => {
       });
 
       for (const source of [withRefresh, withoutRefresh]) {
-        const { sourceRecord, credential } = splitSourceForStorage({
+        const { sourceRecord, runtimeCredential } = splitSourceForStorage({
           source,
           recipeId: stableSourceRecipeId(source),
           recipeRevisionId: stableSourceRecipeRevisionId(source),
         });
         const projected = await Effect.runPromise(projectSourceFromStorage({
           sourceRecord,
-          credential: credential ?? null,
+          runtimeCredential: runtimeCredential ?? null,
+          importCredential: null,
         }));
 
         expect(projected).toEqual(source);
@@ -407,17 +417,18 @@ describe("source-definitions", () => {
       const source = makeSource({
         auth: { kind: "none" },
       });
-      const { sourceRecord, credential } = splitSourceForStorage({
+      const { sourceRecord, runtimeCredential } = splitSourceForStorage({
         source,
         recipeId: stableSourceRecipeId(source),
         recipeRevisionId: stableSourceRecipeRevisionId(source),
       });
 
-      expect(credential).toBeNull();
+      expect(runtimeCredential).toBeNull();
 
       const projected = await Effect.runPromise(projectSourceFromStorage({
         sourceRecord,
-        credential: null,
+        runtimeCredential: null,
+        importCredential: null,
       }));
 
       expect(projected.auth).toEqual({ kind: "none" });

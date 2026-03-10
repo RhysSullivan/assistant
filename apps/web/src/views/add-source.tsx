@@ -217,7 +217,7 @@ const defaultConnectForm = (discovery?: SourceDiscoveryResult): ConnectFormState
 
 const connectFormFromTemplate = (template: SourceTemplate): ConnectFormState => ({
   ...defaultConnectForm(),
-  kind: template.kind,
+  kind: template.kind as ConnectFormState["kind"],
   endpoint: template.endpoint,
   specUrl: "specUrl" in template ? template.specUrl : "",
   name: template.name,

@@ -11,6 +11,9 @@ export const SourceRecipeIdSchema = Schema.String.pipe(Schema.brand("SourceRecip
 export const SourceRecipeRevisionIdSchema = Schema.String.pipe(
   Schema.brand("SourceRecipeRevisionId"),
 );
+export const SourceRecipeSchemaBundleIdSchema = Schema.String.pipe(
+  Schema.brand("SourceRecipeSchemaBundleId"),
+);
 export const SourceAuthSessionIdSchema = Schema.String.pipe(
   Schema.brand("SourceAuthSessionId"),
 );
@@ -37,6 +40,7 @@ export type WorkspaceId = typeof WorkspaceIdSchema.Type;
 export type SourceId = typeof SourceIdSchema.Type;
 export type SourceRecipeId = typeof SourceRecipeIdSchema.Type;
 export type SourceRecipeRevisionId = typeof SourceRecipeRevisionIdSchema.Type;
+export type SourceRecipeSchemaBundleId = typeof SourceRecipeSchemaBundleIdSchema.Type;
 export type SourceAuthSessionId = typeof SourceAuthSessionIdSchema.Type;
 export type CredentialId = typeof CredentialIdSchema.Type;
 export type WorkspaceSourceOauthClientId = typeof WorkspaceSourceOauthClientIdSchema.Type;

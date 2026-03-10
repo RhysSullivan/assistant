@@ -11,6 +11,7 @@ import {
   SourceAuthSessionIdSchema,
   SourceIdSchema,
   SourceRecipeIdSchema,
+  SourceRecipeSchemaBundleIdSchema,
   SourceRecipeRevisionIdSchema,
   WorkspaceIdSchema,
 } from "#schema";
@@ -38,6 +39,35 @@ const makePersistence: Effect.Effect<SqlControlPlanePersistence, unknown, Scope.
   );
 
 const encodeSessionDataJson = Schema.encodeSync(McpSourceAuthSessionDataJsonSchema);
+
+const openApiBindingConfigJson = (specUrl: string): string =>
+  JSON.stringify({
+    adapterKey: "openapi",
+    specUrl,
+    defaultHeaders: null,
+  });
+
+const baseRevisionRecord = (input: {
+  id: ReturnType<typeof SourceRecipeRevisionIdSchema.make>;
+  recipeId: ReturnType<typeof SourceRecipeIdSchema.make>;
+  revisionNumber: number;
+  sourceConfigJson: string;
+  manifestJson?: string | null;
+  manifestHash?: string | null;
+  materializationHash?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}) => ({
+  id: input.id,
+  recipeId: input.recipeId,
+  revisionNumber: input.revisionNumber,
+  sourceConfigJson: input.sourceConfigJson,
+  manifestJson: input.manifestJson ?? null,
+  manifestHash: input.manifestHash ?? null,
+  materializationHash: input.materializationHash ?? null,
+  createdAt: input.createdAt,
+  updatedAt: input.updatedAt,
+});
 
 const seedWorkspaceSourceState = (input: {
   persistence: SqlControlPlanePersistence;
@@ -68,6 +98,33 @@ const seedWorkspaceSourceState = (input: {
       createdAt: now,
       updatedAt: now,
     });
+    yield* input.persistence.rows.sourceRecipes.upsert({
+      id: recipeId,
+      kind: "http_api",
+      importerKind: "openapi",
+      providerKey: "openapi:https://api.github.com",
+      name: "Github",
+      summary: null,
+      visibility: "workspace",
+      latestRevisionId: recipeRevisionId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    yield* input.persistence.rows.sourceRecipeRevisions.upsert(baseRevisionRecord({
+      id: recipeRevisionId,
+      recipeId,
+      revisionNumber: 1,
+      sourceConfigJson: JSON.stringify({
+        kind: "openapi",
+        endpoint: "https://api.github.com",
+        specUrl: "https://api.github.com/openapi.json",
+      }),
+      manifestJson: null,
+      manifestHash: null,
+      materializationHash: null,
+      createdAt: now,
+      updatedAt: now,
+    }));
     yield* input.persistence.rows.sources.insert({
       id: input.sourceId,
       workspaceId: input.workspaceId,
@@ -79,14 +136,9 @@ const seedWorkspaceSourceState = (input: {
       status: "connected",
       enabled: true,
       namespace: "github",
-      transport: null,
-      bindingConfigJson: null,
-      queryParamsJson: null,
-      headersJson: null,
-      specUrl: "https://api.github.com/openapi.json",
-      defaultHeadersJson: null,
+      importAuthPolicy: "reuse_runtime",
+      bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
       sourceHash: null,
-      sourceDocumentText: null,
       lastError: null,
       createdAt: now,
       updatedAt: now,
@@ -131,6 +183,7 @@ const seedWorkspaceCredentialState = (input: {
       workspaceId: input.workspaceId,
       sourceId: input.sourceId,
       actorAccountId: input.accountId,
+      slot: "runtime",
       authKind: "oauth2",
       authHeaderName: "Authorization",
       authPrefix: "Bearer ",
@@ -149,6 +202,7 @@ const seedWorkspaceCredentialState = (input: {
       executionId: null,
       interactionId: null,
       providerKind: "mcp_oauth",
+      credentialSlot: "runtime",
       status: "pending",
       state: `state_${input.workspaceId}`,
       sessionDataJson: encodeSessionDataJson({
@@ -212,14 +266,9 @@ describe("control-plane-persistence-drizzle", () => {
         status: "draft",
         enabled: true,
         namespace: "github",
-        transport: null,
-        bindingConfigJson: null,
-        queryParamsJson: null,
-        headersJson: null,
-        specUrl: "https://api.github.com/openapi.json",
-        defaultHeadersJson: null,
+        importAuthPolicy: "reuse_runtime",
+        bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
         sourceHash: null,
-        sourceDocumentText: null,
         lastError: null,
         createdAt: now,
         updatedAt: now,
@@ -302,6 +351,94 @@ describe("control-plane-persistence-drizzle", () => {
     }),
   );
 
+  it.scoped("batches large recipe operation replacement inserts", () =>
+    Effect.gen(function* () {
+      const persistence = yield* makePersistence;
+      const now = Date.now();
+      const recipeId = SourceRecipeIdSchema.make("src_recipe_bulk_ops");
+      const recipeRevisionId = SourceRecipeRevisionIdSchema.make("src_recipe_rev_bulk_ops");
+      const operationCount = 3_000;
+
+      yield* persistence.rows.sourceRecipes.upsert({
+        id: recipeId,
+        kind: "http_api",
+        importerKind: "openapi",
+        providerKey: "openapi:https://api.cloudflare.com/client/v4",
+        name: "Cloudflare API",
+        summary: null,
+        visibility: "private",
+        latestRevisionId: recipeRevisionId,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      yield* persistence.rows.sourceRecipeRevisions.upsert(baseRevisionRecord({
+        id: recipeRevisionId,
+        recipeId,
+        revisionNumber: 1,
+        sourceConfigJson: JSON.stringify({
+          endpoint: "https://api.cloudflare.com/client/v4",
+          specUrl:
+            "https://raw.githubusercontent.com/cloudflare/api-schemas/refs/heads/main/openapi.json",
+        }),
+        manifestHash: null,
+        manifestJson: null,
+        materializationHash: null,
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+      yield* persistence.rows.sourceRecipeOperations.replaceForRevision({
+        recipeRevisionId,
+        operations: Array.from({ length: operationCount }, (_, index) => ({
+          id: `src_recipe_op_${index}`,
+          recipeRevisionId,
+          operationKey: `zones.get${index}`,
+          transportKind: "http" as const,
+          toolId: `zones.get${index}`,
+          title: `Get zone ${index}`,
+          description: `Operation ${index}`,
+          operationKind: "read" as const,
+          searchText: `zones get ${index}`,
+          inputSchemaJson: null,
+          outputSchemaJson: null,
+          providerKind: "openapi" as const,
+          providerDataJson: JSON.stringify({
+            kind: "openapi",
+            toolId: `zones.get${index}`,
+            rawToolId: `getZone${index}`,
+            operationId: `getZone${index}`,
+            group: "zones",
+            leaf: `get${index}`,
+            tags: ["zones"],
+            method: "get",
+            path: `/zones/${index}`,
+            operationHash: `hash_${index}`,
+            invocation: {
+              method: "get",
+              pathTemplate: `/zones/${index}`,
+              parameters: [],
+              requestBody: null,
+            },
+          }),
+          createdAt: now,
+          updatedAt: now,
+        })),
+      });
+
+      const operations = yield* persistence.rows.sourceRecipeOperations.listByRevisionId(
+        recipeRevisionId,
+      );
+      expect(operations).toHaveLength(operationCount);
+      expect(operations.some((operation) => operation.toolId === "zones.get0")).toBe(true);
+      expect(
+        operations.some(
+          (operation) => operation.toolId === `zones.get${operationCount - 1}`,
+        ),
+      ).toBe(true);
+    }),
+  );
+
   it.scoped("deduplicates null-actor credentials and returns actor/shared matches", () =>
     Effect.gen(function* () {
       const persistence = yield* makePersistence;
@@ -329,6 +466,7 @@ describe("control-plane-persistence-drizzle", () => {
             workspaceId,
             sourceId,
             actorAccountId: null,
+            slot: "runtime",
             authKind: "bearer",
             authHeaderName: "Authorization",
             authPrefix: "Bearer ",
@@ -344,6 +482,7 @@ describe("control-plane-persistence-drizzle", () => {
             workspaceId,
             sourceId,
             actorAccountId: null,
+            slot: "runtime",
             authKind: "bearer",
             authHeaderName: "Authorization",
             authPrefix: "Bearer ",
@@ -362,6 +501,7 @@ describe("control-plane-persistence-drizzle", () => {
         workspaceId,
         sourceId,
         actorAccountId: null,
+        slot: "runtime",
         authKind: "oauth2",
         authHeaderName: "X-Auth",
         authPrefix: "Token ",
@@ -378,6 +518,7 @@ describe("control-plane-persistence-drizzle", () => {
         workspaceId,
         sourceId,
         actorAccountId: accountId,
+        slot: "runtime",
         authKind: "bearer",
         authHeaderName: "Authorization",
         authPrefix: "Bearer ",
@@ -418,6 +559,7 @@ describe("control-plane-persistence-drizzle", () => {
         workspaceId,
         sourceId,
         actorAccountId: null,
+        slot: "runtime",
       });
       assertTrue(Option.isSome(nullActorOnly));
       if (Option.isSome(nullActorOnly)) {
@@ -428,6 +570,7 @@ describe("control-plane-persistence-drizzle", () => {
         workspaceId,
         sourceId,
         actorAccountId: AccountIdSchema.make("acc_missing_credentials"),
+        slot: "runtime",
       });
       expect(Option.isNone(missingActor)).toBe(true);
     }),
@@ -440,6 +583,7 @@ describe("control-plane-persistence-drizzle", () => {
       const organizationId = OrganizationIdSchema.make("org_ws_cleanup");
       const workspaceId = WorkspaceIdSchema.make("ws_cleanup");
       const sourceId = SourceIdSchema.make("src_ws_cleanup");
+      const recipeRevisionId = SourceRecipeRevisionIdSchema.make(`src_recipe_rev_${sourceId}`);
 
       const { tokenId, refreshId } = yield* seedWorkspaceCredentialState({
         persistence,
@@ -448,14 +592,292 @@ describe("control-plane-persistence-drizzle", () => {
         workspaceId,
         sourceId,
       });
+      yield* persistence.rows.sourceRecipeDocuments.replaceForRevision({
+        recipeRevisionId,
+        documents: [
+          {
+            id: "src_recipe_doc_ws_cleanup",
+            recipeRevisionId,
+            documentKind: "openapi",
+            documentKey: "https://api.github.com/openapi.json",
+            contentText: "{\"openapi\":\"3.1.0\"}",
+            contentHash: "doc_hash_ws_cleanup",
+            fetchedAt: null,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+      });
+      yield* persistence.rows.sourceRecipeSchemaBundles.replaceForRevision({
+        recipeRevisionId,
+        bundles: [
+          {
+            id: SourceRecipeSchemaBundleIdSchema.make("src_recipe_bundle_ws_cleanup"),
+            recipeRevisionId,
+            bundleKind: "json_schema_ref_map",
+            refsJson: "{}",
+            contentHash: "bundle_hash_ws_cleanup",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+      });
+      yield* persistence.rows.sourceRecipeOperations.replaceForRevision({
+        recipeRevisionId,
+        operations: [
+          {
+            id: "src_recipe_op_ws_cleanup",
+            recipeRevisionId,
+            operationKey: "users.getAuthenticated",
+            transportKind: "http",
+            toolId: "users.getAuthenticated",
+            title: "Get authenticated user",
+            description: null,
+            operationKind: "read",
+            searchText: "users get authenticated",
+            inputSchemaJson: null,
+            outputSchemaJson: null,
+            providerKind: "openapi",
+            providerDataJson: JSON.stringify({
+              kind: "openapi",
+              toolId: "users.getAuthenticated",
+              rawToolId: "users.getAuthenticated",
+              operationId: "users.getAuthenticated",
+              group: "users",
+              leaf: "getAuthenticated",
+              tags: ["users"],
+              method: "get",
+              path: "/user",
+              operationHash: "op_hash_ws_cleanup",
+              invocation: {
+                method: "get",
+                pathTemplate: "/user",
+                pathParameterOrder: [],
+                serverUrl: "https://api.github.com",
+                parameters: [],
+                requestBody: null,
+              },
+            }),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+      });
 
       const removed = yield* persistence.rows.workspaces.removeById(workspaceId);
       expect(removed).toBe(true);
       expect(Option.isNone(yield* persistence.rows.workspaces.getById(workspaceId))).toBe(true);
       expect(yield* persistence.rows.credentials.listByWorkspaceId(workspaceId)).toHaveLength(0);
       expect(yield* persistence.rows.sourceAuthSessions.listByWorkspaceId(workspaceId)).toHaveLength(0);
+      expect(
+        yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(recipeRevisionId),
+      ).toHaveLength(0);
+      expect(
+        yield* persistence.rows.sourceRecipeSchemaBundles.listByRevisionId(recipeRevisionId),
+      ).toHaveLength(0);
+      expect(
+        yield* persistence.rows.sourceRecipeOperations.listByRevisionId(recipeRevisionId),
+      ).toHaveLength(0);
       expect(Option.isNone(yield* persistence.rows.secretMaterials.getById(tokenId))).toBe(true);
       expect(Option.isNone(yield* persistence.rows.secretMaterials.getById(refreshId))).toBe(true);
+    }),
+  );
+
+  it.scoped("deleting a workspace retains shared recipe data still referenced elsewhere", () =>
+    Effect.gen(function* () {
+      const persistence = yield* makePersistence;
+      const now = Date.now();
+      const accountId = AccountIdSchema.make("acc_shared_recipe");
+      const organizationId = OrganizationIdSchema.make("org_shared_recipe");
+      const removedWorkspaceId = WorkspaceIdSchema.make("ws_shared_removed");
+      const remainingWorkspaceId = WorkspaceIdSchema.make("ws_shared_remaining");
+      const sharedRecipeId = SourceRecipeIdSchema.make("src_recipe_shared_workspace");
+      const sharedRecipeRevisionId = SourceRecipeRevisionIdSchema.make(
+        "src_recipe_rev_shared_workspace",
+      );
+
+      yield* persistence.rows.organizations.insert({
+        id: organizationId,
+        slug: "org-shared-recipe",
+        name: "Org Shared Recipe",
+        status: "active",
+        createdByAccountId: accountId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* persistence.rows.workspaces.insert({
+        id: removedWorkspaceId,
+        organizationId,
+        name: "Workspace Removed",
+        createdByAccountId: accountId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* persistence.rows.workspaces.insert({
+        id: remainingWorkspaceId,
+        organizationId,
+        name: "Workspace Remaining",
+        createdByAccountId: accountId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* persistence.rows.sourceRecipes.upsert({
+        id: sharedRecipeId,
+        kind: "http_api",
+        importerKind: "openapi",
+        providerKey: "openapi:https://api.github.com",
+        name: "Github",
+        summary: null,
+        visibility: "workspace",
+        latestRevisionId: sharedRecipeRevisionId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* persistence.rows.sourceRecipeRevisions.upsert(baseRevisionRecord({
+        id: sharedRecipeRevisionId,
+        recipeId: sharedRecipeId,
+        revisionNumber: 1,
+        sourceConfigJson: JSON.stringify({
+          kind: "openapi",
+          endpoint: "https://api.github.com",
+          specUrl: "https://api.github.com/openapi.json",
+        }),
+        manifestJson: null,
+        manifestHash: null,
+        materializationHash: null,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      yield* persistence.rows.sourceRecipeDocuments.replaceForRevision({
+        recipeRevisionId: sharedRecipeRevisionId,
+        documents: [
+          {
+            id: "src_recipe_doc_shared_workspace",
+            recipeRevisionId: sharedRecipeRevisionId,
+            documentKind: "openapi",
+            documentKey: "https://api.github.com/openapi.json",
+            contentText: "{\"openapi\":\"3.1.0\"}",
+            contentHash: "doc_hash_shared_workspace",
+            fetchedAt: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      });
+      yield* persistence.rows.sourceRecipeSchemaBundles.replaceForRevision({
+        recipeRevisionId: sharedRecipeRevisionId,
+        bundles: [
+          {
+            id: SourceRecipeSchemaBundleIdSchema.make("src_recipe_bundle_shared_workspace"),
+            recipeRevisionId: sharedRecipeRevisionId,
+            bundleKind: "json_schema_ref_map",
+            refsJson: "{}",
+            contentHash: "bundle_hash_shared_workspace",
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      });
+      yield* persistence.rows.sourceRecipeOperations.replaceForRevision({
+        recipeRevisionId: sharedRecipeRevisionId,
+        operations: [
+          {
+            id: "src_recipe_op_shared_workspace",
+            recipeRevisionId: sharedRecipeRevisionId,
+            operationKey: "users.getAuthenticated",
+            transportKind: "http",
+            toolId: "users.getAuthenticated",
+            title: "Get authenticated user",
+            description: null,
+            operationKind: "read",
+            searchText: "users get authenticated",
+            inputSchemaJson: null,
+            outputSchemaJson: null,
+            providerKind: "openapi",
+            providerDataJson: JSON.stringify({
+              kind: "openapi",
+              toolId: "users.getAuthenticated",
+              rawToolId: "users.getAuthenticated",
+              operationId: "users.getAuthenticated",
+              group: "users",
+              leaf: "getAuthenticated",
+              tags: ["users"],
+              method: "get",
+              path: "/user",
+              operationHash: "op_hash_shared_workspace",
+              invocation: {
+                method: "get",
+                pathTemplate: "/user",
+                pathParameterOrder: [],
+                serverUrl: "https://api.github.com",
+                parameters: [],
+                requestBody: null,
+              },
+            }),
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      });
+      yield* persistence.rows.sources.insert({
+        id: SourceIdSchema.make("src_shared_removed"),
+        workspaceId: removedWorkspaceId,
+        recipeId: sharedRecipeId,
+        recipeRevisionId: sharedRecipeRevisionId,
+        name: "Github Removed",
+        kind: "openapi",
+        endpoint: "https://api.github.com",
+        status: "connected",
+        enabled: true,
+        namespace: "github",
+        importAuthPolicy: "reuse_runtime",
+        bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
+        sourceHash: null,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* persistence.rows.sources.insert({
+        id: SourceIdSchema.make("src_shared_remaining"),
+        workspaceId: remainingWorkspaceId,
+        recipeId: sharedRecipeId,
+        recipeRevisionId: sharedRecipeRevisionId,
+        name: "Github Remaining",
+        kind: "openapi",
+        endpoint: "https://api.github.com",
+        status: "connected",
+        enabled: true,
+        namespace: "github",
+        importAuthPolicy: "reuse_runtime",
+        bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
+        sourceHash: null,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const removed = yield* persistence.rows.workspaces.removeById(removedWorkspaceId);
+      expect(removed).toBe(true);
+      expect(Option.isNone(yield* persistence.rows.workspaces.getById(removedWorkspaceId))).toBe(true);
+      expect(Option.isSome(yield* persistence.rows.workspaces.getById(remainingWorkspaceId))).toBe(true);
+      expect(
+        yield* persistence.rows.sources.listByWorkspaceId(remainingWorkspaceId),
+      ).toHaveLength(1);
+      expect(
+        Option.isSome(yield* persistence.rows.sourceRecipes.getById(sharedRecipeId)),
+      ).toBe(true);
+      expect(
+        Option.isSome(yield* persistence.rows.sourceRecipeRevisions.getById(sharedRecipeRevisionId)),
+      ).toBe(true);
+      expect(
+        yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(sharedRecipeRevisionId),
+      ).toHaveLength(1);
+      expect(
+        yield* persistence.rows.sourceRecipeSchemaBundles.listByRevisionId(sharedRecipeRevisionId),
+      ).toHaveLength(1);
+      expect(
+        yield* persistence.rows.sourceRecipeOperations.listByRevisionId(sharedRecipeRevisionId),
+      ).toHaveLength(1);
     }),
   );
 

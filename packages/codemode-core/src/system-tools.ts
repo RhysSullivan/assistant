@@ -51,6 +51,7 @@ const catalogToolsOutputSchema = Schema.standardSchemaV1(
         outputType: Schema.optional(Schema.String),
         inputSchemaJson: Schema.optional(Schema.String),
         outputSchemaJson: Schema.optional(Schema.String),
+        schemaBundleId: Schema.optional(Schema.String),
         exampleInputJson: Schema.optional(Schema.String),
         exampleOutputJson: Schema.optional(Schema.String),
         providerKind: Schema.optional(Schema.String),
@@ -71,6 +72,23 @@ const describeToolOutputSchema = Schema.standardSchemaV1(
   Schema.NullOr(Schema.Unknown),
 );
 
+const describeSchemaBundleInputSchema = Schema.standardSchemaV1(
+  Schema.Struct({
+    id: Schema.String,
+  }),
+);
+
+const describeSchemaBundleOutputSchema = Schema.standardSchemaV1(
+  Schema.NullOr(
+    Schema.Struct({
+      id: Schema.String,
+      kind: Schema.String,
+      hash: Schema.String,
+      refsJson: Schema.String,
+    }),
+  ),
+);
+
 const discoverInputSchema = Schema.standardSchemaV1(
   Schema.Struct({
     query: Schema.String,
@@ -88,6 +106,7 @@ const discoverResultItemSchema = Schema.Struct({
   outputType: Schema.optional(Schema.String),
   inputSchemaJson: Schema.optional(Schema.String),
   outputSchemaJson: Schema.optional(Schema.String),
+  schemaBundleId: Schema.optional(Schema.String),
 });
 
 const discoverOutputSchema = Schema.standardSchemaV1(
@@ -174,6 +193,24 @@ export const createSystemToolMap = (
             primitives.describe!.tool({
               path: asToolPath(path),
               ...(includeSchemas !== undefined ? { includeSchemas } : {}),
+            }),
+          ),
+      },
+      metadata: {
+        sourceKey,
+        interaction: "auto",
+      },
+    });
+
+    tools["describe.schemaBundle"] = toTool({
+      tool: {
+        description: "Get a shared schema bundle by id",
+        inputSchema: describeSchemaBundleInputSchema,
+        outputSchema: describeSchemaBundleOutputSchema,
+        execute: ({ id }: { id: string }) =>
+          Effect.runPromise(
+            primitives.describe!.schemaBundle({
+              id,
             }),
           ),
       },

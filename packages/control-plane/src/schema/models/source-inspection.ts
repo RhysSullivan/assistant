@@ -1,4 +1,3 @@
-import { OpenApiHttpMethodSchema } from "@executor/codemode-openapi";
 import { Schema } from "effect";
 
 import { SourceSchema } from "./source";
@@ -21,10 +20,15 @@ export const SourceInspectionToolSummarySchema = Schema.Struct({
   group: Schema.NullOr(Schema.String),
   leaf: Schema.NullOr(Schema.String),
   tags: Schema.Array(Schema.String),
-  method: Schema.NullOr(OpenApiHttpMethodSchema),
+  method: Schema.NullOr(Schema.String),
   pathTemplate: Schema.NullOr(Schema.String),
   inputType: Schema.optional(Schema.String),
   outputType: Schema.optional(Schema.String),
+});
+
+export const SourceInspectionToolListItemSchema = Schema.Struct({
+  path: Schema.String,
+  method: Schema.NullOr(Schema.String),
 });
 
 export const SourceInspectionSchema = Schema.Struct({
@@ -32,10 +36,7 @@ export const SourceInspectionSchema = Schema.Struct({
   namespace: Schema.String,
   pipelineKind: SourceInspectionPipelineKindSchema,
   toolCount: Schema.Number,
-  rawDocumentText: Schema.NullOr(Schema.String),
-  manifestJson: Schema.NullOr(Schema.String),
-  definitionsJson: Schema.NullOr(Schema.String),
-  tools: Schema.Array(SourceInspectionToolSummarySchema),
+  tools: Schema.Array(SourceInspectionToolListItemSchema),
 });
 
 export const SourceInspectionToolDetailSchema = Schema.Struct({
@@ -45,8 +46,16 @@ export const SourceInspectionToolDetailSchema = Schema.Struct({
   providerDataJson: Schema.NullOr(Schema.String),
   inputSchemaJson: Schema.NullOr(Schema.String),
   outputSchemaJson: Schema.NullOr(Schema.String),
+  schemaBundleId: Schema.NullOr(Schema.String),
   exampleInputJson: Schema.NullOr(Schema.String),
   exampleOutputJson: Schema.NullOr(Schema.String),
+});
+
+export const SourceInspectionSchemaBundleSchema = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.String,
+  hash: Schema.String,
+  refsJson: Schema.String,
 });
 
 export const SourceInspectionDiscoverPayloadSchema = Schema.Struct({
@@ -75,9 +84,13 @@ export type SourceInspectionPipelineKind =
   typeof SourceInspectionPipelineKindSchema.Type;
 export type SourceInspectionToolSummary =
   typeof SourceInspectionToolSummarySchema.Type;
+export type SourceInspectionToolListItem =
+  typeof SourceInspectionToolListItemSchema.Type;
 export type SourceInspection = typeof SourceInspectionSchema.Type;
 export type SourceInspectionToolDetail =
   typeof SourceInspectionToolDetailSchema.Type;
+export type SourceInspectionSchemaBundle =
+  typeof SourceInspectionSchemaBundleSchema.Type;
 export type SourceInspectionDiscoverPayload =
   typeof SourceInspectionDiscoverPayloadSchema.Type;
 export type SourceInspectionDiscoverResultItem =

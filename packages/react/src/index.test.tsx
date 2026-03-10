@@ -702,4 +702,39 @@ describe("executor-react source hooks", () => {
     }
     }),
   );
+
+  it.effect("surfaces missing sources as errors instead of staying loading", () =>
+    Effect.promise(async () => {
+      const apiServer = await startControlPlaneServer();
+      setExecutorApiBaseUrl(apiServer.baseUrl);
+
+      try {
+        const harness = await renderSourceHarness("src_missing");
+
+        try {
+          const missing = await waitForValue(
+            () => harness.current,
+            (value) =>
+              isReady(value.sources)
+              && value.sources.data.length === 0
+              && value.source.status === "error"
+              && value.inspection.status === "error",
+          );
+
+          expect(missing.source.status).toBe("error");
+          expect(missing.inspection.status).toBe("error");
+          if (missing.source.status === "error") {
+            expect(missing.source.error.message).toContain("Source not found");
+          }
+          if (missing.inspection.status === "error") {
+            expect(missing.inspection.error.message).toContain("Source not found");
+          }
+        } finally {
+          await harness.unmount();
+        }
+      } finally {
+        await apiServer.close();
+      }
+    }),
+  );
 });

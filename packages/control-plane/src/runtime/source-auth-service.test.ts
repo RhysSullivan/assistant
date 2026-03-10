@@ -8,7 +8,6 @@ import {
 
 import {
   createTerminalSourceAuthSessionPatch,
-  shouldPromptForHttpCredentialSetup,
 } from "./source-auth-service";
 
 const makeExistingOpenApiSource = (auth: Source["auth"]): Source => ({
@@ -25,6 +24,8 @@ const makeExistingOpenApiSource = (auth: Source["auth"]): Source => ({
   headers: null,
   specUrl: "https://example.com/openapi.json",
   defaultHeaders: null,
+  importAuthPolicy: "reuse_runtime",
+  importAuth: { kind: "none" },
   auth,
   sourceHash: null,
   lastError: null,
@@ -87,65 +88,5 @@ describe("source-auth-service", () => {
       completedAt: 456,
       updatedAt: 456,
     });
-  });
-
-  it("reuses existing non-none HTTP source auth without prompting again", () => {
-    expect(
-      shouldPromptForHttpCredentialSetup({
-        existing: makeExistingOpenApiSource({
-          kind: "bearer",
-          headerName: "Authorization",
-          prefix: "Bearer ",
-          token: {
-            providerId: "postgres",
-            handle: "sec_bearer",
-          },
-        }),
-      }),
-    ).toBe(false);
-
-    expect(
-      shouldPromptForHttpCredentialSetup({
-        existing: makeExistingOpenApiSource({
-          kind: "oauth2",
-          headerName: "Authorization",
-          prefix: "Bearer ",
-          accessToken: {
-            providerId: "postgres",
-            handle: "sec_access",
-          },
-          refreshToken: {
-            providerId: "postgres",
-            handle: "sec_refresh",
-          },
-        }),
-      }),
-    ).toBe(false);
-
-    expect(
-      shouldPromptForHttpCredentialSetup({
-        existing: makeExistingOpenApiSource({
-          kind: "none",
-        }),
-      }),
-    ).toBe(true);
-
-    expect(
-      shouldPromptForHttpCredentialSetup({
-        existing: {
-          ...makeExistingOpenApiSource({
-            kind: "bearer",
-            headerName: "Authorization",
-            prefix: "Bearer ",
-            token: {
-              providerId: "postgres",
-              handle: "sec_graphql",
-            },
-          }),
-          kind: "graphql",
-          specUrl: null,
-        },
-      }),
-    ).toBe(false);
   });
 });

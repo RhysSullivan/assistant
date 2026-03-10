@@ -7,10 +7,13 @@ import { asc, eq, inArray } from "drizzle-orm";
 
 import type { DrizzleClient } from "../client";
 import type { DrizzleTables } from "../schema";
+import { chunkArray } from "./shared";
 
 const decodeStoredSourceRecipeDocumentRecord = Schema.decodeUnknownSync(
   StoredSourceRecipeDocumentRecordSchema,
 );
+
+const RECIPE_DOCUMENT_INSERT_BATCH_SIZE = 500;
 
 export const createSourceRecipeDocumentsRepo = (
   client: DrizzleClient,
@@ -61,7 +64,12 @@ export const createSourceRecipeDocumentsRepo = (
         .where(eq(tables.sourceRecipeDocumentsTable.recipeRevisionId, input.recipeRevisionId));
 
       if (input.documents.length > 0) {
-        await tx.insert(tables.sourceRecipeDocumentsTable).values([...input.documents]);
+        for (const batch of chunkArray(
+          input.documents,
+          RECIPE_DOCUMENT_INSERT_BATCH_SIZE,
+        )) {
+          await tx.insert(tables.sourceRecipeDocumentsTable).values([...batch]);
+        }
       }
     }),
 

@@ -1,15 +1,16 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
   ExecutionInteractionIdSchema,
-  SecretRefSchema,
   SourceAuthSchema,
   SourceAuthSessionIdSchema,
   SourceDiscoveryResultSchema,
   SourceIdSchema,
   SourceInspectionDiscoverPayloadSchema,
   SourceInspectionDiscoverResultSchema,
+  SourceInspectionSchemaBundleSchema,
   SourceInspectionSchema,
   SourceInspectionToolDetailSchema,
+  SourceImportAuthPolicySchema,
   SourceKindSchema,
   SourceProbeAuthSchema,
   SourceSchema,
@@ -31,6 +32,10 @@ import {
   OptionalTrimmedNonEmptyStringSchema,
   TrimmedNonEmptyStringSchema,
 } from "../string-schemas";
+import {
+  ConnectSourcePayloadSchema,
+  type ConnectSourcePayload,
+} from "../../runtime/source-adapters";
 
 const createSourcePayloadRequiredSchema = Schema.Struct({
   name: TrimmedNonEmptyStringSchema,
@@ -47,6 +52,8 @@ const createSourcePayloadOptionalSchema = Schema.Struct({
   headers: Schema.optional(Schema.NullOr(StringMapSchema)),
   specUrl: Schema.optional(Schema.NullOr(Schema.String)),
   defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  importAuthPolicy: Schema.optional(SourceImportAuthPolicySchema),
+  importAuth: Schema.optional(SourceAuthSchema),
   auth: Schema.optional(SourceAuthSchema),
   sourceHash: Schema.optional(Schema.NullOr(Schema.String)),
   lastError: Schema.optional(Schema.NullOr(Schema.String)),
@@ -71,6 +78,8 @@ export const UpdateSourcePayloadSchema = Schema.Struct({
   headers: Schema.optional(Schema.NullOr(StringMapSchema)),
   specUrl: Schema.optional(Schema.NullOr(Schema.String)),
   defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  importAuthPolicy: Schema.optional(SourceImportAuthPolicySchema),
+  importAuth: Schema.optional(SourceAuthSchema),
   auth: Schema.optional(SourceAuthSchema),
   sourceHash: Schema.optional(Schema.NullOr(Schema.String)),
   lastError: Schema.optional(Schema.NullOr(Schema.String)),
@@ -81,6 +90,7 @@ export type UpdateSourcePayload = typeof UpdateSourcePayloadSchema.Type;
 const workspaceIdParam = HttpApiSchema.param("workspaceId", WorkspaceIdSchema);
 const sourceIdParam = HttpApiSchema.param("sourceId", SourceIdSchema);
 const toolPathParam = HttpApiSchema.param("toolPath", Schema.String);
+const schemaBundleIdParam = HttpApiSchema.param("schemaBundleId", Schema.String);
 
 const CredentialPageUrlParamsSchema = Schema.Struct({
   interactionId: ExecutionInteractionIdSchema,
@@ -105,59 +115,6 @@ const DiscoverSourcePayloadSchema = Schema.Struct({
 
 export type DiscoverSourcePayload = typeof DiscoverSourcePayloadSchema.Type;
 
-const ConnectBearerAuthSchema = Schema.Struct({
-  kind: Schema.Literal("bearer"),
-  headerName: Schema.optional(Schema.NullOr(Schema.String)),
-  prefix: Schema.optional(Schema.NullOr(Schema.String)),
-  token: Schema.optional(Schema.NullOr(Schema.String)),
-  tokenRef: Schema.optional(Schema.NullOr(SecretRefSchema)),
-});
-
-const ConnectOAuth2AuthSchema = Schema.Struct({
-  kind: Schema.Literal("oauth2"),
-  headerName: Schema.optional(Schema.NullOr(Schema.String)),
-  prefix: Schema.optional(Schema.NullOr(Schema.String)),
-  accessToken: Schema.optional(Schema.NullOr(Schema.String)),
-  accessTokenRef: Schema.optional(Schema.NullOr(SecretRefSchema)),
-  refreshToken: Schema.optional(Schema.NullOr(Schema.String)),
-  refreshTokenRef: Schema.optional(Schema.NullOr(SecretRefSchema)),
-});
-
-const ConnectHttpAuthSchema = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("none") }),
-  ConnectBearerAuthSchema,
-  ConnectOAuth2AuthSchema,
-);
-
-const ConnectSourcePayloadSchema = Schema.Union(
-  Schema.Struct({
-    kind: Schema.Literal("openapi"),
-    endpoint: TrimmedNonEmptyStringSchema,
-    specUrl: TrimmedNonEmptyStringSchema,
-    name: Schema.optional(Schema.NullOr(Schema.String)),
-    namespace: Schema.optional(Schema.NullOr(Schema.String)),
-    auth: Schema.optional(ConnectHttpAuthSchema),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("graphql"),
-    endpoint: TrimmedNonEmptyStringSchema,
-    name: Schema.optional(Schema.NullOr(Schema.String)),
-    namespace: Schema.optional(Schema.NullOr(Schema.String)),
-    auth: Schema.optional(ConnectHttpAuthSchema),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("mcp"),
-    endpoint: TrimmedNonEmptyStringSchema,
-    name: Schema.optional(Schema.NullOr(Schema.String)),
-    namespace: Schema.optional(Schema.NullOr(Schema.String)),
-    transport: Schema.optional(Schema.NullOr(SourceTransportSchema)),
-    queryParams: Schema.optional(Schema.NullOr(StringMapSchema)),
-    headers: Schema.optional(Schema.NullOr(StringMapSchema)),
-  }),
-);
-
-export type ConnectSourcePayload = typeof ConnectSourcePayloadSchema.Type;
-
 const ConnectSourceResultSchema = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("connected"),
@@ -166,6 +123,7 @@ const ConnectSourceResultSchema = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("credential_required"),
     source: SourceSchema,
+    credentialSlot: Schema.Literal("runtime", "import"),
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth_required"),
@@ -182,6 +140,8 @@ export {
   ConnectSourceResultSchema,
   DiscoverSourcePayloadSchema,
 };
+
+export type { ConnectSourcePayload };
 
 const HtmlSchema = HttpApiSchema.Text({
   contentType: "text/html",
@@ -286,6 +246,15 @@ export class SourcesApi extends HttpApiGroup.make("sources")
   .add(
     HttpApiEndpoint.get("inspectionTool")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}/tools/${toolPathParam}/inspection`
       .addSuccess(SourceInspectionToolDetailSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneUnauthorizedError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.get("inspectionSchemaBundle")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}/inspection/schema-bundles/${schemaBundleIdParam}`
+      .addSuccess(SourceInspectionSchemaBundleSchema)
       .addError(ControlPlaneBadRequestError)
       .addError(ControlPlaneUnauthorizedError)
       .addError(ControlPlaneForbiddenError)

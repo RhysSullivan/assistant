@@ -19,6 +19,7 @@ export {
 } from "./openapi-tool-presentation";
 export {
   OpenApiToolInvocationError,
+  createOpenApiToolFromDefinition,
   createOpenApiToolsFromManifest,
   createOpenApiToolsFromSpec,
 } from "./openapi-tools";
@@ -39,6 +40,9 @@ export {
   OpenApiRequestBodyDocumentationSchema,
   OpenApiResponseDocumentationSchema,
   OpenApiToolDocumentationSchema,
+  OpenApiToolProviderDataSchema,
+  OpenApiRefHintTableSchema,
+  OpenApiRefHintValueSchema,
   type DiscoveryTypingPayload,
   type OpenApiExtractedTool,
   type OpenApiHttpMethod,
@@ -49,6 +53,9 @@ export {
   type OpenApiParameterLocation,
   type OpenApiSpecInput,
   type OpenApiToolManifest,
+  type OpenApiToolProviderData,
+  type OpenApiRefHintTable,
+  type OpenApiRefHintValue,
   type OpenApiToolParameter,
   type OpenApiToolRequestBody,
 } from "./openapi-types";

@@ -36,6 +36,7 @@ import {
   ExecutionIdSchema,
   SecretMaterialIdSchema,
   SourceIdSchema,
+  SourceRecipeSchemaBundleIdSchema,
   WorkspaceIdSchema,
   type Source,
 } from "#schema";
@@ -60,7 +61,7 @@ import {
 } from "./source-auth-service";
 import { createLiveExecutionManager } from "./live-execution";
 import { persistSource } from "./source-store";
-import { persistMcpToolArtifactsFromManifest } from "./tool-artifacts";
+import { persistMcpRecipeMaterializationFromManifest } from "./source-materialization";
 import { createWorkspaceExecutionEnvironmentResolver } from "./workspace-execution-environment";
 
 type CountedMcpServer = {
@@ -85,7 +86,9 @@ type GraphqlServer = {
   close: () => Promise<void>;
 };
 
-const normalizeSearchText = (...parts: ReadonlyArray<string | null | undefined>): string =>
+const normalizeSearchText = (
+  ...parts: ReadonlyArray<string | null | undefined>
+): string =>
   parts
     .flatMap((part) => (part ? [part.trim()] : []))
     .filter(Boolean)
@@ -263,7 +266,10 @@ const GraphqlMutationType = new GraphQLObjectType({
           type: new GraphQLNonNull(GraphqlCreateIssueInputType),
         },
       },
-      resolve: (_source, args: { input: { title: string; teamId?: string | null } }) => ({
+      resolve: (
+        _source,
+        args: { input: { title: string; teamId?: string | null } },
+      ) => ({
         id: "iss_created",
         identifier: "ENG-999",
         title: args.input.title,
@@ -285,17 +291,21 @@ const testGraphqlSchema = new GraphQLSchema({
 const closeScope = (scope: Scope.CloseableScope) =>
   Scope.close(scope, Exit.void).pipe(Effect.orDie);
 
-const makePersistence: Effect.Effect<SqlControlPlanePersistence, unknown, Scope.Scope> =
-  Effect.acquireRelease(
+const makePersistence: Effect.Effect<
+  SqlControlPlanePersistence,
+  unknown,
+  Scope.Scope
+> = Effect.acquireRelease(
   createSqlControlPlanePersistence({
     localDataDir: ":memory:",
   }),
   (persistence) =>
     Effect.tryPromise({
       try: () => persistence.close(),
-      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+      catch: (cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
     }).pipe(Effect.orDie),
-  );
+);
 
 const makeCountedMcpServer = Effect.acquireRelease(
   Effect.promise<CountedMcpServer>(
@@ -425,37 +435,38 @@ const makeCountedMcpServer = Effect.acquireRelease(
 const ownerParam = HttpApiSchema.param("owner", Schema.String);
 const repoParam = HttpApiSchema.param("repo", Schema.String);
 
-class GeneratedReposApi extends HttpApiGroup.make("repos")
-  .add(
-    HttpApiEndpoint.get("getRepo")`/repos/${ownerParam}/${repoParam}`
-      .addSuccess(
-        Schema.Struct({
-          ok: Schema.Boolean,
-          full_name: Schema.String,
-        }),
-      ),
-  ) {}
+class GeneratedReposApi extends HttpApiGroup.make("repos").add(
+  HttpApiEndpoint.get("getRepo")`/repos/${ownerParam}/${repoParam}`.addSuccess(
+    Schema.Struct({
+      ok: Schema.Boolean,
+      full_name: Schema.String,
+    }),
+  ),
+) {}
 
 class GeneratedApi extends HttpApi.make("generated").add(GeneratedReposApi) {}
 
 const makeOpenApiSpecServer = Effect.acquireRelease(
   Effect.gen(function* () {
     const seenAuthHeaders: OpenApiSpecServer["seenAuthHeaders"] = [];
-    const handlersLayer = HttpApiBuilder.group(GeneratedApi, "repos", (handlers) =>
-      handlers.handle("getRepo", ({ path, request }) =>
-        Effect.sync(() => {
-          seenAuthHeaders.push(
-            typeof request.headers.authorization === "string"
-              ? request.headers.authorization
-              : null,
-          );
+    const handlersLayer = HttpApiBuilder.group(
+      GeneratedApi,
+      "repos",
+      (handlers) =>
+        handlers.handle("getRepo", ({ path, request }) =>
+          Effect.sync(() => {
+            seenAuthHeaders.push(
+              typeof request.headers.authorization === "string"
+                ? request.headers.authorization
+                : null,
+            );
 
-          return {
-            ok: true,
-            full_name: `${path.owner}/${path.repo}`,
-          };
-        })
-      )
+            return {
+              ok: true,
+              full_name: `${path.owner}/${path.repo}`,
+            };
+          }),
+        ),
     );
     const apiLayer = HttpApiBuilder.api(GeneratedApi).pipe(
       Layer.provide(handlersLayer),
@@ -468,9 +479,8 @@ const makeOpenApiSpecServer = Effect.acquireRelease(
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(serverLayer, scope).pipe(
       Effect.catchAll((error) =>
-        closeScope(scope).pipe(
-          Effect.zipRight(Effect.fail(error)),
-        )),
+        closeScope(scope).pipe(Effect.zipRight(Effect.fail(error))),
+      ),
     );
     const server = Context.get(context, HttpServer.HttpServer);
     const baseUrl = HttpServer.formatAddress(server.address);
@@ -485,8 +495,9 @@ const makeOpenApiSpecServer = Effect.acquireRelease(
   (server) =>
     Effect.tryPromise({
       try: () => server.close(),
-      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
-  }).pipe(Effect.orDie),
+      catch: (cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+    }).pipe(Effect.orDie),
 );
 
 const makeGraphqlServer = Effect.acquireRelease(
@@ -518,7 +529,8 @@ const makeGraphqlServer = Effect.acquireRelease(
 
           const result = await graphql({
             schema: testGraphqlSchema,
-            source: typeof parsedBody.query === "string" ? parsedBody.query : "",
+            source:
+              typeof parsedBody.query === "string" ? parsedBody.query : "",
             variableValues:
               parsedBody.variables && typeof parsedBody.variables === "object"
                 ? (parsedBody.variables as Record<string, unknown>)
@@ -561,7 +573,8 @@ const makeGraphqlServer = Effect.acquireRelease(
   (server) =>
     Effect.tryPromise({
       try: () => server.close(),
-      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+      catch: (cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
     }).pipe(Effect.orDie),
 );
 
@@ -587,6 +600,8 @@ const persistConnectedEchoTool = (input: {
       headers: null,
       specUrl: null,
       defaultHeaders: null,
+      importAuthPolicy: "reuse_runtime",
+      importAuth: { kind: "none" },
       auth: { kind: "none" },
       sourceHash: null,
       lastError: null,
@@ -595,24 +610,26 @@ const persistConnectedEchoTool = (input: {
     };
 
     yield* persistSource(input.persistence.rows, source);
-    yield* persistMcpToolArtifactsFromManifest({
+    yield* persistMcpRecipeMaterializationFromManifest({
       rows: input.persistence.rows,
       source,
-      manifestEntries: [{
-        toolId: "echo",
-        toolName: "echo",
-        description: "Echo the provided string",
-        inputSchemaJson: JSON.stringify({
-          type: "object",
-          properties: {
-            value: {
-              type: "string",
+      manifestEntries: [
+        {
+          toolId: "echo",
+          toolName: "echo",
+          description: "Echo the provided string",
+          inputSchemaJson: JSON.stringify({
+            type: "object",
+            properties: {
+              value: {
+                type: "string",
+              },
             },
-          },
-          required: ["value"],
-          additionalProperties: false,
-        }),
-      }],
+            required: ["value"],
+            additionalProperties: false,
+          }),
+        },
+      ],
     });
   });
 
@@ -635,31 +652,52 @@ const persistConnectedGithubOpenApiSource = (input: {
         version: "1.0.0",
       },
       paths: {
-        "/repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}": {
-          get: {
-            operationId: "actions/get-environment-secret",
-            tags: ["actions"],
-            summary: "Get an environment secret",
-            description:
-              "Gets a single environment secret without revealing its encrypted value. Authenticated users must have collaborator access to a repository to create, update, or read secrets.",
-            parameters: [
-              { name: "owner", in: "path", required: true, schema: { type: "string" } },
-              { name: "repo", in: "path", required: true, schema: { type: "string" } },
-              { name: "environment_name", in: "path", required: true, schema: { type: "string" } },
-              { name: "secret_name", in: "path", required: true, schema: { type: "string" } },
-            ],
-            responses: {
-              200: {
-                description: "ok",
-                content: {
-                  "application/json": {
-                    schema: { type: "object" },
+        "/repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}":
+          {
+            get: {
+              operationId: "actions/get-environment-secret",
+              tags: ["actions"],
+              summary: "Get an environment secret",
+              description:
+                "Gets a single environment secret without revealing its encrypted value. Authenticated users must have collaborator access to a repository to create, update, or read secrets.",
+              parameters: [
+                {
+                  name: "owner",
+                  in: "path",
+                  required: true,
+                  schema: { type: "string" },
+                },
+                {
+                  name: "repo",
+                  in: "path",
+                  required: true,
+                  schema: { type: "string" },
+                },
+                {
+                  name: "environment_name",
+                  in: "path",
+                  required: true,
+                  schema: { type: "string" },
+                },
+                {
+                  name: "secret_name",
+                  in: "path",
+                  required: true,
+                  schema: { type: "string" },
+                },
+              ],
+              responses: {
+                200: {
+                  description: "ok",
+                  content: {
+                    "application/json": {
+                      schema: { $ref: "#/components/schemas/Repository" },
+                    },
                   },
                 },
               },
             },
           },
-        },
         "/orgs/{org}/actions/runners/{runner_id}": {
           get: {
             operationId: "actions/get-self-hosted-runner-for-org",
@@ -668,8 +706,18 @@ const persistConnectedGithubOpenApiSource = (input: {
             description:
               "Gets a specific self-hosted runner configured in an organization. Authenticated users must have admin access to the organization to use this endpoint.",
             parameters: [
-              { name: "org", in: "path", required: true, schema: { type: "string" } },
-              { name: "runner_id", in: "path", required: true, schema: { type: "integer" } },
+              {
+                name: "org",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+              {
+                name: "runner_id",
+                in: "path",
+                required: true,
+                schema: { type: "integer" },
+              },
             ],
             responses: {
               200: {
@@ -690,8 +738,18 @@ const persistConnectedGithubOpenApiSource = (input: {
             summary: "Get a repository",
             description: "Gets a repository by owner and name.",
             parameters: [
-              { name: "owner", in: "path", required: true, schema: { type: "string" } },
-              { name: "repo", in: "path", required: true, schema: { type: "string" } },
+              {
+                name: "owner",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+              {
+                name: "repo",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
             ],
             responses: {
               200: {
@@ -725,6 +783,18 @@ const persistConnectedGithubOpenApiSource = (input: {
           },
         },
       },
+      components: {
+        schemas: {
+          Repository: {
+            type: "object",
+            properties: {
+              full_name: { type: "string" },
+              private: { type: "boolean" },
+            },
+            required: ["full_name"],
+          },
+        },
+      },
     });
 
     const source: Source = {
@@ -741,6 +811,8 @@ const persistConnectedGithubOpenApiSource = (input: {
       headers: null,
       specUrl: "https://example.com/github-openapi.json",
       defaultHeaders: null,
+      importAuthPolicy: "reuse_runtime",
+      importAuth: { kind: "none" },
       auth: input.auth
         ? {
             kind: "bearer",
@@ -769,12 +841,15 @@ const persistConnectedGithubOpenApiSource = (input: {
       ),
     );
     const definitions = compileOpenApiToolDefinitions(manifest);
-    const sourceRecord = yield* input.persistence.rows.sources.getByWorkspaceAndId(
-      input.workspaceId,
-      input.sourceId,
-    );
+    const sourceRecord =
+      yield* input.persistence.rows.sources.getByWorkspaceAndId(
+        input.workspaceId,
+        input.sourceId,
+      );
     if (Option.isNone(sourceRecord)) {
-      return yield* Effect.fail(new Error(`Missing stored source ${input.sourceId}`));
+      return yield* Effect.fail(
+        new Error(`Missing stored source ${input.sourceId}`),
+      );
     }
 
     yield* input.persistence.rows.sourceRecipeRevisions.update(
@@ -787,23 +862,54 @@ const persistConnectedGithubOpenApiSource = (input: {
     );
     yield* input.persistence.rows.sourceRecipeDocuments.replaceForRevision({
       recipeRevisionId: sourceRecord.value.recipeRevisionId,
-      documents: [{
-        id: `src_recipe_doc_${randomUUID()}`,
-        recipeRevisionId: sourceRecord.value.recipeRevisionId,
-        documentKind: "openapi",
-        documentKey: source.specUrl ?? source.endpoint,
-        contentText: openApiDocumentText,
-        contentHash: manifest.sourceHash,
-        fetchedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      }],
+      documents: [
+        {
+          id: `src_recipe_doc_${randomUUID()}`,
+          recipeRevisionId: sourceRecord.value.recipeRevisionId,
+          documentKind: "openapi",
+          documentKey: source.specUrl ?? source.endpoint,
+          contentText: openApiDocumentText,
+          contentHash: manifest.sourceHash,
+          fetchedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+    const refEntries = Object.entries(manifest.refHintTable ?? {});
+    yield* input.persistence.rows.sourceRecipeSchemaBundles.replaceForRevision({
+      recipeRevisionId: sourceRecord.value.recipeRevisionId,
+      bundles:
+        refEntries.length > 0
+          ? [
+              {
+                id: SourceRecipeSchemaBundleIdSchema.make(
+                  `src_recipe_bundle_${randomUUID()}`,
+                ),
+                recipeRevisionId: sourceRecord.value.recipeRevisionId,
+                bundleKind: "json_schema_ref_map",
+                refsJson: JSON.stringify(
+                  Object.fromEntries(
+                    refEntries.map(([ref, rawValue]) => {
+                      try {
+                        return [ref, JSON.parse(rawValue) as unknown];
+                      } catch {
+                        return [ref, rawValue];
+                      }
+                    }),
+                  ),
+                ),
+                contentHash: manifest.sourceHash,
+                createdAt: now,
+                updatedAt: now,
+              },
+            ]
+          : [],
     });
     yield* input.persistence.rows.sourceRecipeOperations.replaceForRevision({
       recipeRevisionId: sourceRecord.value.recipeRevisionId,
       operations: definitions.map((definition) => {
         const presentation = buildOpenApiToolPresentation({
-          manifest,
           definition,
         });
         const method = definition.method.toUpperCase();
@@ -838,25 +944,19 @@ const persistConnectedGithubOpenApiSource = (input: {
           outputSchemaJson: presentation.outputSchemaJson ?? null,
           providerKind: "openapi",
           providerDataJson: presentation.providerDataJson,
-          mcpToolName: null,
-          openApiMethod: definition.method,
-          openApiPathTemplate: definition.path,
-          openApiOperationHash: definition.operationHash,
-          openApiRawToolId: definition.rawToolId,
-          openApiOperationId: definition.operationId ?? null,
-          openApiTagsJson: JSON.stringify(definition.tags),
-          openApiRequestBodyRequired: definition.invocation.requestBody?.required ?? null,
-          graphqlOperationType: null,
-          graphqlOperationName: null,
           createdAt: now,
           updatedAt: now,
         };
       }),
     });
-    yield* input.persistence.rows.sources.update(input.workspaceId, input.sourceId, {
-      sourceHash: manifest.sourceHash,
-      updatedAt: now,
-    });
+    yield* input.persistence.rows.sources.update(
+      input.workspaceId,
+      input.sourceId,
+      {
+        sourceHash: manifest.sourceHash,
+        updatedAt: now,
+      },
+    );
 
     return;
   });
@@ -866,17 +966,24 @@ const makeResolver = (persistence: SqlControlPlanePersistence) =>
     rows: persistence.rows,
     sourceAuthService: {
       getLocalServerBaseUrl: () => null,
-      storeSecretMaterial: () => Effect.fail(new Error("not implemented in test")),
+      storeSecretMaterial: () =>
+        Effect.fail(new Error("not implemented in test")),
       getSourceById: () => Effect.fail(new Error("not implemented in test")),
-      addExecutorSource: () => Effect.fail(new Error("not implemented in test")),
+      addExecutorSource: () =>
+        Effect.fail(new Error("not implemented in test")),
       connectMcpSource: () => Effect.fail(new Error("not implemented in test")),
-      startSourceOAuthSession: () => Effect.fail(new Error("not implemented in test")),
-      completeSourceOAuthSession: () => Effect.fail(new Error("not implemented in test")),
-      completeSourceCredentialSetup: () => Effect.fail(new Error("not implemented in test")),
+      startSourceOAuthSession: () =>
+        Effect.fail(new Error("not implemented in test")),
+      completeSourceOAuthSession: () =>
+        Effect.fail(new Error("not implemented in test")),
+      completeSourceCredentialSetup: () =>
+        Effect.fail(new Error("not implemented in test")),
     } as RuntimeSourceAuthService,
   });
 
-const makeResolverWithLiveSourceAuth = (persistence: SqlControlPlanePersistence) =>
+const makeResolverWithLiveSourceAuth = (
+  persistence: SqlControlPlanePersistence,
+) =>
   createWorkspaceExecutionEnvironmentResolver({
     rows: persistence.rows,
     sourceAuthService: createRuntimeSourceAuthService({
@@ -902,7 +1009,8 @@ describe("workspace-execution-environment", () => {
 
       yield* Effect.tryPromise({
         try: () => server.close(),
-        catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
       }).pipe(Effect.orDie);
 
       const resolveEnvironment = makeResolver(persistence);
@@ -931,52 +1039,58 @@ describe("workspace-execution-environment", () => {
     }),
   );
 
-  it.scoped("prefers namespace and path matches over noisy GitHub boilerplate", () =>
-    Effect.gen(function* () {
-      const persistence = yield* makePersistence;
-      const workspaceId = WorkspaceIdSchema.make("ws_github_discovery");
-      const sourceId = SourceIdSchema.make("src_github_discovery");
-      yield* persistConnectedGithubOpenApiSource({
-        persistence,
-        workspaceId,
-        sourceId,
-      });
+  it.scoped(
+    "prefers namespace and path matches over noisy GitHub boilerplate",
+    () =>
+      Effect.gen(function* () {
+        const persistence = yield* makePersistence;
+        const workspaceId = WorkspaceIdSchema.make("ws_github_discovery");
+        const sourceId = SourceIdSchema.make("src_github_discovery");
+        yield* persistConnectedGithubOpenApiSource({
+          persistence,
+          workspaceId,
+          sourceId,
+        });
 
-      const resolveEnvironment = makeResolver(persistence);
-      const environment = yield* resolveEnvironment({
-        workspaceId,
-        accountId: AccountIdSchema.make("acc_github_discovery"),
-        executionId: ExecutionIdSchema.make("exec_github_discovery"),
-      });
+        const resolveEnvironment = makeResolver(persistence);
+        const environment = yield* resolveEnvironment({
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_github_discovery"),
+          executionId: ExecutionIdSchema.make("exec_github_discovery"),
+        });
 
-      const firstQuery = (yield* environment.toolInvoker.invoke({
-        path: "discover",
-        args: {
-          query: "current authenticated user profile",
-          limit: 5,
-        },
-      })) as {
-        bestPath: string | null;
-        results: Array<{ path: string }>;
-      };
+        const firstQuery = (yield* environment.toolInvoker.invoke({
+          path: "discover",
+          args: {
+            query: "current authenticated user profile",
+            limit: 5,
+          },
+        })) as {
+          bestPath: string | null;
+          results: Array<{ path: string }>;
+        };
 
-      expect(firstQuery.bestPath).toBe("github.users.getAuthenticated");
-      expect(firstQuery.results[0]?.path).toBe("github.users.getAuthenticated");
+        expect(firstQuery.bestPath).toBe("github.users.getAuthenticated");
+        expect(firstQuery.results[0]?.path).toBe(
+          "github.users.getAuthenticated",
+        );
 
-      const secondQuery = (yield* environment.toolInvoker.invoke({
-        path: "discover",
-        args: {
-          query: "users get myself current user profile",
-          limit: 5,
-        },
-      })) as {
-        bestPath: string | null;
-        results: Array<{ path: string }>;
-      };
+        const secondQuery = (yield* environment.toolInvoker.invoke({
+          path: "discover",
+          args: {
+            query: "users get myself current user profile",
+            limit: 5,
+          },
+        })) as {
+          bestPath: string | null;
+          results: Array<{ path: string }>;
+        };
 
-      expect(secondQuery.bestPath).toBe("github.users.getAuthenticated");
-      expect(secondQuery.results[0]?.path).toBe("github.users.getAuthenticated");
-    }),
+        expect(secondQuery.bestPath).toBe("github.users.getAuthenticated");
+        expect(secondQuery.results[0]?.path).toBe(
+          "github.users.getAuthenticated",
+        );
+      }),
   );
 
   it.scoped("invokes persisted MCP tools on demand without re-listing", () =>
@@ -1014,45 +1128,174 @@ describe("workspace-execution-environment", () => {
     }),
   );
 
-  it.scoped("adds an OpenAPI source through executor.sources.add with elicited credentials", () =>
-    Effect.gen(function* () {
-      const specServer = yield* makeOpenApiSpecServer;
-      const persistence = yield* makePersistence;
-      const workspaceId = WorkspaceIdSchema.make("ws_add_openapi");
-      const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence);
-      const now = Date.now();
-      const tokenSecretMaterialId = SecretMaterialIdSchema.make(
-        "sec_test_openapi_bearer",
-      );
-      yield* persistence.rows.secretMaterials.upsert({
-        id: tokenSecretMaterialId,
-        name: null,
-        purpose: "auth_material",
-        value: "ghp_test_token",
-        createdAt: now,
-        updatedAt: now,
-      });
-      let capturedElicitation:
-        | {
-            mode?: string;
-            url?: string;
-            elicitationId?: string;
-          }
-        | null = null;
+  it.scoped(
+    "adds an OpenAPI source through executor.sources.add with elicited credentials",
+    () =>
+      Effect.gen(function* () {
+        const specServer = yield* makeOpenApiSpecServer;
+        const persistence = yield* makePersistence;
+        const workspaceId = WorkspaceIdSchema.make("ws_add_openapi");
+        const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence);
+        const now = Date.now();
+        const tokenSecretMaterialId = SecretMaterialIdSchema.make(
+          "sec_test_openapi_bearer",
+        );
+        yield* persistence.rows.secretMaterials.upsert({
+          id: tokenSecretMaterialId,
+          name: null,
+          purpose: "auth_material",
+          value: "ghp_test_token",
+          createdAt: now,
+          updatedAt: now,
+        });
+        let capturedElicitation: {
+          mode?: string;
+          url?: string;
+          elicitationId?: string;
+        } | null = null;
 
-      const environment = yield* resolveEnvironment({
-        workspaceId,
-        accountId: AccountIdSchema.make("acc_add_openapi"),
-        executionId: ExecutionIdSchema.make("exec_add_openapi"),
-        onElicitation: (request) =>
-          Effect.sync(() => {
-            capturedElicitation = request.elicitation as {
-              mode?: string;
-              url?: string;
-              elicitationId?: string;
+        const environment = yield* resolveEnvironment({
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_add_openapi"),
+          executionId: ExecutionIdSchema.make("exec_add_openapi"),
+          onElicitation: (request) =>
+            Effect.sync(() => {
+              capturedElicitation = request.elicitation as {
+                mode?: string;
+                url?: string;
+                elicitationId?: string;
+              };
+
+              return {
+                action: "accept" as const,
+                content: {
+                  authKind: "bearer",
+                  tokenRef: {
+                    providerId: "postgres",
+                    handle: tokenSecretMaterialId,
+                  },
+                },
+              };
+            }),
+        });
+
+        const added = (yield* environment.toolInvoker.invoke({
+          path: "executor.sources.add",
+          args: {
+            kind: "openapi",
+            endpoint: specServer.baseUrl,
+            specUrl: specServer.specUrl,
+            name: "GitHub",
+            namespace: "github",
+          },
+          context: {
+            runId: "exec_add_openapi",
+          },
+        })) as {
+          id: SourceId;
+          kind: string;
+          status: string;
+          auth: {
+            kind: string;
+            token?: {
+              providerId: string;
             };
+          };
+        };
 
-            return {
+        expect(added.kind).toBe("openapi");
+        expect(added.status).toBe("connected");
+        expect(added.auth.kind).toBe("bearer");
+        expect(added.auth.token?.providerId).toBe("postgres");
+        expect(capturedElicitation).toMatchObject({
+          mode: "url",
+          url: expect.stringContaining("/v1/workspaces/"),
+          elicitationId: expect.stringContaining("executor.sources.add:"),
+        });
+        expect((capturedElicitation as { url?: string } | null)?.url).toContain(
+          encodeURIComponent("exec_add_openapi:executor.sources.add:"),
+        );
+
+        const storedSource =
+          yield* persistence.rows.sources.getByWorkspaceAndId(
+            workspaceId,
+            added.id,
+          );
+        expect(Option.isSome(storedSource)).toBe(true);
+        if (Option.isSome(storedSource)) {
+          const documents =
+            yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(
+              storedSource.value.recipeRevisionId,
+            );
+          expect(documents[0]?.contentText).toContain(
+            '"operationId":"repos.getRepo"',
+          );
+        }
+
+        const freshEnvironment = yield* resolveEnvironment({
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_add_openapi"),
+          executionId: ExecutionIdSchema.make("exec_add_openapi_fresh"),
+        });
+
+        const discovered = (yield* freshEnvironment.toolInvoker.invoke({
+          path: "discover",
+          args: {
+            query: "github repo",
+            limit: 5,
+          },
+        })) as {
+          bestPath: string | null;
+        };
+
+        expect(discovered.bestPath).toBe("github.repos.getRepo");
+
+        const invoked = (yield* freshEnvironment.toolInvoker.invoke({
+          path: "github.repos.getRepo",
+          args: {
+            owner: "vercel",
+            repo: "ai",
+          },
+        })) as {
+          ok: boolean;
+          full_name: string;
+        };
+
+        expect(invoked).toEqual({
+          ok: true,
+          full_name: "vercel/ai",
+        });
+        expect(specServer.seenAuthHeaders).toEqual(["Bearer ghp_test_token"]);
+      }),
+  );
+
+  it.scoped(
+    "adds a GraphQL source through executor.sources.add with elicited credentials",
+    () =>
+      Effect.gen(function* () {
+        const graphqlServer = yield* makeGraphqlServer;
+        const persistence = yield* makePersistence;
+        const workspaceId = WorkspaceIdSchema.make("ws_add_graphql");
+        const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence);
+        const now = Date.now();
+        const tokenSecretMaterialId = SecretMaterialIdSchema.make(
+          "sec_test_graphql_bearer",
+        );
+        yield* persistence.rows.secretMaterials.upsert({
+          id: tokenSecretMaterialId,
+          name: null,
+          purpose: "auth_material",
+          value: "linear_test_token",
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        const environment = yield* resolveEnvironment({
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_add_graphql"),
+          executionId: ExecutionIdSchema.make("exec_add_graphql"),
+          onElicitation: () =>
+            Effect.succeed({
               action: "accept" as const,
               content: {
                 authKind: "bearer",
@@ -1061,291 +1304,205 @@ describe("workspace-execution-environment", () => {
                   handle: tokenSecretMaterialId,
                 },
               },
-            };
-          }),
-      });
+            }),
+        });
 
-      const added = (yield* environment.toolInvoker.invoke({
-        path: "executor.sources.add",
-        args: {
-          kind: "openapi",
-          endpoint: specServer.baseUrl,
-          specUrl: specServer.specUrl,
-          name: "GitHub",
-          namespace: "github",
-        },
-        context: {
-          runId: "exec_add_openapi",
-        },
-      })) as {
-        id: SourceId;
-        kind: string;
-        status: string;
-        auth: {
-          kind: string;
-          token?: {
-            providerId: string;
-          };
-        };
-      };
-
-      expect(added.kind).toBe("openapi");
-      expect(added.status).toBe("connected");
-      expect(added.auth.kind).toBe("bearer");
-      expect(added.auth.token?.providerId).toBe("postgres");
-      expect(capturedElicitation).toMatchObject({
-        mode: "url",
-        url: expect.stringContaining("/v1/workspaces/"),
-        elicitationId: expect.stringContaining("executor.sources.add:"),
-      });
-      expect((capturedElicitation as { url?: string } | null)?.url).toContain(
-        encodeURIComponent("exec_add_openapi:executor.sources.add:"),
-      );
-
-      const storedSource = yield* persistence.rows.sources.getByWorkspaceAndId(
-        workspaceId,
-        added.id,
-      );
-      expect(Option.isSome(storedSource)).toBe(true);
-      if (Option.isSome(storedSource)) {
-        const documents = yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(
-          storedSource.value.recipeRevisionId,
-        );
-        expect(documents[0]?.contentText).toContain('"operationId":"repos.getRepo"');
-      }
-
-      const freshEnvironment = yield* resolveEnvironment({
-        workspaceId,
-        accountId: AccountIdSchema.make("acc_add_openapi"),
-        executionId: ExecutionIdSchema.make("exec_add_openapi_fresh"),
-      });
-
-      const discovered = (yield* freshEnvironment.toolInvoker.invoke({
-        path: "discover",
-        args: {
-          query: "github repo",
-          limit: 5,
-        },
-      })) as {
-        bestPath: string | null;
-      };
-
-      expect(discovered.bestPath).toBe("github.repos.getRepo");
-
-      const invoked = (yield* freshEnvironment.toolInvoker.invoke({
-        path: "github.repos.getRepo",
-        args: {
-          owner: "vercel",
-          repo: "ai",
-        },
-      })) as {
-        ok: boolean;
-        full_name: string;
-      };
-
-      expect(invoked).toEqual({
-        ok: true,
-        full_name: "vercel/ai",
-      });
-      expect(specServer.seenAuthHeaders).toEqual(["Bearer ghp_test_token"]);
-    }),
-  );
-
-  it.scoped("adds a GraphQL source through executor.sources.add with elicited credentials", () =>
-    Effect.gen(function* () {
-      const graphqlServer = yield* makeGraphqlServer;
-      const persistence = yield* makePersistence;
-      const workspaceId = WorkspaceIdSchema.make("ws_add_graphql");
-      const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence);
-      const now = Date.now();
-      const tokenSecretMaterialId = SecretMaterialIdSchema.make(
-        "sec_test_graphql_bearer",
-      );
-      yield* persistence.rows.secretMaterials.upsert({
-        id: tokenSecretMaterialId,
-        name: null,
-        purpose: "auth_material",
-        value: "linear_test_token",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      const environment = yield* resolveEnvironment({
-        workspaceId,
-        accountId: AccountIdSchema.make("acc_add_graphql"),
-        executionId: ExecutionIdSchema.make("exec_add_graphql"),
-        onElicitation: () =>
-          Effect.succeed({
-            action: "accept" as const,
-            content: {
-              authKind: "bearer",
-              tokenRef: {
-                providerId: "postgres",
-                handle: tokenSecretMaterialId,
-              },
-            },
-          }),
-      });
-
-      const added = (yield* environment.toolInvoker.invoke({
-        path: "executor.sources.add",
-        args: {
-          kind: "graphql",
-          endpoint: graphqlServer.endpoint,
-          name: "Linear",
-          namespace: "linear",
-        },
-        context: {
-          runId: "exec_add_graphql",
-        },
-      })) as {
-        id: SourceId;
-        kind: string;
-        status: string;
-        auth: {
-          kind: string;
-          token?: {
-            providerId: string;
-          };
-        };
-      };
-
-      expect(added.kind).toBe("graphql");
-      expect(added.status).toBe("connected");
-      expect(added.auth.kind).toBe("bearer");
-      expect(added.auth.token?.providerId).toBe("postgres");
-
-      const storedSource = yield* persistence.rows.sources.getByWorkspaceAndId(
-        workspaceId,
-        added.id,
-      );
-      expect(Option.isSome(storedSource)).toBe(true);
-      if (Option.isSome(storedSource)) {
-        const documents = yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(
-          storedSource.value.recipeRevisionId,
-        );
-        expect(documents[0]?.contentText).toContain('"__schema"');
-      }
-
-      const freshEnvironment = yield* resolveEnvironment({
-        workspaceId,
-        accountId: AccountIdSchema.make("acc_add_graphql"),
-        executionId: ExecutionIdSchema.make("exec_add_graphql_fresh"),
-        onElicitation: () =>
-          Effect.succeed({
-            action: "accept" as const,
-          }),
-      });
-
-      const discovered = (yield* freshEnvironment.toolInvoker.invoke({
-        path: "discover",
-        args: {
-          query: "linear current user viewer",
-          limit: 5,
-        },
-      })) as {
-        bestPath: string | null;
-      };
-
-      expect(discovered.bestPath).toBe("linear.viewer");
-
-      const describeCreateIssue = (yield* freshEnvironment.toolInvoker.invoke({
-        path: "describe.tool",
-        args: {
-          path: "linear.createIssue",
-          includeSchemas: true,
-        },
-      })) as {
-        path: string;
-        inputType?: string;
-        inputSchemaJson?: string;
-      } | null;
-
-      expect(describeCreateIssue?.path).toBe("linear.createIssue");
-      expect(describeCreateIssue?.inputType).toContain("input");
-      expect(describeCreateIssue?.inputType).toContain("title");
-
-      const viewerResult = (yield* freshEnvironment.toolInvoker.invoke({
-        path: "linear.viewer",
-        args: {},
-      })) as {
-        data: {
-          id: string;
-          name: string;
-          __typename: string;
-        };
-        errors: unknown[];
-      };
-
-      expect(viewerResult).toMatchObject({
-        data: {
-          id: "usr_123",
-          name: "Rhys",
-          __typename: "User",
-        },
-        errors: [],
-      });
-
-      const createIssueResult = (yield* freshEnvironment.toolInvoker.invoke({
-        path: "linear.createIssue",
-        args: {
-          input: {
-            title: "Ship GraphQL field tools",
+        const added = (yield* environment.toolInvoker.invoke({
+          path: "executor.sources.add",
+          args: {
+            kind: "graphql",
+            endpoint: graphqlServer.endpoint,
+            name: "Linear",
+            namespace: "linear",
           },
-        },
-      })) as {
-        data: {
-          id: string;
-          identifier: string;
-          title: string;
-          __typename: string;
-        };
-        errors: unknown[];
-      };
-
-      expect(createIssueResult).toMatchObject({
-        data: {
-          id: "iss_created",
-          identifier: "ENG-999",
-          title: "Ship GraphQL field tools",
-          __typename: "Issue",
-        },
-        errors: [],
-      });
-
-      const rawRequestResult = (yield* freshEnvironment.toolInvoker.invoke({
-        path: "linear.request",
-        args: {
-          query: "query Viewer { viewer { id name } }",
-        },
-      })) as {
-        status: number;
-        body: {
-          data: {
-            viewer: {
-              id: string;
-              name: string;
+          context: {
+            runId: "exec_add_graphql",
+          },
+        })) as {
+          id: SourceId;
+          kind: string;
+          status: string;
+          auth: {
+            kind: string;
+            token?: {
+              providerId: string;
             };
           };
         };
-      };
 
-      expect(rawRequestResult.status).toBe(200);
-      expect(rawRequestResult.body).toEqual({
-        data: {
-          viewer: {
+        expect(added.kind).toBe("graphql");
+        expect(added.status).toBe("connected");
+        expect(added.auth.kind).toBe("bearer");
+        expect(added.auth.token?.providerId).toBe("postgres");
+
+        const storedSource =
+          yield* persistence.rows.sources.getByWorkspaceAndId(
+            workspaceId,
+            added.id,
+          );
+        expect(Option.isSome(storedSource)).toBe(true);
+        if (Option.isSome(storedSource)) {
+          const documents =
+            yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(
+              storedSource.value.recipeRevisionId,
+            );
+          expect(documents[0]?.contentText).toContain('"__schema"');
+          expect(
+            (yield* persistence.rows.sourceRecipeSchemaBundles.listByRevisionId(
+              storedSource.value.recipeRevisionId,
+            )).length,
+          ).toBe(1);
+        }
+
+        const connectedSourceRecord = Option.getOrThrow(storedSource);
+        yield* persistence.rows.sourceRecipeRevisions.update(
+          connectedSourceRecord.recipeRevisionId,
+          {
+            manifestJson: null,
+            updatedAt: Date.now(),
+          },
+        );
+
+        const freshEnvironment = yield* resolveEnvironment({
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_add_graphql"),
+          executionId: ExecutionIdSchema.make("exec_add_graphql_fresh"),
+          onElicitation: () =>
+            Effect.succeed({
+              action: "accept" as const,
+            }),
+        });
+
+        const discovered = (yield* freshEnvironment.toolInvoker.invoke({
+          path: "discover",
+          args: {
+            query: "linear current user viewer",
+            limit: 5,
+          },
+        })) as {
+          bestPath: string | null;
+        };
+
+        expect(discovered.bestPath).toBe("linear.viewer");
+
+        const describeCreateIssue = (yield* freshEnvironment.toolInvoker.invoke(
+          {
+            path: "describe.tool",
+            args: {
+              path: "linear.createIssue",
+              includeSchemas: true,
+            },
+          },
+        )) as {
+          path: string;
+          inputType?: string;
+          inputSchemaJson?: string;
+          schemaBundleId?: string;
+        } | null;
+
+        expect(describeCreateIssue?.path).toBe("linear.createIssue");
+        expect(describeCreateIssue?.inputType).toContain("input");
+        expect(describeCreateIssue?.inputType).toContain("CreateIssueInput");
+        expect(describeCreateIssue?.inputSchemaJson).toContain("$ref");
+        expect(describeCreateIssue?.schemaBundleId).toBeDefined();
+
+        const graphqlSchemaBundle = (yield* freshEnvironment.toolInvoker.invoke(
+          {
+            path: "describe.schemaBundle",
+            args: {
+              id: describeCreateIssue?.schemaBundleId,
+            },
+          },
+        )) as {
+          kind: string;
+          refsJson: string;
+        } | null;
+
+        expect(graphqlSchemaBundle?.kind).toBe("json_schema_ref_map");
+        expect(graphqlSchemaBundle?.refsJson).toContain("CreateIssueInput");
+        expect(graphqlSchemaBundle?.refsJson).toContain('"title"');
+
+        const viewerResult = (yield* freshEnvironment.toolInvoker.invoke({
+          path: "linear.viewer",
+          args: {},
+        })) as {
+          data: {
+            id: string;
+            name: string;
+            __typename: string;
+          };
+          errors: unknown[];
+        };
+
+        expect(viewerResult).toMatchObject({
+          data: {
             id: "usr_123",
             name: "Rhys",
+            __typename: "User",
           },
-        },
-      });
-      expect(graphqlServer.seenAuthHeaders).toEqual([
-        "Bearer linear_test_token",
-        "Bearer linear_test_token",
-        "Bearer linear_test_token",
-        "Bearer linear_test_token",
-      ]);
-    }),
+          errors: [],
+        });
+
+        const createIssueResult = (yield* freshEnvironment.toolInvoker.invoke({
+          path: "linear.createIssue",
+          args: {
+            input: {
+              title: "Ship GraphQL field tools",
+            },
+          },
+        })) as {
+          data: {
+            id: string;
+            identifier: string;
+            title: string;
+            __typename: string;
+          };
+          errors: unknown[];
+        };
+
+        expect(createIssueResult).toMatchObject({
+          data: {
+            id: "iss_created",
+            identifier: "ENG-999",
+            title: "Ship GraphQL field tools",
+            __typename: "Issue",
+          },
+          errors: [],
+        });
+
+        const rawRequestResult = (yield* freshEnvironment.toolInvoker.invoke({
+          path: "linear.request",
+          args: {
+            query: "query Viewer { viewer { id name } }",
+          },
+        })) as {
+          status: number;
+          body: {
+            data: {
+              viewer: {
+                id: string;
+                name: string;
+              };
+            };
+          };
+        };
+
+        expect(rawRequestResult.status).toBe(200);
+        expect(rawRequestResult.body).toEqual({
+          data: {
+            viewer: {
+              id: "usr_123",
+              name: "Rhys",
+            },
+          },
+        });
+        expect(graphqlServer.seenAuthHeaders).toEqual([
+          "Bearer linear_test_token",
+          "Bearer linear_test_token",
+          "Bearer linear_test_token",
+          "Bearer linear_test_token",
+        ]);
+      }),
   );
 
   it.scoped("resolves params-backed source auth from invocation context", () =>
@@ -1397,44 +1554,105 @@ describe("workspace-execution-environment", () => {
     }),
   );
 
-  it.scoped("describes executor.sources.add with derived type info and schemas", () =>
-    Effect.gen(function* () {
-      const persistence = yield* makePersistence;
-      const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence);
+  it.scoped(
+    "describes persisted OpenAPI tools with compact schemas and shared bundle ids",
+    () =>
+      Effect.gen(function* () {
+        const persistence = yield* makePersistence;
+        const workspaceId = WorkspaceIdSchema.make(
+          "ws_openapi_describe_bundle",
+        );
+        const sourceId = SourceIdSchema.make("src_openapi_describe_bundle");
 
-      const environment = yield* resolveEnvironment({
-        workspaceId: WorkspaceIdSchema.make("ws_describe_add_source"),
-        accountId: AccountIdSchema.make("acc_describe_add_source"),
-        executionId: ExecutionIdSchema.make("exec_describe_add_source"),
-      });
+        yield* persistConnectedGithubOpenApiSource({
+          persistence,
+          workspaceId,
+          sourceId,
+        });
 
-      const described = (yield* environment.toolInvoker.invoke({
-        path: "describe.tool",
-        args: {
-          path: "executor.sources.add",
-          includeSchemas: true,
-        },
-      })) as {
-        path: string;
-        description?: string;
-        inputType?: string;
-        inputSchemaJson?: string;
-      } | null;
+        const resolveEnvironment = makeResolver(persistence);
+        const environment = yield* resolveEnvironment({
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_openapi_describe_bundle"),
+          executionId: ExecutionIdSchema.make("exec_openapi_describe_bundle"),
+        });
 
-      expect(described?.path).toBe("executor.sources.add");
-      expect(described?.description).toContain("Source add input shapes:");
-      expect(described?.description).toContain("specUrl");
-      expect(described?.description).toContain("credential setup");
-      expect(described?.inputType).toContain("endpoint");
-      expect(described?.inputType).not.toContain("auth");
+        const described = (yield* environment.toolInvoker.invoke({
+          path: "describe.tool",
+          args: {
+            path: "github.repos.getRepo",
+            includeSchemas: true,
+          },
+        })) as {
+          path: string;
+          inputSchemaJson?: string;
+          outputSchemaJson?: string;
+          schemaBundleId?: string;
+        } | null;
 
-      const inputSchema = described?.inputSchemaJson
-        ? JSON.parse(described.inputSchemaJson) as Record<string, unknown>
-        : null;
-      expect(inputSchema).not.toBeNull();
-      expect(JSON.stringify(inputSchema)).toContain("specUrl");
-      expect(JSON.stringify(inputSchema)).toContain("endpoint");
-      expect(JSON.stringify(inputSchema)).not.toContain("\"auth\"");
-    }),
+        expect(described?.path).toBe("github.repos.getRepo");
+        expect(described?.inputSchemaJson).toContain('"owner"');
+        expect(described?.outputSchemaJson).toContain('"type"');
+        expect(described?.schemaBundleId).toBeDefined();
+
+        const schemaBundle = (yield* environment.toolInvoker.invoke({
+          path: "describe.schemaBundle",
+          args: {
+            id: described?.schemaBundleId,
+          },
+        })) as {
+          id: string;
+          kind: string;
+          refsJson: string;
+        } | null;
+
+        expect(schemaBundle?.id).toBe(described?.schemaBundleId);
+        expect(schemaBundle?.kind).toBe("json_schema_ref_map");
+        expect(schemaBundle?.refsJson).toContain("Repository");
+      }),
+  );
+
+  it.scoped(
+    "describes executor.sources.add with derived type info and schemas",
+    () =>
+      Effect.gen(function* () {
+        const persistence = yield* makePersistence;
+        const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence);
+
+        const environment = yield* resolveEnvironment({
+          workspaceId: WorkspaceIdSchema.make("ws_describe_add_source"),
+          accountId: AccountIdSchema.make("acc_describe_add_source"),
+          executionId: ExecutionIdSchema.make("exec_describe_add_source"),
+        });
+
+        const described = (yield* environment.toolInvoker.invoke({
+          path: "describe.tool",
+          args: {
+            path: "executor.sources.add",
+            includeSchemas: true,
+          },
+        })) as {
+          path: string;
+          description?: string;
+          inputType?: string;
+          inputSchemaJson?: string;
+        } | null;
+
+        expect(described?.path).toBe("executor.sources.add");
+        expect(described?.description).toContain("Source add input shapes:");
+        expect(described?.description).toContain("specUrl");
+        expect(described?.description).toContain("credential setup");
+        expect(described?.inputType).toContain("endpoint");
+        expect(described?.inputType).toContain("importAuth");
+
+        const inputSchema = described?.inputSchemaJson
+          ? (JSON.parse(described.inputSchemaJson) as Record<string, unknown>)
+          : null;
+        expect(inputSchema).not.toBeNull();
+        expect(JSON.stringify(inputSchema)).toContain("specUrl");
+        expect(JSON.stringify(inputSchema)).toContain("endpoint");
+        expect(JSON.stringify(inputSchema)).toContain('"auth"');
+        expect(JSON.stringify(inputSchema)).toContain('"importAuth"');
+      }),
   );
 });

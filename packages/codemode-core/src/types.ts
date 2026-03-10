@@ -81,6 +81,7 @@ export type ToolMetadata = {
   outputType?: string;
   inputSchemaJson?: string;
   outputSchemaJson?: string;
+  schemaBundleId?: string;
   exampleInputJson?: string;
   exampleOutputJson?: string;
   sourceKey?: string;
@@ -134,10 +135,18 @@ export type ToolDescriptor = {
   outputType?: string;
   inputSchemaJson?: string;
   outputSchemaJson?: string;
+  schemaBundleId?: string;
   exampleInputJson?: string;
   exampleOutputJson?: string;
   providerKind?: string;
   providerDataJson?: string;
+};
+
+export type ToolSchemaBundle = {
+  id: string;
+  kind: string;
+  hash: string;
+  refsJson: string;
 };
 
 export type ToolNamespace = {
@@ -168,6 +177,10 @@ export interface ToolCatalog {
     includeSchemas: boolean;
   }): Effect.Effect<ToolDescriptor | null, unknown>;
 
+  getSchemaBundle(input: {
+    id: string;
+  }): Effect.Effect<ToolSchemaBundle | null, unknown>;
+
   searchTools(input: {
     query: string;
     namespace?: string;
@@ -196,6 +209,9 @@ export type DescribePrimitive = {
     path: ToolPath;
     includeSchemas?: boolean;
   }): Effect.Effect<ToolDescriptor | null, unknown>;
+  schemaBundle(input: {
+    id: string;
+  }): Effect.Effect<ToolSchemaBundle | null, unknown>;
 };
 
 export type DiscoverPrimitive = (input: {

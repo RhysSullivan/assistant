@@ -19,11 +19,13 @@ import {
   type OpenApiToolDefinition,
 } from "./openapi-definitions";
 import { buildOpenApiToolPresentation } from "./openapi-tool-presentation";
+import { resolveSchemaJsonWithRefHints } from "./openapi-schema-refs";
 import {
   extractOpenApiManifest,
   type OpenApiExtractionError,
 } from "./openapi-extraction";
 import {
+  type OpenApiRefHintTable,
   type OpenApiInvocationPayload,
   type OpenApiSpecInput,
   type OpenApiToolManifest,
@@ -256,13 +258,21 @@ const summarizeHttpResponseBody = (body: unknown): string | null => {
   }
 };
 
-const inputSchemaFromTypingJson = (inputSchemaJson: string | undefined) => {
-  if (!inputSchemaJson) {
+const inputSchemaFromTypingJson = (input: {
+  inputSchemaJson: string | undefined;
+  refHintTable?: Readonly<OpenApiRefHintTable>;
+}) => {
+  const resolvedSchemaJson = resolveSchemaJsonWithRefHints(
+    input.inputSchemaJson,
+    input.refHintTable,
+  ) ?? input.inputSchemaJson;
+
+  if (!resolvedSchemaJson) {
     return unknownInputSchema;
   }
 
   try {
-    return standardSchemaFromJsonSchema(JSON.parse(inputSchemaJson), {
+    return standardSchemaFromJsonSchema(JSON.parse(resolvedSchemaJson), {
       vendor: "openapi",
       fallback: unknownInputSchema,
     });
@@ -396,6 +406,97 @@ const buildFetchRequest = (input: {
 const createToolPath = (namespace: string | undefined, definition: OpenApiToolDefinition): string =>
   namespace ? `${namespace}.${definition.toolId}` : definition.toolId;
 
+export type CreateOpenApiToolFromDefinitionInput = {
+  definition: OpenApiToolDefinition;
+  path: string;
+  sourceKey: string;
+  baseUrl: string;
+  defaultHeaders?: Readonly<Record<string, string>>;
+  credentialHeaders?: Readonly<Record<string, string>>;
+  refHintTable?: Readonly<OpenApiRefHintTable>;
+  httpClientLayer?: Layer.Layer<HttpClient.HttpClient, never, never>;
+};
+
+export const createOpenApiToolFromDefinition = (
+  input: CreateOpenApiToolFromDefinitionInput,
+) => {
+  const defaultHeaders = input.defaultHeaders ?? {};
+  const credentialHeaders = input.credentialHeaders ?? {};
+  const httpClientLayer = input.httpClientLayer ?? FetchHttpClient.layer;
+  const presentation = buildOpenApiToolPresentation({
+    definition: input.definition,
+  });
+
+  return toTool({
+    tool: {
+      description: input.definition.description,
+      inputSchema: inputSchemaFromTypingJson({
+        inputSchemaJson: presentation.inputSchemaJson ?? input.definition.typing?.inputSchemaJson,
+        refHintTable: input.refHintTable,
+      }),
+      execute: async (args: unknown) => {
+        const decodedArgs = asToolArgs(args);
+        const request = buildFetchRequest({
+          payload: input.definition.invocation,
+          args: decodedArgs,
+          baseUrl: input.baseUrl,
+          defaultHeaders,
+          credentialHeaders,
+        });
+
+        return Effect.runPromise(
+          Effect.gen(function* () {
+            const client = yield* HttpClient.HttpClient;
+            let clientRequest = HttpClientRequest.make(
+              request.method as Parameters<typeof HttpClientRequest.make>[0],
+            )(request.url, {
+              headers: request.headers,
+            });
+
+            if (request.body !== undefined) {
+              clientRequest = HttpClientRequest.bodyText(
+                clientRequest,
+                request.body,
+                request.headers["content-type"],
+              );
+            }
+
+            const response = yield* client.execute(clientRequest).pipe(
+              Effect.mapError((cause) =>
+                cause instanceof Error ? cause : new Error(String(cause)),
+              ),
+            );
+            const body = yield* decodeHttpClientResponseBody(response);
+
+            if (response.status < 200 || response.status >= 300) {
+              throw new OpenApiToolInvocationError({
+                operation: "http_response",
+                message: `OpenAPI request failed with HTTP ${response.status}`,
+                details: summarizeHttpResponseBody(body),
+              });
+            }
+
+            return body;
+          }).pipe(
+            Effect.provide(httpClientLayer),
+          ),
+        );
+      },
+    },
+    metadata: {
+      sourceKey: input.sourceKey,
+      inputType: presentation.inputType,
+      outputType: presentation.outputType,
+      inputSchemaJson: presentation.inputSchemaJson,
+      outputSchemaJson: presentation.outputSchemaJson,
+      exampleInputJson: presentation.exampleInputJson,
+      exampleOutputJson: presentation.exampleOutputJson,
+      providerKind: "openapi",
+      providerDataJson: presentation.providerDataJson,
+    },
+  });
+};
+
 export const createOpenApiToolsFromManifest = (
   input: CreateOpenApiToolsFromManifestInput,
 ): ToolMap => {
@@ -410,77 +511,15 @@ export const createOpenApiToolsFromManifest = (
 
   for (const definition of definitions) {
     const toolPath = createToolPath(input.namespace, definition);
-    const presentation = buildOpenApiToolPresentation({
-      manifest: input.manifest,
+    result[toolPath] = createOpenApiToolFromDefinition({
       definition,
-    });
-
-    result[toolPath] = toTool({
-      tool: {
-        description: definition.description,
-        inputSchema: inputSchemaFromTypingJson(
-          presentation.inputSchemaJson ?? definition.typing?.inputSchemaJson,
-        ),
-        execute: async (args: unknown) => {
-          const decodedArgs = asToolArgs(args);
-          const request = buildFetchRequest({
-            payload: definition.invocation,
-            args: decodedArgs,
-            baseUrl,
-            defaultHeaders,
-            credentialHeaders,
-          });
-
-          return Effect.runPromise(
-            Effect.gen(function* () {
-              const client = yield* HttpClient.HttpClient;
-              let clientRequest = HttpClientRequest.make(
-                request.method as Parameters<typeof HttpClientRequest.make>[0],
-              )(request.url, {
-                headers: request.headers,
-              });
-
-              if (request.body !== undefined) {
-                clientRequest = HttpClientRequest.bodyText(
-                  clientRequest,
-                  request.body,
-                  request.headers["content-type"],
-                );
-              }
-
-              const response = yield* client.execute(clientRequest).pipe(
-                Effect.mapError((cause) =>
-                  cause instanceof Error ? cause : new Error(String(cause)),
-                ),
-              );
-              const body = yield* decodeHttpClientResponseBody(response);
-
-              if (response.status < 200 || response.status >= 300) {
-                throw new OpenApiToolInvocationError({
-                  operation: "http_response",
-                  message: `OpenAPI request failed with HTTP ${response.status}`,
-                  details: summarizeHttpResponseBody(body),
-                });
-              }
-
-              return body;
-            }).pipe(
-              Effect.provide(httpClientLayer),
-            ),
-          );
-        },
-      },
-      metadata: {
-        sourceKey,
-        inputType: presentation.inputType,
-        outputType: presentation.outputType,
-        inputSchemaJson: presentation.inputSchemaJson,
-        outputSchemaJson: presentation.outputSchemaJson,
-        exampleInputJson: presentation.exampleInputJson,
-        exampleOutputJson: presentation.exampleOutputJson,
-        providerKind: "openapi",
-        providerDataJson: presentation.providerDataJson,
-      },
+      path: toolPath,
+      sourceKey,
+      baseUrl,
+      defaultHeaders,
+      credentialHeaders,
+      refHintTable: input.manifest.refHintTable,
+      httpClientLayer,
     });
   }
 

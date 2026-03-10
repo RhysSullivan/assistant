@@ -11,12 +11,14 @@ import {
 } from "../ids";
 
 export const CredentialAuthKindSchema = Schema.Literal("bearer", "oauth2");
+export const CredentialSlotSchema = Schema.Literal("runtime", "import");
 
 const credentialSchemaOverrides = {
   id: CredentialIdSchema,
   workspaceId: WorkspaceIdSchema,
   sourceId: SourceIdSchema,
   actorAccountId: Schema.NullOr(AccountIdSchema),
+  slot: CredentialSlotSchema,
   authKind: CredentialAuthKindSchema,
   authHeaderName: Schema.String,
   authPrefix: Schema.String,
@@ -34,4 +36,5 @@ export const CredentialSchema = createSelectSchema(
 );
 
 export type CredentialAuthKind = typeof CredentialAuthKindSchema.Type;
+export type CredentialSlot = typeof CredentialSlotSchema.Type;
 export type Credential = typeof CredentialSchema.Type;

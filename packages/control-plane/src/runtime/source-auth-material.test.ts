@@ -7,7 +7,7 @@ import {
   type Source,
 } from "#schema";
 
-import { resolveSourceAuthMaterial } from "./tool-artifacts";
+import { resolveSourceAuthMaterial } from "./source-auth-material";
 
 const makeSource = (overrides: Partial<Source> = {}): Source => ({
   id: SourceIdSchema.make("src_tool_artifacts"),
@@ -23,6 +23,8 @@ const makeSource = (overrides: Partial<Source> = {}): Source => ({
   headers: null,
   specUrl: "https://api.github.com/openapi.json",
   defaultHeaders: null,
+  importAuthPolicy: "reuse_runtime",
+  importAuth: { kind: "none" },
   auth: { kind: "none" },
   sourceHash: null,
   lastError: null,
@@ -31,7 +33,7 @@ const makeSource = (overrides: Partial<Source> = {}): Source => ({
   ...overrides,
 });
 
-describe("tool-artifacts", () => {
+describe("source-auth-material", () => {
   describe("resolveSourceAuthMaterial", () => {
     it("returns empty headers for auth.kind none", async () => {
       const auth = await Effect.runPromise(resolveSourceAuthMaterial({

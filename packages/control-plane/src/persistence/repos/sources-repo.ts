@@ -4,7 +4,7 @@ import {
 } from "#schema";
 import * as Option from "effect/Option";
 import { Schema } from "effect";
-import { and, asc, count, eq, or } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 
 import type { DrizzleClient } from "../client";
 import type { DrizzleTables } from "../schema";
@@ -26,16 +26,9 @@ const toSourceUpdateSet = (
   if (patch.status !== undefined) set.status = patch.status;
   if (patch.enabled !== undefined) set.enabled = patch.enabled;
   if (patch.namespace !== undefined) set.namespace = patch.namespace;
+  if (patch.importAuthPolicy !== undefined) set.importAuthPolicy = patch.importAuthPolicy;
   if (patch.bindingConfigJson !== undefined) set.bindingConfigJson = patch.bindingConfigJson;
-  if (patch.transport !== undefined) set.transport = patch.transport;
-  if (patch.queryParamsJson !== undefined) set.queryParamsJson = patch.queryParamsJson;
-  if (patch.headersJson !== undefined) set.headersJson = patch.headersJson;
-  if (patch.specUrl !== undefined) set.specUrl = patch.specUrl;
-  if (patch.defaultHeadersJson !== undefined) {
-    set.defaultHeadersJson = patch.defaultHeadersJson;
-  }
   if (patch.sourceHash !== undefined) set.sourceHash = patch.sourceHash;
-  if (patch.sourceDocumentText !== undefined) set.sourceDocumentText = patch.sourceDocumentText;
   if (patch.lastError !== undefined) set.lastError = patch.lastError;
   if (patch.updatedAt !== undefined) set.updatedAt = patch.updatedAt;
 
@@ -146,66 +139,6 @@ export const createSourcesRepo = (
     sourceId: StoredSourceRecord["id"],
   ) =>
     client.useTx("rows.sources.remove", async (tx) => {
-      const existingToolPaths = (
-        await tx
-          .select({
-            path: tables.toolArtifactsTable.path,
-          })
-          .from(tables.toolArtifactsTable)
-          .where(
-            and(
-              eq(tables.toolArtifactsTable.workspaceId, workspaceId),
-              eq(tables.toolArtifactsTable.sourceId, sourceId),
-            ),
-          )
-      ).map((row) => row.path);
-
-      if (existingToolPaths.length > 0) {
-        await tx
-          .delete(tables.toolArtifactParametersTable)
-          .where(
-            and(
-              eq(tables.toolArtifactParametersTable.workspaceId, workspaceId),
-              or(
-                ...existingToolPaths.map((path) => eq(tables.toolArtifactParametersTable.path, path)),
-              ),
-            ),
-          );
-
-        await tx
-          .delete(tables.toolArtifactRequestBodyContentTypesTable)
-          .where(
-            and(
-              eq(tables.toolArtifactRequestBodyContentTypesTable.workspaceId, workspaceId),
-              or(
-                ...existingToolPaths.map((path) =>
-                  eq(tables.toolArtifactRequestBodyContentTypesTable.path, path)
-                ),
-              ),
-            ),
-          );
-
-        await tx
-          .delete(tables.toolArtifactRefHintKeysTable)
-          .where(
-            and(
-              eq(tables.toolArtifactRefHintKeysTable.workspaceId, workspaceId),
-              or(
-                ...existingToolPaths.map((path) => eq(tables.toolArtifactRefHintKeysTable.path, path)),
-              ),
-            ),
-          );
-      }
-
-      await tx
-        .delete(tables.toolArtifactsTable)
-        .where(
-          and(
-            eq(tables.toolArtifactsTable.workspaceId, workspaceId),
-            eq(tables.toolArtifactsTable.sourceId, sourceId),
-          ),
-        );
-
       const deleted = await tx
         .delete(tables.sourcesTable)
         .where(

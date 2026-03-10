@@ -1,4 +1,5 @@
 type JsonObject = Record<string, unknown>;
+type RefHintValue = string | JsonObject;
 
 type DiscoveryTypingLike = {
   inputSchemaJson?: string;
@@ -18,7 +19,7 @@ const parseJson = (value: string): unknown | null => {
 
 const resolveSchemaNode = (
   value: unknown,
-  refHintTable: Readonly<Record<string, string>>,
+  refHintTable: Readonly<Record<string, RefHintValue>>,
   parsedHintCache: Map<string, unknown>,
   activeRefs: ReadonlySet<string>,
 ): unknown => {
@@ -38,7 +39,12 @@ const resolveSchemaNode = (
 
     if (resolvedRefValue === undefined) {
       const rawHint = refHintTable[ref];
-      resolvedRefValue = typeof rawHint === "string" ? parseJson(rawHint) : null;
+      resolvedRefValue =
+        typeof rawHint === "string"
+          ? parseJson(rawHint)
+          : isJsonObject(rawHint)
+            ? rawHint
+            : null;
       parsedHintCache.set(ref, resolvedRefValue);
     }
 
@@ -88,7 +94,7 @@ const resolveSchemaNode = (
 
 export const resolveSchemaJsonWithRefHints = (
   schemaJson: string | undefined,
-  refHintTable: Readonly<Record<string, string>> | undefined,
+  refHintTable: Readonly<Record<string, RefHintValue>> | undefined,
 ): string | null => {
   if (!schemaJson) {
     return null;
@@ -119,7 +125,7 @@ export const resolveSchemaJsonWithRefHints = (
 
 export const resolveTypingSchemasWithRefHints = (
   typing: DiscoveryTypingLike | undefined,
-  refHintTable: Readonly<Record<string, string>> | undefined,
+  refHintTable: Readonly<Record<string, RefHintValue>> | undefined,
 ): {
   inputSchemaJson: string | null;
   outputSchemaJson: string | null;

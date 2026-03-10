@@ -1,11 +1,15 @@
 import { type Workspace, WorkspaceSchema } from "#schema";
 import * as Option from "effect/Option";
 import { Schema } from "effect";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import type { DrizzleClient } from "../client";
 import type { DrizzleTables } from "../schema";
-import { firstOption, postgresSecretHandlesFromCredentials } from "./shared";
+import {
+  cleanupOrphanedSourceRecipes,
+  firstOption,
+  postgresSecretHandlesFromCredentials,
+} from "./shared";
 
 const decodeWorkspace = Schema.decodeUnknownSync(WorkspaceSchema);
 
@@ -71,14 +75,14 @@ export const createWorkspacesRepo = (
         .where(eq(tables.executionsTable.workspaceId, workspaceId));
       const sourceRows = await tx
         .select({
-          sourceId: tables.sourcesTable.sourceId,
           recipeId: tables.sourcesTable.recipeId,
+          recipeRevisionId: tables.sourcesTable.recipeRevisionId,
         })
         .from(tables.sourcesTable)
         .where(eq(tables.sourcesTable.workspaceId, workspaceId));
       const executionIds = executionRows.map((execution) => execution.id);
-      const sourceIds = sourceRows.map((source) => source.sourceId);
       const recipeIds = sourceRows.map((source) => source.recipeId);
+      const recipeRevisionIds = sourceRows.map((source) => source.recipeRevisionId);
       const credentials = await tx
         .select({
           tokenProviderId: tables.credentialsTable.tokenProviderId,
@@ -88,65 +92,12 @@ export const createWorkspacesRepo = (
         })
         .from(tables.credentialsTable)
         .where(eq(tables.credentialsTable.workspaceId, workspaceId));
-      const recipeRevisionRows = recipeIds.length > 0
-        ? await tx
-          .select({ id: tables.sourceRecipeRevisionsTable.id })
-          .from(tables.sourceRecipeRevisionsTable)
-          .where(inArray(tables.sourceRecipeRevisionsTable.recipeId, recipeIds))
-        : [];
-      const recipeRevisionIds = recipeRevisionRows.map((revision) => revision.id);
-      const toolArtifactPaths = sourceIds.length > 0
-        ? (
-          await tx
-            .select({ path: tables.toolArtifactsTable.path })
-            .from(tables.toolArtifactsTable)
-            .where(
-              and(
-                eq(tables.toolArtifactsTable.workspaceId, workspaceId),
-                inArray(tables.toolArtifactsTable.sourceId, sourceIds),
-              ),
-            )
-        ).map((row) => row.path)
-        : [];
       const postgresSecretHandles = postgresSecretHandlesFromCredentials(credentials);
 
       if (executionIds.length > 0) {
         await tx
           .delete(tables.executionInteractionsTable)
           .where(inArray(tables.executionInteractionsTable.executionId, executionIds));
-      }
-
-      if (toolArtifactPaths.length > 0) {
-        await tx
-          .delete(tables.toolArtifactParametersTable)
-          .where(
-            and(
-              eq(tables.toolArtifactParametersTable.workspaceId, workspaceId),
-              or(...toolArtifactPaths.map((path) => eq(tables.toolArtifactParametersTable.path, path))),
-            ),
-          );
-
-        await tx
-          .delete(tables.toolArtifactRequestBodyContentTypesTable)
-          .where(
-            and(
-              eq(tables.toolArtifactRequestBodyContentTypesTable.workspaceId, workspaceId),
-              or(
-                ...toolArtifactPaths.map((path) =>
-                  eq(tables.toolArtifactRequestBodyContentTypesTable.path, path)
-                ),
-              ),
-            ),
-          );
-
-        await tx
-          .delete(tables.toolArtifactRefHintKeysTable)
-          .where(
-            and(
-              eq(tables.toolArtifactRefHintKeysTable.workspaceId, workspaceId),
-              or(...toolArtifactPaths.map((path) => eq(tables.toolArtifactRefHintKeysTable.path, path))),
-            ),
-          );
       }
 
       await tx
@@ -166,32 +117,15 @@ export const createWorkspacesRepo = (
         .where(eq(tables.credentialsTable.workspaceId, workspaceId));
 
       await tx
-        .delete(tables.toolArtifactsTable)
-        .where(eq(tables.toolArtifactsTable.workspaceId, workspaceId));
-
-      await tx
         .delete(tables.sourcesTable)
         .where(eq(tables.sourcesTable.workspaceId, workspaceId));
 
-      if (recipeRevisionIds.length > 0) {
-        await tx
-          .delete(tables.sourceRecipeDocumentsTable)
-          .where(inArray(tables.sourceRecipeDocumentsTable.recipeRevisionId, recipeRevisionIds));
-
-        await tx
-          .delete(tables.sourceRecipeOperationsTable)
-          .where(inArray(tables.sourceRecipeOperationsTable.recipeRevisionId, recipeRevisionIds));
-      }
-
-      if (recipeIds.length > 0) {
-        await tx
-          .delete(tables.sourceRecipeRevisionsTable)
-          .where(inArray(tables.sourceRecipeRevisionsTable.recipeId, recipeIds));
-
-        await tx
-          .delete(tables.sourceRecipesTable)
-          .where(inArray(tables.sourceRecipesTable.id, recipeIds));
-      }
+      await cleanupOrphanedSourceRecipes({
+        tx,
+        tables,
+        candidateRecipeIds: recipeIds,
+        candidateRecipeRevisionIds: recipeRevisionIds,
+      });
 
       await tx
         .delete(tables.policiesTable)

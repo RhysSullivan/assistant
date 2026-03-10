@@ -7,6 +7,7 @@ import { createDrizzleClient, type DrizzleClient } from "./client";
 import {
   createAccountsRepo,
   createCredentialsRepo,
+  createDataMigrationsRepo,
   createExecutionInteractionsRepo,
   createExecutionsRepo,
   createLocalInstallationsRepo,
@@ -17,11 +18,11 @@ import {
   createSourceAuthSessionsRepo,
   createSourceOauthClientsRepo,
   createSourceRecipeDocumentsRepo,
+  createSourceRecipeSchemaBundlesRepo,
   createSourceRecipeOperationsRepo,
   createSourceRecipeRevisionsRepo,
   createSourceRecipesRepo,
   createSourcesRepo,
-  createToolArtifactsRepo,
   createWorkspacesRepo,
 } from "./repos";
 import { drizzleSchema, tableNames, type DrizzleTables } from "./schema";
@@ -33,7 +34,7 @@ import {
   type SqlBackend,
   type SqlRuntime,
 } from "./sql-runtime";
-import { runPostMigrationRepairs } from "./post-migrations";
+import { runDataMigrations } from "./data-migrations";
 
 export { tableNames, type DrizzleTables } from "./schema";
 export {
@@ -60,10 +61,11 @@ const createRows = (client: DrizzleClient, tables: DrizzleTables = drizzleSchema
   sourceRecipes: createSourceRecipesRepo(client, tables),
   sourceRecipeRevisions: createSourceRecipeRevisionsRepo(client, tables),
   sourceRecipeDocuments: createSourceRecipeDocumentsRepo(client, tables),
+  sourceRecipeSchemaBundles: createSourceRecipeSchemaBundlesRepo(client, tables),
   sourceRecipeOperations: createSourceRecipeOperationsRepo(client, tables),
+  dataMigrations: createDataMigrationsRepo(client, tables),
   credentials: createCredentialsRepo(client, tables),
   sourceOauthClients: createSourceOauthClientsRepo(client, tables),
-  toolArtifacts: createToolArtifactsRepo(client, tables),
   secretMaterials: createSecretMaterialsRepo(client, tables),
   sourceAuthSessions: createSourceAuthSessionsRepo(client, tables),
   policies: createPoliciesRepo(client, tables),
@@ -126,8 +128,14 @@ const closeRuntimeEffect = (runtime: SqlRuntime) =>
       cause instanceof Error ? cause : new Error(String(cause ?? "unknown close error")),
   }).pipe(Effect.orDie);
 
+export type CreateSqlControlPlanePersistenceOptions =
+  & CreateSqlRuntimeOptions
+  & {
+    runDataMigrations?: boolean;
+  };
+
 export const createSqlControlPlanePersistence = (
-  options: CreateSqlRuntimeOptions,
+  options: CreateSqlControlPlanePersistenceOptions,
 ): Effect.Effect<SqlControlPlanePersistence, SqlPersistenceBootstrapError> =>
   Effect.flatMap(createRuntimeEffect(options), (runtime) =>
     runMigrationsEffect(runtime, options.migrationsFolder).pipe(
@@ -146,10 +154,12 @@ export const createSqlControlPlanePersistence = (
         } satisfies SqlControlPlanePersistence;
       }),
       Effect.flatMap((persistence) =>
-        runPostMigrationRepairs(persistence.rows).pipe(
-          Effect.mapError(toBootstrapError),
-          Effect.map(() => persistence),
-        )),
+        options.runDataMigrations === false
+          ? Effect.succeed(persistence)
+          : runDataMigrations(persistence.rows).pipe(
+              Effect.mapError(toBootstrapError),
+              Effect.map(() => persistence),
+            )),
       Effect.catchAll((error) =>
         closeRuntimeEffect(runtime).pipe(
           Effect.zipRight(Effect.fail(error)),
@@ -157,7 +167,7 @@ export const createSqlControlPlanePersistence = (
     ));
 
 export const SqlControlPlanePersistenceLive = (
-  options: CreateSqlRuntimeOptions,
+  options: CreateSqlControlPlanePersistenceOptions,
 ) =>
   Layer.scoped(
     SqlControlPlanePersistenceService,

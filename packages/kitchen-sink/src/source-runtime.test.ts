@@ -16,7 +16,6 @@ import {
   type SecretRef,
   type Source,
   type SourceId,
-  type StoredToolArtifactRecord,
   type WorkspaceId,
 } from "@executor/control-plane";
 import {
@@ -57,6 +56,29 @@ const normalizeSearchText = (...parts: ReadonlyArray<string | null | undefined>)
 const catalogNamespaceFromPath = (path: string): string => {
   const [first, second] = path.split(".");
   return second ? `${first}.${second}` : first;
+};
+
+type StoredToolArtifactRecord = {
+  workspaceId: WorkspaceId;
+  path: string;
+  toolId: string;
+  sourceId: SourceId;
+  title: string | null;
+  description: string | null;
+  searchNamespace: string;
+  searchText: string;
+  inputSchemaJson: string | null;
+  outputSchemaJson: string | null;
+  providerKind: "openapi";
+  openApiMethod: "get" | "put" | "post" | "delete" | "patch" | "head" | "options" | "trace";
+  openApiPathTemplate: string | null;
+  openApiOperationHash: string | null;
+  openApiRawToolId: string | null;
+  openApiOperationId: string | null;
+  openApiTagsJson: string | null;
+  openApiRequestBodyRequired: boolean | null;
+  createdAt: number;
+  updatedAt: number;
 };
 
 const toDescriptor = (
@@ -282,15 +304,11 @@ const resolveSourceCallContext = (input: {
 
 const createProviderInvoker = (): ProviderInvoker => ({
   async invoke({ source, artifact, args, runtime, context }) {
-    const invocation = artifact.providerKind === "mcp"
-      ? {
-          toolName: artifact.mcpToolName ?? artifact.title ?? artifact.toolId,
-        }
-      : {
-          method: artifact.openApiMethod,
-          pathTemplate: artifact.openApiPathTemplate,
-          operationHash: artifact.openApiOperationHash,
-        };
+    const invocation = {
+      method: artifact.openApiMethod,
+      pathTemplate: artifact.openApiPathTemplate,
+      operationHash: artifact.openApiOperationHash,
+    };
 
     return {
       sourceId: source.id,
@@ -337,6 +355,7 @@ const createWorkspaceToolCatalog = (input: {
         path,
       }).then((artifact) => (artifact ? toDescriptor(artifact, includeSchemas) : null))
     ),
+  getSchemaBundle: () => Effect.succeed(null),
   searchTools: ({ query, namespace, limit }) =>
     Effect.promise(() =>
       input.toolStore.list({
@@ -480,6 +499,8 @@ const openApiSource = (input: {
   headers: null,
   specUrl: input.specUrl ?? null,
   defaultHeaders: null,
+  importAuthPolicy: "reuse_runtime",
+  importAuth: { kind: "none" },
   auth: input.auth,
   sourceHash: null,
   lastError: null,
@@ -523,7 +544,6 @@ const openApiArtifact = (input: {
     inputSchemaJson: input.inputSchemaJson ?? null,
     outputSchemaJson: input.outputSchemaJson ?? null,
     providerKind: "openapi",
-    mcpToolName: null,
     openApiMethod: input.method,
     openApiPathTemplate: input.pathTemplate,
     openApiOperationHash: input.operationHash ?? input.toolId,
@@ -759,7 +779,8 @@ describe("source runtime", () => {
           "Workflow:",
           '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
           "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
-          "3) Call selected tools.<path>(input).",
+          "3) If details.schemaBundleId is present, fetch it once with tools.describe.schemaBundle({ id }).",
+          "4) Call selected tools.<path>(input).",
           "Do not use fetch; use tools.* only.",
         ].join("\n"),
       );
@@ -828,7 +849,8 @@ describe("source runtime", () => {
           "Workflow:",
           '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
           "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
-          "3) Call selected tools.<path>(input).",
+          "3) If details.schemaBundleId is present, fetch it once with tools.describe.schemaBundle({ id }).",
+          "4) Call selected tools.<path>(input).",
           "Do not use fetch; use tools.* only.",
         ].join("\n"),
       );

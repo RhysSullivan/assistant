@@ -10,6 +10,7 @@ import {
   typeSignatureFromSchemaJson,
 } from "@executor/codemode-core";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import {
   buildClientSchema,
   getIntrospectionQuery,
@@ -25,13 +26,18 @@ import {
   isUnionType,
   type GraphQLArgument,
   type GraphQLField,
+  type GraphQLInputObjectType,
   type GraphQLInputType,
+  type GraphQLInterfaceType,
+  type GraphQLNamedType,
+  type GraphQLObjectType,
   type GraphQLOutputType,
   type GraphQLSchema,
   type IntrospectionQuery,
 } from "graphql";
 
 type JsonSchema = Record<string, unknown>;
+type GraphqlSchemaRefTable = Record<string, string>;
 
 type GraphqlToolKind = "request" | "field";
 
@@ -72,6 +78,7 @@ export type GraphqlToolManifest = {
   queryTypeName: string | null;
   mutationTypeName: string | null;
   subscriptionTypeName: string | null;
+  schemaRefTable?: GraphqlSchemaRefTable;
   tools: readonly GraphqlToolManifestEntry[];
 };
 
@@ -97,6 +104,28 @@ export type GraphqlToolPresentation = {
   exampleInputJson?: string;
   providerDataJson: string;
 };
+
+const GraphqlToolKindSchema = Schema.Literal("request", "field");
+
+const GraphqlOperationTypeSchema = Schema.Literal("query", "mutation");
+
+export const GraphqlToolProviderDataSchema = Schema.Struct({
+  kind: Schema.Literal("graphql"),
+  toolKind: GraphqlToolKindSchema,
+  toolId: Schema.String,
+  rawToolId: Schema.NullOr(Schema.String),
+  group: Schema.NullOr(Schema.String),
+  leaf: Schema.NullOr(Schema.String),
+  fieldName: Schema.NullOr(Schema.String),
+  operationType: Schema.NullOr(GraphqlOperationTypeSchema),
+  operationName: Schema.NullOr(Schema.String),
+  operationDocument: Schema.NullOr(Schema.String),
+  queryTypeName: Schema.NullOr(Schema.String),
+  mutationTypeName: Schema.NullOr(Schema.String),
+  subscriptionTypeName: Schema.NullOr(Schema.String),
+});
+
+export type GraphqlToolProviderData = typeof GraphqlToolProviderDataSchema.Type;
 
 type SelectedGraphqlOutput = {
   selectionSet: string;
@@ -218,11 +247,11 @@ const normalizeHttpUrl = (value: string): string => {
 };
 
 const graphqlToolError = (message: string, cause?: unknown): Error =>
-  new Error(
-    cause instanceof Error ? `${message}: ${cause.message}` : message,
-  );
+  new Error(cause instanceof Error ? `${message}: ${cause.message}` : message);
 
-const parseGraphqlResponseBody = async (response: Response): Promise<unknown> => {
+const parseGraphqlResponseBody = async (
+  response: Response,
+): Promise<unknown> => {
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("application/json")) {
     return await response.json();
@@ -271,10 +300,8 @@ const withSchemaDescription = (
   return trimmed ? { ...schema, description: trimmed } : schema;
 };
 
-const withSchemaDefault = (
-  schema: JsonSchema,
-  value: unknown,
-): JsonSchema => (value !== undefined ? { ...schema, default: value } : schema);
+const withSchemaDefault = (schema: JsonSchema, value: unknown): JsonSchema =>
+  value !== undefined ? { ...schema, default: value } : schema;
 
 const withSchemaDeprecation = (
   schema: JsonSchema,
@@ -286,7 +313,9 @@ const withSchemaDeprecation = (
     : schema;
 };
 
-const introspectionQueryFromDocument = (documentText: string): IntrospectionQuery => {
+const introspectionQueryFromDocument = (
+  documentText: string,
+): IntrospectionQuery => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(documentText) as unknown;
@@ -416,68 +445,286 @@ const scalarExampleValue = (name: string): unknown => {
   }
 };
 
-const schemaForGraphqlInputType = (
-  type: GraphQLInputType,
-  depth = 0,
-): JsonSchema => {
-  if (isNonNullType(type)) {
-    return schemaForGraphqlInputType(type.ofType, depth);
-  }
+const GRAPHQL_SCHEMA_REF_PREFIX = "#/$defs/graphql";
 
-  if (isListType(type)) {
-    return {
-      type: "array",
-      items: schemaForGraphqlInputType(type.ofType, depth + 1),
-    };
-  }
+const graphqlScalarRef = (name: string): string =>
+  `${GRAPHQL_SCHEMA_REF_PREFIX}/scalars/${name}`;
 
-  const namedType = getNamedType(type);
-  if (isScalarType(namedType)) {
-    return scalarInputSchema(namedType.name);
-  }
+const graphqlEnumRef = (name: string): string =>
+  `${GRAPHQL_SCHEMA_REF_PREFIX}/enums/${name}`;
 
-  if (isEnumType(namedType)) {
-    return {
-      type: "string",
-      enum: namedType.getValues().map((value) => value.name),
-    };
-  }
+const graphqlInputObjectRef = (name: string): string =>
+  `${GRAPHQL_SCHEMA_REF_PREFIX}/input/${name}`;
 
-  if (isInputObjectType(namedType)) {
-    if (depth >= 2) {
-      return {
+const graphqlOutputTypeRef = (name: string, depth: number): string =>
+  `${GRAPHQL_SCHEMA_REF_PREFIX}/output/${depth === 0 ? name : `${name}__depth${depth}`}`;
+
+const schemaRef = (ref: string): JsonSchema => ({
+  $ref: ref,
+});
+
+const typenameOnlyObjectSchema = (): JsonSchema => ({
+  type: "object",
+  properties: {
+    __typename: { type: "string" },
+  },
+  required: ["__typename"],
+  additionalProperties: false,
+});
+
+const createGraphqlSchemaRefTableBuilder = () => {
+  const refTable: GraphqlSchemaRefTable = {};
+  const outputSelectionsByRef = new Map<string, SelectedGraphqlOutput>();
+
+  const defineRefSchema = (ref: string, schema: JsonSchema): void => {
+    refTable[ref] = JSON.stringify(schema);
+  };
+
+  const ensureScalarRef = (name: string): JsonSchema => {
+    const ref = graphqlScalarRef(name);
+    if (!(ref in refTable)) {
+      defineRefSchema(ref, scalarInputSchema(name));
+    }
+
+    return schemaRef(ref);
+  };
+
+  const ensureEnumRef = (
+    name: string,
+    values: readonly string[],
+  ): JsonSchema => {
+    const ref = graphqlEnumRef(name);
+    if (!(ref in refTable)) {
+      defineRefSchema(ref, {
+        type: "string",
+        enum: [...values],
+      });
+    }
+
+    return schemaRef(ref);
+  };
+
+  const ensureInputObjectRef = (
+    namedType: GraphQLInputObjectType,
+  ): JsonSchema => {
+    const ref = graphqlInputObjectRef(namedType.name);
+    if (!(ref in refTable)) {
+      defineRefSchema(ref, {});
+
+      const fields = Object.values(namedType.getFields());
+      const properties = Object.fromEntries(
+        fields.map((field) => {
+          const schema = inputSchemaForType(field.type);
+          const enriched = withSchemaDeprecation(
+            withSchemaDefault(
+              withSchemaDescription(schema, field.description),
+              field.defaultValue,
+            ),
+            field.deprecationReason,
+          );
+          return [field.name, enriched];
+        }),
+      );
+      const required = fields
+        .filter(
+          (field) =>
+            isNonNullType(field.type) && field.defaultValue === undefined,
+        )
+        .map((field) => field.name);
+
+      defineRefSchema(ref, {
         type: "object",
-        additionalProperties: true,
+        properties,
+        ...(required.length > 0 ? { required } : {}),
+        additionalProperties: false,
+      });
+    }
+
+    return schemaRef(ref);
+  };
+
+  const inputSchemaForType = (type: GraphQLInputType): JsonSchema => {
+    if (isNonNullType(type)) {
+      return inputSchemaForType(type.ofType);
+    }
+
+    if (isListType(type)) {
+      return {
+        type: "array",
+        items: inputSchemaForType(type.ofType),
       };
     }
 
-    const fields = Object.values(namedType.getFields());
-    const properties = Object.fromEntries(
-      fields.map((field) => {
-        const schema = schemaForGraphqlInputType(field.type, depth + 1);
-        const enriched = withSchemaDeprecation(
-          withSchemaDefault(
-            withSchemaDescription(schema, field.description),
-            field.defaultValue,
-          ),
-          field.deprecationReason,
-        );
-        return [field.name, enriched];
-      }),
-    );
-    const required = fields
-      .filter((field) => isNonNullType(field.type) && field.defaultValue === undefined)
-      .map((field) => field.name);
+    const namedType = getNamedType(type);
+    if (isScalarType(namedType)) {
+      return ensureScalarRef(namedType.name);
+    }
 
-    return {
+    if (isEnumType(namedType)) {
+      return ensureEnumRef(
+        namedType.name,
+        namedType.getValues().map((value) => value.name),
+      );
+    }
+
+    if (isInputObjectType(namedType)) {
+      return ensureInputObjectRef(namedType);
+    }
+
+    return {};
+  };
+
+  const selectedOutputForNamedType = (
+    namedType: GraphQLNamedType,
+    depth: number,
+  ): SelectedGraphqlOutput => {
+    if (isScalarType(namedType)) {
+      return {
+        selectionSet: "",
+        schema: ensureScalarRef(namedType.name),
+      };
+    }
+
+    if (isEnumType(namedType)) {
+      return {
+        selectionSet: "",
+        schema: ensureEnumRef(
+          namedType.name,
+          namedType.getValues().map((value) => value.name),
+        ),
+      };
+    }
+
+    const ref = graphqlOutputTypeRef(namedType.name, depth);
+    const cached = outputSelectionsByRef.get(ref);
+    if (cached) {
+      return cached;
+    }
+
+    if (isUnionType(namedType)) {
+      const result = {
+        selectionSet: "{ __typename }",
+        schema: schemaRef(ref),
+      } satisfies SelectedGraphqlOutput;
+      outputSelectionsByRef.set(ref, result);
+      defineRefSchema(ref, typenameOnlyObjectSchema());
+      return result;
+    }
+
+    if (!isObjectType(namedType) && !isInterfaceType(namedType)) {
+      return {
+        selectionSet: "{ __typename }",
+        schema: typenameOnlyObjectSchema(),
+      };
+    }
+
+    const fallback = {
+      selectionSet: "{ __typename }",
+      schema: schemaRef(ref),
+    } satisfies SelectedGraphqlOutput;
+    outputSelectionsByRef.set(ref, fallback);
+
+    if (depth >= 2) {
+      defineRefSchema(ref, typenameOnlyObjectSchema());
+      return fallback;
+    }
+
+    const fields = Object.values(namedType.getFields()).filter(
+      (field) => !field.name.startsWith("__"),
+    );
+    const leafFields = fields.filter((field) =>
+      isLeafType(getNamedType(field.type)),
+    );
+    const nestedFields = fields.filter(
+      (field) => !isLeafType(getNamedType(field.type)),
+    );
+
+    const selectedLeafFields = pickPreferredFields({
+      fields: leafFields,
+      preferredNames: PREFERRED_LEAF_FIELD_NAMES,
+      limit: 3,
+    });
+    const selectedNestedFields = pickPreferredFields({
+      fields: nestedFields,
+      preferredNames: PREFERRED_NESTED_FIELD_NAMES,
+      limit: 2,
+    });
+    const selectedFields = dedupeFields([
+      ...selectedLeafFields,
+      ...selectedNestedFields,
+    ]);
+
+    if (selectedFields.length === 0) {
+      defineRefSchema(ref, typenameOnlyObjectSchema());
+      return fallback;
+    }
+
+    const selectionParts: string[] = [];
+    const properties: Record<string, JsonSchema> = {};
+    const required: string[] = [];
+
+    for (const field of selectedFields) {
+      const selected = selectedOutputForType(field.type, depth + 1);
+      const propertySchema = withSchemaDeprecation(
+        withSchemaDescription(selected.schema, field.description),
+        field.deprecationReason,
+      );
+
+      properties[field.name] = propertySchema;
+      required.push(field.name);
+      selectionParts.push(
+        selected.selectionSet.length > 0
+          ? `${field.name} ${selected.selectionSet}`
+          : field.name,
+      );
+    }
+
+    properties.__typename = { type: "string" };
+    required.push("__typename");
+    selectionParts.push("__typename");
+
+    defineRefSchema(ref, {
       type: "object",
       properties,
-      ...(required.length > 0 ? { required } : {}),
+      required,
       additionalProperties: false,
-    };
-  }
+    });
 
-  return {};
+    const result = {
+      selectionSet: `{ ${selectionParts.join(" ")} }`,
+      schema: schemaRef(ref),
+    } satisfies SelectedGraphqlOutput;
+    outputSelectionsByRef.set(ref, result);
+    return result;
+  };
+
+  const selectedOutputForType = (
+    type: GraphQLOutputType,
+    depth = 0,
+  ): SelectedGraphqlOutput => {
+    if (isNonNullType(type)) {
+      return selectedOutputForType(type.ofType, depth);
+    }
+
+    if (isListType(type)) {
+      const selectedItem = selectedOutputForType(type.ofType, depth);
+      return {
+        selectionSet: selectedItem.selectionSet,
+        schema: {
+          type: "array",
+          items: selectedItem.schema,
+        },
+      };
+    }
+
+    return selectedOutputForNamedType(getNamedType(type), depth);
+  };
+
+  return {
+    refTable,
+    inputSchemaForType,
+    selectedOutputForType,
+  };
 };
 
 const exampleValueForGraphqlInputType = (
@@ -510,14 +757,14 @@ const exampleValueForGraphqlInputType = (
     const requiredFields = fields.filter(
       (field) => isNonNullType(field.type) && field.defaultValue === undefined,
     );
-    const fieldsForExample = requiredFields.length > 0
-      ? requiredFields
-      : fields.slice(0, 1);
+    const fieldsForExample =
+      requiredFields.length > 0 ? requiredFields : fields.slice(0, 1);
 
     return Object.fromEntries(
       fieldsForExample.map((field) => [
         field.name,
-        field.defaultValue ?? exampleValueForGraphqlInputType(field.type, depth + 1),
+        field.defaultValue ??
+          exampleValueForGraphqlInputType(field.type, depth + 1),
       ]),
     );
   }
@@ -525,35 +772,9 @@ const exampleValueForGraphqlInputType = (
   return {};
 };
 
-const scalarOutputSchema = (name: string): JsonSchema => scalarInputSchema(name);
-
-const selectedLeafOutputForType = (type: GraphQLOutputType): SelectedGraphqlOutput => {
-  const namedType = getNamedType(type);
-
-  if (isScalarType(namedType)) {
-    return {
-      selectionSet: "",
-      schema: scalarOutputSchema(namedType.name),
-    };
-  }
-
-  if (isEnumType(namedType)) {
-    return {
-      selectionSet: "",
-      schema: {
-        type: "string",
-        enum: namedType.getValues().map((value) => value.name),
-      },
-    };
-  }
-
-  return {
-    selectionSet: "",
-    schema: {},
-  };
-};
-
-const dedupeFields = <T extends { name: string }>(fields: readonly T[]): T[] => {
+const dedupeFields = <T extends { name: string }>(
+  fields: readonly T[],
+): T[] => {
   const seen = new Set<string>();
   const deduped: T[] = [];
 
@@ -585,155 +806,6 @@ const pickPreferredFields = <T extends { name: string }>(input: {
   return dedupeFields([...matches, ...input.fields]).slice(0, input.limit);
 };
 
-const selectedObjectOutputForType = (
-  type: GraphQLOutputType,
-  depth: number,
-  seenTypeNames: ReadonlySet<string>,
-): SelectedGraphqlOutput => {
-  const namedType = getNamedType(type);
-  if (!isObjectType(namedType) && !isInterfaceType(namedType)) {
-    return {
-      selectionSet: "{ __typename }",
-      schema: {
-        type: "object",
-        properties: {
-          __typename: { type: "string" },
-        },
-        required: ["__typename"],
-        additionalProperties: false,
-      },
-    };
-  }
-
-  if (depth >= 2 || seenTypeNames.has(namedType.name)) {
-    return {
-      selectionSet: "{ __typename }",
-      schema: {
-        type: "object",
-        properties: {
-          __typename: { type: "string" },
-        },
-        required: ["__typename"],
-        additionalProperties: false,
-      },
-    };
-  }
-
-  const nextSeen = new Set(seenTypeNames);
-  nextSeen.add(namedType.name);
-
-  const fields = Object.values(namedType.getFields()).filter(
-    (field) => !field.name.startsWith("__"),
-  );
-  const leafFields = fields.filter((field) => isLeafType(getNamedType(field.type)));
-  const nestedFields = fields.filter((field) => !isLeafType(getNamedType(field.type)));
-
-  const selectedLeafFields = pickPreferredFields({
-    fields: leafFields,
-    preferredNames: PREFERRED_LEAF_FIELD_NAMES,
-    limit: 3,
-  });
-  const selectedNestedFields = pickPreferredFields({
-    fields: nestedFields,
-    preferredNames: PREFERRED_NESTED_FIELD_NAMES,
-    limit: 2,
-  });
-  const selectedFields = dedupeFields([
-    ...selectedLeafFields,
-    ...selectedNestedFields,
-  ]);
-
-  if (selectedFields.length === 0) {
-    return {
-      selectionSet: "{ __typename }",
-      schema: {
-        type: "object",
-        properties: {
-          __typename: { type: "string" },
-        },
-        required: ["__typename"],
-        additionalProperties: false,
-      },
-    };
-  }
-
-  const selectionParts: string[] = [];
-  const properties: Record<string, JsonSchema> = {};
-  const required: string[] = [];
-
-  for (const field of selectedFields) {
-    const selected = selectedOutputForType(field.type, depth + 1, nextSeen);
-    const propertySchema = withSchemaDeprecation(
-      withSchemaDescription(selected.schema, field.description),
-      field.deprecationReason,
-    );
-
-    properties[field.name] = propertySchema;
-    required.push(field.name);
-    selectionParts.push(
-      selected.selectionSet.length > 0
-        ? `${field.name} ${selected.selectionSet}`
-        : field.name,
-    );
-  }
-
-  properties.__typename = { type: "string" };
-  required.push("__typename");
-  selectionParts.push("__typename");
-
-  return {
-    selectionSet: `{ ${selectionParts.join(" ")} }`,
-    schema: {
-      type: "object",
-      properties,
-      required,
-      additionalProperties: false,
-    },
-  };
-};
-
-const selectedOutputForType = (
-  type: GraphQLOutputType,
-  depth = 0,
-  seenTypeNames: ReadonlySet<string> = new Set<string>(),
-): SelectedGraphqlOutput => {
-  if (isNonNullType(type)) {
-    return selectedOutputForType(type.ofType, depth, seenTypeNames);
-  }
-
-  if (isListType(type)) {
-    const selectedItem = selectedOutputForType(type.ofType, depth, seenTypeNames);
-    return {
-      selectionSet: selectedItem.selectionSet,
-      schema: {
-        type: "array",
-        items: selectedItem.schema,
-      },
-    };
-  }
-
-  const namedType = getNamedType(type);
-  if (isLeafType(namedType)) {
-    return selectedLeafOutputForType(type);
-  }
-
-  if (isUnionType(namedType)) {
-    return {
-      selectionSet: "{ __typename }",
-      schema: {
-        type: "object",
-        properties: {
-          __typename: { type: "string" },
-        },
-        required: ["__typename"],
-        additionalProperties: false,
-      },
-    };
-  }
-
-  return selectedObjectOutputForType(type, depth, seenTypeNames);
-};
-
 const printGraphqlType = (type: GraphQLInputType): string => {
   if (isNonNullType(type)) {
     return `${printGraphqlType(type.ofType)}!`;
@@ -746,10 +818,13 @@ const printGraphqlType = (type: GraphQLInputType): string => {
   return type.name;
 };
 
-const inputSchemaForFieldArguments = (args: readonly GraphQLArgument[]): JsonSchema => {
+const inputSchemaForFieldArguments = (
+  args: readonly GraphQLArgument[],
+  bundleBuilder: ReturnType<typeof createGraphqlSchemaRefTableBuilder>,
+): JsonSchema => {
   const properties = Object.fromEntries(
     args.map((arg) => {
-      const schema = schemaForGraphqlInputType(arg.type);
+      const schema = bundleBuilder.inputSchemaForType(arg.type);
       const enriched = withSchemaDeprecation(
         withSchemaDefault(
           withSchemaDescription(schema, arg.description),
@@ -781,8 +856,11 @@ const inputSchemaForFieldArguments = (args: readonly GraphQLArgument[]): JsonSch
   };
 };
 
-const outputEnvelopeSchemaForField = (fieldType: GraphQLOutputType): JsonSchema => {
-  const selectedOutput = selectedOutputForType(fieldType);
+const outputEnvelopeSchemaForField = (
+  fieldType: GraphQLOutputType,
+  bundleBuilder: ReturnType<typeof createGraphqlSchemaRefTableBuilder>,
+): JsonSchema => {
+  const selectedOutput = bundleBuilder.selectedOutputForType(fieldType);
 
   return {
     type: "object",
@@ -801,7 +879,9 @@ const outputEnvelopeSchemaForField = (fieldType: GraphQLOutputType): JsonSchema 
   };
 };
 
-const exampleInputJsonForField = (args: readonly GraphQLArgument[]): string | undefined => {
+const exampleInputJsonForField = (
+  args: readonly GraphQLArgument[],
+): string | undefined => {
   if (args.length === 0) {
     return JSON.stringify({});
   }
@@ -809,7 +889,8 @@ const exampleInputJsonForField = (args: readonly GraphQLArgument[]): string | un
   const requiredArgs = args.filter(
     (arg) => isNonNullType(arg.type) && arg.defaultValue === undefined,
   );
-  const argsForExample = requiredArgs.length > 0 ? requiredArgs : args.slice(0, 1);
+  const argsForExample =
+    requiredArgs.length > 0 ? requiredArgs : args.slice(0, 1);
   const example = Object.fromEntries(
     argsForExample.map((arg) => [
       arg.name,
@@ -825,8 +906,11 @@ const buildGraphqlFieldOperationDocument = (input: {
   fieldName: string;
   args: readonly GraphQLArgument[];
   fieldType: GraphQLOutputType;
+  bundleBuilder: ReturnType<typeof createGraphqlSchemaRefTableBuilder>;
 }): { operationName: string; operationDocument: string } => {
-  const selectedOutput = selectedOutputForType(input.fieldType);
+  const selectedOutput = input.bundleBuilder.selectedOutputForType(
+    input.fieldType,
+  );
   const operationName = `${toPascalCase(input.operationType)}${toPascalCase(input.fieldName)}`;
   const variableDefinitions = input.args
     .map((arg) => `$${arg.name}: ${printGraphqlType(arg.type)}`)
@@ -834,12 +918,14 @@ const buildGraphqlFieldOperationDocument = (input: {
   const fieldArguments = input.args
     .map((arg) => `${arg.name}: $${arg.name}`)
     .join(", ");
-  const fieldCall = fieldArguments.length > 0
-    ? `${input.fieldName}(${fieldArguments})`
-    : input.fieldName;
-  const selectionSuffix = selectedOutput.selectionSet.length > 0
-    ? ` ${selectedOutput.selectionSet}`
-    : "";
+  const fieldCall =
+    fieldArguments.length > 0
+      ? `${input.fieldName}(${fieldArguments})`
+      : input.fieldName;
+  const selectionSuffix =
+    selectedOutput.selectionSet.length > 0
+      ? ` ${selectedOutput.selectionSet}`
+      : "";
 
   return {
     operationName,
@@ -907,23 +993,30 @@ const resolveGraphqlFieldToolIds = (
     }
   };
 
-  applyDuplicates((draft) => `${draft.leaf}${toPascalCase(draft.operationType)}`);
-  applyDuplicates((draft) =>
-    `${draft.leaf}${toPascalCase(draft.operationType)}${createHash("sha1").update(`${draft.group}:${draft.fieldName}`).digest("hex").slice(0, 6)}`,
+  applyDuplicates(
+    (draft) => `${draft.leaf}${toPascalCase(draft.operationType)}`,
+  );
+  applyDuplicates(
+    (draft) =>
+      `${draft.leaf}${toPascalCase(draft.operationType)}${createHash("sha1").update(`${draft.group}:${draft.fieldName}`).digest("hex").slice(0, 6)}`,
   );
 
   return staged
-    .sort((left, right) =>
-      left.toolId.localeCompare(right.toolId)
-      || left.fieldName.localeCompare(right.fieldName)
-      || left.operationType.localeCompare(right.operationType),
+    .sort(
+      (left, right) =>
+        left.toolId.localeCompare(right.toolId) ||
+        left.fieldName.localeCompare(right.fieldName) ||
+        left.operationType.localeCompare(right.operationType),
     )
     .map((draft) => ({ ...draft }));
 };
 
 const fieldToolDraftsFromRootType = (input: {
-  rootType: ReturnType<GraphQLSchema["getQueryType"]> | ReturnType<GraphQLSchema["getMutationType"]>;
+  rootType:
+    | ReturnType<GraphQLSchema["getQueryType"]>
+    | ReturnType<GraphQLSchema["getMutationType"]>;
   operationType: GraphqlOperationType;
+  bundleBuilder: ReturnType<typeof createGraphqlSchemaRefTableBuilder>;
 }): GraphqlFieldToolDraft[] => {
   if (!input.rootType) {
     return [];
@@ -933,14 +1026,20 @@ const fieldToolDraftsFromRootType = (input: {
     .filter((field) => !field.name.startsWith("__"))
     .map((field) => {
       const leaf = toCamelCase(field.name);
-      const outputSchemaJson = JSON.stringify(outputEnvelopeSchemaForField(field.type));
-      const inputSchemaJson = JSON.stringify(inputSchemaForFieldArguments(field.args));
-      const { operationName, operationDocument } = buildGraphqlFieldOperationDocument({
-        operationType: input.operationType,
-        fieldName: field.name,
-        args: field.args,
-        fieldType: field.type,
-      });
+      const outputSchemaJson = JSON.stringify(
+        outputEnvelopeSchemaForField(field.type, input.bundleBuilder),
+      );
+      const inputSchemaJson = JSON.stringify(
+        inputSchemaForFieldArguments(field.args, input.bundleBuilder),
+      );
+      const { operationName, operationDocument } =
+        buildGraphqlFieldOperationDocument({
+          operationType: input.operationType,
+          fieldName: field.name,
+          args: field.args,
+          fieldType: field.type,
+          bundleBuilder: input.bundleBuilder,
+        });
 
       return {
         kind: "field",
@@ -983,14 +1082,17 @@ export const extractGraphqlManifest = (
       const introspection = introspectionQueryFromDocument(documentText);
       const schema = buildClientSchema(introspection);
       const sourceHash = createGraphqlSourceHash(documentText);
+      const bundleBuilder = createGraphqlSchemaRefTableBuilder();
       const fieldTools = resolveGraphqlFieldToolIds([
         ...fieldToolDraftsFromRootType({
           rootType: schema.getQueryType(),
           operationType: "query",
+          bundleBuilder,
         }),
         ...fieldToolDraftsFromRootType({
           rootType: schema.getMutationType(),
           operationType: "mutation",
+          bundleBuilder,
         }),
       ]);
 
@@ -1000,10 +1102,10 @@ export const extractGraphqlManifest = (
         queryTypeName: schema.getQueryType()?.name ?? null,
         mutationTypeName: schema.getMutationType()?.name ?? null,
         subscriptionTypeName: schema.getSubscriptionType()?.name ?? null,
-        tools: [
-          ...fieldTools,
-          requestToolManifestEntry(sourceName),
-        ],
+        ...(Object.keys(bundleBuilder.refTable).length > 0
+          ? { schemaRefTable: bundleBuilder.refTable }
+          : {}),
+        tools: [...fieldTools, requestToolManifestEntry(sourceName)],
       } satisfies GraphqlToolManifest;
     },
     catch: (cause) =>
@@ -1024,23 +1126,38 @@ export const compileGraphqlToolDefinitions = (
     operationType: tool.kind === "field" ? tool.operationType : null,
     operationName: tool.kind === "field" ? tool.operationName : null,
     operationDocument: tool.kind === "field" ? tool.operationDocument : null,
-    searchTerms: tool.kind === "field" ? tool.searchTerms : ["request", "graphql", "query", "mutation"],
+    searchTerms:
+      tool.kind === "field"
+        ? tool.searchTerms
+        : ["request", "graphql", "query", "mutation"],
   }));
 
 export const buildGraphqlToolPresentation = (input: {
   manifest: GraphqlToolManifest;
   definition: GraphqlToolDefinition;
 }): GraphqlToolPresentation => {
-  const entry = input.manifest.tools.find((tool) => tool.toolId === input.definition.toolId);
+  const entry = input.manifest.tools.find(
+    (tool) => tool.toolId === input.definition.toolId,
+  );
   const inputSchemaJson = entry?.inputSchemaJson;
   const outputSchemaJson = entry?.outputSchemaJson;
 
   return {
-    inputType: typeSignatureFromSchemaJson(inputSchemaJson, "unknown", Infinity),
-    outputType: typeSignatureFromSchemaJson(outputSchemaJson, "unknown", Infinity),
+    inputType: typeSignatureFromSchemaJson(
+      inputSchemaJson,
+      "unknown",
+      Infinity,
+    ),
+    outputType: typeSignatureFromSchemaJson(
+      outputSchemaJson,
+      "unknown",
+      Infinity,
+    ),
     ...(inputSchemaJson ? { inputSchemaJson } : {}),
     ...(outputSchemaJson ? { outputSchemaJson } : {}),
-    ...(entry?.exampleInputJson ? { exampleInputJson: entry.exampleInputJson } : {}),
+    ...(entry?.exampleInputJson
+      ? { exampleInputJson: entry.exampleInputJson }
+      : {}),
     providerDataJson: JSON.stringify({
       kind: "graphql",
       toolKind: entry?.kind ?? "request",
@@ -1051,11 +1168,196 @@ export const buildGraphqlToolPresentation = (input: {
       fieldName: input.definition.fieldName,
       operationType: input.definition.operationType,
       operationName: input.definition.operationName,
+      operationDocument: input.definition.operationDocument,
       queryTypeName: input.manifest.queryTypeName,
       mutationTypeName: input.manifest.mutationTypeName,
       subscriptionTypeName: input.manifest.subscriptionTypeName,
-    }),
+    } satisfies GraphqlToolProviderData),
   };
+};
+
+const decodeGraphqlToolProviderDataJson = Schema.decodeUnknownEither(
+  Schema.parseJson(GraphqlToolProviderDataSchema),
+);
+
+export const decodeGraphqlSchemaRefTableJson = Schema.decodeUnknownEither(
+  Schema.parseJson(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.Unknown,
+    }),
+  ),
+);
+
+const setNestedSchemaProperty = (
+  target: Record<string, unknown>,
+  path: readonly string[],
+  value: unknown,
+): void => {
+  if (path.length === 0) {
+    return;
+  }
+
+  const [head, ...rest] = path;
+  if (!head) {
+    return;
+  }
+
+  if (rest.length === 0) {
+    target[head] = value;
+    return;
+  }
+
+  const next = asRecord(target[head]);
+  target[head] = next;
+  setNestedSchemaProperty(next, rest, value);
+};
+
+const materializeSchemaWithRefDefinitions = (input: {
+  schemaJson: string | undefined;
+  refTable?: Readonly<Record<string, unknown>>;
+}): Record<string, unknown> => {
+  if (!input.schemaJson) {
+    return {};
+  }
+
+  let rootSchema: Record<string, unknown>;
+  try {
+    rootSchema = asRecord(JSON.parse(input.schemaJson) as unknown);
+  } catch {
+    return {};
+  }
+
+  if (!input.refTable || Object.keys(input.refTable).length === 0) {
+    return rootSchema;
+  }
+
+  const defsRoot = asRecord(rootSchema.$defs);
+  for (const [ref, value] of Object.entries(input.refTable)) {
+    if (!ref.startsWith("#/$defs/")) {
+      continue;
+    }
+
+    const materializedValue =
+      typeof value === "string"
+        ? (() => {
+            try {
+              return JSON.parse(value) as unknown;
+            } catch {
+              return value;
+            }
+          })()
+        : value;
+    const path = ref
+      .slice("#/$defs/".length)
+      .split("/")
+      .filter((segment) => segment.length > 0);
+    setNestedSchemaProperty(defsRoot, path, materializedValue);
+  }
+
+  return Object.keys(defsRoot).length > 0
+    ? { ...rootSchema, $defs: defsRoot }
+    : rootSchema;
+};
+
+export const createGraphqlToolFromPersistedOperation = (input: {
+  path: string;
+  sourceKey: string;
+  endpoint: string;
+  description?: string;
+  inputSchemaJson?: string;
+  outputSchemaJson?: string;
+  exampleInputJson?: string;
+  providerDataJson: string;
+  schemaRefTable?: Readonly<Record<string, unknown>>;
+  defaultHeaders?: Readonly<Record<string, string>>;
+  credentialHeaders?: Readonly<Record<string, string>>;
+}) => {
+  const decodedProviderData = decodeGraphqlToolProviderDataJson(
+    input.providerDataJson,
+  );
+  if (decodedProviderData._tag === "Left") {
+    throw new Error("Invalid GraphQL provider data");
+  }
+
+  const providerData = decodedProviderData.right;
+  const inputSchema = materializeSchemaWithRefDefinitions({
+    schemaJson: input.inputSchemaJson,
+    refTable: input.schemaRefTable,
+  });
+
+  const metadata: ToolMetadata = {
+    interaction:
+      providerData.toolKind === "request"
+        ? "auto"
+        : providerData.operationType === "query"
+          ? "auto"
+          : "required",
+    inputType: typeSignatureFromSchemaJson(
+      input.inputSchemaJson,
+      "unknown",
+      Infinity,
+    ),
+    outputType: typeSignatureFromSchemaJson(
+      input.outputSchemaJson,
+      "unknown",
+      Infinity,
+    ),
+    ...(input.inputSchemaJson
+      ? { inputSchemaJson: input.inputSchemaJson }
+      : {}),
+    ...(input.outputSchemaJson
+      ? { outputSchemaJson: input.outputSchemaJson }
+      : {}),
+    ...(input.exampleInputJson
+      ? { exampleInputJson: input.exampleInputJson }
+      : {}),
+    sourceKey: input.sourceKey,
+    providerKind: "graphql",
+    providerDataJson: input.providerDataJson,
+  };
+
+  return toTool({
+    tool: {
+      description: input.description,
+      inputSchema: standardSchemaFromJsonSchema(inputSchema),
+      execute: (args: unknown) => {
+        if (
+          providerData.toolKind === "field" &&
+          providerData.fieldName &&
+          providerData.operationType &&
+          providerData.operationName &&
+          providerData.operationDocument
+        ) {
+          return Effect.runPromise(
+            invokeGraphqlFieldTool({
+              entry: {
+                fieldName: providerData.fieldName,
+                operationName: providerData.operationName,
+                operationDocument: providerData.operationDocument,
+              },
+              endpoint: input.endpoint,
+              path: input.path,
+              defaultHeaders: input.defaultHeaders,
+              credentialHeaders: input.credentialHeaders,
+              args,
+            }),
+          );
+        }
+
+        return Effect.runPromise(
+          invokeRawGraphqlTool({
+            endpoint: input.endpoint,
+            path: input.path,
+            defaultHeaders: input.defaultHeaders,
+            credentialHeaders: input.credentialHeaders,
+            args,
+          }),
+        );
+      },
+    },
+    metadata,
+  });
 };
 
 export const graphqlToolDescriptorFromDefinition = (input: {
@@ -1074,7 +1376,8 @@ export const graphqlToolDescriptorFromDefinition = (input: {
     path: asToolPath(input.path),
     sourceKey: input.sourceKey,
     description: input.definition.description,
-    interaction: input.definition.operationType === "query" ? "auto" : "required",
+    interaction:
+      input.definition.operationType === "query" ? "auto" : "required",
     inputType: presentation.inputType,
     outputType: presentation.outputType,
     ...(input.includeSchemas && presentation.inputSchemaJson
@@ -1105,15 +1408,24 @@ const invokeGraphqlHttpRequest = (input: GraphqlHttpInvocation) =>
           }),
           body: JSON.stringify({
             query: input.query,
-            ...(input.variables !== undefined ? { variables: input.variables } : {}),
-            ...(input.operationName ? { operationName: input.operationName } : {}),
+            ...(input.variables !== undefined
+              ? { variables: input.variables }
+              : {}),
+            ...(input.operationName
+              ? { operationName: input.operationName }
+              : {}),
           }),
         }),
-      catch: (cause) => graphqlToolError(`GraphQL request failed for ${input.path}`, cause),
+      catch: (cause) =>
+        graphqlToolError(`GraphQL request failed for ${input.path}`, cause),
     });
     const body = yield* Effect.tryPromise({
       try: () => parseGraphqlResponseBody(response),
-      catch: (cause) => graphqlToolError(`Failed decoding GraphQL response for ${input.path}`, cause),
+      catch: (cause) =>
+        graphqlToolError(
+          `Failed decoding GraphQL response for ${input.path}`,
+          cause,
+        ),
     });
 
     const responseHeaders: Record<string, string> = {};
@@ -1151,7 +1463,8 @@ const invokeRawGraphqlTool = (input: {
       defaultHeaders: input.defaultHeaders,
       credentialHeaders: input.credentialHeaders,
       query,
-      variables: record.variables !== undefined ? asRecord(record.variables) : undefined,
+      variables:
+        record.variables !== undefined ? asRecord(record.variables) : undefined,
       operationName: asString(record.operationName) ?? undefined,
       requestHeaders: asStringRecord(record.headers),
     });
@@ -1165,7 +1478,10 @@ const withoutUndefinedEntries = (
   );
 
 const invokeGraphqlFieldTool = (input: {
-  entry: GraphqlFieldToolManifestEntry;
+  entry: Pick<
+    GraphqlFieldToolManifestEntry,
+    "fieldName" | "operationName" | "operationDocument"
+  >;
   endpoint: string;
   path: string;
   defaultHeaders?: Readonly<Record<string, string>>;
@@ -1218,51 +1534,24 @@ export const createGraphqlToolsFromManifest = (input: {
         manifest: input.manifest,
         definition,
       });
-      const entry = input.manifest.tools.find((tool) => tool.toolId === definition.toolId);
-      const path = input.namespace ? `${input.namespace}.${definition.toolId}` : definition.toolId;
-      const inputSchema = presentation.inputSchemaJson
-        ? (JSON.parse(presentation.inputSchemaJson) as Record<string, unknown>)
-        : {};
-      const metadata: ToolMetadata = {
-        interaction: "auto",
-        inputType: presentation.inputType,
-        outputType: presentation.outputType,
-        ...(presentation.inputSchemaJson ? { inputSchemaJson: presentation.inputSchemaJson } : {}),
-        ...(presentation.outputSchemaJson ? { outputSchemaJson: presentation.outputSchemaJson } : {}),
-        ...(presentation.exampleInputJson ? { exampleInputJson: presentation.exampleInputJson } : {}),
-        sourceKey: input.sourceKey,
-        providerKind: "graphql",
-        providerDataJson: presentation.providerDataJson,
-      };
+      const path = input.namespace
+        ? `${input.namespace}.${definition.toolId}`
+        : definition.toolId;
 
       return [
         path,
-        toTool({
-          tool: {
-            description: definition.description,
-            inputSchema: standardSchemaFromJsonSchema(inputSchema),
-            execute: (args: unknown) => {
-              if (entry?.kind === "field") {
-                return Effect.runPromise(invokeGraphqlFieldTool({
-                  entry,
-                  endpoint,
-                  path,
-                  defaultHeaders: input.defaultHeaders,
-                  credentialHeaders: input.credentialHeaders,
-                  args,
-                }));
-              }
-
-              return Effect.runPromise(invokeRawGraphqlTool({
-                endpoint,
-                path,
-                defaultHeaders: input.defaultHeaders,
-                credentialHeaders: input.credentialHeaders,
-                args,
-              }));
-            },
-          },
-          metadata,
+        createGraphqlToolFromPersistedOperation({
+          path,
+          sourceKey: input.sourceKey,
+          endpoint,
+          description: definition.description,
+          inputSchemaJson: presentation.inputSchemaJson,
+          outputSchemaJson: presentation.outputSchemaJson,
+          exampleInputJson: presentation.exampleInputJson,
+          providerDataJson: presentation.providerDataJson,
+          schemaRefTable: input.manifest.schemaRefTable,
+          defaultHeaders: input.defaultHeaders,
+          credentialHeaders: input.credentialHeaders,
         }),
       ] as const;
     }),

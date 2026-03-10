@@ -331,6 +331,7 @@ describe("codemode-core", () => {
           ),
         getToolByPath: ({ path }) =>
           Effect.succeed(descriptors[path] ?? null),
+        getSchemaBundle: () => Effect.succeed(null),
         searchTools: () =>
           Effect.succeed([
             { path: asToolPath("source.issues.create"), score: 0.93 },

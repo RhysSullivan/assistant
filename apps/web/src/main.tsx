@@ -22,12 +22,12 @@ import { AddSourcePage } from "./views/add-source";
 // ---------------------------------------------------------------------------
 
 type SourceRouteSearch = {
-  tab: "model" | "discover" | "manifest" | "definitions" | "raw";
+  tab: "model" | "discover";
   tool?: string;
   query?: string;
 };
 
-const sourceTabs = ["model", "discover", "manifest", "definitions", "raw"] as const;
+const sourceTabs = ["model", "discover"] as const;
 
 // ---------------------------------------------------------------------------
 // Routes

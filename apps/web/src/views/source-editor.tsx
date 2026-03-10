@@ -15,6 +15,7 @@ import {
   useRefreshSecrets,
   useRemoveSource,
   useSecrets,
+  useSources,
   useStartSourceOAuth,
   useSource,
   useUpdateSource,
@@ -22,6 +23,7 @@ import {
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { LoadableBlock } from "../components/loadable";
+import { SourceNotFoundState } from "../components/source-not-found-state";
 import { SourceFavicon } from "../components/source-favicon";
 import {
   IconArrowLeft,
@@ -55,6 +57,10 @@ type SourceOAuthPopupMessage =
 
 const SOURCE_OAUTH_POPUP_RESULT_TIMEOUT_MS = 2 * 60_000;
 const SOURCE_OAUTH_POPUP_RESULT_STORAGE_KEY_PREFIX = "executor:oauth-result:";
+
+const isSourceNotFoundLoadable = (loadable: Loadable<unknown>): boolean =>
+  loadable.status === "error"
+  && loadable.error.message.toLowerCase().includes("source not found");
 
 type TransportValue = "" | NonNullable<Source["transport"]>;
 
@@ -495,7 +501,16 @@ export function NewSourcePage() {
 }
 
 export function EditSourcePage(props: { sourceId: string }) {
+  const sources = useSources();
   const source = useSource(props.sourceId);
+  const missingSource =
+    (sources.status === "ready"
+      && !sources.data.some((candidate) => candidate.id === props.sourceId))
+    || isSourceNotFoundLoadable(source);
+
+  if (missingSource) {
+    return <SourceNotFoundState />;
+  }
 
   return (
     <LoadableBlock loadable={source} loading="Loading source...">

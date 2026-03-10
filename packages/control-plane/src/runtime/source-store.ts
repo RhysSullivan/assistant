@@ -1,6 +1,7 @@
 import type {
   AccountId,
   Credential,
+  CredentialSlot,
   SecretRef,
   Source,
   SourceRecipeId,
@@ -64,23 +65,29 @@ const cleanupCredentialSecretRefs = (rows: SqlControlPlaneRows, input: {
 const selectPreferredCredential = (input: {
   credentials: ReadonlyArray<Credential>;
   actorAccountId?: AccountId | null;
+  slot: CredentialSlot;
 }): Credential | null => {
+  const matchingSlot = input.credentials.filter((credential) => credential.slot === input.slot);
+
   if (input.actorAccountId !== undefined) {
-    const exact = input.credentials.find((credential) => credential.actorAccountId === input.actorAccountId);
+    const exact = matchingSlot.find((credential) => credential.actorAccountId === input.actorAccountId);
     if (exact) {
       return exact;
     }
   }
 
-  return input.credentials.find((credential) => credential.actorAccountId === null) ?? null;
+  return matchingSlot.find((credential) => credential.actorAccountId === null) ?? null;
 };
 
 const selectExactCredential = (input: {
   credentials: ReadonlyArray<Credential>;
   actorAccountId?: AccountId | null;
+  slot: CredentialSlot;
 }): Credential | null =>
   input.credentials.find(
-    (credential) => credential.actorAccountId === (input.actorAccountId ?? null),
+    (credential) =>
+      credential.slot === input.slot
+      && credential.actorAccountId === (input.actorAccountId ?? null),
   ) ?? null;
 
 export const loadSourcesInWorkspace = (
@@ -98,8 +105,16 @@ export const loadSourcesInWorkspace = (
       const preferred = selectPreferredCredential({
         credentials: matches,
         actorAccountId: options.actorAccountId,
+        slot: "runtime",
       });
-      return preferred ? [preferred] : [];
+      const preferredImport = selectPreferredCredential({
+        credentials: matches,
+        actorAccountId: options.actorAccountId,
+        slot: "import",
+      });
+      return [preferred, preferredImport].filter(
+        (credential): credential is Credential => credential !== null,
+      );
     });
 
     return yield* projectSourcesFromStorage({
@@ -132,11 +147,18 @@ export const loadSourceById = (rows: SqlControlPlaneRows, input: {
     const credential = selectPreferredCredential({
       credentials,
       actorAccountId: input.actorAccountId,
+      slot: "runtime",
+    });
+    const importCredential = selectPreferredCredential({
+      credentials,
+      actorAccountId: input.actorAccountId,
+      slot: "import",
     });
 
     return yield* projectSourceFromStorage({
       sourceRecord: sourceRecord.value,
-      credential,
+      runtimeCredential: credential,
+      importCredential,
     });
   });
 
@@ -178,6 +200,7 @@ const cleanupOrphanedRecipeData = (rows: SqlControlPlaneRows, input: {
     );
     if (revisionReferenceCount === 0) {
       yield* rows.sourceRecipeDocuments.removeByRevisionId(input.recipeRevisionId);
+      yield* rows.sourceRecipeSchemaBundles.removeByRevisionId(input.recipeRevisionId);
       yield* rows.sourceRecipeOperations.removeByRevisionId(input.recipeRevisionId);
     }
 
@@ -192,6 +215,7 @@ const cleanupOrphanedRecipeData = (rows: SqlControlPlaneRows, input: {
       (recipeRevision) =>
         Effect.all([
           rows.sourceRecipeDocuments.removeByRevisionId(recipeRevision.id),
+          rows.sourceRecipeSchemaBundles.removeByRevisionId(recipeRevision.id),
           rows.sourceRecipeOperations.removeByRevisionId(recipeRevision.id),
         ]),
       { discard: true },
@@ -248,10 +272,18 @@ export const persistSource = (
     const existingCredential = selectExactCredential({
       credentials: existingCredentials,
       actorAccountId: options.actorAccountId,
+      slot: "runtime",
+    });
+    const existingImportCredential = selectExactCredential({
+      credentials: existingCredentials,
+      actorAccountId: options.actorAccountId,
+      slot: "import",
     });
 
     const nextRecipeId = stableSourceRecipeId(source);
-    const nextRecipeRevisionId = stableSourceRecipeRevisionId(source);
+    const nextRecipeRevisionId = Option.isSome(existing) && existing.value.recipeId === nextRecipeId
+      ? existing.value.recipeRevisionId
+      : stableSourceRecipeRevisionId(source);
     const existingTargetRevision = yield* rows.sourceRecipeRevisions.getById(nextRecipeRevisionId);
     const nextRevision = createSourceRecipeRevisionRecord({
       source,
@@ -266,6 +298,9 @@ export const persistSource = (
       manifestHash: Option.isSome(existingTargetRevision)
         ? existingTargetRevision.value.manifestHash
         : null,
+      materializationHash: Option.isSome(existingTargetRevision)
+        ? existingTargetRevision.value.materializationHash
+        : null,
     });
 
     const nextRecipe = createSourceRecipeRecord({
@@ -274,12 +309,13 @@ export const persistSource = (
       latestRevisionId: nextRevision.id,
     });
 
-    const { sourceRecord, credential } = splitSourceForStorage({
+    const { sourceRecord, runtimeCredential, importCredential } = splitSourceForStorage({
       source,
       recipeId: nextRecipe.id,
       recipeRevisionId: nextRevision.id,
       actorAccountId: options.actorAccountId,
-      existingCredentialId: existingCredential?.id ?? null,
+      existingRuntimeCredentialId: existingCredential?.id ?? null,
+      existingImportCredentialId: existingImportCredential?.id ?? null,
     });
 
     if (Option.isNone(existing)) {
@@ -310,19 +346,36 @@ export const persistSource = (
       });
     }
 
-    if (credential === null) {
+    if (runtimeCredential === null) {
       yield* rows.credentials.removeByWorkspaceSourceAndActor({
         workspaceId: source.workspaceId,
         sourceId: source.id,
         actorAccountId: options.actorAccountId ?? null,
+        slot: "runtime",
       });
     } else {
-      yield* rows.credentials.upsert(credential);
+      yield* rows.credentials.upsert(runtimeCredential);
     }
 
     yield* cleanupCredentialSecretRefs(rows, {
       previous: existingCredential ?? null,
-      next: credential,
+      next: runtimeCredential,
+    });
+
+    if (importCredential === null) {
+      yield* rows.credentials.removeByWorkspaceSourceAndActor({
+        workspaceId: source.workspaceId,
+        sourceId: source.id,
+        actorAccountId: options.actorAccountId ?? null,
+        slot: "import",
+      });
+    } else {
+      yield* rows.credentials.upsert(importCredential);
+    }
+
+    yield* cleanupCredentialSecretRefs(rows, {
+      previous: existingImportCredential ?? null,
+      next: importCredential,
     });
 
     return source;

@@ -7,8 +7,10 @@ import type {
 import type {
   AccountId,
   Credential,
+  CredentialSlot,
   Source,
   SourceAuth,
+  SourceImportAuthPolicy,
   SourceRecipeId,
   SourceRecipeImporterKind,
   SourceRecipeKind,
@@ -25,16 +27,8 @@ import {
   SourceRecipeRevisionIdSchema,
 } from "#schema";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
-
-const decodeStringMap = Schema.decodeUnknown(
-  Schema.NullOr(
-    Schema.Record({
-      key: Schema.String,
-      value: Schema.String,
-    }),
-  ),
-);
+ 
+import { getSourceAdapter, getSourceAdapterForSource } from "./source-adapters";
 
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value === null || value === undefined) {
@@ -45,134 +39,22 @@ const trimOrNull = (value: string | null | undefined): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const serializeStringMap = (value: StringMap | null): string | null =>
-  value === null ? null : JSON.stringify(value);
+type SourceRecipeSourceConfig = Record<string, unknown>;
 
-const parseStringMapJson = (
-  fieldName: string,
-  value: string | null,
-): Effect.Effect<StringMap | null, Error, never> =>
-  value === null
-    ? Effect.succeed(null)
-    : Effect.try({
-        try: () => JSON.parse(value),
-        catch: (cause) =>
-          cause instanceof Error
-            ? new Error(`Invalid ${fieldName}: ${cause.message}`)
-            : new Error(`Invalid ${fieldName}: ${String(cause)}`),
-      }).pipe(
-        Effect.flatMap((parsed) => decodeStringMap(parsed)),
-        Effect.mapError((cause) =>
-          cause instanceof Error
-            ? new Error(`Invalid ${fieldName}: ${cause.message}`)
-            : new Error(`Invalid ${fieldName}: ${String(cause)}`),
-        ),
-      );
-
-type SourceRecipeSourceConfig =
-  | {
-      kind: "mcp";
-      endpoint: string;
-      transport: Source["transport"];
-      queryParams: Source["queryParams"];
-      headers: Source["headers"];
-    }
-  | {
-      kind: "openapi";
-      endpoint: string;
-      specUrl: string;
-      defaultHeaders: Source["defaultHeaders"];
-    }
-  | {
-      kind: "graphql";
-      endpoint: string;
-      defaultHeaders: Source["defaultHeaders"];
-    }
-  | {
-      kind: "internal";
-      endpoint: string;
-    };
-
-const sourceConfigFromSource = (source: Source): SourceRecipeSourceConfig => {
-  if (source.kind === "mcp") {
-    return {
-      kind: "mcp",
-      endpoint: source.endpoint,
-      transport: source.transport,
-      queryParams: source.queryParams,
-      headers: source.headers,
-    };
-  }
-
-  if (source.kind === "openapi") {
-    return {
-      kind: "openapi",
-      endpoint: source.endpoint,
-      specUrl: source.specUrl ?? source.endpoint,
-      defaultHeaders: source.defaultHeaders,
-    };
-  }
-
-  if (source.kind === "graphql") {
-    return {
-      kind: "graphql",
-      endpoint: source.endpoint,
-      defaultHeaders: source.defaultHeaders,
-    };
-  }
-
-  return {
-    kind: "internal",
-    endpoint: source.endpoint,
-  };
-};
+const sourceConfigFromSource = (source: Source): SourceRecipeSourceConfig =>
+  getSourceAdapterForSource(source).sourceConfigFromSource(source);
 
 const sourceRecipeKindFromSource = (source: Source): SourceRecipeKind => {
-  if (source.kind === "mcp") {
-    return "mcp_recipe";
-  }
-
-  if (source.kind === "graphql") {
-    return "graphql_recipe";
-  }
-
-  if (source.kind === "openapi") {
-    return "http_recipe";
-  }
-
-  return "internal_recipe";
+  const adapter = getSourceAdapterForSource(source);
+  return adapter.family;
 };
 
 const sourceRecipeImporterKindFromSource = (source: Source): SourceRecipeImporterKind => {
-  if (source.kind === "mcp") {
-    return "mcp_manifest";
-  }
-
-  if (source.kind === "graphql") {
-    return "graphql_introspection";
-  }
-
-  if (source.kind === "openapi") {
-    return "openapi";
-  }
-
-  return "internal_manifest";
+  return getSourceAdapterForSource(source).key;
 };
 
 const sourceRecipeProviderKeyFromSource = (source: Source): string => {
-  if (source.kind === "mcp") {
-    return "generic_mcp";
-  }
-
-  if (source.kind === "graphql") {
-    return "generic_graphql";
-  }
-
-  if (source.kind === "openapi") {
-    return "generic_http";
-  }
-
-  return "generic_internal";
+  return getSourceAdapterForSource(source).providerKey;
 };
 
 const stableHash = (value: string): string =>
@@ -260,57 +142,107 @@ const normalizeAuth = (
     } satisfies SourceAuth;
   });
 
-const validateSourceByKind = (source: Source): Effect.Effect<Source, Error, never> =>
+const normalizeImportAuthPolicy = (
+  sourceKind: Source["kind"],
+  policy: SourceImportAuthPolicy | undefined,
+): SourceImportAuthPolicy => policy ?? getSourceAdapter(sourceKind).defaultImportAuthPolicy;
+
+const credentialFromAuth = (input: {
+  source: Source;
+  auth: SourceAuth;
+  slot: CredentialSlot;
+  actorAccountId?: AccountId | null;
+  existingCredentialId?: Credential["id"] | null;
+}): Credential | null => {
+  if (input.auth.kind === "none") {
+    return null;
+  }
+
+  const credentialId = input.existingCredentialId
+    ?? CredentialIdSchema.make(`cred_${crypto.randomUUID()}`);
+
+  return {
+    id: credentialId,
+    workspaceId: input.source.workspaceId,
+    sourceId: input.source.id,
+    actorAccountId: input.actorAccountId ?? null,
+    slot: input.slot,
+    authKind: input.auth.kind,
+    authHeaderName: input.auth.headerName,
+    authPrefix: input.auth.prefix,
+    tokenProviderId:
+      input.auth.kind === "bearer"
+        ? input.auth.token.providerId
+        : input.auth.accessToken.providerId,
+    tokenHandle:
+      input.auth.kind === "bearer"
+        ? input.auth.token.handle
+        : input.auth.accessToken.handle,
+    refreshTokenProviderId:
+      input.auth.kind === "oauth2" && input.auth.refreshToken !== null
+        ? input.auth.refreshToken.providerId
+        : null,
+    refreshTokenHandle:
+      input.auth.kind === "oauth2" && input.auth.refreshToken !== null
+        ? input.auth.refreshToken.handle
+        : null,
+    createdAt: input.source.createdAt,
+    updatedAt: input.source.updatedAt,
+  } satisfies Credential;
+};
+
+const authFromCredential = (credential: Credential | null): SourceAuth => {
+  if (credential === null) {
+    return { kind: "none" };
+  }
+
+  if (credential.authKind === "bearer") {
+    return {
+      kind: "bearer",
+      headerName: credential.authHeaderName,
+      prefix: credential.authPrefix,
+      token: {
+        providerId: credential.tokenProviderId,
+        handle: credential.tokenHandle,
+      },
+    };
+  }
+
+  return {
+    kind: "oauth2",
+    headerName: credential.authHeaderName,
+    prefix: credential.authPrefix,
+    accessToken: {
+      providerId: credential.tokenProviderId,
+      handle: credential.tokenHandle,
+    },
+    refreshToken:
+      credential.refreshTokenProviderId !== null
+      && credential.refreshTokenHandle !== null
+        ? {
+            providerId: credential.refreshTokenProviderId,
+            handle: credential.refreshTokenHandle,
+          }
+        : null,
+  };
+};
+
+const validateSourceImportAuth = (source: Source): Effect.Effect<Source, Error, never> =>
   Effect.gen(function* () {
-    if (source.kind === "mcp") {
-      if (source.specUrl !== null) {
-        return yield* Effect.fail(new Error("MCP sources cannot define specUrl"));
-      }
-      return source;
-    }
-
-    if (source.kind === "openapi") {
-      if (trimOrNull(source.specUrl) === null) {
-        return yield* Effect.fail(new Error("OpenAPI sources require specUrl"));
-      }
-
-      if (source.transport !== null || source.queryParams !== null || source.headers !== null) {
-        return yield* Effect.fail(
-          new Error("OpenAPI sources cannot define MCP transport settings"),
-        );
-      }
-
-      return source;
-    }
-
-    if (source.kind === "graphql") {
-      if (source.transport !== null || source.queryParams !== null || source.headers !== null) {
-        return yield* Effect.fail(
-          new Error("GraphQL sources cannot define MCP transport settings"),
-        );
-      }
-
-      if (source.specUrl !== null) {
-        return yield* Effect.fail(new Error("GraphQL sources cannot define specUrl"));
-      }
-
-      return source;
-    }
-
-    if (source.transport !== null || source.queryParams !== null || source.headers !== null) {
+    if (source.importAuthPolicy !== "separate" && source.importAuth.kind !== "none") {
       return yield* Effect.fail(
-        new Error(`${source.kind} sources cannot define MCP transport settings`),
-      );
-    }
-
-    if (source.specUrl !== null || source.defaultHeaders !== null) {
-      return yield* Effect.fail(
-        new Error(`${source.kind} sources cannot define OpenAPI settings`),
+        new Error("importAuth must be none unless importAuthPolicy is separate"),
       );
     }
 
     return source;
   });
+
+const validateSourceByKind = (source: Source): Effect.Effect<Source, Error, never> =>
+  Effect.flatMap(
+    validateSourceImportAuth(source),
+    (validated) => getSourceAdapterForSource(validated).validateSource(validated),
+  );
 
 export const createSourceFromPayload = (input: {
   workspaceId: WorkspaceId;
@@ -320,6 +252,11 @@ export const createSourceFromPayload = (input: {
 }): Effect.Effect<Source, Error, never> =>
   Effect.gen(function* () {
     const auth = yield* normalizeAuth(input.payload.auth);
+    const importAuth = yield* normalizeAuth(input.payload.importAuth);
+    const importAuthPolicy = normalizeImportAuthPolicy(
+      input.payload.kind,
+      input.payload.importAuthPolicy,
+    );
 
     return yield* validateSourceByKind({
       id: input.sourceId,
@@ -335,6 +272,8 @@ export const createSourceFromPayload = (input: {
       headers: input.payload.headers ?? null,
       specUrl: trimOrNull(input.payload.specUrl),
       defaultHeaders: input.payload.defaultHeaders ?? null,
+      importAuthPolicy,
+      importAuth,
       auth,
       sourceHash: trimOrNull(input.payload.sourceHash),
       lastError: trimOrNull(input.payload.lastError),
@@ -352,6 +291,13 @@ export const updateSourceFromPayload = (input: {
     const nextAuth = input.payload.auth === undefined
       ? input.source.auth
       : yield* normalizeAuth(input.payload.auth);
+    const nextImportAuth = input.payload.importAuth === undefined
+      ? input.source.importAuth
+      : yield* normalizeAuth(input.payload.importAuth);
+    const nextImportAuthPolicy = normalizeImportAuthPolicy(
+      input.payload.kind ?? input.source.kind,
+      input.payload.importAuthPolicy ?? input.source.importAuthPolicy,
+    );
 
     return yield* validateSourceByKind({
       ...input.source,
@@ -381,6 +327,8 @@ export const updateSourceFromPayload = (input: {
       defaultHeaders: input.payload.defaultHeaders !== undefined
         ? input.payload.defaultHeaders
         : input.source.defaultHeaders,
+      importAuthPolicy: nextImportAuthPolicy,
+      importAuth: nextImportAuth,
       auth: nextAuth,
       sourceHash: input.payload.sourceHash !== undefined
         ? trimOrNull(input.payload.sourceHash)
@@ -416,6 +364,7 @@ export const createSourceRecipeRevisionRecord = (input: {
   revisionNumber: number;
   manifestJson?: string | null;
   manifestHash?: string | null;
+  materializationHash?: string | null;
 }): StoredSourceRecipeRevisionRecord => ({
   id:
     input.recipeRevisionId
@@ -425,6 +374,7 @@ export const createSourceRecipeRevisionRecord = (input: {
   sourceConfigJson: sourceConfigSignature(input.source),
   manifestJson: input.manifestJson ?? null,
   manifestHash: input.manifestHash ?? null,
+  materializationHash: input.materializationHash ?? null,
   createdAt: input.source.createdAt,
   updatedAt: input.source.updatedAt,
 });
@@ -434,10 +384,12 @@ export const splitSourceForStorage = (input: {
   recipeId: SourceRecipeId;
   recipeRevisionId: SourceRecipeRevisionId;
   actorAccountId?: AccountId | null;
-  existingCredentialId?: Credential["id"] | null;
+  existingRuntimeCredentialId?: Credential["id"] | null;
+  existingImportCredentialId?: Credential["id"] | null;
 }): {
   sourceRecord: StoredSourceRecord;
-  credential: Credential | null;
+  runtimeCredential: Credential | null;
+  importCredential: Credential | null;
 } => {
   const sourceRecord: StoredSourceRecord = {
     id: input.source.id,
@@ -450,113 +402,46 @@ export const splitSourceForStorage = (input: {
     status: input.source.status,
     enabled: input.source.enabled,
     namespace: input.source.namespace,
-    bindingConfigJson: null,
-    transport: input.source.transport,
-    queryParamsJson: serializeStringMap(input.source.queryParams),
-    headersJson: serializeStringMap(input.source.headers),
-    specUrl: input.source.specUrl,
-    defaultHeadersJson: serializeStringMap(input.source.defaultHeaders),
+    importAuthPolicy: input.source.importAuthPolicy,
+    bindingConfigJson: getSourceAdapterForSource(input.source).serializeBindingConfig(input.source),
     sourceHash: input.source.sourceHash,
-    sourceDocumentText: null,
     lastError: input.source.lastError,
-    createdAt: input.source.createdAt,
-    updatedAt: input.source.updatedAt,
-  };
-
-  if (input.source.auth.kind === "none") {
-    return {
-      sourceRecord,
-      credential: null,
-    };
-  }
-
-  const credentialId = input.existingCredentialId
-    ?? CredentialIdSchema.make(`cred_${crypto.randomUUID()}`);
-
-  const credential: Credential = {
-    id: credentialId,
-    workspaceId: input.source.workspaceId,
-    sourceId: input.source.id,
-    actorAccountId: input.actorAccountId ?? null,
-    authKind: input.source.auth.kind,
-    authHeaderName: input.source.auth.headerName,
-    authPrefix: input.source.auth.prefix,
-    tokenProviderId:
-      input.source.auth.kind === "bearer"
-        ? input.source.auth.token.providerId
-        : input.source.auth.accessToken.providerId,
-    tokenHandle:
-      input.source.auth.kind === "bearer"
-        ? input.source.auth.token.handle
-        : input.source.auth.accessToken.handle,
-    refreshTokenProviderId:
-      input.source.auth.kind === "oauth2" && input.source.auth.refreshToken !== null
-        ? input.source.auth.refreshToken.providerId
-        : null,
-    refreshTokenHandle:
-      input.source.auth.kind === "oauth2" && input.source.auth.refreshToken !== null
-        ? input.source.auth.refreshToken.handle
-        : null,
     createdAt: input.source.createdAt,
     updatedAt: input.source.updatedAt,
   };
 
   return {
     sourceRecord,
-    credential,
+    runtimeCredential: credentialFromAuth({
+      source: input.source,
+      auth: input.source.auth,
+      slot: "runtime",
+      actorAccountId: input.actorAccountId,
+      existingCredentialId: input.existingRuntimeCredentialId,
+    }),
+    importCredential: input.source.importAuthPolicy === "separate"
+      ? credentialFromAuth({
+          source: input.source,
+          auth: input.source.importAuth,
+          slot: "import",
+          actorAccountId: input.actorAccountId,
+          existingCredentialId: input.existingImportCredentialId,
+        })
+      : null,
   };
 };
 
 export const projectSourceFromStorage = (input: {
   sourceRecord: StoredSourceRecord;
-  credential: Credential | null;
+  runtimeCredential: Credential | null;
+  importCredential: Credential | null;
 }): Effect.Effect<Source, Error, never> =>
   Effect.gen(function* () {
-    const queryParams = yield* parseStringMapJson(
-      `queryParamsJson for ${input.sourceRecord.id}`,
-      input.sourceRecord.queryParamsJson,
-    );
-    const headers = yield* parseStringMapJson(
-      `headersJson for ${input.sourceRecord.id}`,
-      input.sourceRecord.headersJson,
-    );
-    const defaultHeaders = yield* parseStringMapJson(
-      `defaultHeadersJson for ${input.sourceRecord.id}`,
-      input.sourceRecord.defaultHeadersJson,
-    );
-
-    let auth: SourceAuth = { kind: "none" };
-    if (input.credential !== null) {
-      if (input.credential.authKind === "bearer") {
-        auth = {
-          kind: "bearer",
-          headerName: input.credential.authHeaderName,
-          prefix: input.credential.authPrefix,
-          token: {
-            providerId: input.credential.tokenProviderId,
-            handle: input.credential.tokenHandle,
-          },
-        };
-      } else {
-        auth = {
-          kind: "oauth2",
-          headerName: input.credential.authHeaderName,
-          prefix: input.credential.authPrefix,
-          accessToken: {
-            providerId: input.credential.tokenProviderId,
-            handle: input.credential.tokenHandle,
-          },
-          refreshToken:
-            input.credential.refreshTokenProviderId !== null
-            && input.credential.refreshTokenHandle !== null
-              ? {
-                  providerId: input.credential.refreshTokenProviderId,
-                  handle: input.credential.refreshTokenHandle,
-                }
-              : null,
-        };
-      }
-    }
+    const adapter = getSourceAdapter(input.sourceRecord.kind);
+    const bindingState = yield* adapter.deserializeBindingConfig({
+      id: input.sourceRecord.id,
+      bindingConfigJson: input.sourceRecord.bindingConfigJson,
+    });
 
     return {
       id: input.sourceRecord.id,
@@ -567,12 +452,17 @@ export const projectSourceFromStorage = (input: {
       status: input.sourceRecord.status,
       enabled: input.sourceRecord.enabled,
       namespace: input.sourceRecord.namespace,
-      transport: input.sourceRecord.transport,
-      queryParams,
-      headers,
-      specUrl: input.sourceRecord.specUrl,
-      defaultHeaders,
-      auth,
+      transport: bindingState.transport,
+      queryParams: bindingState.queryParams,
+      headers: bindingState.headers,
+      specUrl: bindingState.specUrl,
+      defaultHeaders: bindingState.defaultHeaders,
+      importAuthPolicy: input.sourceRecord.importAuthPolicy,
+      importAuth:
+        input.sourceRecord.importAuthPolicy === "separate"
+          ? authFromCredential(input.importCredential)
+          : { kind: "none" },
+      auth: authFromCredential(input.runtimeCredential),
       sourceHash: input.sourceRecord.sourceHash,
       lastError: input.sourceRecord.lastError,
       createdAt: input.sourceRecord.createdAt,
@@ -588,18 +478,29 @@ export const projectSourcesFromStorage = (input: {
   sourceRecords: ReadonlyArray<StoredSourceRecord>;
   credentials: ReadonlyArray<Credential>;
 }): Effect.Effect<ReadonlyArray<Source>, Error, never> => {
-  const credentialsBySourceId = new Map<string, Credential>();
+  const credentialsBySourceId = new Map<string, {
+    runtime: Credential | null;
+    import: Credential | null;
+  }>();
 
   for (const credential of input.credentials) {
-    const existing = credentialsBySourceId.get(credential.sourceId);
-    if (!existing || (existing.actorAccountId === null && credential.actorAccountId !== null)) {
-      credentialsBySourceId.set(credential.sourceId, credential);
+    const existing = credentialsBySourceId.get(credential.sourceId) ?? {
+      runtime: null,
+      import: null,
+    };
+    const current = credential.slot === "runtime" ? existing.runtime : existing.import;
+    if (current === null || (current.actorAccountId === null && credential.actorAccountId !== null)) {
+      credentialsBySourceId.set(credential.sourceId, {
+        ...existing,
+        [credential.slot]: credential,
+      });
     }
   }
 
   return Effect.forEach(input.sourceRecords, (sourceRecord) =>
     projectSourceFromStorage({
       sourceRecord,
-      credential: credentialsBySourceId.get(sourceRecord.id) ?? null,
+      runtimeCredential: credentialsBySourceId.get(sourceRecord.id)?.runtime ?? null,
+      importCredential: credentialsBySourceId.get(sourceRecord.id)?.import ?? null,
     }));
 };

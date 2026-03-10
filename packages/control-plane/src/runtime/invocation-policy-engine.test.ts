@@ -27,9 +27,8 @@ const baseDescriptor: InvocationDescriptor = {
   sourceKind: "openapi",
   sourceNamespace: "vercel.api.dns",
   operationKind: "write",
-  httpMethod: "POST",
-  httpPathTemplate: "/v10/domains/{domain}/records",
-  graphqlOperationType: null,
+  interaction: "required",
+  approvalLabel: "POST /v10/domains/{domain}/records",
 };
 
 const basePolicy = (
@@ -61,8 +60,8 @@ describe("invocation-policy-engine", () => {
         ...baseDescriptor,
         toolPath: "vercel.api.dns.getRecords",
         operationKind: "read",
-        httpMethod: "GET",
-        httpPathTemplate: "/v4/domains/{domain}/records",
+        interaction: "auto",
+        approvalLabel: "GET /v4/domains/{domain}/records",
       },
       args: {},
       policies: [],

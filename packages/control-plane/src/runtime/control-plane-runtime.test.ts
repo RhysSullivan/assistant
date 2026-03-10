@@ -29,6 +29,13 @@ const makeRuntime = Effect.acquireRelease(
   (runtime) => Effect.promise(() => runtime.close()).pipe(Effect.orDie),
 );
 
+const openApiBindingConfigJson = (specUrl: string): string =>
+  JSON.stringify({
+    adapterKey: "openapi",
+    specUrl,
+    defaultHeaders: null,
+  });
+
 type OpenApiSpecServer = {
   baseUrl: string;
   specUrl: string;
@@ -288,14 +295,9 @@ describe("control-plane-runtime", () => {
         status: "auth_required",
         enabled: true,
         namespace: "github",
-        bindingConfigJson: null,
-        transport: null,
-        queryParamsJson: null,
-        headersJson: null,
-        specUrl: "https://example.com/github-openapi.yaml",
-        defaultHeadersJson: null,
+        importAuthPolicy: "reuse_runtime",
+        bindingConfigJson: openApiBindingConfigJson("https://example.com/github-openapi.yaml"),
         sourceHash: null,
-        sourceDocumentText: null,
         lastError: null,
         createdAt: now,
         updatedAt: now,
@@ -448,14 +450,9 @@ describe("control-plane-runtime", () => {
         status: "auth_required",
         enabled: true,
         namespace: "github",
-        bindingConfigJson: null,
-        transport: null,
-        queryParamsJson: null,
-        headersJson: null,
-        specUrl: "https://example.com/github-openapi.yaml",
-        defaultHeadersJson: null,
+        importAuthPolicy: "reuse_runtime",
+        bindingConfigJson: openApiBindingConfigJson("https://example.com/github-openapi.yaml"),
         sourceHash: null,
-        sourceDocumentText: null,
         lastError: null,
         createdAt: now,
         updatedAt: now,

@@ -7,10 +7,14 @@ import { asc, eq, inArray } from "drizzle-orm";
 
 import type { DrizzleClient } from "../client";
 import type { DrizzleTables } from "../schema";
+import { chunkArray } from "./shared";
 
 const decodeStoredSourceRecipeOperationRecord = Schema.decodeUnknownSync(
   StoredSourceRecipeOperationRecordSchema,
 );
+
+// Keep wide recipe-operation inserts well below Postgres/PGlite parameter limits.
+const RECIPE_OPERATION_INSERT_BATCH_SIZE = 200;
 
 export const createSourceRecipeOperationsRepo = (
   client: DrizzleClient,
@@ -61,7 +65,12 @@ export const createSourceRecipeOperationsRepo = (
         .where(eq(tables.sourceRecipeOperationsTable.recipeRevisionId, input.recipeRevisionId));
 
       if (input.operations.length > 0) {
-        await tx.insert(tables.sourceRecipeOperationsTable).values([...input.operations]);
+        for (const batch of chunkArray(
+          input.operations,
+          RECIPE_OPERATION_INSERT_BATCH_SIZE,
+        )) {
+          await tx.insert(tables.sourceRecipeOperationsTable).values([...batch]);
+        }
       }
     }),
 

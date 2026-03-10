@@ -438,6 +438,7 @@ export function toolDescriptorsFromTools(input: {
         metadata?.outputType ?? inferTypeFromSchemaJson(outputSchemaJson, "unknown"),
       inputSchemaJson,
       outputSchemaJson,
+      ...(metadata?.schemaBundleId ? { schemaBundleId: metadata.schemaBundleId } : {}),
       ...(metadata?.exampleInputJson
         ? { exampleInputJson: metadata.exampleInputJson }
         : {}),
