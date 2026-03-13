@@ -31,6 +31,11 @@ import {
   DEFAULT_SERVER_HOST,
   DEFAULT_SERVER_PORT,
 } from "./config";
+import {
+  getBrowserSourceSessionStatus,
+  startBrowserSourceSession,
+  stopBrowserSourceSession,
+} from "./browser-source";
 
 export {
   DEFAULT_EXECUTOR_DATA_DIR,
@@ -372,6 +377,57 @@ const isApiRequest = (request: Request): boolean => {
   return pathname === "/mcp" || pathname === "/v1" || pathname.startsWith("/v1/");
 };
 
+const jsonResponse = (status: number, body: unknown): Response =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+    },
+  });
+
+const readJsonBody = async (request: Request): Promise<unknown> => {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+  return await request.json().catch(() => null);
+};
+
+const handleBrowserSourceApiRequest = async (request: Request): Promise<Response | null> => {
+  const url = new URL(request.url);
+  if (url.pathname !== "/v1/browser-source/session") {
+    return null;
+  }
+
+  try {
+    if (request.method === "GET") {
+      return jsonResponse(200, await getBrowserSourceSessionStatus());
+    }
+
+    if (request.method === "POST") {
+      const body = await readJsonBody(request);
+      const sessionUrl =
+        body && typeof body === "object" && typeof (body as { url?: unknown }).url === "string"
+          ? (body as { url: string }).url
+          : "";
+      return jsonResponse(200, await startBrowserSourceSession(sessionUrl));
+    }
+
+    if (request.method === "DELETE") {
+      return jsonResponse(200, await stopBrowserSourceSession());
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return jsonResponse(400, {
+      error: message,
+    });
+  }
+
+  return jsonResponse(405, {
+    error: "Method not allowed",
+  });
+};
+
 export const createLocalExecutorRequestHandler = (
   options: StartLocalExecutorServerOptions = {},
 ): Effect.Effect<LocalExecutorRequestHandler, Error, Scope.Scope> =>
@@ -418,6 +474,9 @@ export const createLocalExecutorRequestHandler = (
       runtime,
       handleApiRequest: (request) => {
         const pathname = new URL(request.url).pathname;
+        if (pathname === "/v1/browser-source/session") {
+          return handleBrowserSourceApiRequest(request).then((response) => response ?? jsonResponse(404, { error: "Not found" }));
+        }
         return pathname === "/mcp"
           ? mcpHandler.handleRequest(request)
           : apiHandler.handler(request);

@@ -882,6 +882,30 @@ export function AddSourcePage() {
             description="Prefer a one-command setup? Install this local executor server into your MCP client, or add an external MCP source below."
           />
         )}
+        {(phase === "idle" || phase === "discovering") && (
+          <Section title="Browser source">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/80 p-5">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                    Prototype
+                  </Badge>
+                  <Badge variant="outline">browser</Badge>
+                </div>
+                <p className="text-[14px] font-medium text-foreground">
+                  Start from a live browser session instead of an API spec.
+                </p>
+                <p className="max-w-2xl text-[13px] leading-6 text-muted-foreground">
+                  Open a dedicated capture page, enter the target URL, start a real browser session,
+                  interact manually, then inspect the captured network traffic before promoting it into a source.
+                </p>
+              </div>
+              <Link to="/sources/add/browser">
+                <Button>Open browser source page</Button>
+              </Link>
+            </div>
+          </Section>
+        )}
         {/* Step 1: Discovery */}
         {(phase === "idle" || phase === "discovering") && (
           <div className="space-y-6">
