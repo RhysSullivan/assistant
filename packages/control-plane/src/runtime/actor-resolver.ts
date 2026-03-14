@@ -3,16 +3,11 @@ import { ControlPlaneAuthHeaders } from "../auth-headers";
 import {
   ControlPlaneActorResolver,
   type ControlPlaneActorResolverShape,
-  deriveWorkspaceMembershipsForPrincipal,
 } from "#api";
 import {
   ActorUnauthenticatedError,
   createActor,
 } from "#domain";
-import {
-  SqlControlPlaneRowsService,
-  type SqlControlPlaneRows,
-} from "#persistence";
 import {
   PrincipalProviderSchema,
   PrincipalSchema,
@@ -23,6 +18,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
+import { getRuntimeLocalWorkspaceOption } from "./local-runtime-context";
 
 export { ControlPlaneAuthHeaders };
 
@@ -95,57 +91,44 @@ const readPrincipalFromHeaders = (
     );
   });
 
-export const createHeaderActorResolver = (
-  rows: SqlControlPlaneRows,
-): ControlPlaneActorResolverShape => ({
+const createLocalActor = (principal: Principal) =>
+  createActor({
+    principal,
+    workspaceMemberships: [],
+    organizationMemberships: [],
+  });
+
+export const createHeaderActorResolver = (): ControlPlaneActorResolverShape => ({
   resolveActor: ({ headers }) =>
     Effect.gen(function* () {
       const principal = yield* readPrincipalFromHeaders(headers);
-      const organizationMemberships = yield* rows.organizationMemberships
-        .listByAccountId(principal.accountId)
-        .pipe(
-          Effect.mapError((cause) =>
-            toUnauthenticatedError("Failed loading memberships", cause),
-          ),
-        );
-
-      return yield* createActor({
-        principal,
-        workspaceMemberships: [],
-        organizationMemberships,
-      });
+      return yield* createLocalActor(principal);
     }),
 
   resolveWorkspaceActor: ({ workspaceId, headers }) =>
     Effect.gen(function* () {
       const principal = yield* readPrincipalFromHeaders(headers);
-      const organizationMemberships = yield* rows.organizationMemberships
-        .listByAccountId(principal.accountId)
-        .pipe(
-          Effect.mapError((cause) =>
-            toUnauthenticatedError("Failed loading memberships", cause),
-          ),
-        );
+      const runtimeLocalWorkspace = yield* getRuntimeLocalWorkspaceOption();
+      if (
+        runtimeLocalWorkspace !== null
+        && runtimeLocalWorkspace.installation.workspaceId === workspaceId
+        && runtimeLocalWorkspace.installation.accountId === principal.accountId
+      ) {
+        return yield* createActor({
+          principal,
+          workspaceMemberships: [{
+            accountId: principal.accountId,
+            workspaceId,
+            role: "owner",
+            status: "active",
+            grantedAt: 0,
+            updatedAt: 0,
+          }],
+          organizationMemberships: [],
+        });
+      }
 
-      const workspaceOption = yield* rows.workspaces.getById(workspaceId).pipe(
-        Effect.mapError((cause) =>
-          toUnauthenticatedError("Failed loading workspace context", cause),
-        ),
-      );
-      const workspace = Option.getOrNull(workspaceOption);
-
-      const workspaceMemberships = deriveWorkspaceMembershipsForPrincipal({
-        principalAccountId: principal.accountId,
-        workspaceId,
-        workspace,
-        organizationMemberships,
-      });
-
-      return yield* createActor({
-        principal,
-        workspaceMemberships,
-        organizationMemberships,
-      });
+      return yield* createLocalActor(principal);
     }),
 });
 
@@ -154,7 +137,4 @@ export const RuntimeActorResolverLive = (
 ) =>
   actorResolver
     ? Layer.succeed(ControlPlaneActorResolver, actorResolver)
-    : Layer.effect(
-        ControlPlaneActorResolver,
-        Effect.map(SqlControlPlaneRowsService, (rows) => createHeaderActorResolver(rows)),
-      );
+    : Layer.succeed(ControlPlaneActorResolver, createHeaderActorResolver());

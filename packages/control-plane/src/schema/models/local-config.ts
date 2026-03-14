@@ -6,6 +6,7 @@ export const LocalConfigSecretProviderSourceSchema = Schema.Literal(
   "env",
   "file",
   "exec",
+  "params",
 );
 
 export const LocalConfigEnvSecretProviderSchema = Schema.Struct({

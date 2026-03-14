@@ -27,7 +27,6 @@ import {
   type SqlControlPlanePersistence,
 } from "./index";
 import { runCodeMigrations } from "./code-migrations";
-import { loadSourceById } from "../runtime/source-store";
 
 const openApiBindingConfigJson = (specUrl: string): string =>
   JSON.stringify({
@@ -693,31 +692,40 @@ describe("code-migrations", () => {
         }),
       );
 
-      const openApiSource = await Effect.runPromise(loadSourceById(
-        upgradedPersistence.rows,
-        {
+      const openApiSource = await Effect.runPromise(
+        upgradedPersistence.rows.sources.getByWorkspaceAndId(
           workspaceId,
-          sourceId: SourceIdSchema.make("src_legacy_openapi"),
-        },
-      ));
-      expect(openApiSource.binding).toEqual({
-        specUrl: "https://api.example.com/openapi.json",
-        defaultHeaders: {
-          accept: "application/json",
+          SourceIdSchema.make("src_legacy_openapi"),
+        ),
+      );
+      expect(
+        JSON.parse(Option.getOrThrow(openApiSource).bindingConfigJson),
+      ).toEqual({
+        adapterKey: "openapi",
+        version: 1,
+        payload: {
+          specUrl: "https://api.example.com/openapi.json",
+          defaultHeaders: {
+            accept: "application/json",
+          },
         },
       });
-      expect(openApiSource.bindingVersion).toBe(1);
 
-      const graphqlSource = await Effect.runPromise(loadSourceById(
-        upgradedPersistence.rows,
-        {
+      const graphqlSource = await Effect.runPromise(
+        upgradedPersistence.rows.sources.getByWorkspaceAndId(
           workspaceId,
-          sourceId: SourceIdSchema.make("src_legacy_graphql"),
-        },
-      ));
-      expect(graphqlSource.binding).toEqual({
-        defaultHeaders: {
-          accept: "application/json",
+          SourceIdSchema.make("src_legacy_graphql"),
+        ),
+      );
+      expect(
+        JSON.parse(Option.getOrThrow(graphqlSource).bindingConfigJson),
+      ).toEqual({
+        adapterKey: "graphql",
+        version: 1,
+        payload: {
+          defaultHeaders: {
+            accept: "application/json",
+          },
         },
       });
 
@@ -726,20 +734,25 @@ describe("code-migrations", () => {
       );
       expect(Option.getOrNull(graphqlRecipe)?.adapterKey).toBe("graphql");
 
-      const mcpSource = await Effect.runPromise(loadSourceById(
-        upgradedPersistence.rows,
-        {
+      const mcpSource = await Effect.runPromise(
+        upgradedPersistence.rows.sources.getByWorkspaceAndId(
           workspaceId,
-          sourceId: SourceIdSchema.make("src_legacy_mcp"),
-        },
-      ));
-      expect(mcpSource.binding).toEqual({
-        transport: "streamable-http",
-        queryParams: {
-          tenant: "acme",
-        },
-        headers: {
-          "x-tenant": "acme",
+          SourceIdSchema.make("src_legacy_mcp"),
+        ),
+      );
+      expect(
+        JSON.parse(Option.getOrThrow(mcpSource).bindingConfigJson),
+      ).toEqual({
+        adapterKey: "mcp",
+        version: 1,
+        payload: {
+          transport: "streamable-http",
+          queryParams: {
+            tenant: "acme",
+          },
+          headers: {
+            "x-tenant": "acme",
+          },
         },
       });
 

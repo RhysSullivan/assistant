@@ -1,10 +1,13 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "@effect/vitest";
 
 import {
   AccountIdSchema,
   decodeBuiltInAuthArtifactConfig,
   McpSourceAuthSessionDataJsonSchema,
-  OrganizationIdSchema,
   SecretMaterialIdSchema,
   SourceAuthSessionIdSchema,
   SourceIdSchema,
@@ -21,9 +24,16 @@ import {
   type SqlControlPlanePersistence,
 } from "../persistence";
 import {
-  stableSourceRecipeId,
-  stableSourceRecipeRevisionId,
-} from "./source-definitions";
+  loadLocalExecutorConfig,
+  resolveLocalWorkspaceContext,
+} from "./local-config";
+import {
+  RuntimeLocalWorkspaceService,
+  type RuntimeLocalWorkspaceState,
+} from "./local-runtime-context";
+import {
+  loadLocalWorkspaceState,
+} from "./local-workspace-state";
 import { persistSource, removeSourceById } from "./source-store";
 
 const makePersistence: Effect.Effect<SqlControlPlanePersistence, unknown, Scope.Scope> =
@@ -39,6 +49,42 @@ const makePersistence: Effect.Effect<SqlControlPlanePersistence, unknown, Scope.
   );
 
 const encodeSessionDataJson = Schema.encodeSync(McpSourceAuthSessionDataJsonSchema);
+
+const makeRuntimeLocalWorkspace = (input: {
+  workspaceId: Source["workspaceId"];
+  accountId: ReturnType<typeof AccountIdSchema.make>;
+}) =>
+  Effect.gen(function* () {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-source-store-"));
+    const context = yield* Effect.tryPromise({
+      try: () => resolveLocalWorkspaceContext({ workspaceRoot }),
+      catch: (cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+    });
+    const loadedConfig = yield* Effect.tryPromise({
+      try: () => loadLocalExecutorConfig(context),
+      catch: (cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+    });
+
+    return {
+      context,
+      installation: {
+        workspaceId: input.workspaceId,
+        accountId: input.accountId,
+        organizationId: "org_local_personal" as never,
+      },
+      loadedConfig,
+    } satisfies RuntimeLocalWorkspaceState;
+  });
+
+const withRuntimeLocalWorkspace = <A, E>(
+  effect: Effect.Effect<A, E, never>,
+  runtimeLocalWorkspace: RuntimeLocalWorkspaceState,
+) =>
+  effect.pipe(
+    Effect.provideService(RuntimeLocalWorkspaceService, runtimeLocalWorkspace),
+  );
 
 const makeOpenApiSource = (input: {
   workspaceId: Source["workspaceId"];
@@ -78,28 +124,13 @@ describe("source-store", () => {
       const persistence = yield* makePersistence;
       const now = Date.now();
       const accountId = AccountIdSchema.make("acc_source_store");
-      const organizationId = OrganizationIdSchema.make("org_source_store");
       const workspaceId = WorkspaceIdSchema.make("ws_source_store");
-      const sourceId = SourceIdSchema.make("src_source_store");
+      const sourceId = SourceIdSchema.make("github");
       const firstTokenId = SecretMaterialIdSchema.make("sec_source_store_first");
       const secondTokenId = SecretMaterialIdSchema.make("sec_source_store_second");
-
-      yield* persistence.rows.organizations.insert({
-        id: organizationId,
-        slug: "source-store",
-        name: "Source Store",
-        status: "active",
-        createdByAccountId: accountId,
-        createdAt: now,
-        updatedAt: now,
-      });
-      yield* persistence.rows.workspaces.insert({
-        id: workspaceId,
-        organizationId,
-        name: "Primary",
-        createdByAccountId: accountId,
-        createdAt: now,
-        updatedAt: now,
+      const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspace({
+        workspaceId,
+        accountId,
       });
 
       yield* persistence.rows.secretMaterials.upsert({
@@ -119,22 +150,25 @@ describe("source-store", () => {
         updatedAt: now,
       });
 
-      yield* persistSource(
-        persistence.rows,
-        makeOpenApiSource({
-          workspaceId,
-          sourceId,
-          now,
-          auth: {
-            kind: "bearer",
-            headerName: "Authorization",
-            prefix: "Bearer ",
-            token: {
-              providerId: "postgres",
-              handle: firstTokenId,
+      yield* withRuntimeLocalWorkspace(
+        persistSource(
+          persistence.rows,
+          makeOpenApiSource({
+            workspaceId,
+            sourceId,
+            now,
+            auth: {
+              kind: "bearer",
+              headerName: "Authorization",
+              prefix: "Bearer ",
+              token: {
+                providerId: "postgres",
+                handle: firstTokenId,
+              },
             },
-          },
-        }),
+          }),
+        ),
+        runtimeLocalWorkspace,
       );
 
       yield* persistence.rows.sourceAuthSessions.upsert({
@@ -167,23 +201,26 @@ describe("source-store", () => {
         updatedAt: now,
       });
 
-      yield* persistSource(
-        persistence.rows,
-        makeOpenApiSource({
-          workspaceId,
-          sourceId,
-          now,
-          updatedAt: now + 1,
-          auth: {
-            kind: "bearer",
-            headerName: "Authorization",
-            prefix: "Bearer ",
-            token: {
-              providerId: "postgres",
-              handle: secondTokenId,
+      yield* withRuntimeLocalWorkspace(
+        persistSource(
+          persistence.rows,
+          makeOpenApiSource({
+            workspaceId,
+            sourceId,
+            now,
+            updatedAt: now + 1,
+            auth: {
+              kind: "bearer",
+              headerName: "Authorization",
+              prefix: "Bearer ",
+              token: {
+                providerId: "postgres",
+                handle: secondTokenId,
+              },
             },
-          },
-        }),
+          }),
+        ),
+        runtimeLocalWorkspace,
       );
 
       expect(Option.isNone(yield* persistence.rows.secretMaterials.getById(firstTokenId))).toBe(true);
@@ -196,16 +233,30 @@ describe("source-store", () => {
           : null,
       ).toBe(secondTokenId);
 
-      const removed = yield* removeSourceById(persistence.rows, {
-        workspaceId,
-        sourceId,
-      });
+      const removed = yield* withRuntimeLocalWorkspace(
+        removeSourceById(persistence.rows, {
+          workspaceId,
+          sourceId,
+        }),
+        runtimeLocalWorkspace,
+      );
       expect(removed).toBe(true);
 
       expect(Option.isNone(yield* persistence.rows.secretMaterials.getById(secondTokenId))).toBe(true);
-      expect(yield* persistence.rows.sources.listByWorkspaceId(workspaceId)).toHaveLength(0);
       expect(yield* persistence.rows.authArtifacts.listByWorkspaceId(workspaceId)).toHaveLength(0);
       expect(yield* persistence.rows.sourceAuthSessions.listByWorkspaceId(workspaceId)).toHaveLength(0);
+      const config = yield* Effect.tryPromise({
+        try: () => loadLocalExecutorConfig(runtimeLocalWorkspace.context),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+      expect(config.config?.sources?.[sourceId]).toBeUndefined();
+      const workspaceState = yield* Effect.tryPromise({
+        try: () => loadLocalWorkspaceState(runtimeLocalWorkspace.context),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+      expect(workspaceState.sources[sourceId]).toBeUndefined();
     }),
   );
 
@@ -214,27 +265,12 @@ describe("source-store", () => {
       const persistence = yield* makePersistence;
       const now = Date.now();
       const accountId = AccountIdSchema.make("acc_actor_scoped");
-      const organizationId = OrganizationIdSchema.make("org_actor_scoped");
       const workspaceId = WorkspaceIdSchema.make("ws_actor_scoped");
-      const sourceId = SourceIdSchema.make("src_actor_scoped");
+      const sourceId = SourceIdSchema.make("github");
       const sharedTokenId = SecretMaterialIdSchema.make("sec_actor_scoped_shared");
-
-      yield* persistence.rows.organizations.insert({
-        id: organizationId,
-        slug: "actor-scoped",
-        name: "Actor Scoped",
-        status: "active",
-        createdByAccountId: accountId,
-        createdAt: now,
-        updatedAt: now,
-      });
-      yield* persistence.rows.workspaces.insert({
-        id: workspaceId,
-        organizationId,
-        name: "Primary",
-        createdByAccountId: accountId,
-        createdAt: now,
-        updatedAt: now,
+      const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspace({
+        workspaceId,
+        accountId,
       });
       yield* persistence.rows.secretMaterials.upsert({
         id: sharedTokenId,
@@ -260,16 +296,22 @@ describe("source-store", () => {
         },
       });
 
-      yield* persistSource(persistence.rows, source);
-      yield* persistSource(
-        persistence.rows,
-        {
-          ...source,
-          updatedAt: now + 1,
-        },
-        {
-          actorAccountId: accountId,
-        },
+      yield* withRuntimeLocalWorkspace(
+        persistSource(persistence.rows, source),
+        runtimeLocalWorkspace,
+      );
+      yield* withRuntimeLocalWorkspace(
+        persistSource(
+          persistence.rows,
+          {
+            ...source,
+            updatedAt: now + 1,
+          },
+          {
+            actorAccountId: accountId,
+          },
+        ),
+        runtimeLocalWorkspace,
       );
 
       const authArtifacts = yield* persistence.rows.authArtifacts.listByWorkspaceAndSourceId({
@@ -280,266 +322,6 @@ describe("source-store", () => {
       expect(authArtifacts.some((artifact) => artifact.actorAccountId === null)).toBe(true);
       expect(authArtifacts.some((artifact) => artifact.actorAccountId === accountId)).toBe(true);
       expect(new Set(authArtifacts.map((artifact) => artifact.id)).size).toBe(2);
-    }),
-  );
-
-  it.scoped("cleans up orphaned recipe data when the source config changes", () =>
-    Effect.gen(function* () {
-      const persistence = yield* makePersistence;
-      const now = Date.now();
-      const accountId = AccountIdSchema.make("acc_recipe_rewrite");
-      const organizationId = OrganizationIdSchema.make("org_recipe_rewrite");
-      const workspaceId = WorkspaceIdSchema.make("ws_recipe_rewrite");
-      const sourceId = SourceIdSchema.make("src_recipe_rewrite");
-
-      yield* persistence.rows.organizations.insert({
-        id: organizationId,
-        slug: "recipe-rewrite",
-        name: "Recipe Rewrite",
-        status: "active",
-        createdByAccountId: accountId,
-        createdAt: now,
-        updatedAt: now,
-      });
-      yield* persistence.rows.workspaces.insert({
-        id: workspaceId,
-        organizationId,
-        name: "Primary",
-        createdByAccountId: accountId,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      const initialSource = makeOpenApiSource({
-        workspaceId,
-        sourceId,
-        now,
-        auth: { kind: "none" },
-      });
-      const initialRecipeId = stableSourceRecipeId(initialSource);
-      const initialRecipeRevisionId = stableSourceRecipeRevisionId(initialSource);
-
-      yield* persistSource(persistence.rows, initialSource);
-      yield* persistence.rows.sourceRecipeDocuments.replaceForRevision({
-        recipeRevisionId: initialRecipeRevisionId,
-        documents: [{
-          id: "src_recipe_doc_recipe_rewrite",
-          recipeRevisionId: initialRecipeRevisionId,
-          documentKind: "openapi",
-          documentKey:
-            typeof initialSource.binding.specUrl === "string"
-              ? initialSource.binding.specUrl
-              : initialSource.endpoint,
-          contentText: "{}",
-          contentHash: "hash_recipe_rewrite",
-          fetchedAt: now,
-          createdAt: now,
-          updatedAt: now,
-        }],
-      });
-      yield* persistence.rows.sourceRecipeOperations.replaceForRevision({
-        recipeRevisionId: initialRecipeRevisionId,
-        operations: [{
-          id: "src_recipe_op_recipe_rewrite",
-          recipeRevisionId: initialRecipeRevisionId,
-          operationKey: "getRepo",
-          transportKind: "http",
-          toolId: "getRepo",
-          title: "Get Repo",
-          description: "Read a repository",
-          operationKind: "read",
-          searchText: "github get repo",
-          inputSchemaJson: null,
-          outputSchemaJson: null,
-          providerKind: "openapi",
-          providerDataJson: JSON.stringify({
-            kind: "openapi",
-            toolId: "getRepo",
-            rawToolId: "repos_getRepo",
-            operationId: "repos.getRepo",
-            group: "repos",
-            leaf: "getRepo",
-            tags: ["repos"],
-            method: "get",
-            path: "/repos/{owner}/{repo}",
-            operationHash: "hash_recipe_rewrite",
-            invocation: {
-              method: "get",
-              pathTemplate: "/repos/{owner}/{repo}",
-              parameters: [],
-              requestBody: null,
-            },
-          }),
-          createdAt: now,
-          updatedAt: now,
-        }],
-      });
-
-      const updatedSource = makeOpenApiSource({
-        workspaceId,
-        sourceId,
-        now,
-        updatedAt: now + 1,
-        endpoint: "https://api.example.com",
-        specUrl: "https://api.example.com/openapi.json",
-        auth: { kind: "none" },
-      });
-      const nextRecipeId = stableSourceRecipeId(updatedSource);
-      const nextRecipeRevisionId = stableSourceRecipeRevisionId(updatedSource);
-
-      yield* persistSource(persistence.rows, updatedSource);
-
-      expect(Option.isNone(yield* persistence.rows.sourceRecipes.getById(initialRecipeId))).toBe(true);
-      expect(
-        Option.isNone(yield* persistence.rows.sourceRecipeRevisions.getById(initialRecipeRevisionId)),
-      ).toBe(true);
-      expect(
-        yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(initialRecipeRevisionId),
-      ).toEqual([]);
-      expect(
-        yield* persistence.rows.sourceRecipeOperations.listByRevisionId(initialRecipeRevisionId),
-      ).toEqual([]);
-      expect(Option.isSome(yield* persistence.rows.sourceRecipes.getById(nextRecipeId))).toBe(true);
-      expect(
-        Option.isSome(yield* persistence.rows.sourceRecipeRevisions.getById(nextRecipeRevisionId)),
-      ).toBe(true);
-    }),
-  );
-
-  it.scoped("retains shared recipe data until the last source reference is removed", () =>
-    Effect.gen(function* () {
-      const persistence = yield* makePersistence;
-      const now = Date.now();
-      const accountId = AccountIdSchema.make("acc_shared_recipe");
-      const organizationId = OrganizationIdSchema.make("org_shared_recipe");
-      const workspaceId = WorkspaceIdSchema.make("ws_shared_recipe");
-      const firstSourceId = SourceIdSchema.make("src_shared_recipe_one");
-      const secondSourceId = SourceIdSchema.make("src_shared_recipe_two");
-
-      yield* persistence.rows.organizations.insert({
-        id: organizationId,
-        slug: "shared-recipe",
-        name: "Shared Recipe",
-        status: "active",
-        createdByAccountId: accountId,
-        createdAt: now,
-        updatedAt: now,
-      });
-      yield* persistence.rows.workspaces.insert({
-        id: workspaceId,
-        organizationId,
-        name: "Primary",
-        createdByAccountId: accountId,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      const firstSource = makeOpenApiSource({
-        workspaceId,
-        sourceId: firstSourceId,
-        now,
-        name: "GitHub One",
-        auth: { kind: "none" },
-      });
-      const secondSource = makeOpenApiSource({
-        workspaceId,
-        sourceId: secondSourceId,
-        now,
-        updatedAt: now + 1,
-        name: "GitHub Two",
-        auth: { kind: "none" },
-      });
-      const sharedRecipeId = stableSourceRecipeId(firstSource);
-      const sharedRecipeRevisionId = stableSourceRecipeRevisionId(firstSource);
-
-      yield* persistSource(persistence.rows, firstSource);
-      yield* persistSource(persistence.rows, secondSource);
-      yield* persistence.rows.sourceRecipeDocuments.replaceForRevision({
-        recipeRevisionId: sharedRecipeRevisionId,
-        documents: [{
-          id: "src_recipe_doc_shared_recipe",
-          recipeRevisionId: sharedRecipeRevisionId,
-          documentKind: "openapi",
-          documentKey:
-            typeof firstSource.binding.specUrl === "string"
-              ? firstSource.binding.specUrl
-              : firstSource.endpoint,
-          contentText: "{}",
-          contentHash: "hash_shared_recipe",
-          fetchedAt: now,
-          createdAt: now,
-          updatedAt: now,
-        }],
-      });
-      yield* persistence.rows.sourceRecipeOperations.replaceForRevision({
-        recipeRevisionId: sharedRecipeRevisionId,
-        operations: [{
-          id: "src_recipe_op_shared_recipe",
-          recipeRevisionId: sharedRecipeRevisionId,
-          operationKey: "getRepo",
-          transportKind: "http",
-          toolId: "getRepo",
-          title: "Get Repo",
-          description: "Read a repository",
-          operationKind: "read",
-          searchText: "github get repo",
-          inputSchemaJson: null,
-          outputSchemaJson: null,
-          providerKind: "openapi",
-          providerDataJson: JSON.stringify({
-            kind: "openapi",
-            toolId: "getRepo",
-            rawToolId: "repos_getRepo",
-            operationId: "repos.getRepo",
-            group: "repos",
-            leaf: "getRepo",
-            tags: ["repos"],
-            method: "get",
-            path: "/repos/{owner}/{repo}",
-            operationHash: "hash_shared_recipe",
-            invocation: {
-              method: "get",
-              pathTemplate: "/repos/{owner}/{repo}",
-              parameters: [],
-              requestBody: null,
-            },
-          }),
-          createdAt: now,
-          updatedAt: now,
-        }],
-      });
-
-      yield* removeSourceById(persistence.rows, {
-        workspaceId,
-        sourceId: firstSourceId,
-      });
-
-      expect(Option.isSome(yield* persistence.rows.sourceRecipes.getById(sharedRecipeId))).toBe(true);
-      expect(
-        Option.isSome(yield* persistence.rows.sourceRecipeRevisions.getById(sharedRecipeRevisionId)),
-      ).toBe(true);
-      expect(
-        yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(sharedRecipeRevisionId),
-      ).toHaveLength(1);
-      expect(
-        yield* persistence.rows.sourceRecipeOperations.listByRevisionId(sharedRecipeRevisionId),
-      ).toHaveLength(1);
-
-      yield* removeSourceById(persistence.rows, {
-        workspaceId,
-        sourceId: secondSourceId,
-      });
-
-      expect(Option.isNone(yield* persistence.rows.sourceRecipes.getById(sharedRecipeId))).toBe(true);
-      expect(
-        Option.isNone(yield* persistence.rows.sourceRecipeRevisions.getById(sharedRecipeRevisionId)),
-      ).toBe(true);
-      expect(
-        yield* persistence.rows.sourceRecipeDocuments.listByRevisionId(sharedRecipeRevisionId),
-      ).toEqual([]);
-      expect(
-        yield* persistence.rows.sourceRecipeOperations.listByRevisionId(sharedRecipeRevisionId),
-      ).toEqual([]);
     }),
   );
 });

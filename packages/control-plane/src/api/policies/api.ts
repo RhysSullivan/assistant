@@ -1,7 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
   AccountIdSchema,
-  OrganizationIdSchema,
   PolicyIdSchema,
   PolicyApprovalModeSchema,
   PolicyEffectSchema,
@@ -51,58 +50,10 @@ export const UpdatePolicyPayloadSchema = Schema.Struct({
 
 export type UpdatePolicyPayload = typeof UpdatePolicyPayloadSchema.Type;
 
-const organizationIdParam = HttpApiSchema.param("organizationId", OrganizationIdSchema);
 const workspaceIdParam = HttpApiSchema.param("workspaceId", WorkspaceIdSchema);
 const policyIdParam = HttpApiSchema.param("policyId", PolicyIdSchema);
 
 export class PoliciesApi extends HttpApiGroup.make("policies")
-  .add(
-    HttpApiEndpoint.get("listOrganization")`/organizations/${organizationIdParam}/policies`
-      .addSuccess(Schema.Array(PolicySchema))
-      .addError(ControlPlaneBadRequestError)
-      .addError(ControlPlaneUnauthorizedError)
-      .addError(ControlPlaneForbiddenError)
-      .addError(ControlPlaneNotFoundError)
-      .addError(ControlPlaneStorageError),
-  )
-  .add(
-    HttpApiEndpoint.post("createOrganization")`/organizations/${organizationIdParam}/policies`
-      .setPayload(CreatePolicyPayloadSchema)
-      .addSuccess(PolicySchema)
-      .addError(ControlPlaneBadRequestError)
-      .addError(ControlPlaneUnauthorizedError)
-      .addError(ControlPlaneForbiddenError)
-      .addError(ControlPlaneNotFoundError)
-      .addError(ControlPlaneStorageError),
-  )
-  .add(
-    HttpApiEndpoint.get("getOrganization")`/organizations/${organizationIdParam}/policies/${policyIdParam}`
-      .addSuccess(PolicySchema)
-      .addError(ControlPlaneBadRequestError)
-      .addError(ControlPlaneUnauthorizedError)
-      .addError(ControlPlaneForbiddenError)
-      .addError(ControlPlaneNotFoundError)
-      .addError(ControlPlaneStorageError),
-  )
-  .add(
-    HttpApiEndpoint.patch("updateOrganization")`/organizations/${organizationIdParam}/policies/${policyIdParam}`
-      .setPayload(UpdatePolicyPayloadSchema)
-      .addSuccess(PolicySchema)
-      .addError(ControlPlaneBadRequestError)
-      .addError(ControlPlaneUnauthorizedError)
-      .addError(ControlPlaneForbiddenError)
-      .addError(ControlPlaneNotFoundError)
-      .addError(ControlPlaneStorageError),
-  )
-  .add(
-    HttpApiEndpoint.del("removeOrganization")`/organizations/${organizationIdParam}/policies/${policyIdParam}`
-      .addSuccess(Schema.Struct({ removed: Schema.Boolean }))
-      .addError(ControlPlaneBadRequestError)
-      .addError(ControlPlaneUnauthorizedError)
-      .addError(ControlPlaneForbiddenError)
-      .addError(ControlPlaneNotFoundError)
-      .addError(ControlPlaneStorageError),
-  )
   .add(
     HttpApiEndpoint.get("list")`/workspaces/${workspaceIdParam}/policies`
       .addSuccess(Schema.Array(PolicySchema))

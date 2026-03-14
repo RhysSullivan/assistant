@@ -1,3 +1,7 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import * as Effect from "effect/Effect";
 import {
@@ -8,8 +12,8 @@ import {
 
 import {
   AccountIdSchema,
-  OrganizationIdSchema,
   SourceIdSchema,
+  type LocalConfigSource,
   SourceRecipeIdSchema,
   SourceRecipeRevisionIdSchema,
   WorkspaceIdSchema,
@@ -21,6 +25,22 @@ import {
   type SqlControlPlanePersistence,
 } from "#persistence";
 
+import {
+  loadLocalExecutorConfig,
+  resolveLocalWorkspaceContext,
+  writeProjectLocalExecutorConfig,
+} from "./local-config";
+import {
+  buildLocalSourceArtifact,
+  writeLocalSourceArtifact,
+} from "./local-source-artifacts";
+import {
+  RuntimeLocalWorkspaceService,
+  type RuntimeLocalWorkspaceState,
+} from "./local-runtime-context";
+import {
+  writeLocalWorkspaceState,
+} from "./local-workspace-state";
 import {
   expandRecipeTools,
   loadSourceWithRecipe,
@@ -36,6 +56,45 @@ const makePersistence = () =>
     createSqlControlPlanePersistence({
       localDataDir: ":memory:",
     }),
+  );
+
+const makeRuntimeLocalWorkspaceState = (
+  workspaceId: ReturnType<typeof WorkspaceIdSchema.make>,
+) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const workspaceRoot = mkdtempSync(
+        join(tmpdir(), "executor-source-recipes-runtime-"),
+      );
+      const context = yield* Effect.tryPromise({
+        try: () => resolveLocalWorkspaceContext({ workspaceRoot }),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+      const loadedConfig = yield* Effect.tryPromise({
+        try: () => loadLocalExecutorConfig(context),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+
+      return {
+        context,
+        installation: {
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_local_source_recipes"),
+          organizationId: "org_local_personal" as never,
+        },
+        loadedConfig,
+      } satisfies RuntimeLocalWorkspaceState;
+    }),
+  );
+
+const withRuntimeLocalWorkspace = <A, E>(
+  effect: Effect.Effect<A, E, never>,
+  runtimeLocalWorkspace: RuntimeLocalWorkspaceState,
+) =>
+  effect.pipe(
+    Effect.provideService(RuntimeLocalWorkspaceService, runtimeLocalWorkspace),
   );
 
 const openApiBindingConfigJson = (specUrl: string): string =>
@@ -221,30 +280,128 @@ const makeMcpOperation = (
   ...overrides,
 });
 
-const seedWorkspace = async (input: {
-  persistence: SqlControlPlanePersistence;
-  workspaceId: ReturnType<typeof WorkspaceIdSchema.make>;
-  organizationId: ReturnType<typeof OrganizationIdSchema.make>;
-  accountId: ReturnType<typeof AccountIdSchema.make>;
+const configSourceFromSource = (source: Source): LocalConfigSource => {
+  switch (source.kind) {
+    case "openapi":
+      return {
+        kind: "openapi" as const,
+        ...(source.name !== source.id ? { name: source.name } : {}),
+        ...(source.namespace && source.namespace !== source.id
+          ? { namespace: source.namespace }
+          : {}),
+        ...(source.enabled ? {} : { enabled: false }),
+        connection: {
+          endpoint: source.endpoint,
+        },
+        binding: {
+          specUrl:
+            typeof source.binding.specUrl === "string"
+              ? source.binding.specUrl
+              : "https://example.com/openapi.json",
+          defaultHeaders:
+            (source.binding.defaultHeaders as Record<string, string> | null | undefined)
+            ?? null,
+        },
+      };
+    case "graphql":
+      return {
+        kind: "graphql" as const,
+        ...(source.name !== source.id ? { name: source.name } : {}),
+        ...(source.namespace && source.namespace !== source.id
+          ? { namespace: source.namespace }
+          : {}),
+        ...(source.enabled ? {} : { enabled: false }),
+        connection: {
+          endpoint: source.endpoint,
+        },
+        binding: {
+          defaultHeaders:
+            (source.binding.defaultHeaders as Record<string, string> | null | undefined)
+            ?? null,
+        },
+      };
+    case "mcp":
+      return {
+        kind: "mcp" as const,
+        ...(source.name !== source.id ? { name: source.name } : {}),
+        ...(source.namespace && source.namespace !== source.id
+          ? { namespace: source.namespace }
+          : {}),
+        ...(source.enabled ? {} : { enabled: false }),
+        connection: {
+          endpoint: source.endpoint,
+        },
+        binding: {
+          transport:
+            (source.binding.transport as "auto" | "streamable-http" | "sse" | null | undefined)
+            ?? null,
+          queryParams:
+            (source.binding.queryParams as Record<string, string> | null | undefined)
+            ?? null,
+          headers:
+            (source.binding.headers as Record<string, string> | null | undefined)
+            ?? null,
+        },
+      };
+    default:
+      throw new Error(`Unsupported source kind in test fixture: ${source.kind}`);
+  }
+};
+
+const seedLocalWorkspaceSources = async (input: {
+  runtimeLocalWorkspace: RuntimeLocalWorkspaceState;
+  fixtures: ReadonlyArray<{
+    source: Source;
+    materialization: {
+      manifestJson: string | null;
+      manifestHash: string | null;
+      sourceHash: string | null;
+      documents: ReadonlyArray<any>;
+      schemaBundles: ReadonlyArray<any>;
+      operations: ReadonlyArray<StoredSourceRecipeOperationRecord>;
+    };
+  }>;
 }) => {
-  const now = 1000;
-  await Effect.runPromise(input.persistence.rows.organizations.insert({
-    id: input.organizationId,
-    slug: `org-${input.organizationId}`,
-    name: `Org ${input.organizationId}`,
-    status: "active",
-    createdByAccountId: input.accountId,
-    createdAt: now,
-    updatedAt: now,
-  }));
-  await Effect.runPromise(input.persistence.rows.workspaces.insert({
-    id: input.workspaceId,
-    organizationId: input.organizationId,
-    name: `Workspace ${input.workspaceId}`,
-    createdByAccountId: input.accountId,
-    createdAt: now,
-    updatedAt: now,
-  }));
+  await writeProjectLocalExecutorConfig({
+    context: input.runtimeLocalWorkspace.context,
+    config: {
+      sources: Object.fromEntries(
+        input.fixtures.map(({ source }) => [source.id, configSourceFromSource(source)]),
+      ),
+    },
+  });
+
+  await Promise.all(
+    input.fixtures.map(({ source, materialization }) =>
+      writeLocalSourceArtifact({
+        context: input.runtimeLocalWorkspace.context,
+        sourceId: source.id,
+        artifact: buildLocalSourceArtifact({
+          source,
+          materialization,
+        }),
+      })),
+  );
+
+  await writeLocalWorkspaceState({
+    context: input.runtimeLocalWorkspace.context,
+    state: {
+      version: 1,
+      sources: Object.fromEntries(
+        input.fixtures.map(({ source }) => [
+          source.id,
+          {
+            status: source.status,
+            lastError: source.lastError,
+            sourceHash: source.sourceHash,
+            createdAt: source.createdAt,
+            updatedAt: source.updatedAt,
+          },
+        ]),
+      ),
+      policies: {},
+    },
+  });
 };
 
 describe("source-recipes-runtime", () => {
@@ -432,10 +589,8 @@ describe("source-recipes-runtime", () => {
       const persistence = await makePersistence();
       try {
         const workspaceId = WorkspaceIdSchema.make("ws_shared_revision");
-        const organizationId = OrganizationIdSchema.make("org_shared_revision");
-        const accountId = AccountIdSchema.make("acc_shared_revision");
-        const recipeId = SourceRecipeIdSchema.make("src_recipe_shared_revision");
-        const recipeRevisionId = SourceRecipeRevisionIdSchema.make("src_recipe_rev_shared_revision");
+        const runtimeLocalWorkspace =
+          await makeRuntimeLocalWorkspaceState(workspaceId);
         const openApiDocument = JSON.stringify({
           openapi: "3.0.3",
           info: {
@@ -475,101 +630,68 @@ describe("source-recipes-runtime", () => {
           definition,
         });
 
-        await seedWorkspace({
-          persistence,
-          workspaceId,
-          organizationId,
-          accountId,
+        await seedLocalWorkspaceSources({
+          runtimeLocalWorkspace,
+          fixtures: ["GitHub One", "GitHub Two"].map((name, index) => ({
+            source: makeSource({
+              id: SourceIdSchema.make(`src_shared_revision_${index}`),
+              workspaceId,
+              name,
+              sourceHash: manifest.sourceHash,
+              createdAt: 1000 + index,
+              updatedAt: 1000 + index,
+            }),
+            materialization: {
+              manifestJson: JSON.stringify(manifest),
+              manifestHash: manifest.sourceHash,
+              sourceHash: manifest.sourceHash,
+              documents: [{
+                id: `src_recipe_doc_shared_revision_${index}`,
+                recipeRevisionId: SourceRecipeRevisionIdSchema.make("src_recipe_rev_materialization"),
+                documentKind: "openapi",
+                documentKey: "https://api.github.com/openapi.json",
+                contentText: openApiDocument,
+                contentHash: manifest.sourceHash,
+                fetchedAt: 1000,
+                createdAt: 1000,
+                updatedAt: 1000,
+              }],
+              schemaBundles: [],
+              operations: [makeOperation({
+                id: `src_recipe_op_shared_revision_${index}`,
+                recipeRevisionId: SourceRecipeRevisionIdSchema.make("src_recipe_rev_materialization"),
+                operationKey: definition.toolId,
+                toolId: definition.toolId,
+                title: definition.name,
+                description: definition.description,
+                searchText: `${definition.toolId} ${definition.name}`.toLowerCase(),
+                inputSchemaJson: presentation.inputSchemaJson ?? null,
+                outputSchemaJson: presentation.outputSchemaJson ?? null,
+                providerDataJson: presentation.providerDataJson,
+              })],
+            },
+          })),
         });
-        await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
-          id: recipeId,
-          kind: "http_api",
-          adapterKey: "openapi",
-          providerKey: "generic_http",
-          name: "GitHub",
-          summary: null,
-          visibility: "workspace",
-          latestRevisionId: recipeRevisionId,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }));
-        await Effect.runPromise(persistence.rows.sourceRecipeRevisions.upsert({
-          id: recipeRevisionId,
-          recipeId,
-          revisionNumber: 1,
-          sourceConfigJson: JSON.stringify({
-            kind: "openapi",
-            endpoint: "https://api.github.com",
-            specUrl: "https://api.github.com/openapi.json",
-            defaultHeaders: null,
-          }),
-          manifestJson: JSON.stringify(manifest),
-          manifestHash: manifest.sourceHash,
-          materializationHash: manifest.sourceHash,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }));
-        await Effect.runPromise(persistence.rows.sourceRecipeDocuments.replaceForRevision({
-          recipeRevisionId,
-          documents: [{
-            id: "src_recipe_doc_shared_revision",
-            recipeRevisionId,
-            documentKind: "openapi",
-            documentKey: "https://api.github.com/openapi.json",
-            contentText: openApiDocument,
-            contentHash: manifest.sourceHash,
-            fetchedAt: 1000,
-            createdAt: 1000,
-            updatedAt: 1000,
-          }],
-        }));
-        await Effect.runPromise(persistence.rows.sourceRecipeOperations.replaceForRevision({
-          recipeRevisionId,
-          operations: [makeOperation({
-            id: "src_recipe_op_shared_revision",
-            recipeRevisionId,
-            operationKey: definition.toolId,
-            toolId: definition.toolId,
-            title: definition.name,
-            description: definition.description,
-            searchText: `${definition.toolId} ${definition.name}`.toLowerCase(),
-            inputSchemaJson: presentation.inputSchemaJson ?? null,
-            outputSchemaJson: presentation.outputSchemaJson ?? null,
-            providerDataJson: presentation.providerDataJson,
-          })],
-        }));
 
-        for (const [index, name] of ["GitHub One", "GitHub Two"].entries()) {
-          await Effect.runPromise(persistence.rows.sources.insert({
-            id: SourceIdSchema.make(`src_shared_revision_${index}`),
-            workspaceId,
-            recipeId,
-            recipeRevisionId,
-            name,
-            kind: "openapi",
-            endpoint: "https://api.github.com",
-            status: "connected",
-            enabled: true,
-            namespace: "github",
-            importAuthPolicy: "reuse_runtime",
-            bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
-            sourceHash: manifest.sourceHash,
-            lastError: null,
-            createdAt: 1000 + index,
-            updatedAt: 1000 + index,
-          }));
-        }
-
-        const recipes = await Effect.runPromise(loadWorkspaceSourceRecipes({
-          rows: persistence.rows,
-          workspaceId,
-        }));
+        const recipes = await Effect.runPromise(
+          withRuntimeLocalWorkspace(
+            loadWorkspaceSourceRecipes({
+              rows: persistence.rows,
+              workspaceId,
+            }),
+            runtimeLocalWorkspace,
+          ),
+        );
 
         expect(recipes).toHaveLength(2);
         expect(recipes[0]?.documents).toHaveLength(1);
         expect(recipes[0]?.operations).toHaveLength(1);
-        expect(recipes[0]?.documents).toBe(recipes[1]?.documents);
-        expect(recipes[0]?.operations).toBe(recipes[1]?.operations);
+        expect(recipes[0]?.documents[0]?.contentText).toBe(
+          recipes[1]?.documents[0]?.contentText,
+        );
+        expect(recipes[0]?.operations[0]?.providerDataJson).toBe(
+          recipes[1]?.operations[0]?.providerDataJson,
+        );
       } finally {
         await persistence.close();
       }
@@ -579,68 +701,44 @@ describe("source-recipes-runtime", () => {
       const persistence = await makePersistence();
       try {
         const workspaceId = WorkspaceIdSchema.make("ws_empty_recipe_rows");
-        const organizationId = OrganizationIdSchema.make("org_empty_recipe_rows");
-        const accountId = AccountIdSchema.make("acc_empty_recipe_rows");
         const sourceId = SourceIdSchema.make("src_empty_recipe_rows");
-        const recipeId = SourceRecipeIdSchema.make("src_recipe_empty_recipe_rows");
-        const recipeRevisionId = SourceRecipeRevisionIdSchema.make("src_recipe_rev_empty_recipe_rows");
+        const runtimeLocalWorkspace =
+          await makeRuntimeLocalWorkspaceState(workspaceId);
 
-        await seedWorkspace({
-          persistence,
-          workspaceId,
-          organizationId,
-          accountId,
+        await seedLocalWorkspaceSources({
+          runtimeLocalWorkspace,
+          fixtures: [{
+            source: makeSource({
+              id: sourceId,
+              workspaceId,
+              name: "GraphQL Demo",
+              kind: "graphql",
+              endpoint: "https://example.com/graphql",
+              namespace: "graphql",
+              binding: {
+                defaultHeaders: null,
+              },
+            }),
+            materialization: {
+              manifestJson: null,
+              manifestHash: null,
+              sourceHash: null,
+              documents: [],
+              schemaBundles: [],
+              operations: [],
+            },
+          }],
         });
-        await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
-          id: recipeId,
-          kind: "http_api",
-          adapterKey: "graphql",
-          providerKey: "generic_graphql",
-          name: "GraphQL Demo",
-          summary: null,
-          visibility: "workspace",
-          latestRevisionId: recipeRevisionId,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }));
-        await Effect.runPromise(persistence.rows.sourceRecipeRevisions.upsert({
-          id: recipeRevisionId,
-          recipeId,
-          revisionNumber: 1,
-          sourceConfigJson: JSON.stringify({
-            kind: "graphql",
-            endpoint: "https://example.com/graphql",
-            defaultHeaders: null,
-          }),
-          manifestJson: null,
-          manifestHash: null,
-          materializationHash: null,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }));
-        await Effect.runPromise(persistence.rows.sources.insert({
-          id: sourceId,
-          workspaceId,
-          recipeId,
-          recipeRevisionId,
-          name: "GraphQL Demo",
-          kind: "graphql",
-          endpoint: "https://example.com/graphql",
-          status: "connected",
-          enabled: true,
-          namespace: "graphql",
-          importAuthPolicy: "reuse_runtime",
-          bindingConfigJson: graphqlBindingConfigJson(),
-          sourceHash: null,
-          lastError: null,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }));
 
-        const recipes = await Effect.runPromise(loadWorkspaceSourceRecipes({
-          rows: persistence.rows,
-          workspaceId,
-        }));
+        const recipes = await Effect.runPromise(
+          withRuntimeLocalWorkspace(
+            loadWorkspaceSourceRecipes({
+              rows: persistence.rows,
+              workspaceId,
+            }),
+            runtimeLocalWorkspace,
+          ),
+        );
 
         expect(recipes).toHaveLength(1);
         expect(recipes[0]?.documents).toEqual([]);
@@ -654,84 +752,112 @@ describe("source-recipes-runtime", () => {
     it("fails clearly when loading a missing source, missing revision, or invalid manifest", async () => {
       const persistence = await makePersistence();
       try {
-        await expect(Effect.runPromise(loadSourceWithRecipe({
-          rows: persistence.rows,
-          workspaceId: WorkspaceIdSchema.make("ws_missing_source"),
-          sourceId: SourceIdSchema.make("src_missing_source"),
-        }))).rejects.toThrow("Source not found");
+        const missingWorkspaceId = WorkspaceIdSchema.make("ws_missing_source");
+        const missingRuntimeLocalWorkspace =
+          await makeRuntimeLocalWorkspaceState(missingWorkspaceId);
+
+        await expect(
+          Effect.runPromise(
+            withRuntimeLocalWorkspace(
+              loadSourceWithRecipe({
+                rows: persistence.rows,
+                workspaceId: missingWorkspaceId,
+                sourceId: SourceIdSchema.make("src_missing_source"),
+              }),
+              missingRuntimeLocalWorkspace,
+            ),
+          ),
+        ).rejects.toThrow("Source not found");
 
         const workspaceId = WorkspaceIdSchema.make("ws_bad_recipe_runtime");
-        const organizationId = OrganizationIdSchema.make("org_bad_recipe_runtime");
-        const accountId = AccountIdSchema.make("acc_bad_recipe_runtime");
         const sourceId = SourceIdSchema.make("src_bad_recipe_runtime");
-        const recipeId = SourceRecipeIdSchema.make("src_recipe_bad_recipe_runtime");
-        const recipeRevisionId = SourceRecipeRevisionIdSchema.make("src_recipe_rev_bad_recipe_runtime");
+        const runtimeLocalWorkspace =
+          await makeRuntimeLocalWorkspaceState(workspaceId);
 
-        await seedWorkspace({
-          persistence,
-          workspaceId,
-          organizationId,
-          accountId,
+        await writeProjectLocalExecutorConfig({
+          context: runtimeLocalWorkspace.context,
+          config: {
+            sources: {
+              [sourceId]: configSourceFromSource(
+                makeSource({
+                  id: sourceId,
+                  workspaceId,
+                  name: "Broken GitHub",
+                }),
+              ),
+            },
+          },
         });
-        await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
-          id: recipeId,
-          kind: "http_api",
-          adapterKey: "openapi",
-          providerKey: "generic_http",
-          name: "Broken GitHub",
-          summary: null,
-          visibility: "workspace",
-          latestRevisionId: recipeRevisionId,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }));
-        await Effect.runPromise(persistence.rows.sources.insert({
+        await writeLocalWorkspaceState({
+          context: runtimeLocalWorkspace.context,
+          state: {
+            version: 1,
+            sources: {
+              [sourceId]: {
+                status: "connected",
+                lastError: null,
+                sourceHash: null,
+                createdAt: 1000,
+                updatedAt: 1000,
+              },
+            },
+            policies: {},
+          },
+        });
+
+        await expect(
+          Effect.runPromise(
+            withRuntimeLocalWorkspace(
+              loadSourceWithRecipe({
+                rows: persistence.rows,
+                workspaceId,
+                sourceId,
+              }),
+              runtimeLocalWorkspace,
+            ),
+          ),
+        ).rejects.toThrow("Recipe artifact missing");
+
+        const invalidManifestSource = makeSource({
           id: sourceId,
           workspaceId,
-          recipeId,
-          recipeRevisionId,
           name: "Broken GitHub",
-          kind: "openapi",
-          endpoint: "https://api.github.com",
-          status: "connected",
-          enabled: true,
-          namespace: "github",
-          importAuthPolicy: "reuse_runtime",
-          bindingConfigJson: openApiBindingConfigJson("https://api.github.com/openapi.json"),
-          sourceHash: null,
-          lastError: null,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }));
-
-        await expect(Effect.runPromise(loadSourceWithRecipe({
-          rows: persistence.rows,
-          workspaceId,
+        });
+        const invalidArtifact = buildLocalSourceArtifact({
+          source: invalidManifestSource,
+          materialization: {
+            manifestJson: "{}",
+            manifestHash: "manifest_hash_invalid",
+            sourceHash: "manifest_hash_invalid",
+            documents: [],
+            schemaBundles: [],
+            operations: [],
+          },
+        });
+        await writeLocalSourceArtifact({
+          context: runtimeLocalWorkspace.context,
           sourceId,
-        }))).rejects.toThrow("Recipe revision missing");
+          artifact: {
+            ...invalidArtifact,
+            revision: {
+              ...invalidArtifact.revision,
+              manifestJson: "{bad-json",
+            },
+          },
+        });
 
-        await Effect.runPromise(persistence.rows.sourceRecipeRevisions.upsert({
-          id: recipeRevisionId,
-          recipeId,
-          revisionNumber: 1,
-          sourceConfigJson: JSON.stringify({
-            kind: "openapi",
-            endpoint: "https://api.github.com",
-            specUrl: "https://api.github.com/openapi.json",
-            defaultHeaders: null,
-          }),
-          manifestJson: "{bad-json",
-          manifestHash: null,
-          materializationHash: null,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }));
-
-        await expect(Effect.runPromise(loadSourceWithRecipe({
-          rows: persistence.rows,
-          workspaceId,
-          sourceId,
-        }))).rejects.toThrow(`Invalid OpenAPI manifest for ${sourceId}`);
+        await expect(
+          Effect.runPromise(
+            withRuntimeLocalWorkspace(
+              loadSourceWithRecipe({
+                rows: persistence.rows,
+                workspaceId,
+                sourceId,
+              }),
+              runtimeLocalWorkspace,
+            ),
+          ),
+        ).rejects.toThrow(`Invalid OpenAPI manifest for ${sourceId}`);
       } finally {
         await persistence.close();
       }

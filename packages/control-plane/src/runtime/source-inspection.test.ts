@@ -1,11 +1,14 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import * as Effect from "effect/Effect";
 
 import {
   AccountIdSchema,
-  OrganizationIdSchema,
+  type LocalConfigSource,
   SourceIdSchema,
-  SourceRecipeIdSchema,
   SourceRecipeRevisionIdSchema,
   SourceRecipeSchemaBundleIdSchema,
   WorkspaceIdSchema,
@@ -18,10 +21,26 @@ import {
 } from "#persistence";
 
 import {
+  loadLocalExecutorConfig,
+  resolveLocalWorkspaceContext,
+  writeProjectLocalExecutorConfig,
+} from "./local-config";
+import {
+  buildLocalSourceArtifact,
+  writeLocalSourceArtifact,
+} from "./local-source-artifacts";
+import {
   getSourceInspection,
   getSourceInspectionSchemaBundle,
   getSourceInspectionToolDetail,
 } from "./source-inspection";
+import {
+  RuntimeLocalWorkspaceService,
+  type RuntimeLocalWorkspaceState,
+} from "./local-runtime-context";
+import {
+  writeLocalWorkspaceState,
+} from "./local-workspace-state";
 import { ControlPlaneStore } from "./store";
 
 const makePersistence = () =>
@@ -31,30 +50,37 @@ const makePersistence = () =>
     }),
   );
 
-const seedWorkspace = async (input: {
-  persistence: SqlControlPlanePersistence;
-  workspaceId: ReturnType<typeof WorkspaceIdSchema.make>;
-  organizationId: ReturnType<typeof OrganizationIdSchema.make>;
-  accountId: ReturnType<typeof AccountIdSchema.make>;
-}) => {
-  await Effect.runPromise(input.persistence.rows.organizations.insert({
-    id: input.organizationId,
-    slug: `org-${input.organizationId}`,
-    name: `Org ${input.organizationId}`,
-    status: "active",
-    createdByAccountId: input.accountId,
-    createdAt: 1000,
-    updatedAt: 1000,
-  }));
-  await Effect.runPromise(input.persistence.rows.workspaces.insert({
-    id: input.workspaceId,
-    organizationId: input.organizationId,
-    name: `Workspace ${input.workspaceId}`,
-    createdByAccountId: input.accountId,
-    createdAt: 1000,
-    updatedAt: 1000,
-  }));
-};
+const makeRuntimeLocalWorkspaceState = (
+  workspaceId: ReturnType<typeof WorkspaceIdSchema.make>,
+  accountId: ReturnType<typeof AccountIdSchema.make>,
+) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const workspaceRoot = mkdtempSync(
+        join(tmpdir(), "executor-source-inspection-"),
+      );
+      const context = yield* Effect.tryPromise({
+        try: () => resolveLocalWorkspaceContext({ workspaceRoot }),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+      const loadedConfig = yield* Effect.tryPromise({
+        try: () => loadLocalExecutorConfig(context),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+
+      return {
+        context,
+        installation: {
+          workspaceId,
+          accountId,
+          organizationId: "org_local_personal" as never,
+        },
+        loadedConfig,
+      } satisfies RuntimeLocalWorkspaceState;
+    }),
+  );
 
 const makeSource = (input: {
   workspaceId: Source["workspaceId"];
@@ -133,16 +159,39 @@ const makeOperation = (
   ...overrides,
 });
 
+const configSourceFromSource = (source: Source): LocalConfigSource => ({
+  kind: "openapi",
+  ...(source.name !== source.id ? { name: source.name } : {}),
+  ...(source.namespace && source.namespace !== source.id
+    ? { namespace: source.namespace }
+    : {}),
+  connection: {
+    endpoint: source.endpoint,
+  },
+  binding: {
+    specUrl:
+      typeof source.binding.specUrl === "string"
+        ? source.binding.specUrl
+        : "https://example.com/openapi.json",
+    defaultHeaders:
+      (source.binding.defaultHeaders as Record<string, string> | null | undefined)
+      ?? null,
+  },
+});
+
 describe("source-inspection", () => {
   it("returns a lightweight inspection bundle and loads rich detail on demand", async () => {
     const persistence = await makePersistence();
     try {
       const workspaceId = WorkspaceIdSchema.make("ws_source_inspection");
-      const organizationId = OrganizationIdSchema.make("org_source_inspection");
       const accountId = AccountIdSchema.make("acc_source_inspection");
       const sourceId = SourceIdSchema.make("src_source_inspection");
-      const recipeId = SourceRecipeIdSchema.make("src_recipe_inspection");
-      const recipeRevisionId = SourceRecipeRevisionIdSchema.make("src_recipe_rev_inspection");
+      const recipeRevisionId =
+        SourceRecipeRevisionIdSchema.make("src_recipe_rev_materialization");
+      const runtimeLocalWorkspace = await makeRuntimeLocalWorkspaceState(
+        workspaceId,
+        accountId,
+      );
       const hugeDocument = JSON.stringify({
         openapi: "3.0.3",
         info: {
@@ -162,103 +211,83 @@ describe("source-inspection", () => {
         ),
       });
 
-      await seedWorkspace({
-        persistence,
+      const source = makeSource({
         workspaceId,
-        organizationId,
-        accountId,
+        sourceId,
       });
-      await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
-        id: recipeId,
-        kind: "http_api",
-        adapterKey: "openapi",
-        providerKey: "generic_http",
-        name: "Cloudflare API",
-        summary: null,
-        visibility: "workspace",
-        latestRevisionId: recipeRevisionId,
-        createdAt: 1000,
-        updatedAt: 1000,
-      }));
-      await Effect.runPromise(persistence.rows.sourceRecipeRevisions.upsert({
-        id: recipeRevisionId,
-        recipeId,
-        revisionNumber: 1,
-        sourceConfigJson: JSON.stringify({
-          kind: "openapi",
-          endpoint: "https://api.cloudflare.com/client/v4",
-          specUrl: "https://example.com/openapi.json",
-        }),
-        manifestJson: JSON.stringify({
-          sourceHash: "manifest_hash",
-        }),
-        manifestHash: "manifest_hash",
-        materializationHash: "materialization_hash",
-        createdAt: 1000,
-        updatedAt: 1000,
-      }));
-      await Effect.runPromise(persistence.rows.sourceRecipeDocuments.replaceForRevision({
-        recipeRevisionId,
-        documents: [{
-          id: "src_recipe_doc_inspection",
-          recipeRevisionId,
-          documentKind: "openapi",
-          documentKey: "https://example.com/openapi.json",
-          contentText: hugeDocument,
-          contentHash: "doc_hash",
-          fetchedAt: 1000,
-          createdAt: 1000,
-          updatedAt: 1000,
-        }],
-      }));
-      await Effect.runPromise(persistence.rows.sourceRecipeSchemaBundles.replaceForRevision({
-        recipeRevisionId,
-        bundles: [{
-          id: SourceRecipeSchemaBundleIdSchema.make("src_recipe_bundle_inspection"),
-          recipeRevisionId,
-          bundleKind: "json_schema_ref_map",
-          refsJson: JSON.stringify({
-            "#/components/schemas/Pagination": {
-              type: "object",
-              properties: {
-                page: { type: "number" },
-              },
-            },
-          }),
-          contentHash: "bundle_hash",
-          createdAt: 1000,
-          updatedAt: 1000,
-        }],
-      }));
-      await Effect.runPromise(persistence.rows.sourceRecipeOperations.replaceForRevision({
-        recipeRevisionId,
-        operations: [makeOperation()],
-      }));
-      await Effect.runPromise(persistence.rows.sources.insert({
-        id: sourceId,
-        workspaceId,
-        recipeId,
-        recipeRevisionId,
-        name: "Cloudflare API",
-        kind: "openapi",
-        endpoint: "https://api.cloudflare.com/client/v4",
-        status: "connected",
-        enabled: true,
-        namespace: "cloudflare.api",
-        importAuthPolicy: "reuse_runtime",
-        bindingConfigJson: JSON.stringify({
-          adapterKey: "openapi",
-          version: 1,
-          payload: {
-            specUrl: "https://example.com/openapi.json",
-            defaultHeaders: null,
+      await writeProjectLocalExecutorConfig({
+        context: runtimeLocalWorkspace.context,
+        config: {
+          sources: {
+            [sourceId]: configSourceFromSource(source),
+          },
+        },
+      });
+      await writeLocalSourceArtifact({
+        context: runtimeLocalWorkspace.context,
+        sourceId,
+        artifact: buildLocalSourceArtifact({
+          source: {
+            ...source,
+            sourceHash: "manifest_hash",
+          },
+          materialization: {
+            manifestJson: JSON.stringify({
+              sourceHash: "manifest_hash",
+            }),
+            manifestHash: "manifest_hash",
+            sourceHash: "manifest_hash",
+            documents: [{
+              id: "src_recipe_doc_inspection",
+              recipeRevisionId,
+              documentKind: "openapi",
+              documentKey: "https://example.com/openapi.json",
+              contentText: hugeDocument,
+              contentHash: "doc_hash",
+              fetchedAt: 1000,
+              createdAt: 1000,
+              updatedAt: 1000,
+            }],
+            schemaBundles: [{
+              id: SourceRecipeSchemaBundleIdSchema.make(
+                "src_recipe_bundle_inspection",
+              ),
+              recipeRevisionId,
+              bundleKind: "json_schema_ref_map",
+              refsJson: JSON.stringify({
+                "#/components/schemas/Pagination": {
+                  type: "object",
+                  properties: {
+                    page: { type: "number" },
+                  },
+                },
+              }),
+              contentHash: "bundle_hash",
+              createdAt: 1000,
+              updatedAt: 1000,
+            }],
+            operations: [makeOperation({
+              recipeRevisionId,
+            })],
           },
         }),
-        sourceHash: null,
-        lastError: null,
-        createdAt: 1000,
-        updatedAt: 1000,
-      }));
+      });
+      await writeLocalWorkspaceState({
+        context: runtimeLocalWorkspace.context,
+        state: {
+          version: 1,
+          sources: {
+            [sourceId]: {
+              status: "connected",
+              lastError: null,
+              sourceHash: "manifest_hash",
+              createdAt: 1000,
+              updatedAt: 1000,
+            },
+          },
+          policies: {},
+        },
+      });
 
       const inspection = await Effect.runPromise(
         getSourceInspection({
@@ -266,6 +295,10 @@ describe("source-inspection", () => {
           sourceId,
         }).pipe(
           Effect.provideService(ControlPlaneStore, persistence.rows),
+          Effect.provideService(
+            RuntimeLocalWorkspaceService,
+            runtimeLocalWorkspace,
+          ),
         ),
       );
 
@@ -282,6 +315,10 @@ describe("source-inspection", () => {
           toolPath: "cloudflare.api.zones.listZones",
         }).pipe(
           Effect.provideService(ControlPlaneStore, persistence.rows),
+          Effect.provideService(
+            RuntimeLocalWorkspaceService,
+            runtimeLocalWorkspace,
+          ),
         ),
       );
 
@@ -300,6 +337,10 @@ describe("source-inspection", () => {
           schemaBundleId: "src_recipe_bundle_inspection",
         }).pipe(
           Effect.provideService(ControlPlaneStore, persistence.rows),
+          Effect.provideService(
+            RuntimeLocalWorkspaceService,
+            runtimeLocalWorkspace,
+          ),
         ),
       );
 

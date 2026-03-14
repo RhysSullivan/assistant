@@ -1,4 +1,7 @@
+import { mkdtempSync } from "node:fs";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import * as Schema from "effect/Schema";
@@ -26,6 +29,17 @@ import {
   createTerminalSourceAuthSessionPatch,
 } from "./source-auth-service";
 import { createLiveExecutionManager } from "./live-execution";
+import {
+  loadLocalExecutorConfig,
+  resolveLocalWorkspaceContext,
+} from "./local-config";
+import {
+  readLocalSourceArtifact,
+} from "./local-source-artifacts";
+import {
+  RuntimeLocalWorkspaceService,
+  type RuntimeLocalWorkspaceState,
+} from "./local-runtime-context";
 import { createDefaultSecretMaterialResolver } from "./secret-material-providers";
 import { resolveSourceAuthMaterial } from "./source-auth-material";
 
@@ -163,6 +177,38 @@ const makePersistence = async (): Promise<SqlControlPlanePersistence> =>
     }),
   );
 
+const makeRuntimeLocalWorkspaceState = async (
+  workspaceId: ReturnType<typeof WorkspaceIdSchema.make>,
+  accountId: ReturnType<typeof AccountIdSchema.make>,
+): Promise<RuntimeLocalWorkspaceState> =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const workspaceRoot = mkdtempSync(
+        join(tmpdir(), "executor-source-auth-service-"),
+      );
+      const context = yield* Effect.tryPromise({
+        try: () => resolveLocalWorkspaceContext({ workspaceRoot }),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+      const loadedConfig = yield* Effect.tryPromise({
+        try: () => loadLocalExecutorConfig(context),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+
+      return {
+        context,
+        installation: {
+          workspaceId,
+          accountId,
+          organizationId: "org_local_personal" as never,
+        },
+        loadedConfig,
+      } satisfies RuntimeLocalWorkspaceState;
+    }),
+  );
+
 describe("source-auth-service", () => {
   const encodeSessionDataJson = Schema.encodeSync(McpSourceAuthSessionDataJsonSchema);
 
@@ -225,36 +271,20 @@ describe("source-auth-service", () => {
 
     const persistence = await makePersistence();
     try {
-      const now = Date.now();
       const workspaceId = WorkspaceIdSchema.make("ws_google_oauth");
       const accountId = AccountIdSchema.make("acc_google_oauth");
-
-      await Effect.runPromise(
-        persistence.rows.organizations.insert({
-          id: "org_google_oauth" as any,
-          slug: "google-oauth",
-          name: "Google OAuth",
-          status: "active",
-          createdByAccountId: accountId,
-          createdAt: now,
-          updatedAt: now,
-        }),
-      );
-      await Effect.runPromise(
-        persistence.rows.workspaces.insert({
-          id: workspaceId,
-          organizationId: "org_google_oauth" as any,
-          name: "Workspace",
-          createdByAccountId: accountId,
-          createdAt: now,
-          updatedAt: now,
-        }),
+      const runtimeLocalWorkspace = await makeRuntimeLocalWorkspaceState(
+        workspaceId,
+        accountId,
       );
 
       const service = createRuntimeSourceAuthService({
         rows: persistence.rows,
         liveExecutionManager: createLiveExecutionManager(),
         getLocalServerBaseUrl: () => "http://localhost:8788",
+        localConfig: runtimeLocalWorkspace.loadedConfig.config,
+        workspaceRoot: runtimeLocalWorkspace.context.workspaceRoot,
+        localWorkspaceState: runtimeLocalWorkspace,
       });
 
       await withGoogleAuthTestServer({
@@ -290,7 +320,12 @@ describe("source-auth-service", () => {
                   clientId: "google-test-client",
                   clientSecret: "google-test-secret",
                 },
-              }),
+              }).pipe(
+                Effect.provideService(
+                  RuntimeLocalWorkspaceService,
+                  runtimeLocalWorkspace,
+                ),
+              ),
             );
 
             expect(addResult.kind).toBe("oauth_required");
@@ -461,22 +496,14 @@ describe("source-auth-service", () => {
               expect(Option.isNone(oldSecret)).toBe(true);
             }
 
-            const recipeOperations = await Effect.runPromise(
-              persistence.rows.sources.getByWorkspaceAndId(
-                workspaceId,
-                connectedSource.id,
-              ),
-            );
-            expect(Option.isSome(recipeOperations)).toBe(true);
-            const storedSource = Option.getOrNull(recipeOperations)!;
-            const materializedOperations = await Effect.runPromise(
-              persistence.rows.sourceRecipeOperations.listByRevisionId(
-                storedSource.recipeRevisionId,
-              ),
-            );
-            expect(materializedOperations.length).toBeGreaterThan(0);
+            const localArtifact = await readLocalSourceArtifact({
+              context: runtimeLocalWorkspace.context,
+              sourceId: connectedSource.id,
+            });
+            expect(localArtifact).not.toBeNull();
+            expect(localArtifact?.operations.length).toBeGreaterThan(0);
             expect(
-              materializedOperations.some(
+              localArtifact?.operations.some(
                 (operation) => operation.toolId === "spreadsheets.values.get",
               ),
             ).toBe(true);
@@ -495,36 +522,20 @@ describe("source-auth-service", () => {
 
     const persistence = await makePersistence();
     try {
-      const now = Date.now();
       const workspaceId = WorkspaceIdSchema.make("ws_google_oauth_web");
       const accountId = AccountIdSchema.make("acc_google_oauth_web");
-
-      await Effect.runPromise(
-        persistence.rows.organizations.insert({
-          id: "org_google_oauth_web" as any,
-          slug: "google-oauth-web",
-          name: "Google OAuth Web",
-          status: "active",
-          createdByAccountId: accountId,
-          createdAt: now,
-          updatedAt: now,
-        }),
-      );
-      await Effect.runPromise(
-        persistence.rows.workspaces.insert({
-          id: workspaceId,
-          organizationId: "org_google_oauth_web" as any,
-          name: "Workspace",
-          createdByAccountId: accountId,
-          createdAt: now,
-          updatedAt: now,
-        }),
+      const runtimeLocalWorkspace = await makeRuntimeLocalWorkspaceState(
+        workspaceId,
+        accountId,
       );
 
       const service = createRuntimeSourceAuthService({
         rows: persistence.rows,
         liveExecutionManager: createLiveExecutionManager(),
         getLocalServerBaseUrl: () => "http://127.0.0.1:8788",
+        localConfig: runtimeLocalWorkspace.loadedConfig.config,
+        workspaceRoot: runtimeLocalWorkspace.context.workspaceRoot,
+        localWorkspaceState: runtimeLocalWorkspace,
       });
 
       await withGoogleAuthTestServer({
@@ -565,6 +576,11 @@ describe("source-auth-service", () => {
                 {
                   baseUrl: "https://app.executor.dev",
                 },
+              ).pipe(
+                Effect.provideService(
+                  RuntimeLocalWorkspaceService,
+                  runtimeLocalWorkspace,
+                ),
               ),
             );
 

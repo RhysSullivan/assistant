@@ -395,49 +395,24 @@ const authorizePersistedToolInvocation = (input: {
   >[0]["onElicitation"];
 }): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
-    const workspace = yield* input.rows.workspaces
-      .getById(input.workspaceId)
-      .pipe(
-        Effect.mapError((cause) =>
-          cause instanceof Error ? cause : new Error(String(cause)),
-        ),
-      );
-    const storedPolicies = Option.isSome(workspace)
-      ? yield* input.rows.policies
-          .listForWorkspaceContext({
-            organizationId: workspace.value.organizationId,
-            workspaceId: input.workspaceId,
-          })
-          .pipe(
-            Effect.mapError((cause) =>
-              cause instanceof Error ? cause : new Error(String(cause)),
-            ),
-          )
-      : [];
-    const localWorkspacePolicies = yield* loadRuntimeLocalWorkspacePolicies({
-      store: input.rows,
-      workspaceId: input.workspaceId,
-    }).pipe(
+    const runtimeLocalWorkspace = yield* getRuntimeLocalWorkspaceOption();
+    const localWorkspacePolicies = yield* loadRuntimeLocalWorkspacePolicies(input.workspaceId).pipe(
       Effect.mapError((cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
       ),
     );
-    const policies = localWorkspacePolicies === null
-      ? storedPolicies
-      : [
-          ...storedPolicies.filter((policy) => policy.scopeType !== "workspace"),
-          ...localWorkspacePolicies.policies,
-        ];
 
     const decision = evaluateInvocationPolicy({
       descriptor: input.descriptor,
       args: input.args,
-      policies,
+      policies: localWorkspacePolicies.policies,
       context: {
         workspaceId: input.workspaceId,
-        organizationId: Option.isSome(workspace)
-          ? workspace.value.organizationId
-          : ("org_unknown" as never),
+        organizationId:
+          runtimeLocalWorkspace !== null
+          && runtimeLocalWorkspace.installation.workspaceId === input.workspaceId
+            ? runtimeLocalWorkspace.installation.organizationId
+            : ("org_unknown" as never),
         accountId: input.accountId,
         clientId:
           typeof input.context?.clientId === "string" &&

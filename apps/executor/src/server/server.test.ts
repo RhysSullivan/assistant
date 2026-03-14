@@ -21,6 +21,7 @@ import {
   createControlPlaneClient,
   type ControlPlaneClient,
   buildLocalSourceArtifact,
+  deriveLocalInstallation,
   materializationFromMcpManifestEntries,
   type ResolveExecutionEnvironment,
   resolveLocalWorkspaceContext,
@@ -96,6 +97,7 @@ const writeConfiguredLocalMcpSource = (input: {
     const context = await resolveLocalWorkspaceContext({
       workspaceRoot: input.workspaceRoot,
     });
+    const installation = deriveLocalInstallation(context);
 
     await writeProjectLocalExecutorConfig({
       context,
@@ -118,7 +120,7 @@ const writeConfiguredLocalMcpSource = (input: {
 
     const source = {
       id: sourceId,
-      workspaceId: "ws_local_server_test" as never,
+      workspaceId: installation.workspaceId,
       name: input.name ?? "Demo",
       kind: "mcp" as const,
       endpoint: input.endpoint,
@@ -1259,7 +1261,7 @@ describe("local-executor-server", () => {
     15_000,
   );
 
-  it.scoped("gates mutating OpenAPI tools by default and allows them via organization policy", () =>
+  it.scoped("gates mutating OpenAPI tools by default and allows them via workspace policy", () =>
     Effect.gen(function* () {
       const openApiServer = yield* Effect.acquireRelease(
         Effect.promise(() => startMutatingOpenApiDemoServer()),
@@ -1331,19 +1333,17 @@ describe("local-executor-server", () => {
       expect(approved.execution.status).toBe("completed");
       expect(openApiServer.createdBodies).toHaveLength(1);
 
-      const policy = yield* client.policies.createOrganization({
+      const policy = yield* client.policies.create({
         path: {
-          organizationId: installation.organizationId,
+          workspaceId: installation.workspaceId,
         },
         payload: {
-          resourceType: "tool_path",
           resourcePattern: "dns.records.createRecord",
-          matchType: "exact",
           effect: "allow",
           approvalMode: "auto",
         },
       });
-      expect(policy.scopeType).toBe("organization");
+      expect(policy.scopeType).toBe("workspace");
 
       const automatic = yield* client.executions.create({
         path: {

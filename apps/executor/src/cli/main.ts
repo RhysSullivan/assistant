@@ -15,11 +15,11 @@ import {
   ExecutionIdSchema,
   RuntimeExecutionResolverService,
   createControlPlaneClient,
-  createSqlControlPlaneRuntime,
+  createControlPlaneRuntime,
   type ControlPlaneClient,
   type ExecutionEnvelope,
   type ExecutionInteraction,
-  type SqlControlPlaneRuntime,
+  type ControlPlaneRuntime,
 } from "@executor/control-plane";
 import type { ToolCatalog } from "@executor/codemode-core";
 
@@ -247,7 +247,7 @@ const formatCatalogUnavailableMessage = (cause: Cause.Cause<unknown>): string =>
     : `Current workspace catalog unavailable: ${message}`;
 };
 
-const closeSqlRuntime = (runtime: SqlControlPlaneRuntime) =>
+const closeRuntime = (runtime: ControlPlaneRuntime) =>
   Effect.tryPromise({
     try: () => runtime.close(),
     catch: toError,
@@ -274,7 +274,7 @@ const buildRunWorkflowText = (
 
 const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
   Effect.acquireUseRelease(
-    createSqlControlPlaneRuntime({
+    createControlPlaneRuntime({
       localDataDir: DEFAULT_LOCAL_DATA_DIR,
     }).pipe(Effect.mapError(toError)),
     (runtime) =>
@@ -293,7 +293,7 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
 
         return yield* buildRunWorkflowText(environment.catalog);
       }),
-    closeSqlRuntime,
+    closeRuntime,
   ).pipe(
     Effect.catchAllCause((cause) =>
       Effect.succeed(

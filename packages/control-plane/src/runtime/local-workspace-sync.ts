@@ -1,13 +1,7 @@
-import type { SqlControlPlaneRows } from "#persistence";
-import {
-  type Policy,
-  type Workspace,
-} from "#schema";
+import { type Policy } from "#schema";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 
 import {
-  defaultWorkspaceDisplayName,
   type LoadedLocalExecutorConfig,
   type ResolvedLocalWorkspaceContext,
 } from "./local-config";
@@ -44,33 +38,6 @@ export const derivePolicyConfigKey = (
   used.add(candidate);
   return candidate;
 };
-
-const ensureWorkspaceMetadata = (input: {
-  rows: SqlControlPlaneRows;
-  installation: {
-    workspaceId: Workspace["id"];
-  };
-  context: ResolvedLocalWorkspaceContext;
-  config: LoadedLocalExecutorConfig["config"];
-}): Effect.Effect<void, Error, never> =>
-  Effect.gen(function* () {
-    const workspace = yield* input.rows.workspaces.getById(input.installation.workspaceId);
-    if (Option.isNone(workspace)) {
-      return;
-    }
-
-    const desiredName =
-      trimOrNull(input.config?.workspace?.name)
-      ?? defaultWorkspaceDisplayName(input.context);
-    if (workspace.value.name === desiredName) {
-      return;
-    }
-
-    yield* input.rows.workspaces.update(workspace.value.id, {
-      name: desiredName,
-      updatedAt: Date.now(),
-    });
-  });
 
 const pruneLocalWorkspaceState = (input: {
   context: ResolvedLocalWorkspaceContext;
@@ -122,21 +89,10 @@ const pruneLocalWorkspaceState = (input: {
   });
 
 export const synchronizeLocalWorkspaceState = (input: {
-  rows: SqlControlPlaneRows;
   context: ResolvedLocalWorkspaceContext;
   loadedConfig: LoadedLocalExecutorConfig;
-  installation: {
-    workspaceId: Workspace["id"];
-  };
 }): Effect.Effect<LoadedLocalExecutorConfig["config"], Error, never> =>
   Effect.gen(function* () {
-    yield* ensureWorkspaceMetadata({
-      rows: input.rows,
-      installation: input.installation,
-      context: input.context,
-      config: input.loadedConfig.config,
-    });
-
     yield* pruneLocalWorkspaceState({
       context: input.context,
       loadedConfig: input.loadedConfig,

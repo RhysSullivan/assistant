@@ -88,12 +88,12 @@ export type RuntimeControlPlaneOptions = {
 const detailsFromCause = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
-const toLocalInstallationBootstrapError = (
+const toLocalRuntimeBootstrapError = (
   cause: unknown,
 ): SqlPersistenceBootstrapError => {
   const details = detailsFromCause(cause);
   return new SqlPersistenceBootstrapError({
-    message: `Failed provisioning local installation: ${details}`,
+    message: `Failed initializing local runtime: ${details}`,
     details,
   });
 };
@@ -165,19 +165,19 @@ export const createRuntimeControlPlaneLayer = (
   );
 };
 
-export type SqlControlPlaneRuntime = {
+export type ControlPlaneRuntime = {
   persistence: SqlControlPlanePersistence;
   localInstallation: LocalInstallation;
   runtimeLayer: RuntimeControlPlaneLayer;
   close: () => Promise<void>;
 };
 
-export type CreateSqlControlPlaneRuntimeOptions = CreateSqlRuntimeOptions
+export type CreateControlPlaneRuntimeOptions = CreateSqlRuntimeOptions
   & RuntimeControlPlaneOptions;
 
-export const createSqlControlPlaneRuntime = (
-  options: CreateSqlControlPlaneRuntimeOptions,
-): Effect.Effect<SqlControlPlaneRuntime, SqlPersistenceBootstrapError> =>
+export const createControlPlaneRuntime = (
+  options: CreateControlPlaneRuntimeOptions,
+): Effect.Effect<ControlPlaneRuntime, SqlPersistenceBootstrapError> =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const persistenceAndRowsLayer = SqlControlPlaneRowsLive.pipe(
@@ -198,7 +198,7 @@ export const createSqlControlPlaneRuntime = (
         resolveLocalWorkspaceContext({
           workspaceRoot: options.workspaceRoot,
         }),
-      catch: toLocalInstallationBootstrapError,
+      catch: toLocalRuntimeBootstrapError,
     }).pipe(
       Effect.catchAll((error) =>
         closeScope(scope).pipe(
@@ -210,7 +210,7 @@ export const createSqlControlPlaneRuntime = (
       rows,
       context: localWorkspaceContext,
     }).pipe(
-      Effect.mapError(toLocalInstallationBootstrapError),
+      Effect.mapError(toLocalRuntimeBootstrapError),
       Effect.catchAll((error) =>
         closeScope(scope).pipe(
           Effect.zipRight(Effect.fail(error)),
@@ -219,7 +219,7 @@ export const createSqlControlPlaneRuntime = (
 
     const loadedLocalConfig = yield* Effect.tryPromise({
       try: () => loadLocalExecutorConfig(localWorkspaceContext),
-      catch: toLocalInstallationBootstrapError,
+      catch: toLocalRuntimeBootstrapError,
     }).pipe(
       Effect.catchAll((error) =>
         closeScope(scope).pipe(
@@ -228,14 +228,10 @@ export const createSqlControlPlaneRuntime = (
     );
 
     const effectiveLocalConfig = yield* synchronizeLocalWorkspaceState({
-      rows,
       context: localWorkspaceContext,
       loadedConfig: loadedLocalConfig,
-      installation: {
-        workspaceId: localInstallation.workspaceId,
-      },
     }).pipe(
-      Effect.mapError(toLocalInstallationBootstrapError),
+      Effect.mapError(toLocalRuntimeBootstrapError),
       Effect.catchAll((error) =>
         closeScope(scope).pipe(
           Effect.zipRight(Effect.fail(error)),
@@ -262,6 +258,7 @@ export const createSqlControlPlaneRuntime = (
         installation: {
           workspaceId: localInstallation.workspaceId,
           accountId: localInstallation.accountId,
+          organizationId: localInstallation.organizationId,
         },
         loadedConfig: {
           ...loadedLocalConfig,
@@ -277,7 +274,7 @@ export const createSqlControlPlaneRuntime = (
         resolveSecretMaterial,
       });
     const actorResolver =
-      options.actorResolver ?? createHeaderActorResolver(rows);
+      options.actorResolver ?? createHeaderActorResolver();
 
     const runtimeContext = Context.empty().pipe(
       Context.add(ControlPlaneActorResolver, actorResolver),
@@ -288,6 +285,7 @@ export const createSqlControlPlaneRuntime = (
         installation: {
           workspaceId: localInstallation.workspaceId,
           accountId: localInstallation.accountId,
+          organizationId: localInstallation.organizationId,
         },
         loadedConfig: {
           ...loadedLocalConfig,

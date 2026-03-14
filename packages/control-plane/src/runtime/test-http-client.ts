@@ -15,10 +15,10 @@ import {
 
 import {
   ControlPlaneAuthHeaders,
-  type SqlControlPlaneRuntime,
+  type ControlPlaneRuntime,
 } from "./index";
 
-const createClientLayer = (runtime: SqlControlPlaneRuntime) => {
+const createClientLayer = (runtime: ControlPlaneRuntime) => {
   const apiLayer = createControlPlaneApiLayer(runtime.runtimeLayer);
 
   return HttpApiBuilder.serve().pipe(
@@ -48,7 +48,7 @@ type ControlPlaneClient = Effect.Effect.Success<
 
 export const withControlPlaneClient = <A, E>(
   input: {
-    runtime: SqlControlPlaneRuntime;
+    runtime: ControlPlaneRuntime;
     accountId?: string;
   },
   f: (client: ControlPlaneClient) => Effect.Effect<A, E, never>,

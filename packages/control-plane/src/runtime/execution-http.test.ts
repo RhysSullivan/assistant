@@ -9,7 +9,7 @@ import { makeToolInvokerFromTools } from "@executor/codemode-core";
 import { makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
 
 import {
-  createSqlControlPlaneRuntime,
+  createControlPlaneRuntime,
 } from "./index";
 import { withControlPlaneClient } from "./test-http-client";
 
@@ -40,7 +40,7 @@ const makeExecutionResolver = () => {
 };
 
 const makeRuntime = Effect.acquireRelease(
-  createSqlControlPlaneRuntime({
+  createControlPlaneRuntime({
     localDataDir: ":memory:",
     workspaceRoot: mkdtempSync(join(tmpdir(), "executor-execution-http-")),
     executionResolver: makeExecutionResolver(),

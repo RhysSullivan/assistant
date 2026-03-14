@@ -61,27 +61,6 @@ export {
 } from "./oauth/api";
 
 export {
-  CreateOrganizationPayloadSchema,
-  UpdateOrganizationPayloadSchema,
-  type CreateOrganizationPayload,
-  type UpdateOrganizationPayload,
-} from "./organizations/api";
-
-export {
-  CreateMembershipPayloadSchema,
-  UpdateMembershipPayloadSchema,
-  type CreateMembershipPayload,
-  type UpdateMembershipPayload,
-} from "./memberships/api";
-
-export {
-  CreateWorkspacePayloadSchema,
-  UpdateWorkspacePayloadSchema,
-  type CreateWorkspacePayload,
-  type UpdateWorkspacePayload,
-} from "./workspaces/api";
-
-export {
   ConnectSourcePayloadSchema,
   ConnectSourceResultSchema,
   CreateSourcePayloadSchema,

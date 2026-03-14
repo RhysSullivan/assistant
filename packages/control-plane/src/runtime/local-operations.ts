@@ -187,27 +187,7 @@ export const getLocalInstallation = () =>
     const context = runtimeLocalWorkspace?.context
       ?? (yield* Effect.promise(() => resolveLocalWorkspaceContext()));
 
-    const installation = yield* loadLocalInstallation(store, context).pipe(
-      Effect.mapError((error) =>
-        error instanceof ControlPlanePersistenceError
-          ? localOps.installation.storage(error)
-          : localOps.installation.unknownStorage(
-              error,
-              "Failed loading local installation",
-            ),
-      ),
-    );
-
-    if (installation === null) {
-      return yield* Effect.fail(
-        localOps.installation.notFound(
-          "Local installation not found",
-          "No local installation has been provisioned",
-        ),
-      );
-    }
-
-    return installation;
+    return yield* loadLocalInstallation(store, context);
   });
 
 export const getSourceCredentialInteraction = (input: {
