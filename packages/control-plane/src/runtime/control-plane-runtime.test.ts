@@ -325,7 +325,7 @@ describe("control-plane-runtime", () => {
       const runtime = yield* makeRuntime;
       const installation = runtime.localInstallation;
       const executionId = ExecutionIdSchema.make("exec_local_credential");
-      const sourceId = SourceIdSchema.make("src_local_credential");
+      const sourceId = SourceIdSchema.make("github");
       const interactionSuffix = "executor.sources.add:test";
       const interactionId = ExecutionInteractionIdSchema.make(
         `${executionId}:${interactionSuffix}`,
@@ -488,7 +488,7 @@ describe("control-plane-runtime", () => {
       const runtime = yield* makeRuntime;
       const installation = runtime.localInstallation;
       const executionId = ExecutionIdSchema.make("exec_local_credential_continue");
-      const sourceId = SourceIdSchema.make("src_local_credential_continue");
+      const sourceId = SourceIdSchema.make("github");
       const interactionSuffix = "executor.sources.add:continue";
       const interactionId = ExecutionInteractionIdSchema.make(
         `${executionId}:${interactionSuffix}`,

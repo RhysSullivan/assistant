@@ -3,7 +3,6 @@ import { join } from "node:path";
 
 import {
   PolicyIdSchema,
-  SourceIdSchema,
   SourceStatusSchema,
   TimestampMsSchema,
 } from "#schema";
@@ -14,7 +13,6 @@ import type { ResolvedLocalWorkspaceContext } from "./local-config";
 const WORKSPACE_STATE_BASENAME = "workspace-state.json";
 
 const LocalWorkspaceSourceStateSchema = Schema.Struct({
-  id: SourceIdSchema,
   status: SourceStatusSchema,
   lastError: Schema.NullOr(Schema.String),
   sourceHash: Schema.NullOr(Schema.String),

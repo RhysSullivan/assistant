@@ -188,7 +188,6 @@ const seedMigratedSourceRecipe = (input: {
     yield* input.persistence.rows.sources.insert({
       id: input.sourceId,
       workspaceId: input.workspaceId,
-      configKey: null,
       recipeId,
       recipeRevisionId,
       name: input.kind === "openapi" ? "GitHub" : "GraphQL Demo",

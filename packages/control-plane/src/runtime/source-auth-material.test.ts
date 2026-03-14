@@ -12,7 +12,6 @@ import { resolveSourceAuthMaterial } from "./source-auth-material";
 const makeSource = (overrides: Partial<Source> = {}): Source => ({
   id: SourceIdSchema.make("src_tool_artifacts"),
   workspaceId: WorkspaceIdSchema.make("ws_tool_artifacts"),
-  configKey: null,
   name: "GitHub",
   kind: "openapi",
   endpoint: "https://api.github.com",

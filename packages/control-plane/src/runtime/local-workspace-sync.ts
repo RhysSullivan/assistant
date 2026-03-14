@@ -42,12 +42,11 @@ const toApprovalMode = (approval: LocalConfigPolicy["approval"]): Policy["approv
   approval === "manual" ? "required" : "auto";
 
 export const deriveSourceConfigKey = (
-  source: Pick<Source, "configKey" | "namespace" | "name">,
+  source: Pick<Source, "namespace" | "name">,
   used: Set<string>,
 ): string => {
   const base =
-    trimOrNull(source.configKey)
-    ?? trimOrNull(source.namespace)
+    trimOrNull(source.namespace)
     ?? trimOrNull(source.name)
     ?? "source";
   const slugBase = slugify(base) || "source";
@@ -112,14 +111,15 @@ const configAuthFromStoredSource = (input: {
 
 export const configSourceFromStoredSource = (input: {
   source: Source;
+  sourceId: string;
   config: LocalExecutorConfig | null;
 }): LocalConfigSource => {
   const auth = configAuthFromStoredSource(input);
   const common = {
-    ...(trimOrNull(input.source.name) !== trimOrNull(input.source.configKey)
+    ...(trimOrNull(input.source.name) !== trimOrNull(input.sourceId)
       ? { name: input.source.name }
       : {}),
-    ...(trimOrNull(input.source.namespace) !== trimOrNull(input.source.configKey)
+    ...(trimOrNull(input.source.namespace) !== trimOrNull(input.sourceId)
       ? { namespace: input.source.namespace ?? undefined }
       : {}),
     ...(input.source.enabled === false ? { enabled: false } : {}),
@@ -231,10 +231,8 @@ const exportWorkspaceConfig = (input: {
       const configKey = deriveSourceConfigKey(source, sourceKeys);
       sourceMappings.push({ configKey, source });
       sourcesConfig[configKey] = configSourceFromStoredSource({
-        source: {
-          ...source,
-          configKey,
-        },
+        source,
+        sourceId: configKey,
         config: input.loadedConfig.config,
       });
     }
@@ -304,7 +302,6 @@ const exportWorkspaceConfig = (input: {
         sources: {
           ...workspaceState.sources,
           [configKey]: {
-            id: source.id,
             status: source.status,
             lastError: source.lastError,
             sourceHash: source.sourceHash,
@@ -324,13 +321,13 @@ const exportWorkspaceConfig = (input: {
         try: () =>
           writeLocalSourceArtifact({
             context: input.context,
-            configKey,
+            sourceId: configKey,
             artifact: buildLocalSourceArtifact({
               source: {
                 ...source,
+                id: configKey as Source["id"],
                 sourceHash: revision.manifestHash ?? source.sourceHash,
               },
-              configKey,
               materialization: {
                 manifestJson: revision.manifestJson,
                 manifestHash: revision.manifestHash,

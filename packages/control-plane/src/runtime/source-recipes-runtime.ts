@@ -173,15 +173,11 @@ export const loadWorkspaceSourceRecipes = (input: {
 
       const localRecipes = yield* Effect.forEach(sources, (source) =>
         Effect.gen(function* () {
-          if (source.configKey === null) {
-            return null;
-          }
-
           const artifact = yield* Effect.tryPromise({
             try: () =>
               readLocalSourceArtifact({
                 context: runtimeLocalWorkspace.context,
-                configKey: source.configKey!,
+                sourceId: source.id,
               }),
             catch: (cause) =>
               cause instanceof Error ? cause : new Error(String(cause)),
@@ -193,7 +189,6 @@ export const loadWorkspaceSourceRecipes = (input: {
           const sourceRecord: StoredSourceRecord = {
             id: source.id,
             workspaceId: source.workspaceId,
-            configKey: source.configKey,
             recipeId: artifact.recipeId,
             recipeRevisionId: artifact.revision.id,
             name: source.name,
@@ -313,17 +308,12 @@ export const loadSourceWithRecipe = (input: {
         sourceId: input.sourceId,
         actorAccountId: input.actorAccountId,
       });
-      if (source.configKey === null) {
-        return yield* Effect.fail(
-          new Error(`Source not found: workspaceId=${input.workspaceId} sourceId=${input.sourceId}`),
-        );
-      }
 
       const artifact = yield* Effect.tryPromise({
         try: () =>
           readLocalSourceArtifact({
             context: runtimeLocalWorkspace.context,
-            configKey: source.configKey!,
+            sourceId: source.id,
           }),
         catch: (cause) =>
           cause instanceof Error ? cause : new Error(String(cause)),
@@ -337,7 +327,6 @@ export const loadSourceWithRecipe = (input: {
       const sourceRecord: StoredSourceRecord = {
         id: source.id,
         workspaceId: source.workspaceId,
-        configKey: source.configKey,
         recipeId: artifact.recipeId,
         recipeRevisionId: artifact.revision.id,
         name: source.name,

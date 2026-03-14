@@ -29,7 +29,6 @@ const LOCAL_SOURCE_ARTIFACT_VERSION = 1 as const;
 export const LocalSourceArtifactSchema = Schema.Struct({
   version: Schema.Literal(LOCAL_SOURCE_ARTIFACT_VERSION),
   sourceId: SourceIdSchema,
-  configKey: Schema.String,
   recipeId: SourceRecipeIdSchema,
   generatedAt: TimestampMsSchema,
   revision: StoredSourceRecipeRevisionRecordSchema,
@@ -44,12 +43,12 @@ const decodeLocalSourceArtifact = Schema.decodeUnknownSync(LocalSourceArtifactSc
 
 const localSourceArtifactPath = (input: {
   context: ResolvedLocalWorkspaceContext;
-  configKey: string;
+  sourceId: string;
 }): string =>
   join(
     input.context.artifactsDirectory,
     "sources",
-    `${input.configKey}.json`,
+    `${input.sourceId}.json`,
   );
 
 const canonicalMaterializationHash = (input: {
@@ -112,7 +111,6 @@ const bindRevisionId = <T extends { recipeRevisionId: string }>(
 
 export const buildLocalSourceArtifact = (input: {
   source: Source;
-  configKey: string;
   materialization: SourceRecipeMaterialization;
 }): LocalSourceArtifact => {
   const recipeId: SourceRecipeId = stableSourceRecipeId(input.source);
@@ -131,7 +129,6 @@ export const buildLocalSourceArtifact = (input: {
   return {
     version: LOCAL_SOURCE_ARTIFACT_VERSION,
     sourceId: input.source.id,
-    configKey: input.configKey,
     recipeId,
     generatedAt: now,
     revision,
@@ -143,7 +140,7 @@ export const buildLocalSourceArtifact = (input: {
 
 export const readLocalSourceArtifact = async (input: {
   context: ResolvedLocalWorkspaceContext;
-  configKey: string;
+  sourceId: string;
 }): Promise<LocalSourceArtifact | null> => {
   const path = localSourceArtifactPath(input);
 
@@ -166,7 +163,7 @@ export const readLocalSourceArtifact = async (input: {
 
 export const writeLocalSourceArtifact = async (input: {
   context: ResolvedLocalWorkspaceContext;
-  configKey: string;
+  sourceId: string;
   artifact: LocalSourceArtifact;
 }): Promise<void> => {
   const path = localSourceArtifactPath(input);
@@ -178,7 +175,7 @@ export const writeLocalSourceArtifact = async (input: {
 
 export const removeLocalSourceArtifact = async (input: {
   context: ResolvedLocalWorkspaceContext;
-  configKey: string;
+  sourceId: string;
 }): Promise<void> => {
   const path = localSourceArtifactPath(input);
 

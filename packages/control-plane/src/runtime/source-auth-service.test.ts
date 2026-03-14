@@ -32,7 +32,6 @@ import { resolveSourceAuthMaterial } from "./source-auth-material";
 const makeExistingOpenApiSource = (auth: Source["auth"]): Source => ({
   id: "src_test" as Source["id"],
   workspaceId: "ws_test" as Source["workspaceId"],
-  configKey: null,
   name: "GitHub",
   kind: "openapi",
   endpoint: "https://api.github.com",

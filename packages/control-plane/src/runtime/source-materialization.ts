@@ -47,7 +47,6 @@ export const syncSourceMaterialization = (input: {
     if (
       runtimeLocalWorkspace !== null
       && runtimeLocalWorkspace.installation.workspaceId === input.source.workspaceId
-      && input.source.configKey !== null
     ) {
       if (!shouldIndexSource(input.source)) {
         const state = yield* Effect.tryPromise({
@@ -55,13 +54,12 @@ export const syncSourceMaterialization = (input: {
           catch: (cause) =>
             cause instanceof Error ? cause : new Error(String(cause)),
         });
-        const existingSourceState = state.sources[input.source.configKey];
+        const existingSourceState = state.sources[input.source.id];
         const nextState: LocalWorkspaceState = {
           ...state,
           sources: {
             ...state.sources,
-            [input.source.configKey]: {
-              id: input.source.id,
+            [input.source.id]: {
               status: (input.source.enabled ? input.source.status : "draft") as SourceStatus,
               lastError: null,
               sourceHash: input.source.sourceHash,
@@ -100,10 +98,9 @@ export const syncSourceMaterialization = (input: {
         try: () =>
           writeLocalSourceArtifact({
             context: runtimeLocalWorkspace.context,
-            configKey: input.source.configKey!,
+            sourceId: input.source.id,
             artifact: buildLocalSourceArtifact({
               source: input.source,
-              configKey: input.source.configKey!,
               materialization,
             }),
           }),
@@ -116,13 +113,12 @@ export const syncSourceMaterialization = (input: {
         catch: (cause) =>
           cause instanceof Error ? cause : new Error(String(cause)),
       });
-      const existingSourceState = state.sources[input.source.configKey];
+      const existingSourceState = state.sources[input.source.id];
       const nextState: LocalWorkspaceState = {
         ...state,
         sources: {
           ...state.sources,
-          [input.source.configKey]: {
-            id: input.source.id,
+          [input.source.id]: {
             status: "connected",
             lastError: null,
             sourceHash: materialization.sourceHash,
@@ -179,7 +175,6 @@ export const persistMcpRecipeMaterializationFromManifest = (input: {
     if (
       runtimeLocalWorkspace !== null
       && runtimeLocalWorkspace.installation.workspaceId === input.source.workspaceId
-      && input.source.configKey !== null
     ) {
       const materialization = materializationFromMcpManifestEntries({
         recipeRevisionId: "src_recipe_rev_materialization" as never,
@@ -191,10 +186,9 @@ export const persistMcpRecipeMaterializationFromManifest = (input: {
         try: () =>
           writeLocalSourceArtifact({
             context: runtimeLocalWorkspace.context,
-            configKey: input.source.configKey!,
+            sourceId: input.source.id,
             artifact: buildLocalSourceArtifact({
               source: input.source,
-              configKey: input.source.configKey!,
               materialization,
             }),
           }),

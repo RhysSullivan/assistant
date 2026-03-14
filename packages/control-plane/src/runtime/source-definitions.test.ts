@@ -44,7 +44,6 @@ const mcpBinding = (input: {
 const makeSource = (overrides: Partial<Source> = {}): Source => ({
   id: SourceIdSchema.make("src_source_definitions"),
   workspaceId: WorkspaceIdSchema.make("ws_source_definitions"),
-  configKey: null,
   name: "GitHub",
   kind: "openapi",
   endpoint: "https://api.github.com",

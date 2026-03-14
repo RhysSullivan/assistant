@@ -87,7 +87,6 @@ const makeSource = (overrides: Partial<Source> = {}): Source => {
   return {
     id: SourceIdSchema.make("src_runtime_recipe"),
     workspaceId: WorkspaceIdSchema.make("ws_runtime_recipe"),
-    configKey: null,
     name: "GitHub",
     kind,
     endpoint,
@@ -373,7 +372,6 @@ describe("source-recipes-runtime", () => {
         sourceRecord: {
           id: SourceIdSchema.make("src_runtime_recipe"),
           workspaceId: WorkspaceIdSchema.make("ws_runtime_recipe"),
-          configKey: null,
           recipeId: SourceRecipeIdSchema.make("src_recipe_runtime"),
           recipeRevisionId: SourceRecipeRevisionIdSchema.make("src_recipe_rev_runtime"),
           name: "GITHUB API",
@@ -545,7 +543,6 @@ describe("source-recipes-runtime", () => {
           await Effect.runPromise(persistence.rows.sources.insert({
             id: SourceIdSchema.make(`src_shared_revision_${index}`),
             workspaceId,
-            configKey: null,
             recipeId,
             recipeRevisionId,
             name,
@@ -624,7 +621,6 @@ describe("source-recipes-runtime", () => {
         await Effect.runPromise(persistence.rows.sources.insert({
           id: sourceId,
           workspaceId,
-          configKey: null,
           recipeId,
           recipeRevisionId,
           name: "GraphQL Demo",
@@ -692,7 +688,6 @@ describe("source-recipes-runtime", () => {
         await Effect.runPromise(persistence.rows.sources.insert({
           id: sourceId,
           workspaceId,
-          configKey: null,
           recipeId,
           recipeRevisionId,
           name: "Broken GitHub",

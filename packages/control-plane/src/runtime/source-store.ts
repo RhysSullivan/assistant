@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type {
   AccountId,
   AuthArtifact,
@@ -7,10 +5,12 @@ import type {
   LocalConfigSecretInput,
   LocalConfigSource,
   Source,
+  SourceId,
   SourceRecipeId,
   SourceRecipeRevisionId,
   WorkspaceId,
 } from "#schema";
+import { SourceIdSchema } from "#schema";
 import { type SqlControlPlaneRows } from "#persistence";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -118,24 +118,22 @@ const trimOrNull = (value: string | null | undefined): string | null => {
 const cloneJson = <T>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
 
-const localSourceIdForConfigKey = (input: {
-  workspaceRoot: string;
-  configKey: string;
-}): Source["id"] => {
-  const hash = createHash("sha256")
-    .update(`${input.workspaceRoot}:${input.configKey}`)
-    .digest("hex")
-    .slice(0, 16);
-  return `src_local_${hash}` as Source["id"];
-};
-
-const deriveLocalSourceConfigKey = (source: Pick<Source, "configKey" | "namespace" | "name">): string => {
+const deriveLocalSourceId = (
+  source: Pick<Source, "namespace" | "name">,
+  used: ReadonlySet<string>,
+): SourceId => {
   const base =
-    trimOrNull(source.configKey)
-    ?? trimOrNull(source.namespace)
+    trimOrNull(source.namespace)
     ?? trimOrNull(source.name)
     ?? "source";
-  return slugify(base) || "source";
+  const slugBase = slugify(base) || "source";
+  let candidate = slugBase;
+  let counter = 2;
+  while (used.has(candidate)) {
+    candidate = `${slugBase}-${counter}`;
+    counter += 1;
+  }
+  return SourceIdSchema.make(candidate);
 };
 
 const resolveLocalConfigSecretProviderAlias = (config: Awaited<ReturnType<typeof loadLocalExecutorConfig>>["config"]): string | null => {
@@ -257,34 +255,30 @@ const buildLocalSourceRecord = (input: {
   workspaceId: WorkspaceId;
   loadedConfig: Awaited<ReturnType<typeof loadLocalExecutorConfig>>;
   workspaceState: LocalWorkspaceState;
-  configKey: string;
+  sourceId: SourceId;
   actorAccountId?: AccountId | null;
   authArtifacts: ReadonlyArray<AuthArtifact>;
 }): Effect.Effect<{
   source: Source;
-  configKey: string;
+  sourceId: SourceId;
 }, Error, never> =>
   Effect.gen(function* () {
-    const sourceConfig = input.loadedConfig.config?.sources?.[input.configKey];
+    const sourceConfig = input.loadedConfig.config?.sources?.[input.sourceId];
     if (!sourceConfig) {
-      return yield* Effect.fail(new Error(`Configured source not found for key ${input.configKey}`));
+      return yield* Effect.fail(new Error(`Configured source not found for id ${input.sourceId}`));
     }
 
-    const existingState = input.workspaceState.sources[input.configKey];
+    const existingState = input.workspaceState.sources[input.sourceId];
     const adapter = getSourceAdapter(sourceConfig.kind);
     const baseSource = yield* adapter.validateSource({
-      id: existingState?.id ?? localSourceIdForConfigKey({
-        workspaceRoot: input.context.workspaceRoot,
-        configKey: input.configKey,
-      }),
+      id: SourceIdSchema.make(input.sourceId),
       workspaceId: input.workspaceId,
-      configKey: input.configKey,
-      name: trimOrNull(sourceConfig.name) ?? input.configKey,
+      name: trimOrNull(sourceConfig.name) ?? input.sourceId,
       kind: sourceConfig.kind,
       endpoint: sourceConfig.connection.endpoint.trim(),
       status: existingState?.status ?? ((sourceConfig.enabled ?? true) ? "connected" : "draft"),
       enabled: sourceConfig.enabled ?? true,
-      namespace: trimOrNull(sourceConfig.namespace) ?? input.configKey,
+      namespace: trimOrNull(sourceConfig.namespace) ?? input.sourceId,
       bindingVersion: adapter.bindingConfigVersion,
       binding: sourceConfig.binding,
       importAuthPolicy: adapter.defaultImportAuthPolicy,
@@ -303,7 +297,7 @@ const buildLocalSourceRecord = (input: {
     const artifact = yield* Effect.tryPromise({
       try: () => readLocalSourceArtifact({
         context: input.context,
-        configKey: input.configKey,
+        sourceId: input.sourceId,
       }),
       catch: (cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
@@ -325,7 +319,6 @@ const buildLocalSourceRecord = (input: {
     const sourceRecord = {
       id: baseSource.id,
       workspaceId: baseSource.workspaceId,
-      configKey: input.configKey,
       recipeId: artifact?.recipeId ?? stableSourceRecipeId(baseSource),
       recipeRevisionId: artifact?.revision.id ?? stableSourceRecipeRevisionId(baseSource),
       name: baseSource.name,
@@ -350,38 +343,9 @@ const buildLocalSourceRecord = (input: {
 
     return {
       source,
-      configKey: input.configKey,
+      sourceId: input.sourceId,
     };
   });
-
-const resolveLocalSourceConfigKey = (input: {
-  context: {
-    workspaceRoot: string;
-  };
-  loadedConfig: Awaited<ReturnType<typeof loadLocalExecutorConfig>>;
-  workspaceState: LocalWorkspaceState;
-  sourceId: Source["id"];
-}): string | null => {
-  const configKeys = Object.keys(input.loadedConfig.config?.sources ?? {});
-  for (const configKey of configKeys) {
-    const storedId = input.workspaceState.sources[configKey]?.id;
-    if (storedId === input.sourceId) {
-      return configKey;
-    }
-
-    if (
-      storedId === undefined
-      && localSourceIdForConfigKey({
-        workspaceRoot: input.context.workspaceRoot,
-        configKey,
-      }) === input.sourceId
-    ) {
-      return configKey;
-    }
-  }
-
-  return null;
-};
 
 export const loadSourcesInWorkspace = (
   rows: SqlControlPlaneRows,
@@ -396,14 +360,14 @@ export const loadSourcesInWorkspace = (
       const authArtifacts = yield* rows.authArtifacts.listByWorkspaceId(workspaceId);
       return yield* Effect.forEach(
         Object.keys(localWorkspace.loadedConfig.config?.sources ?? {}),
-        (configKey) =>
+        (sourceId) =>
           Effect.map(
             buildLocalSourceRecord({
               context: localWorkspace.context,
               workspaceId,
               loadedConfig: localWorkspace.loadedConfig,
               workspaceState: localWorkspace.workspaceState,
-              configKey,
+              sourceId: SourceIdSchema.make(sourceId),
               actorAccountId: options.actorAccountId,
               authArtifacts,
             }),
@@ -446,14 +410,7 @@ export const loadSourceById = (rows: SqlControlPlaneRows, input: {
     const localWorkspace = yield* resolveRuntimeLocalWorkspace(input.workspaceId);
     if (localWorkspace !== null) {
       const authArtifacts = yield* rows.authArtifacts.listByWorkspaceId(input.workspaceId);
-      const configKey = resolveLocalSourceConfigKey({
-        context: localWorkspace.context,
-        loadedConfig: localWorkspace.loadedConfig,
-        workspaceState: localWorkspace.workspaceState,
-        sourceId: input.sourceId,
-      });
-
-      if (configKey === null) {
+      if (!localWorkspace.loadedConfig.config?.sources?.[input.sourceId]) {
         return yield* Effect.fail(
           new Error(`Source not found: workspaceId=${input.workspaceId} sourceId=${input.sourceId}`),
         );
@@ -464,7 +421,7 @@ export const loadSourceById = (rows: SqlControlPlaneRows, input: {
         workspaceId: input.workspaceId,
         loadedConfig: localWorkspace.loadedConfig,
         workspaceState: localWorkspace.workspaceState,
-        configKey,
+        sourceId: input.sourceId,
         actorAccountId: input.actorAccountId,
         authArtifacts,
       });
@@ -507,7 +464,6 @@ export const loadSourceById = (rows: SqlControlPlaneRows, input: {
 
 const configSourceFromLocalSource = (input: {
   source: Source;
-  configKey: string;
   existingConfigAuth: LocalConfigSecretInput | undefined;
   config: Awaited<ReturnType<typeof loadLocalExecutorConfig>>["config"];
 }): LocalConfigSource => {
@@ -518,10 +474,10 @@ const configSourceFromLocalSource = (input: {
   });
 
   const common = {
-    ...(trimOrNull(input.source.name) !== trimOrNull(input.configKey)
+    ...(trimOrNull(input.source.name) !== trimOrNull(input.source.id)
       ? { name: input.source.name }
       : {}),
-    ...(trimOrNull(input.source.namespace) !== trimOrNull(input.configKey)
+    ...(trimOrNull(input.source.namespace) !== trimOrNull(input.source.id)
       ? { namespace: input.source.namespace ?? undefined }
       : {}),
     ...(input.source.enabled === false ? { enabled: false } : {}),
@@ -639,13 +595,7 @@ export const removeSourceById = (rows: SqlControlPlaneRows, input: {
   Effect.gen(function* () {
     const localWorkspace = yield* resolveRuntimeLocalWorkspace(input.workspaceId);
     if (localWorkspace !== null) {
-      const configKey = resolveLocalSourceConfigKey({
-        context: localWorkspace.context,
-        loadedConfig: localWorkspace.loadedConfig,
-        workspaceState: localWorkspace.workspaceState,
-        sourceId: input.sourceId,
-      });
-      if (configKey === null) {
+      if (!localWorkspace.loadedConfig.config?.sources?.[input.sourceId]) {
         return false;
       }
 
@@ -653,7 +603,7 @@ export const removeSourceById = (rows: SqlControlPlaneRows, input: {
       const sources = {
         ...(projectConfig.sources ?? {}),
       };
-      delete sources[configKey];
+      delete sources[input.sourceId];
       yield* Effect.tryPromise({
         try: () =>
           writeProjectLocalExecutorConfig({
@@ -668,7 +618,7 @@ export const removeSourceById = (rows: SqlControlPlaneRows, input: {
       });
 
       const {
-        [configKey]: _removedSource,
+        [input.sourceId]: _removedSource,
         ...remainingSources
       } = localWorkspace.workspaceState.sources;
       const workspaceState: LocalWorkspaceState = {
@@ -688,7 +638,7 @@ export const removeSourceById = (rows: SqlControlPlaneRows, input: {
         try: () =>
           removeLocalSourceArtifact({
             context: localWorkspace.context,
-            configKey,
+            sourceId: input.sourceId,
           }),
         catch: (cause) =>
           cause instanceof Error ? cause : new Error(String(cause)),
@@ -743,9 +693,20 @@ export const persistSource = (
   Effect.gen(function* () {
     const localWorkspace = yield* resolveRuntimeLocalWorkspace(source.workspaceId);
     if (localWorkspace !== null) {
+      const nextSource = {
+        ...source,
+        id:
+          localWorkspace.loadedConfig.config?.sources?.[source.id]
+          || localWorkspace.workspaceState.sources[source.id]
+            ? source.id
+            : deriveLocalSourceId(
+                source,
+                new Set(Object.keys(localWorkspace.loadedConfig.config?.sources ?? {})),
+              ),
+      } satisfies Source;
       const existingAuthArtifacts = yield* rows.authArtifacts.listByWorkspaceAndSourceId({
-        workspaceId: source.workspaceId,
-        sourceId: source.id,
+        workspaceId: nextSource.workspaceId,
+        sourceId: nextSource.id,
       });
       const existingRuntimeAuthArtifact = selectExactAuthArtifact({
         authArtifacts: existingAuthArtifacts,
@@ -757,27 +718,13 @@ export const persistSource = (
         actorAccountId: options.actorAccountId,
         slot: "import",
       });
-      const configKey =
-        source.configKey
-        ?? resolveLocalSourceConfigKey({
-          context: localWorkspace.context,
-          loadedConfig: localWorkspace.loadedConfig,
-          workspaceState: localWorkspace.workspaceState,
-          sourceId: source.id,
-        })
-        ?? deriveLocalSourceConfigKey(source);
-      const nextSource = {
-        ...source,
-        configKey,
-      } satisfies Source;
       const projectConfig = cloneJson(localWorkspace.loadedConfig.projectConfig ?? {});
       const sources = {
         ...(projectConfig.sources ?? {}),
       };
-      const existingConfigSource = sources[configKey];
-      sources[configKey] = configSourceFromLocalSource({
+      const existingConfigSource = sources[nextSource.id];
+      sources[nextSource.id] = configSourceFromLocalSource({
         source: nextSource,
-        configKey,
         existingConfigAuth: existingConfigSource?.connection.auth,
         config: localWorkspace.loadedConfig.config,
       });
@@ -810,8 +757,8 @@ export const persistSource = (
           });
         }
         yield* rows.authArtifacts.removeByWorkspaceSourceAndActor({
-          workspaceId: source.workspaceId,
-          sourceId: source.id,
+          workspaceId: nextSource.workspaceId,
+          sourceId: nextSource.id,
           actorAccountId: options.actorAccountId ?? null,
           slot: "runtime",
         });
@@ -839,8 +786,8 @@ export const persistSource = (
           });
         }
         yield* rows.authArtifacts.removeByWorkspaceSourceAndActor({
-          workspaceId: source.workspaceId,
-          sourceId: source.id,
+          workspaceId: nextSource.workspaceId,
+          sourceId: nextSource.id,
           actorAccountId: options.actorAccountId ?? null,
           slot: "import",
         });
@@ -861,13 +808,12 @@ export const persistSource = (
         next: importAuthArtifact,
       });
 
-      const existingSourceState = localWorkspace.workspaceState.sources[configKey];
+      const existingSourceState = localWorkspace.workspaceState.sources[nextSource.id];
       const workspaceState: LocalWorkspaceState = {
         ...localWorkspace.workspaceState,
         sources: {
           ...localWorkspace.workspaceState.sources,
-          [configKey]: {
-            id: nextSource.id,
+          [nextSource.id]: {
             status: nextSource.status,
             lastError: nextSource.lastError,
             sourceHash: nextSource.sourceHash,

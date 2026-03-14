@@ -492,7 +492,6 @@ const openApiSource = (input: {
 }): Source => ({
   id: input.sourceId,
   workspaceId: input.workspaceId,
-  configKey: null,
   name: input.displayName,
   kind: "openapi",
   endpoint: input.baseUrl,

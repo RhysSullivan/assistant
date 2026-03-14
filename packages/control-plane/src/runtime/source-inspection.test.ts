@@ -62,7 +62,6 @@ const makeSource = (input: {
 }): Source => ({
   id: input.sourceId,
   workspaceId: input.workspaceId,
-  configKey: null,
   name: "Cloudflare API",
   kind: "openapi",
   endpoint: "https://api.cloudflare.com/client/v4",
@@ -238,7 +237,6 @@ describe("source-inspection", () => {
       await Effect.runPromise(persistence.rows.sources.insert({
         id: sourceId,
         workspaceId,
-        configKey: null,
         recipeId,
         recipeRevisionId,
         name: "Cloudflare API",
