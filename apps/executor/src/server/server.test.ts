@@ -20,9 +20,14 @@ import { makeToolInvokerFromTools, toTool } from "@executor/codemode-core";
 import {
   createControlPlaneClient,
   type ControlPlaneClient,
+  buildLocalSourceArtifact,
+  materializationFromMcpManifestEntries,
   type ResolveExecutionEnvironment,
+  resolveLocalWorkspaceContext,
   SourceIdSchema,
   SourceRecipeRevisionIdSchema,
+  writeLocalSourceArtifact,
+  writeProjectLocalExecutorConfig,
 } from "@executor/control-plane";
 import { makeSesExecutor } from "@executor/runtime-ses";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -38,15 +43,6 @@ import {
   seedGithubOpenApiSourceInWorkspace,
 } from "../cli/dev";
 import { createLocalExecutorServer } from "@executor/server";
-import {
-  buildLocalSourceArtifact,
-  writeLocalSourceArtifact,
-} from "../../../../packages/control-plane/src/runtime/local-source-artifacts";
-import {
-  resolveLocalWorkspaceContext,
-  writeProjectLocalExecutorConfig,
-} from "../../../../packages/control-plane/src/runtime/local-config";
-import { materializationFromMcpManifestEntries } from "../../../../packages/control-plane/src/runtime/source-adapters/mcp";
 
 const executionResolver: ResolveExecutionEnvironment = () =>
   Effect.succeed({

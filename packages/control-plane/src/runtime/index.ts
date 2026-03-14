@@ -63,11 +63,14 @@ export {
 export * from "./execution-state";
 export * from "./executor-tools";
 export * from "./live-execution";
+export * from "./local-config";
 export * from "./local-installation";
+export * from "./local-source-artifacts";
 export * from "./schema-type-signature";
 export * from "./source-auth-service";
 export * from "./secret-material-providers";
 export * from "./source-credential-interactions";
+export * from "./source-adapters/mcp";
 export * from "./store";
 export * from "./workspace-execution-environment";
 export * from "./source-inspection";
