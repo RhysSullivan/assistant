@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import { requireRuntimeLocalWorkspace } from "../runtime/local-runtime-context";
 import { ControlPlaneForbiddenError } from "./errors";
 
-export const requireLocalWorkspaceAccess = (
+export const resolveRequestedLocalWorkspace = (
   operation: string,
   workspaceId: WorkspaceId,
 ) =>
@@ -12,7 +12,7 @@ export const requireLocalWorkspaceAccess = (
     Effect.mapError((cause) =>
       new ControlPlaneForbiddenError({
         operation,
-        message: "Workspace is not the active local workspace",
+        message: "Requested workspace is not the active local workspace",
         details: cause instanceof Error ? cause.message : String(cause),
       })
     ),

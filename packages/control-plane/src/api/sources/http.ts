@@ -34,7 +34,7 @@ import {
   ControlPlaneStorageError,
 } from "../errors";
 import { ControlPlaneApi } from "../api";
-import { requireLocalWorkspaceAccess } from "../local-context";
+import { resolveRequestedLocalWorkspace } from "../local-context";
 
 const readHeader = (headers: unknown, name: string): string | null => {
   if (headers == null || typeof headers !== "object") {
@@ -658,7 +658,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("connect", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("sources.connect", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.connect", path.workspaceId).pipe(
           Effect.flatMap((runtimeLocalWorkspace) =>
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest;
@@ -698,7 +698,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("list", ({ path }) =>
-        requireLocalWorkspaceAccess("sources.list", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.list", path.workspaceId).pipe(
           Effect.flatMap((runtimeLocalWorkspace) =>
             listSources({
               workspaceId: path.workspaceId,
@@ -708,7 +708,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("create", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("sources.create", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.create", path.workspaceId).pipe(
           Effect.flatMap((runtimeLocalWorkspace) =>
             createSource({
               workspaceId: path.workspaceId,
@@ -719,7 +719,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("get", ({ path }) =>
-        requireLocalWorkspaceAccess("sources.get", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.get", path.workspaceId).pipe(
           Effect.flatMap((runtimeLocalWorkspace) =>
             getSource({
               workspaceId: path.workspaceId,
@@ -730,7 +730,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("inspection", ({ path }) =>
-        requireLocalWorkspaceAccess("sources.inspection", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.inspection", path.workspaceId).pipe(
           Effect.zipRight(
             getSourceInspection({
               workspaceId: path.workspaceId,
@@ -740,7 +740,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("inspectionTool", ({ path }) =>
-        requireLocalWorkspaceAccess("sources.inspection_tool", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.inspection_tool", path.workspaceId).pipe(
           Effect.zipRight(
             getSourceInspectionToolDetail({
               workspaceId: path.workspaceId,
@@ -751,7 +751,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("inspectionSchemaBundle", ({ path }) =>
-        requireLocalWorkspaceAccess("sources.inspection_schema_bundle", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.inspection_schema_bundle", path.workspaceId).pipe(
           Effect.zipRight(
             getSourceInspectionSchemaBundle({
               workspaceId: path.workspaceId,
@@ -762,7 +762,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("inspectionDiscover", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("sources.inspection_discover", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.inspection_discover", path.workspaceId).pipe(
           Effect.zipRight(
             discoverSourceInspectionTools({
               workspaceId: path.workspaceId,
@@ -773,7 +773,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("update", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("sources.update", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.update", path.workspaceId).pipe(
           Effect.flatMap((runtimeLocalWorkspace) =>
             updateSource({
               workspaceId: path.workspaceId,
@@ -785,7 +785,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
         ),
       )
       .handle("remove", ({ path }) =>
-        requireLocalWorkspaceAccess("sources.remove", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("sources.remove", path.workspaceId).pipe(
           Effect.zipRight(
             removeSource({
               workspaceId: path.workspaceId,

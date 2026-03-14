@@ -7,7 +7,7 @@ import {
 } from "../../runtime/execution-service";
 
 import { ControlPlaneApi } from "../api";
-import { requireLocalWorkspaceAccess } from "../local-context";
+import { resolveRequestedLocalWorkspace } from "../local-context";
 
 export const ControlPlaneExecutionsLive = HttpApiBuilder.group(
   ControlPlaneApi,
@@ -15,7 +15,7 @@ export const ControlPlaneExecutionsLive = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("create", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("executions.create", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("executions.create", path.workspaceId).pipe(
           Effect.flatMap((runtimeLocalWorkspace) =>
             createExecution({
               workspaceId: path.workspaceId,
@@ -26,7 +26,7 @@ export const ControlPlaneExecutionsLive = HttpApiBuilder.group(
         ),
       )
       .handle("get", ({ path }) =>
-        requireLocalWorkspaceAccess("executions.get", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("executions.get", path.workspaceId).pipe(
           Effect.zipRight(
             getExecution({
               workspaceId: path.workspaceId,
@@ -36,7 +36,7 @@ export const ControlPlaneExecutionsLive = HttpApiBuilder.group(
         ),
       )
       .handle("resume", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("executions.resume", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("executions.resume", path.workspaceId).pipe(
           Effect.flatMap((runtimeLocalWorkspace) =>
             resumeExecution({
               workspaceId: path.workspaceId,

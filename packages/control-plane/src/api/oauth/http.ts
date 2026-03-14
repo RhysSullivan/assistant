@@ -14,7 +14,7 @@ import {
   ControlPlaneBadRequestError,
   ControlPlaneStorageError,
 } from "../errors";
-import { requireLocalWorkspaceAccess } from "../local-context";
+import { resolveRequestedLocalWorkspace } from "../local-context";
 import {
   SourceOAuthPopupResultSchema,
   type SourceOAuthPopupResult,
@@ -234,7 +234,7 @@ export const ControlPlaneOAuthLive = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("startSourceAuth", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("oauth.start_source_auth", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("oauth.start_source_auth", path.workspaceId).pipe(
           Effect.flatMap((runtimeLocalWorkspace) =>
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest;

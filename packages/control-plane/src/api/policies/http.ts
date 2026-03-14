@@ -9,7 +9,7 @@ import {
 } from "../../runtime/policies-operations";
 
 import { ControlPlaneApi } from "../api";
-import { requireLocalWorkspaceAccess } from "../local-context";
+import { resolveRequestedLocalWorkspace } from "../local-context";
 
 export const ControlPlanePoliciesLive = HttpApiBuilder.group(
   ControlPlaneApi,
@@ -17,21 +17,21 @@ export const ControlPlanePoliciesLive = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("list", ({ path }) =>
-        requireLocalWorkspaceAccess("policies.list", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("policies.list", path.workspaceId).pipe(
           Effect.zipRight(
             listPolicies(path.workspaceId),
           ),
         ),
       )
       .handle("create", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("policies.create", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("policies.create", path.workspaceId).pipe(
           Effect.zipRight(
             createPolicy({ workspaceId: path.workspaceId, payload }),
           ),
         ),
       )
       .handle("get", ({ path }) =>
-        requireLocalWorkspaceAccess("policies.get", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("policies.get", path.workspaceId).pipe(
           Effect.zipRight(
             getPolicy({
               workspaceId: path.workspaceId,
@@ -41,7 +41,7 @@ export const ControlPlanePoliciesLive = HttpApiBuilder.group(
         ),
       )
       .handle("update", ({ path, payload }) =>
-        requireLocalWorkspaceAccess("policies.update", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("policies.update", path.workspaceId).pipe(
           Effect.zipRight(
             updatePolicy({
               workspaceId: path.workspaceId,
@@ -52,7 +52,7 @@ export const ControlPlanePoliciesLive = HttpApiBuilder.group(
         ),
       )
       .handle("remove", ({ path }) =>
-        requireLocalWorkspaceAccess("policies.remove", path.workspaceId).pipe(
+        resolveRequestedLocalWorkspace("policies.remove", path.workspaceId).pipe(
           Effect.zipRight(
             removePolicy({
               workspaceId: path.workspaceId,
