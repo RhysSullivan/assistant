@@ -30,7 +30,16 @@ import {
   DEFAULT_SERVER_PID_FILE,
   DEFAULT_SERVER_HOST,
   DEFAULT_SERVER_PORT,
+  EXECUTOR_TRACE_ENABLED_ENV,
+  EXECUTOR_TRACE_OTLP_ENDPOINT_ENV,
+  EXECUTOR_TRACE_OTLP_HTTP_ENDPOINT_ENV,
+  EXECUTOR_TRACE_QUERY_BASE_URL_ENV,
+  EXECUTOR_TRACE_SERVICE_NAME_ENV,
 } from "./config";
+import {
+  createLocalTracingRuntimeFromEnv,
+  tracingSearchUrl,
+} from "./tracing";
 
 export {
   DEFAULT_EXECUTOR_DATA_DIR,
@@ -47,6 +56,11 @@ export {
   EXECUTOR_SERVER_PID_FILE_ENV,
   EXECUTOR_SERVER_LOG_FILE_ENV,
   EXECUTOR_WEB_ASSETS_DIR_ENV,
+  EXECUTOR_TRACE_ENABLED_ENV,
+  EXECUTOR_TRACE_OTLP_ENDPOINT_ENV,
+  EXECUTOR_TRACE_OTLP_HTTP_ENDPOINT_ENV,
+  EXECUTOR_TRACE_QUERY_BASE_URL_ENV,
+  EXECUTOR_TRACE_SERVICE_NAME_ENV,
   SERVER_POLL_INTERVAL_MS,
   SERVER_START_TIMEOUT_MS,
 } from "./config";
@@ -205,13 +219,20 @@ const createRuntimeWithLegacyMigration = (
     );
   });
 
-const createControlPlaneWebHandler = (runtime: ControlPlaneRuntime) =>
+const createControlPlaneWebHandler = (
+  runtime: ControlPlaneRuntime,
+  tracingRuntime: ReturnType<typeof createLocalTracingRuntimeFromEnv>,
+) =>
   Effect.acquireRelease(
     Effect.sync(() =>
       HttpApiBuilder.toWebHandler(
         Layer.merge(
           HttpApiBuilder.middlewareOpenApi({ path: "/v1/openapi.json" }).pipe(
-            Layer.provideMerge(createControlPlaneApiLayer(runtime.runtimeLayer))
+            Layer.provideMerge(
+              createControlPlaneApiLayer(runtime.runtimeLayer).pipe(
+                Layer.provideMerge(tracingRuntime?.layer ?? Layer.empty),
+              ),
+            )
           ),
           HttpServer.layerContext,
         ),
@@ -390,6 +411,18 @@ export const createLocalExecutorRequestHandler = (
     }
 
     let baseUrlRef: string | undefined;
+    const tracingRuntime = createLocalTracingRuntimeFromEnv();
+
+    if (tracingRuntime) {
+      yield* Effect.sync(() => {
+        console.info(
+          `[executor] tracing enabled -> ${tracingSearchUrl({
+            queryBaseUrl: tracingRuntime.queryBaseUrl,
+            serviceName: tracingRuntime.serviceName,
+          })}`,
+        );
+      });
+    }
 
     const runtime = yield* Effect.acquireRelease(
       createRuntimeWithLegacyMigration(
@@ -401,7 +434,7 @@ export const createLocalExecutorRequestHandler = (
       disposeRuntime,
     );
 
-    const apiHandler = yield* createControlPlaneWebHandler(runtime);
+    const apiHandler = yield* createControlPlaneWebHandler(runtime, tracingRuntime);
     const mcpHandler = yield* Effect.acquireRelease(
       Effect.sync(() => createExecutorMcpRequestHandler(runtime)),
       (handler: ExecutorMcpHandler) =>

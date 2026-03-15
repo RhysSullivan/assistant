@@ -262,16 +262,13 @@ export const createControlPlaneRuntime = (
       liveExecutionManager,
     });
     const managedRuntime = ManagedRuntime.make(concreteRuntimeLayer);
-    const runtime = yield* managedRuntime.runtimeEffect;
-    const runtimeLayer = Layer.succeedContext(
-      runtime.context,
-    ) as RuntimeControlPlaneLayer;
+    yield* managedRuntime.runtimeEffect;
 
     return {
       persistence,
       localInstallation,
       managedRuntime,
-      runtimeLayer: runtimeLayer as RuntimeControlPlaneLayer,
+      runtimeLayer: concreteRuntimeLayer as RuntimeControlPlaneLayer,
       close: () => managedRuntime.dispose().catch(() => {}),
     };
   }).pipe(Effect.provide(NodeFileSystem.layer));

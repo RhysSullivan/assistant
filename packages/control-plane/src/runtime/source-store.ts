@@ -436,7 +436,7 @@ const loadSourcesInWorkspaceWithDeps = (
   Effect.gen(function* () {
     const localWorkspace = yield* resolveRuntimeLocalWorkspaceFromDeps(deps, workspaceId);
     const authArtifacts = yield* deps.rows.authArtifacts.listByWorkspaceId(workspaceId);
-    return yield* Effect.forEach(
+    const sources = yield* Effect.forEach(
       Object.keys(localWorkspace.loadedConfig.config?.sources ?? {}),
       (sourceId) =>
         Effect.map(
@@ -451,7 +451,15 @@ const loadSourcesInWorkspaceWithDeps = (
           ({ source }) => source,
         ),
     );
-  });
+    yield* Effect.annotateCurrentSpan("executor.source.count", sources.length);
+    return sources;
+  }).pipe(
+    Effect.withSpan("source.store.load_workspace", {
+      attributes: {
+        "executor.workspace.id": workspaceId,
+      },
+    }),
+  );
 
 const syncWorkspaceSourceTypeDeclarationsWithDeps = (
   deps: RuntimeSourceStoreDeps,
@@ -485,7 +493,19 @@ const syncWorkspaceSourceTypeDeclarationsWithDeps = (
         entries: entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null),
       });
     });
-  });
+  }).pipe(
+    Effect.withSpan("source.types.refresh_workspace.schedule", {
+      attributes: {
+        "executor.workspace.id": workspaceId,
+      },
+    }),
+  );
+
+const shouldRefreshWorkspaceDeclarationsAfterPersist = (source: Source): boolean =>
+  source.enabled === false
+  || source.status === "auth_required"
+  || source.status === "error"
+  || source.status === "draft";
 
 export const loadSourcesInWorkspace = (
   rows: ControlPlaneStoreShape,
@@ -621,7 +641,14 @@ const loadSourceByIdWithDeps = (deps: RuntimeSourceStoreDeps, input: {
     });
 
     return localSource.source;
-  });
+  }).pipe(
+    Effect.withSpan("source.store.load_by_id", {
+      attributes: {
+        "executor.workspace.id": input.workspaceId,
+        "executor.source.id": input.sourceId,
+      },
+    }),
+  );
 
 export const loadSourceById = (rows: ControlPlaneStoreShape, input: {
   workspaceId: WorkspaceId;
@@ -939,18 +966,29 @@ const persistSourceWithDeps = (
       state: workspaceState,
     });
 
-    yield* syncWorkspaceSourceTypeDeclarationsWithDeps(
-      deps,
-      nextSource.workspaceId,
-      options,
-    );
+    if (shouldRefreshWorkspaceDeclarationsAfterPersist(nextSource)) {
+      yield* syncWorkspaceSourceTypeDeclarationsWithDeps(
+        deps,
+        nextSource.workspaceId,
+        options,
+      );
+    }
 
     return yield* loadSourceByIdWithDeps(deps, {
       workspaceId: nextSource.workspaceId,
       sourceId: nextSource.id,
       actorAccountId: options.actorAccountId,
     });
-  });
+  }).pipe(
+    Effect.withSpan("source.store.persist", {
+      attributes: {
+        "executor.workspace.id": source.workspaceId,
+        "executor.source.id": source.id,
+        "executor.source.kind": source.kind,
+        "executor.source.status": source.status,
+      },
+    }),
+  );
 
 export const persistSource = (
   rows: ControlPlaneStoreShape,

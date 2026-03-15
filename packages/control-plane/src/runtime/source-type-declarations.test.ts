@@ -46,6 +46,8 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
   const executableId = ExecutableIdSchema.make("exec_graphql_teams");
   const capabilityId = CapabilityIdSchema.make("cap_graphql_teams");
   const responseSetId = ResponseSetIdSchema.make("response_set_graphql_teams");
+  const secondExecutableId = ExecutableIdSchema.make("exec_graphql_teams_search");
+  const secondCapabilityId = CapabilityIdSchema.make("cap_graphql_teams_search");
 
   put(catalog.documents as Record<typeof docId, CatalogV1["documents"][typeof docId]>, docId, {
     id: docId,
@@ -175,6 +177,47 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
     provenance: baseProvenance("#/query/teams"),
   });
 
+  put(catalog.capabilities as Record<typeof secondCapabilityId, CatalogV1["capabilities"][typeof secondCapabilityId]>, secondCapabilityId, {
+    id: secondCapabilityId,
+    serviceScopeId: scopeId,
+    surface: {
+      toolPath: ["linear", "teamsSearch"],
+      title: "Teams Search",
+      summary: "Search teams",
+    },
+    semantics: {
+      effect: "read",
+      safe: true,
+      idempotent: true,
+      destructive: false,
+    },
+    auth: { kind: "none" },
+    interaction: {
+      approval: { mayRequire: false },
+      elicitation: { mayRequest: false },
+      resume: { supported: false },
+    },
+    executableIds: [secondExecutableId],
+    preferredExecutableId: secondExecutableId,
+    synthetic: false,
+    provenance: baseProvenance("#/query/teamsSearch"),
+  });
+
+  put(catalog.executables as Record<typeof secondExecutableId, CatalogV1["executables"][typeof secondExecutableId]>, secondExecutableId, {
+    id: secondExecutableId,
+    protocol: "graphql",
+    capabilityId: secondCapabilityId,
+    scopeId,
+    operationType: "query",
+    rootField: "teamsSearch",
+    argumentShapeId: callShapeId,
+    resultShapeId,
+    selectionMode: "fixed",
+    responseSetId,
+    synthetic: false,
+    provenance: baseProvenance("#/query/teamsSearch"),
+  });
+
   return createCatalogSnapshotV1({
     import: {
       sourceKind: "graphql-schema",
@@ -252,8 +295,12 @@ describe("source-type-declarations", () => {
     );
 
     expect(sourceDeclaration).toContain("export interface SourceTools_src_linear");
+    expect(sourceDeclaration).toContain("type TeamConnection = {");
+    expect(sourceDeclaration.match(/type TeamFilter =/g)?.length).toBe(1);
+    expect(sourceDeclaration.match(/type Teams_call =/g)?.length).toBe(1);
     expect(sourceDeclaration).toContain("linear: {");
-    expect(sourceDeclaration).toContain("teams: (args?: { filter?: { name?: string } }) => Promise<{ nodes?: { name?: string } }>");
+    expect(sourceDeclaration).toContain("teams: (args?: Teams_call) => Promise<TeamConnection>;");
+    expect(sourceDeclaration).toContain("teamsSearch: (args?: Teams_call) => Promise<TeamConnection>;");
     expect(aggregateDeclaration).toContain('import type { SourceTools_src_linear } from "./sources/src_linear";');
     expect(aggregateDeclaration).not.toContain("src_hidden");
     expect(aggregateDeclaration).toContain("declare global {");

@@ -21,6 +21,8 @@
   },
   "scripts": {
     "dev": "turbo run dev",
+    "trace:up": "docker compose -f compose.tracing.yaml up -d",
+    "trace:down": "docker compose -f compose.tracing.yaml down",
     "docs:dev": "turbo run dev --filter=@executor/docs",
     "test": "turbo run test",
     "executor": "./apps/executor/bin/executor",

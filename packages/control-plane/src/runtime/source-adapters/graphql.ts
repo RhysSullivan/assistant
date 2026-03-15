@@ -270,6 +270,13 @@ export const graphqlSourceAdapter: SourceAdapter = {
           bodyValues: auth.bodyValues,
         },
       ).pipe(
+        Effect.withSpan("graphql.introspection.fetch", {
+          kind: "client",
+          attributes: {
+            "executor.source.id": source.id,
+            "executor.source.endpoint": source.endpoint,
+          },
+        }),
         Effect.mapError(
           (cause) =>
             isSourceCredentialRequiredError(cause)
@@ -284,16 +291,44 @@ export const graphqlSourceAdapter: SourceAdapter = {
         source.name,
         graphqlDocument,
       ).pipe(
+        Effect.withSpan("graphql.manifest.extract", {
+          attributes: {
+            "executor.source.id": source.id,
+          },
+        }),
         Effect.mapError((cause) =>
           cause instanceof Error ? cause : new Error(String(cause)),
         ),
       );
+      yield* Effect.annotateCurrentSpan("graphql.tool.count", manifest.tools.length);
 
-      const definitions = compileGraphqlToolDefinitions(manifest);
+      const definitions = yield* Effect.sync(() => compileGraphqlToolDefinitions(manifest)).pipe(
+        Effect.withSpan("graphql.definitions.compile", {
+          attributes: {
+            "executor.source.id": source.id,
+            "graphql.tool.count": manifest.tools.length,
+          },
+        }),
+      );
+      yield* Effect.annotateCurrentSpan("graphql.definition.count", definitions.length);
+      const operations = yield* Effect.sync(() =>
+        definitions.map((definition) =>
+          graphqlCatalogOperationFromDefinition({
+            definition,
+            manifest,
+          })
+        )
+      ).pipe(
+        Effect.withSpan("graphql.operations.build", {
+          attributes: {
+            "executor.source.id": source.id,
+            "graphql.definition.count": definitions.length,
+          },
+        }),
+      );
       const now = Date.now();
-
-      return {
-        snapshot: createGraphqlCatalogSnapshot({
+      const snapshot = yield* Effect.sync(() =>
+        createGraphqlCatalogSnapshot({
           source,
           documents: [{
             documentKind: "graphql_introspection",
@@ -301,14 +336,27 @@ export const graphqlSourceAdapter: SourceAdapter = {
             contentText: graphqlDocument,
             fetchedAt: now,
           }],
-          operations: definitions.map((definition) =>
-            graphqlCatalogOperationFromDefinition({
-              definition,
-              manifest,
-            })
-          ),
+          operations,
+        })
+      ).pipe(
+        Effect.withSpan("graphql.snapshot.build", {
+          attributes: {
+            "executor.source.id": source.id,
+            "graphql.operation.count": operations.length,
+          },
         }),
+      );
+
+      return {
+        snapshot,
         sourceHash: manifest.sourceHash,
       };
-    }),
+    }).pipe(
+      Effect.withSpan("graphql.syncCatalog", {
+        attributes: {
+          "executor.source.id": source.id,
+          "executor.source.endpoint": source.endpoint,
+        },
+      }),
+    ),
 };

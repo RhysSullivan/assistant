@@ -360,7 +360,7 @@ const serializeJson = (value: unknown): string | null => {
   return JSON.stringify(value);
 };
 
-const updateSourceStatus = (sourceStore: RuntimeSourceStore, source: Source, input: {
+const updateSourceStatus = Effect.fn("source.status.update")((sourceStore: RuntimeSourceStore, source: Source, input: {
   actorAccountId?: AccountId | null;
   status: Source["status"];
   lastError?: string | null;
@@ -384,7 +384,14 @@ const updateSourceStatus = (sourceStore: RuntimeSourceStore, source: Source, inp
     }, {
       actorAccountId: input.actorAccountId,
     });
-  });
+  }).pipe(
+    Effect.withSpan("source.status.update", {
+      attributes: {
+        "executor.source.id": source.id,
+        "executor.source.status": input.status,
+      },
+    }),
+  ));
 
 export type ExecutorSourceAddResult =
   | {
@@ -1404,7 +1411,16 @@ const addExecutorHttpSource = (input: {
           ),
         ),
     });
-  });
+  }).pipe(
+    Effect.withSpan("source.connect.http", {
+      attributes: {
+        "executor.source.kind": input.sourceInput.kind,
+        "executor.source.endpoint": input.sourceInput.endpoint,
+        ...(input.sourceInput.namespace ? { "executor.source.namespace": input.sourceInput.namespace } : {}),
+        ...(input.sourceInput.name ? { "executor.source.name": input.sourceInput.name } : {}),
+      },
+    }),
+  );
 
 const addExecutorGoogleDiscoverySource = (input: {
   rows: ControlPlaneStoreShape;

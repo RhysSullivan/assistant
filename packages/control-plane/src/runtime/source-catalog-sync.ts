@@ -174,7 +174,16 @@ const syncSourceCatalogWithDeps = (
         snapshot: syncResult.snapshot,
       });
     });
-  });
+  }).pipe(
+    Effect.withSpan("source.catalog.sync", {
+      attributes: {
+        "executor.source.id": input.source.id,
+        "executor.source.kind": input.source.kind,
+        "executor.source.namespace": input.source.namespace,
+        "executor.source.endpoint": input.source.endpoint,
+      },
+    }),
+  );
 
 const persistMcpCatalogSnapshotFromManifestWithDeps = (
   deps: RuntimeSourceCatalogSyncDeps,
