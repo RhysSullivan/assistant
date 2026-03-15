@@ -1667,7 +1667,7 @@ type RuntimeSourceAuthServiceShape = {
   }) => Effect.Effect<Source, Error, WorkspaceStorageServices>;
 };
 
-export const createRuntimeSourceAuthService = (input: {
+type RuntimeSourceAuthDependencies = {
   rows: ControlPlaneStoreShape;
   liveExecutionManager: LiveExecutionManager;
   sourceStore: RuntimeSourceStore;
@@ -1676,7 +1676,26 @@ export const createRuntimeSourceAuthService = (input: {
   storeSecretMaterial: StoreSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
   localWorkspaceState?: RuntimeLocalWorkspaceState;
-}) => {
+};
+
+type ProvideLocalWorkspace = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+) => Effect.Effect<A, E, R>;
+
+type RuntimeSourceConnectionServiceShape = Pick<
+  RuntimeSourceAuthServiceShape,
+  "getSourceById" | "addExecutorSource" | "connectMcpSource"
+>;
+
+type RuntimeSourceOAuthSessionServiceShape = Pick<
+  RuntimeSourceAuthServiceShape,
+  "startSourceOAuthSession" | "completeSourceOAuthSession" | "completeSourceCredentialSetup"
+>;
+
+const createRuntimeSourceConnectionService = (
+  input: RuntimeSourceAuthDependencies,
+  provideLocalWorkspace: ProvideLocalWorkspace,
+): RuntimeSourceConnectionServiceShape => {
   const mirrorLocalSourceResult = (
     result: ExecutorSourceAddResult,
   ): Effect.Effect<ExecutorSourceAddResult, Error, WorkspaceStorageServices> =>
@@ -1685,100 +1704,96 @@ export const createRuntimeSourceAuthService = (input: {
     result: McpSourceConnectResult,
   ): Effect.Effect<McpSourceConnectResult, Error, WorkspaceStorageServices> =>
     Effect.succeed(result);
-  const provideLocalWorkspace = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    provideOptionalRuntimeLocalWorkspace(effect, input.localWorkspaceState);
 
   return {
-  getLocalServerBaseUrl: () => input.getLocalServerBaseUrl?.() ?? null,
-
-  storeSecretMaterial: ({ purpose, value }) =>
-    input.storeSecretMaterial({
-      purpose,
-      value,
-    }),
-
-  getSourceById: ({ workspaceId, sourceId, actorAccountId }) =>
-    provideLocalWorkspace(
-      input.sourceStore.loadSourceById({
-        workspaceId,
-        sourceId,
-        actorAccountId,
-      }),
-    ),
-
-  addExecutorSource: (sourceInput, options = undefined) =>
-    provideLocalWorkspace(
-      (sourceInput.kind === "google_discovery"
-        ? addExecutorGoogleDiscoverySource({
-            rows: input.rows,
-            sourceStore: input.sourceStore,
-            sourceMaterialization: input.sourceMaterialization,
-            sourceInput,
-            storeSecretMaterial: input.storeSecretMaterial,
-            resolveSecretMaterial: input.resolveSecretMaterial,
-            getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-            baseUrl: options?.baseUrl,
-          })
-        : hasSourceAdapterFamily(sourceInput.kind ?? "mcp", "http_api")
-        ? addExecutorHttpSource({
-            rows: input.rows,
-            sourceStore: input.sourceStore,
-            sourceMaterialization: input.sourceMaterialization,
-            sourceInput: sourceInput as Extract<
-              ExecutorAddSourceInput,
-              { kind: "openapi" | "graphql" }
-            >,
-            storeSecretMaterial: input.storeSecretMaterial,
-            resolveSecretMaterial: input.resolveSecretMaterial,
-            getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-            baseUrl: options?.baseUrl,
-          })
-        : connectMcpSourceInternal({
-            rows: input.rows,
-            sourceStore: input.sourceStore,
-            sourceMaterialization: input.sourceMaterialization,
-            getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-            workspaceId: sourceInput.workspaceId,
-            actorAccountId: sourceInput.actorAccountId,
-            executionId: sourceInput.executionId,
-            interactionId: sourceInput.interactionId,
-            endpoint: sourceInput.endpoint,
-            name: sourceInput.name,
-            namespace: sourceInput.namespace,
-            mcpDiscoveryElicitation: options?.mcpDiscoveryElicitation,
-            baseUrl: options?.baseUrl,
-            resolveSecretMaterial: input.resolveSecretMaterial,
-          })).pipe(
-            Effect.flatMap(mirrorLocalSourceResult),
-          ),
-    ),
-
-  connectMcpSource: (sourceInput) =>
-    provideLocalWorkspace(
-      connectMcpSourceInternal({
-        rows: input.rows,
-        sourceStore: input.sourceStore,
-        sourceMaterialization: input.sourceMaterialization,
-        getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-        workspaceId: sourceInput.workspaceId,
-        actorAccountId: sourceInput.actorAccountId,
-        sourceId: sourceInput.sourceId,
-        executionId: null,
-        interactionId: null,
-        endpoint: sourceInput.endpoint,
-        name: sourceInput.name,
-        namespace: sourceInput.namespace,
-        enabled: sourceInput.enabled,
-        transport: sourceInput.transport,
-        queryParams: sourceInput.queryParams,
-        headers: sourceInput.headers,
-        baseUrl: sourceInput.baseUrl,
-        resolveSecretMaterial: input.resolveSecretMaterial,
-      }).pipe(
-        Effect.flatMap(mirrorLocalMcpSourceResult),
+    getSourceById: ({ workspaceId, sourceId, actorAccountId }) =>
+      provideLocalWorkspace(
+        input.sourceStore.loadSourceById({
+          workspaceId,
+          sourceId,
+          actorAccountId,
+        }),
       ),
-    ),
 
+    addExecutorSource: (sourceInput, options = undefined) =>
+      provideLocalWorkspace(
+        (sourceInput.kind === "google_discovery"
+          ? addExecutorGoogleDiscoverySource({
+              rows: input.rows,
+              sourceStore: input.sourceStore,
+              sourceMaterialization: input.sourceMaterialization,
+              sourceInput,
+              storeSecretMaterial: input.storeSecretMaterial,
+              resolveSecretMaterial: input.resolveSecretMaterial,
+              getLocalServerBaseUrl: input.getLocalServerBaseUrl,
+              baseUrl: options?.baseUrl,
+            })
+          : hasSourceAdapterFamily(sourceInput.kind ?? "mcp", "http_api")
+          ? addExecutorHttpSource({
+              rows: input.rows,
+              sourceStore: input.sourceStore,
+              sourceMaterialization: input.sourceMaterialization,
+              sourceInput: sourceInput as Extract<
+                ExecutorAddSourceInput,
+                { kind: "openapi" | "graphql" }
+              >,
+              storeSecretMaterial: input.storeSecretMaterial,
+              resolveSecretMaterial: input.resolveSecretMaterial,
+              getLocalServerBaseUrl: input.getLocalServerBaseUrl,
+              baseUrl: options?.baseUrl,
+            })
+          : connectMcpSourceInternal({
+              rows: input.rows,
+              sourceStore: input.sourceStore,
+              sourceMaterialization: input.sourceMaterialization,
+              getLocalServerBaseUrl: input.getLocalServerBaseUrl,
+              workspaceId: sourceInput.workspaceId,
+              actorAccountId: sourceInput.actorAccountId,
+              executionId: sourceInput.executionId,
+              interactionId: sourceInput.interactionId,
+              endpoint: sourceInput.endpoint,
+              name: sourceInput.name,
+              namespace: sourceInput.namespace,
+              mcpDiscoveryElicitation: options?.mcpDiscoveryElicitation,
+              baseUrl: options?.baseUrl,
+              resolveSecretMaterial: input.resolveSecretMaterial,
+            })).pipe(
+              Effect.flatMap(mirrorLocalSourceResult),
+            ),
+      ),
+
+    connectMcpSource: (sourceInput) =>
+      provideLocalWorkspace(
+        connectMcpSourceInternal({
+          rows: input.rows,
+          sourceStore: input.sourceStore,
+          sourceMaterialization: input.sourceMaterialization,
+          getLocalServerBaseUrl: input.getLocalServerBaseUrl,
+          workspaceId: sourceInput.workspaceId,
+          actorAccountId: sourceInput.actorAccountId,
+          sourceId: sourceInput.sourceId,
+          executionId: null,
+          interactionId: null,
+          endpoint: sourceInput.endpoint,
+          name: sourceInput.name,
+          namespace: sourceInput.namespace,
+          enabled: sourceInput.enabled,
+          transport: sourceInput.transport,
+          queryParams: sourceInput.queryParams,
+          headers: sourceInput.headers,
+          baseUrl: sourceInput.baseUrl,
+          resolveSecretMaterial: input.resolveSecretMaterial,
+        }).pipe(
+          Effect.flatMap(mirrorLocalMcpSourceResult),
+        ),
+      ),
+  };
+};
+
+const createRuntimeSourceOAuthSessionService = (
+  input: RuntimeSourceAuthDependencies,
+  provideLocalWorkspace: ProvideLocalWorkspace,
+): RuntimeSourceOAuthSessionServiceShape => ({
   startSourceOAuthSession: (oauthInput) =>
     Effect.gen(function* () {
       const resolvedBaseUrl = trimOrNull(oauthInput.baseUrl) ?? input.getLocalServerBaseUrl?.() ?? null;
@@ -1839,12 +1854,7 @@ export const createRuntimeSourceAuthService = (input: {
       } satisfies StartSourceOAuthSessionResult;
     }),
 
-  completeSourceOAuthSession: ({
-    state,
-    code,
-    error,
-    errorDescription,
-  }) =>
+  completeSourceOAuthSession: ({ state, code, error, errorDescription }) =>
     provideLocalWorkspace(Effect.gen(function* () {
       const sessionOption = yield* input.rows.sourceAuthSessions.getByState(state);
       if (Option.isNone(sessionOption)) {
@@ -1956,15 +1966,7 @@ export const createRuntimeSourceAuthService = (input: {
       } satisfies CompleteSourceOAuthSessionResult;
     })),
 
-  completeSourceCredentialSetup: ({
-    workspaceId,
-    sourceId,
-    actorAccountId,
-    state,
-    code,
-    error,
-    errorDescription,
-  }) =>
+  completeSourceCredentialSetup: ({ workspaceId, sourceId, actorAccountId, state, code, error, errorDescription }) =>
     provideLocalWorkspace(Effect.gen(function* () {
       const sessionOption = yield* input.rows.sourceAuthSessions.getByState(state);
       if (Option.isNone(sessionOption)) {
@@ -2227,6 +2229,31 @@ export const createRuntimeSourceAuthService = (input: {
 
       return connectedSource;
     })),
+});
+
+export const createRuntimeSourceAuthService = (input: RuntimeSourceAuthDependencies) => {
+  const provideLocalWorkspace: ProvideLocalWorkspace = (effect) =>
+    provideOptionalRuntimeLocalWorkspace(effect, input.localWorkspaceState);
+  const sourceConnection = createRuntimeSourceConnectionService(
+    input,
+    provideLocalWorkspace,
+  );
+  const sourceOAuthSessions = createRuntimeSourceOAuthSessionService(
+    input,
+    provideLocalWorkspace,
+  );
+
+  return {
+    getLocalServerBaseUrl: () => input.getLocalServerBaseUrl?.() ?? null,
+
+    storeSecretMaterial: ({ purpose, value }) =>
+      input.storeSecretMaterial({
+        purpose,
+        value,
+      }),
+
+    ...sourceConnection,
+    ...sourceOAuthSessions,
   } satisfies RuntimeSourceAuthServiceShape;
 };
 
@@ -2234,7 +2261,7 @@ export type RuntimeSourceAuthService = RuntimeSourceAuthServiceShape;
 
 export class RuntimeSourceAuthServiceTag extends Context.Tag(
   "#runtime/RuntimeSourceAuthServiceTag",
-)<RuntimeSourceAuthServiceTag, ReturnType<typeof createRuntimeSourceAuthService>>() {}
+)<RuntimeSourceAuthServiceTag, RuntimeSourceAuthService>() {}
 
 export const RuntimeSourceAuthServiceLive = (input: {
   getLocalServerBaseUrl?: () => string | undefined;
