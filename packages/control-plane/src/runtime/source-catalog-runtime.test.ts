@@ -6,6 +6,12 @@ import type {
   StoredSourceCatalogRevisionRecord,
   StoredSourceRecord,
 } from "#schema";
+import {
+  SourceCatalogIdSchema,
+  SourceCatalogRevisionIdSchema,
+  SourceIdSchema,
+  WorkspaceIdSchema,
+} from "#schema";
 
 import {
   createCatalogSnapshotV1,
@@ -21,6 +27,12 @@ import {
   ShapeSymbolIdSchema,
 } from "../ir/ids";
 import type { CatalogV1, ProvenanceRef } from "../ir/model";
+import {
+  createCatalogTypeProjector,
+  formatTypeNameSegment,
+  joinTypeNameSegments,
+  projectedCatalogTypeRoots,
+} from "./catalog-typescript";
 import {
   expandCatalogToolByPath,
   expandCatalogTools,
@@ -198,8 +210,14 @@ const createGraphqlCatalog = (): CatalogV1 => {
   return catalog;
 };
 
-const createLoadedCatalog = (): LoadedSourceCatalog => {
+const createLoadedCatalog = (options?: {
+  mutateCatalog?: (catalog: CatalogV1) => void;
+}): LoadedSourceCatalog => {
   const catalog = createGraphqlCatalog();
+  options?.mutateCatalog?.(catalog);
+  const projected = projectCatalogForAgentSdk({
+    catalog,
+  });
   const snapshot = createCatalogSnapshotV1({
     import: {
       sourceKind: "graphql-schema",
@@ -212,8 +230,8 @@ const createLoadedCatalog = (): LoadedSourceCatalog => {
   });
 
   const source = {
-    id: "src_linear",
-    workspaceId: "ws_linear",
+    id: SourceIdSchema.make("src_linear"),
+    workspaceId: WorkspaceIdSchema.make("ws_linear"),
     name: "Linear",
     kind: "graphql-schema",
     endpoint: "https://api.linear.app/graphql",
@@ -234,8 +252,8 @@ const createLoadedCatalog = (): LoadedSourceCatalog => {
   const sourceRecord = {
     id: source.id,
     workspaceId: source.workspaceId,
-    catalogId: "catalog_linear",
-    catalogRevisionId: "catalog_revision_linear",
+    catalogId: SourceCatalogIdSchema.make("catalog_linear"),
+    catalogRevisionId: SourceCatalogRevisionIdSchema.make("catalog_revision_linear"),
     name: source.name,
     kind: source.kind,
     endpoint: source.endpoint,
@@ -251,8 +269,8 @@ const createLoadedCatalog = (): LoadedSourceCatalog => {
   } satisfies StoredSourceRecord;
 
   const revision = {
-    id: "catalog_revision_linear",
-    catalogId: "catalog_linear",
+    id: SourceCatalogRevisionIdSchema.make("catalog_revision_linear"),
+    catalogId: SourceCatalogIdSchema.make("catalog_linear"),
     revisionNumber: 1,
     sourceConfigJson: "{}",
     importMetadataJson: "{}",
@@ -268,14 +286,22 @@ const createLoadedCatalog = (): LoadedSourceCatalog => {
     revision,
     snapshot,
     catalog,
-    projected: projectCatalogForAgentSdk({
-      catalog,
+    projected,
+    typeProjector: createCatalogTypeProjector({
+      catalog: projected.catalog,
+      roots: projectedCatalogTypeRoots(projected),
     }),
     importMetadata: snapshot.import,
   };
 };
 
 describe("source-catalog-runtime", () => {
+  it("formats declaration aliases as safe PascalCase names", () => {
+    expect(formatTypeNameSegment("teams_call")).toBe("TeamsCall");
+    expect(formatTypeNameSegment("120 factors 1 member 1")).toBe("T120Factors1Member1");
+    expect(joinTypeNameSegments("linear", "teamsSearch", "call")).toBe("LinearTeamsSearchCall");
+  });
+
   it.effect("projects friendly schemas for discover and inspection consumers", () =>
     Effect.gen(function* () {
       const [tool] = yield* expandCatalogTools({
@@ -302,6 +328,8 @@ describe("source-catalog-runtime", () => {
       const serializedInput = JSON.stringify(tool?.descriptor.inputSchema);
       expect(serializedInput).not.toContain("\"$ref\":\"#/$defs/shape_");
       expect(serializedInput).not.toContain("\"shape_");
+      expect(tool?.descriptor.previewInputType).toContain("filter?: {");
+      expect(tool?.descriptor.previewOutputType).toContain("nodes?: {");
     }));
 
   it.effect("projects a single tool by path without expanding the whole catalog", () =>
@@ -322,5 +350,212 @@ describe("source-catalog-runtime", () => {
           },
         },
       });
+    }));
+
+  it.effect("normalizes object unions into discriminated unions with shared fields", () =>
+    Effect.gen(function* () {
+      const tool = yield* expandCatalogToolByPath({
+        catalogs: [createLoadedCatalog({
+          mutateCatalog: (catalog) => {
+            const stringShapeId = ShapeSymbolIdSchema.make("shape_string");
+            const numberShapeId = ShapeSymbolIdSchema.make("shape_number");
+            const blockedActionShapeId = ShapeSymbolIdSchema.make("shape_action_blocked");
+            const unblockedActionShapeId = ShapeSymbolIdSchema.make("shape_action_unblocked");
+            const routeBlockedActionShapeId = ShapeSymbolIdSchema.make("shape_action_route_blocked");
+            const routeShapeId = ShapeSymbolIdSchema.make("shape_route");
+            const blockedShapeId = ShapeSymbolIdSchema.make("shape_abuse_blocked");
+            const unblockedShapeId = ShapeSymbolIdSchema.make("shape_abuse_unblocked");
+            const routeBlockedShapeId = ShapeSymbolIdSchema.make("shape_abuse_route_blocked");
+            const unionShapeId = ShapeSymbolIdSchema.make("shape_abuse_union");
+            const executable = Object.values(catalog.executables)[0]!;
+            if (executable.protocol !== "graphql") {
+              throw new Error("Expected GraphQL executable in fixture");
+            }
+
+            put(catalog.symbols as Record<typeof numberShapeId, CatalogV1["symbols"][typeof numberShapeId]>, numberShapeId, {
+              id: numberShapeId,
+              kind: "shape",
+              title: "Number",
+              node: {
+                type: "scalar",
+                scalar: "number",
+              },
+              synthetic: false,
+              provenance: baseProvenance("#/scalar/Number"),
+            });
+
+            for (const [shapeId, action] of [
+              [blockedActionShapeId, "blocked"],
+              [unblockedActionShapeId, "unblocked"],
+              [routeBlockedActionShapeId, "route-blocked"],
+            ] as const) {
+              put(catalog.symbols as Record<typeof shapeId, CatalogV1["symbols"][typeof shapeId]>, shapeId, {
+                id: shapeId,
+                kind: "shape",
+                title: String(action),
+                node: {
+                  type: "const",
+                  value: action,
+                },
+                synthetic: false,
+                provenance: baseProvenance(`#/const/${action}`),
+              });
+            }
+
+            put(catalog.symbols as Record<typeof routeShapeId, CatalogV1["symbols"][typeof routeShapeId]>, routeShapeId, {
+              id: routeShapeId,
+              kind: "shape",
+              title: "RouteInfo",
+              node: {
+                type: "object",
+                fields: {
+                  source: {
+                    shapeId: stringShapeId,
+                  },
+                },
+                required: ["source"],
+                additionalProperties: false,
+              },
+              synthetic: false,
+              provenance: baseProvenance("#/route"),
+            });
+
+            put(catalog.symbols as Record<typeof blockedShapeId, CatalogV1["symbols"][typeof blockedShapeId]>, blockedShapeId, {
+              id: blockedShapeId,
+              kind: "shape",
+              title: "BlockedHistoryItem",
+              node: {
+                type: "object",
+                fields: {
+                  action: { shapeId: blockedActionShapeId },
+                  actor: { shapeId: stringShapeId },
+                  createdAt: { shapeId: numberShapeId },
+                  reason: { shapeId: stringShapeId },
+                  statusCode: { shapeId: numberShapeId },
+                },
+                required: ["action", "createdAt", "reason", "statusCode"],
+                additionalProperties: false,
+              },
+              synthetic: false,
+              provenance: baseProvenance("#/blocked"),
+            });
+
+            put(catalog.symbols as Record<typeof unblockedShapeId, CatalogV1["symbols"][typeof unblockedShapeId]>, unblockedShapeId, {
+              id: unblockedShapeId,
+              kind: "shape",
+              title: "UnblockedHistoryItem",
+              node: {
+                type: "object",
+                fields: {
+                  action: { shapeId: unblockedActionShapeId },
+                  actor: { shapeId: stringShapeId },
+                  createdAt: { shapeId: numberShapeId },
+                },
+                required: ["action", "createdAt"],
+                additionalProperties: false,
+              },
+              synthetic: false,
+              provenance: baseProvenance("#/unblocked"),
+            });
+
+            put(catalog.symbols as Record<typeof routeBlockedShapeId, CatalogV1["symbols"][typeof routeBlockedShapeId]>, routeBlockedShapeId, {
+              id: routeBlockedShapeId,
+              kind: "shape",
+              title: "RouteBlockedHistoryItem",
+              node: {
+                type: "object",
+                fields: {
+                  action: { shapeId: routeBlockedActionShapeId },
+                  actor: { shapeId: stringShapeId },
+                  createdAt: { shapeId: numberShapeId },
+                  reason: { shapeId: stringShapeId },
+                  route: { shapeId: routeShapeId },
+                },
+                required: ["action", "createdAt", "reason", "route"],
+                additionalProperties: false,
+              },
+              synthetic: false,
+              provenance: baseProvenance("#/routeBlocked"),
+            });
+
+            put(catalog.symbols as Record<typeof unionShapeId, CatalogV1["symbols"][typeof unionShapeId]>, unionShapeId, {
+              id: unionShapeId,
+              kind: "shape",
+              title: "AbuseBlockHistoryItem",
+              node: {
+                type: "oneOf",
+                items: [blockedShapeId, unblockedShapeId, routeBlockedShapeId],
+              },
+              synthetic: false,
+              provenance: baseProvenance("#/union"),
+            });
+
+            put(catalog.executables as Record<typeof executable.id, CatalogV1["executables"][typeof executable.id]>, executable.id, {
+              ...executable,
+              resultShapeId: unionShapeId,
+            });
+          },
+        })],
+        path: "linear.teams",
+        includeSchemas: true,
+      });
+
+      expect(tool).not.toBeNull();
+      expect(tool?.descriptor.previewOutputType).toContain("actor?: string;");
+      expect(tool?.descriptor.previewOutputType).toContain('action: "blocked";');
+      expect(tool?.descriptor.previewOutputType).toContain('action: "unblocked";');
+      expect(tool?.descriptor.previewOutputType).toContain('action: "route-blocked";');
+      expect(tool?.descriptor.previewOutputType).toContain("& (");
+      expect(tool?.descriptor.previewOutputType).not.toContain("Member2");
+    }));
+
+  it.effect("uses the shared TS projector for unsupported preview shapes", () =>
+    Effect.gen(function* () {
+      const tool = yield* expandCatalogToolByPath({
+        catalogs: [createLoadedCatalog({
+          mutateCatalog: (catalog) => {
+            const unsupportedShapeId = ShapeSymbolIdSchema.make("shape_unsupported_not");
+            const executable = Object.values(catalog.executables)[0]!;
+            if (executable.protocol !== "graphql") {
+              throw new Error("Expected GraphQL executable in fixture");
+            }
+
+            const callShape = catalog.symbols[executable.argumentShapeId];
+            if (!callShape || callShape.kind !== "shape" || callShape.node.type !== "object") {
+              throw new Error("Expected object argument shape in fixture");
+            }
+
+            put(catalog.symbols as Record<typeof unsupportedShapeId, CatalogV1["symbols"][typeof unsupportedShapeId]>, unsupportedShapeId, {
+              id: unsupportedShapeId,
+              kind: "shape",
+              title: "UnsupportedNot",
+              node: {
+                type: "not",
+                itemShapeId: callShape.node.fields.filter!.shapeId,
+              },
+              synthetic: false,
+              provenance: baseProvenance("#/unsupported/not"),
+            });
+
+            put(catalog.symbols as Record<typeof callShape.id, CatalogV1["symbols"][typeof callShape.id]>, callShape.id, {
+              ...callShape,
+              node: {
+                ...callShape.node,
+                fields: {
+                  ...callShape.node.fields,
+                  unsupported: {
+                    shapeId: unsupportedShapeId,
+                  },
+                },
+              },
+            });
+          },
+        })],
+        path: "linear.teams",
+        includeSchemas: true,
+      });
+
+      expect(tool).not.toBeNull();
+      expect(tool?.descriptor.previewInputType).toContain("unsupported?: unknown;");
     }));
 });

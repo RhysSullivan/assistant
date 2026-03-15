@@ -9,13 +9,13 @@ import type {
   SourceInspectionToolSummary,
   WorkspaceId,
 } from "#schema";
-import { typeSignatureFromSchema } from "@executor/codemode-core";
 import {
   ControlPlaneNotFoundError,
   ControlPlaneStorageError,
 } from "../api/errors";
 import * as Effect from "effect/Effect";
 
+import { joinTypeNameSegments } from "./catalog-typescript";
 import { operationErrors } from "./operation-errors";
 import { formatWithPrettier } from "./prettier-format";
 import {
@@ -47,14 +47,6 @@ const formatOptionalTypeScript = (value: string | undefined) =>
   value === undefined
     ? Effect.succeed<string | undefined>(undefined)
     : Effect.promise(() => formatWithPrettier(value, "typescript"));
-
-const fullTypeSignature = (schema: unknown): string | undefined => {
-  try {
-    return typeSignatureFromSchema(schema, "unknown", Infinity);
-  } catch {
-    return undefined;
-  }
-};
 
 const formatInspectionToolDetail = (detail: SourceInspectionToolDetail) =>
   Effect.gen(function* () {
@@ -163,11 +155,16 @@ const persistedToolSummaryFromTool = (tool: LoadedSourceCatalogTool): SourceInsp
 };
 
 const inspectionToolDetailFromTool = (tool: LoadedSourceCatalogTool): SourceInspectionToolDetail => {
-  const fullInputType = tool.descriptor.inputSchema
-    ? fullTypeSignature(tool.descriptor.inputSchema)
-    : undefined;
-  const fullOutputType = tool.descriptor.outputSchema
-    ? fullTypeSignature(tool.descriptor.outputSchema)
+  const fullInputType = tool.typeProjector.renderSelfContainedShape(
+    tool.projectedDescriptor.callShapeId,
+    {
+      aliasHint: joinTypeNameSegments(...tool.projectedDescriptor.toolPath, "call"),
+    },
+  );
+  const fullOutputType = tool.projectedDescriptor.resultShapeId
+    ? tool.typeProjector.renderSelfContainedShape(tool.projectedDescriptor.resultShapeId, {
+        aliasHint: joinTypeNameSegments(...tool.projectedDescriptor.toolPath, "result"),
+      })
     : undefined;
 
   return ({

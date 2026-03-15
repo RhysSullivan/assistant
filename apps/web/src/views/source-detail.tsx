@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
+  type ConnectSourcePayload,
   useSource,
   useSources,
+  useConnectSource,
   useSourceInspection,
   useSourceToolDetail,
   useSourceDiscovery,
@@ -28,6 +30,7 @@ import {
   IconCheck,
   IconClose,
   IconPencil,
+  IconSpinner,
 } from "../components/icons";
 import { Markdown } from "../components/markdown";
 
@@ -55,6 +58,100 @@ const listExcludesSource = (
   sourceId: string,
 ): boolean => sources.status === "ready" && !sources.data.some((source) => source.id === sourceId);
 
+const readBindingString = (source: Source, key: string): string | null =>
+  typeof source.binding[key] === "string" && source.binding[key].trim().length > 0
+    ? String(source.binding[key])
+    : null;
+
+const readBindingStringMap = (source: Source, key: string): Record<string, string> | null => {
+  const candidate = source.binding[key];
+  if (candidate === null || candidate === undefined || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return null;
+  }
+
+  const entries = Object.entries(candidate as Record<string, unknown>);
+  return entries.every(([, value]) => typeof value === "string")
+    ? Object.fromEntries(entries as ReadonlyArray<readonly [string, string]>)
+    : null;
+};
+
+const readBindingStringArray = (source: Source, key: string): Array<string> | undefined => {
+  const candidate = source.binding[key];
+  return Array.isArray(candidate) && candidate.every((value) => typeof value === "string")
+    ? [...candidate]
+    : undefined;
+};
+
+const readBindingTransport = (source: Source): "auto" | "streamable-http" | "sse" | undefined => {
+  const candidate = source.binding.transport;
+  return candidate === "auto" || candidate === "streamable-http" || candidate === "sse"
+    ? candidate
+    : undefined;
+};
+
+const refreshPayloadFromSource = (source: Source): ConnectSourcePayload | null => {
+  switch (source.kind) {
+    case "mcp":
+      return {
+        kind: "mcp",
+        endpoint: source.endpoint,
+        name: source.name,
+        namespace: source.namespace,
+        ...(readBindingTransport(source) ? { transport: readBindingTransport(source) } : {}),
+        queryParams: readBindingStringMap(source, "queryParams"),
+        headers: readBindingStringMap(source, "headers"),
+      };
+    case "openapi": {
+      const specUrl = readBindingString(source, "specUrl");
+      if (!specUrl) {
+        return null;
+      }
+
+      return {
+        kind: "openapi",
+        endpoint: source.endpoint,
+        specUrl,
+        name: source.name,
+        namespace: source.namespace,
+        importAuthPolicy: source.importAuthPolicy,
+        importAuth: source.importAuth,
+        auth: source.auth,
+      };
+    }
+    case "graphql":
+      return {
+        kind: "graphql",
+        endpoint: source.endpoint,
+        name: source.name,
+        namespace: source.namespace,
+        importAuthPolicy: source.importAuthPolicy,
+        importAuth: source.importAuth,
+        auth: source.auth,
+      };
+    case "google_discovery": {
+      const service = readBindingString(source, "service");
+      const version = readBindingString(source, "version");
+      if (!service || !version) {
+        return null;
+      }
+
+      return {
+        kind: "google_discovery",
+        service,
+        version,
+        discoveryUrl: readBindingString(source, "discoveryUrl"),
+        scopes: readBindingStringArray(source, "scopes"),
+        oauthClient: null,
+        name: source.name,
+        namespace: source.namespace,
+        importAuthPolicy: source.importAuthPolicy,
+        importAuth: source.importAuth,
+        auth: source.auth,
+      };
+    }
+  }
+};
+
 // ---------------------------------------------------------------------------
 // SourceDetailPage (main export)
 // ---------------------------------------------------------------------------
@@ -67,7 +164,12 @@ export function SourceDetailPage(props: {
   const { sourceId, search, navigate } = props;
   const sources = useSources();
   const source = useSource(sourceId);
+  const connectSource = useConnectSource();
   const inspection = useSourceInspection(sourceId);
+  const [refreshFeedback, setRefreshFeedback] = useState<{
+    tone: "success" | "error";
+    text: string;
+  } | null>(null);
   const missingSource =
     listExcludesSource(sources, sourceId)
     || isSourceNotFoundError(source)
@@ -87,6 +189,31 @@ export function SourceDetailPage(props: {
     query: search.query ?? "",
     limit: 12,
   });
+
+  const handleRefresh = useCallback(async (currentSource: Source) => {
+    const payload = refreshPayloadFromSource(currentSource);
+    if (!payload) {
+      setRefreshFeedback({
+        tone: "error",
+        text: "Refresh is unavailable until this source has complete connection details.",
+      });
+      return;
+    }
+
+    setRefreshFeedback(null);
+    try {
+      await connectSource.mutateAsync(payload);
+      setRefreshFeedback({
+        tone: "success",
+        text: `Refreshed ${currentSource.name}.`,
+      });
+    } catch (error) {
+      setRefreshFeedback({
+        tone: "error",
+        text: error instanceof Error ? error.message : "Failed to refresh source.",
+      });
+    }
+  }, [connectSource]);
 
   // Auto-select first tool
   useEffect(() => {
@@ -120,6 +247,17 @@ export function SourceDetailPage(props: {
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {refreshFeedback && (
+                  <span
+                    className={cn(
+                      "hidden max-w-72 truncate text-[11px] sm:block",
+                      refreshFeedback.tone === "success" ? "text-emerald-600" : "text-destructive",
+                    )}
+                    title={refreshFeedback.text}
+                  >
+                    {refreshFeedback.text}
+                  </span>
+                )}
                 <div className="flex items-center gap-0.5 rounded-lg bg-muted/50 p-0.5">
                   {visibleTabs.map((tab) => (
                     <button
@@ -137,6 +275,22 @@ export function SourceDetailPage(props: {
                     </button>
                   ))}
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleRefresh(bundle.source)}
+                  disabled={connectSource.status === "pending" || refreshPayloadFromSource(bundle.source) === null}
+                  title={
+                    refreshPayloadFromSource(bundle.source) === null
+                      ? "Refresh is unavailable for this source configuration"
+                      : "Reconnect and resync this source"
+                  }
+                >
+                  {connectSource.status === "pending"
+                    ? <IconSpinner className="size-3" />
+                    : null}
+                  Refresh
+                </Button>
                 <Link
                   to="/sources/$sourceId/edit"
                   params={{ sourceId }}

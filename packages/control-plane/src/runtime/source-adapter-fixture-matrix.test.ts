@@ -28,6 +28,7 @@ import * as Effect from "effect/Effect";
 
 import { projectCatalogForAgentSdk } from "../ir/catalog";
 import type { CatalogSnapshotV1 } from "../ir/model";
+import { createCatalogTypeProjector, projectedCatalogTypeRoots } from "./catalog-typescript";
 import {
   buildGraphqlToolPresentation,
   compileGraphqlToolDefinitions,
@@ -116,6 +117,9 @@ const makeLoadedCatalog = (input: {
     createdAt: 1,
     updatedAt: 1,
   } satisfies StoredSourceCatalogRevisionRecord;
+  const projected = projectCatalogForAgentSdk({
+    catalog: input.snapshot.catalog,
+  });
 
   return {
     source: input.source,
@@ -123,8 +127,10 @@ const makeLoadedCatalog = (input: {
     revision,
     snapshot: input.snapshot,
     catalog: input.snapshot.catalog,
-    projected: projectCatalogForAgentSdk({
-      catalog: input.snapshot.catalog,
+    projected,
+    typeProjector: createCatalogTypeProjector({
+      catalog: projected.catalog,
+      roots: projectedCatalogTypeRoots(projected),
     }),
     importMetadata: input.snapshot.import,
   };
@@ -548,8 +554,9 @@ describe("source adapter fixture matrix", () => {
           ),
         ).toEqual([]);
         expect(tool).toBeDefined();
-        expect(tool?.descriptor.previewInputType).toContain("args: { input: {");
-        expect(tool?.descriptor.previewOutputType).toContain("{ data:");
+        expect(tool?.descriptor.previewInputType).toContain("args: {");
+        expect(tool?.descriptor.previewInputType).toContain("input: {");
+        expect(tool?.descriptor.previewOutputType).toContain("data:");
         expect(tool?.descriptor.previewOutputType).not.toContain("unknown[]");
         expect(tool?.descriptor.inputSchema).toMatchObject({
           type: "object",

@@ -1,7 +1,6 @@
 import {
   type ToolCatalogEntry,
   type ToolDescriptor as CatalogToolDescriptor,
-  typeSignatureFromSchema,
 } from "@executor/codemode-core";
 import type {
   AccountId,
@@ -32,6 +31,12 @@ import type {
 } from "../ir/model";
 import { LocalSourceArtifactMissingError } from "./local-errors";
 import {
+  createCatalogTypeProjector,
+  joinTypeNameSegments,
+  projectedCatalogTypeRoots,
+  type CatalogTypeProjector,
+} from "./catalog-typescript";
+import {
   RuntimeLocalWorkspaceService,
   type RuntimeLocalWorkspaceState,
 } from "./local-runtime-context";
@@ -48,6 +53,8 @@ import {
 
 type CatalogImportMetadata = CatalogSnapshotV1["import"];
 
+type ProjectedToolDescriptor = ProjectedCatalog["toolDescriptors"][keyof ProjectedCatalog["toolDescriptors"]];
+
 export type LoadedSourceCatalog = {
   source: Source;
   sourceRecord: StoredSourceRecord;
@@ -55,6 +62,7 @@ export type LoadedSourceCatalog = {
   snapshot: CatalogSnapshotV1;
   catalog: CatalogV1;
   projected: ProjectedCatalog;
+  typeProjector: CatalogTypeProjector;
   importMetadata: CatalogImportMetadata;
 };
 
@@ -69,11 +77,16 @@ export type LoadedSourceCatalogTool = {
   executableId: keyof CatalogV1["executables"];
   capability: Capability;
   executable: Executable;
+  projectedDescriptor: ProjectedToolDescriptor;
   descriptor: CatalogToolDescriptor;
   projectedCatalog: CatalogV1;
+  typeProjector: CatalogTypeProjector;
 };
 
-export type LoadedSourceCatalogToolIndexEntry = Omit<LoadedSourceCatalogTool, "revision">;
+export type LoadedSourceCatalogToolIndexEntry = Omit<
+  LoadedSourceCatalogTool,
+  "revision" | "projectedDescriptor" | "typeProjector"
+>;
 
 export const catalogToolCatalogEntry = (input: {
   tool: LoadedSourceCatalogToolIndexEntry;
@@ -530,6 +543,12 @@ const graphqlErrorItemSchema = (): Record<string, unknown> => ({
   additionalProperties: true,
 });
 
+const projectorForProjectedCatalog = (projected: ProjectedCatalog): CatalogTypeProjector =>
+  createCatalogTypeProjector({
+    catalog: projected.catalog,
+    roots: projectedCatalogTypeRoots(projected),
+  });
+
 const applyGraphqlSchemaHints = (executable: Executable, schema: unknown): unknown => {
   if (executable.protocol !== "graphql") {
     return schema;
@@ -561,25 +580,37 @@ const codemodeDescriptorFromCapability = (input: {
   projected: ProjectedCatalog;
   capability: Capability;
   executable: Executable;
+  typeProjector: CatalogTypeProjector;
   includeSchemas: boolean;
 }): CatalogToolDescriptor => {
-  const descriptor = input.projected.toolDescriptors[input.capability.id];
-  const path = descriptor.toolPath.join(".");
+  const projectedDescriptor = input.projected.toolDescriptors[input.capability.id];
+  const path = projectedDescriptor.toolPath.join(".");
   const interaction =
-    descriptor.interaction.mayRequireApproval || descriptor.interaction.mayElicit
+    projectedDescriptor.interaction.mayRequireApproval || projectedDescriptor.interaction.mayElicit
       ? "required"
       : "auto";
   const inputSchema = input.includeSchemas
-    ? shapeToJsonSchema(input.projected.catalog, descriptor.callShapeId)
+    ? shapeToJsonSchema(input.projected.catalog, projectedDescriptor.callShapeId)
     : undefined;
   const rawOutputSchema =
-    input.includeSchemas && descriptor.resultShapeId
-      ? shapeToJsonSchema(input.projected.catalog, descriptor.resultShapeId)
+    input.includeSchemas && projectedDescriptor.resultShapeId
+      ? shapeToJsonSchema(input.projected.catalog, projectedDescriptor.resultShapeId)
       : undefined;
   const outputSchema =
     rawOutputSchema === undefined
       ? undefined
       : applyGraphqlSchemaHints(input.executable, rawOutputSchema);
+  const previewInputType = input.typeProjector.renderSelfContainedShape(
+    projectedDescriptor.callShapeId,
+    {
+      aliasHint: joinTypeNameSegments(...projectedDescriptor.toolPath, "call"),
+    },
+  );
+  const previewOutputType = projectedDescriptor.resultShapeId
+    ? input.typeProjector.renderSelfContainedShape(projectedDescriptor.resultShapeId, {
+        aliasHint: joinTypeNameSegments(...projectedDescriptor.toolPath, "result"),
+      })
+    : undefined;
 
   return {
     path: path as CatalogToolDescriptor["path"],
@@ -588,16 +619,8 @@ const codemodeDescriptorFromCapability = (input: {
     interaction,
     ...(inputSchema !== undefined ? { inputSchema } : {}),
     ...(outputSchema !== undefined ? { outputSchema } : {}),
-    ...(inputSchema !== undefined
-      ? {
-          previewInputType: typeSignatureFromSchema(inputSchema, "unknown"),
-        }
-      : {}),
-    ...(outputSchema !== undefined
-      ? {
-          previewOutputType: typeSignatureFromSchema(outputSchema, "unknown"),
-        }
-      : {}),
+    previewInputType,
+    ...(previewOutputType !== undefined ? { previewOutputType } : {}),
     providerKind: input.executable.protocol,
     providerData: {
       capabilityId: input.capability.id,
@@ -613,11 +636,13 @@ const loadedCatalogToolFromCapability = (input: {
   includeSchemas: boolean;
 }): LoadedSourceCatalogTool => {
   const executable = chooseExecutable(input.catalogEntry.projected.catalog, input.capability);
+  const projectedDescriptor = input.catalogEntry.projected.toolDescriptors[input.capability.id];
   const descriptor = codemodeDescriptorFromCapability({
     source: input.catalogEntry.source,
     projected: input.catalogEntry.projected,
     capability: input.capability,
     executable,
+    typeProjector: input.catalogEntry.typeProjector,
     includeSchemas: input.includeSchemas,
   });
   const path = descriptorPath(descriptor);
@@ -649,8 +674,10 @@ const loadedCatalogToolFromCapability = (input: {
     executableId: executable.id,
     capability: input.capability,
     executable,
+    projectedDescriptor,
     descriptor,
     projectedCatalog: input.catalogEntry.projected.catalog,
+    typeProjector: input.catalogEntry.typeProjector,
   } satisfies LoadedSourceCatalogTool;
 };
 
@@ -774,6 +801,7 @@ const loadWorkspaceSourceCatalogsWithDeps = (deps: RuntimeSourceCatalogStoreDeps
         const projected = projectCatalogForAgentSdk({
           catalog: snapshot.catalog,
         });
+        const typeProjector = projectorForProjectedCatalog(projected);
 
         return {
           source,
@@ -785,6 +813,7 @@ const loadWorkspaceSourceCatalogsWithDeps = (deps: RuntimeSourceCatalogStoreDeps
           snapshot,
           catalog: snapshot.catalog,
           projected,
+          typeProjector,
           importMetadata: snapshot.import,
         } satisfies LoadedSourceCatalog;
       }),
@@ -828,6 +857,7 @@ const loadSourceWithCatalogWithDeps = (deps: RuntimeSourceCatalogStoreDeps, inpu
     const projected = projectCatalogForAgentSdk({
       catalog: snapshot.catalog,
     });
+    const typeProjector = projectorForProjectedCatalog(projected);
 
     return {
       source,
@@ -839,6 +869,7 @@ const loadSourceWithCatalogWithDeps = (deps: RuntimeSourceCatalogStoreDeps, inpu
       snapshot,
       catalog: snapshot.catalog,
       projected,
+      typeProjector,
       importMetadata: snapshot.import,
     } satisfies LoadedSourceCatalog;
   });

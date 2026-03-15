@@ -38,6 +38,8 @@ import {
   type GraphQLSchema,
   type IntrospectionQuery,
 } from "graphql";
+import * as HashMap from "effect/HashMap";
+import * as Option from "effect/Option";
 
 type JsonSchema = Record<string, unknown>;
 type GraphqlSchemaRefTable = Record<string, string>;
@@ -53,8 +55,8 @@ type GraphqlManifestToolBase = {
   rawToolId: string | null;
   toolName: string;
   description: string | null;
-  inputSchema?: unknown;
-  outputSchema?: unknown;
+  inputSchema?: JsonSchema;
+  outputSchema?: JsonSchema;
   exampleInput?: unknown;
 };
 
@@ -104,10 +106,14 @@ export type GraphqlToolDefinition = {
 export type GraphqlToolPresentation = {
   previewInputType: string;
   previewOutputType: string;
-  inputSchema?: unknown;
-  outputSchema?: unknown;
+  inputSchema?: JsonSchema;
+  outputSchema?: JsonSchema;
   exampleInput?: unknown;
   providerData: GraphqlToolProviderData;
+};
+
+type GraphqlToolPresentationResolver = {
+  resolve(definition: GraphqlToolDefinition): GraphqlToolPresentation;
 };
 
 const GraphqlToolKindSchema = Schema.Literal("request", "field");
@@ -409,17 +415,26 @@ const scalarInputSchema = (name: string): JsonSchema => {
     case "ID":
     case "Date":
     case "DateTime":
+    case "DateTimeOrDuration":
+    case "Duration":
     case "UUID":
     case "TimelessDate":
+    case "TimelessDateOrDuration":
+    case "URI":
       return { type: "string" };
     case "Int":
     case "Float":
       return { type: "number" };
     case "Boolean":
       return { type: "boolean" };
-    case "JSON":
     case "JSONObject":
+      return {
+        type: "object",
+        additionalProperties: true,
+      };
     case "JSONString":
+      return { type: "string" };
+    case "JSON":
       return {};
     default:
       return {};
@@ -435,17 +450,27 @@ const scalarExampleValue = (name: string): unknown => {
     case "Date":
       return "2026-03-08";
     case "DateTime":
+    case "DateTimeOrDuration":
       return "2026-03-08T00:00:00.000Z";
     case "UUID":
       return "00000000-0000-0000-0000-000000000000";
     case "TimelessDate":
+    case "TimelessDateOrDuration":
       return "2026-03-08";
+    case "Duration":
+      return "P1D";
+    case "URI":
+      return "https://example.com";
     case "Int":
       return 1;
     case "Float":
       return 1.5;
     case "Boolean":
       return true;
+    case "JSONObject":
+      return {};
+    case "JSONString":
+      return "{}";
     default:
       return {};
   }
@@ -1178,60 +1203,146 @@ export const compileGraphqlToolDefinitions = (
         : ["request", "graphql", "query", "mutation"],
   }));
 
+const materializedSchemaRefDefinitions = (refTable?: GraphqlSchemaRefTable): JsonSchema | undefined => {
+  if (!refTable || Object.keys(refTable).length === 0) {
+    return undefined;
+  }
+
+  const defsRoot: JsonSchema = {};
+  for (const [ref, value] of Object.entries(refTable)) {
+    if (!ref.startsWith("#/$defs/")) {
+      continue;
+    }
+
+    const materializedValue = typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return value;
+          }
+        })()
+      : value;
+    const path = ref
+      .slice("#/$defs/".length)
+      .split("/")
+      .filter((segment) => segment.length > 0);
+    setNestedSchemaProperty(defsRoot, path, materializedValue);
+  }
+
+  return Object.keys(defsRoot).length > 0 ? defsRoot : undefined;
+};
+
+const materializeManifestSchema = (input: {
+  schema: JsonSchema | undefined;
+  defsRoot: JsonSchema | undefined;
+  cache: WeakMap<object, JsonSchema>;
+}): JsonSchema | undefined => {
+  if (input.schema === undefined) {
+    return undefined;
+  }
+
+  if (input.defsRoot === undefined) {
+    return input.schema;
+  }
+
+  const cached = input.cache.get(input.schema);
+  if (cached) {
+    return cached;
+  }
+
+  const existingDefs = input.schema.$defs;
+  const materialized = existingDefs && typeof existingDefs === "object" && !Array.isArray(existingDefs)
+    ? { ...input.schema, $defs: { ...input.defsRoot, ...existingDefs } }
+    : { ...input.schema, $defs: input.defsRoot };
+
+  input.cache.set(input.schema, materialized);
+  return materialized;
+};
+
+const graphqlToolPresentationResolverCache = new WeakMap<GraphqlToolManifest, GraphqlToolPresentationResolver>();
+
+const graphqlToolPresentationResolver = (
+  manifest: GraphqlToolManifest,
+): GraphqlToolPresentationResolver => {
+  const cached = graphqlToolPresentationResolverCache.get(manifest);
+  if (cached) {
+    return cached;
+  }
+
+  const toolEntriesById = HashMap.fromIterable(
+    manifest.tools.map((tool) => [tool.toolId, tool] as const),
+  );
+  const defsRoot = materializedSchemaRefDefinitions(manifest.schemaRefTable);
+  const schemaCache = new WeakMap<object, JsonSchema>();
+  const presentationCache = new Map<string, GraphqlToolPresentation>();
+
+  const resolver: GraphqlToolPresentationResolver = {
+    resolve(definition) {
+      const existing = presentationCache.get(definition.toolId);
+      if (existing) {
+        return existing;
+      }
+
+      const entry = Option.getOrUndefined(HashMap.get(toolEntriesById, definition.toolId));
+      const inputSchema = materializeManifestSchema({
+        schema: entry?.inputSchema,
+        defsRoot,
+        cache: schemaCache,
+      });
+      const outputSchema = materializeManifestSchema({
+        schema: entry?.outputSchema,
+        defsRoot,
+        cache: schemaCache,
+      });
+
+      const presentation = {
+        previewInputType: typeSignatureFromSchema(
+          inputSchema,
+          "unknown",
+          GRAPHQL_PRESENTATION_TYPE_MAX_LENGTH,
+        ),
+        previewOutputType: typeSignatureFromSchema(
+          outputSchema,
+          "unknown",
+          GRAPHQL_PRESENTATION_TYPE_MAX_LENGTH,
+        ),
+        ...(inputSchema !== undefined ? { inputSchema } : {}),
+        ...(outputSchema !== undefined ? { outputSchema } : {}),
+        ...(entry?.exampleInput !== undefined
+          ? { exampleInput: entry.exampleInput }
+          : {}),
+        providerData: {
+          kind: "graphql",
+          toolKind: entry?.kind ?? "request",
+          toolId: definition.toolId,
+          rawToolId: definition.rawToolId,
+          group: definition.group,
+          leaf: definition.leaf,
+          fieldName: definition.fieldName,
+          operationType: definition.operationType,
+          operationName: definition.operationName,
+          operationDocument: definition.operationDocument,
+          queryTypeName: manifest.queryTypeName,
+          mutationTypeName: manifest.mutationTypeName,
+          subscriptionTypeName: manifest.subscriptionTypeName,
+        } satisfies GraphqlToolProviderData,
+      } satisfies GraphqlToolPresentation;
+
+      presentationCache.set(definition.toolId, presentation);
+      return presentation;
+    },
+  };
+
+  graphqlToolPresentationResolverCache.set(manifest, resolver);
+  return resolver;
+};
+
 export const buildGraphqlToolPresentation = (input: {
   manifest: GraphqlToolManifest;
   definition: GraphqlToolDefinition;
 }): GraphqlToolPresentation => {
-  const entry = input.manifest.tools.find(
-    (tool) => tool.toolId === input.definition.toolId,
-  );
-  const inputSchema =
-    entry?.inputSchema === undefined
-      ? undefined
-      : materializeSchemaWithRefDefinitions({
-          schema: entry.inputSchema,
-          refTable: input.manifest.schemaRefTable,
-        });
-  const outputSchema =
-    entry?.outputSchema === undefined
-      ? undefined
-      : materializeSchemaWithRefDefinitions({
-          schema: entry.outputSchema,
-          refTable: input.manifest.schemaRefTable,
-        });
-
-  return {
-    previewInputType: typeSignatureFromSchema(
-      inputSchema,
-      "unknown",
-      GRAPHQL_PRESENTATION_TYPE_MAX_LENGTH,
-    ),
-    previewOutputType: typeSignatureFromSchema(
-      outputSchema,
-      "unknown",
-      GRAPHQL_PRESENTATION_TYPE_MAX_LENGTH,
-    ),
-    ...(inputSchema !== undefined ? { inputSchema } : {}),
-    ...(outputSchema !== undefined ? { outputSchema } : {}),
-    ...(entry?.exampleInput !== undefined
-      ? { exampleInput: entry.exampleInput }
-      : {}),
-    providerData: {
-      kind: "graphql",
-      toolKind: entry?.kind ?? "request",
-      toolId: input.definition.toolId,
-      rawToolId: input.definition.rawToolId,
-      group: input.definition.group,
-      leaf: input.definition.leaf,
-      fieldName: input.definition.fieldName,
-      operationType: input.definition.operationType,
-      operationName: input.definition.operationName,
-      operationDocument: input.definition.operationDocument,
-      queryTypeName: input.manifest.queryTypeName,
-      mutationTypeName: input.manifest.mutationTypeName,
-      subscriptionTypeName: input.manifest.subscriptionTypeName,
-    } satisfies GraphqlToolProviderData,
-  };
+  return graphqlToolPresentationResolver(input.manifest).resolve(input.definition);
 };
 
 const decodeGraphqlToolProviderData = Schema.decodeUnknownEither(
