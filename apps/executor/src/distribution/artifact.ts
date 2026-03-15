@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
@@ -90,6 +90,29 @@ const resolveQuickJsWasmPath = (): string => {
   return wasmPath;
 };
 
+const resolveJsoncParserUmdImplPath = async (): Promise<string> => {
+  const bunStoreDir = join(repoRoot, "node_modules/.bun");
+  const storeEntries = await readdir(bunStoreDir, { withFileTypes: true });
+
+  for (const entry of storeEntries) {
+    if (!entry.isDirectory() || !entry.name.startsWith("jsonc-parser@")) {
+      continue;
+    }
+
+    const candidate = join(
+      bunStoreDir,
+      entry.name,
+      "node_modules/jsonc-parser/lib/umd/impl",
+    );
+
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Unable to locate jsonc-parser UMD implementation files in node_modules/.bun");
+};
+
 
 const createPackageJson = (input: {
   packageName: string;
@@ -151,6 +174,7 @@ export const buildDistributionPackage = async (
   const bundlePath = join(binDir, "executor.mjs");
   const launcherPath = join(binDir, "executor.js");
   const quickJsWasmPath = resolveQuickJsWasmPath();
+  const jsoncParserUmdImplPath = await resolveJsoncParserUmdImplPath();
   const webDistDir = join(repoRoot, "apps/web/dist");
   const readmePath = join(repoRoot, "README.md");
   const packageName = options.packageName ?? defaults.name;
@@ -186,6 +210,7 @@ export const buildDistributionPackage = async (
 
   await cp(webDistDir, webDir, { recursive: true });
   await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
+  await cp(jsoncParserUmdImplPath, join(binDir, "impl"), { recursive: true });
   await mkdir(join(binDir, "openapi-extractor-wasm"), { recursive: true });
   await cp(
     join(repoRoot, "packages/codemode-openapi/src/openapi-extractor-wasm/openapi_extractor_bg.wasm"),

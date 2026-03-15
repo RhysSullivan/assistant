@@ -619,6 +619,7 @@ const createWorkspaceToolInvoker = (input: {
           tool: catalogTool,
           auth,
           args: invocation.args,
+          onElicitation: input.onElicitation,
           context: invocation.context,
         });
       })),

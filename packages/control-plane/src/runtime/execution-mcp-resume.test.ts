@@ -350,7 +350,6 @@ describe("execution-mcp-resume", () => {
             },
           }),
       );
-
       expect(resumed.execution.status).toBe("completed");
       expect(resumed.pendingInteraction).toBeNull();
       expect(resumed.execution.resultJson).toContain("approved:from-control-plane");

@@ -3,10 +3,19 @@ import {
   applyHttpQueryPlacementsToUrl,
   applyJsonBodyPlacements,
 } from "@executor/codemode-core";
-import { createSdkMcpConnector } from "@executor/codemode-mcp";
+import {
+  createMcpToolsFromManifest,
+  createSdkMcpConnector,
+} from "@executor/codemode-mcp";
 import type { AccountId, Source } from "#schema";
 import * as Effect from "effect/Effect";
 
+import type {
+  OnElicitation,
+  ToolExecutionContext,
+  ToolInput,
+  ToolPath,
+} from "@executor/codemode-core";
 import type { CatalogV1, Capability, Executable, GraphQLExecutable, HttpExecutable, McpExecutable, ParameterSymbol } from "../ir/model";
 import type { LoadedSourceCatalogToolIndexEntry } from "./source-catalog-runtime";
 import type { ResolvedSourceAuthMaterial } from "./source-auth-material";
@@ -121,6 +130,23 @@ const readHttpParameterValue = (input: {
   return asObject(input.args[groupKey])[input.parameter.name];
 };
 
+const resolveHttpBaseUrl = (source: Source, executable: HttpExecutable): URL => {
+  const googleBlob = executable.native?.find(
+    (blob) => blob.kind === "google_discovery_provider_data",
+  );
+  if (googleBlob) {
+    const providerData = googleBlob.value as {
+      invocation?: { rootUrl?: string; servicePath?: string };
+    } | null;
+    const rootUrl = providerData?.invocation?.rootUrl;
+    if (rootUrl) {
+      const servicePath = providerData?.invocation?.servicePath ?? "";
+      return new URL(servicePath || "", rootUrl);
+    }
+  }
+  return new URL(source.endpoint);
+};
+
 const executeHttp = (input: {
   source: Source;
   catalog: CatalogV1;
@@ -133,7 +159,7 @@ const executeHttp = (input: {
       const argsRecord = asObject(input.args);
       let resolvedPath = input.executable.pathTemplate;
       const url = applyHttpQueryPlacementsToUrl({
-        url: new URL(input.source.endpoint),
+        url: resolveHttpBaseUrl(input.source, input.executable),
         queryParams: readSourceQueryParams(input.source),
       });
       const headers: Record<string, string> = {
@@ -384,9 +410,12 @@ const executeGraphql = (input: {
 const executeMcp = (input: {
   source: Source;
   catalog: CatalogV1;
+  tool: LoadedSourceCatalogToolIndexEntry;
   executable: McpExecutable;
   auth: ResolvedSourceAuthMaterial;
   args: unknown;
+  onElicitation?: OnElicitation;
+  context?: Record<string, unknown>;
 }) =>
   Effect.tryPromise({
     try: async () => {
@@ -412,15 +441,52 @@ const executeMcp = (input: {
           cookies: input.auth.cookies,
         }),
       });
-      const connection = await connector();
-      try {
-        return await connection.client.callTool({
-          name: input.executable.toolName,
-          arguments: asObject(payload),
-        });
-      } finally {
-        await connection.close?.();
+      const tools = createMcpToolsFromManifest({
+        manifest: {
+          version: 1,
+          tools: [{
+            toolId: input.executable.toolName,
+            toolName: input.executable.toolName,
+            description:
+              input.tool.capability.surface.summary
+              ?? input.tool.capability.surface.title
+              ?? `MCP tool: ${input.executable.toolName}`,
+            inputSchema: input.tool.descriptor.inputSchema,
+            outputSchema: input.tool.descriptor.outputSchema,
+          }],
+        },
+        connect: connector,
+        sourceKey: input.source.id,
+      });
+      const entry = tools[input.executable.toolName] as ToolInput | undefined;
+      const definition =
+        entry && typeof entry === "object" && entry !== null && "tool" in entry
+          ? entry.tool
+          : entry;
+
+      if (!definition) {
+        throw new Error(`Missing MCP tool definition for ${input.executable.toolName}`);
       }
+
+      const executionContext: ToolExecutionContext | undefined =
+        input.onElicitation
+          ? {
+              path: input.tool.path as ToolPath,
+              sourceKey: input.source.id,
+              metadata: {
+                sourceKey: input.source.id,
+                interaction: input.tool.descriptor.interaction,
+                inputSchema: input.tool.descriptor.inputSchema,
+                outputSchema: input.tool.descriptor.outputSchema,
+                providerKind: input.tool.descriptor.providerKind,
+                providerData: input.tool.descriptor.providerData,
+              },
+              invocation: input.context,
+              onElicitation: input.onElicitation,
+            }
+          : undefined;
+
+      return await definition.execute(asObject(payload), executionContext);
     },
     catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
   });
@@ -463,6 +529,7 @@ export const invokeIrTool = (input: {
   tool: LoadedSourceCatalogToolIndexEntry;
   auth: ResolvedSourceAuthMaterial;
   args: unknown;
+  onElicitation?: OnElicitation;
   context?: Record<string, unknown>;
 }) => {
   switch (input.tool.executable.protocol) {
@@ -486,9 +553,12 @@ export const invokeIrTool = (input: {
       return executeMcp({
         source: input.tool.source,
         catalog: input.tool.projectedCatalog,
+        tool: input.tool,
         executable: input.tool.executable,
         auth: input.auth,
         args: input.args,
+        onElicitation: input.onElicitation,
+        context: input.context,
       });
   }
 };

@@ -1439,14 +1439,13 @@ const addExecutorGoogleDiscoverySource = (input: {
         return false;
       }
 
-      const existingDiscoveryUrl =
-        typeof binding.discoveryUrl === "string" && binding.discoveryUrl.trim().length > 0
-          ? normalizeEndpoint(binding.discoveryUrl)
-          : defaultGoogleDiscoveryUrl(binding.service.trim(), binding.version.trim());
-
+      // Match on service + version only. Different discovery URL formats
+      // (e.g. host-scoped "https://tasks.googleapis.com/$discovery/rest?version=v1"
+      // vs directory "https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest")
+      // can refer to the same API, so requiring an exact URL match causes
+      // duplicate sources.
       return binding.service.trim() === normalizedService
-        && binding.version.trim() === normalizedVersion
-        && existingDiscoveryUrl === normalizedDiscoveryUrl;
+        && binding.version.trim() === normalizedVersion;
     });
 
     const chosenName =

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import type { ToolDefinition, ToolInput } from "@executor/codemode-core";
 
 import { extractOpenApiManifest } from "./openapi-extraction";
 import { createOpenApiToolsFromManifest } from "./openapi-tools";
@@ -28,6 +29,9 @@ type ParsedInputSchema = {
 
 const parseInputSchema = (inputSchema: unknown): ParsedInputSchema | null =>
   inputSchema ? (inputSchema as ParsedInputSchema) : null;
+
+const resolveToolDefinition = (value: ToolInput): ToolDefinition =>
+  "tool" in value ? value : { tool: value };
 
 const expectedTools = [
   {
@@ -89,15 +93,6 @@ describe("openapi-extraction real specs", () => {
         expect(tool?.path).toBe(expectedTool.path);
         expect(tool?.tags).toEqual(expectedTool.tags);
 
-        const inputSchema = parseInputSchema(tool?.typing?.inputSchema);
-        expect(inputSchema?.type).toBe("object");
-        expect(Object.keys(inputSchema?.properties ?? {})).toEqual(
-          expect.arrayContaining([...expectedTool.requiredInputs]),
-        );
-        expect(inputSchema?.required ?? []).toEqual(
-          expect.arrayContaining([...expectedTool.requiredInputs]),
-        );
-
         return tool!;
       });
 
@@ -113,6 +108,19 @@ describe("openapi-extraction real specs", () => {
       expect(Object.keys(tools).sort()).toEqual(
         expectedTools.map((tool) => tool.expectedPath).sort(),
       );
+
+      for (const expectedTool of expectedTools) {
+        const resolved = resolveToolDefinition(tools[expectedTool.expectedPath]!);
+        const inputSchema = parseInputSchema(resolved.metadata?.inputSchema);
+
+        expect(inputSchema?.type).toBe("object");
+        expect(Object.keys(inputSchema?.properties ?? {})).toEqual(
+          expect.arrayContaining([...expectedTool.requiredInputs]),
+        );
+        expect(inputSchema?.required ?? []).toEqual(
+          expect.arrayContaining([...expectedTool.requiredInputs]),
+        );
+      }
     }),
   120_000);
 });

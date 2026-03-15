@@ -335,7 +335,7 @@ const transpileSourceFile = (input: {
     return rewriteRelativeImportSpecifiers(transpiled.outputText);
   });
 
-const resolveExecutorNodeModulesDirectory = (): string => {
+const resolveExecutorNodeModulesDirectory = (): string | null => {
   let current = dirname(fileURLToPath(import.meta.url));
 
   while (true) {
@@ -346,9 +346,7 @@ const resolveExecutorNodeModulesDirectory = (): string => {
 
     const parent = dirname(current);
     if (parent === current) {
-      throw new Error(
-        "Unable to locate Executor node_modules directory for local tools",
-      );
+      return null;
     }
     current = parent;
   }
@@ -368,6 +366,10 @@ const ensureArtifactNodeModulesLink = (artifactRoot: string) =>
         ),
       );
     if (exists) {
+      return;
+    }
+
+    if (EXECUTOR_NODE_MODULES_DIRECTORY === null) {
       return;
     }
 

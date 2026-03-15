@@ -21,6 +21,7 @@ const makeInteraction = (patch: Partial<ExecutionInteraction> = {}): ExecutionIn
     },
   }),
   responseJson: null,
+  responsePrivateJson: null,
   createdAt: 1,
   updatedAt: 1,
   ...patch,

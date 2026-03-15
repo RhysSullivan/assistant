@@ -4,7 +4,6 @@ import {
   useSource,
   useSources,
   useSourceInspection,
-  useSourceSchemaBundle,
   useSourceToolDetail,
   useSourceDiscovery,
   type Loadable,
@@ -54,113 +53,6 @@ const listExcludesSource = (
   sources: Loadable<ReadonlyArray<Source>>,
   sourceId: string,
 ): boolean => sources.status === "ready" && !sources.data.some((source) => source.id === sourceId);
-
-const isJsonObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const parseJson = (value: string): unknown | null => {
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return null;
-  }
-};
-
-const resolveSchemaNode = (
-  value: unknown,
-  refHintTable: Readonly<Record<string, unknown>>,
-  parsedHintCache: Map<string, unknown>,
-  activeRefs: ReadonlySet<string>,
-): unknown => {
-  if (Array.isArray(value)) {
-    return value.map((item) =>
-      resolveSchemaNode(item, refHintTable, parsedHintCache, activeRefs)
-    );
-  }
-
-  if (!isJsonObject(value)) {
-    return value;
-  }
-
-  const ref = typeof value.$ref === "string" ? value.$ref : null;
-  if (ref && ref.startsWith("#/") && !activeRefs.has(ref)) {
-    let resolvedRefValue = parsedHintCache.get(ref);
-
-    if (resolvedRefValue === undefined) {
-      const rawHint = refHintTable[ref];
-      resolvedRefValue = typeof rawHint === "string"
-        ? parseJson(rawHint)
-        : isJsonObject(rawHint)
-          ? rawHint
-          : null;
-      parsedHintCache.set(ref, resolvedRefValue);
-    }
-
-    if (resolvedRefValue !== null && resolvedRefValue !== undefined) {
-      const nextActiveRefs = new Set(activeRefs);
-      nextActiveRefs.add(ref);
-
-      const { $ref: _ignoredRef, ...rest } = value;
-      const resolvedTarget = resolveSchemaNode(
-        resolvedRefValue,
-        refHintTable,
-        parsedHintCache,
-        nextActiveRefs,
-      );
-
-      if (Object.keys(rest).length === 0) {
-        return resolvedTarget;
-      }
-
-      const resolvedRest = resolveSchemaNode(
-        rest,
-        refHintTable,
-        parsedHintCache,
-        activeRefs,
-      );
-
-      if (isJsonObject(resolvedTarget) && isJsonObject(resolvedRest)) {
-        return { ...resolvedTarget, ...resolvedRest };
-      }
-
-      return resolvedTarget;
-    }
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).map(([key, nestedValue]) => [
-      key,
-      resolveSchemaNode(nestedValue, refHintTable, parsedHintCache, activeRefs),
-    ]),
-  );
-};
-
-const resolveSchemaJsonWithRefHints = (
-  schemaJson: string | undefined,
-  refHintTable: Readonly<Record<string, unknown>>,
-): string | null => {
-  if (!schemaJson) {
-    return null;
-  }
-
-  const parsedSchema = parseJson(schemaJson);
-  if (parsedSchema === null) {
-    return schemaJson;
-  }
-
-  const resolved = resolveSchemaNode(
-    parsedSchema,
-    refHintTable,
-    new Map<string, unknown>(),
-    new Set<string>(),
-  );
-
-  try {
-    return JSON.stringify(resolved);
-  } catch {
-    return schemaJson;
-  }
-};
 
 // ---------------------------------------------------------------------------
 // SourceDetailPage (main export)
@@ -384,7 +276,7 @@ function ModelView(props: {
         <LoadableBlock loadable={props.detail} loading="Loading tool...">
           {(detail) =>
             detail ? (
-              <ToolDetailPanel sourceId={props.sourceId} detail={detail} />
+              <ToolDetailPanel detail={detail} />
             ) : (
               <EmptyState
                 title={props.bundle.toolCount > 0 ? "Select a tool" : "No tools available"}
@@ -641,14 +533,9 @@ function ToolListItem(props: {
 // ToolDetailPanel
 // ---------------------------------------------------------------------------
 
-function ToolDetailPanel(props: { sourceId: string; detail: SourceInspectionToolDetail }) {
+function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
   const { detail } = props;
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [resolveRefs, setResolveRefs] = useState(false);
-  const schemaBundle = useSourceSchemaBundle(
-    props.sourceId,
-    resolveRefs ? detail.schemaBundleId : null,
-  );
 
   const copy = useCallback((text: string, field: string) => {
     void navigator.clipboard.writeText(text).then(() => {
@@ -656,43 +543,6 @@ function ToolDetailPanel(props: { sourceId: string; detail: SourceInspectionTool
       setTimeout(() => setCopiedField(null), 1500);
     });
   }, []);
-
-  useEffect(() => {
-    setResolveRefs(false);
-  }, [detail.summary.path]);
-
-  const resolvedSchemas = useMemo(() => {
-    if (!resolveRefs || schemaBundle.status !== "ready" || schemaBundle.data === null) {
-      return {
-        inputSchemaJson: detail.inputSchemaJson,
-        outputSchemaJson: detail.outputSchemaJson,
-      };
-    }
-
-    try {
-      const refHintTable = JSON.parse(schemaBundle.data.refsJson) as Record<string, unknown>;
-      return {
-        inputSchemaJson: resolveSchemaJsonWithRefHints(
-          detail.inputSchemaJson ?? undefined,
-          refHintTable,
-        ) ?? detail.inputSchemaJson,
-        outputSchemaJson: resolveSchemaJsonWithRefHints(
-          detail.outputSchemaJson ?? undefined,
-          refHintTable,
-        ) ?? detail.outputSchemaJson,
-      };
-    } catch {
-      return {
-        inputSchemaJson: detail.inputSchemaJson,
-        outputSchemaJson: detail.outputSchemaJson,
-      };
-    }
-  }, [
-    detail.inputSchemaJson,
-    detail.outputSchemaJson,
-    resolveRefs,
-    schemaBundle,
-  ]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -736,35 +586,14 @@ function ToolDetailPanel(props: { sourceId: string; detail: SourceInspectionTool
           </div>
 
           {/* Schemas */}
-          {detail.schemaBundleId && (
-            <div className="flex items-center justify-between rounded-md border border-border bg-card/40 px-3 py-2">
-              <div className="text-[12px] text-muted-foreground">
-                {resolveRefs
-                  ? schemaBundle.status === "loading"
-                    ? "Loading shared refs..."
-                    : schemaBundle.status === "error"
-                      ? "Showing compact root schemas because shared refs failed to load."
-                      : "Showing schemas with shared refs resolved client-side."
-                  : "Showing compact root schemas. Shared refs are available on demand."}
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setResolveRefs((value) => !value)}
-              >
-                {resolveRefs ? "Show compact roots" : "Resolve shared refs"}
-              </Button>
-            </div>
-          )}
           <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-            <DocumentPanel title="Input schema" body={resolvedSchemas.inputSchemaJson} empty="No input schema." compact />
-            <DocumentPanel title="Output schema" body={resolvedSchemas.outputSchemaJson} empty="No output schema." compact />
-            {detail.exampleInputJson && (
-              <DocumentPanel title="Example request" body={detail.exampleInputJson} empty="" compact />
+            <DocumentPanel title="Input schema" body={detail.callSchemaJson} empty="No input schema." compact />
+            <DocumentPanel title="Output schema" body={detail.resultSchemaJson} empty="No output schema." compact />
+            {detail.exampleCallJson && (
+              <DocumentPanel title="Example request" body={detail.exampleCallJson} empty="" compact />
             )}
-            {detail.exampleOutputJson && (
-              <DocumentPanel title="Example response" body={detail.exampleOutputJson} empty="" compact />
+            {detail.exampleResultJson && (
+              <DocumentPanel title="Example response" body={detail.exampleResultJson} empty="" compact />
             )}
           </div>
         </div>

@@ -21,6 +21,7 @@ import {
   type Execution,
   type ExecutionEnvelope,
   type ExecutionId,
+  type ExecutionInteraction,
   type WorkspaceId,
 } from "#schema";
 import * as Deferred from "effect/Deferred";
@@ -272,6 +273,43 @@ const fetchExecutionEnvelope = (
       execution,
       pendingInteraction: Option.isSome(pendingInteraction) ? pendingInteraction.value : null,
     };
+  });
+
+const waitForExecutionEnvelopeToSettle = (
+  store: ControlPlaneStoreShape,
+  input: {
+    workspaceId: Execution["workspaceId"];
+    executionId: Execution["id"];
+    operation: OperationErrorsLike;
+    previousPendingInteractionId: ExecutionInteraction["id"] | null;
+    attemptsRemaining: number;
+  },
+): Effect.Effect<ExecutionEnvelope, ControlPlaneNotFoundError | ControlPlaneStorageError, never> =>
+  Effect.gen(function* () {
+    const envelope = yield* fetchExecutionEnvelope(store, input);
+    if (
+      (
+        envelope.execution.status !== "running"
+        && !(
+          envelope.execution.status === "waiting_for_interaction"
+          && (
+            envelope.pendingInteraction === null
+            || envelope.pendingInteraction.id === input.previousPendingInteractionId
+          )
+        )
+      )
+      || input.attemptsRemaining <= 0
+    ) {
+      return envelope;
+    }
+
+    yield* Effect.promise(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 25)),
+    );
+    return yield* waitForExecutionEnvelopeToSettle(store, {
+      ...input,
+      attemptsRemaining: input.attemptsRemaining - 1,
+    });
   });
 
 const suspendExecutionForInteraction = (input: {
@@ -931,7 +969,6 @@ export const resumeExecution = (input: {
             ),
           );
 
-    const nextState = yield* liveExecutionManager.registerStateWaiter(input.executionId);
     const resumedLive = yield* liveExecutionManager.resolveInteraction({
       executionId: input.executionId,
       response,
@@ -961,11 +998,11 @@ export const resumeExecution = (input: {
       }
     }
 
-    yield* Deferred.await(nextState);
-
-    return yield* fetchExecutionEnvelope(store, {
+    return yield* waitForExecutionEnvelopeToSettle(store, {
       workspaceId: input.workspaceId,
       executionId: input.executionId,
       operation: executionOps.resume,
+      previousPendingInteractionId: existing.pendingInteraction?.id ?? null,
+      attemptsRemaining: 400,
     });
   });

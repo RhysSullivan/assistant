@@ -27,7 +27,7 @@ describe("distribution flow", () => {
       };
       expect(initialDoctorJson.ok).toBe(false);
       expect(initialDoctorJson.checks.webAssets?.ok).toBe(true);
-      expect(initialDoctorJson.checks.migrations?.ok).toBe(true);
+      expect(initialDoctorJson.checks.database?.ok).toBe(true);
 
       yield* runCommand(["up", "--base-url", harness.baseUrl]);
 

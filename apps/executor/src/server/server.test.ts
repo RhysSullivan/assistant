@@ -22,12 +22,11 @@ import {
   controlPlaneOpenApiSpec,
   type ControlPlaneClient,
   buildLocalSourceArtifact,
+  catalogSyncResultFromMcpManifestEntries,
   deriveLocalInstallation,
-  materializationFromMcpManifestEntries,
   type ResolveExecutionEnvironment,
   resolveLocalWorkspaceContext,
   SourceIdSchema,
-  SourceCatalogRevisionIdSchema,
   writeLocalSourceArtifact,
   writeProjectLocalExecutorConfig,
 } from "@executor/control-plane";
@@ -143,14 +142,14 @@ const writeConfiguredLocalMcpSource = (input: {
       updatedAt: Date.now(),
     };
 
-    const materialization = materializationFromMcpManifestEntries({
-      catalogRevisionId: SourceCatalogRevisionIdSchema.make("src_catalog_rev_materialization"),
+    const syncResult = catalogSyncResultFromMcpManifestEntries({
+      source,
       endpoint: input.endpoint,
       manifestEntries: [{
         toolId: "gated_echo",
         toolName: "gated_echo",
         description: "Asks for approval before echoing a value",
-        inputSchemaJson: JSON.stringify({
+        inputSchema: {
           type: "object",
           properties: {
             value: {
@@ -159,7 +158,7 @@ const writeConfiguredLocalMcpSource = (input: {
           },
           required: ["value"],
           additionalProperties: false,
-        }),
+        },
       }],
     });
 
@@ -168,7 +167,7 @@ const writeConfiguredLocalMcpSource = (input: {
       sourceId,
       artifact: buildLocalSourceArtifact({
         source,
-        materialization,
+        syncResult,
       }),
     });
   }).pipe(Effect.provide(NodeFileSystem.layer));
@@ -962,7 +961,30 @@ describe("local-executor-server", () => {
       expect(created.pendingInteraction).not.toBeNull();
       if (created.pendingInteraction !== null) {
         expect(created.pendingInteraction.kind).toBe("form");
-        expect(created.pendingInteraction.payloadJson).toContain("Approve gated echo");
+        expect(created.pendingInteraction.payloadJson).toContain("Allow gated_echo?");
+      }
+
+      const approved = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.workspaceId,
+          executionId: created.execution.id,
+        },
+        payload: {
+          interactionMode: "live_form",
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(approved.execution.status).toBe("waiting_for_interaction");
+      expect(approved.pendingInteraction).not.toBeNull();
+      if (approved.pendingInteraction !== null) {
+        expect(approved.pendingInteraction.kind).toBe("form");
+        expect(approved.pendingInteraction.payloadJson).toContain("Approve gated echo for from-daemon?");
       }
 
       const resumed = yield* client.executions.resume({
@@ -1044,6 +1066,29 @@ describe("local-executor-server", () => {
 
         expect(created.execution.status).toBe("waiting_for_interaction");
         expect(created.pendingInteraction).not.toBeNull();
+
+        const approved = yield* client.executions.resume({
+          path: {
+            workspaceId: installation.workspaceId,
+            executionId: created.execution.id,
+          },
+          payload: {
+            interactionMode: "live_form",
+            responseJson: JSON.stringify({
+              action: "accept",
+              content: {
+                approve: true,
+              },
+            }),
+          },
+        });
+
+        expect(approved.execution.status).toBe("waiting_for_interaction");
+        expect(approved.pendingInteraction).not.toBeNull();
+        if (approved.pendingInteraction !== null) {
+          expect(approved.pendingInteraction.kind).toBe("form");
+          expect(approved.pendingInteraction.payloadJson).toContain(`Approve gated echo for ${value}?`);
+        }
 
         const resumed = yield* client.executions.resume({
           path: {
@@ -1280,9 +1325,31 @@ describe("local-executor-server", () => {
         },
       });
 
-      expect(toolCall.execution.status).toBe("completed");
-      expect(toolCall.pendingInteraction).toBeNull();
-      expect(toolCall.execution.resultJson).toContain("oauth-demo");
+      expect(toolCall.execution.status).toBe("waiting_for_interaction");
+      expect(toolCall.pendingInteraction).not.toBeNull();
+      if (toolCall.pendingInteraction !== null) {
+        expect(toolCall.pendingInteraction.kind).toBe("form");
+        expect(toolCall.pendingInteraction.payloadJson).toContain("Allow whoami?");
+      }
+
+      const approvedToolCall = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.workspaceId,
+          executionId: toolCall.execution.id,
+        },
+        payload: {
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(approvedToolCall.execution.status).toBe("completed");
+      expect(approvedToolCall.pendingInteraction).toBeNull();
+      expect(approvedToolCall.execution.resultJson).toContain("oauth-demo");
     }),
     15_000,
   );
@@ -1338,7 +1405,7 @@ describe("local-executor-server", () => {
         throw new Error("Expected pending approval interaction");
       }
       expect(gated.pendingInteraction.kind).toBe("form");
-      expect(gated.pendingInteraction.payloadJson).toContain("Allow POST /records?");
+      expect(gated.pendingInteraction.payloadJson).toContain("Allow Create a DNS record?");
       expect(gated.pendingInteraction.payloadJson).toContain("\"approve\"");
 
       const approved = yield* client.executions.resume({
@@ -1493,9 +1560,31 @@ describe("local-executor-server", () => {
         },
       });
 
-      expect(execution.execution.status).toBe("failed");
-      expect(execution.pendingInteraction).toBeNull();
-      expect(execution.execution.errorText).toContain("Invalid URL");
+      expect(execution.execution.status).toBe("waiting_for_interaction");
+      expect(execution.pendingInteraction).not.toBeNull();
+      if (execution.pendingInteraction !== null) {
+        expect(execution.pendingInteraction.kind).toBe("form");
+        expect(execution.pendingInteraction.payloadJson).toContain("Allow gated_echo?");
+      }
+
+      const resumed = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.workspaceId,
+          executionId: execution.execution.id,
+        },
+        payload: {
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(resumed.execution.status).toBe("failed");
+      expect(resumed.pendingInteraction).toBeNull();
+      expect(resumed.execution.errorText).toContain("Invalid URL");
     }),
   );
 });
