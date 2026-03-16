@@ -26,5 +26,6 @@
     "@types/node": "catalog:",
     "bun-types": "catalog:",
     "vitest": "catalog:"
-  }
+  },
+  "version": null
 }
