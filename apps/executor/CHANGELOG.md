@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.0-beta.7
+
+### Minor Changes
+
+- 7574535: add multiple sources at same time
+
 ## 1.1.10-beta.6
 
 ### Patch Changes

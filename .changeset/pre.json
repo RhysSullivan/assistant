@@ -5,6 +5,7 @@
     "executor": "1.1.10-beta.5"
   },
   "changesets": [
+    "long-webs-sing",
     "ten-bees-fix"
   ]
 }
