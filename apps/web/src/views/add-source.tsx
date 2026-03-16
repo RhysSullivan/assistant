@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   type CompleteSourceOAuthResult,
   type ConnectSourcePayload,
   type ConnectSourceResult,
   type DiscoverSourcePayload,
+  type InstanceConfig,
   type Loadable,
   type SecretListItem,
   type Source,
@@ -12,6 +13,7 @@ import {
   useConnectSource,
   useCreateSecret,
   useDiscoverSource,
+  useInstanceConfig,
   useRefreshSecrets,
   useSecrets,
   useStartSourceOAuth,
@@ -590,6 +592,7 @@ export function AddSourcePage() {
   const navigate = useNavigate();
   const discoverSource = useDiscoverSource();
   const connectSource = useConnectSource();
+  const instanceConfig = useInstanceConfig();
   const secrets = useSecrets();
   const refreshSecrets = useRefreshSecrets();
   const startSourceOAuth = useStartSourceOAuth();
@@ -1209,6 +1212,7 @@ export function AddSourcePage() {
                   {connectForm.authKind === "bearer" && (
                     <Field label="Token" className="sm:col-span-2">
                       <SecretOrTokenInput
+                        instanceConfig={instanceConfig}
                         secrets={secrets}
                         providerId={connectForm.bearerProviderId}
                         handle={connectForm.bearerHandle}
@@ -1408,6 +1412,7 @@ const CREATE_NEW_VALUE = "__create_new__";
 const INLINE_TOKEN_VALUE = "__inline_token__";
 
 function SecretOrTokenInput(props: {
+  instanceConfig: Loadable<InstanceConfig>;
   secrets: Loadable<ReadonlyArray<SecretListItem>>;
   providerId: string;
   handle: string;
@@ -1415,13 +1420,35 @@ function SecretOrTokenInput(props: {
   onSelectSecret: (providerId: string, handle: string) => void;
   onChangeToken: (token: string) => void;
 }) {
-  const { secrets, providerId, handle, inlineToken, onSelectSecret, onChangeToken } = props;
+  const {
+    instanceConfig,
+    secrets,
+    providerId,
+    handle,
+    inlineToken,
+    onSelectSecret,
+    onChangeToken,
+  } = props;
   const createSecret = useCreateSecret();
   const [showCreate, setShowCreate] = useState(false);
   const [useInline, setUseInline] = useState(false);
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
+  const [newProviderId, setNewProviderId] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const storableProviders =
+    instanceConfig.status === "ready"
+      ? instanceConfig.data.secretProviders.filter((provider) => provider.canStore)
+      : [];
+
+  useEffect(() => {
+    if (newProviderId.length > 0) {
+      return;
+    }
+    if (instanceConfig.status === "ready") {
+      setNewProviderId(instanceConfig.data.defaultSecretStoreProvider);
+    }
+  }, [instanceConfig, newProviderId]);
 
   const selectedValue = showCreate ? CREATE_NEW_VALUE : useInline ? INLINE_TOKEN_VALUE : (handle || "");
 
@@ -1431,6 +1458,11 @@ function SecretOrTokenInput(props: {
       setUseInline(false);
       setNewName("");
       setNewValue("");
+      setNewProviderId(
+        instanceConfig.status === "ready"
+          ? instanceConfig.data.defaultSecretStoreProvider
+          : "",
+      );
       setCreateError(null);
       return;
     }
@@ -1448,7 +1480,10 @@ function SecretOrTokenInput(props: {
     }
     setUseInline(false);
     setShowCreate(false);
-    onSelectSecret("postgres", value);
+    const matchedSecret = secrets.status === "ready"
+      ? secrets.data.find((secret) => secret.id === value)
+      : null;
+    onSelectSecret(matchedSecret?.providerId ?? "local", value);
   };
 
   const handleCreate = async () => {
@@ -1464,7 +1499,11 @@ function SecretOrTokenInput(props: {
     }
 
     try {
-      const result = await createSecret.mutateAsync({ name: trimmedName, value: newValue });
+      const result = await createSecret.mutateAsync({
+        name: trimmedName,
+        value: newValue,
+        ...(newProviderId ? { providerId: newProviderId } : {}),
+      });
       onSelectSecret(result.providerId, result.id);
       setShowCreate(false);
     } catch (err) {
@@ -1495,7 +1534,7 @@ function SecretOrTokenInput(props: {
         <option value="">Select a secret...</option>
         {items.map((secret) => (
           <option key={secret.id} value={secret.id}>
-            {secret.name || secret.id}
+            {secret.name || secret.id} ({secret.providerId})
           </option>
         ))}
         <option value={INLINE_TOKEN_VALUE}>Paste token directly</option>
@@ -1540,6 +1579,20 @@ function SecretOrTokenInput(props: {
                 placeholder="sk-..."
                 className="h-8 w-full rounded-lg border border-input bg-background px-3 font-mono text-[11px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
               />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-muted-foreground">Store in</span>
+              <select
+                value={newProviderId}
+                onChange={(e) => setNewProviderId(e.target.value)}
+                className="h-8 w-full rounded-lg border border-input bg-background px-3 text-[12px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+              >
+                {storableProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <div className="flex items-center justify-end gap-2">

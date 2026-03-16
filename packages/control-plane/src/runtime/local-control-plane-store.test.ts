@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -60,6 +60,52 @@ describe("local-control-plane-store", () => {
       if (process.platform !== "win32") {
         expect(statSync(expectedPath).mode & 0o777).toBe(0o600);
       }
+    }),
+  );
+
+  it.effect("decodes legacy local secret rows without provider metadata", () =>
+    Effect.gen(function* () {
+      const context = makeContext();
+      const expectedPath = localControlPlaneStatePath(context);
+      mkdirSync(dirname(expectedPath), { recursive: true });
+
+      writeFileSync(
+        expectedPath,
+        JSON.stringify({
+          version: 1,
+          authArtifacts: [],
+          authLeases: [],
+          sourceOauthClients: [],
+          sourceAuthSessions: [],
+          secretMaterials: [
+            {
+              id: "sec_legacy",
+              name: "Legacy token",
+              purpose: "auth_material",
+              value: "secret-value",
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
+          executions: [],
+          executionInteractions: [],
+          executionSteps: [],
+        }),
+      );
+
+      const loaded = yield* loadLocalControlPlaneState(context);
+      expect(loaded.secretMaterials).toEqual([
+        {
+          id: "sec_legacy",
+          providerId: "local",
+          handle: "sec_legacy",
+          name: "Legacy token",
+          purpose: "auth_material",
+          value: "secret-value",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ]);
     }),
   );
 });

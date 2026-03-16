@@ -34,6 +34,7 @@ export type SecretLinkedSource = typeof SecretLinkedSourceSchema.Type;
 
 export const SecretListItemSchema = Schema.Struct({
   id: Schema.String,
+  providerId: Schema.String,
   name: Schema.NullOr(Schema.String),
   purpose: Schema.String,
   createdAt: Schema.Number,
@@ -47,6 +48,7 @@ export const CreateSecretPayloadSchema = Schema.Struct({
   name: Schema.String,
   value: Schema.String,
   purpose: Schema.optional(SecretMaterialPurposeSchema),
+  providerId: Schema.optional(Schema.String),
 });
 
 export type CreateSecretPayload = typeof CreateSecretPayloadSchema.Type;
@@ -71,6 +73,7 @@ export type UpdateSecretPayload = typeof UpdateSecretPayloadSchema.Type;
 
 export const UpdateSecretResultSchema = Schema.Struct({
   id: Schema.String,
+  providerId: Schema.String,
   name: Schema.NullOr(Schema.String),
   purpose: Schema.String,
   createdAt: Schema.Number,

@@ -1,13 +1,14 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
+  type InstanceConfig,
   type SecretListItem,
   type Loadable,
   useSecrets,
   useCreateSecret,
   useUpdateSecret,
   useDeleteSecret,
-  useRefreshSecrets,
+  useInstanceConfig,
 } from "@executor/react";
 import { LoadableBlock } from "../components/loadable";
 import { Button } from "../components/ui/button";
@@ -19,10 +20,26 @@ import { cn } from "../lib/utils";
 // Page
 // ---------------------------------------------------------------------------
 
+const storableProvidersFromConfig = (config: Loadable<InstanceConfig>) =>
+  config.status === "ready"
+    ? config.data.secretProviders.filter((provider) => provider.canStore)
+    : [];
+
+const providerLabelForId = (config: Loadable<InstanceConfig>, providerId: string): string =>
+  config.status === "ready"
+    ? config.data.secretProviders.find((provider) => provider.id === providerId)?.name ?? providerId
+    : providerId;
+
 export function SecretsPage() {
+  const instanceConfig = useInstanceConfig();
   const secrets = useSecrets();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const storableProviders = storableProvidersFromConfig(instanceConfig);
+  const defaultProviderLabel =
+    instanceConfig.status === "ready"
+      ? providerLabelForId(instanceConfig, instanceConfig.data.defaultSecretStoreProvider)
+      : null;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -34,7 +51,8 @@ export function SecretsPage() {
               Secrets
             </h1>
             <p className="mt-1.5 text-[14px] text-muted-foreground">
-              Tokens and credentials stored in this instance.
+              Tokens and credentials stored by executor.
+              {defaultProviderLabel ? ` New secrets default to ${defaultProviderLabel}.` : ""}
             </p>
           </div>
           <Button size="sm" onClick={() => { setShowCreate(true); setEditingId(null); }}>
@@ -48,6 +66,12 @@ export function SecretsPage() {
           <CreateSecretForm
             onClose={() => setShowCreate(false)}
             className="mb-6"
+            providerOptions={storableProviders}
+            defaultProviderId={
+              instanceConfig.status === "ready"
+                ? instanceConfig.data.defaultSecretStoreProvider
+                : null
+            }
           />
         )}
 
@@ -62,6 +86,7 @@ export function SecretsPage() {
                   <SecretRow
                     key={secret.id}
                     secret={secret}
+                    providerLabel={providerLabelForId(instanceConfig, secret.providerId)}
                     isEditing={editingId === secret.id}
                     onEdit={() => setEditingId(editingId === secret.id ? null : secret.id)}
                     onCancelEdit={() => setEditingId(null)}
@@ -95,7 +120,7 @@ function EmptyState(props: { onAdd: () => void }) {
         No secrets stored
       </p>
       <p className="text-[13px] text-muted-foreground/60 mb-5">
-        Secrets let you securely provide tokens for source authentication.
+        Secrets let you securely provide tokens for source authentication without putting them in workspace config.
       </p>
       <Button size="sm" onClick={props.onAdd}>
         <IconPlus className="size-3.5" />
@@ -109,11 +134,26 @@ function EmptyState(props: { onAdd: () => void }) {
 // Create form
 // ---------------------------------------------------------------------------
 
-function CreateSecretForm(props: { onClose: () => void; className?: string }) {
+function CreateSecretForm(props: {
+  onClose: () => void;
+  className?: string;
+  providerOptions: ReadonlyArray<{ id: string; name: string }>;
+  defaultProviderId: string | null;
+}) {
   const createSecret = useCreateSecret();
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
+  const [providerId, setProviderId] = useState(props.defaultProviderId ?? "");
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (providerId.length > 0) {
+      return;
+    }
+    if (props.defaultProviderId) {
+      setProviderId(props.defaultProviderId);
+    }
+  }, [props.defaultProviderId, providerId]);
 
   const handleSubmit = async () => {
     setError(null);
@@ -128,7 +168,11 @@ function CreateSecretForm(props: { onClose: () => void; className?: string }) {
     }
 
     try {
-      await createSecret.mutateAsync({ name: trimmedName, value });
+      await createSecret.mutateAsync({
+        name: trimmedName,
+        value,
+        ...(providerId ? { providerId } : {}),
+      });
       props.onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed creating secret.");
@@ -172,6 +216,19 @@ function CreateSecretForm(props: { onClose: () => void; className?: string }) {
               className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
           </FieldLabel>
+          <FieldLabel label="Store in">
+            <select
+              value={providerId}
+              onChange={(e) => setProviderId(e.target.value)}
+              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+            >
+              {props.providerOptions.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
+                </option>
+              ))}
+            </select>
+          </FieldLabel>
         </div>
         <div className="flex justify-end">
           <Button
@@ -194,11 +251,12 @@ function CreateSecretForm(props: { onClose: () => void; className?: string }) {
 
 function SecretRow(props: {
   secret: SecretListItem;
+  providerLabel: string;
   isEditing: boolean;
   onEdit: () => void;
   onCancelEdit: () => void;
 }) {
-  const { secret, isEditing } = props;
+  const { secret, providerLabel, isEditing } = props;
   const deleteSecret = useDeleteSecret();
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -238,6 +296,9 @@ function SecretRow(props: {
               </span>
               <Badge variant="outline" className="text-[9px] shrink-0">
                 {secret.purpose.replace(/_/g, " ")}
+              </Badge>
+              <Badge variant="outline" className="text-[9px] shrink-0">
+                {providerLabel}
               </Badge>
             </div>
             <div className="flex items-center gap-2 mt-0.5">

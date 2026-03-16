@@ -7,6 +7,7 @@ import { isAbsolute } from "node:path";
 import {
   type LocalConfigSecretProvider,
   type LocalExecutorConfig,
+  type SecretMaterial,
   type SecretMaterialPurpose,
   SecretMaterialIdSchema,
   type SecretRef,
@@ -50,6 +51,19 @@ export type DeleteSecretMaterial = (
   ref: SecretRef,
 ) => Effect.Effect<boolean, Error, never>;
 
+export type UpdateSecretMaterial = (input: {
+  ref: SecretRef;
+  name?: string | null;
+  value?: string;
+}) => Effect.Effect<{
+  id: string;
+  providerId: string;
+  name: string | null;
+  purpose: string;
+  createdAt: number;
+  updatedAt: number;
+}, Error, never>;
+
 export class SecretMaterialResolverService extends Context.Tag(
   "#runtime/SecretMaterialResolverService",
 )<SecretMaterialResolverService, ResolveSecretMaterial>() {}
@@ -61,6 +75,10 @@ export class SecretMaterialStorerService extends Context.Tag(
 export class SecretMaterialDeleterService extends Context.Tag(
   "#runtime/SecretMaterialDeleterService",
 )<SecretMaterialDeleterService, DeleteSecretMaterial>() {}
+
+export class SecretMaterialUpdaterService extends Context.Tag(
+  "#runtime/SecretMaterialUpdaterService",
+)<SecretMaterialUpdaterService, UpdateSecretMaterial>() {}
 
 type SecretMaterialProviderRuntime = {
   rows: ControlPlaneStoreShape;
@@ -83,6 +101,19 @@ type SecretMaterialProvider = {
     name?: string | null;
     runtime: SecretMaterialProviderRuntime;
   }) => Effect.Effect<SecretRef, Error, never>;
+  update?: (input: {
+    ref: SecretRef;
+    name?: string | null;
+    value?: string;
+    runtime: SecretMaterialProviderRuntime;
+  }) => Effect.Effect<{
+    id: string;
+    providerId: string;
+    name: string | null;
+    purpose: string;
+    createdAt: number;
+    updatedAt: number;
+  }, Error, never>;
   remove?: (input: {
     ref: SecretRef;
     runtime: SecretMaterialProviderRuntime;
@@ -98,9 +129,19 @@ type SpawnResult = {
 };
 
 const DEFAULT_KEYCHAIN_SERVICE_NAME = "executor";
+const KEYCHAIN_COMMAND_TIMEOUT_MS = 5_000;
 const DANGEROUSLY_ALLOW_ENV_SECRETS_ENV = "DANGEROUSLY_ALLOW_ENV_SECRETS";
 const SECRET_STORE_PROVIDER_ENV = "EXECUTOR_SECRET_STORE_PROVIDER";
 const KEYCHAIN_SERVICE_NAME_ENV = "EXECUTOR_KEYCHAIN_SERVICE_NAME";
+
+type SecretMaterialSummary = {
+  id: string;
+  providerId: string;
+  name: string | null;
+  purpose: string;
+  createdAt: number;
+  updatedAt: number;
+};
 
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value === null || value === undefined) {
@@ -134,11 +175,6 @@ export const parseSecretStoreProviderId = (value: string | undefined): SecretSto
 const resolveDangerouslyAllowEnvSecrets = (value: boolean | undefined): boolean =>
   value ?? parseBooleanEnv(process.env[DANGEROUSLY_ALLOW_ENV_SECRETS_ENV]);
 
-const resolveSecretStoreProviderId = (value: SecretStoreProviderId | undefined): SecretStoreProviderId =>
-  value
-  ?? parseSecretStoreProviderId(process.env[SECRET_STORE_PROVIDER_ENV])
-  ?? LOCAL_SECRET_PROVIDER_ID;
-
 const resolveKeychainServiceName = (value: string | undefined): string =>
   trimOrNull(value)
   ?? trimOrNull(process.env[KEYCHAIN_SERVICE_NAME_ENV])
@@ -149,12 +185,38 @@ const ensureNonEmptyString = (value: string | undefined): string | null => {
   return trimmed && trimmed.length > 0 ? trimmed : null;
 };
 
+const toSecretMaterialSummary = (
+  material: Pick<SecretMaterial, "id" | "providerId" | "name" | "purpose" | "createdAt" | "updatedAt">,
+): SecretMaterialSummary => ({
+  id: material.id,
+  providerId: material.providerId,
+  name: material.name,
+  purpose: material.purpose,
+  createdAt: material.createdAt,
+  updatedAt: material.updatedAt,
+});
+
+const keychainCommandForPlatform = (
+  platform: NodeJS.Platform = process.platform,
+): string | null => {
+  if (platform === "darwin") {
+    return "security";
+  }
+
+  if (platform === "linux") {
+    return "secret-tool";
+  }
+
+  return null;
+};
+
 const runCommand = (input: {
   command: string;
   args: ReadonlyArray<string>;
   stdin?: string;
   env?: NodeJS.ProcessEnv;
   operation: string;
+  timeoutMs?: number;
 }): Effect.Effect<SpawnResult, Error, never> =>
   Effect.tryPromise({
     try: () =>
@@ -166,6 +228,22 @@ const runCommand = (input: {
 
         let stdout = "";
         let stderr = "";
+        let settled = false;
+        const timeout = input.timeoutMs === undefined
+          ? null
+          : setTimeout(() => {
+            if (settled) {
+              return;
+            }
+
+            settled = true;
+            child.kill("SIGKILL");
+            reject(
+              new Error(
+                `${input.operation}: '${input.command}' timed out after ${input.timeoutMs}ms`,
+              ),
+            );
+          }, input.timeoutMs);
 
         child.stdout.on("data", (chunk) => {
           stdout += chunk.toString("utf8");
@@ -176,10 +254,24 @@ const runCommand = (input: {
         });
 
         child.on("error", (error) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (timeout) {
+            clearTimeout(timeout);
+          }
           reject(new Error(`${input.operation}: failed spawning '${input.command}': ${error.message}`));
         });
 
         child.on("close", (code) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          if (timeout) {
+            clearTimeout(timeout);
+          }
           resolve({
             exitCode: code ?? 0,
             stdout,
@@ -215,12 +307,327 @@ const ensureCommandSuccess = (input: {
   return Effect.fail(new Error(`${input.operation}: ${input.message}: ${details}`));
 };
 
+const commandAvailabilityCache = new Map<string, Promise<boolean>>();
+
+const commandExists = (command: string): Effect.Effect<boolean, Error, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      const cached = commandAvailabilityCache.get(command);
+      if (cached) {
+        return cached;
+      }
+
+      const probe = new Promise<boolean>((resolve) => {
+        const child = spawn(command, ["--help"], {
+          stdio: "ignore",
+        });
+        const timeout = setTimeout(() => {
+          child.kill("SIGKILL");
+          resolve(false);
+        }, 2_000);
+
+        child.on("error", () => {
+          clearTimeout(timeout);
+          resolve(false);
+        });
+        child.on("close", () => {
+          clearTimeout(timeout);
+          resolve(true);
+        });
+      });
+
+      commandAvailabilityCache.set(command, probe);
+      const available = await probe;
+      if (!available) {
+        commandAvailabilityCache.delete(command);
+      }
+      return available;
+    },
+    catch: (cause) =>
+      cause instanceof Error
+        ? cause
+        : new Error(`command.exists: failed checking '${command}': ${String(cause)}`),
+  });
+
+const isKeychainProviderAvailable = (
+  platform: NodeJS.Platform = process.platform,
+): Effect.Effect<boolean, Error, never> => {
+  const command = keychainCommandForPlatform(platform);
+  return command === null ? Effect.succeed(false) : commandExists(command);
+};
+
+export const resolveDefaultSecretStoreProviderId = (input: {
+  storeProviderId?: SecretStoreProviderId;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+} = {}): Effect.Effect<SecretStoreProviderId, never, never> => {
+  const localProviderId = LOCAL_SECRET_PROVIDER_ID as SecretStoreProviderId;
+  const explicit =
+    input.storeProviderId
+    ?? parseSecretStoreProviderId((input.env ?? process.env)[SECRET_STORE_PROVIDER_ENV]);
+  if (explicit) {
+    return Effect.succeed(explicit);
+  }
+
+  if ((input.platform ?? process.platform) !== "darwin") {
+    return Effect.succeed(localProviderId);
+  }
+
+  return isKeychainProviderAvailable(input.platform).pipe(
+    Effect.map((available): SecretStoreProviderId =>
+      available ? KEYCHAIN_SECRET_PROVIDER_ID : localProviderId),
+    Effect.catchAll(() => Effect.succeed(localProviderId)),
+  ) as Effect.Effect<SecretStoreProviderId, never, never>;
+};
+
 const parseKeychainHandle = (handle: string): string | null => {
   if (!handle.startsWith(`${KEYCHAIN_SECRET_PROVIDER_ID}:`)) {
     return null;
   }
 
   return trimOrNull(handle.slice(`${KEYCHAIN_SECRET_PROVIDER_ID}:`.length));
+};
+
+const loadStoredSecretMaterial = (input: {
+  id: string;
+  runtime: SecretMaterialProviderRuntime;
+  operation: string;
+}) =>
+  Effect.gen(function* () {
+    const materialId = SecretMaterialIdSchema.make(input.id);
+    const stored = yield* input.runtime.rows.secretMaterials.getById(materialId);
+    if (Option.isNone(stored)) {
+      return yield* Effect.fail(
+        new Error(`${input.operation}: secret material not found: ${input.id}`),
+      );
+    }
+
+    return stored.value;
+  });
+
+const createSecretMaterialMetadata = (input: {
+  providerId: SecretStoreProviderId;
+  providerHandle: string;
+  purpose: SecretMaterialPurpose;
+  value: string | null;
+  name?: string | null;
+  runtime: SecretMaterialProviderRuntime;
+}) =>
+  Effect.gen(function* () {
+    const now = Date.now();
+    const id = SecretMaterialIdSchema.make(`sec_${randomUUID()}`);
+    yield* input.runtime.rows.secretMaterials.upsert({
+      id,
+      providerId: input.providerId,
+      handle: input.providerHandle,
+      name: trimOrNull(input.name),
+      purpose: input.purpose,
+      value: input.value,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return {
+      providerId: input.providerId,
+      handle: id,
+    } satisfies SecretRef;
+  });
+
+const loadManagedKeychainRef = (input: {
+  ref: SecretRef;
+  runtime: SecretMaterialProviderRuntime;
+  operation: string;
+}) =>
+  Effect.gen(function* () {
+    const legacyHandle = parseKeychainHandle(input.ref.handle);
+    if (legacyHandle !== null) {
+      return {
+        providerHandle: legacyHandle,
+        material: null,
+      };
+    }
+
+    const material = yield* loadStoredSecretMaterial({
+      id: input.ref.handle,
+      runtime: input.runtime,
+      operation: input.operation,
+    });
+    if (material.providerId !== KEYCHAIN_SECRET_PROVIDER_ID) {
+      return yield* Effect.fail(
+        new Error(
+          `${input.operation}: secret ${material.id} is stored in provider '${material.providerId}', not '${KEYCHAIN_SECRET_PROVIDER_ID}'`,
+        ),
+      );
+    }
+
+    return {
+      providerHandle: material.handle,
+      material,
+    };
+  });
+
+const readKeychainSecretValue = (input: {
+  providerHandle: string;
+  runtime: SecretMaterialProviderRuntime;
+}) => {
+  switch (process.platform) {
+    case "darwin":
+      return runCommand({
+        command: "security",
+        args: [
+          "find-generic-password",
+          "-a",
+          input.providerHandle,
+          "-s",
+          input.runtime.keychainServiceName,
+          "-w",
+        ],
+        operation: "keychain.get",
+        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
+      }).pipe(
+        Effect.flatMap((result) =>
+          ensureCommandSuccess({
+            result,
+            operation: "keychain.get",
+            message: "Failed loading secret from macOS keychain",
+          }),
+        ),
+        Effect.map((result) => result.stdout.trimEnd()),
+      );
+    case "linux":
+      return runCommand({
+        command: "secret-tool",
+        args: [
+          "lookup",
+          "service",
+          input.runtime.keychainServiceName,
+          "account",
+          input.providerHandle,
+        ],
+        operation: "keychain.get",
+        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
+      }).pipe(
+        Effect.flatMap((result) =>
+          ensureCommandSuccess({
+            result,
+            operation: "keychain.get",
+            message: "Failed loading secret from desktop keyring",
+          }),
+        ),
+        Effect.map((result) => result.stdout.trimEnd()),
+      );
+    default:
+      return Effect.fail(
+        new Error(`keychain.get: keychain provider is unsupported on platform '${process.platform}'`),
+      );
+  }
+};
+
+const writeKeychainSecretValue = (input: {
+  providerHandle: string;
+  name?: string | null;
+  value: string;
+  runtime: SecretMaterialProviderRuntime;
+}) => {
+  const secretName = trimOrNull(input.name);
+
+  switch (process.platform) {
+    case "darwin":
+      return runCommand({
+        command: "security",
+        args: [
+          "add-generic-password",
+          "-a",
+          input.providerHandle,
+          "-s",
+          input.runtime.keychainServiceName,
+          "-w",
+          input.value,
+          ...(secretName ? ["-l", secretName] : []),
+          "-U",
+        ],
+        operation: "keychain.put",
+        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
+      }).pipe(
+        Effect.flatMap((result) =>
+          ensureCommandSuccess({
+            result,
+            operation: "keychain.put",
+            message: "Failed storing secret in macOS keychain",
+          }),
+        ),
+      );
+    case "linux":
+      return runCommand({
+        command: "secret-tool",
+        args: [
+          "store",
+          "--label",
+          secretName ?? input.runtime.keychainServiceName,
+          "service",
+          input.runtime.keychainServiceName,
+          "account",
+          input.providerHandle,
+        ],
+        stdin: input.value,
+        operation: "keychain.put",
+        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
+      }).pipe(
+        Effect.flatMap((result) =>
+          ensureCommandSuccess({
+            result,
+            operation: "keychain.put",
+            message: "Failed storing secret in desktop keyring",
+          }),
+        ),
+      );
+    default:
+      return Effect.fail(
+        new Error(`keychain.put: keychain provider is unsupported on platform '${process.platform}'`),
+      );
+  }
+};
+
+const deleteKeychainSecretValue = (input: {
+  providerHandle: string;
+  runtime: SecretMaterialProviderRuntime;
+}) => {
+  switch (process.platform) {
+    case "darwin":
+      return runCommand({
+        command: "security",
+        args: [
+          "delete-generic-password",
+          "-a",
+          input.providerHandle,
+          "-s",
+          input.runtime.keychainServiceName,
+        ],
+        operation: "keychain.delete",
+        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
+      }).pipe(
+        Effect.map((result) => result.exitCode === 0),
+      );
+    case "linux":
+      return runCommand({
+        command: "secret-tool",
+        args: [
+          "clear",
+          "service",
+          input.runtime.keychainServiceName,
+          "account",
+          input.providerHandle,
+        ],
+        operation: "keychain.delete",
+        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
+      }).pipe(
+        Effect.map((result) => result.exitCode === 0),
+      );
+    default:
+      return Effect.fail(
+        new Error(`keychain.delete: keychain provider is unsupported on platform '${process.platform}'`),
+      );
+  }
 };
 
 const createParamsSecretMaterialProvider = (): SecretMaterialProvider => ({
@@ -260,32 +667,75 @@ const createEnvSecretMaterialProvider = (): SecretMaterialProvider => ({
 const createLocalSecretMaterialProvider = (): SecretMaterialProvider => ({
   resolve: ({ ref, runtime }) =>
     Effect.gen(function* () {
-      const materialId = SecretMaterialIdSchema.make(ref.handle);
-      const stored = yield* runtime.rows.secretMaterials.getById(materialId);
-      if (Option.isNone(stored)) {
-        return yield* Effect.fail(new Error(`Secret material not found: ${ref.handle}`));
+      const stored = yield* loadStoredSecretMaterial({
+        id: ref.handle,
+        runtime,
+        operation: "local.get",
+      });
+      if (stored.providerId !== LOCAL_SECRET_PROVIDER_ID) {
+        return yield* Effect.fail(
+          new Error(
+            `local.get: secret ${stored.id} is stored in provider '${stored.providerId}', not '${LOCAL_SECRET_PROVIDER_ID}'`,
+          ),
+        );
+      }
+      if (stored.value === null) {
+        return yield* Effect.fail(
+          new Error(`local.get: secret ${stored.id} does not have a local value`),
+        );
       }
 
-      return stored.value.value;
+      return stored.value;
     }),
 
   store: ({ purpose, value, name, runtime }) =>
+    createSecretMaterialMetadata({
+      providerId: LOCAL_SECRET_PROVIDER_ID,
+      providerHandle: `local:${randomUUID()}`,
+      purpose,
+      value,
+      name,
+      runtime,
+    }),
+
+  update: ({ ref, name, value, runtime }) =>
     Effect.gen(function* () {
-      const now = Date.now();
-      const id = SecretMaterialIdSchema.make(`sec_${randomUUID()}`);
-      yield* runtime.rows.secretMaterials.upsert({
-        id,
-        name: trimOrNull(name),
-        purpose,
-        value,
-        createdAt: now,
-        updatedAt: now,
+      const stored = yield* loadStoredSecretMaterial({
+        id: ref.handle,
+        runtime,
+        operation: "local.update",
       });
+      if (stored.providerId !== LOCAL_SECRET_PROVIDER_ID) {
+        return yield* Effect.fail(
+          new Error(
+            `local.update: secret ${stored.id} is stored in provider '${stored.providerId}', not '${LOCAL_SECRET_PROVIDER_ID}'`,
+          ),
+        );
+      }
+
+      if (name === undefined && value === undefined) {
+        return toSecretMaterialSummary(stored);
+      }
+
+      const updated = yield* runtime.rows.secretMaterials.updateById(
+        stored.id,
+        {
+          ...(name !== undefined ? { name } : {}),
+          ...(value !== undefined ? { value } : {}),
+        },
+      );
+      if (Option.isNone(updated)) {
+        return yield* Effect.fail(new Error(`local.update: secret material not found: ${stored.id}`));
+      }
 
       return {
-        providerId: LOCAL_SECRET_PROVIDER_ID,
-        handle: id,
-      } satisfies SecretRef;
+        id: updated.value.id,
+        providerId: updated.value.providerId,
+        name: updated.value.name,
+        purpose: updated.value.purpose,
+        createdAt: updated.value.createdAt,
+        updatedAt: updated.value.updatedAt,
+      } satisfies SecretMaterialSummary;
     }),
 
   remove: ({ ref, runtime }) =>
@@ -295,190 +745,117 @@ const createLocalSecretMaterialProvider = (): SecretMaterialProvider => ({
     }),
 });
 
-const keychainStoreWithSecurityCli = (): SecretMaterialProvider => ({
-  resolve: ({ ref, runtime }) => {
-    const id = parseKeychainHandle(ref.handle);
-    if (id === null) {
-      return Effect.fail(new Error(`Invalid keychain secret handle: ${ref.handle}`));
-    }
+const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
+  resolve: ({ ref, runtime }) =>
+    Effect.gen(function* () {
+      const loaded = yield* loadManagedKeychainRef({
+        ref,
+        runtime,
+        operation: "keychain.get",
+      });
 
-    return runCommand({
-      command: "security",
-      args: [
-        "find-generic-password",
-        "-a",
-        id,
-        "-s",
-        runtime.keychainServiceName,
-        "-w",
-      ],
-      operation: "keychain.get",
-    }).pipe(
-      Effect.flatMap((result) =>
-        ensureCommandSuccess({
-          result,
-          operation: "keychain.get",
-          message: "Failed loading secret from macOS keychain",
-        }),
-      ),
-      Effect.map((result) => result.stdout.trimEnd()),
-    );
-  },
+      return yield* readKeychainSecretValue({
+        providerHandle: loaded.providerHandle,
+        runtime,
+      });
+    }),
 
-  store: ({ name, value, runtime }) => {
-    const id = randomUUID();
-
-    return runCommand({
-      command: "security",
-      args: [
-        "add-generic-password",
-        "-a",
-        id,
-        "-s",
-        runtime.keychainServiceName,
-        "-w",
+  store: ({ purpose, value, name, runtime }) =>
+    Effect.gen(function* () {
+      const providerHandle = randomUUID();
+      yield* writeKeychainSecretValue({
+        providerHandle,
+        name,
         value,
-        ...(trimOrNull(name) ? ["-l", trimOrNull(name)!] : []),
-        "-U",
-      ],
-      operation: "keychain.put",
-    }).pipe(
-      Effect.flatMap((result) =>
-        ensureCommandSuccess({
-          result,
-          operation: "keychain.put",
-          message: "Failed storing secret in macOS keychain",
-        }),
-      ),
-      Effect.as({
+        runtime,
+      });
+
+      return yield* createSecretMaterialMetadata({
         providerId: KEYCHAIN_SECRET_PROVIDER_ID,
-        handle: `${KEYCHAIN_SECRET_PROVIDER_ID}:${id}`,
-      } satisfies SecretRef),
-    );
-  },
+        providerHandle,
+        purpose,
+        value: null,
+        name,
+        runtime,
+      });
+    }),
 
-  remove: ({ ref, runtime }) => {
-    const id = parseKeychainHandle(ref.handle);
-    if (id === null) {
-      return Effect.fail(new Error(`Invalid keychain secret handle: ${ref.handle}`));
-    }
+  update: ({ ref, name, value, runtime }) =>
+    Effect.gen(function* () {
+      const loaded = yield* loadManagedKeychainRef({
+        ref,
+        runtime,
+        operation: "keychain.update",
+      });
+      if (loaded.material === null) {
+        return yield* Effect.fail(
+          new Error(`keychain.update: legacy keychain refs cannot be updated: ${ref.handle}`),
+        );
+      }
 
-    return runCommand({
-      command: "security",
-      args: [
-        "delete-generic-password",
-        "-a",
-        id,
-        "-s",
-        runtime.keychainServiceName,
-      ],
-      operation: "keychain.delete",
-    }).pipe(
-      Effect.map((result) => result.exitCode === 0),
-    );
-  },
+      if (name === undefined && value === undefined) {
+        return toSecretMaterialSummary(loaded.material);
+      }
+
+      const nextName = name ?? loaded.material.name;
+      const nextValue = value
+        ?? (yield* readKeychainSecretValue({
+          providerHandle: loaded.providerHandle,
+          runtime,
+        }));
+
+      yield* writeKeychainSecretValue({
+        providerHandle: loaded.providerHandle,
+        name: nextName,
+        value: nextValue,
+        runtime,
+      });
+
+      const updated = yield* runtime.rows.secretMaterials.updateById(
+        loaded.material.id,
+        {
+          name: nextName,
+        },
+      );
+      if (Option.isNone(updated)) {
+        return yield* Effect.fail(
+          new Error(`keychain.update: secret material not found: ${loaded.material.id}`),
+        );
+      }
+
+      return {
+        id: updated.value.id,
+        providerId: updated.value.providerId,
+        name: updated.value.name,
+        purpose: updated.value.purpose,
+        createdAt: updated.value.createdAt,
+        updatedAt: updated.value.updatedAt,
+      } satisfies SecretMaterialSummary;
+    }),
+
+  remove: ({ ref, runtime }) =>
+    Effect.gen(function* () {
+      const loaded = yield* loadManagedKeychainRef({
+        ref,
+        runtime,
+        operation: "keychain.delete",
+      });
+      const deleted = yield* deleteKeychainSecretValue({
+        providerHandle: loaded.providerHandle,
+        runtime,
+      });
+
+      if (loaded.material === null) {
+        return deleted;
+      }
+
+      if (!deleted) {
+        return false;
+      }
+
+      return yield* runtime.rows.secretMaterials.removeById(loaded.material.id);
+    }),
 });
-
-const keychainStoreWithSecretTool = (): SecretMaterialProvider => ({
-  resolve: ({ ref, runtime }) => {
-    const id = parseKeychainHandle(ref.handle);
-    if (id === null) {
-      return Effect.fail(new Error(`Invalid keychain secret handle: ${ref.handle}`));
-    }
-
-    return runCommand({
-      command: "secret-tool",
-      args: [
-        "lookup",
-        "service",
-        runtime.keychainServiceName,
-        "account",
-        id,
-      ],
-      operation: "keychain.get",
-    }).pipe(
-      Effect.flatMap((result) =>
-        ensureCommandSuccess({
-          result,
-          operation: "keychain.get",
-          message: "Failed loading secret from desktop keyring",
-        }),
-      ),
-      Effect.map((result) => result.stdout.trimEnd()),
-    );
-  },
-
-  store: ({ name, value, runtime }) => {
-    const id = randomUUID();
-
-    return runCommand({
-      command: "secret-tool",
-      args: [
-        "store",
-        "--label",
-        trimOrNull(name) ?? runtime.keychainServiceName,
-        "service",
-        runtime.keychainServiceName,
-        "account",
-        id,
-      ],
-      stdin: value,
-      operation: "keychain.put",
-    }).pipe(
-      Effect.flatMap((result) =>
-        ensureCommandSuccess({
-          result,
-          operation: "keychain.put",
-          message: "Failed storing secret in desktop keyring",
-        }),
-      ),
-      Effect.as({
-        providerId: KEYCHAIN_SECRET_PROVIDER_ID,
-        handle: `${KEYCHAIN_SECRET_PROVIDER_ID}:${id}`,
-      } satisfies SecretRef),
-    );
-  },
-
-  remove: ({ ref, runtime }) => {
-    const id = parseKeychainHandle(ref.handle);
-    if (id === null) {
-      return Effect.fail(new Error(`Invalid keychain secret handle: ${ref.handle}`));
-    }
-
-    return runCommand({
-      command: "secret-tool",
-      args: [
-        "clear",
-        "service",
-        runtime.keychainServiceName,
-        "account",
-        id,
-      ],
-      operation: "keychain.delete",
-    }).pipe(
-      Effect.map((result) => result.exitCode === 0),
-    );
-  },
-});
-
-const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => {
-  if (process.platform === "darwin") {
-    return keychainStoreWithSecurityCli();
-  }
-
-  if (process.platform === "linux") {
-    return keychainStoreWithSecretTool();
-  }
-
-  const unsupported = (operation: string) =>
-    Effect.fail(new Error(`${operation}: keychain provider is unsupported on platform '${process.platform}'`));
-
-  return {
-    resolve: () => unsupported("keychain.get"),
-    store: () => unsupported("keychain.put"),
-    remove: () => Effect.succeed(false),
-  } satisfies SecretMaterialProvider;
-};
 
 const createSecretMaterialProviderRegistry = (): SecretMaterialProviderRegistry =>
   new Map([
@@ -707,10 +1084,13 @@ export const createDefaultSecretMaterialStorer = (input: {
 }): StoreSecretMaterial => {
   const providers = createSecretMaterialProviderRegistry();
   const runtime = createSecretMaterialProviderRuntime(input);
-  const defaultStoreProviderId = resolveSecretStoreProviderId(input.storeProviderId);
 
   return ({ purpose, value, name }) =>
     Effect.gen(function* () {
+      const defaultStoreProviderId = yield* resolveDefaultSecretStoreProviderId({
+        storeProviderId: input.storeProviderId,
+        env: runtime.env,
+      });
       const provider = yield* getSecretMaterialProvider({
         providers,
         providerId: defaultStoreProviderId,
@@ -726,6 +1106,36 @@ export const createDefaultSecretMaterialStorer = (input: {
         purpose,
         value,
         name,
+        runtime,
+      });
+    });
+};
+
+export const createDefaultSecretMaterialUpdater = (input: {
+  rows: ControlPlaneStoreShape;
+  dangerouslyAllowEnvSecrets?: boolean;
+  keychainServiceName?: string;
+}): UpdateSecretMaterial => {
+  const providers = createSecretMaterialProviderRegistry();
+  const runtime = createSecretMaterialProviderRuntime(input);
+
+  return ({ ref, name, value }) =>
+    Effect.gen(function* () {
+      const provider = yield* getSecretMaterialProvider({
+        providers,
+        providerId: ref.providerId,
+      });
+
+      if (!provider.update) {
+        return yield* Effect.fail(
+          new Error(`Secret provider ${ref.providerId} does not support updating secret material`),
+        );
+      }
+
+      return yield* provider.update({
+        ref,
+        name,
+        value,
         runtime,
       });
     });
@@ -835,6 +1245,23 @@ export const SecretMaterialDeleterLive = (input: {
     }),
   );
 
+export const SecretMaterialUpdaterLive = (input: {
+  dangerouslyAllowEnvSecrets?: boolean;
+  keychainServiceName?: string;
+} = {}) =>
+  Layer.effect(
+    SecretMaterialUpdaterService,
+    Effect.gen(function* () {
+      const rows = yield* ControlPlaneStore;
+
+      return createDefaultSecretMaterialUpdater({
+        rows,
+        dangerouslyAllowEnvSecrets: input.dangerouslyAllowEnvSecrets,
+        keychainServiceName: input.keychainServiceName,
+      });
+    }),
+  );
+
 export const SecretMaterialLive = (input: {
   resolveSecretMaterial?: ResolveSecretMaterial;
   storeProviderId?: SecretStoreProviderId;
@@ -847,4 +1274,5 @@ export const SecretMaterialLive = (input: {
     SecretMaterialResolverLive(input),
     SecretMaterialStorerLive(input),
     SecretMaterialDeleterLive(input),
+    SecretMaterialUpdaterLive(input),
   );

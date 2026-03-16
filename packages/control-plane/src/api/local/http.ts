@@ -3,7 +3,6 @@ import {
 } from "@effect/platform";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { randomUUID } from "node:crypto";
 
 import { SecretMaterialIdSchema } from "#schema";
 import {
@@ -11,10 +10,14 @@ import {
 } from "../../runtime/local-operations";
 import { requireRuntimeLocalWorkspace } from "../../runtime/local-runtime-context";
 import {
+  createDefaultSecretMaterialDeleter,
+  createDefaultSecretMaterialStorer,
+  createDefaultSecretMaterialUpdater,
   ENV_SECRET_PROVIDER_ID,
   KEYCHAIN_SECRET_PROVIDER_ID,
   LOCAL_SECRET_PROVIDER_ID,
   parseSecretStoreProviderId,
+  resolveDefaultSecretStoreProviderId,
 } from "../../runtime/secret-material-providers";
 import { RuntimeSourceStoreService } from "../../runtime/source-store";
 import { ControlPlaneStore } from "../../runtime/store";
@@ -35,6 +38,8 @@ import {
 const SECRET_STORE_PROVIDER_ENV = "EXECUTOR_SECRET_STORE_PROVIDER";
 
 const getInstanceConfig = (): Effect.Effect<InstanceConfig> => {
+  const explicitDefaultStoreProvider =
+    parseSecretStoreProviderId(process.env[SECRET_STORE_PROVIDER_ENV]);
   const providers: SecretProvider[] = [
     {
       id: LOCAL_SECRET_PROVIDER_ID,
@@ -47,7 +52,9 @@ const getInstanceConfig = (): Effect.Effect<InstanceConfig> => {
     providers.push({
       id: KEYCHAIN_SECRET_PROVIDER_ID,
       name: process.platform === "darwin" ? "macOS Keychain" : "Desktop Keyring",
-      canStore: true,
+      canStore:
+        process.platform === "darwin"
+        || explicitDefaultStoreProvider === KEYCHAIN_SECRET_PROVIDER_ID,
     });
   }
 
@@ -57,15 +64,15 @@ const getInstanceConfig = (): Effect.Effect<InstanceConfig> => {
     canStore: false,
   });
 
-  const defaultStoreProvider =
-    parseSecretStoreProviderId(process.env[SECRET_STORE_PROVIDER_ENV])
-    ?? LOCAL_SECRET_PROVIDER_ID;
-
-  return Effect.succeed({
-    platform: process.platform,
-    secretProviders: providers,
-    defaultSecretStoreProvider: defaultStoreProvider,
-  });
+  return resolveDefaultSecretStoreProviderId({
+    storeProviderId: explicitDefaultStoreProvider ?? undefined,
+  }).pipe(
+    Effect.map((resolvedDefaultStoreProvider) => ({
+      platform: process.platform,
+      secretProviders: providers,
+      defaultSecretStoreProvider: resolvedDefaultStoreProvider,
+    })),
+  );
 };
 
 const storageError = (message: string) =>
@@ -105,16 +112,19 @@ export const ControlPlaneLocalLive = HttpApiBuilder.group(
               Effect.mapError(() => storageError("Failed loading linked sources.")),
             );
             return rows.map((row) => ({
-            ...row,
-            linkedSources: linkedSourcesMap.get(row.id) ?? [],
-          }));
-        }),
+              ...row,
+              linkedSources: linkedSourcesMap.get(row.id) ?? [],
+            }));
+          }),
       )
       .handle("createSecret", ({ payload }) =>
         Effect.gen(function* () {
           const name = payload.name.trim();
           const value = payload.value;
           const purpose = payload.purpose ?? "auth_material";
+          const requestedProviderId = payload.providerId === undefined
+            ? null
+            : parseSecretStoreProviderId(payload.providerId);
 
           if (name.length === 0) {
             return yield* Effect.fail(
@@ -125,29 +135,46 @@ export const ControlPlaneLocalLive = HttpApiBuilder.group(
               }),
             );
           }
+          if (payload.providerId !== undefined && requestedProviderId === null) {
+            return yield* Effect.fail(
+              new ControlPlaneBadRequestError({
+                operation: "secrets.create",
+                message: `Unsupported secret provider: ${payload.providerId}`,
+                details: `Unsupported secret provider: ${payload.providerId}`,
+              }),
+            );
+          }
 
           const store = yield* ControlPlaneStore;
-          const now = Date.now();
-          const id = SecretMaterialIdSchema.make(`sec_${randomUUID()}`);
-
-          yield* store.secretMaterials.upsert({
-            id,
+          const storeSecretMaterial = createDefaultSecretMaterialStorer({
+            rows: store,
+            ...(requestedProviderId ? { storeProviderId: requestedProviderId } : {}),
+          });
+          const ref = yield* storeSecretMaterial({
             name,
             purpose,
             value,
-            createdAt: now,
-            updatedAt: now,
           }).pipe(
-            Effect.mapError(() => storageError("Failed creating secret.")),
+            Effect.mapError((cause) => storageError(
+              cause instanceof Error ? cause.message : "Failed creating secret.",
+            )),
+          );
+          const secretId = SecretMaterialIdSchema.make(ref.handle);
+          const created = yield* store.secretMaterials.getById(secretId).pipe(
+            Effect.mapError(() => storageError("Failed loading created secret.")),
           );
 
+          if (Option.isNone(created)) {
+            return yield* Effect.fail(storageError(`Created secret not found: ${ref.handle}`));
+          }
+
           return {
-            id,
-            name,
-            providerId: LOCAL_SECRET_PROVIDER_ID,
-            purpose,
-            createdAt: now,
-            updatedAt: now,
+            id: created.value.id,
+            name: created.value.name,
+            providerId: created.value.providerId,
+            purpose: created.value.purpose,
+            createdAt: created.value.createdAt,
+            updatedAt: created.value.updatedAt,
           } satisfies CreateSecretResult;
         }),
       )
@@ -174,26 +201,26 @@ export const ControlPlaneLocalLive = HttpApiBuilder.group(
           if (payload.name !== undefined) update.name = payload.name.trim() || null;
           if (payload.value !== undefined) update.value = payload.value;
 
-          const updated = yield* store.secretMaterials.updateById(secretId, update).pipe(
+          const updateSecretMaterial = createDefaultSecretMaterialUpdater({
+            rows: store,
+          });
+          const updated = yield* updateSecretMaterial({
+            ref: {
+              providerId: existing.value.providerId,
+              handle: existing.value.id,
+            },
+            ...update,
+          }).pipe(
             Effect.mapError(() => storageError("Failed updating secret.")),
           );
 
-          if (Option.isNone(updated)) {
-            return yield* Effect.fail(
-              new ControlPlaneNotFoundError({
-                operation: "secrets.update",
-                message: `Secret not found after update: ${path.secretId}`,
-                details: `Secret not found after update: ${path.secretId}`,
-              }),
-            );
-          }
-
           return {
-            id: updated.value.id,
-            name: updated.value.name,
-            purpose: updated.value.purpose,
-            createdAt: updated.value.createdAt,
-            updatedAt: updated.value.updatedAt,
+            id: updated.id,
+            providerId: updated.providerId,
+            name: updated.name,
+            purpose: updated.purpose,
+            createdAt: updated.createdAt,
+            updatedAt: updated.updatedAt,
           } satisfies UpdateSecretResult;
         }),
       )
@@ -202,11 +229,11 @@ export const ControlPlaneLocalLive = HttpApiBuilder.group(
           const secretId = SecretMaterialIdSchema.make(path.secretId);
           const store = yield* ControlPlaneStore;
 
-          const removed = yield* store.secretMaterials.removeById(secretId).pipe(
-            Effect.mapError(() => storageError("Failed removing secret.")),
+          const existing = yield* store.secretMaterials.getById(secretId).pipe(
+            Effect.mapError(() => storageError("Failed looking up secret.")),
           );
 
-          if (!removed) {
+          if (Option.isNone(existing)) {
             return yield* Effect.fail(
               new ControlPlaneNotFoundError({
                 operation: "secrets.delete",
@@ -214,6 +241,20 @@ export const ControlPlaneLocalLive = HttpApiBuilder.group(
                 details: `Secret not found: ${path.secretId}`,
               }),
             );
+          }
+
+          const deleteSecretMaterial = createDefaultSecretMaterialDeleter({
+            rows: store,
+          });
+          const removed = yield* deleteSecretMaterial({
+            providerId: existing.value.providerId,
+            handle: existing.value.id,
+          }).pipe(
+            Effect.mapError(() => storageError("Failed removing secret.")),
+          );
+
+          if (!removed) {
+            return yield* Effect.fail(storageError(`Failed removing secret: ${path.secretId}`));
           }
 
           return { removed: true };

@@ -14,6 +14,7 @@ import type {
 
 type SecretMaterialSummary = {
   id: string;
+  providerId: string;
   name: string | null;
   purpose: string;
   createdAt: number;

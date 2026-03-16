@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   type CompleteSourceOAuthResult,
@@ -1012,6 +1012,7 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
               {formState.authKind === "bearer" && (
                 <Field label="Token" className="sm:col-span-2">
                   <SecretPicker
+                    instanceConfig={instanceConfig}
                     secrets={secrets}
                     providerId={formState.bearerProviderId}
                     handle={formState.bearerHandle}
@@ -1030,6 +1031,7 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
                 <>
                   <Field label="Access token" className="sm:col-span-2">
                     <SecretPicker
+                      instanceConfig={instanceConfig}
                       secrets={secrets}
                       providerId={formState.oauthAccessProviderId}
                       handle={formState.oauthAccessHandle}
@@ -1041,6 +1043,7 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
                   </Field>
                   <Field label="Refresh token (optional)" className="sm:col-span-2">
                     <SecretPicker
+                      instanceConfig={instanceConfig}
                       secrets={secrets}
                       providerId={formState.oauthRefreshProviderId}
                       handle={formState.oauthRefreshHandle}
@@ -1218,18 +1221,33 @@ function StatusBanner(props: { state: StatusBannerState; className?: string }) {
 const CREATE_NEW_VALUE = "__create_new__";
 
 function SecretPicker(props: {
+  instanceConfig: Loadable<InstanceConfig>;
   secrets: Loadable<ReadonlyArray<SecretListItem>>;
   providerId: string;
   handle: string;
   onSelect: (providerId: string, handle: string) => void;
   allowEmpty?: boolean;
 }) {
-  const { secrets, providerId, handle, onSelect, allowEmpty } = props;
+  const { instanceConfig, secrets, providerId, handle, onSelect, allowEmpty } = props;
   const createSecret = useCreateSecret();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
+  const [newProviderId, setNewProviderId] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const storableProviders =
+    instanceConfig.status === "ready"
+      ? instanceConfig.data.secretProviders.filter((provider) => provider.canStore)
+      : [];
+
+  useEffect(() => {
+    if (newProviderId.length > 0) {
+      return;
+    }
+    if (instanceConfig.status === "ready") {
+      setNewProviderId(instanceConfig.data.defaultSecretStoreProvider);
+    }
+  }, [instanceConfig, newProviderId]);
 
   // Build the selected value key: if handle is set, use it (it's the secret ID)
   const selectedValue = handle || "";
@@ -1239,6 +1257,11 @@ function SecretPicker(props: {
       setShowCreate(true);
       setNewName("");
       setNewValue("");
+      setNewProviderId(
+        instanceConfig.status === "ready"
+          ? instanceConfig.data.defaultSecretStoreProvider
+          : "",
+      );
       setCreateError(null);
       return;
     }
@@ -1246,8 +1269,10 @@ function SecretPicker(props: {
       onSelect("", "");
       return;
     }
-    // Selecting an existing secret: providerId is always "postgres"
-    onSelect("postgres", value);
+    const matchedSecret = secrets.status === "ready"
+      ? secrets.data.find((secret) => secret.id === value)
+      : null;
+    onSelect(matchedSecret?.providerId ?? "local", value);
   };
 
   const handleCreate = async () => {
@@ -1263,7 +1288,11 @@ function SecretPicker(props: {
     }
 
     try {
-      const result = await createSecret.mutateAsync({ name: trimmedName, value: newValue });
+      const result = await createSecret.mutateAsync({
+        name: trimmedName,
+        value: newValue,
+        ...(newProviderId ? { providerId: newProviderId } : {}),
+      });
       onSelect(result.providerId, result.id);
       setShowCreate(false);
     } catch (err) {
@@ -1286,7 +1315,7 @@ function SecretPicker(props: {
 
   // Check if the current handle matches a known secret
   const matchedSecret = items.find((s) => s.id === handle);
-  const isExternalRef = handle && !matchedSecret && providerId !== "postgres";
+  const isExternalRef = handle && !matchedSecret && providerId !== "local";
 
   return (
     <div className="space-y-2">
@@ -1299,7 +1328,7 @@ function SecretPicker(props: {
         {!allowEmpty && !selectedValue && <option value="">Select a secret…</option>}
         {items.map((secret) => (
           <option key={secret.id} value={secret.id}>
-            {secret.name || secret.id}
+            {secret.name || secret.id} ({secret.providerId})
           </option>
         ))}
         {isExternalRef && (
@@ -1337,6 +1366,20 @@ function SecretPicker(props: {
                 placeholder="ghp_..."
                 className="h-8 w-full rounded-lg border border-input bg-background px-3 font-mono text-[11px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
               />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-muted-foreground">Store in</span>
+              <select
+                value={newProviderId}
+                onChange={(e) => setNewProviderId(e.target.value)}
+                className="h-8 w-full rounded-lg border border-input bg-background px-3 text-[12px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+              >
+                {storableProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <div className="flex items-center justify-end gap-2">

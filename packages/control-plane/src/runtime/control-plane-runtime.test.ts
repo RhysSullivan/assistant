@@ -197,6 +197,94 @@ describe("control-plane-runtime", () => {
     60_000,
   );
 
+  it.scoped("manages local secrets through provider-backed metadata rows", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makeRuntime;
+
+      const created = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.local.createSecret({
+            payload: {
+              name: "GitHub PAT",
+              value: "ghp_test_token",
+              providerId: "local",
+            },
+          }),
+      );
+
+      expect(created.providerId).toBe("local");
+
+      const listed = yield* withControlPlaneClient(
+        { runtime },
+        (client) => client.local.listSecrets({}),
+      );
+      expect(listed).toEqual([
+        expect.objectContaining({
+          id: created.id,
+          providerId: "local",
+          name: "GitHub PAT",
+        }),
+      ]);
+
+      const updated = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.local.updateSecret({
+            path: { secretId: created.id },
+            payload: {
+              name: "GitHub PAT Updated",
+              value: "ghp_test_token_v2",
+            },
+          }),
+      );
+      expect(updated.providerId).toBe("local");
+      expect(updated.name).toBe("GitHub PAT Updated");
+
+      const storedSecret = yield* runtime.persistence.rows.secretMaterials.getById(
+        SecretMaterialIdSchema.make(created.id),
+      );
+      assertTrue(Option.isSome(storedSecret));
+      expect(storedSecret.value.providerId).toBe("local");
+      expect(storedSecret.value.value).toBe("ghp_test_token_v2");
+
+      const removed = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.local.deleteSecret({
+            path: { secretId: created.id },
+          }),
+      );
+      expect(removed.removed).toBe(true);
+    }),
+  );
+
+  it.scoped("reports safe secret storage options for the current platform", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makeRuntime;
+
+      const config = yield* withControlPlaneClient(
+        { runtime },
+        (client) => client.local.config({}),
+      );
+
+      const keychainProvider =
+        config.secretProviders.find((provider) => provider.id === "keychain") ?? null;
+
+      if (process.platform === "linux") {
+        expect(config.defaultSecretStoreProvider).toBe("local");
+        expect(keychainProvider?.canStore).toBe(false);
+        return;
+      }
+
+      if (process.platform === "darwin") {
+        expect(keychainProvider?.canStore).toBe(true);
+        return;
+      }
+
+      expect(keychainProvider).toBeNull();
+    }),
+  );
 
   it.scoped("captures credential requests through the local HTML flow without persisting raw tokens", () =>
     Effect.gen(function* () {
