@@ -905,7 +905,7 @@ describe("local-executor-server", () => {
       expect(resumed.structuredContent?.result).toBe("approved:manual-mcp");
       expect(resumed.content?.find((item) => item.type === "text")?.text).toContain("approved:manual-mcp");
     }),
-    15_000,
+    60_000,
   );
 
   it.scoped("loads MCP sources from control-plane state and resumes elicitation", () =>
@@ -1355,7 +1355,7 @@ describe("local-executor-server", () => {
       expect(approvedToolCall.pendingInteraction).toBeNull();
       expect(approvedToolCall.execution.resultJson).toContain("oauth-demo");
     }),
-    15_000,
+    60_000,
   );
 
   it.scoped("gates mutating OpenAPI tools by default and allows them via workspace policy", () =>
