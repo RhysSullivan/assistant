@@ -16,5 +16,6 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "bun-types": "catalog:"
-  }
+  },
+  "version": null
 }

@@ -22,5 +22,6 @@
     "bun-types": "catalog:",
     "vitest": "catalog:",
     "zod": "catalog:"
-  }
+  },
+  "version": null
 }

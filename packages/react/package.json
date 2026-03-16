@@ -31,5 +31,6 @@
     "jsdom": "^26.1.0",
     "react-dom": "^19.2.0",
     "vitest": "catalog:"
-  }
+  },
+  "version": null
 }
