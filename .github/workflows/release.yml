@@ -1,5 +1,5 @@
 name: Release
-run-name: "${{ format('release {0}', github.ref_name) }}"
+run-name: "prepare release"
 
 on:
   push:
@@ -7,7 +7,9 @@ on:
       - main
 
 permissions:
+  actions: write
   contents: write
+  id-token: write
   pull-requests: write
 
 concurrency:
@@ -83,3 +85,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "$tag"
           git push origin "$tag"
+
+      - name: Trigger publish workflow
+        if: steps.changesets.outputs.hasChangesets == 'false' && steps.detect_release.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.detect_release.outputs.version }}"
+          gh workflow run publish-executor-package.yml --ref main -f tag="$tag"

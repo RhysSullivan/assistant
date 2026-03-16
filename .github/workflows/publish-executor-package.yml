@@ -1,10 +1,16 @@
 name: Publish Executor
-run-name: "${{ format('publish executor {0}', github.ref_name) }}"
+run-name: "${{ format('publish executor {0}', github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name) }}"
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -23,6 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -50,7 +57,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
+          export GITHUB_REF_TYPE=tag
+          export GITHUB_REF_NAME="$RELEASE_TAG"
+          export GITHUB_REF="refs/tags/$RELEASE_TAG"
           if [ -n "${NPM_TOKEN:-}" ]; then
             export NODE_AUTH_TOKEN="$NPM_TOKEN"
           fi
