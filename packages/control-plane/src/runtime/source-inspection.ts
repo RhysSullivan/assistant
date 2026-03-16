@@ -1,4 +1,5 @@
 import type {
+  Source,
   SourceId,
   SourceInspection,
   SourceInspectionDiscoverPayload,
@@ -16,6 +17,7 @@ import {
 import * as Effect from "effect/Effect";
 
 import { joinTypeNameSegments } from "./catalog-typescript";
+import { LocalSourceArtifactMissingError } from "./local-errors";
 import { operationErrors } from "./operation-errors";
 import { formatWithPrettier } from "./prettier-format";
 import {
@@ -24,6 +26,7 @@ import {
   loadSourceWithCatalog,
   type LoadedSourceCatalogTool,
 } from "./source-catalog-runtime";
+import { RuntimeSourceStoreService } from "./source-store";
 
 const sourceInspectOps = {
   bundle: operationErrors("sources.inspect.bundle"),
@@ -80,6 +83,57 @@ const formatInspectionToolDetail = (detail: SourceInspectionToolDetail) =>
       ...detailFields,
     } satisfies SourceInspectionToolDetail;
   });
+
+const canInspectSourceWithoutCatalog = (source: Source): boolean =>
+  source.status === "draft"
+  || source.status === "probing"
+  || source.status === "auth_required";
+
+const loadSourceForMissingCatalog = (input: {
+  workspaceId: WorkspaceId;
+  sourceId: SourceId;
+  cause: LocalSourceArtifactMissingError;
+}) =>
+  Effect.gen(function* () {
+    const sourceStore = yield* RuntimeSourceStoreService;
+    const source = yield* sourceStore.loadSourceById({
+      workspaceId: input.workspaceId,
+      sourceId: input.sourceId,
+    });
+
+    if (!canInspectSourceWithoutCatalog(source)) {
+      return yield* Effect.fail(input.cause);
+    }
+
+    return source;
+  });
+
+const loadSourceCatalogOrEmpty = (input: {
+  workspaceId: WorkspaceId;
+  sourceId: SourceId;
+}) =>
+  loadSourceWithCatalog({
+    workspaceId: input.workspaceId,
+    sourceId: input.sourceId,
+  }).pipe(
+    Effect.map((catalogEntry) => ({
+      kind: "catalog" as const,
+      catalogEntry,
+    })),
+    Effect.catchTag("LocalSourceArtifactMissingError", (cause) =>
+      Effect.gen(function* () {
+        const source = yield* loadSourceForMissingCatalog({
+          workspaceId: input.workspaceId,
+          sourceId: input.sourceId,
+          cause,
+        });
+
+        return {
+          kind: "empty" as const,
+          source,
+        };
+      })),
+  );
 
 const executableDetails = (tool: LoadedSourceCatalogTool) => {
   switch (tool.executable.protocol) {
@@ -203,18 +257,28 @@ const resolveSourceInspection = (input: {
   includeSchemas: boolean;
 }) =>
   Effect.gen(function* () {
-    const catalogEntry = yield* loadSourceWithCatalog({
+    const loaded = yield* loadSourceCatalogOrEmpty({
       workspaceId: input.workspaceId,
       sourceId: input.sourceId,
     });
+
+    if (loaded.kind === "empty") {
+      return {
+        source: loaded.source,
+        namespace: loaded.source.namespace ?? "",
+        pipelineKind: "ir" as const,
+        tools: [],
+      };
+    }
+
     const tools = yield* expandCatalogTools({
-      catalogs: [catalogEntry],
+      catalogs: [loaded.catalogEntry],
       includeSchemas: input.includeSchemas,
     });
 
     return {
-      source: catalogEntry.source,
-      namespace: catalogEntry.source.namespace ?? "",
+      source: loaded.catalogEntry.source,
+      namespace: loaded.catalogEntry.source.namespace ?? "",
       pipelineKind: "ir" as const,
       tools,
     };
@@ -226,19 +290,29 @@ const resolveSourceInspectionTool = (input: {
   toolPath: string;
 }) =>
   Effect.gen(function* () {
-    const catalogEntry = yield* loadSourceWithCatalog({
+    const loaded = yield* loadSourceCatalogOrEmpty({
       workspaceId: input.workspaceId,
       sourceId: input.sourceId,
     });
+
+    if (loaded.kind === "empty") {
+      return {
+        source: loaded.source,
+        namespace: loaded.source.namespace ?? "",
+        pipelineKind: "ir" as const,
+        tool: null,
+      };
+    }
+
     const tool = yield* expandCatalogToolByPath({
-      catalogs: [catalogEntry],
+      catalogs: [loaded.catalogEntry],
       path: input.toolPath,
       includeSchemas: true,
     });
 
     return {
-      source: catalogEntry.source,
-      namespace: catalogEntry.source.namespace ?? "",
+      source: loaded.catalogEntry.source,
+      namespace: loaded.catalogEntry.source.namespace ?? "",
       pipelineKind: "ir" as const,
       tool,
     };
