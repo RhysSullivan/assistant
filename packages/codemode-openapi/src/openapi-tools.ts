@@ -23,6 +23,7 @@ import {
   type OpenApiToolDefinition,
 } from "./openapi-definitions";
 import {
+  httpBodyModeFromContentType,
   serializeOpenApiParameterValue,
   serializeOpenApiRequestBody,
   withSerializedQueryEntries,
@@ -216,10 +217,22 @@ const decodeHttpClientResponseBody = (
     ? Value
     : never,
 ): Effect.Effect<unknown, Error, never> => {
-  const contentType = response.headers["content-type"]?.toLowerCase() ?? "";
+  if (response.status === 204) {
+    return Effect.succeed(null);
+  }
 
-  if (contentType.includes("application/json")) {
+  const bodyMode = httpBodyModeFromContentType(response.headers["content-type"]);
+  if (bodyMode === "json") {
     return response.json.pipe(
+      Effect.mapError((cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      ),
+    );
+  }
+
+  if (bodyMode === "bytes") {
+    return response.arrayBuffer.pipe(
+      Effect.map((buffer) => new Uint8Array(buffer)),
       Effect.mapError((cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
       ),
@@ -320,7 +333,7 @@ const buildFetchRequest = (input: {
   url: string;
   method: string;
   headers: Record<string, string>;
-  body?: string;
+  body?: string | Uint8Array;
 } => {
   const resolvedPath = replacePathTemplate(
     input.payload.pathTemplate,
@@ -371,7 +384,7 @@ const buildFetchRequest = (input: {
     headers.cookie = cookieParts.join("; ");
   }
 
-  let body: string | undefined;
+  let body: string | Uint8Array | undefined;
   const bodyValues = input.credentialPlacements.bodyValues ?? {};
   const hasCredentialBodyValues = Object.keys(bodyValues).length > 0;
 
@@ -394,7 +407,7 @@ const buildFetchRequest = (input: {
         }),
       });
 
-      body = serializedBody.bodyText;
+      body = serializedBody.body;
       headers["content-type"] = serializedBody.contentType;
     }
   }
@@ -490,11 +503,18 @@ export const createOpenApiToolFromDefinition = (
             });
 
             if (request.body !== undefined) {
-              clientRequest = HttpClientRequest.bodyText(
-                clientRequest,
-                request.body,
-                request.headers["content-type"],
-              );
+              clientRequest =
+                request.body instanceof Uint8Array
+                  ? HttpClientRequest.bodyUint8Array(
+                      clientRequest,
+                      request.body,
+                      request.headers["content-type"],
+                    )
+                  : HttpClientRequest.bodyText(
+                      clientRequest,
+                      request.body,
+                      request.headers["content-type"],
+                    );
             }
 
             const response = yield* client.execute(clientRequest).pipe(

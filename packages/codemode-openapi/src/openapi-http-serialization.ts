@@ -18,6 +18,13 @@ export type OpenApiSerializableRequestBody = {
   contents?: ReadonlyArray<OpenApiSerializableContent>;
 };
 
+export type HttpBodyDecodingMode = "json" | "text" | "bytes";
+
+export type SerializedOpenApiRequestBody = {
+  contentType: string;
+  body: string | Uint8Array;
+};
+
 export type SerializedOpenApiQueryEntry = {
   name: string;
   value: string;
@@ -44,6 +51,15 @@ export type SerializedOpenApiParameterValue =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+const textEncoder = new TextEncoder();
+
+const normalizeMediaType = (value: string | undefined | null): string =>
+  (value ?? "")
+    .split(";", 1)[0]
+    ?.trim()
+    .toLowerCase()
+    ?? "";
+
 const primitiveString = (value: unknown): string => {
   if (typeof value === "string") {
     return value;
@@ -66,6 +82,56 @@ const primitiveString = (value: unknown): string => {
   } catch {
     return String(value);
   }
+};
+
+export const isJsonMediaType = (mediaType: string | undefined | null): boolean => {
+  const normalized = normalizeMediaType(mediaType);
+  return normalized === "application/json"
+    || normalized.endsWith("+json")
+    || normalized.includes("json");
+};
+
+export const isTextMediaType = (mediaType: string | undefined | null): boolean => {
+  const normalized = normalizeMediaType(mediaType);
+  if (normalized.length === 0) {
+    return false;
+  }
+
+  return normalized.startsWith("text/")
+    || normalized === "application/xml"
+    || normalized.endsWith("+xml")
+    || normalized.endsWith("/xml")
+    || normalized === "application/x-www-form-urlencoded"
+    || normalized === "application/javascript"
+    || normalized === "application/ecmascript"
+    || normalized === "application/graphql"
+    || normalized === "application/sql"
+    || normalized === "application/x-yaml"
+    || normalized === "application/yaml"
+    || normalized === "application/toml"
+    || normalized === "application/csv"
+    || normalized === "image/svg+xml"
+    || normalized.endsWith("+yaml")
+    || normalized.endsWith("+toml");
+};
+
+export const httpBodyModeFromContentType = (
+  mediaType: string | undefined | null,
+): HttpBodyDecodingMode => {
+  if (isJsonMediaType(mediaType)) {
+    return "json";
+  }
+
+  if (isTextMediaType(mediaType)) {
+    return "text";
+  }
+
+  const normalized = normalizeMediaType(mediaType);
+  if (normalized.length === 0) {
+    return "text";
+  }
+
+  return "bytes";
 };
 
 const objectEntries = (value: unknown): Array<[string, unknown]> =>
@@ -140,6 +206,37 @@ const preferredContentType = (input: {
     ?? candidates.find((mediaType) => mediaType.toLowerCase().includes("+json"))
     ?? candidates.find((mediaType) => mediaType.toLowerCase().includes("json"))
     ?? candidates[0];
+};
+
+const serializeBinaryContentValue = (value: unknown): Uint8Array => {
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+
+  if (typeof value === "string") {
+    return textEncoder.encode(value);
+  }
+
+  if (
+    Array.isArray(value)
+    && value.every((entry) =>
+      typeof entry === "number"
+      && Number.isInteger(entry)
+      && entry >= 0
+      && entry <= 255)
+  ) {
+    return Uint8Array.from(value);
+  }
+
+  throw new Error("Binary OpenAPI request bodies must be bytes, a string, or an array of byte values");
 };
 
 const serializeContentValue = (value: unknown, mediaType: string): string => {
@@ -502,14 +599,18 @@ export const withSerializedQueryEntries = (
 export const serializeOpenApiRequestBody = (input: {
   requestBody: OpenApiSerializableRequestBody;
   body: unknown;
-}): {
-  contentType: string;
-  bodyText: string;
-} => {
+}): SerializedOpenApiRequestBody => {
   const contentType = preferredContentType(input.requestBody) ?? "application/json";
+
+  if (httpBodyModeFromContentType(contentType) === "bytes") {
+    return {
+      contentType,
+      body: serializeBinaryContentValue(input.body),
+    };
+  }
 
   return {
     contentType,
-    bodyText: serializeContentValue(input.body, contentType),
+    body: serializeContentValue(input.body, contentType),
   };
 };

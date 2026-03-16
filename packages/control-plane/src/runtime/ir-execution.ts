@@ -4,6 +4,7 @@ import {
   applyJsonBodyPlacements,
 } from "@executor/codemode-core";
 import {
+  httpBodyModeFromContentType,
   serializeOpenApiParameterValue,
   serializeOpenApiRequestBody,
   withSerializedQueryEntries,
@@ -78,7 +79,7 @@ type HttpInvocationRequestPlan = {
   method: HttpExecutable["method"];
   url: string;
   headers: Record<string, string>;
-  body?: string;
+  body?: string | Uint8Array;
 };
 
 type GraphqlInvocationRequestPlan = {
@@ -112,12 +113,16 @@ type IrInvocationRequestPlan =
   | McpInvocationRequestPlan;
 
 const decodeFetchBody = async (response: Response): Promise<unknown> => {
-  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (contentType.includes("application/json")) {
-    return response.json();
-  }
   if (response.status === 204) {
     return null;
+  }
+
+  const bodyMode = httpBodyModeFromContentType(response.headers.get("content-type"));
+  if (bodyMode === "json") {
+    return response.json();
+  }
+  if (bodyMode === "bytes") {
+    return new Uint8Array(await response.arrayBuffer());
   }
   return response.text();
 };
@@ -337,7 +342,7 @@ const planHttpInvocation = (input: {
   const bodySymbol = input.executable.requestBodyId
     ? input.catalog.symbols[input.executable.requestBodyId]
     : undefined;
-  let body: string | undefined;
+  let body: string | Uint8Array | undefined;
   if (bodySymbol?.kind === "requestBody") {
     const bodyValue = argsRecord.body ?? argsRecord.input;
     if (bodyValue !== undefined) {
@@ -353,7 +358,7 @@ const planHttpInvocation = (input: {
         }),
       });
       headers["content-type"] = serializedBody.contentType;
-      body = serializedBody.bodyText;
+      body = serializedBody.body;
     }
   }
 

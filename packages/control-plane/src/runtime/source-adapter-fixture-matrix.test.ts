@@ -2,6 +2,13 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 import {
+  HttpApi,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiSchema,
+  OpenApi,
+} from "@effect/platform";
+import {
   buildOpenApiToolPresentation,
   compileOpenApiToolDefinitions,
   extractOpenApiManifest,
@@ -26,6 +33,7 @@ import {
   WorkspaceIdSchema,
 } from "#schema";
 import * as Effect from "effect/Effect";
+import { Schema } from "effect";
 
 import { projectCatalogForAgentSdk } from "../ir/catalog";
 import type { CatalogSnapshotV1 } from "../ir/model";
@@ -289,6 +297,19 @@ const graphqlSnapshotFromFixture = (input: {
       snapshot,
     };
   });
+
+const binaryReportIdParam = HttpApiSchema.param("reportId", Schema.String);
+
+class BinaryExecutionReportsApi extends HttpApiGroup.make("reports")
+  .add(
+    HttpApiEndpoint.get("getContent")`/reports/${binaryReportIdParam}/content`
+      .addSuccess(HttpApiSchema.Uint8Array()),
+  ) {}
+
+class BinaryExecutionApi extends HttpApi.make("binaryExecution")
+  .add(BinaryExecutionReportsApi) {}
+
+const binaryExecutionOpenApiSpec = OpenApi.fromApi(BinaryExecutionApi);
 
 describe("source adapter fixture matrix", () => {
   it.effect(
@@ -714,6 +735,140 @@ describe("source adapter fixture matrix", () => {
             expect(String(requests[1]?.headers["content-type"])).toContain("application/x-www-form-urlencoded");
             expect(requests[1]?.body).toContain("title=Bug+report");
             expect(requests[1]?.body).toContain("state=open");
+          } finally {
+            await new Promise<void>((resolve, reject) => {
+              server.close((error) => {
+                if (error) {
+                  reject(error);
+                  return;
+                }
+                resolve();
+              });
+            });
+          }
+        },
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      }),
+    120_000,
+  );
+
+  it.effect(
+    "executes imported HTTP tools and preserves binary responses as bytes",
+    () =>
+      Effect.tryPromise({
+        try: async () => {
+          const binaryResponse = Uint8Array.from([0x00, 0x7f, 0x80, 0xff]);
+          const requests: Array<{
+            method: string;
+            path: string;
+            query: string;
+            headers: Record<string, string | string[] | undefined>;
+          }> = [];
+
+          const server = createServer((request, response) => {
+            const url = new URL(request.url ?? "/", "http://127.0.0.1");
+            requests.push({
+              method: request.method ?? "GET",
+              path: url.pathname,
+              query: url.search,
+              headers: request.headers,
+            });
+            response.statusCode = 200;
+            response.setHeader("content-type", "application/octet-stream");
+            response.setHeader("x-request-id", "req_binary_1");
+            response.end(Buffer.from(binaryResponse));
+          });
+
+          await new Promise<void>((resolve, reject) => {
+            server.listen(0, "127.0.0.1", (error?: Error) => {
+              if (error) {
+                reject(error);
+                return;
+              }
+              resolve();
+            });
+          });
+
+          try {
+            const address = server.address();
+            if (!address || typeof address === "string") {
+              throw new Error("Failed to resolve binary execution fixture server");
+            }
+
+            const baseUrl = `http://127.0.0.1:${address.port}`;
+            const source = makeSource({
+              id: "src_openapi_binary_execution_fixture",
+              name: "Binary API",
+              kind: "openapi",
+              endpoint: baseUrl,
+              namespace: "binaryfixture",
+              binding: {
+                specUrl: `${baseUrl}/openapi.json`,
+                defaultHeaders: null,
+              },
+            });
+            const specText = JSON.stringify(binaryExecutionOpenApiSpec);
+
+            const { snapshot } = await Effect.runPromise(
+              openApiSnapshotFromFixture({
+                source,
+                specText,
+                documentKey: `${baseUrl}/openapi.json`,
+              }),
+            );
+            const loadedCatalog = makeLoadedCatalog({
+              source,
+              snapshot,
+            });
+            const tool = await Effect.runPromise(
+              expandCatalogToolByPath({
+                catalogs: [loadedCatalog],
+                path: "binaryfixture.reports.getContent",
+              }),
+            );
+
+            if (!tool) {
+              throw new Error("Expected binary execution fixture tool to resolve");
+            }
+
+            const auth = {
+              placements: [],
+              headers: {},
+              queryParams: {},
+              cookies: {},
+              bodyValues: {},
+              expiresAt: null,
+              refreshAfter: null,
+            } as const;
+
+            const result = await Effect.runPromise(
+              invokeIrTool({
+                workspaceId: source.workspaceId,
+                accountId: "acct_fixture" as any,
+                tool,
+                auth,
+                args: {
+                  reportId: "report-123",
+                },
+              }),
+            );
+
+            expect(result).toMatchObject({
+              error: null,
+              status: 200,
+              headers: {
+                "content-type": "application/octet-stream",
+                "x-request-id": "req_binary_1",
+              },
+            });
+            expect(result.data).toBeInstanceOf(Uint8Array);
+            expect(Array.from(result.data as Uint8Array)).toEqual(
+              Array.from(binaryResponse),
+            );
+            expect(requests).toHaveLength(1);
+            expect(requests[0]?.method).toBe("GET");
+            expect(requests[0]?.path).toBe("/reports/report-123/content");
           } finally {
             await new Promise<void>((resolve, reject) => {
               server.close((error) => {

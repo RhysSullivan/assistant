@@ -1843,6 +1843,7 @@ const createHttpCapabilityFromGoogleDiscovery = (input: {
       schemaShapeId: input.importer.importSchema(
         parameterSchema,
         `#/googleDiscovery/${input.operation.providerData.toolId}/parameter/${parameter.location}/${parameter.name}`,
+        inputSchema,
       ),
       synthetic: false,
       provenance: provenanceFor(
@@ -1867,6 +1868,7 @@ const createHttpCapabilityFromGoogleDiscovery = (input: {
         shapeId: input.importer.importSchema(
           requestBodySchema,
           `#/googleDiscovery/${input.operation.providerData.toolId}/requestBody`,
+          inputSchema,
         ),
       }],
       synthetic: false,
@@ -1894,6 +1896,7 @@ const createHttpCapabilityFromGoogleDiscovery = (input: {
             shapeId: input.importer.importSchema(
               outputSchema,
               `#/googleDiscovery/${input.operation.providerData.toolId}/response`,
+              outputSchema,
             ),
           }],
         }

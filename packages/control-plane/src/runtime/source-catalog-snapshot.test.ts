@@ -559,6 +559,132 @@ describe("source-catalog-snapshot", () => {
     });
   });
 
+  it("resolves Google Discovery request body refs against the materialized input schema root", () => {
+    const snapshot = createGoogleDiscoveryCatalogSnapshot({
+      source: {
+        ...baseSource,
+        kind: "google_discovery",
+        namespace: "google.gmail",
+      },
+      documents: [],
+      operations: [{
+        toolId: "users.drafts.create",
+        title: "Create draft",
+        description: "Create a draft",
+        effect: "write",
+        inputSchema: {
+          type: "object",
+          properties: {
+            userId: { type: "string" },
+            body: {
+              type: "object",
+              properties: {
+                message: { $ref: "#/$defs/google/Message" },
+              },
+            },
+          },
+          required: ["userId", "body"],
+          $defs: {
+            google: {
+              Message: {
+                type: "object",
+                properties: {
+                  raw: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+          },
+        },
+        providerData: {
+          kind: "google_discovery",
+          service: "gmail",
+          version: "v1",
+          toolId: "users.drafts.create",
+          rawToolId: "users.drafts.create",
+          methodId: "gmail.users.drafts.create",
+          group: "users.drafts",
+          leaf: "create",
+          invocation: {
+            method: "post",
+            path: "/gmail/v1/users/{userId}/drafts",
+            flatPath: null,
+            rootUrl: "https://gmail.googleapis.com/",
+            servicePath: "",
+            parameters: [{
+              name: "userId",
+              location: "path",
+              required: true,
+              repeated: false,
+              description: "The user ID.",
+              type: "string",
+            }],
+            requestSchemaId: "Draft",
+            responseSchemaId: "Draft",
+            scopes: [],
+            scopeDescriptions: undefined,
+            supportsMediaUpload: false,
+            supportsMediaDownload: false,
+          },
+        },
+      }],
+    });
+
+    expect(Object.values(snapshot.catalog.diagnostics)).toEqual([]);
+
+    const requestBody = Object.values(snapshot.catalog.symbols).find((symbol) => symbol.kind === "requestBody");
+    expect(requestBody?.kind).toBe("requestBody");
+    if (!requestBody || requestBody.kind !== "requestBody") {
+      throw new Error("Expected Google Discovery request body symbol");
+    }
+
+    const requestBodyShape = snapshot.catalog.symbols[requestBody.contents[0]!.shapeId];
+    expect(requestBodyShape?.kind).toBe("shape");
+    if (!requestBodyShape || requestBodyShape.kind !== "shape") {
+      throw new Error("Expected request body shape");
+    }
+
+    expect(requestBodyShape.node.type).toBe("object");
+    if (requestBodyShape.node.type !== "object") {
+      throw new Error("Expected request body object shape");
+    }
+
+    const messageShapeId = requestBodyShape.node.fields.message?.shapeId;
+    expect(messageShapeId).toBeDefined();
+    const messageShape =
+      messageShapeId === undefined
+        ? undefined
+        : snapshot.catalog.symbols[messageShapeId];
+
+    expect(messageShape?.kind).toBe("shape");
+    if (!messageShape || messageShape.kind !== "shape") {
+      throw new Error("Expected message field shape");
+    }
+
+    expect(messageShape.node.type).toBe("ref");
+    if (messageShape.node.type !== "ref") {
+      throw new Error("Expected message field ref shape");
+    }
+
+    const targetShape = snapshot.catalog.symbols[messageShape.node.target];
+    expect(targetShape?.kind).toBe("shape");
+    if (!targetShape || targetShape.kind !== "shape") {
+      throw new Error("Expected referenced Message shape");
+    }
+
+    expect(targetShape.node.type).toBe("object");
+    if (targetShape.node.type !== "object") {
+      throw new Error("Expected referenced Message object shape");
+    }
+
+    expect(targetShape.node.fields.raw?.shapeId).toBeDefined();
+  });
+
   it("deduplicates structurally identical JSON schema shapes across operations", () => {
     const repeatedObjectSchema = {
       type: "object",

@@ -18,12 +18,17 @@ export {
   type OpenApiToolPresentation,
 } from "./openapi-tool-presentation";
 export {
+  httpBodyModeFromContentType,
+  isJsonMediaType,
+  isTextMediaType,
   serializeOpenApiParameterValue,
   serializeOpenApiRequestBody,
   withSerializedQueryEntries,
+  type HttpBodyDecodingMode,
   type OpenApiSerializableContent,
   type OpenApiSerializableParameter,
   type OpenApiSerializableRequestBody,
+  type SerializedOpenApiRequestBody,
   type SerializedOpenApiParameterValue,
   type SerializedOpenApiQueryEntry,
 } from "./openapi-http-serialization";

@@ -35,6 +35,11 @@ type TestServer = {
   close: () => Promise<void>;
 };
 
+type BinaryTestServer = {
+  baseUrl: string;
+  close: () => Promise<void>;
+};
+
 type EffectServerHandler = {
   handler: (nodeRequest: IncomingMessage, nodeResponse: ServerResponse) => void;
   dispose: () => Promise<void>;
@@ -212,6 +217,49 @@ const makeTestServer = Effect.acquireRelease(
     }).pipe(Effect.orDie),
   );
 
+const makeBinaryTestServer = Effect.acquireRelease(
+  Effect.promise<BinaryTestServer>(
+    () =>
+      new Promise<BinaryTestServer>((resolve, reject) => {
+        const responseBytes = Uint8Array.from([0x00, 0x7f, 0x80, 0xff]);
+        const server = createServer((_, response) => {
+          response.statusCode = 200;
+          response.setHeader("content-type", "application/octet-stream");
+          response.end(Buffer.from(responseBytes));
+        });
+
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address();
+          if (!address || typeof address === "string") {
+            reject(new Error("Failed to bind binary OpenAPI test server"));
+            return;
+          }
+
+          resolve({
+            baseUrl: `http://127.0.0.1:${address.port}`,
+            close: () =>
+              new Promise<void>((closeResolve, closeReject) => {
+                server.close((error) => {
+                  if (error) {
+                    closeReject(error);
+                    return;
+                  }
+                  closeResolve();
+                });
+              }),
+          });
+        });
+      }),
+  ),
+  (server: BinaryTestServer) =>
+    Effect.tryPromise({
+      try: () => server.close(),
+      catch: (error: unknown) =>
+        error instanceof Error ? error : new Error(String(error)),
+    }).pipe(Effect.orDie),
+);
+
 const ownerParam = HttpApiSchema.param("owner", Schema.String);
 const repoParam = HttpApiSchema.param("repo", Schema.String);
 
@@ -248,6 +296,19 @@ class GeneratedReposApi extends HttpApiGroup.make("repos")
 class GeneratedApi extends HttpApi.make("generated").add(GeneratedReposApi) {}
 
 const generatedOpenApiSpec = OpenApi.fromApi(GeneratedApi);
+
+const binaryReportIdParam = HttpApiSchema.param("reportId", Schema.String);
+
+class GeneratedBinaryReportsApi extends HttpApiGroup.make("reports")
+  .add(
+    HttpApiEndpoint.get("getContent")`/reports/${binaryReportIdParam}/content`
+      .addSuccess(HttpApiSchema.Uint8Array()),
+  ) {}
+
+class GeneratedBinaryApi extends HttpApi.make("generatedBinary")
+  .add(GeneratedBinaryReportsApi) {}
+
+const generatedBinaryOpenApiSpec = OpenApi.fromApi(GeneratedBinaryApi);
 
 const resolveToolDefinition = (value: ToolInput): ToolDefinition =>
   typeof value === "object" && value !== null && "tool" in value
@@ -632,6 +693,30 @@ describe("openapi-tools", () => {
       });
       expect(server.requests).toHaveLength(1);
       expect(server.requests[0]?.path).toBe("/repos/octocat/hello-world");
+    }),
+  );
+
+  it.scoped("decodes binary HTTP responses from generated OpenAPI specs as bytes", () =>
+    Effect.gen(function* () {
+      const server = yield* makeBinaryTestServer;
+
+      const extracted = yield* createOpenApiToolsFromSpec({
+        sourceName: "generated-binary",
+        openApiSpec: generatedBinaryOpenApiSpec,
+        baseUrl: server.baseUrl,
+        namespace: "source.generatedBinary",
+      });
+
+      const getContent = resolveToolExecutor(
+        extracted.tools,
+        "source.generatedBinary.reports.getContent",
+      );
+      const result = yield* Effect.promise(() =>
+        getContent({ reportId: "report-123" }),
+      );
+
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(Array.from(result as Uint8Array)).toEqual([0x00, 0x7f, 0x80, 0xff]);
     }),
   );
 
