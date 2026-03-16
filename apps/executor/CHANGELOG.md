@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.3
+
+### Patch Changes
+
+- eda1217: Always request maximal scope for Google Apis
+
 ## 1.2.2
 
 ### Patch Changes
