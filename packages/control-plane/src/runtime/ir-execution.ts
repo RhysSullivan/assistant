@@ -21,6 +21,7 @@ import type {
   ToolInput,
   ToolPath,
 } from "@executor/codemode-core";
+import { buildInvocationPlan, type InvocationPlan } from "../ir/catalog";
 import type {
   CatalogV1,
   Capability,
@@ -72,6 +73,43 @@ type ExecutionEnvelope = {
   status: number | null;
 };
 
+type HttpInvocationRequestPlan = {
+  protocol: "http";
+  method: HttpExecutable["method"];
+  url: string;
+  headers: Record<string, string>;
+  body?: string;
+};
+
+type GraphqlInvocationRequestPlan = {
+  protocol: "graphql";
+  endpoint: string;
+  headers: Record<string, string>;
+  query: string;
+  variables?: Record<string, unknown>;
+  operationName?: string;
+  responseRootField?: string;
+};
+
+type McpInvocationRequestPlan = {
+  protocol: "mcp";
+  endpoint: string;
+  transport?: "auto" | "streamable-http" | "sse";
+  queryParams: Record<string, string>;
+  headers: Record<string, string>;
+  toolName: string;
+  payload: unknown;
+  inputSchema: unknown;
+  outputSchema: unknown;
+  toolTitle?: string;
+  toolSummary?: string;
+};
+
+type IrInvocationRequestPlan =
+  | HttpInvocationRequestPlan
+  | GraphqlInvocationRequestPlan
+  | McpInvocationRequestPlan;
+
 const decodeFetchBody = async (response: Response): Promise<unknown> => {
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("application/json")) {
@@ -92,6 +130,16 @@ const responseHeadersRecord = (response: Response): Record<string, string> => {
 };
 
 const executionEnvelope = (input: ExecutionEnvelope): ExecutionEnvelope => input;
+
+const resolvedAuthSummary = (auth: ResolvedSourceAuthMaterial) => ({
+  placementCount: auth.placements.length,
+  headerKeys: Object.keys(auth.headers).sort(),
+  queryParamKeys: Object.keys(auth.queryParams).sort(),
+  cookieKeys: Object.keys(auth.cookies).sort(),
+  bodyValueKeys: Object.keys(auth.bodyValues).sort(),
+  expiresAt: auth.expiresAt,
+  refreshAfter: auth.refreshAfter,
+});
 
 const parameterById = (catalog: CatalogV1, parameterId: string): ParameterSymbol | undefined => {
   const symbol = catalog.symbols[parameterId];
@@ -203,133 +251,149 @@ const resolveHttpRequestUrl = (baseUrl: URL, resolvedPath: string): URL => {
   }
 };
 
-const executeHttp = (input: {
+const planHttpInvocation = (input: {
   source: Source;
   catalog: CatalogV1;
   executable: HttpExecutable;
   auth: ResolvedSourceAuthMaterial;
   args: unknown;
-}) =>
+}): {
+  resolvedEndpoint: string;
+  requestPlan: HttpInvocationRequestPlan;
+} => {
+  const argsRecord = asObject(input.args);
+  let resolvedPath = input.executable.pathTemplate;
+  const url = applyHttpQueryPlacementsToUrl({
+    url: resolveHttpBaseUrl(input.source, input.catalog, input.executable),
+    queryParams: readSourceQueryParams(input.source),
+  });
+  const headers: Record<string, string> = {
+    ...readSourceHeaders(input.source),
+  };
+  const queryEntries: Array<{ name: string; value: string; allowReserved?: boolean }> = [];
+  const cookieParts: string[] = [];
+
+  const allParameterIds = [
+    ...(input.executable.pathParameterIds ?? []),
+    ...(input.executable.queryParameterIds ?? []),
+    ...(input.executable.headerParameterIds ?? []),
+    ...(input.executable.cookieParameterIds ?? []),
+  ];
+
+  for (const parameterId of allParameterIds) {
+    const parameter = parameterById(input.catalog, parameterId);
+    if (!parameter) {
+      continue;
+    }
+
+    const value = readHttpParameterValue({
+      catalog: input.catalog,
+      executable: input.executable,
+      parameter,
+      args: argsRecord,
+    });
+    if (value === undefined || value === null) {
+      if (parameter.required) {
+        throw new Error(`Missing required ${parameter.location} parameter ${parameter.name}`);
+      }
+      continue;
+    }
+
+    const serialized = serializeOpenApiParameterValue({
+      name: parameter.name,
+      location: parameter.location,
+      style: parameter.style,
+      explode: parameter.explode,
+      allowReserved: parameter.allowReserved,
+      content: parameter.content?.map((content) => ({ mediaType: content.mediaType })),
+    }, value);
+
+    if (serialized.kind === "path") {
+      resolvedPath = resolvedPath.replace(
+        new RegExp(`{${parameter.name}}`, "g"),
+        serialized.value,
+      );
+      continue;
+    }
+
+    if (serialized.kind === "query") {
+      queryEntries.push(...serialized.entries);
+      continue;
+    }
+
+    if (serialized.kind === "header") {
+      headers[parameter.name] = serialized.value;
+      continue;
+    }
+
+    if (serialized.kind === "cookie") {
+      cookieParts.push(
+        ...serialized.pairs.map((pair) => `${pair.name}=${encodeURIComponent(pair.value)}`),
+      );
+    }
+  }
+
+  const bodySymbol = input.executable.requestBodyId
+    ? input.catalog.symbols[input.executable.requestBodyId]
+    : undefined;
+  let body: string | undefined;
+  if (bodySymbol?.kind === "requestBody") {
+    const bodyValue = argsRecord.body ?? argsRecord.input;
+    if (bodyValue !== undefined) {
+      const serializedBody = serializeOpenApiRequestBody({
+        requestBody: {
+          contentTypes: bodySymbol.contents.map((content) => content.mediaType),
+          contents: bodySymbol.contents.map((content) => ({ mediaType: content.mediaType })),
+        },
+        body: applyJsonBodyPlacements({
+          body: bodyValue,
+          bodyValues: input.auth.bodyValues,
+          label: `${input.executable.method} ${input.executable.pathTemplate}`,
+        }),
+      });
+      headers["content-type"] = serializedBody.contentType;
+      body = serializedBody.bodyText;
+    }
+  }
+
+  const requestUrl = resolveHttpRequestUrl(url, resolvedPath);
+  const urlWithAuth = applyHttpQueryPlacementsToUrl({
+    url: requestUrl,
+    queryParams: input.auth.queryParams,
+  });
+  const urlWithOpenApiQuery = withSerializedQueryEntries(urlWithAuth, queryEntries);
+  if (cookieParts.length > 0) {
+    headers.cookie = cookieParts.join("; ");
+  }
+  const headersWithCookies = applyCookiePlacementsToHeaders({
+    headers: {
+      ...headers,
+      ...input.auth.headers,
+    },
+    cookies: {
+      ...input.auth.cookies,
+    },
+  });
+
+  return {
+    resolvedEndpoint: urlWithOpenApiQuery.toString(),
+    requestPlan: {
+      protocol: "http",
+      method: input.executable.method,
+      url: urlWithOpenApiQuery.toString(),
+      headers: headersWithCookies,
+      ...(body !== undefined ? { body } : {}),
+    },
+  };
+};
+
+const executeHttpPlan = (requestPlan: HttpInvocationRequestPlan) =>
   Effect.tryPromise({
     try: async () => {
-      const argsRecord = asObject(input.args);
-      let resolvedPath = input.executable.pathTemplate;
-      const url = applyHttpQueryPlacementsToUrl({
-        url: resolveHttpBaseUrl(input.source, input.catalog, input.executable),
-        queryParams: readSourceQueryParams(input.source),
-      });
-      const headers: Record<string, string> = {
-        ...readSourceHeaders(input.source),
-      };
-      const queryEntries: Array<{ name: string; value: string; allowReserved?: boolean }> = [];
-      const cookieParts: string[] = [];
-
-      const allParameterIds = [
-        ...(input.executable.pathParameterIds ?? []),
-        ...(input.executable.queryParameterIds ?? []),
-        ...(input.executable.headerParameterIds ?? []),
-        ...(input.executable.cookieParameterIds ?? []),
-      ];
-
-      for (const parameterId of allParameterIds) {
-        const parameter = parameterById(input.catalog, parameterId);
-        if (!parameter) {
-          continue;
-        }
-
-        const value = readHttpParameterValue({
-          catalog: input.catalog,
-          executable: input.executable,
-          parameter,
-          args: argsRecord,
-        });
-        if (value === undefined || value === null) {
-          if (parameter.required) {
-            throw new Error(`Missing required ${parameter.location} parameter ${parameter.name}`);
-          }
-          continue;
-        }
-
-        const serialized = serializeOpenApiParameterValue({
-          name: parameter.name,
-          location: parameter.location,
-          style: parameter.style,
-          explode: parameter.explode,
-          allowReserved: parameter.allowReserved,
-          content: parameter.content?.map((content) => ({ mediaType: content.mediaType })),
-        }, value);
-
-        if (serialized.kind === "path") {
-          resolvedPath = resolvedPath.replace(
-            new RegExp(`{${parameter.name}}`, "g"),
-            serialized.value,
-          );
-          continue;
-        }
-
-        if (serialized.kind === "query") {
-          queryEntries.push(...serialized.entries);
-          continue;
-        }
-
-        if (serialized.kind === "header") {
-          headers[parameter.name] = serialized.value;
-          continue;
-        }
-
-        if (serialized.kind === "cookie") {
-          cookieParts.push(
-            ...serialized.pairs.map((pair) => `${pair.name}=${encodeURIComponent(pair.value)}`),
-          );
-        }
-      }
-
-      const bodySymbol = input.executable.requestBodyId
-        ? input.catalog.symbols[input.executable.requestBodyId]
-        : undefined;
-      let body: string | undefined;
-      if (bodySymbol?.kind === "requestBody") {
-        const bodyValue = argsRecord.body ?? argsRecord.input;
-        if (bodyValue !== undefined) {
-          const serializedBody = serializeOpenApiRequestBody({
-            requestBody: {
-              contentTypes: bodySymbol.contents.map((content) => content.mediaType),
-              contents: bodySymbol.contents.map((content) => ({ mediaType: content.mediaType })),
-            },
-            body: applyJsonBodyPlacements({
-              body: bodyValue,
-              bodyValues: input.auth.bodyValues,
-              label: `${input.executable.method} ${input.executable.pathTemplate}`,
-            }),
-          });
-          headers["content-type"] = serializedBody.contentType;
-          body = serializedBody.bodyText;
-        }
-      }
-
-      const requestUrl = resolveHttpRequestUrl(url, resolvedPath);
-      const urlWithAuth = applyHttpQueryPlacementsToUrl({
-        url: requestUrl,
-        queryParams: input.auth.queryParams,
-      });
-      const urlWithOpenApiQuery = withSerializedQueryEntries(urlWithAuth, queryEntries);
-      if (cookieParts.length > 0) {
-        headers.cookie = cookieParts.join("; ");
-      }
-      const headersWithCookies = applyCookiePlacementsToHeaders({
-        headers: {
-          ...headers,
-          ...input.auth.headers,
-        },
-        cookies: {
-          ...input.auth.cookies,
-        },
-      });
-
-      const response = await fetch(urlWithOpenApiQuery, {
-        method: input.executable.method,
-        headers: headersWithCookies,
-        ...(body !== undefined ? { body } : {}),
+      const response = await fetch(requestPlan.url, {
+        method: requestPlan.method,
+        headers: requestPlan.headers,
+        ...(requestPlan.body !== undefined ? { body: requestPlan.body } : {}),
       });
       const responseBody = await decodeFetchBody(response);
       return executionEnvelope({
@@ -377,101 +441,121 @@ const graphqlArgsPayload = (input: {
   return asObject(input.args.args);
 };
 
-const executeGraphql = (input: {
+const planGraphqlInvocation = (input: {
   source: Source;
   catalog: CatalogV1;
   executable: GraphQLExecutable;
   auth: ResolvedSourceAuthMaterial;
   args: unknown;
-}) =>
+}): {
+  resolvedEndpoint: string;
+  requestPlan: GraphqlInvocationRequestPlan;
+} => {
+  const argsRecord = asObject(input.args);
+  const requestHeaders = applyCookiePlacementsToHeaders({
+    headers: {
+      ...readSourceHeaders(input.source),
+      ...input.auth.headers,
+      ...asStringRecord(argsRecord.headers),
+      "content-type": "application/json",
+    },
+    cookies: input.auth.cookies,
+  });
+  const queryParams = {
+    ...readSourceQueryParams(input.source),
+    ...input.auth.queryParams,
+  };
+  const endpoint = applyHttpQueryPlacementsToUrl({
+    url: input.source.endpoint,
+    queryParams,
+  }).toString();
+
+  if (
+    input.executable.toolKind === "request"
+    || typeof input.executable.operationDocument !== "string"
+    || input.executable.operationDocument.trim().length === 0
+  ) {
+    const query = asString(argsRecord.query);
+    if (query === null) {
+      throw new Error("GraphQL request tools require args.query");
+    }
+
+    return {
+      resolvedEndpoint: endpoint,
+      requestPlan: {
+        protocol: "graphql",
+        endpoint,
+        headers: requestHeaders,
+        query,
+        ...(argsRecord.variables ? { variables: asObject(argsRecord.variables) } : {}),
+        ...(asString(argsRecord.operationName) ? { operationName: asString(argsRecord.operationName)! } : {}),
+      },
+    };
+  }
+
+  const operationDocument = input.executable.operationDocument;
+  const operationName = input.executable.operationName;
+  const variables = graphqlArgsPayload({
+    catalog: input.catalog,
+    executable: input.executable,
+    args: argsRecord,
+  });
+
+  const query =
+    input.executable.selectionMode === "caller"
+      ? (() => {
+          const selection = graphqlSelectionFromArgs(argsRecord.select);
+          if (selection.length === 0) {
+            throw new Error("GraphQL caller selection tools require args.select");
+          }
+          return `${input.executable.operationType} ${input.executable.rootField} { ${input.executable.rootField} ${selection ? `{ ${selection} }` : ""} }`;
+        })()
+      : operationDocument;
+
+  return {
+    resolvedEndpoint: endpoint,
+    requestPlan: {
+      protocol: "graphql",
+      endpoint,
+      headers: requestHeaders,
+      query,
+      variables,
+      ...(operationName ? { operationName } : {}),
+      responseRootField: input.executable.rootField,
+    },
+  };
+};
+
+const executeGraphqlPlan = (requestPlan: GraphqlInvocationRequestPlan) =>
   Effect.tryPromise({
     try: async () => {
-      const argsRecord = asObject(input.args);
-      const requestHeaders = {
-        ...readSourceHeaders(input.source),
-        ...input.auth.headers,
-        ...asStringRecord(argsRecord.headers),
-        "content-type": "application/json",
-      };
-      const queryParams = {
-        ...readSourceQueryParams(input.source),
-        ...input.auth.queryParams,
-      };
-      const endpoint = applyHttpQueryPlacementsToUrl({
-        url: input.source.endpoint,
-        queryParams,
-      }).toString();
+      const response = await fetch(requestPlan.endpoint, {
+        method: "POST",
+        headers: requestPlan.headers,
+        body: JSON.stringify({
+          query: requestPlan.query,
+          ...(requestPlan.variables ? { variables: requestPlan.variables } : {}),
+          ...(requestPlan.operationName ? { operationName: requestPlan.operationName } : {}),
+        }),
+      });
+      const decodedBody = await decodeFetchBody(response);
 
-      if (
-        input.executable.toolKind === "request"
-        || typeof input.executable.operationDocument !== "string"
-        || input.executable.operationDocument.trim().length === 0
-      ) {
-        const query = asString(argsRecord.query);
-        if (query === null) {
-          throw new Error(`GraphQL request tools require args.query`);
-        }
-
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: applyCookiePlacementsToHeaders({
-            headers: requestHeaders,
-            cookies: input.auth.cookies,
-          }),
-          body: JSON.stringify({
-            query,
-            ...(argsRecord.variables ? { variables: asObject(argsRecord.variables) } : {}),
-            ...(asString(argsRecord.operationName) ? { operationName: asString(argsRecord.operationName)! } : {}),
-          }),
-        });
-        const body = await decodeFetchBody(response);
-        const bodyRecord = asObject(body);
+      if (requestPlan.responseRootField === undefined) {
+        const bodyRecord = asObject(decodedBody);
         const errors = Array.isArray(bodyRecord.errors) ? bodyRecord.errors : [];
         return executionEnvelope({
-          data: body,
-          error: errors.length > 0 ? errors : (response.status >= 400 ? body : null),
+          data: decodedBody,
+          error: errors.length > 0 ? errors : (response.status >= 400 ? decodedBody : null),
           headers: responseHeadersRecord(response),
           status: response.status,
         });
       }
 
-      const operationDocument = input.executable.operationDocument;
-      const operationName = input.executable.operationName;
-      const fieldName = input.executable.rootField;
-      const variables = graphqlArgsPayload({
-        catalog: input.catalog,
-        executable: input.executable,
-        args: argsRecord,
-      });
-
-      const query =
-        input.executable.selectionMode === "caller"
-          ? (() => {
-              const selection = graphqlSelectionFromArgs(argsRecord.select);
-              if (selection.length === 0) {
-                throw new Error(`GraphQL caller selection tools require args.select`);
-              }
-              return `${input.executable.operationType} ${input.executable.rootField} { ${input.executable.rootField} ${selection ? `{ ${selection} }` : ""} }`;
-            })()
-          : operationDocument;
-
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: applyCookiePlacementsToHeaders({
-          headers: requestHeaders,
-          cookies: input.auth.cookies,
-        }),
-        body: JSON.stringify({
-          query,
-          variables,
-          ...(operationName ? { operationName } : {}),
-        }),
-      });
-      const body = asObject(await decodeFetchBody(response));
+      const body = asObject(decodedBody);
       const errors = Array.isArray(body.errors) ? body.errors : [];
       const data = asObject(body.data);
       return executionEnvelope({
-        data: data[fieldName] ?? null,
+        data: data[requestPlan.responseRootField] ?? null,
         error: errors.length > 0 ? errors : (response.status >= 400 ? body : null),
         headers: responseHeadersRecord(response),
         status: response.status,
@@ -480,74 +564,101 @@ const executeGraphql = (input: {
     catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
   });
 
-const executeMcp = (input: {
+const planMcpInvocation = (input: {
   source: Source;
   catalog: CatalogV1;
   tool: LoadedSourceCatalogToolIndexEntry;
   executable: McpExecutable;
   auth: ResolvedSourceAuthMaterial;
   args: unknown;
+}): {
+  resolvedEndpoint: string;
+  requestPlan: McpInvocationRequestPlan;
+} => {
+  const inputShape = input.executable.inputShapeId
+    ? input.catalog.symbols[input.executable.inputShapeId]
+    : undefined;
+  const payload =
+    inputShape?.kind === "shape" && inputShape.node.type !== "object"
+      ? asObject(input.args).input
+      : input.args;
+
+  return {
+    resolvedEndpoint: input.source.endpoint,
+    requestPlan: {
+      protocol: "mcp",
+      endpoint: input.source.endpoint,
+      transport: readSourceTransport(input.source),
+      queryParams: {
+        ...readSourceQueryParams(input.source),
+        ...input.auth.queryParams,
+      },
+      headers: applyCookiePlacementsToHeaders({
+        headers: {
+          ...readSourceHeaders(input.source),
+          ...input.auth.headers,
+        },
+        cookies: input.auth.cookies,
+      }),
+      toolName: input.executable.toolName,
+      payload,
+      inputSchema: input.tool.descriptor.inputSchema,
+      outputSchema: input.tool.descriptor.outputSchema,
+      ...(input.tool.capability.surface.title ? { toolTitle: input.tool.capability.surface.title } : {}),
+      ...(input.tool.capability.surface.summary ? { toolSummary: input.tool.capability.surface.summary } : {}),
+    },
+  };
+};
+
+const executeMcpPlan = (input: {
+  source: Source;
+  tool: LoadedSourceCatalogToolIndexEntry;
+  requestPlan: McpInvocationRequestPlan;
   onElicitation?: OnElicitation;
   context?: Record<string, unknown>;
 }) =>
   Effect.tryPromise({
     try: async () => {
-      const inputShape = input.executable.inputShapeId
-        ? input.catalog.symbols[input.executable.inputShapeId]
-        : undefined;
-      const payload =
-        inputShape?.kind === "shape" && inputShape.node.type !== "object"
-          ? asObject(input.args).input
-          : input.args;
       const connector = createSdkMcpConnector({
-        endpoint: input.source.endpoint,
-        transport: readSourceTransport(input.source),
-        queryParams: {
-          ...readSourceQueryParams(input.source),
-          ...input.auth.queryParams,
-        },
-        headers: applyCookiePlacementsToHeaders({
-          headers: {
-            ...readSourceHeaders(input.source),
-            ...input.auth.headers,
-          },
-          cookies: input.auth.cookies,
-        }),
+        endpoint: input.requestPlan.endpoint,
+        transport: input.requestPlan.transport,
+        queryParams: input.requestPlan.queryParams,
+        headers: input.requestPlan.headers,
       });
       const tools = createMcpToolsFromManifest({
         manifest: {
           version: 2,
           tools: [{
-            toolId: input.executable.toolName,
-            toolName: input.executable.toolName,
+            toolId: input.requestPlan.toolName,
+            toolName: input.requestPlan.toolName,
             displayTitle:
-              input.tool.capability.surface.title
-              ?? input.executable.toolName,
-            title: input.tool.capability.surface.title ?? null,
+              input.requestPlan.toolTitle
+              ?? input.requestPlan.toolName,
+            title: input.requestPlan.toolTitle ?? null,
             description:
-              input.tool.capability.surface.summary
-              ?? input.tool.capability.surface.title
-              ?? `MCP tool: ${input.executable.toolName}`,
+              input.requestPlan.toolSummary
+              ?? input.requestPlan.toolTitle
+              ?? `MCP tool: ${input.requestPlan.toolName}`,
             annotations: null,
             execution: null,
             icons: null,
             meta: null,
             rawTool: null,
-            inputSchema: input.tool.descriptor.inputSchema,
-            outputSchema: input.tool.descriptor.outputSchema,
+            inputSchema: input.requestPlan.inputSchema,
+            outputSchema: input.requestPlan.outputSchema,
           }],
         },
         connect: connector,
         sourceKey: input.source.id,
       });
-      const entry = tools[input.executable.toolName] as ToolInput | undefined;
+      const entry = tools[input.requestPlan.toolName] as ToolInput | undefined;
       const definition =
         entry && typeof entry === "object" && entry !== null && "tool" in entry
           ? entry.tool
           : entry;
 
       if (!definition) {
-        throw new Error(`Missing MCP tool definition for ${input.executable.toolName}`);
+        throw new Error(`Missing MCP tool definition for ${input.requestPlan.toolName}`);
       }
 
       const executionContext: ToolExecutionContext | undefined =
@@ -568,7 +679,7 @@ const executeMcp = (input: {
             }
           : undefined;
 
-      const result = await definition.execute(asObject(payload), executionContext);
+      const result = await definition.execute(asObject(input.requestPlan.payload), executionContext);
       const resultRecord = asObject(result);
       const isError = resultRecord.isError === true;
       return executionEnvelope({
@@ -580,6 +691,84 @@ const executeMcp = (input: {
     },
     catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
   });
+
+const requestPlanFromInvocationPlan = (
+  plan: InvocationPlan,
+): IrInvocationRequestPlan => {
+  const requestPlan = asObject(plan.requestPlan);
+  const protocol = asString(requestPlan.protocol);
+  if (protocol !== "http" && protocol !== "graphql" && protocol !== "mcp") {
+    throw new Error(`Unsupported invocation request plan for executable ${plan.executableId}`);
+  }
+  return requestPlan as IrInvocationRequestPlan;
+};
+
+export const planIrToolInvocation = (input: {
+  tool: LoadedSourceCatalogToolIndexEntry;
+  auth: ResolvedSourceAuthMaterial;
+  args: unknown;
+}): InvocationPlan => {
+  const planned =
+    input.tool.executable.protocol === "http"
+      ? planHttpInvocation({
+          source: input.tool.source,
+          catalog: input.tool.projectedCatalog,
+          executable: input.tool.executable,
+          auth: input.auth,
+          args: input.args,
+        })
+      : input.tool.executable.protocol === "graphql"
+        ? planGraphqlInvocation({
+            source: input.tool.source,
+            catalog: input.tool.projectedCatalog,
+            executable: input.tool.executable,
+            auth: input.auth,
+            args: input.args,
+          })
+        : planMcpInvocation({
+            source: input.tool.source,
+            catalog: input.tool.projectedCatalog,
+            tool: input.tool,
+            executable: input.tool.executable,
+            auth: input.auth,
+            args: input.args,
+          });
+
+  return buildInvocationPlan({
+    catalog: input.tool.projectedCatalog,
+    capabilityId: input.tool.capabilityId,
+    executableId: input.tool.executableId,
+    connectionBindingId: input.tool.source.id,
+    resolvedEndpoint: planned.resolvedEndpoint,
+    resolvedAuth: resolvedAuthSummary(input.auth),
+    requestPlan: planned.requestPlan,
+  });
+};
+
+export const executeIrInvocationPlan = (input: {
+  plan: InvocationPlan;
+  source: Source;
+  tool: LoadedSourceCatalogToolIndexEntry;
+  onElicitation?: OnElicitation;
+  context?: Record<string, unknown>;
+}) => {
+  const requestPlan = requestPlanFromInvocationPlan(input.plan);
+
+  switch (requestPlan.protocol) {
+    case "http":
+      return executeHttpPlan(requestPlan);
+    case "graphql":
+      return executeGraphqlPlan(requestPlan);
+    case "mcp":
+      return executeMcpPlan({
+        source: input.source,
+        tool: input.tool,
+        requestPlan,
+        onElicitation: input.onElicitation,
+        context: input.context,
+      });
+  }
+};
 
 export const invocationDescriptorFromTool = (input: {
   tool: LoadedSourceCatalogToolIndexEntry;
@@ -621,34 +810,15 @@ export const invokeIrTool = (input: {
   args: unknown;
   onElicitation?: OnElicitation;
   context?: Record<string, unknown>;
-}) => {
-  switch (input.tool.executable.protocol) {
-    case "http":
-      return executeHttp({
-        source: input.tool.source,
-        catalog: input.tool.projectedCatalog,
-        executable: input.tool.executable,
-        auth: input.auth,
-        args: input.args,
-      });
-    case "graphql":
-      return executeGraphql({
-        source: input.tool.source,
-        catalog: input.tool.projectedCatalog,
-        executable: input.tool.executable,
-        auth: input.auth,
-        args: input.args,
-      });
-    case "mcp":
-      return executeMcp({
-        source: input.tool.source,
-        catalog: input.tool.projectedCatalog,
-        tool: input.tool,
-        executable: input.tool.executable,
-        auth: input.auth,
-        args: input.args,
-        onElicitation: input.onElicitation,
-        context: input.context,
-      });
-  }
-};
+}) =>
+  executeIrInvocationPlan({
+    plan: planIrToolInvocation({
+      tool: input.tool,
+      auth: input.auth,
+      args: input.args,
+    }),
+    source: input.tool.source,
+    tool: input.tool,
+    onElicitation: input.onElicitation,
+    context: input.context,
+  });
