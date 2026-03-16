@@ -90,6 +90,34 @@ const resolveQuickJsWasmPath = (): string => {
   return wasmPath;
 };
 
+const resolvePGliteAssetPaths = (): {
+  dataPath: string;
+  wasmPath: string;
+} => {
+  const requireFromControlPlane = createRequire(
+    join(repoRoot, "packages/control-plane/package.json"),
+  );
+  const pglitePackagePath = requireFromControlPlane.resolve(
+    "@electric-sql/pglite/package.json",
+  );
+  const pgliteDistDir = join(dirname(pglitePackagePath), "dist");
+  const dataPath = join(pgliteDistDir, "pglite.data");
+  const wasmPath = join(pgliteDistDir, "pglite.wasm");
+
+  if (!existsSync(dataPath)) {
+    throw new Error(`Unable to locate PGlite data asset at ${dataPath}`);
+  }
+
+  if (!existsSync(wasmPath)) {
+    throw new Error(`Unable to locate PGlite wasm asset at ${wasmPath}`);
+  }
+
+  return {
+    dataPath,
+    wasmPath,
+  };
+};
+
 const createPackageJson = (input: {
   packageName: string;
   packageVersion: string;
@@ -150,6 +178,7 @@ export const buildDistributionPackage = async (
   const bundlePath = join(binDir, "executor.mjs");
   const launcherPath = join(binDir, "executor.js");
   const quickJsWasmPath = resolveQuickJsWasmPath();
+  const pgliteAssets = resolvePGliteAssetPaths();
   const webDistDir = join(repoRoot, "apps/web/dist");
   const readmePath = join(repoRoot, "README.md");
   const packageName = options.packageName ?? defaults.name;
@@ -185,6 +214,8 @@ export const buildDistributionPackage = async (
 
   await cp(webDistDir, webDir, { recursive: true });
   await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
+  await cp(pgliteAssets.dataPath, join(binDir, "pglite.data"));
+  await cp(pgliteAssets.wasmPath, join(binDir, "pglite.wasm"));
   await mkdir(join(binDir, "openapi-extractor-wasm"), { recursive: true });
   await cp(
     join(repoRoot, "packages/codemode-openapi/src/openapi-extractor-wasm/openapi_extractor_bg.wasm"),
