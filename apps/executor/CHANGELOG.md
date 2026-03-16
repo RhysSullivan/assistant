@@ -1,16 +1,11 @@
 # executor
 
-## 2.0.0
+## 1.2.1
 
-### Major Changes
-
-- 86d4d4d: more migration fixes
-
-## 1.3.0
-
-### Minor Changes
+### Patch Changes
 
 - 329cc41: fix migration
+- 86d4d4d: package the PGlite runtime assets in the published CLI bundle
 
 ## 1.2.0
 
