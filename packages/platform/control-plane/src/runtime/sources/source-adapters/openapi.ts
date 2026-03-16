@@ -23,8 +23,8 @@ import {
   createCatalogImportMetadata,
   createOpenApiCatalogFragment,
   type OpenApiCatalogOperationInput,
-} from "../../catalog/source-catalog-snapshot";
-import { createSourceCatalogSyncResult } from "../../catalog/source-catalog-support";
+} from "@executor/catalog-builders";
+import { createSourceCatalogSyncResult } from "../catalog-sync-result";
 import type { SourceAdapter } from "./types";
 import {
   ConnectHttpAuthSchema,

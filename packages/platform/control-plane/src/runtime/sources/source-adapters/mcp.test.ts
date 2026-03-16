@@ -27,7 +27,7 @@ import {
   expandCatalogToolByPath,
   type LoadedSourceCatalog,
 } from "../../catalog/source-catalog-runtime";
-import { snapshotFromSourceCatalogSyncResult } from "../../catalog/source-catalog-support";
+import { snapshotFromSourceCatalogSyncResult } from "../catalog-sync-result";
 import { createSourceFromPayload } from "../source-definitions";
 import { mcpSourceAdapter } from "./mcp";
 

@@ -3,6 +3,9 @@ import {
   type OpenApiToolProviderData,
 } from "@executor/codemode-openapi";
 import {
+  type GraphqlToolProviderData,
+} from "@executor/codemode-graphql";
+import {
   type GoogleDiscoveryToolProviderData,
 } from "@executor/codemode-google-discovery";
 import type {
@@ -10,8 +13,6 @@ import type {
   McpToolAnnotations,
   McpToolExecution,
 } from "@executor/codemode-mcp";
-
-import type { Source } from "#schema";
 
 import {
   createCatalogSnapshotV1FromFragments,
@@ -57,10 +58,33 @@ import type {
   SourceKind,
   SourceDocument,
 } from "@executor/ir/model";
-import type { GraphqlToolProviderData } from "../sources/graphql-tools";
-import { namespaceFromSourceName } from "../sources/source-names";
 
 type JsonSchema = boolean | Record<string, unknown>;
+
+export type CatalogSourceInput = {
+  id: string;
+  kind: string;
+  name: string;
+  endpoint: string;
+  namespace: string | null;
+  sourceHash?: string | null;
+  binding?: unknown;
+  auth?: {
+    kind?: string | null;
+  } | null;
+};
+
+type Source = CatalogSourceInput;
+
+const namespaceFromSourceName = (name: string): string => {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+
+  return normalized.length > 0 ? normalized : "source";
+};
 
 type CatalogFragmentBuilder = {
   version: "ir.v1.fragment";
@@ -269,7 +293,7 @@ const importMetadataFor = (input: {
     ?? stableHash({
       endpoint: input.source.endpoint,
       binding: input.source.binding,
-      auth: input.source.auth.kind,
+      auth: input.source.auth?.kind ?? null,
     }),
 });
 

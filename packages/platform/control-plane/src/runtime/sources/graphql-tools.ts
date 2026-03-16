@@ -12,6 +12,10 @@ import {
   type ToolPath,
   typeSignatureFromSchema,
 } from "@executor/codemode-core";
+import {
+  GraphqlToolProviderDataSchema,
+  type GraphqlToolProviderData,
+} from "@executor/codemode-graphql";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
@@ -43,8 +47,6 @@ import * as Option from "effect/Option";
 
 type JsonSchema = Record<string, unknown>;
 type GraphqlSchemaRefTable = Record<string, string>;
-
-type GraphqlToolKind = "request" | "field";
 
 type GraphqlOperationType = "query" | "mutation";
 
@@ -115,28 +117,6 @@ export type GraphqlToolPresentation = {
 type GraphqlToolPresentationResolver = {
   resolve(definition: GraphqlToolDefinition): GraphqlToolPresentation;
 };
-
-const GraphqlToolKindSchema = Schema.Literal("request", "field");
-
-const GraphqlOperationTypeSchema = Schema.Literal("query", "mutation");
-
-export const GraphqlToolProviderDataSchema = Schema.Struct({
-  kind: Schema.Literal("graphql"),
-  toolKind: GraphqlToolKindSchema,
-  toolId: Schema.String,
-  rawToolId: Schema.NullOr(Schema.String),
-  group: Schema.NullOr(Schema.String),
-  leaf: Schema.NullOr(Schema.String),
-  fieldName: Schema.NullOr(Schema.String),
-  operationType: Schema.NullOr(GraphqlOperationTypeSchema),
-  operationName: Schema.NullOr(Schema.String),
-  operationDocument: Schema.NullOr(Schema.String),
-  queryTypeName: Schema.NullOr(Schema.String),
-  mutationTypeName: Schema.NullOr(Schema.String),
-  subscriptionTypeName: Schema.NullOr(Schema.String),
-});
-
-export type GraphqlToolProviderData = typeof GraphqlToolProviderDataSchema.Type;
 
 type SelectedGraphqlOutput = {
   selectionSet: string;

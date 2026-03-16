@@ -6,7 +6,7 @@ import { SourceIdSchema } from "#schema";
 import * as Effect from "effect/Effect";
 
 import { googleDiscoverySourceAdapter } from "./google-discovery";
-import { snapshotFromSourceCatalogSyncResult } from "../../catalog/source-catalog-support";
+import { snapshotFromSourceCatalogSyncResult } from "../catalog-sync-result";
 import { createSourceFromPayload } from "../source-definitions";
 
 const fetchLiveDiscoveryDocument = async (): Promise<string> => {

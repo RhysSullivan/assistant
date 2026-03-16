@@ -2,4 +2,3 @@ export * from "./schema/index";
 export * from "./api/index";
 export * from "./runtime/index";
 export * from "./client";
-export * as ir from "@executor/ir";

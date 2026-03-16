@@ -6,15 +6,6 @@ import type {
   ImportMetadata,
 } from "@executor/ir/model";
 
-export const normalizeSearchText = (
-  ...parts: ReadonlyArray<string | null | undefined>
-): string =>
-  parts
-    .flatMap((part) => (part ? [part.trim()] : []))
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
 export const contentHash = (value: string): string => sha256Hex(value);
 
 export type SourceCatalogSyncResult = {

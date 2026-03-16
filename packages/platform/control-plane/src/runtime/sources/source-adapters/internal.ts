@@ -2,8 +2,8 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type { Source } from "#schema";
 
-import { createCatalogImportMetadata } from "../../catalog/source-catalog-snapshot";
-import { createSourceCatalogSyncResult } from "../../catalog/source-catalog-support";
+import { createCatalogImportMetadata } from "@executor/catalog-builders";
+import { createSourceCatalogSyncResult } from "../catalog-sync-result";
 import type { SourceAdapter } from "./types";
 import {
   decodeBindingConfig,

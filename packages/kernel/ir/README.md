@@ -22,8 +22,6 @@ The existing runtime-specific compiled payload blobs are no longer the target se
 Use either:
 
 - `@executor/ir`
-- `@executor/control-plane/ir` as a compatibility shim
-- `import { ir } from "@executor/control-plane"`
 
 ## Guarantees
 

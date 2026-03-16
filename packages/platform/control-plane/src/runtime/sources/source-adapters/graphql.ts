@@ -3,12 +3,12 @@ import {
   applyHttpQueryPlacementsToUrl,
   applyJsonBodyPlacements,
 } from "@executor/codemode-core";
+import type { GraphqlToolProviderData } from "@executor/codemode-graphql";
 import {
   buildGraphqlToolPresentation,
   compileGraphqlToolDefinitions,
   extractGraphqlManifest,
   GRAPHQL_INTROSPECTION_QUERY,
-  type GraphqlToolProviderData,
 } from "../graphql-tools";
 import type { Source } from "#schema";
 import { StringMapSchema } from "#schema";
@@ -19,8 +19,8 @@ import {
   createCatalogImportMetadata,
   createGraphqlCatalogFragment,
   type GraphqlCatalogOperationInput,
-} from "../../catalog/source-catalog-snapshot";
-import { createSourceCatalogSyncResult } from "../../catalog/source-catalog-support";
+} from "@executor/catalog-builders";
+import { createSourceCatalogSyncResult } from "../catalog-sync-result";
 import type { SourceAdapter } from "./types";
 import {
   ConnectHttpAuthSchema,

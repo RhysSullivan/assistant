@@ -132,6 +132,24 @@
         "vitest": "catalog:",
       },
     },
+    "packages/drivers/catalog-builders": {
+      "name": "@executor/catalog-builders",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/codemode-core": "workspace:*",
+        "@executor/codemode-google-discovery": "workspace:*",
+        "@executor/codemode-graphql": "workspace:*",
+        "@executor/codemode-mcp": "workspace:*",
+        "@executor/codemode-openapi": "workspace:*",
+        "@executor/ir": "workspace:*",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/drivers/google-discovery": {
       "name": "@executor/codemode-google-discovery",
       "version": "0.0.0",
@@ -146,6 +164,17 @@
         "@types/node": "catalog:",
         "bun-types": "catalog:",
         "vitest": "catalog:",
+      },
+    },
+    "packages/drivers/graphql": {
+      "name": "@executor/codemode-graphql",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
       },
     },
     "packages/drivers/mcp": {
@@ -289,8 +318,10 @@
       "version": "0.0.0",
       "dependencies": {
         "@effect/platform": "catalog:",
+        "@executor/catalog-builders": "workspace:*",
         "@executor/codemode-core": "workspace:*",
         "@executor/codemode-google-discovery": "workspace:*",
+        "@executor/codemode-graphql": "workspace:*",
         "@executor/codemode-mcp": "workspace:*",
         "@executor/codemode-openapi": "workspace:*",
         "@executor/ir": "workspace:*",
@@ -541,9 +572,13 @@
 
     "@executor/ai-sdk-adapter": ["@executor/ai-sdk-adapter@workspace:packages/hosts/ai-sdk"],
 
+    "@executor/catalog-builders": ["@executor/catalog-builders@workspace:packages/drivers/catalog-builders"],
+
     "@executor/codemode-core": ["@executor/codemode-core@workspace:packages/kernel/core"],
 
     "@executor/codemode-google-discovery": ["@executor/codemode-google-discovery@workspace:packages/drivers/google-discovery"],
+
+    "@executor/codemode-graphql": ["@executor/codemode-graphql@workspace:packages/drivers/graphql"],
 
     "@executor/codemode-mcp": ["@executor/codemode-mcp@workspace:packages/drivers/mcp"],
 

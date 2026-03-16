@@ -23,7 +23,7 @@ import {
   createCatalogImportMetadata,
   createGraphqlCatalogFragment,
   createOpenApiCatalogFragment,
-} from "../catalog/source-catalog-snapshot";
+} from "@executor/catalog-builders";
 
 const makeContext = (): ResolvedLocalWorkspaceContext => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-artifacts-"));

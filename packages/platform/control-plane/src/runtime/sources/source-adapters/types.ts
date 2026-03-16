@@ -14,7 +14,7 @@ import * as Schema from "effect/Schema";
 
 import type { ResolvedSourceAuthMaterial } from "../../auth/source-auth-material";
 import type { ResolveSecretMaterial } from "../../local/secret-material-providers";
-import type { SourceCatalogSyncResult } from "../../catalog/source-catalog-support";
+import type { SourceCatalogSyncResult } from "../catalog-sync-result";
 
 export type SourceAdapterFamily = "http_api" | "mcp" | "internal";
 export type SourceAdapterInputSchema = Schema.Schema<any, any, never>;

@@ -5,7 +5,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
-    "./ir": "./src/ir/index.ts",
     "./schema": "./src/schema/index.ts"
   },
   "imports": {
@@ -22,8 +21,10 @@
   "dependencies": {
     "@effect/platform": "catalog:",
 
+    "@executor/catalog-builders": "workspace:*",
     "@executor/codemode-core": "workspace:*",
     "@executor/codemode-google-discovery": "workspace:*",
+    "@executor/codemode-graphql": "workspace:*",
     "@executor/ir": "workspace:*",
     "@executor/codemode-mcp": "workspace:*",
     "@executor/codemode-openapi": "workspace:*",

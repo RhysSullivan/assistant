@@ -52,7 +52,7 @@ import {
   createGoogleDiscoveryCatalogSnapshot,
   createGraphqlCatalogSnapshot,
   createOpenApiCatalogSnapshot,
-} from "../catalog/source-catalog-snapshot";
+} from "@executor/catalog-builders";
 
 const FIXTURE_WORKSPACE_ID = WorkspaceIdSchema.make("ws_source_fixture_matrix");
 

@@ -12,7 +12,7 @@ import {
   createGraphqlCatalogSnapshot,
   createMcpCatalogSnapshot,
   createOpenApiCatalogSnapshot,
-} from "./source-catalog-snapshot";
+} from "@executor/catalog-builders";
 
 const baseSource: Source = {
   id: "src_calendar" as Source["id"],

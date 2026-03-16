@@ -24,7 +24,7 @@ import {
   contentHash,
   snapshotFromSourceCatalogSyncResult,
   type SourceCatalogSyncResult,
-} from "../catalog/source-catalog-support";
+} from "../sources/catalog-sync-result";
 import type { ResolvedLocalWorkspaceContext } from "./local-config";
 import {
   LocalFileSystemError,

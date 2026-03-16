@@ -31,7 +31,7 @@ import {
   catalogSyncResultFromMcpManifest,
 } from "../sources/source-adapters/mcp";
 import { SecretMaterialResolverService } from "../local/secret-material-providers";
-import { snapshotFromSourceCatalogSyncResult } from "./source-catalog-support";
+import { snapshotFromSourceCatalogSyncResult } from "../sources/catalog-sync-result";
 import {
   refreshSourceTypeDeclarationInBackground,
 } from "./source-type-declarations";

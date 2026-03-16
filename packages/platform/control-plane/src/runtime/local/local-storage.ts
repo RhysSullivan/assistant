@@ -32,7 +32,7 @@ import {
   loadLocalWorkspaceState,
   writeLocalWorkspaceState,
 } from "./local-workspace-state";
-import type { SourceCatalogSyncResult } from "../catalog/source-catalog-support";
+import type { SourceCatalogSyncResult } from "../sources/catalog-sync-result";
 import type { Source } from "#schema";
 
 export type InstallationStoreShape = {

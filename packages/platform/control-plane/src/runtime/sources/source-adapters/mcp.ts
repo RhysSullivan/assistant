@@ -22,12 +22,12 @@ import {
   createCatalogImportMetadata,
   createMcpCatalogFragment,
   type McpCatalogOperationInput,
-} from "../../catalog/source-catalog-snapshot";
+} from "@executor/catalog-builders";
 import {
   contentHash,
   createSourceCatalogSyncResult,
   type SourceCatalogSyncResult,
-} from "../../catalog/source-catalog-support";
+} from "../catalog-sync-result";
 import { namespaceFromSourceName } from "../source-names";
 import type { SourceAdapter } from "./types";
 import {
