@@ -1,7 +1,6 @@
-import { mkdtempSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -15,18 +14,25 @@ import {
 } from "./config";
 
 const makeWorkspaceRoot = () =>
-  mkdtempSync(join(tmpdir(), "executor-local-config-"));
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.makeTempDirectory({
+        directory: tmpdir(),
+        prefix: "executor-local-config-",
+      })
+    ),
+  );
 
 describe("local-config", () => {
   it.effect("parses jsonc project config with comments and trailing commas", () =>
     Effect.gen(function* () {
-      const workspaceRoot = makeWorkspaceRoot();
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* makeWorkspaceRoot();
       const configDirectory = join(workspaceRoot, ".executor");
-      yield* Effect.promise(() => mkdir(configDirectory, { recursive: true }));
-      yield* Effect.promise(() =>
-        writeFile(
-          join(configDirectory, "executor.jsonc"),
-          `{
+      yield* fs.makeDirectory(configDirectory, { recursive: true });
+      yield* fs.writeFileString(
+        join(configDirectory, "executor.jsonc"),
+        `{
   "runtime": "ses",
   // local workspace config
   "sources": {
@@ -42,8 +48,6 @@ describe("local-config", () => {
   },
 }
 `,
-          "utf8",
-        ),
       );
 
       const context = yield* resolveLocalWorkspaceContext({ workspaceRoot });
@@ -60,13 +64,13 @@ describe("local-config", () => {
 
   it.effect("reports jsonc syntax errors with line and column details", () =>
     Effect.gen(function* () {
-      const workspaceRoot = makeWorkspaceRoot();
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* makeWorkspaceRoot();
       const configDirectory = join(workspaceRoot, ".executor");
-      yield* Effect.promise(() => mkdir(configDirectory, { recursive: true }));
-      yield* Effect.promise(() =>
-        writeFile(
-          join(configDirectory, "executor.jsonc"),
-          `{
+      yield* fs.makeDirectory(configDirectory, { recursive: true });
+      yield* fs.writeFileString(
+        join(configDirectory, "executor.jsonc"),
+        `{
   "sources": {
     "github": {
       "kind": "openapi"
@@ -77,8 +81,6 @@ describe("local-config", () => {
   }
 }
 `,
-          "utf8",
-        ),
       );
 
       const context = yield* resolveLocalWorkspaceContext({ workspaceRoot });

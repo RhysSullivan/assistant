@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 
 import {
   AuthArtifactSchema,
@@ -60,7 +60,7 @@ export type LocalControlPlanePersistence = {
   close: () => Promise<void>;
 };
 
-const decodeLocalControlPlaneState = Schema.decodeUnknownSync(
+const decodeLocalControlPlaneState = Schema.decodeUnknown(
   LocalControlPlaneStateSchema,
 );
 
@@ -118,54 +118,74 @@ const localControlPlaneStatePath = (
     LOCAL_CONTROL_PLANE_STATE_BASENAME,
   );
 
-const readStateFromDisk = async (
+const bindFileSystem = <A, E>(
+  fileSystem: FileSystem.FileSystem,
+  effect: Effect.Effect<A, E, FileSystem.FileSystem>,
+): Effect.Effect<A, E, never> =>
+  effect.pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
+
+const bindNodeFileSystem = <A, E>(
+  effect: Effect.Effect<A, E, FileSystem.FileSystem>,
+): Effect.Effect<A, E, never> =>
+  effect.pipe(Effect.provide(NodeFileSystem.layer));
+
+const readStateFromDisk = (
   context: ResolvedLocalWorkspaceContext,
-): Promise<LocalControlPlaneState> => {
-  const path = localControlPlaneStatePath(context);
-  if (!existsSync(path)) {
-    return defaultLocalControlPlaneState();
-  }
+): Effect.Effect<LocalControlPlaneState, LocalFileSystemError, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = localControlPlaneStatePath(context);
+    const exists = yield* fs.exists(path).pipe(
+      Effect.mapError(mapFileSystemError(path, "check control plane state path")),
+    );
+    if (!exists) {
+      return defaultLocalControlPlaneState();
+    }
 
-  const content = await readFile(path, "utf8");
-  return decodeLocalControlPlaneState(JSON.parse(content) as unknown);
-};
+    const content = yield* fs.readFileString(path, "utf8").pipe(
+      Effect.mapError(mapFileSystemError(path, "read control plane state")),
+    );
+    const parsed = yield* Effect.try({
+      try: () => JSON.parse(content) as unknown,
+      catch: mapFileSystemError(path, "parse control plane state"),
+    });
+    return yield* decodeLocalControlPlaneState(parsed).pipe(
+      Effect.mapError(mapFileSystemError(path, "decode control plane state")),
+    );
+  });
 
-const writeStateToDisk = async (
+const writeStateToDisk = (
   context: ResolvedLocalWorkspaceContext,
   state: LocalControlPlaneState,
-): Promise<void> => {
-  const path = localControlPlaneStatePath(context);
-  await mkdir(dirname(path), { recursive: true });
-  const tempPath = `${path}.${randomUUID()}.tmp`;
-  await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
+): Effect.Effect<void, LocalFileSystemError, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = localControlPlaneStatePath(context);
+    const tempPath = `${path}.${randomUUID()}.tmp`;
+
+    yield* fs.makeDirectory(dirname(path), { recursive: true }).pipe(
+      Effect.mapError(mapFileSystemError(dirname(path), "create control plane state directory")),
+    );
+    yield* fs.writeFileString(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
+      mode: 0o600,
+    }).pipe(
+      Effect.mapError(mapFileSystemError(tempPath, "write control plane state")),
+    );
+    yield* fs.rename(tempPath, path).pipe(
+      Effect.mapError(mapFileSystemError(path, "replace control plane state")),
+    );
   });
-  await rename(tempPath, path);
-};
 
 export const loadLocalControlPlaneState = (
   context: ResolvedLocalWorkspaceContext,
 ): Effect.Effect<LocalControlPlaneState, LocalFileSystemError> =>
-  Effect.tryPromise({
-    try: () => readStateFromDisk(context),
-    catch: mapFileSystemError(
-      localControlPlaneStatePath(context),
-      "read control plane state",
-    ),
-  });
+  bindNodeFileSystem(readStateFromDisk(context));
 
 export const writeLocalControlPlaneState = (input: {
   context: ResolvedLocalWorkspaceContext;
   state: LocalControlPlaneState;
 }): Effect.Effect<void, LocalFileSystemError> =>
-  Effect.tryPromise({
-    try: () => writeStateToDisk(input.context, input.state),
-    catch: mapFileSystemError(
-      localControlPlaneStatePath(input.context),
-      "write control plane state",
-    ),
-  });
+  bindNodeFileSystem(writeStateToDisk(input.context, input.state));
 
 const mergeById = <T extends { id: string }>(
   current: readonly T[],
@@ -338,16 +358,21 @@ type StateMutationResult<A> = {
   value: A;
 };
 
-const createStateManager = (context: ResolvedLocalWorkspaceContext) => {
+const createStateManager = (
+  context: ResolvedLocalWorkspaceContext,
+  fileSystem: FileSystem.FileSystem,
+) => {
   let cache: LocalControlPlaneState | null = null;
   let mutationQueue: Promise<void> = Promise.resolve();
+  const run = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) =>
+    Effect.runPromise(bindFileSystem(fileSystem, effect));
 
   const ensureLoaded = async (): Promise<LocalControlPlaneState> => {
     if (cache !== null) {
       return cache;
     }
 
-    cache = await readStateFromDisk(context);
+    cache = await run(readStateFromDisk(context));
     return cache;
   };
 
@@ -381,7 +406,7 @@ const createStateManager = (context: ResolvedLocalWorkspaceContext) => {
             const result = await operation(current);
             cache = result.state;
             value = result.value;
-            await writeStateToDisk(context, cache);
+            await run(writeStateToDisk(context, cache));
           } catch (cause) {
             failure = cause;
           }
@@ -409,8 +434,9 @@ const createStateManager = (context: ResolvedLocalWorkspaceContext) => {
 
 export const createLocalControlPlaneStore = (
   context: ResolvedLocalWorkspaceContext,
+  fileSystem: FileSystem.FileSystem,
 ) => {
-  const stateManager = createStateManager(context);
+  const stateManager = createStateManager(context, fileSystem);
 
   return {
     authArtifacts: {
@@ -1189,8 +1215,9 @@ export type LocalControlPlaneStore = ReturnType<typeof createLocalControlPlaneSt
 
 export const createLocalControlPlanePersistence = (
   context: ResolvedLocalWorkspaceContext,
+  fileSystem: FileSystem.FileSystem,
 ): LocalControlPlanePersistence => ({
-  rows: createLocalControlPlaneStore(context),
+  rows: createLocalControlPlaneStore(context, fileSystem),
   close: async () => {},
 });
 

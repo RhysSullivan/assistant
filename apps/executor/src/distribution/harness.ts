@@ -1,15 +1,19 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { buildDistributionPackage } from "./artifact";
 import { executorAppEffectError } from "../effect-errors";
+
+const toError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
 
 type CommandResult = {
   readonly stdout: string;
@@ -173,16 +177,17 @@ const packPackage = (packageDir: string, outputDir: string) =>
 export const LocalDistributionHarnessLive = Layer.scoped(
   DistributionHarness,
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const tempRoot = yield* Effect.acquireRelease(
-      Effect.tryPromise({
-        try: () => mkdtemp(join(tmpdir(), "executor-distribution-")),
-        catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
-      }),
-      (path) => Effect.tryPromise({
-        try: () => rm(path, { recursive: true, force: true }),
-        catch: (cause) =>
-          cause instanceof Error ? cause : new Error(String(cause ?? "temp dir cleanup failed")),
-      }).pipe(Effect.orDie),
+      fs.makeTempDirectory({
+        directory: tmpdir(),
+        prefix: "executor-distribution-",
+      }).pipe(Effect.mapError(toError)),
+      (path) =>
+        fs.remove(path, { recursive: true, force: true }).pipe(
+          Effect.mapError(toError),
+          Effect.orDie,
+        ),
     );
 
     const packageDir = join(tempRoot, "package");
@@ -193,14 +198,11 @@ export const LocalDistributionHarnessLive = Layer.scoped(
     const installedWorkspaceRoot = tempRoot;
     const baseUrl = `http://127.0.0.1:${yield* allocatePort()}`;
 
-    yield* Effect.tryPromise({
-      try: async () => {
-        await mkdir(prefixDir, { recursive: true });
-        await mkdir(homeDir, { recursive: true });
-        await mkdir(executorHome, { recursive: true });
-      },
-      catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
-    });
+    yield* Effect.all([
+      fs.makeDirectory(prefixDir, { recursive: true }),
+      fs.makeDirectory(homeDir, { recursive: true }),
+      fs.makeDirectory(executorHome, { recursive: true }),
+    ]).pipe(Effect.mapError(toError));
 
     const artifact = yield* buildPackage(packageDir);
     const tarballPath = yield* packPackage(packageDir, tempRoot);
@@ -263,16 +265,21 @@ export const LocalDistributionHarnessLive = Layer.scoped(
       });
 
     const writeProjectConfig = (contents: string) =>
-      Effect.tryPromise({
-        try: async () => {
-          for (const workspaceRoot of [stagedWorkspaceRoot, installedWorkspaceRoot]) {
+      Effect.forEach(
+        [stagedWorkspaceRoot, installedWorkspaceRoot],
+        (workspaceRoot) =>
+          Effect.gen(function* () {
             const configDir = join(workspaceRoot, ".executor");
-            await mkdir(configDir, { recursive: true });
-            await writeFile(join(configDir, "executor.jsonc"), contents, "utf8");
-          }
-        },
-        catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
-      });
+            yield* fs.makeDirectory(configDir, { recursive: true }).pipe(
+              Effect.mapError(toError),
+            );
+            yield* fs.writeFileString(
+              join(configDir, "executor.jsonc"),
+              contents,
+            ).pipe(Effect.mapError(toError));
+          }),
+        { discard: true },
+      );
 
     return DistributionHarness.of({
       packageDir,
@@ -285,5 +292,5 @@ export const LocalDistributionHarnessLive = Layer.scoped(
       runInstalled,
       fetchText,
     });
-  }),
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
 );

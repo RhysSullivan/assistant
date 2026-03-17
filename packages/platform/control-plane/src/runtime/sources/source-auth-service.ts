@@ -1,6 +1,7 @@
 import {
   createSdkMcpConnector,
   discoverMcpToolsFromConnector,
+  isMcpStdioTransport,
   type McpDiscoveryElicitationContext,
 } from "@executor/source-mcp";
 import {
@@ -125,6 +126,73 @@ const defaultNamespaceFromName = (name: string): string => {
   return normalized.length > 0 ? normalized : "source";
 };
 
+const defaultSourceNameFromCommand = (command: string): string => {
+  const segments = command
+    .split(/[\\/]+/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  return segments[segments.length - 1] ?? command;
+};
+
+const normalizeStringArray = (
+  value: ReadonlyArray<string> | null | undefined,
+): string[] | null => {
+  if (!value || value.length === 0) {
+    return null;
+  }
+
+  const normalized = value
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return normalized.length > 0 ? normalized : null;
+};
+
+const slugifySourceLabel = (value: string): string => {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized.length > 0 ? normalized : "mcp";
+};
+
+const createSyntheticMcpStdioEndpoint = (input: {
+  endpoint?: string | null;
+  name?: string | null;
+  command?: string | null;
+}): string => {
+  const label =
+    trimOrNull(input.name)
+    ?? trimOrNull(input.endpoint)
+    ?? trimOrNull(input.command)
+    ?? "mcp";
+
+  return `stdio://local/${slugifySourceLabel(label)}`;
+};
+
+const normalizeMcpEndpoint = (input: {
+  endpoint?: string | null;
+  transport?: SourceTransport | null;
+  command?: string | null;
+  name?: string | null;
+}): string => {
+  if (isMcpStdioTransport({ transport: input.transport ?? undefined, command: input.command ?? undefined })) {
+    return normalizeEndpoint(
+      trimOrNull(input.endpoint) ?? createSyntheticMcpStdioEndpoint(input),
+    );
+  }
+
+  const endpoint = trimOrNull(input.endpoint);
+  if (endpoint === null) {
+    throw new Error("Endpoint is required.");
+  }
+
+  return normalizeEndpoint(endpoint);
+};
+
 const resolveSourceCredentialOauthCompleteUrl = (input: {
   baseUrl: string;
   workspaceId: WorkspaceId;
@@ -152,10 +220,10 @@ const resolveWorkspaceProviderOauthCompleteUrl = (input: {
     input.baseUrl,
   ).toString();
 
-const normalizeEndpoint = (endpoint: string): string => {
+function normalizeEndpoint(endpoint: string): string {
   const url = new URL(endpoint.trim());
   return url.toString();
-};
+}
 
 const defaultGoogleDiscoveryUrl = (service: string, version: string): string =>
   `https://www.googleapis.com/discovery/v1/apis/${encodeURIComponent(service)}/${encodeURIComponent(version)}/rest`;
@@ -226,6 +294,10 @@ const probeMcpSourceWithoutAuth = (
           transport: bindingState.transport ?? undefined,
           queryParams: bindingState.queryParams ?? undefined,
           headers: bindingState.headers ?? undefined,
+          command: bindingState.command ?? undefined,
+          args: bindingState.args ?? undefined,
+          env: bindingState.env ?? undefined,
+          cwd: bindingState.cwd ?? undefined,
         }),
       catch: (cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
@@ -497,9 +569,16 @@ export type ExecutorAddSourceInput =
       actorAccountId?: AccountId | null;
       executionId: SourceAuthSession["executionId"];
       interactionId: SourceAuthSession["interactionId"];
-      endpoint: string;
+      endpoint?: string | null;
       name?: string | null;
       namespace?: string | null;
+      transport?: SourceTransport | null;
+      queryParams?: StringMap | null;
+      headers?: StringMap | null;
+      command?: string | null;
+      args?: ReadonlyArray<string> | null;
+      env?: StringMap | null;
+      cwd?: string | null;
     }
   | {
       kind: "openapi";
@@ -566,13 +645,17 @@ export type ConnectMcpSourceInput = {
   workspaceId: WorkspaceId;
   actorAccountId?: AccountId | null;
   sourceId?: Source["id"] | null;
-  endpoint: string;
+  endpoint?: string | null;
   name?: string | null;
   namespace?: string | null;
   enabled?: boolean;
-  transport?: SourceTransport;
+  transport?: SourceTransport | null;
   queryParams?: StringMap | null;
   headers?: StringMap | null;
+  command?: string | null;
+  args?: ReadonlyArray<string> | null;
+  env?: StringMap | null;
+  cwd?: string | null;
   baseUrl?: string | null;
 };
 
@@ -1549,18 +1632,21 @@ const connectMcpSourceInternal = (input: {
   sourceId?: Source["id"] | null;
   executionId?: SourceAuthSession["executionId"];
   interactionId?: SourceAuthSession["interactionId"];
-  endpoint: string;
+  endpoint?: string | null;
   name?: string | null;
   namespace?: string | null;
   enabled?: boolean;
-  transport?: SourceTransport;
+  transport?: SourceTransport | null;
   queryParams?: StringMap | null;
   headers?: StringMap | null;
+  command?: string | null;
+  args?: ReadonlyArray<string> | null;
+  env?: StringMap | null;
+  cwd?: string | null;
   mcpDiscoveryElicitation?: McpDiscoveryElicitationContext;
   resolveSecretMaterial: ResolveSecretMaterial;
 }): Effect.Effect<McpSourceConnectResult, Error, WorkspaceStorageServices> =>
   Effect.gen(function* () {
-    const normalizedEndpoint = normalizeEndpoint(input.endpoint);
     const existing = yield* (
       input.sourceId
         ? input.sourceStore.loadSourceById({
@@ -1587,21 +1673,57 @@ const connectMcpSourceInternal = (input: {
           )
     );
 
+    const existingBinding = existing
+      ? yield* sourceBindingStateFromSource(existing)
+      : null;
+    const chosenCommand =
+      input.command !== undefined ? trimOrNull(input.command) : (existingBinding?.command ?? null);
+    const chosenTransport = input.transport !== undefined && input.transport !== null
+      ? input.transport
+      : isMcpStdioTransport({
+        transport: existingBinding?.transport ?? undefined,
+        command: chosenCommand ?? undefined,
+      })
+      ? "stdio"
+      : (existingBinding?.transport ?? "auto");
+    if (chosenTransport === "stdio" && chosenCommand === null) {
+      return yield* runtimeEffectError("sources/source-auth-service", "MCP stdio transport requires a command");
+    }
+    const normalizedEndpoint = normalizeMcpEndpoint({
+      endpoint: input.endpoint ?? existing?.endpoint ?? null,
+      transport: chosenTransport,
+      command: chosenCommand,
+      name: input.name ?? existing?.name ?? null,
+    });
     const chosenName =
-      trimOrNull(input.name) ?? existing?.name ?? defaultSourceNameFromEndpoint(normalizedEndpoint);
+      trimOrNull(input.name)
+      ?? existing?.name
+      ?? (chosenTransport === "stdio" && chosenCommand !== null
+        ? defaultSourceNameFromCommand(chosenCommand)
+        : defaultSourceNameFromEndpoint(normalizedEndpoint));
     const chosenNamespace =
       trimOrNull(input.namespace)
       ?? existing?.namespace
       ?? defaultNamespaceFromName(chosenName);
     const chosenEnabled = input.enabled ?? existing?.enabled ?? true;
-    const existingBinding = existing
-      ? yield* sourceBindingStateFromSource(existing)
-      : null;
-    const chosenTransport = input.transport ?? existingBinding?.transport ?? "auto";
     const chosenQueryParams =
-      input.queryParams !== undefined ? input.queryParams : (existingBinding?.queryParams ?? null);
+      chosenTransport === "stdio"
+        ? null
+        : input.queryParams !== undefined
+        ? input.queryParams
+        : (existingBinding?.queryParams ?? null);
     const chosenHeaders =
-      input.headers !== undefined ? input.headers : (existingBinding?.headers ?? null);
+      chosenTransport === "stdio"
+        ? null
+        : input.headers !== undefined
+        ? input.headers
+        : (existingBinding?.headers ?? null);
+    const chosenArgs =
+      input.args !== undefined ? normalizeStringArray(input.args) : (existingBinding?.args ?? null);
+    const chosenEnv =
+      input.env !== undefined ? input.env : (existingBinding?.env ?? null);
+    const chosenCwd =
+      input.cwd !== undefined ? trimOrNull(input.cwd) : (existingBinding?.cwd ?? null);
     const now = Date.now();
 
     const draftSource = existing
@@ -1617,6 +1739,10 @@ const connectMcpSourceInternal = (input: {
               transport: chosenTransport,
               queryParams: chosenQueryParams,
               headers: chosenHeaders,
+              command: chosenCommand,
+              args: chosenArgs,
+              env: chosenEnv,
+              cwd: chosenCwd,
             },
             importAuthPolicy: "reuse_runtime",
             importAuth: { kind: "none" },
@@ -1639,6 +1765,10 @@ const connectMcpSourceInternal = (input: {
               transport: chosenTransport,
               queryParams: chosenQueryParams,
               headers: chosenHeaders,
+              command: chosenCommand,
+              args: chosenArgs,
+              env: chosenEnv,
+              cwd: chosenCwd,
             },
             importAuthPolicy: "reuse_runtime",
             importAuth: { kind: "none" },
@@ -2681,6 +2811,13 @@ const createRuntimeSourceConnectionService = (
               endpoint: sourceInput.endpoint,
               name: sourceInput.name,
               namespace: sourceInput.namespace,
+              transport: sourceInput.transport,
+              queryParams: sourceInput.queryParams,
+              headers: sourceInput.headers,
+              command: sourceInput.command,
+              args: sourceInput.args,
+              env: sourceInput.env,
+              cwd: sourceInput.cwd,
               mcpDiscoveryElicitation: options?.mcpDiscoveryElicitation,
               baseUrl: options?.baseUrl,
               resolveSecretMaterial: input.resolveSecretMaterial,
@@ -2720,6 +2857,10 @@ const createRuntimeSourceConnectionService = (
           transport: sourceInput.transport,
           queryParams: sourceInput.queryParams,
           headers: sourceInput.headers,
+          command: sourceInput.command,
+          args: sourceInput.args,
+          env: sourceInput.env,
+          cwd: sourceInput.cwd,
           baseUrl: sourceInput.baseUrl,
           resolveSecretMaterial: input.resolveSecretMaterial,
         }).pipe(

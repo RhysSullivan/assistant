@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -17,20 +17,30 @@ import { createCatalogImportMetadata } from "@executor/source-core";
 import { createGraphqlCatalogFragment } from "@executor/source-graphql";
 import { createOpenApiCatalogFragment } from "@executor/source-openapi";
 
-const makeContext = (): ResolvedLocalWorkspaceContext => {
-  const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-artifacts-"));
-  return {
-    cwd: workspaceRoot,
-    workspaceRoot,
-    workspaceName: "executor-artifacts",
-    configDirectory: join(workspaceRoot, ".executor"),
-    projectConfigPath: join(workspaceRoot, ".executor", "executor.jsonc"),
-    homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
-    homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
-    artifactsDirectory: join(workspaceRoot, ".executor", "artifacts"),
-    stateDirectory: join(workspaceRoot, ".executor", "state"),
-  };
-};
+const makeContext = (): Effect.Effect<
+  ResolvedLocalWorkspaceContext,
+  never,
+  FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const workspaceRoot = yield* fs.makeTempDirectory({
+      directory: tmpdir(),
+      prefix: "executor-artifacts-",
+    }).pipe(Effect.orDie);
+
+    return {
+      cwd: workspaceRoot,
+      workspaceRoot,
+      workspaceName: "executor-artifacts",
+      configDirectory: join(workspaceRoot, ".executor"),
+      projectConfigPath: join(workspaceRoot, ".executor", "executor.jsonc"),
+      homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
+      homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
+      artifactsDirectory: join(workspaceRoot, ".executor", "artifacts"),
+      stateDirectory: join(workspaceRoot, ".executor", "state"),
+    };
+  });
 
 const makeSource = (): Source => ({
   id: SourceIdSchema.make("src_test"),
@@ -148,7 +158,8 @@ const makeGraphqlArtifact = () => {
 describe("local-source-artifacts", () => {
   it.effect("writes canonical uncompressed artifacts and reads them back", () =>
     Effect.gen(function* () {
-      const context = makeContext();
+      const fs = yield* FileSystem.FileSystem;
+      const context = yield* makeContext();
       const artifact = makeArtifact();
       const path = join(context.artifactsDirectory, "sources", "src_test.json");
       const rawDocumentPath = join(
@@ -165,11 +176,11 @@ describe("local-source-artifacts", () => {
         artifact,
       });
 
-      expect(existsSync(path)).toBe(true);
-      expect(readFileSync(path, "utf8").startsWith("{")).toBe(true);
-      expect(existsSync(rawDocumentPath)).toBe(true);
+      expect(yield* fs.exists(path)).toBe(true);
+      expect((yield* fs.readFileString(path, "utf8")).startsWith("{")).toBe(true);
+      expect(yield* fs.exists(rawDocumentPath)).toBe(true);
 
-      const persistedArtifact = JSON.parse(readFileSync(path, "utf8"));
+      const persistedArtifact = JSON.parse(yield* fs.readFileString(path, "utf8"));
       const persistedDocument = Object.values(
         persistedArtifact.snapshot.catalog.documents,
       )[0] as {
@@ -220,7 +231,7 @@ describe("local-source-artifacts", () => {
     "preserves GraphQL execution metadata across a write/read round-trip",
     () =>
       Effect.gen(function* () {
-        const context = makeContext();
+        const context = yield* makeContext();
         const artifact = makeGraphqlArtifact();
 
         yield* writeLocalSourceArtifact({

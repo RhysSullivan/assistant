@@ -1,6 +1,7 @@
-import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -325,9 +326,34 @@ const makeSource = (input: {
   updatedAt: 0,
 });
 
+const makeTempDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.makeTempDirectory({
+        directory: tmpdir(),
+        prefix,
+      })
+    ),
+    Effect.provide(NodeFileSystem.layer),
+  );
+
+const readTextFile = (path: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.readFileString(path, "utf8")),
+    Effect.provide(NodeFileSystem.layer),
+  );
+
+const fileExists = (path: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.exists(path)),
+    Effect.provide(NodeFileSystem.layer),
+  );
+
 describe("source-type-declarations", () => {
   it("writes per-source and aggregate declaration files", async () => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-types-"));
+    const workspaceRoot = await Effect.runPromise(
+      makeTempDirectory("executor-types-"),
+    );
     const context = {
       cwd: workspaceRoot,
       workspaceRoot,
@@ -355,13 +381,13 @@ describe("source-type-declarations", () => {
       ],
     }));
 
-    const sourceDeclaration = readFileSync(
-      join(workspaceRoot, ".executor", "types", "sources", "src_linear.d.ts"),
-      "utf8",
+    const sourceDeclaration = await Effect.runPromise(
+      readTextFile(
+        join(workspaceRoot, ".executor", "types", "sources", "src_linear.d.ts"),
+      ),
     );
-    const aggregateDeclaration = readFileSync(
-      join(workspaceRoot, ".executor", "types", "index.d.ts"),
-      "utf8",
+    const aggregateDeclaration = await Effect.runPromise(
+      readTextFile(join(workspaceRoot, ".executor", "types", "index.d.ts")),
     );
 
     expect(sourceDeclaration).toContain("export interface SourceTools_src_linear");
@@ -381,7 +407,9 @@ describe("source-type-declarations", () => {
   });
 
   it("removes stale source declarations when the source disappears", async () => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-types-stale-"));
+    const workspaceRoot = await Effect.runPromise(
+      makeTempDirectory("executor-types-stale-"),
+    );
     const context = {
       cwd: workspaceRoot,
       workspaceRoot,
@@ -404,22 +432,24 @@ describe("source-type-declarations", () => {
       entries: [],
     }));
 
-    const aggregateDeclaration = readFileSync(
-      join(workspaceRoot, ".executor", "types", "index.d.ts"),
-      "utf8",
+    const aggregateDeclaration = await Effect.runPromise(
+      readTextFile(join(workspaceRoot, ".executor", "types", "index.d.ts")),
     );
 
     expect(aggregateDeclaration).toContain("export type ExecutorSourceTools = {};");
-    expect(() =>
-      readFileSync(
-        join(workspaceRoot, ".executor", "types", "sources", "src_linear.d.ts"),
-        "utf8",
-      )
-    ).toThrow();
+    expect(
+      await Effect.runPromise(
+        fileExists(
+          join(workspaceRoot, ".executor", "types", "sources", "src_linear.d.ts"),
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("falls back to unknown for unsupported declaration-only shape nodes", async () => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-types-unsupported-"));
+    const workspaceRoot = await Effect.runPromise(
+      makeTempDirectory("executor-types-unsupported-"),
+    );
     const context = {
       cwd: workspaceRoot,
       workspaceRoot,
@@ -525,9 +555,10 @@ describe("source-type-declarations", () => {
       entries: [{ source: makeSource({ id: "src_linear" }), snapshot }],
     }));
 
-    const sourceDeclaration = readFileSync(
-      join(workspaceRoot, ".executor", "types", "sources", "src_linear.d.ts"),
-      "utf8",
+    const sourceDeclaration = await Effect.runPromise(
+      readTextFile(
+        join(workspaceRoot, ".executor", "types", "sources", "src_linear.d.ts"),
+      ),
     );
 
     expect(sourceDeclaration).toContain("unsupportedNot?: unknown;");
@@ -535,7 +566,9 @@ describe("source-type-declarations", () => {
   });
 
   it("renders object unions as discriminated unions with shared fields", async () => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-types-union-"));
+    const workspaceRoot = await Effect.runPromise(
+      makeTempDirectory("executor-types-union-"),
+    );
     const context = {
       cwd: workspaceRoot,
       workspaceRoot,
@@ -692,9 +725,10 @@ describe("source-type-declarations", () => {
       entries: [{ source: makeSource({ id: "src_linear" }), snapshot }],
     }));
 
-    const sourceDeclaration = readFileSync(
-      join(workspaceRoot, ".executor", "types", "sources", "src_linear.d.ts"),
-      "utf8",
+    const sourceDeclaration = await Effect.runPromise(
+      readTextFile(
+        join(workspaceRoot, ".executor", "types", "sources", "src_linear.d.ts"),
+      ),
     );
 
     expect(sourceDeclaration).toContain("teams: (args?: LinearTeamsCall) => Promise<{");

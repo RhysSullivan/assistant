@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 
-import { HttpApiBuilder, HttpServer } from "@effect/platform";
-import { NodeHttpServer } from "@effect/platform-node";
+import { FileSystem, HttpApiBuilder, HttpServer } from "@effect/platform";
+import { NodeFileSystem, NodeHttpServer } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import {
   createControlPlaneApiLayer,
@@ -92,9 +92,15 @@ const closeScope = (scope: Scope.CloseableScope) =>
   Scope.close(scope, Exit.void).pipe(Effect.orDie);
 
 const startControlPlaneServer = async (): Promise<ApiServer> => {
+  const workspaceRoot = await Effect.runPromise(
+    FileSystem.FileSystem.pipe(
+      Effect.flatMap((fs) => fs.makeTempDirectory({ prefix: "executor-react-test-" })),
+      Effect.provide(NodeFileSystem.layer),
+    ),
+  );
   const runtime = await Effect.runPromise(
     createControlPlaneRuntime({
-      workspaceRoot: mkdtempSync(join(tmpdir(), "executor-react-test-")),
+      workspaceRoot,
     }),
   );
   const scope = await Effect.runPromise(Scope.make());
@@ -747,6 +753,3 @@ describe("executor-react source hooks", () => {
     60_000,
   );
 });
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";

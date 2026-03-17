@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -13,10 +15,17 @@ import type {
   OpenApiToolManifest,
 } from "./types";
 
-const readFixture = (name: string): string =>
-  readFileSync(
-    new URL(`../../../platform/control-plane/src/runtime/fixtures/${name}`, import.meta.url),
-    "utf8",
+const readFixture = (name: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.readFileString(
+        fileURLToPath(
+          new URL(`../../../platform/control-plane/src/runtime/fixtures/${name}`, import.meta.url),
+        ),
+        "utf8",
+      )
+    ),
+    Effect.provide(NodeFileSystem.layer),
   );
 
 const asObject = (value: unknown): Record<string, unknown> =>
@@ -322,7 +331,7 @@ describe("openapi real spec coverage", () => {
       `projects every ${fixture.name} operation with request/response schemas that match the raw spec`,
       () =>
         Effect.gen(function* () {
-          const specText = readFixture(fixture.filename);
+          const specText = yield* readFixture(fixture.filename);
           const document = parseOpenApiDocument(specText);
           const manifest = yield* extractOpenApiManifest(
             fixture.name.toLowerCase(),

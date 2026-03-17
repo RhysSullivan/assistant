@@ -1,9 +1,11 @@
+import { FileSystem } from "@effect/platform";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Scope from "effect/Scope";
 import { NodeFileSystem } from "@effect/platform-node";
+import { clearAllMcpConnectionPools } from "@executor/source-mcp";
 
 import { type ControlPlaneApiRuntimeContext } from "#api";
 import type { LocalInstallation } from "#schema";
@@ -217,6 +219,7 @@ export const createControlPlaneRuntime = (
 
     const installationStore = LocalInstallationStore;
     const workspaceConfigStore = LocalWorkspaceConfigStore;
+    const fileSystem = yield* FileSystem.FileSystem;
 
     const localInstallation = yield* installationStore.getOrProvision({
       context: localWorkspaceContext,
@@ -227,7 +230,10 @@ export const createControlPlaneRuntime = (
       ),
     );
 
-    const persistence = createLocalControlPlanePersistence(localWorkspaceContext);
+    const persistence = createLocalControlPlanePersistence(
+      localWorkspaceContext,
+      fileSystem,
+    );
     const rows = persistence.rows;
 
     const loadedLocalConfig = yield* workspaceConfigStore.load(
@@ -276,6 +282,9 @@ export const createControlPlaneRuntime = (
       localInstallation,
       managedRuntime,
       runtimeLayer: concreteRuntimeLayer as RuntimeControlPlaneLayer,
-      close: () => managedRuntime.dispose().catch(() => {}),
+      close: async () => {
+        await clearAllMcpConnectionPools().catch(() => undefined);
+        await managedRuntime.dispose().catch(() => undefined);
+      },
     };
   }).pipe(Effect.provide(NodeFileSystem.layer));

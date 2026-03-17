@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -84,7 +83,11 @@ const defaultDenoExecutable = (): string => {
   const home = process.env.HOME?.trim();
   if (home) {
     const installedPath = `${home}/.deno/bin/deno`;
-    if (existsSync(installedPath)) {
+    const installedResult = spawnSync(installedPath, ["--version"], {
+      stdio: "ignore",
+      timeout: 5000,
+    });
+    if (installedResult.error === undefined && installedResult.status === 0) {
       return installedPath;
     }
   }

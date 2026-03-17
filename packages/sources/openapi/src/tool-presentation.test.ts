@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -8,10 +10,17 @@ import { compileOpenApiToolDefinitions } from "./definitions";
 import { extractOpenApiManifest } from "./extraction";
 import { buildOpenApiToolPresentation } from "./tool-presentation";
 
-const readFixture = (name: string): string =>
-  readFileSync(
-    new URL(`../../../platform/control-plane/src/runtime/fixtures/${name}`, import.meta.url),
-    "utf8",
+const readFixture = (name: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.readFileString(
+        fileURLToPath(
+          new URL(`../../../platform/control-plane/src/runtime/fixtures/${name}`, import.meta.url),
+        ),
+        "utf8",
+      )
+    ),
+    Effect.provide(NodeFileSystem.layer),
   );
 
 describe("buildOpenApiToolPresentation", () => {
@@ -201,7 +210,7 @@ describe("buildOpenApiToolPresentation", () => {
     "resolves request and response schemas from ref hints for the real Neon OpenAPI spec",
     () =>
       Effect.gen(function* () {
-        const specText = readFixture("neon-openapi.json");
+        const specText = yield* readFixture("neon-openapi.json");
         const manifest = yield* extractOpenApiManifest("neon", specText);
         const definition = compileOpenApiToolDefinitions(manifest).find(
           (candidate) => candidate.toolId === "apiKey.createApiKey",
@@ -254,7 +263,7 @@ describe("buildOpenApiToolPresentation", () => {
     "preserves response wrappers for response-only Neon operations",
     () =>
       Effect.gen(function* () {
-        const specText = readFixture("neon-openapi.json");
+        const specText = yield* readFixture("neon-openapi.json");
         const manifest = yield* extractOpenApiManifest("neon", specText);
         const definition = compileOpenApiToolDefinitions(manifest).find(
           (candidate) => candidate.toolId === "apiKey.listApiKeys",
@@ -292,7 +301,7 @@ describe("buildOpenApiToolPresentation", () => {
     "extracts parameter schemas and descriptions for parameter-only Vercel operations",
     () =>
       Effect.gen(function* () {
-        const specText = readFixture("vercel-openapi.json");
+        const specText = yield* readFixture("vercel-openapi.json");
         const manifest = yield* extractOpenApiManifest("vercel", specText);
         const definition = compileOpenApiToolDefinitions(manifest).find(
           (candidate) => candidate.toolId === "accessGroups.listAccessGroupProjects",

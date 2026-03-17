@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -9,40 +9,53 @@ import { createControlPlaneRuntime } from "../index";
 import { getOrProvisionLocalInstallation } from "./installation";
 import { resolveLocalWorkspaceContext } from "./config";
 
-const TEST_WORKSPACE_ROOT = mkdtempSync(join(tmpdir(), "executor-local-installation-"));
-const TEST_HOME_CONFIG_PATH = join(TEST_WORKSPACE_ROOT, ".executor-home.jsonc");
-const TEST_HOME_STATE_DIRECTORY = join(TEST_WORKSPACE_ROOT, ".executor-home-state");
-
 const makeRuntime = Effect.acquireRelease(
-  createControlPlaneRuntime({
-    localDataDir: ":memory:",
-    workspaceRoot: TEST_WORKSPACE_ROOT,
-    homeConfigPath: TEST_HOME_CONFIG_PATH,
-    homeStateDirectory: TEST_HOME_STATE_DIRECTORY,
-  }),
-  (runtime) => Effect.promise(() => runtime.close()).pipe(Effect.orDie),
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const workspaceRoot = yield* fs.makeTempDirectory({
+      directory: tmpdir(),
+      prefix: "executor-local-installation-",
+    });
+    const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
+    const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
+    const runtime = yield* createControlPlaneRuntime({
+      localDataDir: ":memory:",
+      workspaceRoot,
+      homeConfigPath,
+      homeStateDirectory,
+    });
+
+    return {
+      runtime,
+      workspaceRoot,
+      homeConfigPath,
+      homeStateDirectory,
+    };
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+  ({ runtime }) => Effect.promise(() => runtime.close()).pipe(Effect.orDie),
 );
 
 describe("local-installation", () => {
   it.scoped("derives a stable local identity on first boot", () =>
     Effect.gen(function* () {
-      const runtime = yield* makeRuntime;
+      const { runtime, workspaceRoot } = yield* makeRuntime;
       const installation = runtime.localInstallation;
+      const fs = yield* FileSystem.FileSystem;
 
       expect(installation.accountId).toBe("acc_local_default");
       expect(installation.workspaceId.startsWith("ws_local_")).toBe(true);
-      expect(existsSync(join(TEST_WORKSPACE_ROOT, ".executor", "executor.jsonc"))).toBe(false);
-    }),
+      expect(yield* fs.exists(join(workspaceRoot, ".executor", "executor.jsonc"))).toBe(false);
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
     60_000,
   );
 
   it.scoped("is idempotent when loading the default local installation", () =>
     Effect.gen(function* () {
-      const runtime = yield* makeRuntime;
+      const { runtime, workspaceRoot, homeConfigPath, homeStateDirectory } = yield* makeRuntime;
       const context = yield* resolveLocalWorkspaceContext({
-        workspaceRoot: TEST_WORKSPACE_ROOT,
-        homeConfigPath: TEST_HOME_CONFIG_PATH,
-        homeStateDirectory: TEST_HOME_STATE_DIRECTORY,
+        workspaceRoot,
+        homeConfigPath,
+        homeStateDirectory,
       });
 
       const first = runtime.localInstallation;

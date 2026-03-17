@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -12,26 +13,33 @@ import { withControlPlaneClient } from "./test-http-client";
 const writeProjectConfig = (
   workspaceRoot: string,
   config: Record<string, unknown>,
-) => {
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
   const configDirectory = join(workspaceRoot, ".executor");
-  mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(
-    join(configDirectory, "executor.jsonc"),
-    `${JSON.stringify(config, null, 2)}\n`,
-    "utf8",
-  );
-};
+    yield* fs.makeDirectory(configDirectory, { recursive: true });
+    yield* fs.writeFileString(
+      join(configDirectory, "executor.jsonc"),
+      `${JSON.stringify(config, null, 2)}\n`,
+    );
+  });
 
 const makeRuntime = (config: Record<string, unknown>) => {
-  const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-runtime-config-"));
-  writeProjectConfig(workspaceRoot, config);
-
   return Effect.acquireRelease(
-    createControlPlaneRuntime({
-      workspaceRoot,
-      homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
-      homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
-    }),
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectory({
+        directory: tmpdir(),
+        prefix: "executor-runtime-config-",
+      });
+      yield* writeProjectConfig(workspaceRoot, config);
+
+      return yield* createControlPlaneRuntime({
+        workspaceRoot,
+        homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
+        homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
+      });
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
     (runtime) => Effect.promise(() => runtime.close()).pipe(Effect.orDie),
   );
 };

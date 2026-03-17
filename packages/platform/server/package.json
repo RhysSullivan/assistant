@@ -11,6 +11,7 @@
   "dependencies": {
     "@effect/opentelemetry": "^0.61.0",
     "@effect/platform": "catalog:",
+    "@effect/platform-node": "catalog:",
     "@executor/control-plane": "workspace:*",
     "@executor/executor-mcp": "workspace:*",
     "@opentelemetry/api": "^1.9.0",

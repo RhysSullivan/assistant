@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { FileSystem } from "@effect/platform";
 import {
   createToolCatalogFromTools,
@@ -332,12 +332,12 @@ const transpileSourceFile = (input: {
   });
 
 const resolveExecutorNodeModulesDirectory = (): string | null => {
-  let current = dirname(fileURLToPath(import.meta.url));
+  const require = createRequire(import.meta.url);
+  let current = dirname(require.resolve("typescript"));
 
   while (true) {
-    const candidate = join(current, "node_modules");
-    if (existsSync(candidate)) {
-      return candidate;
+    if (basename(current) === "node_modules") {
+      return current;
     }
 
     const parent = dirname(current);

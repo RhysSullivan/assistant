@@ -1,6 +1,7 @@
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -40,8 +41,12 @@ const makeExecutionResolver = () => {
 };
 
 const makeRuntime = Effect.acquireRelease(
-  Effect.sync(() => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-execution-http-"));
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const workspaceRoot = yield* fs.makeTempDirectory({
+      directory: tmpdir(),
+      prefix: "executor-execution-http-",
+    });
 
     return {
       workspaceRoot,
@@ -49,6 +54,7 @@ const makeRuntime = Effect.acquireRelease(
       homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
     };
   }).pipe(
+    Effect.provide(NodeFileSystem.layer),
     Effect.flatMap(({ workspaceRoot, homeConfigPath, homeStateDirectory }) =>
       createControlPlaneRuntime({
         localDataDir: ":memory:",

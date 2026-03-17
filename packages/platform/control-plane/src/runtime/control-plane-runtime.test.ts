@@ -1,5 +1,4 @@
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { FileSystem } from "@effect/platform";
@@ -414,7 +413,7 @@ describe("control-plane-runtime", () => {
       );
 
       const configPath = join(workspaceRoot, ".executor", "executor.jsonc");
-      const createdConfig = JSON.parse(readFileSync(configPath, "utf8")) as {
+      const createdConfig = JSON.parse(yield* fs.readFileString(configPath, "utf8")) as {
         sources?: Record<string, { kind: string; connection: { endpoint: string } }>;
       };
       expect(createdConfig.sources?.github?.kind).toBe("openapi");
@@ -432,7 +431,7 @@ describe("control-plane-runtime", () => {
       );
       expect(removed.removed).toBe(true);
 
-      const removedConfig = JSON.parse(readFileSync(configPath, "utf8")) as {
+      const removedConfig = JSON.parse(yield* fs.readFileString(configPath, "utf8")) as {
         sources?: Record<string, unknown>;
       };
       expect(removedConfig.sources?.github).toBeUndefined();

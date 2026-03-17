@@ -1,6 +1,7 @@
-import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -11,26 +12,36 @@ import {
   writeLocalControlPlaneState,
 } from "./control-plane-store";
 
-const makeContext = (): ResolvedLocalWorkspaceContext => {
-  const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-control-plane-store-"));
+const makeContext = (): Effect.Effect<
+  ResolvedLocalWorkspaceContext,
+  never,
+  FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const workspaceRoot = yield* fs.makeTempDirectory({
+      directory: tmpdir(),
+      prefix: "executor-control-plane-store-",
+    }).pipe(Effect.orDie);
 
-  return {
-    cwd: workspaceRoot,
-    workspaceRoot,
-    workspaceName: "executor-control-plane-store",
-    configDirectory: join(workspaceRoot, ".executor"),
-    projectConfigPath: join(workspaceRoot, ".executor", "executor.jsonc"),
-    homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
-    homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
-    artifactsDirectory: join(workspaceRoot, ".executor", "artifacts"),
-    stateDirectory: join(workspaceRoot, ".executor", "state"),
-  };
-};
+    return {
+      cwd: workspaceRoot,
+      workspaceRoot,
+      workspaceName: "executor-control-plane-store",
+      configDirectory: join(workspaceRoot, ".executor"),
+      projectConfigPath: join(workspaceRoot, ".executor", "executor.jsonc"),
+      homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
+      homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
+      artifactsDirectory: join(workspaceRoot, ".executor", "artifacts"),
+      stateDirectory: join(workspaceRoot, ".executor", "state"),
+    };
+  });
 
 describe("local-control-plane-store", () => {
   it.effect("stores secret-bearing control-plane state outside the workspace", () =>
     Effect.gen(function* () {
-      const context = makeContext();
+      const fs = yield* FileSystem.FileSystem;
+      const context = yield* makeContext();
       const expectedPath = localControlPlaneStatePath(context);
       const workspacePath = join(context.stateDirectory, "control-plane-state.json");
 
@@ -52,16 +63,16 @@ describe("local-control-plane-store", () => {
       });
 
       expect(expectedPath.startsWith(context.homeStateDirectory)).toBe(true);
-      expect(existsSync(expectedPath)).toBe(true);
-      expect(existsSync(workspacePath)).toBe(false);
+      expect(yield* fs.exists(expectedPath)).toBe(true);
+      expect(yield* fs.exists(workspacePath)).toBe(false);
 
       const loaded = yield* loadLocalControlPlaneState(context);
       expect(loaded.version).toBe(1);
       expect(loaded.secretMaterials).toEqual([]);
 
       if (process.platform !== "win32") {
-        expect(statSync(expectedPath).mode & 0o777).toBe(0o600);
+        expect((yield* fs.stat(expectedPath)).mode & 0o777).toBe(0o600);
       }
-    }),
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 });

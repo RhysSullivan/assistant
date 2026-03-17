@@ -11,6 +11,7 @@ Why it lives here:
 Current rules:
 
 - `executor-monorepo/no-cross-workspace-relative-imports`
+- `executor-monorepo/no-node-fs-with-effect-imports`
 - `executor-monorepo/no-raw-effect-fail-errors`
 - `executor-monorepo/no-yield-effect-fail`
 - `executor-monorepo/no-workspace-src-imports`

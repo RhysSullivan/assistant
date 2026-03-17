@@ -5,9 +5,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { assertTrue } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
@@ -283,7 +284,11 @@ describe("execution-mcp-resume", () => {
   it.scoped("keeps live form elicitation resumable without replaying the run", () =>
     Effect.gen(function* () {
       const mcpServer = yield* makeFormElicitationServer;
-      const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-execution-mcp-resume-"));
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectory({
+        directory: tmpdir(),
+        prefix: "executor-execution-mcp-resume-",
+      });
       const runtime = yield* Effect.acquireRelease(
         createControlPlaneRuntime({
           localDataDir: ":memory:",
@@ -357,7 +362,7 @@ describe("execution-mcp-resume", () => {
       expect(resumed.pendingInteraction).toBeNull();
       expect(resumed.execution.resultJson).toContain("approved:from-control-plane");
 
-    }),
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
     60_000,
   );
 });

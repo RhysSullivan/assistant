@@ -1,4 +1,3 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {
   createServer as createNodeServer,
   type IncomingMessage,
@@ -7,7 +6,8 @@ import {
 import type { AddressInfo } from "node:net";
 import { dirname, extname, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { HttpApiBuilder, HttpServer } from "@effect/platform";
+import { FileSystem, HttpApiBuilder, HttpServer } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   createControlPlaneApiLayer,
   createControlPlaneRuntime,
@@ -147,9 +147,13 @@ const safeFilePath = (assetsDir: string, pathname: string): string | null => {
   return target.startsWith(root) ? target : null;
 };
 
-const isRegularFile = async (path: string): Promise<boolean> => {
+const isRegularFile = async (
+  fileSystem: FileSystem.FileSystem,
+  path: string,
+): Promise<boolean> => {
   try {
-    return (await stat(path)).isFile();
+    const info = await Effect.runPromise(fileSystem.stat(path));
+    return info.type === "File";
   } catch {
     return false;
   }
@@ -178,11 +182,12 @@ const contentTypeForPath = (path: string): string =>
   contentTypeByExtension[extname(path).toLowerCase()] ?? "application/octet-stream";
 
 const readResponseFile = async (
+  fileSystem: FileSystem.FileSystem,
   path: string,
   contentType?: string,
 ): Promise<Response> => {
-  const body = await readFile(path);
-  return new Response(body, {
+  const body = await Effect.runPromise(fileSystem.readFile(path));
+  return new Response(Buffer.from(body), {
     headers: {
       "content-type": contentType ?? contentTypeForPath(path),
     },
@@ -254,7 +259,11 @@ const writeNodeResponse = async (
 const wantsHtml = (request: Request): boolean =>
   request.headers.get("accept")?.includes("text/html") ?? false;
 
-const serveUiAsset = async (request: Request, ui: StaticUiOptions): Promise<Response | null> => {
+const serveUiAsset = async (
+  fileSystem: FileSystem.FileSystem,
+  request: Request,
+  ui: StaticUiOptions,
+): Promise<Response | null> => {
   const url = new URL(request.url);
 
   if (ui.devServerUrl) {
@@ -267,8 +276,8 @@ const serveUiAsset = async (request: Request, ui: StaticUiOptions): Promise<Resp
   }
 
   const candidatePath = safeFilePath(ui.assetsDir, url.pathname);
-  if (candidatePath && await isRegularFile(candidatePath)) {
-    return readResponseFile(candidatePath);
+  if (candidatePath && await isRegularFile(fileSystem, candidatePath)) {
+    return readResponseFile(fileSystem, candidatePath);
   }
 
   const shouldServeIndex =
@@ -281,11 +290,11 @@ const serveUiAsset = async (request: Request, ui: StaticUiOptions): Promise<Resp
   }
 
   const indexPath = resolve(ui.assetsDir, "index.html");
-  if (!(await isRegularFile(indexPath))) {
+  if (!(await isRegularFile(fileSystem, indexPath))) {
     return null;
   }
 
-  return readResponseFile(indexPath, "text/html; charset=utf-8");
+  return readResponseFile(fileSystem, indexPath, "text/html; charset=utf-8");
 };
 
 const isApiRequest = (request: Request): boolean => {
@@ -297,13 +306,17 @@ export const createLocalExecutorRequestHandler = (
   options: StartLocalExecutorServerOptions = {},
 ): Effect.Effect<LocalExecutorRequestHandler, Error, Scope.Scope> =>
   Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
     const requestedLocalDataDir = options.localDataDir ?? DEFAULT_LOCAL_DATA_DIR;
 
     if (requestedLocalDataDir !== ":memory:") {
-      yield* Effect.tryPromise({
-        try: () => mkdir(dirname(requestedLocalDataDir), { recursive: true }),
-        catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
-      });
+      yield* fileSystem.makeDirectory(dirname(requestedLocalDataDir), {
+        recursive: true,
+      }).pipe(
+        Effect.mapError((cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+        ),
+      );
     }
 
     let baseUrlRef: string | undefined;
@@ -351,12 +364,13 @@ export const createLocalExecutorRequestHandler = (
         baseUrlRef = baseUrl;
       },
     } satisfies LocalExecutorRequestHandler;
-  });
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 export const createLocalExecutorServer = (
   options: StartLocalExecutorServerOptions = {},
 ): Effect.Effect<LocalExecutorServer, Error, Scope.Scope> =>
   Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
     const host = options.host ?? DEFAULT_SERVER_HOST;
     const port = options.port ?? DEFAULT_SERVER_PORT;
     const requestHandler = yield* createLocalExecutorRequestHandler(options);
@@ -370,7 +384,7 @@ export const createLocalExecutorServer = (
                 const request = toWebRequest(nodeRequest);
                 const response = isApiRequest(request)
                   ? await requestHandler.handleApiRequest(request)
-                  : await serveUiAsset(request, options.ui ?? {}) ?? new Response("Not Found", { status: 404 });
+                  : await serveUiAsset(fileSystem, request, options.ui ?? {}) ?? new Response("Not Found", { status: 404 });
                 await writeNodeResponse(nodeResponse, response);
               })().catch((cause) => {
                 nodeResponse.statusCode = 500;
@@ -417,36 +431,48 @@ export const createLocalExecutorServer = (
       port: resolvedAddress.port,
       baseUrl,
     } satisfies LocalExecutorServer;
-  });
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 export const runLocalExecutorServer = (
   options: StartLocalExecutorServerOptions = {},
 ): Effect.Effect<void, Error, never> =>
   Effect.scoped(
     Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
       const server = yield* createLocalExecutorServer(options);
       const pidFile = options.pidFile ?? DEFAULT_SERVER_PID_FILE;
 
       yield* Effect.acquireRelease(
-        Effect.tryPromise({
-          try: async () => {
-            await mkdir(dirname(pidFile), { recursive: true });
-            await writeFile(pidFile, JSON.stringify({
-              pid: process.pid,
-              port: server.port,
-              host: server.host,
-              baseUrl: server.baseUrl,
-              startedAt: Date.now(),
-              logFile: DEFAULT_SERVER_LOG_FILE,
-            }, null, 2));
-          },
-          catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+        Effect.gen(function* () {
+          yield* fileSystem.makeDirectory(dirname(pidFile), {
+            recursive: true,
+          }).pipe(
+            Effect.mapError((cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
+            ),
+          );
+          yield* fileSystem.writeFileString(pidFile, JSON.stringify({
+            pid: process.pid,
+            port: server.port,
+            host: server.host,
+            baseUrl: server.baseUrl,
+            startedAt: Date.now(),
+            logFile: DEFAULT_SERVER_LOG_FILE,
+          }, null, 2)).pipe(
+            Effect.mapError((cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
+            ),
+          );
         }),
-        () => Effect.tryPromise({
-          try: () => rm(pidFile, { force: true }),
-          catch: (cause) =>
-            cause instanceof Error ? cause : new Error(String(cause ?? "pid file cleanup failed")),
-        }).pipe(Effect.orDie),
+        () =>
+          fileSystem.remove(pidFile, { force: true }).pipe(
+            Effect.mapError((cause) =>
+              cause instanceof Error
+                ? cause
+                : new Error(String(cause ?? "pid file cleanup failed")),
+            ),
+            Effect.orDie,
+          ),
       );
 
       console.error(`executor server listening on ${server.baseUrl}`);
@@ -462,4 +488,4 @@ export const runLocalExecutorServer = (
         });
       });
     }),
-  );
+  ).pipe(Effect.provide(NodeFileSystem.layer));

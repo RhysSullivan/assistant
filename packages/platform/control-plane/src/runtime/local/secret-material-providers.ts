@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
-import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 
 import {
   type LocalConfigSecretProvider,
@@ -28,6 +28,9 @@ export const ENV_SECRET_PROVIDER_ID = "env";
 export const PARAMS_SECRET_PROVIDER_ID = "params";
 export const KEYCHAIN_SECRET_PROVIDER_ID = "keychain";
 export const LOCAL_SECRET_PROVIDER_ID = "local";
+
+const toError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
 
 export type SecretStoreProviderId =
   | typeof KEYCHAIN_SECRET_PROVIDER_ID
@@ -856,151 +859,191 @@ const createSecretMaterialProviderRuntime = (input: {
   workspaceRoot: input.workspaceRoot ?? null,
 });
 
-const isRegularFilePath = (path: string, allowSymlink: boolean): boolean => {
-  const stat = lstatSync(path);
-  if (stat.isSymbolicLink()) {
-    if (!allowSymlink) {
-      return false;
+const isRegularFilePath = (
+  path: string,
+  allowSymlink: boolean,
+): Effect.Effect<boolean, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const stat = yield* fs.stat(path).pipe(Effect.mapError(toError));
+    if (stat.type === "SymbolicLink") {
+      if (!allowSymlink) {
+        return false;
+      }
+
+      const resolvedPath = yield* fs.realPath(path).pipe(Effect.mapError(toError));
+      const targetStat = yield* fs.stat(resolvedPath).pipe(Effect.mapError(toError));
+      return targetStat.type === "File";
     }
-    const targetStat = lstatSync(realpathSync(path));
-    return targetStat.isFile();
-  }
-  return stat.isFile();
-};
 
-const ensureTrustedDir = (path: string, trustedDirs: readonly string[] | undefined): boolean => {
-  if (!trustedDirs || trustedDirs.length === 0) {
-    return true;
-  }
-
-  const real = realpathSync(path);
-  return trustedDirs.some((dir) => {
-    const trusted = realpathSync(dir);
-    return real === trusted || real.startsWith(`${trusted}/`);
+    return stat.type === "File";
   });
-};
+
+const ensureTrustedDir = (
+  path: string,
+  trustedDirs: readonly string[] | undefined,
+): Effect.Effect<boolean, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    if (!trustedDirs || trustedDirs.length === 0) {
+      return true;
+    }
+
+    const fs = yield* FileSystem.FileSystem;
+    const real = yield* fs.realPath(path).pipe(Effect.mapError(toError));
+
+    for (const dir of trustedDirs) {
+      const trusted = yield* fs.realPath(dir).pipe(Effect.mapError(toError));
+      if (real === trusted || real.startsWith(`${trusted}/`)) {
+        return true;
+      }
+    }
+
+    return false;
+  });
 
 const readFileSecretValue = (input: {
   provider: Extract<LocalConfigSecretProvider, { source: "file" }>;
   ref: SecretRef;
   workspaceRoot: string;
-}): Effect.Effect<string, Error, never> =>
-  Effect.tryPromise({
-    try: async () => {
-      const resolvedPath = resolveConfigRelativePath({
-        path: input.provider.path,
-        workspaceRoot: input.workspaceRoot,
-      });
-      const raw = await fs.readFile(resolvedPath, "utf8");
-      const mode = input.provider.mode ?? "singleValue";
-      if (mode === "singleValue") {
-        return raw.trim();
-      }
+}): Effect.Effect<string, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const resolvedPath = resolveConfigRelativePath({
+      path: input.provider.path,
+      workspaceRoot: input.workspaceRoot,
+    });
+    const raw = yield* fs.readFileString(resolvedPath, "utf8").pipe(
+      Effect.mapError(toError),
+    );
+    const mode = input.provider.mode ?? "singleValue";
+    if (mode === "singleValue") {
+      return raw.trim();
+    }
 
-      const parsed = JSON.parse(raw) as unknown;
-      if (input.ref.handle.startsWith("/")) {
-        const segments = input.ref.handle
-          .split("/")
-          .slice(1)
-          .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
-        let current: unknown = parsed;
-        for (const segment of segments) {
-          if (typeof current !== "object" || current === null || !(segment in current)) {
-            throw new Error(`Secret path not found in ${resolvedPath}: ${input.ref.handle}`);
+    return yield* Effect.try({
+      try: () => {
+        const parsed = JSON.parse(raw) as unknown;
+        if (input.ref.handle.startsWith("/")) {
+          const segments = input.ref.handle
+            .split("/")
+            .slice(1)
+            .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
+          let current: unknown = parsed;
+          for (const segment of segments) {
+            if (typeof current !== "object" || current === null || !(segment in current)) {
+              throw new Error(`Secret path not found in ${resolvedPath}: ${input.ref.handle}`);
+            }
+            current = (current as Record<string, unknown>)[segment];
           }
-          current = (current as Record<string, unknown>)[segment];
+          if (typeof current !== "string" || current.trim().length === 0) {
+            throw new Error(`Secret path did not resolve to a string: ${input.ref.handle}`);
+          }
+          return current;
         }
-        if (typeof current !== "string" || current.trim().length === 0) {
-          throw new Error(`Secret path did not resolve to a string: ${input.ref.handle}`);
-        }
-        return current;
-      }
 
-      if (typeof parsed !== "object" || parsed === null) {
-        throw new Error(`JSON secret provider must resolve to an object: ${resolvedPath}`);
-      }
-      const value = (parsed as Record<string, unknown>)[input.ref.handle];
-      if (typeof value !== "string" || value.trim().length === 0) {
-        throw new Error(`Secret key not found in ${resolvedPath}: ${input.ref.handle}`);
-      }
-      return value;
-    },
-    catch: (cause) =>
-      cause instanceof Error ? cause : new Error(String(cause)),
+        if (typeof parsed !== "object" || parsed === null) {
+          throw new Error(`JSON secret provider must resolve to an object: ${resolvedPath}`);
+        }
+        const value = (parsed as Record<string, unknown>)[input.ref.handle];
+        if (typeof value !== "string" || value.trim().length === 0) {
+          throw new Error(`Secret key not found in ${resolvedPath}: ${input.ref.handle}`);
+        }
+        return value;
+      },
+      catch: toError,
+    });
   });
 
 const resolveConfiguredSecretProvider = (input: {
   ref: SecretRef;
   runtime: SecretMaterialProviderRuntime;
-}): Effect.Effect<string, Error, never> => {
-  const providerAlias = fromConfigSecretProviderId(input.ref.providerId);
-  if (providerAlias === null) {
-    return Effect.fail(runtimeEffectError("local/secret-material-providers", `Unsupported secret provider: ${input.ref.providerId}`));
-  }
+}): Effect.Effect<string, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const providerAlias = fromConfigSecretProviderId(input.ref.providerId);
+    if (providerAlias === null) {
+      return yield* runtimeEffectError(
+        "local/secret-material-providers",
+        `Unsupported secret provider: ${input.ref.providerId}`,
+      );
+    }
 
-  const provider = input.runtime.localConfig?.secrets?.providers?.[providerAlias];
-  if (!provider) {
-    return Effect.fail(
-      runtimeEffectError("local/secret-material-providers", `Config secret provider "${providerAlias}" is not configured`),
-    );
-  }
-  if (input.runtime.workspaceRoot === null) {
-    return Effect.fail(
-      runtimeEffectError("local/secret-material-providers", `Config secret provider "${providerAlias}" requires a workspace root`),
-    );
-  }
+    const provider = input.runtime.localConfig?.secrets?.providers?.[providerAlias];
+    if (!provider) {
+      return yield* runtimeEffectError(
+        "local/secret-material-providers",
+        `Config secret provider "${providerAlias}" is not configured`,
+      );
+    }
+    if (input.runtime.workspaceRoot === null) {
+      return yield* runtimeEffectError(
+        "local/secret-material-providers",
+        `Config secret provider "${providerAlias}" requires a workspace root`,
+      );
+    }
 
-  if (provider.source === "env") {
-    const value = ensureNonEmptyString(input.runtime.env[input.ref.handle]);
-    return value === null
-      ? Effect.fail(runtimeEffectError("local/secret-material-providers", `Environment variable ${input.ref.handle} is not set`))
-      : Effect.succeed(value);
-  }
+    if (provider.source === "env") {
+      const value = ensureNonEmptyString(input.runtime.env[input.ref.handle]);
+      if (value === null) {
+        return yield* runtimeEffectError(
+          "local/secret-material-providers",
+          `Environment variable ${input.ref.handle} is not set`,
+        );
+      }
+      return value;
+    }
 
-  if (provider.source === "file") {
-    return readFileSecretValue({
-      provider,
-      ref: input.ref,
-      workspaceRoot: input.runtime.workspaceRoot,
-    });
-  }
+    if (provider.source === "file") {
+      return yield* readFileSecretValue({
+        provider,
+        ref: input.ref,
+        workspaceRoot: input.runtime.workspaceRoot,
+      });
+    }
 
-  const command = provider.command.trim();
-  if (!isAbsolute(command)) {
-    return Effect.fail(
-      runtimeEffectError("local/secret-material-providers", `Exec secret provider command must be absolute: ${command}`),
+    const command = provider.command.trim();
+    if (!isAbsolute(command)) {
+      return yield* runtimeEffectError(
+        "local/secret-material-providers",
+        `Exec secret provider command must be absolute: ${command}`,
+      );
+    }
+    const isRegularCommand = yield* isRegularFilePath(
+      command,
+      provider.allowSymlinkCommand ?? false,
     );
-  }
-  if (!isRegularFilePath(command, provider.allowSymlinkCommand ?? false)) {
-    return Effect.fail(
-      runtimeEffectError("local/secret-material-providers", `Exec secret provider command is not an allowed regular file: ${command}`),
-    );
-  }
-  if (!ensureTrustedDir(command, provider.trustedDirs)) {
-    return Effect.fail(
-      runtimeEffectError("local/secret-material-providers", `Exec secret provider command is outside trustedDirs: ${command}`),
-    );
-  }
+    if (!isRegularCommand) {
+      return yield* runtimeEffectError(
+        "local/secret-material-providers",
+        `Exec secret provider command is not an allowed regular file: ${command}`,
+      );
+    }
+    const isTrustedCommand = yield* ensureTrustedDir(command, provider.trustedDirs);
+    if (!isTrustedCommand) {
+      return yield* runtimeEffectError(
+        "local/secret-material-providers",
+        `Exec secret provider command is outside trustedDirs: ${command}`,
+      );
+    }
 
-  return runCommand({
-    command,
-    args: [...(provider.args ?? []), input.ref.handle],
-    env: {
-      ...input.runtime.env,
-      ...provider.env,
-    },
-    operation: `config-secret.get:${providerAlias}`,
-  }).pipe(
-    Effect.flatMap((result) =>
-      ensureCommandSuccess({
-        result,
-        operation: `config-secret.get:${providerAlias}`,
-        message: "Failed resolving configured exec secret",
-      }),
-    ),
-    Effect.map((result) => result.stdout.trimEnd()),
-  );
-};
+    return yield* runCommand({
+      command,
+      args: [...(provider.args ?? []), input.ref.handle],
+      env: {
+        ...input.runtime.env,
+        ...provider.env,
+      },
+      operation: `config-secret.get:${providerAlias}`,
+    }).pipe(
+      Effect.flatMap((result) =>
+        ensureCommandSuccess({
+          result,
+          operation: `config-secret.get:${providerAlias}`,
+          message: "Failed resolving configured exec secret",
+        }),
+      ),
+      Effect.map((result) => result.stdout.trimEnd()),
+    );
+  });
 
 export const createDefaultSecretMaterialResolver = (input: {
   rows: ControlPlaneStoreShape;
@@ -1037,7 +1080,7 @@ export const createDefaultSecretMaterialResolver = (input: {
         context: context ?? {},
         runtime,
       });
-    });
+    }).pipe(Effect.provide(NodeFileSystem.layer));
 };
 
 export const createDefaultSecretMaterialStorer = (input: {

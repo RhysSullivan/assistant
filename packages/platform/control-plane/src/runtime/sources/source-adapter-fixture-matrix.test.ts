@@ -1,13 +1,15 @@
-import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 
 import {
+  FileSystem,
   HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiSchema,
   OpenApi,
 } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   buildOpenApiToolPresentation,
   compileOpenApiToolDefinitions,
@@ -57,8 +59,16 @@ import { createOpenApiCatalogSnapshot } from "@executor/source-openapi";
 
 const FIXTURE_WORKSPACE_ID = WorkspaceIdSchema.make("ws_source_fixture_matrix");
 
-const readFixture = (name: string): string =>
-  readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8");
+const readFixture = (name: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.readFileString(
+        fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url)),
+        "utf8",
+      )
+    ),
+    Effect.provide(NodeFileSystem.layer),
+  );
 
 const makeSource = (input: {
   id: string;
@@ -324,7 +334,7 @@ describe("source adapter fixture matrix", () => {
     "imports the raw recorded Vercel OpenAPI spec into IR and discover projections",
     () =>
       Effect.gen(function* () {
-        const specText = readFixture("vercel-openapi.json");
+        const specText = yield* readFixture("vercel-openapi.json");
         const source = makeSource({
           id: "src_vercel_fixture",
           name: "Vercel",
@@ -393,7 +403,7 @@ describe("source adapter fixture matrix", () => {
     "imports the raw recorded Neon OpenAPI spec into IR with resolved request body schemas",
     () =>
       Effect.gen(function* () {
-        const specText = readFixture("neon-openapi.json");
+        const specText = yield* readFixture("neon-openapi.json");
         const source = makeSource({
           id: "src_neon_fixture",
           name: "Neon API",
@@ -935,7 +945,7 @@ describe("source adapter fixture matrix", () => {
     "imports the raw recorded Google Sheets discovery document into IR and discover projections",
     () =>
       Effect.gen(function* () {
-        const documentText = readFixture("google-sheets-discovery.json");
+        const documentText = yield* readFixture("google-sheets-discovery.json");
         const source = makeSource({
           id: "src_google_sheets_fixture",
           name: "Google Sheets",
@@ -1008,7 +1018,7 @@ describe("source adapter fixture matrix", () => {
     "projects every raw recorded Google Sheets discovery method into schemas and capabilities",
     () =>
       Effect.gen(function* () {
-        const documentText = readFixture("google-sheets-discovery.json");
+        const documentText = yield* readFixture("google-sheets-discovery.json");
         const source = makeSource({
           id: "src_google_sheets_coverage",
           name: "Google Sheets",
@@ -1070,7 +1080,7 @@ describe("source adapter fixture matrix", () => {
     "imports the raw recorded Linear GraphQL introspection dump into IR and resolves nested input refs",
     () =>
       Effect.gen(function* () {
-        const documentText = readFixture("linear-introspection.json");
+        const documentText = yield* readFixture("linear-introspection.json");
         const source = makeSource({
           id: "src_linear_fixture",
           name: "Linear GraphQL",
@@ -1370,7 +1380,7 @@ describe("source adapter fixture matrix", () => {
     "projects every raw recorded Linear GraphQL tool into schemas and capabilities",
     () =>
       Effect.gen(function* () {
-        const documentText = readFixture("linear-introspection.json");
+        const documentText = yield* readFixture("linear-introspection.json");
         const source = makeSource({
           id: "src_linear_coverage",
           name: "Linear GraphQL",

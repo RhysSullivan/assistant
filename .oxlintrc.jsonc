@@ -40,6 +40,7 @@
 
     // Monorepo-specific rules.
     "executor-monorepo/no-cross-workspace-relative-imports": "error",
+    "executor-monorepo/no-node-fs-with-effect-imports": "error",
     "executor-monorepo/no-raw-effect-fail-errors": "error",
     "executor-monorepo/no-yield-effect-fail": "error",
     "executor-monorepo/no-workspace-src-imports": "warn"

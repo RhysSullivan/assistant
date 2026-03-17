@@ -1,9 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
-import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { fileURLToPath } from "node:url";
 import { FileSystem } from "@effect/platform";
 import { Args, Command, Options } from "@effect/cli";
 import {
@@ -120,17 +118,17 @@ const readCode = (input: {
   code?: string;
   file?: string;
   stdin?: boolean;
-}): Effect.Effect<string, Error, never> =>
+}): Effect.Effect<string, Error, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     if (input.code && input.code.trim().length > 0) {
       return input.code;
     }
 
     if (input.file && input.file.trim().length > 0) {
-      const contents = yield* Effect.tryPromise({
-        try: () => readFile(input.file!, "utf8"),
-        catch: toError,
-      });
+      const fs = yield* FileSystem.FileSystem;
+      const contents = yield* fs.readFileString(input.file!, "utf8").pipe(
+        Effect.mapError(toError),
+      );
       if (contents.trim().length > 0) {
         return contents;
       }
@@ -151,22 +149,17 @@ const getBootstrapClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
   createControlPlaneClient({ baseUrl });
 
 const decodeExecutionId = Schema.decodeUnknown(ExecutionIdSchema);
-const cliSourceDir = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 const CLI_NAME = "executor";
 const CLI_VERSION = (() => {
   const candidatePaths = [
-    resolve(cliSourceDir, "../package.json"),
-    resolve(cliSourceDir, "../../package.json"),
+    "../package.json",
+    "../../package.json",
   ];
 
   for (const candidatePath of candidatePaths) {
-    if (!existsSync(candidatePath)) {
-      continue;
-    }
-
     try {
-      const contents = readFileSync(candidatePath, "utf8");
-      const metadata = JSON.parse(contents) as { version?: string };
+      const metadata = require(candidatePath) as { version?: string };
       if (metadata.version && metadata.version.trim().length > 0) {
         return metadata.version;
       }
@@ -428,24 +421,30 @@ const getDefaultServerOptions = (port: number = DEFAULT_SERVER_PORT) => {
 };
 
 const startServerInBackground = (port: number) =>
-  Effect.tryPromise({
-    try: async () => {
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
       const command = resolveSelfCommand(["__local-server", "--port", String(port)]);
-      await mkdir(dirname(DEFAULT_SERVER_LOG_FILE), { recursive: true });
-      const logHandle = await open(DEFAULT_SERVER_LOG_FILE, "a");
+      yield* fs.makeDirectory(dirname(DEFAULT_SERVER_LOG_FILE), {
+        recursive: true,
+      }).pipe(Effect.mapError(toError));
+      const logHandle = yield* fs.open(DEFAULT_SERVER_LOG_FILE, {
+        flag: "a",
+      }).pipe(Effect.mapError(toError));
 
-      try {
-        const child = spawn(command[0]!, command.slice(1), {
-          detached: true,
-          stdio: ["ignore", logHandle.fd, logHandle.fd],
-        });
-        child.unref();
-      } finally {
-        await logHandle.close();
-      }
-    },
-    catch: toError,
-  });
+      yield* Effect.try({
+        try: () => {
+          const fd = Number(logHandle.fd);
+          const child = spawn(command[0]!, command.slice(1), {
+            detached: true,
+            stdio: ["ignore", fd, fd],
+          });
+          child.unref();
+        },
+        catch: toError,
+      });
+    }),
+  );
 
 type LocalServerPidRecord = {
   pid?: number;
@@ -456,13 +455,21 @@ type LocalServerPidRecord = {
   logFile?: string;
 };
 
-const readPidRecord = (): Effect.Effect<LocalServerPidRecord | null, never, never> =>
-  Effect.tryPromise({
-    try: async () => {
-      const contents = await readFile(DEFAULT_SERVER_PID_FILE, "utf8");
-      return JSON.parse(contents) as LocalServerPidRecord;
-    },
-    catch: () => null,
+const readPidRecord = (): Effect.Effect<
+  LocalServerPidRecord | null,
+  never,
+  FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const contents = yield* fs.readFileString(DEFAULT_SERVER_PID_FILE, "utf8").pipe(
+      Effect.catchAll(() => Effect.succeed<string | null>(null)),
+    );
+    if (contents === null) {
+      return null;
+    }
+
+    return JSON.parse(contents) as LocalServerPidRecord;
   }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 
 const isPidRunning = (pid: number): boolean => {
@@ -547,7 +554,9 @@ const renderDenoSandboxDetail = (denoVersion: string | null): string =>
     ? `deno ${denoVersion}`
     : "deno not found (run `executor sandbox` to install)";
 
-const getServerStatus = (baseUrl: string): Effect.Effect<LocalServerStatus, Error, never> =>
+const getServerStatus = (
+  baseUrl: string,
+): Effect.Effect<LocalServerStatus, Error, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const pidRecord = yield* readPidRecord();
     const reachable = yield* isServerReachable(baseUrl);
@@ -647,20 +656,20 @@ const printText = (value: string) =>
 
 const stopServer = (baseUrl: string) =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const removePidFile = fs.remove(DEFAULT_SERVER_PID_FILE, {
+      force: true,
+    }).pipe(Effect.ignore);
     const pidRecord = yield* readPidRecord();
     const pid = typeof pidRecord?.pid === "number" ? pidRecord.pid : null;
 
     if (pid === null) {
-      yield* Effect.tryPromise(() => rm(DEFAULT_SERVER_PID_FILE, { force: true })).pipe(
-        Effect.ignore,
-      );
+      yield* removePidFile;
       return false;
     }
 
     if (!isPidRunning(pid)) {
-      yield* Effect.tryPromise(() => rm(DEFAULT_SERVER_PID_FILE, { force: true })).pipe(
-        Effect.ignore,
-      );
+      yield* removePidFile;
       return false;
     }
 
@@ -671,7 +680,7 @@ const stopServer = (baseUrl: string) =>
 
     yield* waitForReachability(baseUrl, false).pipe(
       Effect.catchAll(() =>
-        Effect.tryPromise(() => rm(DEFAULT_SERVER_PID_FILE, { force: true })).pipe(
+        removePidFile.pipe(
           Effect.ignore,
           Effect.zipRight(Effect.fail(executorAppEffectError("cli/main", `Timed out stopping local executor server pid ${pid}`))),
         ),
@@ -1178,38 +1187,49 @@ const doctorCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Check local executor install and daemon health"));
 
-const getDenoVersion = (): Effect.Effect<string | null, never, never> =>
-  Effect.tryPromise({
-    try: () =>
-      new Promise<string | null>((resolve) => {
-        const denoExecutable = process.env.DENO_BIN?.trim()
-          || (process.env.HOME && existsSync(`${process.env.HOME}/.deno/bin/deno`)
-            ? `${process.env.HOME}/.deno/bin/deno`
-            : "deno");
+const getDenoVersion = (): Effect.Effect<string | null, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const configuredDenoExecutable = process.env.DENO_BIN?.trim();
+    const bundledDenoExecutable = process.env.HOME?.trim()
+      ? `${process.env.HOME.trim()}/.deno/bin/deno`
+      : null;
+    const bundledDenoExists = bundledDenoExecutable === null
+      ? false
+      : yield* fs.exists(bundledDenoExecutable).pipe(
+          Effect.catchAll(() => Effect.succeed(false)),
+        );
+    const denoExecutable = configuredDenoExecutable
+      || (bundledDenoExists ? bundledDenoExecutable : null)
+      || "deno";
 
-        const child = spawn(denoExecutable, ["--version"], {
-          stdio: ["ignore", "pipe", "ignore"],
-          timeout: 5000,
-        });
+    return yield* Effect.tryPromise({
+      try: () =>
+        new Promise<string | null>((resolveVersion) => {
+          const child = spawn(denoExecutable, ["--version"], {
+            stdio: ["ignore", "pipe", "ignore"],
+            timeout: 5000,
+          });
 
-        let stdout = "";
-        child.stdout?.setEncoding("utf8");
-        child.stdout?.on("data", (chunk: string) => {
-          stdout += chunk;
-        });
+          let stdout = "";
+          child.stdout?.setEncoding("utf8");
+          child.stdout?.on("data", (chunk: string) => {
+            stdout += chunk;
+          });
 
-        child.once("error", () => resolve(null));
-        child.once("close", (code) => {
-          if (code !== 0) {
-            resolve(null);
-            return;
-          }
+          child.once("error", () => resolveVersion(null));
+          child.once("close", (code) => {
+            if (code !== 0) {
+              resolveVersion(null);
+              return;
+            }
 
-          const match = /deno\s+(\S+)/i.exec(stdout);
-          resolve(match ? match[1] : null);
-        });
-      }),
-    catch: () => null,
+            const match = /deno\s+(\S+)/i.exec(stdout);
+            resolveVersion(match ? match[1] : null);
+          });
+        }),
+      catch: () => null,
+    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
   }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 
 const sandboxCommand = Command.make(
