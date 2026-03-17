@@ -380,14 +380,6 @@ export const resolveDefaultSecretStoreProviderId = (input: {
   ) as Effect.Effect<SecretStoreProviderId, never, never>;
 };
 
-const parseKeychainHandle = (handle: string): string | null => {
-  if (!handle.startsWith(`${KEYCHAIN_SECRET_PROVIDER_ID}:`)) {
-    return null;
-  }
-
-  return trimOrNull(handle.slice(`${KEYCHAIN_SECRET_PROVIDER_ID}:`.length));
-};
-
 const loadStoredSecretMaterial = (input: {
   id: string;
   runtime: SecretMaterialProviderRuntime;
@@ -439,14 +431,6 @@ const loadManagedKeychainRef = (input: {
   operation: string;
 }) =>
   Effect.gen(function* () {
-    const legacyHandle = parseKeychainHandle(input.ref.handle);
-    if (legacyHandle !== null) {
-      return {
-        providerHandle: legacyHandle,
-        material: null,
-      };
-    }
-
     const material = yield* loadStoredSecretMaterial({
       id: input.ref.handle,
       runtime: input.runtime,
@@ -787,11 +771,6 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
         runtime,
         operation: "keychain.update",
       });
-      if (loaded.material === null) {
-        return yield* Effect.fail(
-          new Error(`keychain.update: legacy keychain refs cannot be updated: ${ref.handle}`),
-        );
-      }
 
       if (name === undefined && value === undefined) {
         return toSecretMaterialSummary(loaded.material);
@@ -844,10 +823,6 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
         providerHandle: loaded.providerHandle,
         runtime,
       });
-
-      if (loaded.material === null) {
-        return deleted;
-      }
 
       if (!deleted) {
         return false;

@@ -14,7 +14,7 @@ import * as Effect from "effect/Effect";
 import { z } from "zod/v4";
 
 import { makeToolInvokerFromTools } from "@executor/codemode-core";
-import { discoverMcpToolsFromConnector } from "@executor/codemode-mcp";
+import { discoverMcpToolsFromConnector } from "@executor/source-mcp";
 import { makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
 
 import {

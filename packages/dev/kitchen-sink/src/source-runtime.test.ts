@@ -30,7 +30,7 @@ import {
   type ToolInvocationContext,
   type ToolInvoker,
 } from "@executor/codemode-core";
-import { createOpenApiToolsFromSpec } from "@executor/codemode-openapi";
+import { createOpenApiToolsFromSpec } from "@executor/source-openapi";
 import { makeSesExecutor } from "@executor/runtime-ses";
 
 const asToolPath = (value: string): ToolPath => value as ToolPath;

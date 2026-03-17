@@ -25,7 +25,6 @@ import {
 const decodeLocalExecutorConfig = Schema.decodeUnknownSync(LocalExecutorConfigSchema);
 
 const PROJECT_CONFIG_BASENAME = "executor.jsonc";
-const PROJECT_CONFIG_FALLBACK_BASENAME = "executor.json";
 const PROJECT_CONFIG_DIRECTORY = ".executor";
 const EXECUTOR_CONFIG_DIR_ENV = "EXECUTOR_CONFIG_DIR";
 const EXECUTOR_STATE_DIR_ENV = "EXECUTOR_STATE_DIR";
@@ -106,31 +105,17 @@ const defaultExecutorStateDirectory = (input: {
   );
 };
 
-const legacyExecutorConfigDirectory = (input: {
-  homeDirectory?: string;
-} = {}): string =>
-  join(input.homeDirectory ?? homedir(), ".config", "executor");
-
 export const resolveDefaultHomeConfigCandidates = (input: {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   homeDirectory?: string;
 } = {}): string[] => {
-  const homeDirectory = input.homeDirectory ?? homedir();
-  const canonicalDirectory = defaultExecutorConfigDirectory({
+  const directory = defaultExecutorConfigDirectory({
     env: input.env,
     platform: input.platform,
-    homeDirectory,
+    homeDirectory: input.homeDirectory ?? homedir(),
   });
-  const legacyDirectory = legacyExecutorConfigDirectory({ homeDirectory });
-  const directories = canonicalDirectory === legacyDirectory
-    ? [canonicalDirectory]
-    : [canonicalDirectory, legacyDirectory];
-
-  return directories.flatMap((directory) => [
-    join(directory, PROJECT_CONFIG_BASENAME),
-    join(directory, PROJECT_CONFIG_FALLBACK_BASENAME),
-  ]);
+  return [join(directory, PROJECT_CONFIG_BASENAME)];
 };
 
 export const resolveHomeConfigPath = (input: {
@@ -282,34 +267,19 @@ const resolveProjectConfigPathEffect = (workspaceRoot: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const jsoncPath = join(workspaceRoot, PROJECT_CONFIG_DIRECTORY, PROJECT_CONFIG_BASENAME);
-    const jsoncExists = yield* fs.exists(jsoncPath).pipe(
+    yield* fs.exists(jsoncPath).pipe(
       Effect.mapError(mapFileSystemError(jsoncPath, "check project config path")),
     );
-    if (jsoncExists) {
-      return jsoncPath;
-    }
-
-    const jsonPath = join(workspaceRoot, PROJECT_CONFIG_DIRECTORY, PROJECT_CONFIG_FALLBACK_BASENAME);
-    const jsonExists = yield* fs.exists(jsonPath).pipe(
-      Effect.mapError(mapFileSystemError(jsonPath, "check project config path")),
-    );
-    return jsonExists ? jsonPath : jsoncPath;
+    return jsoncPath;
   });
 
 const hasProjectConfigEffect = (workspaceRoot: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const jsoncPath = join(workspaceRoot, PROJECT_CONFIG_DIRECTORY, PROJECT_CONFIG_BASENAME);
-    const jsonPath = join(workspaceRoot, PROJECT_CONFIG_DIRECTORY, PROJECT_CONFIG_FALLBACK_BASENAME);
-    const [jsoncExists, jsonExists] = yield* Effect.all([
-      fs.exists(jsoncPath).pipe(
-        Effect.mapError(mapFileSystemError(jsoncPath, "check project config path")),
-      ),
-      fs.exists(jsonPath).pipe(
-        Effect.mapError(mapFileSystemError(jsonPath, "check project config path")),
-      ),
-    ]);
-    return jsoncExists || jsonExists;
+    return yield* fs.exists(jsoncPath).pipe(
+      Effect.mapError(mapFileSystemError(jsoncPath, "check project config path")),
+    );
   });
 
 const resolveWorkspaceRootFromCwdEffect = (cwd: string) =>

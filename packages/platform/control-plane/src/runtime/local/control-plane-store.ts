@@ -78,30 +78,6 @@ const defaultLocalControlPlaneState = (): LocalControlPlaneState => ({
   executionSteps: [],
 });
 
-const normalizeLocalControlPlaneStateInput = (raw: unknown): unknown => {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    return raw;
-  }
-
-  const record = raw as Record<string, unknown>;
-  const defaults = defaultLocalControlPlaneState();
-
-  return {
-    ...record,
-    version: record.version ?? defaults.version,
-    authArtifacts: record.authArtifacts ?? defaults.authArtifacts,
-    authLeases: record.authLeases ?? defaults.authLeases,
-    sourceOauthClients: record.sourceOauthClients ?? defaults.sourceOauthClients,
-    workspaceOauthClients: record.workspaceOauthClients ?? defaults.workspaceOauthClients,
-    providerAuthGrants: record.providerAuthGrants ?? defaults.providerAuthGrants,
-    sourceAuthSessions: record.sourceAuthSessions ?? defaults.sourceAuthSessions,
-    secretMaterials: record.secretMaterials ?? defaults.secretMaterials,
-    executions: record.executions ?? defaults.executions,
-    executionInteractions: record.executionInteractions ?? defaults.executionInteractions,
-    executionSteps: record.executionSteps ?? defaults.executionSteps,
-  };
-};
-
 const cloneValue = <T>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
 
@@ -151,9 +127,7 @@ const readStateFromDisk = async (
   }
 
   const content = await readFile(path, "utf8");
-  return decodeLocalControlPlaneState(
-    normalizeLocalControlPlaneStateInput(JSON.parse(content) as unknown),
-  );
+  return decodeLocalControlPlaneState(JSON.parse(content) as unknown);
 };
 
 const writeStateToDisk = async (

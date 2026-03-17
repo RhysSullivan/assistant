@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
-  buildInvocationPlan,
   createCatalogSnapshotV1,
   createEmptyCatalogV1,
   decodeCatalogSnapshotV1,
@@ -63,6 +62,9 @@ const createHttpCatalog = (input: {
   const scopeId = ScopeIdSchema.make("scope_service");
   const authSchemeId = SecuritySchemeSymbolIdSchema.make("sym_security_oauth");
   const bodyShapeId = ShapeSymbolIdSchema.make("shape_event_body");
+  const callShapeId = ShapeSymbolIdSchema.make("shape_event_call");
+  const pathGroupShapeId = ShapeSymbolIdSchema.make("shape_event_call_path");
+  const queryGroupShapeId = ShapeSymbolIdSchema.make("shape_event_call_query");
   const resultShapeId = ShapeSymbolIdSchema.make("shape_event_result");
   const stringShapeId = ShapeSymbolIdSchema.make("shape_string");
   const idPathParamId = ParameterSymbolIdSchema.make("sym_param_path_event_id");
@@ -76,6 +78,7 @@ const createHttpCatalog = (input: {
   const executableId = ExecutableIdSchema.make("exec_http_events_update");
   const capabilityId = CapabilityIdSchema.make("cap_events_update");
   const exampleId = ExampleSymbolIdSchema.make("sym_example_event_body");
+  const collisionDiagnosticId = DiagnosticIdSchema.make("diag_projection_collision_grouped_fields");
 
   put(catalog.documents as Record<typeof docId, CatalogV1["documents"][typeof docId]>, docId, {
     id: docId,
@@ -176,6 +179,77 @@ const createHttpCatalog = (input: {
     },
     synthetic: false,
     provenance: baseProvenance("#/components/schemas/Event"),
+  });
+
+  if (input.collideIds) {
+    put(catalog.symbols as Record<typeof pathGroupShapeId, CatalogV1["symbols"][typeof pathGroupShapeId]>, pathGroupShapeId, {
+      id: pathGroupShapeId,
+      kind: "shape",
+      resourceId,
+      title: "UpdateEventPathParams",
+      node: {
+        type: "object",
+        fields: {
+          id: { shapeId: stringShapeId },
+          eventId: { shapeId: stringShapeId },
+        },
+        required: ["id", "eventId"],
+        additionalProperties: false,
+      },
+      synthetic: false,
+      provenance: baseProvenance("#/components/schemas/UpdateEventPathParams"),
+    });
+
+    put(catalog.symbols as Record<typeof queryGroupShapeId, CatalogV1["symbols"][typeof queryGroupShapeId]>, queryGroupShapeId, {
+      id: queryGroupShapeId,
+      kind: "shape",
+      resourceId,
+      title: "UpdateEventQueryParams",
+      node: {
+        type: "object",
+        fields: {
+          id: { shapeId: stringShapeId },
+        },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      synthetic: false,
+      provenance: baseProvenance("#/components/schemas/UpdateEventQueryParams"),
+    });
+  }
+
+  put(catalog.symbols as Record<typeof callShapeId, CatalogV1["symbols"][typeof callShapeId]>, callShapeId, {
+    id: callShapeId,
+    kind: "shape",
+    resourceId,
+    title: "UpdateEventCall",
+    node: input.collideIds
+      ? {
+          type: "object",
+          fields: {
+            path: { shapeId: pathGroupShapeId },
+            query: { shapeId: queryGroupShapeId },
+            body: { shapeId: bodyShapeId },
+          },
+          required: ["path", "query", "body"],
+          additionalProperties: false,
+        }
+      : {
+          type: "object",
+          fields: {
+            calendarId: { shapeId: stringShapeId },
+            eventId: { shapeId: stringShapeId },
+            sendUpdates: { shapeId: stringShapeId },
+            body: { shapeId: bodyShapeId },
+          },
+          required: ["calendarId", "eventId", "body"],
+          additionalProperties: false,
+        },
+    synthetic: false,
+    provenance: baseProvenance("#/components/schemas/UpdateEventCall"),
+    ...(input.collideIds
+      ? { diagnosticIds: [collisionDiagnosticId] }
+      : {}),
   });
 
   put(catalog.symbols as Record<typeof exampleId, CatalogV1["symbols"][typeof exampleId]>, exampleId, {
@@ -282,17 +356,38 @@ const createHttpCatalog = (input: {
     provenance: baseProvenance("#/paths/~1events/responses"),
   });
 
+  if (input.collideIds) {
+    put(catalog.diagnostics as Record<typeof collisionDiagnosticId, CatalogV1["diagnostics"][typeof collisionDiagnosticId]>, collisionDiagnosticId, {
+      id: collisionDiagnosticId,
+      level: "info",
+      code: "projection_collision_grouped_fields",
+      message: "Grouped parameter fields to avoid collisions",
+      provenance: baseProvenance("#/paths/~1events/patch"),
+    });
+  }
+
   put(catalog.executables as Record<typeof executableId, CatalogV1["executables"][typeof executableId]>, executableId, {
     id: executableId,
-    protocol: "http",
     capabilityId,
     scopeId,
-    method: input.method ?? "PATCH",
-    pathTemplate: "/calendars/{calendarId}/events/{eventId}",
-    pathParameterIds: [calendarParamId, idPathParamId],
-    queryParameterIds: [queryParamId],
-    requestBodyId,
-    responseSetId,
+    adapterKey: "openapi",
+    bindingVersion: 1,
+    binding: {},
+    projection: {
+      responseSetId,
+      callShapeId,
+    },
+    display: {
+      protocol: "http",
+      method: input.method ?? "PATCH",
+      pathTemplate: "/calendars/{calendarId}/events/{eventId}",
+      operationId: "update",
+      group: "events",
+      leaf: "update",
+      rawToolId: "events.update",
+      title: "Update event",
+      summary: "Update a calendar event.",
+    },
     synthetic: false,
     provenance: baseProvenance("#/paths/~1events/patch"),
   });
@@ -426,6 +521,9 @@ const createGraphqlCatalog = (): CatalogV1 => {
         input: {
           shapeId: inputShapeId,
         },
+        select: {
+          shapeId: selectShapeId,
+        },
       },
       required: ["id", "input"],
       additionalProperties: false,
@@ -507,17 +605,27 @@ const createGraphqlCatalog = (): CatalogV1 => {
 
   put(catalog.executables as Record<typeof executableId, CatalogV1["executables"][typeof executableId]>, executableId, {
     id: executableId,
-    protocol: "graphql",
     capabilityId,
     scopeId,
-    toolKind: "field",
-    operationType: "mutation",
-    rootField: "updateUser",
-    argumentShapeId: argShapeId,
-    resultShapeId,
-    selectionShapeId: selectShapeId,
-    selectionMode: "caller",
-    responseSetId,
+    adapterKey: "graphql",
+    bindingVersion: 1,
+    binding: {},
+    projection: {
+      responseSetId,
+      callShapeId: argShapeId,
+      resultDataShapeId: resultShapeId,
+    },
+    display: {
+      protocol: "graphql",
+      method: "mutation",
+      pathTemplate: "updateUser",
+      operationId: "updateUser",
+      group: "mutation",
+      leaf: "updateUser",
+      rawToolId: "updateUser",
+      title: "Update user",
+      summary: "Update a user.",
+    },
     synthetic: false,
     provenance: baseProvenance("#/mutations/updateUser"),
   });
@@ -637,6 +745,23 @@ describe("IR catalog", () => {
     expect(violations.map((violation) => violation.code)).toContain("missing_unresolved_ref_diagnostic");
   });
 
+  it("reports invariant violations for missing projected shapes", () => {
+    const catalog = createGraphqlCatalog();
+    const executable = catalog.executables[ExecutableIdSchema.make("exec_graphql_update")]!;
+
+    (catalog.executables as Record<typeof executable.id, typeof executable>)[executable.id] = {
+      ...executable,
+      projection: {
+        ...executable.projection,
+        callShapeId: ShapeSymbolIdSchema.make("shape_missing_call"),
+      },
+    };
+
+    const violations = validateCatalogInvariants(catalog);
+    expect(violations.map((violation) => violation.code)).toContain("missing_projection_shape");
+    expect(violations.some((violation) => violation.message.includes("shape_missing_call"))).toBe(true);
+  });
+
   it("projects HTTP capabilities into ergonomic call and result shapes", () => {
     const projected = projectCatalogForAgentSdk({
       catalog: createHttpCatalog(),
@@ -720,7 +845,7 @@ describe("IR catalog", () => {
     );
   });
 
-  it("builds inspect views and invocation plans from the projected graph", () => {
+  it("builds inspect views from the projected graph", () => {
     const projected = projectCatalogForAgentSdk({
       catalog: createHttpCatalog(),
     });
@@ -728,21 +853,8 @@ describe("IR catalog", () => {
     const descriptor = projected.toolDescriptors[capabilityId];
     const shallow = projectSymbolShallowView(projected.catalog, descriptor.callShapeId);
     const expanded = projectSymbolExpandedView(projected.catalog, descriptor.callShapeId);
-    const plan = buildInvocationPlan({
-      catalog: projected.catalog,
-      capabilityId,
-      connectionBindingId: "binding_primary",
-      resolvedEndpoint: "https://example.test",
-      requestPlan: {
-        method: "PATCH",
-        path: "/calendars/primary/events/abc",
-      },
-    });
 
     expect(shallow.edges.some((edge) => edge.label === "field:body")).toBe(true);
     expect(expanded.symbol.id).toBe(descriptor.callShapeId);
-    expect(plan.connectionBindingId).toBe("binding_primary");
-    expect(plan.resolvedScopeChain).toEqual([ScopeIdSchema.make("scope_service")]);
-    expect(plan.resolvedInteraction?.requiresApproval).toBe(true);
   });
 });

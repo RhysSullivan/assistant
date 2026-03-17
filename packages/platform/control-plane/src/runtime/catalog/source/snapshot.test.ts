@@ -7,12 +7,10 @@ import {
   compileGraphqlToolDefinitions,
   type GraphqlToolManifest,
 } from "../../sources/graphql-tools";
-import {
-  createGoogleDiscoveryCatalogSnapshot,
-  createGraphqlCatalogSnapshot,
-  createMcpCatalogSnapshot,
-  createOpenApiCatalogSnapshot,
-} from "@executor/catalog-builders";
+import { createGoogleDiscoveryCatalogSnapshot } from "@executor/source-google-discovery";
+import { createGraphqlCatalogSnapshot } from "@executor/source-graphql";
+import { createMcpCatalogSnapshot } from "@executor/source-mcp";
+import { createOpenApiCatalogSnapshot } from "@executor/source-openapi";
 
 const baseSource: Source = {
   id: "src_calendar" as Source["id"],
@@ -41,13 +39,16 @@ describe("source-catalog-snapshot", () => {
   it("builds an HTTP capability graph from OpenAPI operation inputs", () => {
     const snapshot = createOpenApiCatalogSnapshot({
       source: baseSource,
-      documents: [{
+      documents: [
+        {
           documentKind: "openapi",
           documentKey: "https://api.example.test/openapi.json",
           contentText: "{}",
           fetchedAt: 1,
-        }],
-      operations: [{
+        },
+      ],
+      operations: [
+        {
           toolId: "events.update",
           title: "Update event",
           description: "Update a calendar event",
@@ -118,7 +119,8 @@ describe("source-catalog-snapshot", () => {
               },
             },
           },
-        }],
+        },
+      ],
     });
 
     expect(snapshot.version).toBe("ir.v1.snapshot");
@@ -130,14 +132,24 @@ describe("source-catalog-snapshot", () => {
     const resource = Object.values(snapshot.catalog.resources)[0]!;
     const serviceScope = snapshot.catalog.scopes[capability.serviceScopeId]!;
 
-    expect(capability.surface.toolPath).toEqual(["google", "calendar", "events", "update"]);
+    expect(capability.surface.toolPath).toEqual([
+      "google",
+      "calendar",
+      "events",
+      "update",
+    ]);
     expect(capability.semantics.effect).toBe("write");
     expect(capability.auth.kind).toBe("none");
     expect(snapshot.catalog.documents[resource.documentId]).toBeDefined();
-    expect(snapshot.catalog.documents[serviceScope.provenance[0]!.documentId]).toBeDefined();
-    expect(executable.protocol).toBe("http");
-    expect(executable.method).toBe("PATCH");
-    expect(executable.pathTemplate).toBe("/calendars/{calendarId}/events/{eventId}");
+    expect(
+      snapshot.catalog.documents[serviceScope.provenance[0]!.documentId],
+    ).toBeDefined();
+    expect(executable.adapterKey).toBe("openapi");
+    expect(executable.projection.callShapeId).toBeDefined();
+    expect(executable.display?.method).toBe("PATCH");
+    expect(executable.display?.pathTemplate).toBe(
+      "/calendars/{calendarId}/events/{eventId}",
+    );
     expect(executable.native).toBeUndefined();
     expect(capability.native).toBeUndefined();
     expect(responseSet.variants).toHaveLength(1);
@@ -146,132 +158,138 @@ describe("source-catalog-snapshot", () => {
   it("projects OpenAPI auth requirements and response variants into IR", () => {
     const snapshot = createOpenApiCatalogSnapshot({
       source: baseSource,
-      documents: [{
-        documentKind: "openapi",
-        documentKey: "https://api.example.test/openapi.json",
-        contentText: "{}",
-        fetchedAt: 1,
-      }],
-      operations: [{
-        toolId: "projects.get",
-        title: "Get project",
-        description: "Get a project",
-        effect: "read",
-        inputSchema: {
-          type: "object",
-          properties: {
-            projectId: {
-              type: "string",
-            },
-          },
-          required: ["projectId"],
-          additionalProperties: false,
+      documents: [
+        {
+          documentKind: "openapi",
+          documentKey: "https://api.example.test/openapi.json",
+          contentText: "{}",
+          fetchedAt: 1,
         },
-        outputSchema: {
-          type: "object",
-          properties: {
-            id: {
-              type: "string",
-            },
-          },
-          required: ["id"],
-          additionalProperties: false,
-        },
-        providerData: {
-          kind: "openapi",
+      ],
+      operations: [
+        {
           toolId: "projects.get",
-          rawToolId: "projects.get",
-          group: "projects",
-          leaf: "get",
-          tags: ["projects"],
-          method: "get",
-          path: "/projects/{projectId}",
-          operationHash: "op_hash_projects_get",
-          invocation: {
+          title: "Get project",
+          description: "Get a project",
+          effect: "read",
+          inputSchema: {
+            type: "object",
+            properties: {
+              projectId: {
+                type: "string",
+              },
+            },
+            required: ["projectId"],
+            additionalProperties: false,
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              id: {
+                type: "string",
+              },
+            },
+            required: ["id"],
+            additionalProperties: false,
+          },
+          providerData: {
+            kind: "openapi",
+            toolId: "projects.get",
+            rawToolId: "projects.get",
+            group: "projects",
+            leaf: "get",
+            tags: ["projects"],
             method: "get",
-            pathTemplate: "/projects/{projectId}",
-            parameters: [
-              { name: "projectId", location: "path", required: true },
-            ],
-            requestBody: null,
-          },
-          documentation: {
-            summary: "Get project",
-            parameters: [],
-            response: {
-              statusCode: "200",
-              description: "Project",
-              contentTypes: ["application/json"],
+            path: "/projects/{projectId}",
+            operationHash: "op_hash_projects_get",
+            invocation: {
+              method: "get",
+              pathTemplate: "/projects/{projectId}",
+              parameters: [
+                { name: "projectId", location: "path", required: true },
+              ],
+              requestBody: null,
             },
-          },
-          authRequirement: {
-            kind: "anyOf",
-            items: [
+            documentation: {
+              summary: "Get project",
+              parameters: [],
+              response: {
+                statusCode: "200",
+                description: "Project",
+                contentTypes: ["application/json"],
+              },
+            },
+            authRequirement: {
+              kind: "anyOf",
+              items: [
+                {
+                  kind: "scheme",
+                  schemeName: "bearerToken",
+                },
+                {
+                  kind: "scheme",
+                  schemeName: "apiKeyHeader",
+                },
+              ],
+            },
+            securitySchemes: [
               {
-                kind: "scheme",
                 schemeName: "bearerToken",
+                schemeType: "http",
+                description: "Bearer auth.",
+                scheme: "bearer",
+                bearerFormat: "JWT",
               },
               {
-                kind: "scheme",
                 schemeName: "apiKeyHeader",
+                schemeType: "apiKey",
+                placementIn: "header",
+                placementName: "x-api-key",
+              },
+            ],
+            responses: [
+              {
+                statusCode: "200",
+                description: "Project",
+                contentTypes: ["application/json"],
+                schema: {
+                  type: "object",
+                  properties: {
+                    id: {
+                      type: "string",
+                    },
+                  },
+                  required: ["id"],
+                  additionalProperties: false,
+                },
+              },
+              {
+                statusCode: "404",
+                description: "Missing",
+                contentTypes: ["application/json"],
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: {
+                      type: "string",
+                    },
+                  },
+                  required: ["error"],
+                  additionalProperties: false,
+                },
               },
             ],
           },
-          securitySchemes: [
-            {
-              schemeName: "bearerToken",
-              schemeType: "http",
-              description: "Bearer auth.",
-              scheme: "bearer",
-              bearerFormat: "JWT",
-            },
-            {
-              schemeName: "apiKeyHeader",
-              schemeType: "apiKey",
-              placementIn: "header",
-              placementName: "x-api-key",
-            },
-          ],
-          responses: [
-            {
-              statusCode: "200",
-              description: "Project",
-              contentTypes: ["application/json"],
-              schema: {
-                type: "object",
-                properties: {
-                  id: {
-                    type: "string",
-                  },
-                },
-                required: ["id"],
-                additionalProperties: false,
-              },
-            },
-            {
-              statusCode: "404",
-              description: "Missing",
-              contentTypes: ["application/json"],
-              schema: {
-                type: "object",
-                properties: {
-                  error: {
-                    type: "string",
-                  },
-                },
-                required: ["error"],
-                additionalProperties: false,
-              },
-            },
-          ],
         },
-      }],
+      ],
     });
 
     const capability = Object.values(snapshot.catalog.capabilities)[0]!;
     const executable = Object.values(snapshot.catalog.executables)[0]!;
     const responseSet = Object.values(snapshot.catalog.responseSets)[0]!;
-    const securitySchemes = Object.values(snapshot.catalog.symbols).filter((symbol) => symbol.kind === "securityScheme");
+    const securitySchemes = Object.values(snapshot.catalog.symbols).filter(
+      (symbol) => symbol.kind === "securityScheme",
+    );
 
     expect(capability.auth).toMatchObject({
       kind: "anyOf",
@@ -279,9 +297,7 @@ describe("source-catalog-snapshot", () => {
     expect(executable.native).toBeUndefined();
     expect(capability.native).toBeUndefined();
     expect(securitySchemes).toHaveLength(2);
-    expect(
-      responseSet.variants.map((variant) => variant.match),
-    ).toEqual([
+    expect(responseSet.variants.map((variant) => variant.match)).toEqual([
       { kind: "exact", status: 200 },
       { kind: "exact", status: 404 },
     ]);
@@ -290,177 +306,190 @@ describe("source-catalog-snapshot", () => {
   it("projects OpenAPI servers, parameter serialization, and response headers into IR", () => {
     const snapshot = createOpenApiCatalogSnapshot({
       source: baseSource,
-      documents: [{
-        documentKind: "openapi",
-        documentKey: "https://api.example.test/openapi.json",
-        contentText: "{}",
-        fetchedAt: 1,
-      }],
-      operations: [{
-        toolId: "items.get",
-        title: "Get item",
-        description: "Get an item",
-        effect: "read",
-        inputSchema: {
-          type: "object",
-          properties: {
-            itemId: {
-              type: "array",
-              items: {
-                type: "string",
-              },
-            },
-            filter: {
-              type: "object",
-              additionalProperties: {
-                type: "string",
-              },
-            },
-            body: {
-              type: "object",
-              properties: {
-                title: {
+      documents: [
+        {
+          documentKind: "openapi",
+          documentKey: "https://api.example.test/openapi.json",
+          contentText: "{}",
+          fetchedAt: 1,
+        },
+      ],
+      operations: [
+        {
+          toolId: "items.get",
+          title: "Get item",
+          description: "Get an item",
+          effect: "read",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemId: {
+                type: "array",
+                items: {
                   type: "string",
                 },
               },
-            },
-          },
-          required: ["itemId"],
-          additionalProperties: false,
-        },
-        outputSchema: {
-          type: "object",
-          properties: {
-            id: {
-              type: "string",
-            },
-          },
-          required: ["id"],
-          additionalProperties: false,
-        },
-        providerData: {
-          kind: "openapi",
-          toolId: "items.get",
-          rawToolId: "items.get",
-          group: "items",
-          leaf: "get",
-          tags: ["items"],
-          method: "get",
-          path: "/items/{itemId}",
-          operationHash: "op_hash_items_get",
-          invocation: {
-            method: "get",
-            pathTemplate: "/items/{itemId}",
-            parameters: [
-              {
-                name: "itemId",
-                location: "path",
-                required: true,
-                style: "label",
-                explode: true,
+              filter: {
+                type: "object",
+                additionalProperties: {
+                  type: "string",
+                },
               },
-              {
-                name: "filter",
-                location: "query",
+              body: {
+                type: "object",
+                properties: {
+                  title: {
+                    type: "string",
+                  },
+                },
+              },
+            },
+            required: ["itemId"],
+            additionalProperties: false,
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              id: {
+                type: "string",
+              },
+            },
+            required: ["id"],
+            additionalProperties: false,
+          },
+          providerData: {
+            kind: "openapi",
+            toolId: "items.get",
+            rawToolId: "items.get",
+            group: "items",
+            leaf: "get",
+            tags: ["items"],
+            method: "get",
+            path: "/items/{itemId}",
+            operationHash: "op_hash_items_get",
+            invocation: {
+              method: "get",
+              pathTemplate: "/items/{itemId}",
+              parameters: [
+                {
+                  name: "itemId",
+                  location: "path",
+                  required: true,
+                  style: "label",
+                  explode: true,
+                },
+                {
+                  name: "filter",
+                  location: "query",
+                  required: false,
+                  style: "deepObject",
+                  explode: true,
+                },
+              ],
+              requestBody: {
                 required: false,
-                style: "deepObject",
-                explode: true,
+                contentTypes: [
+                  "application/x-www-form-urlencoded",
+                  "application/json",
+                ],
+                contents: [
+                  {
+                    mediaType: "application/x-www-form-urlencoded",
+                    schema: {
+                      type: "object",
+                      properties: {
+                        title: {
+                          type: "string",
+                        },
+                      },
+                    },
+                  },
+                  {
+                    mediaType: "application/json",
+                    schema: {
+                      type: "object",
+                      properties: {
+                        title: {
+                          type: "string",
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+            documentation: null,
+            documentServers: [
+              {
+                url: "https://api.example.test/{version}",
+                variables: {
+                  version: "v1",
+                },
               },
             ],
-            requestBody: {
-              required: false,
-              contentTypes: ["application/x-www-form-urlencoded", "application/json"],
-              contents: [
-                {
-                  mediaType: "application/x-www-form-urlencoded",
-                  schema: {
-                    type: "object",
-                    properties: {
-                      title: {
-                        type: "string",
+            servers: [
+              {
+                url: "https://regional.example.test/base",
+              },
+            ],
+            responses: [
+              {
+                statusCode: "200",
+                description: "Item",
+                contentTypes: ["application/json", "text/plain"],
+                contents: [
+                  {
+                    mediaType: "application/json",
+                    schema: {
+                      type: "object",
+                      properties: {
+                        id: {
+                          type: "string",
+                        },
                       },
+                      required: ["id"],
+                      additionalProperties: false,
                     },
                   },
-                },
-                {
-                  mediaType: "application/json",
-                  schema: {
-                    type: "object",
-                    properties: {
-                      title: {
-                        type: "string",
-                      },
+                  {
+                    mediaType: "text/plain",
+                    schema: {
+                      type: "string",
                     },
                   },
-                },
-              ],
-            },
+                ],
+                headers: [
+                  {
+                    name: "x-next-cursor",
+                    description: "Next cursor.",
+                    schema: {
+                      type: "string",
+                    },
+                  },
+                ],
+              },
+            ],
           },
-          documentation: null,
-          documentServers: [{
-            url: "https://api.example.test/{version}",
-            variables: {
-              version: "v1",
-            },
-          }],
-          servers: [{
-            url: "https://regional.example.test/base",
-          }],
-          responses: [
-            {
-              statusCode: "200",
-              description: "Item",
-              contentTypes: ["application/json", "text/plain"],
-              contents: [
-                {
-                  mediaType: "application/json",
-                  schema: {
-                    type: "object",
-                    properties: {
-                      id: {
-                        type: "string",
-                      },
-                    },
-                    required: ["id"],
-                    additionalProperties: false,
-                  },
-                },
-                {
-                  mediaType: "text/plain",
-                  schema: {
-                    type: "string",
-                  },
-                },
-              ],
-              headers: [
-                {
-                  name: "x-next-cursor",
-                  description: "Next cursor.",
-                  schema: {
-                    type: "string",
-                  },
-                },
-              ],
-            },
-          ],
         },
-      }],
+      ],
     });
 
     const capability = Object.values(snapshot.catalog.capabilities)[0]!;
     const executable = Object.values(snapshot.catalog.executables)[0]!;
     const serviceScope = snapshot.catalog.scopes[capability.serviceScopeId]!;
     const operationScope = snapshot.catalog.scopes[executable.scopeId]!;
-    const pathParameter = Object.values(snapshot.catalog.symbols).find((symbol) =>
-      symbol.kind === "parameter" && symbol.name === "itemId"
+    const pathParameter = Object.values(snapshot.catalog.symbols).find(
+      (symbol) => symbol.kind === "parameter" && symbol.name === "itemId",
     );
-    const queryParameter = Object.values(snapshot.catalog.symbols).find((symbol) =>
-      symbol.kind === "parameter" && symbol.name === "filter"
+    const queryParameter = Object.values(snapshot.catalog.symbols).find(
+      (symbol) => symbol.kind === "parameter" && symbol.name === "filter",
     );
-    const requestBody = executable.requestBodyId
-      ? snapshot.catalog.symbols[executable.requestBodyId]
-      : undefined;
-    const response = Object.values(snapshot.catalog.symbols).find((symbol) => symbol.kind === "response");
+    const requestBody = Object.values(snapshot.catalog.symbols).find(
+      (symbol) => symbol.kind === "requestBody",
+    );
+    const response = Object.values(snapshot.catalog.symbols).find(
+      (symbol) => symbol.kind === "response",
+    );
 
     expect(serviceScope.defaults?.servers).toEqual([
       {
@@ -486,16 +515,20 @@ describe("source-catalog-snapshot", () => {
       explode: true,
     });
     expect(requestBody?.kind).toBe("requestBody");
-    expect(requestBody?.kind === "requestBody" ? requestBody.contents.map((content) => content.mediaType) : []).toEqual([
-      "application/x-www-form-urlencoded",
-      "application/json",
-    ]);
+    expect(
+      requestBody?.kind === "requestBody"
+        ? requestBody.contents.map((content) => content.mediaType)
+        : [],
+    ).toEqual(["application/x-www-form-urlencoded", "application/json"]);
     expect(response?.kind).toBe("response");
-    expect(response?.kind === "response" ? response.headerIds?.length : 0).toBe(1);
-    expect(response?.kind === "response" ? response.contents?.map((content) => content.mediaType) : []).toEqual([
-      "application/json",
-      "text/plain",
-    ]);
+    expect(response?.kind === "response" ? response.headerIds?.length : 0).toBe(
+      1,
+    );
+    expect(
+      response?.kind === "response"
+        ? response.contents?.map((content) => content.mediaType)
+        : [],
+    ).toEqual(["application/json", "text/plain"]);
   });
 
   it("imports Google Discovery scopes as auth requirements", () => {
@@ -506,13 +539,20 @@ describe("source-catalog-snapshot", () => {
         namespace: "google.drive",
       },
       documents: [],
-      operations: [{
+      operations: [
+        {
           toolId: "files.list",
           title: "List files",
           description: "List drive files",
           effect: "read",
-          inputSchema: { type: "object", properties: { pageSize: { type: "integer" } } },
-          outputSchema: { type: "object", properties: { files: { type: "array", items: { type: "string" } } } },
+          inputSchema: {
+            type: "object",
+            properties: { pageSize: { type: "integer" } },
+          },
+          outputSchema: {
+            type: "object",
+            properties: { files: { type: "array", items: { type: "string" } } },
+          },
           providerData: {
             kind: "google_discovery",
             service: "drive",
@@ -533,29 +573,40 @@ describe("source-catalog-snapshot", () => {
               responseSchemaId: "FileList",
               scopes: ["https://www.googleapis.com/auth/drive.readonly"],
               scopeDescriptions: {
-                "https://www.googleapis.com/auth/drive.readonly": "View your Google Drive files.",
+                "https://www.googleapis.com/auth/drive.readonly":
+                  "View your Google Drive files.",
               },
               supportsMediaUpload: false,
               supportsMediaDownload: false,
             },
           },
-        }],
+        },
+      ],
     });
 
     const capability = Object.values(snapshot.catalog.capabilities)[0]!;
     const executable = Object.values(snapshot.catalog.executables)[0]!;
     const serviceScope = snapshot.catalog.scopes[capability.serviceScopeId]!;
-    const securityScheme = Object.values(snapshot.catalog.symbols).find((symbol) => symbol.kind === "securityScheme");
+    const securityScheme = Object.values(snapshot.catalog.symbols).find(
+      (symbol) => symbol.kind === "securityScheme",
+    );
 
     expect(capability.auth.kind).toBe("scheme");
     expect(capability.native).toBeUndefined();
     expect(executable.native).toBeUndefined();
-    expect(serviceScope.defaults?.servers).toEqual([{
-      url: "https://www.googleapis.com/drive/v3/",
-    }]);
+    expect(serviceScope.defaults?.servers).toEqual([
+      {
+        url: "https://www.googleapis.com/drive/v3/",
+      },
+    ]);
     expect(securityScheme?.kind).toBe("securityScheme");
-    expect(securityScheme?.kind === "securityScheme" ? securityScheme.oauth?.scopes : undefined).toEqual({
-      "https://www.googleapis.com/auth/drive.readonly": "View your Google Drive files.",
+    expect(
+      securityScheme?.kind === "securityScheme"
+        ? securityScheme.oauth?.scopes
+        : undefined,
+    ).toEqual({
+      "https://www.googleapis.com/auth/drive.readonly":
+        "View your Google Drive files.",
     });
   });
 
@@ -567,83 +618,90 @@ describe("source-catalog-snapshot", () => {
         namespace: "google.gmail",
       },
       documents: [],
-      operations: [{
-        toolId: "users.drafts.create",
-        title: "Create draft",
-        description: "Create a draft",
-        effect: "write",
-        inputSchema: {
-          type: "object",
-          properties: {
-            userId: { type: "string" },
-            body: {
-              type: "object",
-              properties: {
-                message: { $ref: "#/$defs/google/Message" },
-              },
-            },
-          },
-          required: ["userId", "body"],
-          $defs: {
-            google: {
-              Message: {
+      operations: [
+        {
+          toolId: "users.drafts.create",
+          title: "Create draft",
+          description: "Create a draft",
+          effect: "write",
+          inputSchema: {
+            type: "object",
+            properties: {
+              userId: { type: "string" },
+              body: {
                 type: "object",
                 properties: {
-                  raw: { type: "string" },
+                  message: { $ref: "#/$defs/google/Message" },
+                },
+              },
+            },
+            required: ["userId", "body"],
+            $defs: {
+              google: {
+                Message: {
+                  type: "object",
+                  properties: {
+                    raw: { type: "string" },
+                  },
                 },
               },
             },
           },
-        },
-        outputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
+          outputSchema: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+            },
+          },
+          providerData: {
+            kind: "google_discovery",
+            service: "gmail",
+            version: "v1",
+            toolId: "users.drafts.create",
+            rawToolId: "users.drafts.create",
+            methodId: "gmail.users.drafts.create",
+            group: "users.drafts",
+            leaf: "create",
+            invocation: {
+              method: "post",
+              path: "/gmail/v1/users/{userId}/drafts",
+              flatPath: null,
+              rootUrl: "https://gmail.googleapis.com/",
+              servicePath: "",
+              parameters: [
+                {
+                  name: "userId",
+                  location: "path",
+                  required: true,
+                  repeated: false,
+                  description: "The user ID.",
+                  type: "string",
+                },
+              ],
+              requestSchemaId: "Draft",
+              responseSchemaId: "Draft",
+              scopes: [],
+              scopeDescriptions: undefined,
+              supportsMediaUpload: false,
+              supportsMediaDownload: false,
+            },
           },
         },
-        providerData: {
-          kind: "google_discovery",
-          service: "gmail",
-          version: "v1",
-          toolId: "users.drafts.create",
-          rawToolId: "users.drafts.create",
-          methodId: "gmail.users.drafts.create",
-          group: "users.drafts",
-          leaf: "create",
-          invocation: {
-            method: "post",
-            path: "/gmail/v1/users/{userId}/drafts",
-            flatPath: null,
-            rootUrl: "https://gmail.googleapis.com/",
-            servicePath: "",
-            parameters: [{
-              name: "userId",
-              location: "path",
-              required: true,
-              repeated: false,
-              description: "The user ID.",
-              type: "string",
-            }],
-            requestSchemaId: "Draft",
-            responseSchemaId: "Draft",
-            scopes: [],
-            scopeDescriptions: undefined,
-            supportsMediaUpload: false,
-            supportsMediaDownload: false,
-          },
-        },
-      }],
+      ],
     });
 
     expect(Object.values(snapshot.catalog.diagnostics)).toEqual([]);
 
-    const requestBody = Object.values(snapshot.catalog.symbols).find((symbol) => symbol.kind === "requestBody");
+    const requestBody = Object.values(snapshot.catalog.symbols).find(
+      (symbol) => symbol.kind === "requestBody",
+    );
     expect(requestBody?.kind).toBe("requestBody");
     if (!requestBody || requestBody.kind !== "requestBody") {
       throw new Error("Expected Google Discovery request body symbol");
     }
 
-    const requestBodyShape = snapshot.catalog.symbols[requestBody.contents[0]!.shapeId];
+    const requestBodyShape =
+      snapshot.catalog.symbols[requestBody.contents[0]!.shapeId];
     expect(requestBodyShape?.kind).toBe("shape");
     if (!requestBodyShape || requestBodyShape.kind !== "shape") {
       throw new Error("Expected request body shape");
@@ -698,12 +756,14 @@ describe("source-catalog-snapshot", () => {
 
     const snapshot = createOpenApiCatalogSnapshot({
       source: baseSource,
-      documents: [{
-        documentKind: "openapi",
-        documentKey: "https://api.example.test/openapi.json",
-        contentText: "{}",
-        fetchedAt: 1,
-      }],
+      documents: [
+        {
+          documentKind: "openapi",
+          documentKey: "https://api.example.test/openapi.json",
+          contentText: "{}",
+          fetchedAt: 1,
+        },
+      ],
       operations: [
         {
           toolId: "events.get",
@@ -781,18 +841,24 @@ describe("source-catalog-snapshot", () => {
       ],
     });
 
-    const shapes = Object.values(snapshot.catalog.symbols).filter((symbol) => symbol.kind === "shape");
-    const stringScalars = shapes.filter((symbol) =>
-      symbol.node.type === "scalar" && symbol.node.scalar === "string" && symbol.node.format === undefined
+    const shapes = Object.values(snapshot.catalog.symbols).filter(
+      (symbol) => symbol.kind === "shape",
     );
-    const repeatedObjects = shapes.filter((symbol) =>
-      symbol.node.type === "object"
-      && Object.keys(symbol.node.fields).length === 2
-      && symbol.node.fields.id !== undefined
-      && symbol.node.fields.name !== undefined
-      && symbol.node.additionalProperties === false
-      && symbol.node.required?.length === 1
-      && symbol.node.required[0] === "id"
+    const stringScalars = shapes.filter(
+      (symbol) =>
+        symbol.node.type === "scalar" &&
+        symbol.node.scalar === "string" &&
+        symbol.node.format === undefined,
+    );
+    const repeatedObjects = shapes.filter(
+      (symbol) =>
+        symbol.node.type === "object" &&
+        Object.keys(symbol.node.fields).length === 2 &&
+        symbol.node.fields.id !== undefined &&
+        symbol.node.fields.name !== undefined &&
+        symbol.node.additionalProperties === false &&
+        symbol.node.required?.length === 1 &&
+        symbol.node.required[0] === "id",
     );
     expect(stringScalars).toHaveLength(1);
     expect(repeatedObjects.length).toBeGreaterThan(0);
@@ -806,13 +872,17 @@ describe("source-catalog-snapshot", () => {
         namespace: "github",
       },
       documents: [],
-      operations: [{
+      operations: [
+        {
           toolId: "viewer",
           title: "Viewer",
           description: "Load the current viewer",
           effect: "read",
           inputSchema: { type: "object", properties: {} },
-          outputSchema: { type: "object", properties: { login: { type: "string" } } },
+          outputSchema: {
+            type: "object",
+            properties: { login: { type: "string" } },
+          },
           providerData: {
             kind: "graphql",
             toolKind: "field",
@@ -828,18 +898,27 @@ describe("source-catalog-snapshot", () => {
             mutationTypeName: null,
             subscriptionTypeName: null,
           },
-        }],
+        },
+      ],
     });
 
     const executable = Object.values(snapshot.catalog.executables)[0]!;
 
-    expect(executable.protocol).toBe("graphql");
-    expect(executable.toolKind).toBe("field");
-    expect(executable.operationType).toBe("query");
-    expect(executable.rootField).toBe("viewer");
-    expect(executable.operationName).toBe("ViewerQuery");
-    expect(executable.operationDocument).toBe("query ViewerQuery { viewer { login } }");
-    expect(executable.selectionMode).toBe("fixed");
+    expect(executable.adapterKey).toBe("graphql");
+    expect(executable.projection.callShapeId).toBeDefined();
+    expect(executable.projection.resultDataShapeId).toBeDefined();
+    expect(executable.projection.resultErrorShapeId).toBeDefined();
+    expect(executable.display?.protocol).toBe("graphql");
+    expect(executable.display?.method).toBe("query");
+    expect(executable.display?.pathTemplate).toBe("viewer");
+    expect(executable.binding).toMatchObject({
+      kind: "graphql",
+      toolKind: "field",
+      operationType: "query",
+      fieldName: "viewer",
+      operationName: "ViewerQuery",
+      operationDocument: "query ViewerQuery { viewer { login } }",
+    });
     expect(executable.native).toBeUndefined();
   });
 
@@ -850,102 +929,108 @@ describe("source-catalog-snapshot", () => {
         kind: "mcp",
         namespace: "workspace.mcp",
       },
-      documents: [{
-        documentKind: "mcp_manifest",
-        documentKey: "https://mcp.example.test",
-        contentText: "{}",
-        fetchedAt: 1,
-      }],
-      operations: [{
-        toolId: "memory.read_file",
-        title: "Read File",
-        description: "Read a file from memory",
-        effect: "read",
-        inputSchema: {
-          type: "object",
-          properties: {
-            path: {
-              type: "string",
-            },
-          },
-          required: ["path"],
-          additionalProperties: false,
+      documents: [
+        {
+          documentKind: "mcp_manifest",
+          documentKey: "https://mcp.example.test",
+          contentText: "{}",
+          fetchedAt: 1,
         },
-        outputSchema: {
-          type: "object",
-          properties: {
-            content: {
-              type: "string",
-            },
-          },
-          required: ["content"],
-          additionalProperties: false,
-        },
-        providerData: {
+      ],
+      operations: [
+        {
           toolId: "memory.read_file",
-          toolName: "read_file",
-          displayTitle: "Read File",
           title: "Read File",
           description: "Read a file from memory",
-          annotations: {
-            title: "Read File (Annotated)",
-            readOnlyHint: true,
-            destructiveHint: false,
-            idempotentHint: true,
-            openWorldHint: false,
+          effect: "read",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+              },
+            },
+            required: ["path"],
+            additionalProperties: false,
           },
-          execution: {
-            taskSupport: "required",
+          outputSchema: {
+            type: "object",
+            properties: {
+              content: {
+                type: "string",
+              },
+            },
+            required: ["content"],
+            additionalProperties: false,
           },
-          icons: [{
-            src: "https://example.test/icon.png",
-          }],
-          meta: {
-            category: "filesystem",
-          },
-          rawTool: {
-            name: "read_file",
+          providerData: {
+            toolId: "memory.read_file",
+            toolName: "read_file",
+            displayTitle: "Read File",
+            title: "Read File",
+            description: "Read a file from memory",
             annotations: {
+              title: "Read File (Annotated)",
               readOnlyHint: true,
+              destructiveHint: false,
+              idempotentHint: true,
+              openWorldHint: false,
             },
-          },
-          server: {
-            info: {
-              name: "mcp-test-server",
-              version: "1.0.0",
-              title: "Test Server",
-              description: null,
-              websiteUrl: null,
-              icons: null,
+            execution: {
+              taskSupport: "required",
             },
-            capabilities: {
-              experimental: null,
-              logging: false,
-              completions: false,
-              prompts: null,
-              resources: null,
-              tools: {
-                listChanged: true,
+            icons: [
+              {
+                src: "https://example.test/icon.png",
               },
-              tasks: {
-                list: false,
-                cancel: false,
-                toolCall: true,
+            ],
+            meta: {
+              category: "filesystem",
+            },
+            rawTool: {
+              name: "read_file",
+              annotations: {
+                readOnlyHint: true,
               },
             },
-            instructions: "Use carefully.",
-            rawInfo: {
-              name: "mcp-test-server",
-              version: "1.0.0",
-            },
-            rawCapabilities: {
-              tools: {
-                listChanged: true,
+            server: {
+              info: {
+                name: "mcp-test-server",
+                version: "1.0.0",
+                title: "Test Server",
+                description: null,
+                websiteUrl: null,
+                icons: null,
+              },
+              capabilities: {
+                experimental: null,
+                logging: false,
+                completions: false,
+                prompts: null,
+                resources: null,
+                tools: {
+                  listChanged: true,
+                },
+                tasks: {
+                  list: false,
+                  cancel: false,
+                  toolCall: true,
+                },
+              },
+              instructions: "Use carefully.",
+              rawInfo: {
+                name: "mcp-test-server",
+                version: "1.0.0",
+              },
+              rawCapabilities: {
+                tools: {
+                  listChanged: true,
+                },
               },
             },
           },
         },
-      }],
+      ],
     });
 
     const capability = Object.values(snapshot.catalog.capabilities)[0]!;
@@ -960,7 +1045,10 @@ describe("source-catalog-snapshot", () => {
     });
     expect(capability.interaction.resume.supported).toBe(true);
     expect(capability.native).toBeUndefined();
-    expect(executable.protocol).toBe("mcp");
+    expect(executable.adapterKey).toBe("mcp");
+    expect(executable.projection.callShapeId).toBeDefined();
+    expect(executable.projection.resultStatusShapeId).toBeDefined();
+    expect(executable.display?.protocol).toBe("mcp");
     expect(executable.native).toBeUndefined();
   });
 
@@ -984,66 +1072,68 @@ describe("source-catalog-snapshot", () => {
           additionalProperties: false,
         }),
       },
-      tools: [{
-        kind: "field",
-        toolId: "agentActivityCreatePrompt",
-        rawToolId: "agentActivityCreatePrompt",
-        toolName: "Agent Activity Create Prompt",
-        description: "Create a prompt activity.",
-        group: "mutation",
-        leaf: "agentActivityCreatePrompt",
-        fieldName: "agentActivityCreatePrompt",
-        operationType: "mutation",
-        operationName: "MutationAgentActivityCreatePrompt",
-        operationDocument:
-          "mutation MutationAgentActivityCreatePrompt($input: AgentActivityCreatePromptInput!) { agentActivityCreatePrompt(input: $input) { success __typename } }",
-        searchTerms: ["mutation", "agentActivityCreatePrompt", "input"],
-        inputSchema: {
-          type: "object",
-          properties: {
-            input: {
-              $ref: "#/$defs/graphql/input/AgentActivityCreatePromptInput",
-              description: "Prompt activity input.",
-            },
-            headers: {
-              type: "object",
-              additionalProperties: {
-                type: "string",
+      tools: [
+        {
+          kind: "field",
+          toolId: "agentActivityCreatePrompt",
+          rawToolId: "agentActivityCreatePrompt",
+          toolName: "Agent Activity Create Prompt",
+          description: "Create a prompt activity.",
+          group: "mutation",
+          leaf: "agentActivityCreatePrompt",
+          fieldName: "agentActivityCreatePrompt",
+          operationType: "mutation",
+          operationName: "MutationAgentActivityCreatePrompt",
+          operationDocument:
+            "mutation MutationAgentActivityCreatePrompt($input: AgentActivityCreatePromptInput!) { agentActivityCreatePrompt(input: $input) { success __typename } }",
+          searchTerms: ["mutation", "agentActivityCreatePrompt", "input"],
+          inputSchema: {
+            type: "object",
+            properties: {
+              input: {
+                $ref: "#/$defs/graphql/input/AgentActivityCreatePromptInput",
+                description: "Prompt activity input.",
               },
-            },
-          },
-          required: ["input"],
-          additionalProperties: false,
-        },
-        outputSchema: {
-          type: "object",
-          properties: {
-            data: {
-              type: "object",
-              properties: {
-                success: {
-                  type: "boolean",
+              headers: {
+                type: "object",
+                additionalProperties: {
+                  type: "string",
                 },
               },
-              required: ["success"],
-              additionalProperties: false,
             },
-            errors: {
-              type: "array",
-              items: {
+            required: ["input"],
+            additionalProperties: false,
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              data: {
                 type: "object",
                 properties: {
-                  message: {
-                    type: "string",
+                  success: {
+                    type: "boolean",
+                  },
+                },
+                required: ["success"],
+                additionalProperties: false,
+              },
+              errors: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    message: {
+                      type: "string",
+                    },
                   },
                 },
               },
             },
+            required: ["data", "errors"],
+            additionalProperties: false,
           },
-          required: ["data", "errors"],
-          additionalProperties: false,
         },
-      }],
+      ],
     };
 
     const definition = compileGraphqlToolDefinitions(manifest)[0]!;
@@ -1058,22 +1148,25 @@ describe("source-catalog-snapshot", () => {
         namespace: "linear",
       },
       documents: [],
-      operations: [{
-        toolId: definition.toolId,
-        title: definition.name,
-        description: definition.description,
-        effect: "write",
-        inputSchema: presentation.inputSchema,
-        outputSchema: presentation.outputSchema,
-        providerData: presentation.providerData,
-      }],
+      operations: [
+        {
+          toolId: definition.toolId,
+          title: definition.name,
+          description: definition.description,
+          effect: "write",
+          inputSchema: presentation.inputSchema,
+          outputSchema: presentation.outputSchema,
+          providerData: presentation.providerData,
+        },
+      ],
     });
 
     expect(presentation.inputTypePreview).toContain("{ input: {");
     expect(presentation.outputTypePreview).not.toContain("unknown[]");
 
     const executable = Object.values(snapshot.catalog.executables)[0]!;
-    const argumentShape = snapshot.catalog.symbols[executable.argumentShapeId];
+    const argumentShape =
+      snapshot.catalog.symbols[executable.projection.callShapeId];
     expect(argumentShape?.kind).toBe("shape");
     if (!argumentShape || argumentShape.kind !== "shape") {
       throw new Error("Expected argument shape symbol");
@@ -1100,8 +1193,8 @@ describe("source-catalog-snapshot", () => {
     expect(
       Object.values(snapshot.catalog.diagnostics).some(
         (diagnostic) =>
-          diagnostic.code === "unresolved_ref"
-          && diagnostic.message.includes("AgentActivityCreatePromptInput"),
+          diagnostic.code === "unresolved_ref" &&
+          diagnostic.message.includes("AgentActivityCreatePromptInput"),
       ),
     ).toBe(false);
   });

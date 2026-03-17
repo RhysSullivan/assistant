@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {
   createServer as createNodeServer,
   type IncomingMessage,
@@ -24,7 +24,6 @@ import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 
 import {
-  DEFAULT_LEGACY_LOCAL_DATA_DIRS,
   DEFAULT_LOCAL_DATA_DIR,
   DEFAULT_SERVER_LOG_FILE,
   DEFAULT_SERVER_PID_FILE,
@@ -121,104 +120,6 @@ const createRuntime = (
       cause instanceof Error ? cause : new Error(String(cause)),
     ),
   );
-
-const moveLegacyLocalDataDir = (
-  legacyLocalDataDir: string,
-  requestedLocalDataDir: string,
- ) =>
-  Effect.tryPromise({
-    try: async () => {
-      await mkdir(dirname(requestedLocalDataDir), { recursive: true });
-      if (existsSync(requestedLocalDataDir)) {
-        const backupPath = `${requestedLocalDataDir}.backup-${Date.now()}`;
-        await rename(requestedLocalDataDir, backupPath);
-        console.warn(
-          `[executor] Backed up unreadable local data dir to: ${backupPath}`,
-        );
-      }
-      await rename(legacyLocalDataDir, requestedLocalDataDir);
-      console.warn(
-        `[executor] Moved legacy local data dir to: ${requestedLocalDataDir}`,
-      );
-    },
-    catch: (cause) =>
-      cause instanceof Error ? cause : new Error(String(cause)),
-  });
-
-const createRuntimeWithLegacyMigration = (
-  requestedLocalDataDir: string,
-  legacyLocalDataDirs: ReadonlyArray<string>,
-  getLocalServerBaseUrl: () => string | undefined,
-  options: StartLocalExecutorServerOptions,
- ) =>
-  Effect.gen(function* () {
-    if (
-      requestedLocalDataDir !== ":memory:"
-      && !existsSync(requestedLocalDataDir)
-      && legacyLocalDataDirs.length > 0
-    ) {
-      for (const legacyLocalDataDir of legacyLocalDataDirs) {
-        const legacyExit = yield* Effect.exit(
-          createRuntime(legacyLocalDataDir, getLocalServerBaseUrl, options),
-        );
-        if (Exit.isFailure(legacyExit)) {
-          continue;
-        }
-        yield* disposeRuntime(legacyExit.value);
-        const migrationExit = yield* Effect.exit(
-          moveLegacyLocalDataDir(legacyLocalDataDir, requestedLocalDataDir),
-        );
-        if (Exit.isFailure(migrationExit)) {
-          continue;
-        }
-        const migratedExit = yield* Effect.exit(
-          createRuntime(requestedLocalDataDir, getLocalServerBaseUrl, options),
-        );
-        if (Exit.isSuccess(migratedExit)) {
-          return migratedExit.value;
-        }
-      }
-    }
-    const primaryExit = yield* Effect.exit(
-      createRuntime(requestedLocalDataDir, getLocalServerBaseUrl, options),
-    );
-    if (Exit.isSuccess(primaryExit)) {
-      return primaryExit.value;
-    }
-    const primaryError = Cause.squash(primaryExit.cause);
-    if (legacyLocalDataDirs.length > 0) {
-      yield* Effect.sync(() => {
-        console.warn(
-          `[executor] Failed to open default local data dir: ${requestedLocalDataDir}`,
-          primaryError instanceof Error ? primaryError.message : String(primaryError),
-        );
-      });
-    }
-    for (const legacyLocalDataDir of legacyLocalDataDirs) {
-      const legacyExit = yield* Effect.exit(
-        createRuntime(legacyLocalDataDir, getLocalServerBaseUrl, options),
-      );
-      if (Exit.isFailure(legacyExit)) {
-        continue;
-      }
-      yield* disposeRuntime(legacyExit.value);
-      const migrationExit = yield* Effect.exit(
-        moveLegacyLocalDataDir(legacyLocalDataDir, requestedLocalDataDir),
-      );
-      if (Exit.isFailure(migrationExit)) {
-        continue;
-      }
-      const migratedExit = yield* Effect.exit(
-        createRuntime(requestedLocalDataDir, getLocalServerBaseUrl, options),
-      );
-      if (Exit.isSuccess(migratedExit)) {
-        return migratedExit.value;
-      }
-    }
-    return yield* Effect.fail(
-      primaryError instanceof Error ? primaryError : new Error(String(primaryError)),
-    );
-  });
 
 const createControlPlaneWebHandler = (
   runtime: ControlPlaneRuntime,
@@ -399,10 +300,6 @@ export const createLocalExecutorRequestHandler = (
 ): Effect.Effect<LocalExecutorRequestHandler, Error, Scope.Scope> =>
   Effect.gen(function* () {
     const requestedLocalDataDir = options.localDataDir ?? DEFAULT_LOCAL_DATA_DIR;
-    const legacyLocalDataDirs =
-      options.localDataDir === undefined
-        ? DEFAULT_LEGACY_LOCAL_DATA_DIRS.filter((candidate) => existsSync(candidate))
-        : [];
 
     if (requestedLocalDataDir !== ":memory:") {
       yield* Effect.tryPromise({
@@ -426,12 +323,7 @@ export const createLocalExecutorRequestHandler = (
     }
 
     const runtime = yield* Effect.acquireRelease(
-      createRuntimeWithLegacyMigration(
-        requestedLocalDataDir,
-        legacyLocalDataDirs,
-        () => baseUrlRef,
-        options,
-      ),
+      createRuntime(requestedLocalDataDir, () => baseUrlRef, options),
       disposeRuntime,
     );
 

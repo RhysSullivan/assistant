@@ -30,7 +30,7 @@ It answers:
 
 - what integration definition is this?
 - what adapter produced it?
-- what family does it belong to?
+- what broad catalog kind does it belong to?
 
 A recipe is meant to converge across workspaces when the underlying integration definition is the same.
 
@@ -95,14 +95,13 @@ Examples:
 
 The adapter owns serialization, decoding, defaults, and validation for that payload.
 
-## Families vs adapters
+## Catalog kinds vs adapters
 
-Executor separates broad runtime families from adapter keys.
+Executor separates broad catalog kinds from adapter keys.
 
-Broad families:
+Catalog kinds:
 
-- `http_api`
-- `mcp`
+- `imported`
 - `internal`
 
 Adapters are more specific:
@@ -110,11 +109,11 @@ Adapters are more specific:
 - `openapi`
 - `graphql`
 - `mcp`
-- future `google_discovery`
+- `google_discovery`
 - future `postman_collection`
 - future `snippet_bundle`
 
-This distinction keeps the runtime model broad and stable while still allowing importer-specific behavior.
+The important distinction is that execution now belongs to adapters. The shared catalog stays broad and stable, while connect/auth/invoke behavior is described through adapter strategies instead of one top-level runtime family enum.
 
 ## Why this is the right shape
 

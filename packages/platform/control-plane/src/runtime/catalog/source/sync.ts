@@ -3,7 +3,7 @@ import type {
   Source,
   SourceStatus,
 } from "#schema";
-import type { McpToolManifest } from "@executor/codemode-mcp";
+import type { McpToolManifest } from "@executor/source-mcp";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -39,7 +39,7 @@ import {
 const shouldIndexSource = (source: Source): boolean =>
   source.enabled
   && source.status === "connected"
-  && getSourceAdapterForSource(source).family !== "internal";
+  && getSourceAdapterForSource(source).catalogKind !== "internal";
 
 type RuntimeSourceCatalogSyncDeps = {
   runtimeLocalWorkspace: RuntimeLocalWorkspaceState;

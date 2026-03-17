@@ -13,12 +13,12 @@ import {
   compileOpenApiToolDefinitions,
   extractOpenApiManifest,
   type OpenApiJsonObject,
-} from "@executor/codemode-openapi";
+} from "@executor/source-openapi";
 import {
   buildGoogleDiscoveryToolPresentation,
   compileGoogleDiscoveryToolDefinitions,
   extractGoogleDiscoveryManifest,
-} from "@executor/codemode-google-discovery";
+} from "@executor/source-google-discovery";
 import { describe, expect, it } from "@effect/vitest";
 
 import type {
@@ -37,7 +37,10 @@ import { Schema } from "effect";
 
 import { projectCatalogForAgentSdk } from "@executor/ir/catalog";
 import type { CatalogSnapshotV1 } from "@executor/ir/model";
-import { createCatalogTypeProjector, projectedCatalogTypeRoots } from "../catalog/catalog-typescript";
+import {
+  createCatalogTypeProjector,
+  projectedCatalogTypeRoots,
+} from "../catalog/catalog-typescript";
 import {
   buildGraphqlToolPresentation,
   compileGraphqlToolDefinitions,
@@ -48,11 +51,9 @@ import {
   type LoadedSourceCatalog,
 } from "../catalog/source/runtime";
 import { invokeIrTool } from "../execution/ir-execution";
-import {
-  createGoogleDiscoveryCatalogSnapshot,
-  createGraphqlCatalogSnapshot,
-  createOpenApiCatalogSnapshot,
-} from "@executor/catalog-builders";
+import { createGoogleDiscoveryCatalogSnapshot } from "@executor/source-google-discovery";
+import { createGraphqlCatalogSnapshot } from "@executor/source-graphql";
+import { createOpenApiCatalogSnapshot } from "@executor/source-openapi";
 
 const FIXTURE_WORKSPACE_ID = WorkspaceIdSchema.make("ws_source_fixture_matrix");
 
@@ -152,10 +153,8 @@ const unresolvedDiagnosticsForPrefix = (
 ) =>
   Object.values(snapshot.catalog.diagnostics).filter(
     (diagnostic) =>
-      diagnostic.code === "unresolved_ref"
-      && diagnostic.provenance.some((entry) =>
-        entry.pointer?.startsWith(prefix),
-      ),
+      diagnostic.code === "unresolved_ref" &&
+      diagnostic.provenance.some((entry) => entry.pointer?.startsWith(prefix)),
   );
 
 const openApiSnapshotFromFixture = (input: {
@@ -170,12 +169,14 @@ const openApiSnapshotFromFixture = (input: {
 
     const snapshot = createOpenApiCatalogSnapshot({
       source: input.source,
-      documents: [{
-        documentKind: "openapi",
-        documentKey: input.documentKey,
-        contentText: input.specText,
-        fetchedAt: 1,
-      }],
+      documents: [
+        {
+          documentKind: "openapi",
+          documentKey: input.documentKey,
+          contentText: input.specText,
+          fetchedAt: 1,
+        },
+      ],
       operations: definitions.map((definition) => {
         const presentation = buildOpenApiToolPresentation({
           definition,
@@ -220,12 +221,14 @@ const googleDiscoverySnapshotFromFixture = (input: {
 
     const snapshot = createGoogleDiscoveryCatalogSnapshot({
       source: input.source,
-      documents: [{
-        documentKind: "google_discovery",
-        documentKey: input.documentKey,
-        contentText: input.documentText,
-        fetchedAt: 1,
-      }],
+      documents: [
+        {
+          documentKind: "google_discovery",
+          documentKey: input.documentKey,
+          contentText: input.documentText,
+          fetchedAt: 1,
+        },
+      ],
       operations: definitions.map((definition) => {
         const presentation = buildGoogleDiscoveryToolPresentation({
           manifest,
@@ -268,12 +271,14 @@ const graphqlSnapshotFromFixture = (input: {
 
     const snapshot = createGraphqlCatalogSnapshot({
       source: input.source,
-      documents: [{
-        documentKind: "graphql_introspection",
-        documentKey: input.source.endpoint,
-        contentText: input.documentText,
-        fetchedAt: 1,
-      }],
+      documents: [
+        {
+          documentKind: "graphql_introspection",
+          documentKey: input.source.endpoint,
+          contentText: input.documentText,
+          fetchedAt: 1,
+        },
+      ],
       operations: definitions.map((definition) => {
         const presentation = buildGraphqlToolPresentation({
           manifest,
@@ -300,14 +305,17 @@ const graphqlSnapshotFromFixture = (input: {
 
 const binaryReportIdParam = HttpApiSchema.param("reportId", Schema.String);
 
-class BinaryExecutionReportsApi extends HttpApiGroup.make("reports")
-  .add(
-    HttpApiEndpoint.get("getContent")`/reports/${binaryReportIdParam}/content`
-      .addSuccess(HttpApiSchema.Uint8Array()),
-  ) {}
+class BinaryExecutionReportsApi extends HttpApiGroup.make("reports").add(
+  HttpApiEndpoint.get(
+    "getContent",
+  )`/reports/${binaryReportIdParam}/content`.addSuccess(
+    HttpApiSchema.Uint8Array(),
+  ),
+) {}
 
-class BinaryExecutionApi extends HttpApi.make("binaryExecution")
-  .add(BinaryExecutionReportsApi) {}
+class BinaryExecutionApi extends HttpApi.make("binaryExecution").add(
+  BinaryExecutionReportsApi,
+) {}
 
 const binaryExecutionOpenApiSpec = OpenApi.fromApi(BinaryExecutionApi);
 
@@ -340,7 +348,9 @@ describe("source adapter fixture matrix", () => {
         });
 
         expect(manifest.tools.length).toBeGreaterThan(250);
-        expect(Object.keys(snapshot.catalog.capabilities).length).toBeGreaterThan(250);
+        expect(
+          Object.keys(snapshot.catalog.capabilities).length,
+        ).toBeGreaterThan(250);
         expect(tool).toBeDefined();
         expect(tool?.descriptor.inputTypePreview).not.toContain("unknown");
         expect(tool?.descriptor.outputTypePreview).toContain("data:");
@@ -357,7 +367,10 @@ describe("source adapter fixture matrix", () => {
           },
         });
         expect(
-          unresolvedDiagnosticsForPrefix(snapshot, "#/openapi/addProjectDomain"),
+          unresolvedDiagnosticsForPrefix(
+            snapshot,
+            "#/openapi/addProjectDomain",
+          ),
         ).toEqual([]);
         expect(
           Object.values(snapshot.catalog.capabilities).some(
@@ -367,7 +380,8 @@ describe("source adapter fixture matrix", () => {
         expect(
           Object.values(snapshot.catalog.responseSets).some((responseSet) =>
             responseSet.variants.some(
-              (variant) => variant.match.kind === "exact" && variant.match.status >= 400,
+              (variant) =>
+                variant.match.kind === "exact" && variant.match.status >= 400,
             ),
           ),
         ).toBe(true);
@@ -429,9 +443,16 @@ describe("source adapter fixture matrix", () => {
           },
         });
         const dataVariants =
-          (tool?.descriptor.outputSchema as { properties?: { data?: { anyOf?: Array<Record<string, unknown>> } } })
-            .properties?.data?.anyOf ?? [];
-        const objectDataVariant = dataVariants.find((variant) => variant.type === "object");
+          (
+            tool?.descriptor.outputSchema as {
+              properties?: {
+                data?: { anyOf?: Array<Record<string, unknown>> };
+              };
+            }
+          ).properties?.data?.anyOf ?? [];
+        const objectDataVariant = dataVariants.find(
+          (variant) => variant.type === "object",
+        );
         expect(objectDataVariant).toMatchObject({
           properties: {
             id: {
@@ -446,9 +467,12 @@ describe("source adapter fixture matrix", () => {
           },
         });
         expect(
-          unresolvedDiagnosticsForPrefix(snapshot, "#/openapi/apiKey.createApiKey"),
+          unresolvedDiagnosticsForPrefix(
+            snapshot,
+            "#/openapi/apiKey.createApiKey",
+          ),
         ).toEqual([]);
-    }),
+      }),
     120_000,
   );
 
@@ -482,7 +506,10 @@ describe("source adapter fixture matrix", () => {
               });
               response.statusCode = 200;
               response.setHeader("content-type", "application/json");
-              response.setHeader("x-request-id", `req_${String(requests.length)}`);
+              response.setHeader(
+                "x-request-id",
+                `req_${String(requests.length)}`,
+              );
               response.end(JSON.stringify({ ok: true }));
             });
           });
@@ -521,16 +548,20 @@ describe("source adapter fixture matrix", () => {
                 title: "Serialized API",
                 version: "1.0.0",
               },
-              servers: [{
-                url: "/v1",
-              }],
+              servers: [
+                {
+                  url: "/v1",
+                },
+              ],
               paths: {
                 "/items/{itemId}": {
                   get: {
                     operationId: "items.getItem",
-                    servers: [{
-                      url: "/v2",
-                    }],
+                    servers: [
+                      {
+                        url: "/v2",
+                      },
+                    ],
                     parameters: [
                       {
                         name: "itemId",
@@ -664,7 +695,9 @@ describe("source adapter fixture matrix", () => {
             );
 
             if (!getItemTool || !submitFormTool) {
-              throw new Error("Expected OpenAPI execution fixture tools to resolve");
+              throw new Error(
+                "Expected OpenAPI execution fixture tools to resolve",
+              );
             }
 
             const auth = {
@@ -729,10 +762,14 @@ describe("source adapter fixture matrix", () => {
             expect(requests).toHaveLength(2);
             expect(requests[0]?.path).toBe("/v2/items/.alpha.beta");
             expect(requests[0]?.query).toContain("filter%5Bstatus%5D=open");
-            expect(requests[0]?.query).toContain("search=refs/heads/main?draft=true");
+            expect(requests[0]?.query).toContain(
+              "search=refs/heads/main?draft=true",
+            );
             expect(requests[0]?.headers["x-trace"]).toBe("a,b");
             expect(requests[1]?.path).toBe("/v1/forms");
-            expect(String(requests[1]?.headers["content-type"])).toContain("application/x-www-form-urlencoded");
+            expect(String(requests[1]?.headers["content-type"])).toContain(
+              "application/x-www-form-urlencoded",
+            );
             expect(requests[1]?.body).toContain("title=Bug+report");
             expect(requests[1]?.body).toContain("state=open");
           } finally {
@@ -793,7 +830,9 @@ describe("source adapter fixture matrix", () => {
           try {
             const address = server.address();
             if (!address || typeof address === "string") {
-              throw new Error("Failed to resolve binary execution fixture server");
+              throw new Error(
+                "Failed to resolve binary execution fixture server",
+              );
             }
 
             const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -829,7 +868,9 @@ describe("source adapter fixture matrix", () => {
             );
 
             if (!tool) {
-              throw new Error("Expected binary execution fixture tool to resolve");
+              throw new Error(
+                "Expected binary execution fixture tool to resolve",
+              );
             }
 
             const auth = {
@@ -901,16 +942,19 @@ describe("source adapter fixture matrix", () => {
           binding: {
             service: "sheets",
             version: "v4",
-            discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
+            discoveryUrl:
+              "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
             defaultHeaders: null,
             scopes: [],
           },
         });
-        const { manifest, snapshot } = yield* googleDiscoverySnapshotFromFixture({
-          source,
-          documentText,
-          documentKey: "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
-        });
+        const { manifest, snapshot } =
+          yield* googleDiscoverySnapshotFromFixture({
+            source,
+            documentText,
+            documentKey:
+              "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
+          });
         const tool = yield* expandCatalogToolByPath({
           catalogs: [makeLoadedCatalog({ source, snapshot })],
           path: "google.sheets.spreadsheets.sheets.copyTo",
@@ -918,7 +962,9 @@ describe("source adapter fixture matrix", () => {
         });
 
         expect(manifest.service).toBe("sheets");
-        expect(Object.keys(snapshot.catalog.capabilities).length).toBeGreaterThan(10);
+        expect(
+          Object.keys(snapshot.catalog.capabilities).length,
+        ).toBeGreaterThan(10);
         expect(tool).toBeDefined();
         expect(tool?.descriptor.inputTypePreview).not.toContain("unknown");
         expect(tool?.descriptor.outputTypePreview).toContain("data:");
@@ -942,14 +988,16 @@ describe("source adapter fixture matrix", () => {
             },
           },
         });
-        expect(JSON.stringify(tool?.descriptor.outputSchema)).toContain("\"gridProperties\"");
+        expect(JSON.stringify(tool?.descriptor.outputSchema)).toContain(
+          '"gridProperties"',
+        );
         expect(
           unresolvedDiagnosticsForPrefix(
             snapshot,
             "#/googleDiscovery/spreadsheets.sheets.copyTo",
           ),
         ).toEqual([]);
-    }),
+      }),
     120_000,
   );
 
@@ -967,28 +1015,39 @@ describe("source adapter fixture matrix", () => {
           binding: {
             service: "sheets",
             version: "v4",
-            discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
+            discoveryUrl:
+              "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
             defaultHeaders: null,
             scopes: [],
           },
         });
-        const { manifest, snapshot } = yield* googleDiscoverySnapshotFromFixture({
-          source,
-          documentText,
-          documentKey: "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
-        });
+        const { manifest, snapshot } =
+          yield* googleDiscoverySnapshotFromFixture({
+            source,
+            documentText,
+            documentKey:
+              "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
+          });
 
-        const mismatches = compileGoogleDiscoveryToolDefinitions(manifest).flatMap((definition) => {
+        const mismatches = compileGoogleDiscoveryToolDefinitions(
+          manifest,
+        ).flatMap((definition) => {
           const presentation = buildGoogleDiscoveryToolPresentation({
             manifest,
             definition,
           });
           const issues: string[] = [];
 
-          if ((definition.parameters.length > 0 || definition.requestSchemaId) && presentation.inputSchema === undefined) {
+          if (
+            (definition.parameters.length > 0 || definition.requestSchemaId) &&
+            presentation.inputSchema === undefined
+          ) {
             issues.push(`${definition.toolId}: missing input schema`);
           }
-          if (definition.responseSchemaId && presentation.outputSchema === undefined) {
+          if (
+            definition.responseSchemaId &&
+            presentation.outputSchema === undefined
+          ) {
             issues.push(`${definition.toolId}: missing output schema`);
           }
 
@@ -1030,49 +1089,45 @@ describe("source adapter fixture matrix", () => {
         });
 
         expect(manifest.tools.length).toBeGreaterThan(100);
-        expect(Object.keys(snapshot.catalog.capabilities).length).toBeGreaterThan(100);
+        expect(
+          Object.keys(snapshot.catalog.capabilities).length,
+        ).toBeGreaterThan(100);
         expect(
           Object.values(snapshot.catalog.diagnostics).filter(
             (diagnostic) => diagnostic.code === "unresolved_ref",
           ),
         ).toEqual([]);
         expect(tool).toBeDefined();
-        expect(tool?.descriptor.inputTypePreview).toContain("args: {");
+        expect(tool?.descriptor.inputTypePreview).toContain("{");
         expect(tool?.descriptor.inputTypePreview).toContain("input: {");
         expect(tool?.descriptor.outputTypePreview).toContain("data:");
         expect(tool?.descriptor.outputTypePreview).not.toContain("unknown[]");
         expect(tool?.descriptor.inputSchema).toMatchObject({
           type: "object",
-          required: ["args"],
+          required: ["input"],
           properties: {
-            args: {
+            input: {
               type: "object",
-              required: ["input"],
+              required: ["agentSessionId", "content"],
               properties: {
-                input: {
+                agentSessionId: {
+                  type: "string",
+                },
+                content: {
                   type: "object",
-                  required: ["agentSessionId", "content"],
                   properties: {
-                    agentSessionId: {
-                      type: "string",
-                    },
-                    content: {
-                      type: "object",
-                      properties: {
-                        body: {
-                          type: "string",
-                        },
-                      },
-                    },
-                    sourceCommentId: {
+                    body: {
                       type: "string",
                     },
                   },
                 },
-                headers: {
-                  type: "object",
+                sourceCommentId: {
+                  type: "string",
                 },
               },
+            },
+            headers: {
+              type: "object",
             },
           },
         });
@@ -1082,7 +1137,7 @@ describe("source adapter fixture matrix", () => {
             "#/graphql/agentActivityCreatePrompt",
           ),
         ).toEqual([]);
-    }),
+      }),
     120_000,
   );
 
@@ -1111,13 +1166,15 @@ describe("source adapter fixture matrix", () => {
             response.statusCode = 200;
             response.setHeader("content-type", "application/json");
             response.setHeader("x-request-id", "req_graphql_1");
-            response.end(JSON.stringify({
-              data: {
-                viewer: {
-                  login: "alice",
+            response.end(
+              JSON.stringify({
+                data: {
+                  viewer: {
+                    login: "alice",
+                  },
                 },
-              },
-            }));
+              }),
+            );
           });
         });
 
@@ -1132,13 +1189,16 @@ describe("source adapter fixture matrix", () => {
                 resolve();
               });
             }),
-          catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+          catch: (cause) =>
+            cause instanceof Error ? cause : new Error(String(cause)),
         });
 
         try {
           const address = server.address();
           if (!address || typeof address === "string") {
-            throw new Error("Failed to resolve GraphQL execution fixture server");
+            throw new Error(
+              "Failed to resolve GraphQL execution fixture server",
+            );
           }
 
           const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -1154,61 +1214,65 @@ describe("source adapter fixture matrix", () => {
           });
           const snapshot = createGraphqlCatalogSnapshot({
             source,
-            documents: [{
-              documentKind: "graphql_introspection",
-              documentKey: `${baseUrl}/graphql`,
-              contentText: "{}",
-              fetchedAt: 1,
-            }],
-            operations: [{
-              toolId: "viewer",
-              title: "Viewer",
-              description: "Fetch the current viewer.",
-              effect: "read",
-              inputSchema: {
-                type: "object",
-                additionalProperties: false,
+            documents: [
+              {
+                documentKind: "graphql_introspection",
+                documentKey: `${baseUrl}/graphql`,
+                contentText: "{}",
+                fetchedAt: 1,
               },
-              outputSchema: {
-                type: "object",
-                properties: {
-                  data: {
-                    type: "object",
-                    properties: {
-                      login: {
-                        type: "string",
-                      },
-                    },
-                    required: ["login"],
-                    additionalProperties: false,
-                  },
-                  errors: {
-                    type: "array",
-                    items: {},
-                  },
-                  isError: {
-                    type: "boolean",
-                  },
-                },
-                required: ["data", "errors", "isError"],
-                additionalProperties: false,
-              },
-              providerData: {
-                kind: "graphql",
-                toolKind: "field",
+            ],
+            operations: [
+              {
                 toolId: "viewer",
-                rawToolId: "viewer",
-                group: "query",
-                leaf: "viewer",
-                fieldName: "viewer",
-                operationType: "query",
-                operationName: "ViewerQuery",
-                operationDocument: "query ViewerQuery { viewer { login } }",
-                queryTypeName: "Query",
-                mutationTypeName: null,
-                subscriptionTypeName: null,
+                title: "Viewer",
+                description: "Fetch the current viewer.",
+                effect: "read",
+                inputSchema: {
+                  type: "object",
+                  additionalProperties: false,
+                },
+                outputSchema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "object",
+                      properties: {
+                        login: {
+                          type: "string",
+                        },
+                      },
+                      required: ["login"],
+                      additionalProperties: false,
+                    },
+                    errors: {
+                      type: "array",
+                      items: {},
+                    },
+                    isError: {
+                      type: "boolean",
+                    },
+                  },
+                  required: ["data", "errors", "isError"],
+                  additionalProperties: false,
+                },
+                providerData: {
+                  kind: "graphql",
+                  toolKind: "field",
+                  toolId: "viewer",
+                  rawToolId: "viewer",
+                  group: "query",
+                  leaf: "viewer",
+                  fieldName: "viewer",
+                  operationType: "query",
+                  operationName: "ViewerQuery",
+                  operationDocument: "query ViewerQuery { viewer { login } }",
+                  queryTypeName: "Query",
+                  mutationTypeName: null,
+                  subscriptionTypeName: null,
+                },
               },
-            }],
+            ],
           });
           const loadedCatalog = makeLoadedCatalog({
             source,
@@ -1217,11 +1281,32 @@ describe("source adapter fixture matrix", () => {
           const tool = yield* expandCatalogToolByPath({
             catalogs: [loadedCatalog],
             path: "gqlfixture.viewer",
+            includeSchemas: true,
           });
 
           if (!tool) {
-            throw new Error("Expected GraphQL execution fixture tool to resolve");
+            throw new Error(
+              "Expected GraphQL execution fixture tool to resolve",
+            );
           }
+
+          expect(tool.descriptor.outputSchema).toMatchObject({
+            type: "object",
+            properties: {
+              data: {
+                anyOf: expect.arrayContaining([
+                  expect.objectContaining({
+                    type: "object",
+                    properties: {
+                      login: {
+                        type: "string",
+                      },
+                    },
+                  }),
+                ]),
+              },
+            },
+          });
 
           const auth = {
             placements: [],
@@ -1271,7 +1356,8 @@ describe("source adapter fixture matrix", () => {
                   resolve();
                 });
               }),
-            catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+            catch: (cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
           });
         }
       }),
@@ -1297,25 +1383,38 @@ describe("source adapter fixture matrix", () => {
           documentText,
         });
 
-        const mismatches = compileGraphqlToolDefinitions(manifest).flatMap((definition) => {
-          const presentation = buildGraphqlToolPresentation({
-            manifest,
-            definition,
-          });
-          const issues: string[] = [];
+        const mismatches = compileGraphqlToolDefinitions(manifest).flatMap(
+          (definition) => {
+            const presentation = buildGraphqlToolPresentation({
+              manifest,
+              definition,
+            });
+            const issues: string[] = [];
 
-          if (definition.operationType && presentation.outputSchema === undefined) {
-            issues.push(`${definition.toolId}: missing output schema`);
-          }
-          if (JSON.stringify(presentation.inputSchema ?? {}).includes("shape_")) {
-            issues.push(`${definition.toolId}: leaked internal shape id in input schema`);
-          }
-          if (JSON.stringify(presentation.outputSchema ?? {}).includes("shape_")) {
-            issues.push(`${definition.toolId}: leaked internal shape id in output schema`);
-          }
+            if (
+              definition.operationType &&
+              presentation.outputSchema === undefined
+            ) {
+              issues.push(`${definition.toolId}: missing output schema`);
+            }
+            if (
+              JSON.stringify(presentation.inputSchema ?? {}).includes("shape_")
+            ) {
+              issues.push(
+                `${definition.toolId}: leaked internal shape id in input schema`,
+              );
+            }
+            if (
+              JSON.stringify(presentation.outputSchema ?? {}).includes("shape_")
+            ) {
+              issues.push(
+                `${definition.toolId}: leaked internal shape id in output schema`,
+              );
+            }
 
-          return issues;
-        });
+            return issues;
+          },
+        );
 
         expect(manifest.tools.length).toBeGreaterThan(100);
         expect(Object.keys(snapshot.catalog.capabilities).length).toBe(

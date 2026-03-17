@@ -7,8 +7,7 @@ import {
 } from "../ids";
 
 export const SourceCatalogKindSchema = Schema.Literal(
-  "http_api",
-  "mcp",
+  "imported",
   "internal",
 );
 

@@ -211,16 +211,41 @@ const createGraphqlCatalog = (): CatalogV1 => {
 
   put(catalog.executables as Record<typeof executableId, CatalogV1["executables"][typeof executableId]>, executableId, {
     id: executableId,
-    protocol: "graphql",
     capabilityId,
     scopeId,
-    toolKind: "field",
-    operationType: "query",
-    rootField: "teams",
-    argumentShapeId: callShapeId,
-    resultShapeId,
-    selectionMode: "caller",
-    responseSetId,
+    adapterKey: "graphql",
+    bindingVersion: 1,
+    binding: {
+      kind: "graphql",
+      toolKind: "field",
+      toolId: "teams",
+      rawToolId: "teams",
+      group: "query",
+      leaf: "teams",
+      fieldName: "teams",
+      operationType: "query",
+      operationName: "TeamsQuery",
+      operationDocument: "query TeamsQuery { teams { nodes { id } } }",
+      queryTypeName: "Query",
+      mutationTypeName: null,
+      subscriptionTypeName: null,
+    },
+    projection: {
+      responseSetId,
+      callShapeId,
+      resultDataShapeId: resultShapeId,
+    },
+    display: {
+      protocol: "graphql",
+      method: "query",
+      pathTemplate: "teams",
+      operationId: "teams",
+      group: "query",
+      leaf: "teams",
+      rawToolId: "teams",
+      title: "Teams",
+      summary: "List teams",
+    },
     synthetic: false,
     provenance: baseProvenance("#/query/teams"),
   });
@@ -350,6 +375,21 @@ describe("source-catalog-runtime", () => {
       expect(tool?.descriptor.outputTypePreview).toContain("nodes?: {");
     }));
 
+  it.effect("can skip type previews when only list metadata is needed", () =>
+    Effect.gen(function* () {
+      const [tool] = yield* expandCatalogTools({
+        catalogs: [createLoadedCatalog()],
+        includeSchemas: false,
+        includeTypePreviews: false,
+      });
+
+      expect(tool).toBeDefined();
+      expect(tool?.descriptor.inputSchema).toBeUndefined();
+      expect(tool?.descriptor.outputSchema).toBeUndefined();
+      expect(tool?.descriptor.inputTypePreview).toBeUndefined();
+      expect(tool?.descriptor.outputTypePreview).toBeUndefined();
+    }));
+
   it.effect("projects a single tool by path without expanding the whole catalog", () =>
     Effect.gen(function* () {
       const tool = yield* expandCatalogToolByPath({
@@ -389,9 +429,6 @@ describe("source-catalog-runtime", () => {
             const resourceId = catalog.symbols[stringShapeId]?.kind === "shape"
               ? catalog.symbols[stringShapeId].resourceId
               : undefined;
-            if (executable.protocol !== "graphql") {
-              throw new Error("Expected GraphQL executable in fixture");
-            }
 
             put(catalog.symbols as Record<typeof numberShapeId, CatalogV1["symbols"][typeof numberShapeId]>, numberShapeId, {
               id: numberShapeId,
@@ -520,7 +557,10 @@ describe("source-catalog-runtime", () => {
 
             put(catalog.executables as Record<typeof executable.id, CatalogV1["executables"][typeof executable.id]>, executable.id, {
               ...executable,
-              resultShapeId: unionShapeId,
+              projection: {
+                ...executable.projection,
+                resultDataShapeId: unionShapeId,
+              },
             });
           },
         })],
@@ -544,11 +584,7 @@ describe("source-catalog-runtime", () => {
           mutateCatalog: (catalog) => {
             const unsupportedShapeId = ShapeSymbolIdSchema.make("shape_unsupported_not");
             const executable = Object.values(catalog.executables)[0]!;
-            if (executable.protocol !== "graphql") {
-              throw new Error("Expected GraphQL executable in fixture");
-            }
-
-            const callShape = catalog.symbols[executable.argumentShapeId];
+            const callShape = catalog.symbols[executable.projection.callShapeId];
             const resourceId = callShape?.kind === "shape" ? callShape.resourceId : undefined;
             if (!callShape || callShape.kind !== "shape" || callShape.node.type !== "object") {
               throw new Error("Expected object argument shape in fixture");

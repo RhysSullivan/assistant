@@ -18,6 +18,14 @@ const withServer = async (
   handler: (request: IncomingMessage, response: ServerResponse<IncomingMessage>) => void,
 ): Promise<TestServer> => {
   const server = createServer(handler);
+  const sockets = new Set<import("node:net").Socket>();
+
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => {
+      sockets.delete(socket);
+    });
+  });
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -33,6 +41,8 @@ const withServer = async (
     url: `http://127.0.0.1:${address.port}`,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        server.closeAllConnections?.();
+        sockets.forEach((socket) => socket.destroy());
         server.close((error) => {
           if (error) {
             reject(error);

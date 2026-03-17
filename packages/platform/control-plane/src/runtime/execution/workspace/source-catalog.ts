@@ -131,12 +131,14 @@ const scoreCatalogTool = (
     tool.capability.surface.summary?.toLowerCase()
     ?? tool.capability.surface.description?.toLowerCase()
     ?? "";
-  const templateText =
-    tool.executable.protocol === "http"
-      ? tool.executable.pathTemplate.toLowerCase()
-      : tool.executable.protocol === "graphql"
-        ? tool.executable.rootField.toLowerCase()
-        : tool.executable.toolName.toLowerCase();
+  const templateText = [
+    tool.executable.display?.pathTemplate,
+    tool.executable.display?.operationId,
+    tool.executable.display?.leaf,
+  ]
+    .filter((part): part is string => typeof part === "string" && part.length > 0)
+    .join(" ")
+    .toLowerCase();
 
   const pathTokens = tokenize(`${tool.path} ${toolIdText}`);
   const namespaceTokens = tokenize(tool.searchNamespace);

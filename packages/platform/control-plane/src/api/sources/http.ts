@@ -24,7 +24,7 @@ import {
   submitSourceCredentialInteraction,
 } from "../../runtime/local/operations";
 import { discoverSource } from "../../runtime/sources/source-discovery";
-import { hasSourceAdapterFamily } from "../../runtime/sources/source-adapters";
+import { sourceAdapterRequiresInteractiveConnect } from "../../runtime/sources/source-adapters";
 import { RuntimeSourceAuthServiceTag } from "../../runtime/sources/source-auth-service";
 
 import {
@@ -677,7 +677,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
               const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
               const baseUrl = resolveRequestOrigin(request);
 
-              if (payload.kind === "mcp" && hasSourceAdapterFamily(payload.kind, "mcp")) {
+              if (sourceAdapterRequiresInteractiveConnect(payload.kind)) {
                 return yield* sourceAuthService.connectMcpSource({
                   workspaceId: path.workspaceId,
                   actorAccountId: runtimeLocalWorkspace.installation.accountId,

@@ -15,7 +15,6 @@ import {
   type SourceInspectionDiscoverResult,
 } from "@executor/react";
 import { cn } from "../lib/utils";
-import { formatSchemaJsonForDisplay } from "../lib/schema-display";
 import { Badge, MethodBadge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { LoadableBlock, EmptyState } from "../components/loadable";
@@ -703,14 +702,6 @@ function ToolListItem(props: {
 function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
   const { detail } = props;
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const displayedCallSchema = useMemo(
-    () => formatSchemaJsonForDisplay(detail.callSchemaJson),
-    [detail.callSchemaJson],
-  );
-  const displayedResultSchema = useMemo(
-    () => formatSchemaJsonForDisplay(detail.resultSchemaJson),
-    [detail.resultSchemaJson],
-  );
 
   const copy = useCallback((text: string, field: string) => {
     void navigator.clipboard.writeText(text).then(() => {
@@ -749,28 +740,63 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
         <div className="px-5 py-4 space-y-4">
-          {/* Description */}
-          {detail.summary.description && (
-            <Markdown>{detail.summary.description}</Markdown>
-          )}
+          {detail.sections.map((section, index) => {
+            if (section.kind === "facts") {
+              return (
+                <section
+                  key={`${section.kind}:${section.title}:${String(index)}`}
+                  className="overflow-hidden rounded-lg border border-border bg-card/60"
+                >
+                  <div className="border-b border-border px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                    {section.title}
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2">
+                    {section.items.map((item) => (
+                      <div key={`${section.title}:${item.label}`} className="min-w-0">
+                        <div className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
+                          {item.label}
+                        </div>
+                        <div className={cn(
+                          "mt-1 text-sm text-foreground",
+                          item.mono && "font-mono text-[12px]",
+                        )}
+                        >
+                          {item.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            }
 
-          {/* Type signatures */}
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <DocumentPanel title="Input" body={detail.summary.fullInputType ?? null} lang="typescript" empty="No input." />
-            <DocumentPanel title="Output" body={detail.summary.fullOutputType ?? null} lang="typescript" empty="No output." />
-          </div>
+            if (section.kind === "markdown") {
+              return (
+                <section
+                  key={`${section.kind}:${section.title}:${String(index)}`}
+                  className="overflow-hidden rounded-lg border border-border bg-card/60"
+                >
+                  <div className="border-b border-border px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                    {section.title}
+                  </div>
+                  <div className="p-4">
+                    <Markdown>{section.body}</Markdown>
+                  </div>
+                </section>
+              );
+            }
 
-          {/* Schemas */}
-          <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-            <DocumentPanel title="Input schema" body={displayedCallSchema} empty="No input schema." compact />
-            <DocumentPanel title="Output schema" body={displayedResultSchema} empty="No output schema." compact />
-            {detail.exampleCallJson && (
-              <DocumentPanel title="Example request" body={detail.exampleCallJson} empty="" compact />
-            )}
-            {detail.exampleResultJson && (
-              <DocumentPanel title="Example response" body={detail.exampleResultJson} empty="" compact />
-            )}
-          </div>
+            return (
+              <DocumentPanel
+                key={`${section.kind}:${section.title}:${String(index)}`}
+                title={section.title}
+                body={section.body}
+                lang={section.language === "text" ? undefined : section.language}
+                empty=""
+                compact
+              />
+            );
+          })}
         </div>
       </div>
     </div>

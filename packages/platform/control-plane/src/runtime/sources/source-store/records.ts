@@ -62,7 +62,7 @@ export const buildLocalSourceRecord = (input: {
 
     const existingState = input.workspaceState.sources[input.sourceId];
     const adapter = getSourceAdapter(sourceConfig.kind);
-    const baseSource = yield* adapter.validateSource({
+    const baseSource = (yield* adapter.validateSource({
       id: SourceIdSchema.make(input.sourceId),
       workspaceId: input.workspaceId,
       name: trimOrNull(sourceConfig.name) ?? input.sourceId,
@@ -86,7 +86,7 @@ export const buildLocalSourceRecord = (input: {
       lastError: existingState?.lastError ?? null,
       createdAt: existingState?.createdAt ?? Date.now(),
       updatedAt: existingState?.updatedAt ?? Date.now(),
-    });
+    })) as Source;
 
     const runtimeAuthArtifact = selectPreferredAuthArtifact({
       authArtifacts: input.authArtifacts.filter(

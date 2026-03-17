@@ -16,10 +16,8 @@ import {
 } from "../../api/errors";
 import * as Effect from "effect/Effect";
 
-import { joinTypeNameSegments } from "../catalog/catalog-typescript";
 import { LocalSourceArtifactMissingError } from "../local/errors";
 import { operationErrors } from "../policy/operation-errors";
-import { formatWithPrettier } from "../catalog/prettier-format";
 import {
   expandCatalogToolByPath,
   expandCatalogTools,
@@ -40,49 +38,6 @@ const tokenize = (value: string): Array<string> =>
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
-
-const formatOptionalJson = (value: string | null) =>
-  value === null
-    ? Effect.succeed<string | null>(null)
-    : Effect.promise(() => formatWithPrettier(value, "json"));
-
-const formatOptionalTypeScript = (value: string | undefined) =>
-  value === undefined
-    ? Effect.succeed<string | undefined>(undefined)
-    : Effect.promise(() => formatWithPrettier(value, "typescript"));
-
-const formatInspectionToolDetail = (detail: SourceInspectionToolDetail) =>
-  Effect.gen(function* () {
-    const summary = yield* Effect.all({
-      inputTypePreview: formatOptionalTypeScript(detail.summary.inputTypePreview),
-      outputTypePreview: formatOptionalTypeScript(detail.summary.outputTypePreview),
-      fullInputType: formatOptionalTypeScript(detail.summary.fullInputType),
-      fullOutputType: formatOptionalTypeScript(detail.summary.fullOutputType),
-    }).pipe(
-      Effect.map(({ inputTypePreview, outputTypePreview, fullInputType, fullOutputType }) => ({
-        ...detail.summary,
-        ...(inputTypePreview ? { inputTypePreview } : {}),
-        ...(outputTypePreview ? { outputTypePreview } : {}),
-        ...(fullInputType ? { fullInputType } : {}),
-        ...(fullOutputType ? { fullOutputType } : {}),
-      })),
-    );
-    const detailFields = yield* Effect.all({
-      definitionJson: formatOptionalJson(detail.definitionJson),
-      documentationJson: formatOptionalJson(detail.documentationJson),
-      nativeJson: formatOptionalJson(detail.nativeJson),
-      callSchemaJson: formatOptionalJson(detail.callSchemaJson),
-      resultSchemaJson: formatOptionalJson(detail.resultSchemaJson),
-      exampleCallJson: formatOptionalJson(detail.exampleCallJson),
-      exampleResultJson: formatOptionalJson(detail.exampleResultJson),
-    });
-
-    return {
-      ...detail,
-      summary,
-      ...detailFields,
-    } satisfies SourceInspectionToolDetail;
-  });
 
 const canInspectSourceWithoutCatalog = (source: Source): boolean =>
   source.status === "draft"
@@ -136,48 +91,22 @@ const loadSourceCatalogOrEmpty = (input: {
   );
 
 const executableDetails = (tool: LoadedSourceCatalogTool) => {
-  switch (tool.executable.protocol) {
-    case "http":
-      return {
-        method: tool.executable.method,
-        pathTemplate: tool.executable.pathTemplate,
-        rawToolId: tool.path.split(".").at(-1) ?? null,
-        operationId: null,
-        group: null,
-        leaf: tool.path.split(".").at(-1) ?? null,
-        tags: tool.capability.surface.tags ?? [],
-      };
-    case "graphql":
-      return {
-        method: tool.executable.operationType,
-        pathTemplate: tool.executable.rootField,
-        rawToolId: tool.path.split(".").at(-1) ?? null,
-        operationId: tool.executable.rootField,
-        group: null,
-        leaf: tool.executable.rootField,
-        tags: tool.capability.surface.tags ?? [],
-      };
-    case "mcp":
-      return {
-        method: null,
-        pathTemplate: null,
-        rawToolId: tool.path.split(".").at(-1) ?? null,
-        operationId: tool.executable.toolName,
-        group: null,
-        leaf: tool.executable.toolName,
-        tags: tool.capability.surface.tags ?? [],
-      };
-  }
+  const display = tool.executable.display ?? {};
+  return {
+    protocol: display.protocol ?? tool.executable.adapterKey,
+    method: display.method ?? null,
+    pathTemplate: display.pathTemplate ?? null,
+    rawToolId: display.rawToolId ?? tool.path.split(".").at(-1) ?? null,
+    operationId: display.operationId ?? null,
+    group: display.group ?? null,
+    leaf: display.leaf ?? tool.path.split(".").at(-1) ?? null,
+    tags: tool.capability.surface.tags ?? [],
+  };
 };
 
 const inspectionToolListItemFromTool = (tool: LoadedSourceCatalogTool): SourceInspectionToolListItem => ({
   path: tool.path,
-  method:
-    tool.executable.protocol === "http"
-      ? tool.executable.method
-      : tool.executable.protocol === "graphql"
-        ? tool.executable.operationType
-        : null,
+  method: executableDetails(tool).method,
 });
 
 const persistedToolSummaryFromTool = (tool: LoadedSourceCatalogTool): SourceInspectionToolSummary => {
@@ -190,7 +119,7 @@ const persistedToolSummaryFromTool = (tool: LoadedSourceCatalogTool): SourceInsp
     ...(tool.capability.surface.summary || tool.capability.surface.description
       ? { description: tool.capability.surface.summary ?? tool.capability.surface.description! }
       : {}),
-    protocol: tool.executable.protocol,
+    protocol: details.protocol,
     toolId: tool.path.split(".").at(-1) ?? tool.path,
     rawToolId: details.rawToolId,
     operationId: details.operationId,
@@ -208,46 +137,98 @@ const persistedToolSummaryFromTool = (tool: LoadedSourceCatalogTool): SourceInsp
   };
 };
 
-const inspectionToolDetailFromTool = (tool: LoadedSourceCatalogTool): SourceInspectionToolDetail => {
-  const fullInputType = tool.typeProjector.renderSelfContainedShape(
-    tool.projectedDescriptor.callShapeId,
-    {
-      aliasHint: joinTypeNameSegments(...tool.projectedDescriptor.toolPath, "call"),
-    },
-  );
-  const fullOutputType = tool.projectedDescriptor.resultShapeId
-    ? tool.typeProjector.renderSelfContainedShape(tool.projectedDescriptor.resultShapeId, {
-        aliasHint: joinTypeNameSegments(...tool.projectedDescriptor.toolPath, "result"),
-      })
-    : undefined;
+const nativeEncodingLanguage = (encoding: string | undefined): string =>
+  encoding === "graphql" || encoding === "yaml" || encoding === "json" || encoding === "text"
+    ? encoding
+    : "json";
 
-  return ({
-    summary: {
-      ...persistedToolSummaryFromTool(tool),
-      ...(fullInputType ? { fullInputType } : {}),
-      ...(fullOutputType ? { fullOutputType } : {}),
+const jsonSection = (
+  title: string,
+  value: unknown | null | undefined,
+): SourceInspectionToolDetail["sections"][number] | null =>
+  value === null || value === undefined
+    ? null
+    : {
+        kind: "code",
+        title,
+        language: "json",
+        body: JSON.stringify(value, null, 2),
+      };
+
+export const inspectionToolDetailFromTool = (
+  tool: LoadedSourceCatalogTool,
+): SourceInspectionToolDetail => {
+  const summary = persistedToolSummaryFromTool(tool);
+  const details = executableDetails(tool);
+  const overviewItems = [
+    { label: "Protocol", value: details.protocol },
+    ...(details.method ? [{ label: "Method", value: details.method, mono: true }] : []),
+    ...(details.pathTemplate ? [{ label: "Target", value: details.pathTemplate, mono: true }] : []),
+    ...(details.operationId ? [{ label: "Operation", value: details.operationId, mono: true }] : []),
+    ...(details.group ? [{ label: "Group", value: details.group, mono: true }] : []),
+    ...(details.leaf ? [{ label: "Leaf", value: details.leaf, mono: true }] : []),
+    ...(details.rawToolId ? [{ label: "Raw tool", value: details.rawToolId, mono: true }] : []),
+    { label: "Call shape", value: tool.projectedDescriptor.callShapeId, mono: true },
+    ...(tool.projectedDescriptor.resultShapeId
+      ? [{ label: "Result shape", value: tool.projectedDescriptor.resultShapeId, mono: true }]
+      : []),
+  ];
+  const nativeSections = [
+    ...(tool.capability.native ?? []).map((blob, index) => ({
+      kind: "code" as const,
+      title: `Capability native ${String(index + 1)}: ${blob.kind}`,
+      language: nativeEncodingLanguage(blob.encoding),
+      body:
+        typeof blob.value === "string"
+          ? blob.value
+          : JSON.stringify(blob.value ?? null, null, 2),
+    })),
+    ...(tool.executable.native ?? []).map((blob, index) => ({
+      kind: "code" as const,
+      title: `Executable native ${String(index + 1)}: ${blob.kind}`,
+      language: nativeEncodingLanguage(blob.encoding),
+      body:
+        typeof blob.value === "string"
+          ? blob.value
+          : JSON.stringify(blob.value ?? null, null, 2),
+    })),
+  ];
+  const sections = [
+    {
+      kind: "facts" as const,
+      title: "Overview",
+      items: overviewItems,
     },
-    definitionJson: JSON.stringify({
-      capability: tool.capability,
-      executable: tool.executable,
-    }),
-    documentationJson: JSON.stringify({
-      capabilityDocs: {
+    ...(summary.description
+      ? [{
+          kind: "markdown" as const,
+          title: "Description",
+          body: summary.description,
+        }]
+      : []),
+    ...([
+      jsonSection("Input Schema", tool.descriptor.inputSchema),
+      jsonSection("Output Schema", tool.descriptor.outputSchema),
+      jsonSection("Capability", tool.capability),
+      jsonSection("Executable", {
+        id: tool.executable.id,
+        adapterKey: tool.executable.adapterKey,
+        bindingVersion: tool.executable.bindingVersion,
+        binding: tool.executable.binding,
+        projection: tool.executable.projection,
+        display: tool.executable.display ?? null,
+      }),
+      jsonSection("Documentation", {
         summary: tool.capability.surface.summary,
         description: tool.capability.surface.description,
-      },
-    }),
-    nativeJson: tool.executable.native?.[0]?.value
-      ? JSON.stringify(tool.executable.native[0]!.value)
-      : null,
-    callSchemaJson: tool.descriptor.inputSchema
-      ? JSON.stringify(tool.descriptor.inputSchema)
-      : null,
-    resultSchemaJson: tool.descriptor.outputSchema
-      ? JSON.stringify(tool.descriptor.outputSchema)
-      : null,
-    exampleCallJson: null,
-    exampleResultJson: null,
+      }),
+    ].filter((section) => section !== null) as Array<SourceInspectionToolDetail["sections"][number]>),
+    ...nativeSections,
+  ];
+
+  return ({
+    summary,
+    sections,
   });
 };
 
@@ -274,6 +255,7 @@ const resolveSourceInspection = (input: {
     const tools = yield* expandCatalogTools({
       catalogs: [loaded.catalogEntry],
       includeSchemas: input.includeSchemas,
+      includeTypePreviews: input.includeSchemas,
     });
 
     return {
@@ -307,7 +289,8 @@ const resolveSourceInspectionTool = (input: {
     const tool = yield* expandCatalogToolByPath({
       catalogs: [loaded.catalogEntry],
       path: input.toolPath,
-      includeSchemas: true,
+      includeSchemas: false,
+      includeTypePreviews: false,
     });
 
     return {
@@ -439,7 +422,7 @@ export const getSourceInspectionToolDetail = (input: {
       );
     }
 
-    return yield* formatInspectionToolDetail(inspectionToolDetailFromTool(tool));
+    return inspectionToolDetailFromTool(tool);
   }).pipe(
     Effect.mapError((cause) =>
       mapInspectionError(

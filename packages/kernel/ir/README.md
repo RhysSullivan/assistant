@@ -7,13 +7,13 @@
 - `CatalogSnapshotV1` is the canonical persisted import artifact.
 - `CatalogV1` is the normalized semantic graph.
 - `CatalogFragmentV1` is the adapter/importer output contract.
-- `ToolDescriptor`, search docs, inspect views, and `InvocationPlan` are projections.
+- `ToolDescriptor`, search docs, and inspect views are projections.
 
 ## Direction
 
 Importers should move toward:
 
-`source -> CatalogFragmentV1 -> merge -> CatalogV1 -> projectors -> InvocationPlan`
+`source -> CatalogFragmentV1 -> merge -> CatalogV1 -> projectors`
 
 The existing runtime-specific compiled payload blobs are no longer the target semantic center.
 
@@ -29,4 +29,3 @@ Use either:
 - synthetic entities are marked explicitly
 - lossy normalization is represented by diagnostics
 - inheritance is preserved in scopes and resolved at projection/planning time
-- invocation plans remain connection-bound runtime artifacts, not canonical IR

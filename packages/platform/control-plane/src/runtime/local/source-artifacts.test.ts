@@ -1,16 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gzipSync } from "node:zlib";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import {
-  SourceIdSchema,
-  WorkspaceIdSchema,
-  type Source,
-} from "#schema";
+import { SourceIdSchema, WorkspaceIdSchema, type Source } from "#schema";
 
 import {
   buildLocalSourceArtifact,
@@ -19,11 +14,9 @@ import {
   writeLocalSourceArtifact,
 } from "./source-artifacts";
 import type { ResolvedLocalWorkspaceContext } from "./config";
-import {
-  createCatalogImportMetadata,
-  createGraphqlCatalogFragment,
-  createOpenApiCatalogFragment,
-} from "@executor/catalog-builders";
+import { createCatalogImportMetadata } from "@executor/source-core";
+import { createGraphqlCatalogFragment } from "@executor/source-graphql";
+import { createOpenApiCatalogFragment } from "@executor/source-openapi";
 
 const makeContext = (): ResolvedLocalWorkspaceContext => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-artifacts-"));
@@ -67,12 +60,14 @@ const makeArtifact = () => {
   const source = makeSource();
   const fragment = createOpenApiCatalogFragment({
     source,
-    documents: [{
-      documentKind: "openapi",
-      documentKey: source.binding.specUrl,
-      contentText: '{"openapi":"3.1.0"}',
-      fetchedAt: 1,
-    }],
+    documents: [
+      {
+        documentKind: "openapi",
+        documentKey: source.binding.specUrl,
+        contentText: '{"openapi":"3.1.0"}',
+        fetchedAt: 1,
+      },
+    ],
     operations: [],
   });
 
@@ -100,35 +95,42 @@ const makeGraphqlArtifact = () => {
   };
   const fragment = createGraphqlCatalogFragment({
     source,
-    documents: [{
-      documentKind: "graphql_introspection",
-      documentKey: source.endpoint,
-      contentText: '{"__schema":{}}',
-      fetchedAt: 1,
-    }],
-    operations: [{
-      toolId: "viewer",
-      title: "Viewer",
-      description: "Load the current viewer",
-      effect: "read",
-      inputSchema: { type: "object", properties: {} },
-      outputSchema: { type: "object", properties: { login: { type: "string" } } },
-      providerData: {
-        kind: "graphql",
-        toolKind: "field",
-        toolId: "viewer",
-        rawToolId: "viewer",
-        group: "query",
-        leaf: "viewer",
-        fieldName: "viewer",
-        operationType: "query",
-        operationName: "ViewerQuery",
-        operationDocument: "query ViewerQuery { viewer { login } }",
-        queryTypeName: "Query",
-        mutationTypeName: null,
-        subscriptionTypeName: null,
+    documents: [
+      {
+        documentKind: "graphql_introspection",
+        documentKey: source.endpoint,
+        contentText: '{"__schema":{}}',
+        fetchedAt: 1,
       },
-    }],
+    ],
+    operations: [
+      {
+        toolId: "viewer",
+        title: "Viewer",
+        description: "Load the current viewer",
+        effect: "read",
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: {
+          type: "object",
+          properties: { login: { type: "string" } },
+        },
+        providerData: {
+          kind: "graphql",
+          toolKind: "field",
+          toolId: "viewer",
+          rawToolId: "viewer",
+          group: "query",
+          leaf: "viewer",
+          fieldName: "viewer",
+          operationType: "query",
+          operationName: "ViewerQuery",
+          operationDocument: "query ViewerQuery { viewer { login } }",
+          queryTypeName: "Query",
+          mutationTypeName: null,
+          subscriptionTypeName: null,
+        },
+      },
+    ],
   });
 
   return buildLocalSourceArtifact({
@@ -150,7 +152,6 @@ describe("local-source-artifacts", () => {
       const context = makeContext();
       const artifact = makeArtifact();
       const path = join(context.artifactsDirectory, "sources", "src_test.json");
-      const legacyPath = join(context.artifactsDirectory, "sources", "src_test.json.gz");
       const rawDocumentPath = join(
         context.artifactsDirectory,
         "sources",
@@ -166,22 +167,31 @@ describe("local-source-artifacts", () => {
       });
 
       expect(existsSync(path)).toBe(true);
-      expect(existsSync(legacyPath)).toBe(false);
       expect(readFileSync(path, "utf8").startsWith("{")).toBe(true);
       expect(existsSync(rawDocumentPath)).toBe(true);
 
       const persistedArtifact = JSON.parse(readFileSync(path, "utf8"));
-      const persistedDocument = Object.values(persistedArtifact.snapshot.catalog.documents)[0] as {
+      const persistedDocument = Object.values(
+        persistedArtifact.snapshot.catalog.documents,
+      )[0] as {
         native?: ReadonlyArray<{ kind?: string }>;
         provenance?: unknown;
       };
-      const persistedResource = Object.values(persistedArtifact.snapshot.catalog.resources)[0] as {
+      const persistedResource = Object.values(
+        persistedArtifact.snapshot.catalog.resources,
+      )[0] as {
         provenance?: unknown;
       };
-      expect(persistedDocument.native?.some((blob) => blob.kind === "source_document") ?? false).toBe(false);
+      expect(
+        persistedDocument.native?.some(
+          (blob) => blob.kind === "source_document",
+        ) ?? false,
+      ).toBe(false);
       expect(persistedDocument.provenance).toBeUndefined();
       expect(persistedResource.provenance).toBeDefined();
-      expect(Object.keys(persistedArtifact.snapshot.catalog.diagnostics)).toHaveLength(0);
+      expect(
+        Object.keys(persistedArtifact.snapshot.catalog.diagnostics),
+      ).toHaveLength(0);
 
       const decoded = yield* readLocalSourceArtifact({
         context,
@@ -190,60 +200,59 @@ describe("local-source-artifacts", () => {
 
       expect(decoded?.snapshot.import.adapterKey).toBe("openapi");
       expect(decoded?.sourceId).toBe("src_test");
-      expect((Object.values(decoded?.snapshot.catalog.documents ?? {})[0] as { native?: Array<{ value?: unknown }> })?.native?.[0]?.value).toBe('{"openapi":"3.1.0"}');
-      expect((Object.values(decoded?.snapshot.catalog.documents ?? {})[0] as { provenance?: unknown }).provenance).toBeUndefined();
+      expect(
+        (
+          Object.values(decoded?.snapshot.catalog.documents ?? {})[0] as {
+            native?: Array<{ value?: unknown }>;
+          }
+        )?.native?.[0]?.value,
+      ).toBe('{"openapi":"3.1.0"}');
+      expect(
+        (
+          Object.values(decoded?.snapshot.catalog.documents ?? {})[0] as {
+            provenance?: unknown;
+          }
+        ).provenance,
+      ).toBeUndefined();
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 
-  it.effect("preserves GraphQL execution metadata across a write/read round-trip", () =>
-    Effect.gen(function* () {
-      const context = makeContext();
-      const artifact = makeGraphqlArtifact();
+  it.effect(
+    "preserves GraphQL execution metadata across a write/read round-trip",
+    () =>
+      Effect.gen(function* () {
+        const context = makeContext();
+        const artifact = makeGraphqlArtifact();
 
-      yield* writeLocalSourceArtifact({
-        context,
-        sourceId: artifact.sourceId,
-        artifact,
-      });
+        yield* writeLocalSourceArtifact({
+          context,
+          sourceId: artifact.sourceId,
+          artifact,
+        });
 
-      const decoded = yield* readLocalSourceArtifact({
-        context,
-        sourceId: artifact.sourceId,
-      });
+        const decoded = yield* readLocalSourceArtifact({
+          context,
+          sourceId: artifact.sourceId,
+        });
 
-      const executable = Object.values(decoded?.snapshot.catalog.executables ?? {})[0];
-      expect(executable?.protocol).toBe("graphql");
-      expect(executable?.protocol === "graphql" ? executable.toolKind : null).toBe("field");
-      expect(executable?.protocol === "graphql" ? executable.operationName : null).toBe("ViewerQuery");
-      expect(executable?.protocol === "graphql" ? executable.operationDocument : null).toBe(
-        "query ViewerQuery { viewer { login } }",
-      );
-    }).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
-
-  it.effect("reads legacy gz artifacts and removes both formats", () =>
-    Effect.gen(function* () {
-      const context = makeContext();
-      const artifact = makeArtifact();
-      const directory = join(context.artifactsDirectory, "sources");
-      const legacyPath = join(directory, "src_test.json.gz");
-
-      mkdirSync(directory, { recursive: true });
-      writeFileSync(legacyPath, gzipSync(JSON.stringify(artifact)));
-
-      const decoded = yield* readLocalSourceArtifact({
-        context,
-        sourceId: "src_test",
-      });
-      expect(decoded?.catalogId).toBe(artifact.catalogId);
-
-      yield* removeLocalSourceArtifact({
-        context,
-        sourceId: "src_test",
-      });
-
-      expect(existsSync(join(directory, "src_test.json"))).toBe(false);
-      expect(existsSync(legacyPath)).toBe(false);
-    }).pipe(Effect.provide(NodeFileSystem.layer)),
+        const executable = Object.values(
+          decoded?.snapshot.catalog.executables ?? {},
+        )[0];
+        const binding = executable?.binding as
+          | {
+              kind?: string;
+              toolKind?: string | null;
+              operationName?: string | null;
+              operationDocument?: string | null;
+            }
+          | undefined;
+        expect(executable?.adapterKey).toBe("graphql");
+        expect(executable?.display?.protocol).toBe("graphql");
+        expect(binding?.toolKind ?? null).toBe("field");
+        expect(binding?.operationName ?? null).toBe("ViewerQuery");
+        expect(binding?.operationDocument ?? null).toBe(
+          "query ViewerQuery { viewer { login } }",
+        );
+      }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 });

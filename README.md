@@ -334,7 +334,7 @@ If you are exploring the repo, these are the directories that matter most:
 - `packages/kernel/runtime-quickjs`: default QuickJS sandbox runtime for TypeScript execution
 - `packages/kernel/runtime-ses`: optional SES sandbox runtime for TypeScript execution
 - `packages/hosts/mcp`: MCP bridge for `execute` and `resume`
-- `packages/kernel/core` plus `packages/drivers/*`: core tool abstractions and first-party adapters
+- `packages/kernel/core` plus `packages/sources/*`: core tool abstractions and first-party source integrations
 
 ## Releasing
 

@@ -25,13 +25,20 @@ describe("control-plane-schema", () => {
         method: "GET",
         pathTemplate: "/issues",
       },
-      definitionJson: "{}",
-      documentationJson: "{}",
-      nativeJson: "{}",
-      callSchemaJson: null,
-      resultSchemaJson: null,
-      exampleCallJson: null,
-      exampleResultJson: null,
+      sections: [{
+        kind: "facts",
+        title: "Overview",
+        items: [{
+          label: "Protocol",
+          value: "http",
+          mono: true,
+        }],
+      }, {
+        kind: "code",
+        title: "Executable",
+        language: "json",
+        body: "{}",
+      }],
     });
 
     expect(Either.isRight(detail)).toBe(true);

@@ -35,20 +35,20 @@ Executor needs to support integrations that do not all look the same at the sour
 - future Postman collections
 - future snippet bundles
 
-If the core storage model were shaped around one of those directly, every new integration family would cause another redesign.
+If the core storage model were shaped around one of those directly, every new integration type would cause another redesign.
 
 Adapters prevent that.
 
-## Family vs format
+## Adapter vs format
 
-It is important not to confuse the integration family with the import format.
+It is important not to confuse the adapter with the import format.
 
 Examples:
 
-- OpenAPI and GraphQL are both broadly `http_api`-style integrations in executor
-- MCP is still its own family because it has distinct session and discovery semantics
+- OpenAPI and GraphQL are different adapters even though both import HTTP-shaped API descriptions
+- MCP is its own adapter because it has distinct session, discovery, and resume semantics
 
-This lets executor share broad runtime behavior where appropriate without pretending every source is identical.
+This lets executor share a thin catalog model without pretending every source has the same runtime behavior.
 
 ## What gets stored
 
@@ -95,4 +95,4 @@ A good new adapter should:
 - expose stable tool paths and search text
 - make auth needs explicit through the existing auth slot model
 
-If an integration needs a whole new top-level execution family, that is a sign it may not belong as just another `http_api` adapter.
+If an integration needs a new primitive outside the source/tool model entirely, that is a sign it may not belong as just another adapter.

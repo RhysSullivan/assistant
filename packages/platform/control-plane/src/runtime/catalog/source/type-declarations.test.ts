@@ -23,7 +23,7 @@ import {
   ScopeIdSchema,
   ShapeSymbolIdSchema,
 } from "@executor/ir/ids";
-import type { CatalogV1, GraphQLExecutable, ProvenanceRef } from "@executor/ir/model";
+import type { CatalogV1, ProvenanceRef } from "@executor/ir/model";
 import { syncWorkspaceSourceTypeDeclarationsNode } from "./type-declarations";
 
 const put = <K extends string, V>(record: Record<K, V>, key: K, value: V) => {
@@ -181,16 +181,41 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
 
   put(catalog.executables as Record<typeof executableId, CatalogV1["executables"][typeof executableId]>, executableId, {
     id: executableId,
-    protocol: "graphql",
     capabilityId,
     scopeId,
-    toolKind: "field",
-    operationType: "query",
-    rootField: "teams",
-    argumentShapeId: callShapeId,
-    resultShapeId,
-    selectionMode: "fixed",
-    responseSetId,
+    adapterKey: "graphql",
+    bindingVersion: 1,
+    binding: {
+      kind: "graphql",
+      toolKind: "field",
+      toolId: "teams",
+      rawToolId: "teams",
+      group: "query",
+      leaf: "teams",
+      fieldName: "teams",
+      operationType: "query",
+      operationName: "TeamsQuery",
+      operationDocument: "query TeamsQuery { teams { nodes { id } } }",
+      queryTypeName: "Query",
+      mutationTypeName: null,
+      subscriptionTypeName: null,
+    },
+    projection: {
+      responseSetId,
+      callShapeId,
+      resultDataShapeId: resultShapeId,
+    },
+    display: {
+      protocol: "graphql",
+      method: "query",
+      pathTemplate: "teams",
+      operationId: "teams",
+      group: "query",
+      leaf: "teams",
+      rawToolId: "teams",
+      title: "Teams",
+      summary: "List teams",
+    },
     synthetic: false,
     provenance: baseProvenance("#/query/teams"),
   });
@@ -223,16 +248,41 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
 
   put(catalog.executables as Record<typeof secondExecutableId, CatalogV1["executables"][typeof secondExecutableId]>, secondExecutableId, {
     id: secondExecutableId,
-    protocol: "graphql",
     capabilityId: secondCapabilityId,
     scopeId,
-    toolKind: "field",
-    operationType: "query",
-    rootField: "teamsSearch",
-    argumentShapeId: callShapeId,
-    resultShapeId,
-    selectionMode: "fixed",
-    responseSetId,
+    adapterKey: "graphql",
+    bindingVersion: 1,
+    binding: {
+      kind: "graphql",
+      toolKind: "field",
+      toolId: "teamsSearch",
+      rawToolId: "teamsSearch",
+      group: "query",
+      leaf: "teamsSearch",
+      fieldName: "teamsSearch",
+      operationType: "query",
+      operationName: "TeamsSearchQuery",
+      operationDocument: "query TeamsSearchQuery { teamsSearch { nodes { id } } }",
+      queryTypeName: "Query",
+      mutationTypeName: null,
+      subscriptionTypeName: null,
+    },
+    projection: {
+      responseSetId,
+      callShapeId,
+      resultDataShapeId: resultShapeId,
+    },
+    display: {
+      protocol: "graphql",
+      method: "query",
+      pathTemplate: "teamsSearch",
+      operationId: "teamsSearch",
+      group: "query",
+      leaf: "teamsSearch",
+      rawToolId: "teamsSearch",
+      title: "Teams Search",
+      summary: "Search teams",
+    },
     synthetic: false,
     provenance: baseProvenance("#/query/teamsSearch"),
   });
@@ -385,9 +435,11 @@ describe("source-type-declarations", () => {
     const snapshot = createSnapshot();
     const unsupportedNotShapeId = ShapeSymbolIdSchema.make("shape_unsupported_not");
     const unsupportedConditionalShapeId = ShapeSymbolIdSchema.make("shape_unsupported_conditional");
-    const executable = Object.values(snapshot.catalog.executables)[0]! as GraphQLExecutable;
-    const callShape = snapshot.catalog.symbols[executable.argumentShapeId];
-    const resultShape = snapshot.catalog.symbols[executable.resultShapeId];
+    const executable = Object.values(snapshot.catalog.executables)[0]!;
+    const callShape = snapshot.catalog.symbols[executable.projection.callShapeId];
+    const resultShape = executable.projection.resultDataShapeId
+      ? snapshot.catalog.symbols[executable.projection.resultDataShapeId]
+      : undefined;
 
     if (!callShape || callShape.kind !== "shape" || callShape.node.type !== "object") {
       throw new Error("Expected object argument shape in test fixture");
@@ -427,7 +479,7 @@ describe("source-type-declarations", () => {
           type: "conditional",
           ifShapeId: callShape.node.fields.filter!.shapeId,
           thenShapeId: resultShape.node.fields.nodes!.shapeId,
-          elseShapeId: executable.resultShapeId,
+          elseShapeId: executable.projection.resultDataShapeId!,
         },
         synthetic: false,
         provenance: baseProvenance("#/unsupported/conditional"),
@@ -506,7 +558,7 @@ describe("source-type-declarations", () => {
     const unblockedShapeId = ShapeSymbolIdSchema.make("shape_abuse_unblocked");
     const routeBlockedShapeId = ShapeSymbolIdSchema.make("shape_abuse_route_blocked");
     const unionShapeId = ShapeSymbolIdSchema.make("shape_abuse_union");
-    const executable = Object.values(snapshot.catalog.executables)[0]! as GraphQLExecutable;
+    const executable = Object.values(snapshot.catalog.executables)[0]!;
     const stringShapeId = ShapeSymbolIdSchema.make("shape_string");
 
     put(snapshot.catalog.symbols as Record<typeof numberShapeId, CatalogV1["symbols"][typeof numberShapeId]>, numberShapeId, {
@@ -629,7 +681,10 @@ describe("source-type-declarations", () => {
 
     put(snapshot.catalog.executables as Record<typeof executable.id, CatalogV1["executables"][typeof executable.id]>, executable.id, {
       ...executable,
-      resultShapeId: unionShapeId,
+      projection: {
+        ...executable.projection,
+        resultDataShapeId: unionShapeId,
+      },
     });
 
     await Effect.runPromise(syncWorkspaceSourceTypeDeclarationsNode({

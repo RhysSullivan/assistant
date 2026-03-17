@@ -24,6 +24,8 @@
     "trace:up": "docker compose -f compose.tracing.yaml up -d",
     "trace:down": "docker compose -f compose.tracing.yaml down",
     "docs:dev": "turbo run dev --filter=@executor/docs",
+    "lint": "oxlint -c .oxlintrc.jsonc .",
+    "lint:fix": "oxlint -c .oxlintrc.jsonc --fix .",
     "test": "turbo run test",
     "executor": "./apps/executor/bin/executor",
     "changeset": "changeset",
@@ -37,7 +39,9 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
+    "@oxlint/plugins": "^1.56.0",
     "knip": "^5.85.0",
+    "oxlint": "^1.56.0",
     "turbo": "^2.5.6",
     "typescript": "^5.9.3"
   }

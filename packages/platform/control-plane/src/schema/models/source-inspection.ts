@@ -20,9 +20,38 @@ export const SourceInspectionToolSummarySchema = Schema.Struct({
   pathTemplate: Schema.NullOr(Schema.String),
   inputTypePreview: Schema.optional(Schema.String),
   outputTypePreview: Schema.optional(Schema.String),
-  fullInputType: Schema.optional(Schema.String),
-  fullOutputType: Schema.optional(Schema.String),
 });
+
+export const SourceInspectionFactItemSchema = Schema.Struct({
+  label: Schema.String,
+  value: Schema.String,
+  mono: Schema.optional(Schema.Boolean),
+});
+
+export const SourceInspectionFactsSectionSchema = Schema.Struct({
+  kind: Schema.Literal("facts"),
+  title: Schema.String,
+  items: Schema.Array(SourceInspectionFactItemSchema),
+});
+
+export const SourceInspectionMarkdownSectionSchema = Schema.Struct({
+  kind: Schema.Literal("markdown"),
+  title: Schema.String,
+  body: Schema.String,
+});
+
+export const SourceInspectionCodeSectionSchema = Schema.Struct({
+  kind: Schema.Literal("code"),
+  title: Schema.String,
+  language: Schema.String,
+  body: Schema.String,
+});
+
+export const SourceInspectionSectionSchema = Schema.Union(
+  SourceInspectionFactsSectionSchema,
+  SourceInspectionMarkdownSectionSchema,
+  SourceInspectionCodeSectionSchema,
+);
 
 export const SourceInspectionToolListItemSchema = Schema.Struct({
   path: Schema.String,
@@ -39,13 +68,7 @@ export const SourceInspectionSchema = Schema.Struct({
 
 export const SourceInspectionToolDetailSchema = Schema.Struct({
   summary: SourceInspectionToolSummarySchema,
-  definitionJson: Schema.NullOr(Schema.String),
-  documentationJson: Schema.NullOr(Schema.String),
-  nativeJson: Schema.NullOr(Schema.String),
-  callSchemaJson: Schema.NullOr(Schema.String),
-  resultSchemaJson: Schema.NullOr(Schema.String),
-  exampleCallJson: Schema.NullOr(Schema.String),
-  exampleResultJson: Schema.NullOr(Schema.String),
+  sections: Schema.Array(SourceInspectionSectionSchema),
 });
 
 export const SourceInspectionDiscoverPayloadSchema = Schema.Struct({
@@ -74,6 +97,16 @@ export type SourceInspectionPipelineKind =
   typeof SourceInspectionPipelineKindSchema.Type;
 export type SourceInspectionToolSummary =
   typeof SourceInspectionToolSummarySchema.Type;
+export type SourceInspectionFactItem =
+  typeof SourceInspectionFactItemSchema.Type;
+export type SourceInspectionFactsSection =
+  typeof SourceInspectionFactsSectionSchema.Type;
+export type SourceInspectionMarkdownSection =
+  typeof SourceInspectionMarkdownSectionSchema.Type;
+export type SourceInspectionCodeSection =
+  typeof SourceInspectionCodeSectionSchema.Type;
+export type SourceInspectionSection =
+  typeof SourceInspectionSectionSchema.Type;
 export type SourceInspectionToolListItem =
   typeof SourceInspectionToolListItemSchema.Type;
 export type SourceInspection = typeof SourceInspectionSchema.Type;

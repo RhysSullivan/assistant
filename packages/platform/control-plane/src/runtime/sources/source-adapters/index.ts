@@ -1,12 +1,17 @@
-import type { Source } from "#schema";
 import * as Schema from "effect/Schema";
 
-import { graphqlSourceAdapter } from "./graphql";
-import { googleDiscoverySourceAdapter } from "./google-discovery";
+import {
+  createSourceAdapterRegistry,
+  type SourceAdapter,
+} from "@executor/source-core";
+import { googleDiscoverySourceAdapter } from "@executor/source-google-discovery";
+import { graphqlSourceAdapter } from "@executor/source-graphql";
+import { mcpSourceAdapter } from "@executor/source-mcp";
+import { openApiSourceAdapter } from "@executor/source-openapi";
+
 import { internalSourceAdapter } from "./internal";
-import { mcpSourceAdapter } from "./mcp";
-import { openApiSourceAdapter } from "./openapi";
-import type { SourceAdapter } from "./types";
+
+export type * from "@executor/source-core";
 
 export const builtInSourceAdapters = [
   openApiSourceAdapter,
@@ -48,26 +53,14 @@ export const ExecutorAddSourceInputSchema = Schema.Union(
 
 export type ExecutorAddSourceInput = typeof ExecutorAddSourceInputSchema.Type;
 
-const adaptersByKey = new Map<string, SourceAdapter>(
-  builtInSourceAdapters.map((adapter) => [adapter.key, adapter]),
-);
+const registry = createSourceAdapterRegistry(builtInSourceAdapters);
 
-export const getSourceAdapter = (key: string): SourceAdapter => {
-  const adapter = adaptersByKey.get(key);
-  if (!adapter) {
-    throw new Error(`Unsupported source adapter: ${key}`);
-  }
-
-  return adapter;
-};
-
-export const getSourceAdapterForSource = (source: Pick<Source, "kind">): SourceAdapter =>
-  getSourceAdapter(source.kind);
-
-export const sourceBindingStateFromSource = (source: Source) =>
-  getSourceAdapterForSource(source).bindingStateFromSource(source);
-
-export const hasSourceAdapterFamily = (
-  key: string,
-  family: SourceAdapter["family"],
-): boolean => getSourceAdapter(key).family === family;
+export const getSourceAdapter = registry.getSourceAdapter;
+export const getSourceAdapterForSource = registry.getSourceAdapterForSource;
+export const sourceBindingStateFromSource = registry.sourceBindingStateFromSource;
+export const sourceAdapterCatalogKind = registry.sourceAdapterCatalogKind;
+export const sourceAdapterRequiresInteractiveConnect =
+  registry.sourceAdapterRequiresInteractiveConnect;
+export const sourceAdapterUsesCredentialManagedAuth =
+  registry.sourceAdapterUsesCredentialManagedAuth;
+export const isInternalSourceAdapter = registry.isInternalSourceAdapter;

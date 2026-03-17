@@ -11,7 +11,6 @@ import {
   mergeLocalExecutorConfigs,
   resolveDefaultHomeConfigCandidates,
   resolveDefaultHomeStateDirectory,
-  resolveHomeConfigPath,
   resolveLocalWorkspaceContext,
 } from "./config";
 
@@ -106,7 +105,8 @@ describe("local-config", () => {
     expect(macCandidates[0]).toBe(
       "/Users/alice/Library/Application Support/Executor/executor.jsonc",
     );
-    expect(macCandidates[2]).toBe("/Users/alice/.config/executor/executor.jsonc");
+    expect(linuxCandidates).toHaveLength(1);
+    expect(macCandidates).toHaveLength(1);
   });
 
   it("uses platform-standard home state directories", () => {
@@ -126,29 +126,6 @@ describe("local-config", () => {
       "/Users/alice/Library/Application Support/Executor/State",
     );
   });
-
-  it.effect("prefers an existing legacy home config path before the canonical path", () =>
-    Effect.gen(function* () {
-      const homeDirectory = makeWorkspaceRoot();
-      const legacyConfigDirectory = join(homeDirectory, ".config", "executor");
-      yield* Effect.promise(() => mkdir(legacyConfigDirectory, { recursive: true }));
-      yield* Effect.promise(() =>
-        writeFile(
-          join(legacyConfigDirectory, "executor.jsonc"),
-          "{\n  \"sources\": {}\n}\n",
-          "utf8",
-        ),
-      );
-
-      const resolvedPath = yield* resolveHomeConfigPath({
-        platform: "darwin",
-        homeDirectory,
-        env: {},
-      });
-
-      expect(resolvedPath).toBe(join(legacyConfigDirectory, "executor.jsonc"));
-    }).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
 
   it("lets project config override the merged runtime", () => {
     const merged = mergeLocalExecutorConfigs(

@@ -28,13 +28,13 @@ This package holds the common tool model:
 
 This is the main abstraction boundary that other layers build on.
 
-### `packages/drivers/openapi`
+### `packages/sources/openapi`
 
 This package handles OpenAPI-specific extraction and tool generation.
 
 Its job is to understand OpenAPI and compile it into the shared codemode tool model, not to own workspace persistence or auth lifecycle.
 
-### `packages/drivers/mcp`
+### `packages/sources/mcp`
 
 This package handles MCP-specific tool discovery and invocation behavior and adapts remote MCP tools into the same shared tool model.
 

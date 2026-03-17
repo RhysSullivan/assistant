@@ -126,8 +126,8 @@ The workspace can override that in `.executor/executor.jsonc` with `runtime: "qu
 Several packages exist to turn external systems into callable tools:
 
 - `packages/kernel/core`: shared tool abstractions, discovery, schemas, and system tools
-- `packages/drivers/mcp`: MCP tool loading and invocation
-- `packages/drivers/openapi`: OpenAPI extraction, manifests, and tool generation
+- `packages/sources/mcp`: MCP tool loading and invocation
+- `packages/sources/openapi`: OpenAPI extraction, manifests, and tool generation
 - `packages/hosts/mcp`: exposes the local runtime itself as an MCP server
 - `packages/clients/react`: React hooks and client state wrappers for the local UI
 

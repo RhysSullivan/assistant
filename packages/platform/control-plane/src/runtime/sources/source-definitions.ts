@@ -50,7 +50,7 @@ const sourceConfigFromSource = (source: Source): SourceCatalogSourceConfig =>
 
 const sourceCatalogKindFromSource = (source: Source): SourceCatalogKind => {
   const adapter = getSourceAdapterForSource(source);
-  return adapter.family;
+  return adapter.catalogKind;
 };
 
 const sourceCatalogAdapterKeyFromSource = (source: Source): SourceCatalogAdapterKey => {
@@ -285,7 +285,11 @@ const validateSourceImportAuth = (source: Source): Effect.Effect<Source, Error, 
 const validateSourceByKind = (source: Source): Effect.Effect<Source, Error, never> =>
   Effect.flatMap(
     validateSourceImportAuth(source),
-    (validated) => getSourceAdapterForSource(validated).validateSource(validated),
+    (validated) =>
+      Effect.map(
+        getSourceAdapterForSource(validated).validateSource(validated),
+        (result) => result as Source,
+      ),
   );
 
 export const createSourceFromPayload = (input: {

@@ -83,17 +83,6 @@ export const SecuritySchemeTypeSchema = Schema.Literal(
   "custom",
 );
 
-export const SelectionModeSchema = Schema.Literal(
-  "caller",
-  "fixed",
-  "persisted",
-);
-
-export const GraphQLToolKindSchema = Schema.Literal(
-  "request",
-  "field",
-);
-
 export const StatusRangeSchema = Schema.Literal(
   "1XX",
   "2XX",
@@ -695,63 +684,39 @@ export const CapabilitySchema = Schema.extend(
   EntityBaseSchema,
 );
 
-export const HttpExecutableSchema = Schema.extend(
+export const ExecutableDisplaySchema = Schema.Struct({
+  protocol: Schema.optional(Schema.String),
+  method: Schema.optional(Schema.NullOr(Schema.String)),
+  pathTemplate: Schema.optional(Schema.NullOr(Schema.String)),
+  operationId: Schema.optional(Schema.NullOr(Schema.String)),
+  group: Schema.optional(Schema.NullOr(Schema.String)),
+  leaf: Schema.optional(Schema.NullOr(Schema.String)),
+  rawToolId: Schema.optional(Schema.NullOr(Schema.String)),
+  title: Schema.optional(Schema.NullOr(Schema.String)),
+  summary: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+export const ExecutableProjectionSchema = Schema.Struct({
+  responseSetId: ResponseSetIdSchema,
+  callShapeId: ShapeSymbolIdSchema,
+  resultDataShapeId: Schema.optional(ShapeSymbolIdSchema),
+  resultErrorShapeId: Schema.optional(ShapeSymbolIdSchema),
+  resultHeadersShapeId: Schema.optional(ShapeSymbolIdSchema),
+  resultStatusShapeId: Schema.optional(ShapeSymbolIdSchema),
+});
+
+export const ExecutableSchema = Schema.extend(
   Schema.Struct({
     id: ExecutableIdSchema,
-    protocol: Schema.Literal("http"),
     capabilityId: CapabilityIdSchema,
     scopeId: ScopeIdSchema,
-    method: Schema.String,
-    pathTemplate: Schema.String,
-    pathParameterIds: Schema.optional(Schema.Array(ParameterSymbolIdSchema)),
-    queryParameterIds: Schema.optional(Schema.Array(ParameterSymbolIdSchema)),
-    headerParameterIds: Schema.optional(Schema.Array(ParameterSymbolIdSchema)),
-    cookieParameterIds: Schema.optional(Schema.Array(ParameterSymbolIdSchema)),
-    requestBodyId: Schema.optional(RequestBodySymbolIdSchema),
-    responseSetId: ResponseSetIdSchema,
+    adapterKey: Schema.String,
+    bindingVersion: Schema.Number,
+    binding: Schema.Unknown,
+    projection: ExecutableProjectionSchema,
+    display: Schema.optional(ExecutableDisplaySchema),
   }),
   EntityBaseSchema,
-);
-
-export const GraphQLExecutableSchema = Schema.extend(
-  Schema.Struct({
-    id: ExecutableIdSchema,
-    protocol: Schema.Literal("graphql"),
-    capabilityId: CapabilityIdSchema,
-    scopeId: ScopeIdSchema,
-    toolKind: GraphQLToolKindSchema,
-    operationType: Schema.Literal("query", "mutation", "subscription"),
-    rootField: Schema.String,
-    operationName: Schema.optional(Schema.String),
-    operationDocument: Schema.optional(Schema.String),
-    argumentShapeId: ShapeSymbolIdSchema,
-    resultShapeId: ShapeSymbolIdSchema,
-    selectionShapeId: Schema.optional(ShapeSymbolIdSchema),
-    selectionMode: SelectionModeSchema,
-    responseSetId: ResponseSetIdSchema,
-  }),
-  EntityBaseSchema,
-);
-
-export const McpExecutableSchema = Schema.extend(
-  Schema.Struct({
-    id: ExecutableIdSchema,
-    protocol: Schema.Literal("mcp"),
-    capabilityId: CapabilityIdSchema,
-    scopeId: ScopeIdSchema,
-    serverRef: Schema.String,
-    toolName: Schema.String,
-    inputShapeId: Schema.optional(ShapeSymbolIdSchema),
-    outputShapeId: Schema.optional(ShapeSymbolIdSchema),
-    responseSetId: ResponseSetIdSchema,
-  }),
-  EntityBaseSchema,
-);
-
-export const ExecutableSchema = Schema.Union(
-  HttpExecutableSchema,
-  GraphQLExecutableSchema,
-  McpExecutableSchema,
 );
 
 export const PaginationHintSchema = Schema.Struct({
@@ -898,8 +863,6 @@ export type EffectKind = typeof EffectKindSchema.Type;
 export type ParameterLocation = typeof ParameterLocationSchema.Type;
 export type ResponseTrait = typeof ResponseTraitSchema.Type;
 export type SecuritySchemeType = typeof SecuritySchemeTypeSchema.Type;
-export type SelectionMode = typeof SelectionModeSchema.Type;
-export type GraphQLToolKind = typeof GraphQLToolKindSchema.Type;
 export type PaginationHintKind = typeof PaginationHintKindSchema.Type;
 export type DiagnosticCode = typeof DiagnosticCodeSchema.Type;
 export type DiagnosticLevel = typeof DiagnosticLevelSchema.Type;
@@ -957,9 +920,8 @@ export type ScopeDefaults = typeof ScopeDefaultsSchema.Type;
 export type Scope = typeof ScopeSchema.Type;
 export type InteractionSpec = typeof InteractionSpecSchema.Type;
 export type Capability = typeof CapabilitySchema.Type;
-export type HttpExecutable = typeof HttpExecutableSchema.Type;
-export type GraphQLExecutable = typeof GraphQLExecutableSchema.Type;
-export type McpExecutable = typeof McpExecutableSchema.Type;
+export type ExecutableDisplay = typeof ExecutableDisplaySchema.Type;
+export type ExecutableProjection = typeof ExecutableProjectionSchema.Type;
 export type Executable = typeof ExecutableSchema.Type;
 export type PaginationHint = typeof PaginationHintSchema.Type;
 export type StatusMatch = typeof StatusMatchSchema.Type;

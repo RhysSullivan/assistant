@@ -1,4 +1,12 @@
 import { Schema } from "effect";
+export {
+  SourceOauthClientInputSchema,
+  WorkspaceSourceOauthClientRedirectModeSchema,
+} from "@executor/source-core";
+import {
+  SourceOauthClientInputSchema,
+  WorkspaceSourceOauthClientRedirectModeSchema,
+} from "@executor/source-core";
 
 import { TimestampMsSchema } from "../common";
 import {
@@ -7,11 +15,6 @@ import {
   WorkspaceSourceOauthClientIdSchema,
 } from "../ids";
 
-export const WorkspaceSourceOauthClientRedirectModeSchema = Schema.Literal(
-  "app_callback",
-  "loopback",
-);
-
 export const WorkspaceSourceOauthClientMetadataSchema = Schema.Struct({
   redirectMode: Schema.optional(WorkspaceSourceOauthClientRedirectModeSchema),
 });
@@ -19,14 +22,6 @@ export const WorkspaceSourceOauthClientMetadataSchema = Schema.Struct({
 export const WorkspaceSourceOauthClientMetadataJsonSchema = Schema.parseJson(
   WorkspaceSourceOauthClientMetadataSchema,
 );
-
-export const SourceOauthClientInputSchema = Schema.Struct({
-  clientId: Schema.Trim.pipe(Schema.nonEmptyString()),
-  clientSecret: Schema.optional(
-    Schema.NullOr(Schema.Trim.pipe(Schema.nonEmptyString())),
-  ),
-  redirectMode: Schema.optional(WorkspaceSourceOauthClientRedirectModeSchema),
-});
 
 export const WorkspaceSourceOauthClientSchema = Schema.Struct({
   id: WorkspaceSourceOauthClientIdSchema,

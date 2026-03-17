@@ -12,7 +12,7 @@
     "@effect/platform": "catalog:",
     "@executor/ai-sdk-adapter": "workspace:*",
     "@executor/codemode-core": "workspace:*",
-    "@executor/codemode-openapi": "workspace:*",
+    "@executor/source-openapi": "workspace:*",
     "@executor/control-plane": "workspace:*",
     "@executor/runtime-ses": "workspace:*",
     "effect": "catalog:"

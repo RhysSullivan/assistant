@@ -1,16 +1,15 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { Source } from "#schema";
-
-import { createCatalogImportMetadata } from "@executor/catalog-builders";
-import { createSourceCatalogSyncResult } from "../catalog-sync-result";
-import type { SourceAdapter } from "./types";
 import {
+  createSourceCatalogSyncResult,
+  createCatalogImportMetadata,
   decodeBindingConfig,
   decodeSourceBindingPayload,
   emptySourceBindingState,
   encodeBindingConfig,
-} from "./shared";
+  type Source,
+  type SourceAdapter,
+} from "@executor/source-core";
 
 const InternalBindingConfigSchema = Schema.Struct({});
 
@@ -20,12 +19,14 @@ const bindingHasAnyField = (
   value: unknown,
   fields: readonly string[],
 ): boolean =>
-  value !== null
-  && typeof value === "object"
-  && !Array.isArray(value)
-  && fields.some((field) => Object.prototype.hasOwnProperty.call(value, field));
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  fields.some((field) => Object.prototype.hasOwnProperty.call(value, field));
 
-const internalBindingConfigFromSource = (source: Pick<Source, "id" | "bindingVersion" | "binding">) =>
+const internalBindingConfigFromSource = (
+  source: Pick<Source, "id" | "bindingVersion" | "binding">,
+) =>
   Effect.gen(function* () {
     if (
       bindingHasAnyField(source.binding, [
@@ -55,7 +56,9 @@ const internalBindingConfigFromSource = (source: Pick<Source, "id" | "bindingVer
 export const internalSourceAdapter: SourceAdapter = {
   key: "internal",
   displayName: "Internal",
-  family: "internal",
+  catalogKind: "internal",
+  connectStrategy: "none",
+  credentialStrategy: "none",
   bindingConfigVersion: INTERNAL_BINDING_CONFIG_VERSION,
   providerKey: "generic_internal",
   defaultImportAuthPolicy: "none",
@@ -102,18 +105,24 @@ export const internalSourceAdapter: SourceAdapter = {
     }),
   shouldAutoProbe: () => false,
   syncCatalog: ({ source }) =>
-    Effect.succeed(createSourceCatalogSyncResult({
-      fragment: {
-        version: "ir.v1.fragment",
-      },
-      importMetadata: {
-        ...createCatalogImportMetadata({
-          source,
-          adapterKey: "internal",
-        }),
-        importerVersion: "ir.v1.internal",
-        sourceConfigHash: "internal",
-      },
-      sourceHash: null,
-    })),
+    Effect.succeed(
+      createSourceCatalogSyncResult({
+        fragment: {
+          version: "ir.v1.fragment",
+        },
+        importMetadata: {
+          ...createCatalogImportMetadata({
+            source,
+            adapterKey: "internal",
+          }),
+          importerVersion: "ir.v1.internal",
+          sourceConfigHash: "internal",
+        },
+        sourceHash: null,
+      }),
+    ),
+  invoke: () =>
+    Effect.fail(
+      new Error("Internal sources do not support persisted adapter invocation"),
+    ),
 };

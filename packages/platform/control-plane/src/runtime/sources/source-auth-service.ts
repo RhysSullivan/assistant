@@ -2,7 +2,7 @@ import {
   createSdkMcpConnector,
   discoverMcpToolsFromConnector,
   type McpDiscoveryElicitationContext,
-} from "@executor/codemode-mcp";
+} from "@executor/source-mcp";
 import {
   AccountId,
   type CredentialSlot,
@@ -63,7 +63,8 @@ import {
 import {
   getSourceAdapter,
   getSourceAdapterForSource,
-  hasSourceAdapterFamily,
+  sourceAdapterRequiresInteractiveConnect,
+  sourceAdapterUsesCredentialManagedAuth,
   sourceBindingStateFromSource,
 } from "./source-adapters";
 import type { SourceAdapterOauth2SetupConfig } from "./source-adapters/types";
@@ -216,7 +217,7 @@ const probeMcpSourceWithoutAuth = (
   mcpDiscoveryElicitation?: McpDiscoveryElicitationContext,
 ) =>
   Effect.gen(function* () {
-    if (source.kind !== "mcp") {
+    if (!sourceAdapterRequiresInteractiveConnect(source.kind)) {
       return yield* Effect.fail(new Error(`Expected MCP source, received ${source.kind}`));
     }
     const bindingState = yield* sourceBindingStateFromSource(source);
@@ -549,6 +550,21 @@ export type ExecutorAddSourceInput =
       auth?: ExecutorHttpSourceAuthInput | null;
     };
 
+export type ExecutorCredentialManagedSourceInput = Extract<
+  ExecutorAddSourceInput,
+  { kind: string }
+>;
+
+export type ExecutorHttpEndpointSourceInput = Extract<
+  ExecutorCredentialManagedSourceInput,
+  { endpoint: string }
+>;
+
+export type ExecutorMcpSourceInput = Exclude<
+  ExecutorAddSourceInput,
+  ExecutorCredentialManagedSourceInput
+>;
+
 export type ConnectMcpSourceInput = {
   workspaceId: WorkspaceId;
   actorAccountId?: AccountId | null;
@@ -619,6 +635,28 @@ export type StartSourceOAuthSessionInput = {
   displayName?: string | null;
 };
 
+const isExecutorCredentialManagedSourceInput = (
+  input: ExecutorAddSourceInput,
+): input is ExecutorCredentialManagedSourceInput =>
+  typeof input.kind === "string";
+
+const isExecutorGoogleDiscoverySourceInput = (
+  input: ExecutorAddSourceInput,
+): input is Extract<ExecutorCredentialManagedSourceInput, { kind: "google_discovery" }> =>
+  isExecutorCredentialManagedSourceInput(input) && input.kind === "google_discovery";
+
+const isExecutorHttpEndpointSourceInput = (
+  input: ExecutorAddSourceInput,
+): input is ExecutorHttpEndpointSourceInput =>
+  isExecutorCredentialManagedSourceInput(input)
+  && "endpoint" in input
+  && sourceAdapterUsesCredentialManagedAuth(input.kind);
+
+const isExecutorMcpSourceInput = (
+  input: ExecutorAddSourceInput,
+): input is ExecutorMcpSourceInput =>
+  input.kind === undefined || sourceAdapterRequiresInteractiveConnect(input.kind);
+
 export type StartSourceOAuthSessionResult = {
   sessionId: SourceAuthSession["id"];
   authorizationUrl: string;
@@ -673,7 +711,7 @@ const materializeExecutorHttpAuth = (input: {
   Effect.gen(function* () {
     const existing = input.existing;
 
-    if (input.auth === undefined && existing && hasSourceAdapterFamily(existing.kind, "http_api")) {
+    if (input.auth === undefined && existing && sourceAdapterUsesCredentialManagedAuth(existing.kind)) {
       return existing.auth;
     }
 
@@ -693,7 +731,7 @@ const materializeExecutorHttpAuth = (input: {
         token === null
         && tokenRefInput === null
         && existing
-        && hasSourceAdapterFamily(existing.kind, "http_api")
+        && sourceAdapterUsesCredentialManagedAuth(existing.kind)
         && existing.auth.kind === "bearer"
       ) {
         return existing.auth;
@@ -724,7 +762,7 @@ const materializeExecutorHttpAuth = (input: {
       && trimOrNull(auth.refreshToken) === null
       && auth.refreshTokenRef == null
       && existing
-      && hasSourceAdapterFamily(existing.kind, "http_api")
+      && sourceAdapterUsesCredentialManagedAuth(existing.kind)
       && existing.auth.kind === "oauth2"
     ) {
       return existing.auth;
@@ -757,7 +795,7 @@ const materializeExecutorHttpAuth = (input: {
   });
 
 const materializeExecutorHttpImportAuth = (input: {
-  sourceKind: "openapi" | "graphql" | "google_discovery";
+  sourceKind: Source["kind"];
   existing?: Source;
   importAuthPolicy?: SourceImportAuthPolicy | null;
   importAuth?: ExecutorHttpSourceAuthInput | null;
@@ -767,10 +805,7 @@ const materializeExecutorHttpImportAuth = (input: {
   importAuth: Source["importAuth"];
 }, Error, never> =>
   Effect.gen(function* () {
-    const adapterDefault =
-      input.sourceKind === "openapi"
-      || input.sourceKind === "graphql"
-      || input.sourceKind === "google_discovery"
+    const adapterDefault = sourceAdapterUsesCredentialManagedAuth(input.sourceKind)
       ? "reuse_runtime"
       : "none";
     const importAuthPolicy = input.importAuthPolicy ?? input.existing?.importAuthPolicy ?? adapterDefault;
@@ -1056,43 +1091,6 @@ const resolveWorkspaceOauthClientById = (input: {
       clientId: existing.value.clientId,
       clientSecret: sourceOauthClientSecretRef(existing.value),
       redirectMode: sourceOauthClientRedirectMode(existing.value),
-    };
-  });
-
-const promoteLegacySourceOauthClientToWorkspaceClient = (input: {
-  rows: ControlPlaneStoreShape;
-  workspaceId: WorkspaceId;
-  legacyOauthClient: ResolvedSourceOauthClient;
-  label?: string | null;
-}): Effect.Effect<ResolvedWorkspaceOauthClient, Error, never> =>
-  Effect.gen(function* () {
-    const id = WorkspaceOauthClientIdSchema.make(
-      `ws_oauth_client_${crypto.randomUUID()}`,
-    );
-    const now = Date.now();
-
-    yield* input.rows.workspaceOauthClients.upsert({
-      id,
-      workspaceId: input.workspaceId,
-      providerKey: input.legacyOauthClient.providerKey,
-      label: trimOrNull(input.label) ?? null,
-      clientId: input.legacyOauthClient.clientId,
-      clientSecretProviderId: input.legacyOauthClient.clientSecret?.providerId ?? null,
-      clientSecretHandle: input.legacyOauthClient.clientSecret?.handle ?? null,
-      clientMetadataJson: encodeWorkspaceSourceOauthClientMetadataJson({
-        redirectMode: input.legacyOauthClient.redirectMode,
-      }),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    return {
-      id,
-      providerKey: input.legacyOauthClient.providerKey,
-      label: trimOrNull(input.label) ?? null,
-      clientId: input.legacyOauthClient.clientId,
-      clientSecret: input.legacyOauthClient.clientSecret,
-      redirectMode: input.legacyOauthClient.redirectMode,
     };
   });
 
@@ -1584,7 +1582,7 @@ const connectMcpSourceInternal = (input: {
             actorAccountId: input.actorAccountId,
           }).pipe(
             Effect.flatMap((source) =>
-              hasSourceAdapterFamily(source.kind, "mcp")
+              sourceAdapterRequiresInteractiveConnect(source.kind)
                 ? Effect.succeed(source)
                 : Effect.fail(new Error(`Expected MCP source, received ${source.kind}`)),
             ),
@@ -1595,7 +1593,7 @@ const connectMcpSourceInternal = (input: {
             Effect.map((sources) =>
               sources.find(
                 (source) =>
-                  hasSourceAdapterFamily(source.kind, "mcp")
+                  sourceAdapterRequiresInteractiveConnect(source.kind)
                   && normalizeEndpoint(source.endpoint) === normalizedEndpoint,
               ),
             ),
@@ -1785,7 +1783,7 @@ const addExecutorHttpSource = (input: {
   rows: ControlPlaneStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
-  sourceInput: Extract<ExecutorAddSourceInput, { kind: "openapi" | "graphql" }>;
+  sourceInput: ExecutorHttpEndpointSourceInput;
   storeSecretMaterial: StoreSecretMaterial;
   resolveSecretMaterial: ResolveSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
@@ -2147,19 +2145,6 @@ const addExecutorGoogleDiscoverySource = (input: {
           normalizeOauthClient: googleAdapter.normalizeOauthClientInput,
           storeSecretMaterial: input.storeSecretMaterial,
         });
-      } else {
-        const legacyOauthClient = yield* resolveExistingSourceOauthClient({
-          rows: input.rows,
-          source: persistedDraft,
-        });
-        if (legacyOauthClient !== null) {
-          workspaceOauthClient = yield* promoteLegacySourceOauthClientToWorkspaceClient({
-            rows: input.rows,
-            workspaceId: persistedDraft.workspaceId,
-            legacyOauthClient,
-            label: `${chosenName} Imported Client`,
-          });
-        }
       }
 
       if (workspaceOauthClient === null) {
@@ -2685,7 +2670,7 @@ const createRuntimeSourceConnectionService = (
 
     addExecutorSource: (sourceInput, options = undefined) =>
       provideLocalWorkspace(
-        (sourceInput.kind === "google_discovery"
+        (isExecutorGoogleDiscoverySourceInput(sourceInput)
           ? addExecutorGoogleDiscoverySource({
               rows: input.rows,
               sourceStore: input.sourceStore,
@@ -2696,21 +2681,19 @@ const createRuntimeSourceConnectionService = (
               getLocalServerBaseUrl: input.getLocalServerBaseUrl,
               baseUrl: options?.baseUrl,
             })
-          : hasSourceAdapterFamily(sourceInput.kind ?? "mcp", "http_api")
+          : isExecutorHttpEndpointSourceInput(sourceInput)
           ? addExecutorHttpSource({
               rows: input.rows,
               sourceStore: input.sourceStore,
               sourceCatalogSync: input.sourceCatalogSync,
-              sourceInput: sourceInput as Extract<
-                ExecutorAddSourceInput,
-                { kind: "openapi" | "graphql" }
-              >,
+              sourceInput,
               storeSecretMaterial: input.storeSecretMaterial,
               resolveSecretMaterial: input.resolveSecretMaterial,
               getLocalServerBaseUrl: input.getLocalServerBaseUrl,
               baseUrl: options?.baseUrl,
             })
-          : connectMcpSourceInternal({
+          : isExecutorMcpSourceInput(sourceInput)
+          ? connectMcpSourceInternal({
               rows: input.rows,
               sourceStore: input.sourceStore,
               sourceCatalogSync: input.sourceCatalogSync,
@@ -2725,7 +2708,8 @@ const createRuntimeSourceConnectionService = (
               mcpDiscoveryElicitation: options?.mcpDiscoveryElicitation,
               baseUrl: options?.baseUrl,
               resolveSecretMaterial: input.resolveSecretMaterial,
-            })).pipe(
+            })
+          : Effect.fail(new Error(`Unsupported executor source input: ${JSON.stringify(sourceInput)}`))).pipe(
               Effect.flatMap(mirrorLocalSourceResult),
             ),
       ),

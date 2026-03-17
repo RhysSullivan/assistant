@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { gunzipSync } from "node:zlib";
 import { FileSystem } from "@effect/platform";
 
 import {
@@ -35,7 +34,7 @@ import {
   createSourceCatalogRevisionRecord,
   stableSourceCatalogId,
 } from "../sources/source-definitions";
-const LOCAL_SOURCE_ARTIFACT_VERSION = 3 as const;
+const LOCAL_SOURCE_ARTIFACT_VERSION = 4 as const;
 
 export const LocalSourceArtifactSchema = Schema.Struct({
   version: Schema.Literal(LOCAL_SOURCE_ARTIFACT_VERSION),
@@ -69,16 +68,6 @@ const localSourceArtifactPath = (input: {
     input.context.artifactsDirectory,
     "sources",
     `${input.sourceId}.json`,
-  );
-
-const legacyLocalSourceArtifactPath = (input: {
-  context: ResolvedLocalWorkspaceContext;
-  sourceId: string;
-}): string =>
-  join(
-    input.context.artifactsDirectory,
-    "sources",
-    `${input.sourceId}.json.gz`,
   );
 
 const localSourceDocumentDirectory = (input: {
@@ -203,38 +192,17 @@ export const readLocalSourceArtifact = (input: {
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = localSourceArtifactPath(input);
-    const legacyPath = legacyLocalSourceArtifactPath(input);
     const exists = yield* fs.exists(path).pipe(
       Effect.mapError(mapFileSystemError(path, "check source artifact path")),
     );
-    const legacyExists = exists
-      ? false
-      : yield* fs.exists(legacyPath).pipe(
-          Effect.mapError(mapFileSystemError(legacyPath, "check legacy source artifact path")),
-        );
-    if (!exists && !legacyExists) {
+    if (!exists) {
       return null;
     }
 
-    const readPath = exists ? path : legacyPath;
-    const content = exists
-      ? yield* fs.readFileString(readPath, "utf8").pipe(
-          Effect.mapError(mapFileSystemError(readPath, "read source artifact")),
-        )
-      : yield* fs.readFile(readPath).pipe(
-          Effect.mapError(mapFileSystemError(readPath, "read source artifact")),
-          Effect.flatMap((bytes) =>
-            Effect.try({
-              try: () => new TextDecoder().decode(gunzipSync(bytes)),
-              catch: (cause) =>
-                new LocalSourceArtifactDecodeError({
-                  message: `Invalid compressed local source artifact at ${readPath}: ${unknownLocalErrorDetails(cause)}`,
-                  path: readPath,
-                  details: unknownLocalErrorDetails(cause),
-              }),
-            })
-          ),
-        );
+    const readPath = path;
+    const content = yield* fs.readFileString(readPath, "utf8").pipe(
+      Effect.mapError(mapFileSystemError(readPath, "read source artifact")),
+    );
 
     const artifact = yield* Effect.try({
       try: () => decodeLocalSourceArtifact(JSON.parse(content) as unknown),
@@ -300,7 +268,6 @@ export const writeLocalSourceArtifact = (input: {
     const fs = yield* FileSystem.FileSystem;
     const directory = join(input.context.artifactsDirectory, "sources");
     const path = localSourceArtifactPath(input);
-    const legacyPath = legacyLocalSourceArtifactPath(input);
     const sourceDocumentDirectory = localSourceDocumentDirectory(input);
     const split = splitArtifactSourceDocuments(input.artifact);
     yield* fs.makeDirectory(directory, { recursive: true }).pipe(
@@ -327,14 +294,6 @@ export const writeLocalSourceArtifact = (input: {
     yield* fs.writeFileString(path, `${JSON.stringify(split.artifact)}\n`).pipe(
       Effect.mapError(mapFileSystemError(path, "write source artifact")),
     );
-    const legacyExists = yield* fs.exists(legacyPath).pipe(
-      Effect.mapError(mapFileSystemError(legacyPath, "check legacy source artifact path")),
-    );
-    if (legacyExists) {
-      yield* fs.remove(legacyPath).pipe(
-        Effect.mapError(mapFileSystemError(legacyPath, "remove legacy source artifact")),
-      );
-    }
   });
 
 export const removeLocalSourceArtifact = (input: {
@@ -343,13 +302,11 @@ export const removeLocalSourceArtifact = (input: {
 }): Effect.Effect<void, LocalFileSystemError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    for (const path of [localSourceArtifactPath(input), legacyLocalSourceArtifactPath(input)]) {
-      const exists = yield* fs.exists(path).pipe(
-        Effect.mapError(mapFileSystemError(path, "check source artifact path")),
-      );
-      if (!exists) {
-        continue;
-      }
+    const path = localSourceArtifactPath(input);
+    const exists = yield* fs.exists(path).pipe(
+      Effect.mapError(mapFileSystemError(path, "check source artifact path")),
+    );
+    if (exists) {
       yield* fs.remove(path).pipe(
         Effect.mapError(mapFileSystemError(path, "remove source artifact")),
       );

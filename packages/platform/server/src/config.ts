@@ -31,17 +31,6 @@ const defaultLinuxStateHome = trim(process.env.XDG_STATE_HOME) ?? join(home, ".l
 const defaultWindowsHome = join(trim(process.env.LOCALAPPDATA) ?? join(home, "AppData", "Local"), "Executor");
 const defaultMacHome = join(home, "Library", "Application Support", "Executor");
 const defaultLinuxHome = join(defaultLinuxDataHome, "executor");
-const legacyLinuxHome = join(defaultLinuxDataHome, "executor-v3");
-const legacyWindowsHome = join(
-  trim(process.env.LOCALAPPDATA) ?? join(home, "AppData", "Local"),
-  "Executor-v3",
-);
-const legacyMacHome = join(
-  home,
-  "Library",
-  "Application Support",
-  "Executor-v3",
-);
 
 export const DEFAULT_SERVER_PORT = 8788;
 export const DEFAULT_SERVER_HOST = "127.0.0.1";
@@ -61,14 +50,6 @@ export const DEFAULT_EXECUTOR_RUN_DIR = explicitExecutorHome
 export const DEFAULT_LOCAL_DATA_DIR =
   trim(process.env[EXECUTOR_LOCAL_DATA_DIR_ENV])
   ?? join(DEFAULT_EXECUTOR_DATA_DIR, "control-plane");
-
-export const DEFAULT_LEGACY_LOCAL_DATA_DIRS = explicitExecutorHome
-  ? []
-  : [
-      isWindows ? join(legacyWindowsHome, "control-plane") : null,
-      isMac ? join(legacyMacHome, "control-plane") : null,
-      !isWindows && !isMac ? join(legacyLinuxHome, "control-plane") : null,
-    ].filter((value): value is string => value !== null);
 
 export const DEFAULT_SERVER_PID_FILE =
   trim(process.env[EXECUTOR_SERVER_PID_FILE_ENV])

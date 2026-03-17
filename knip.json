@@ -4,7 +4,7 @@
     "duplicates"
   ],
   "ignoreIssues": {
-    "packages/drivers/openapi/src/openapi-extractor-wasm/openapi_extractor.js": [
+    "packages/sources/openapi/src/openapi-extractor-wasm/openapi_extractor.js": [
       "exports"
     ]
   },

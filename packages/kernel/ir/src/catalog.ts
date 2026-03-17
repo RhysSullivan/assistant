@@ -38,12 +38,9 @@ import {
   type ContentSpec,
   type DocumentationBlock,
   type Executable,
-  type GraphQLExecutable,
-  type HttpExecutable,
   type ImportDiagnostic,
   type ImportMetadata,
   type InteractionSpec,
-  type McpExecutable,
   type ParameterSymbol,
   type HeaderSymbol,
   type ResponseSet,
@@ -112,22 +109,6 @@ export interface SymbolExpandedView {
   diagnostics?: ImportDiagnostic[];
 }
 
-export interface InvocationPlan {
-  capabilityId: CapabilityId;
-  executableId: ExecutableId;
-  connectionBindingId: string;
-  resolvedScopeChain: ScopeId[];
-  resolvedEndpoint?: string;
-  resolvedAuth?: unknown;
-  resolvedInteraction?: {
-    requiresApproval: boolean;
-    mayPauseForElicitation: boolean;
-    resumable: boolean;
-  };
-  requestPlan: unknown;
-  provenance: CatalogV1["capabilities"][CapabilityId]["provenance"];
-}
-
 export interface ProjectedCatalog {
   catalog: CatalogV1;
   toolDescriptors: Record<CapabilityId, ToolDescriptor>;
@@ -146,6 +127,7 @@ export interface CatalogInvariantViolation {
     | "missing_unresolved_ref_diagnostic"
     | "missing_executable"
     | "missing_response_set"
+    | "missing_projection_shape"
     | "missing_scope"
     | "missing_service_scope"
     | "invalid_preferred_executable"
@@ -906,37 +888,18 @@ const projectExecutionResultShape = (
   let errorShapeId: ShapeSymbolId | undefined;
   let headersShapeId: ShapeSymbolId = genericHeadersShape;
   let statusShapeId: ShapeSymbolId = genericStatusShape;
-
-  switch (executable.protocol) {
-    case "http":
-      dataShapeId = projectResultShapeFromResponses(catalog, capability, responseSet);
-      errorShapeId = projectErrorShapeFromResponses(catalog, capability, responseSet);
-      break;
-    case "graphql":
-      dataShapeId =
-        shapeFieldShapeId(catalog, executable.resultShapeId, "data")
-        ?? shapeFieldShapeId(catalog, executable.resultShapeId, "body")
-        ?? executable.resultShapeId;
-      errorShapeId =
-        shapeFieldShapeId(catalog, executable.resultShapeId, "error")
-        ?? shapeFieldShapeId(catalog, executable.resultShapeId, "errors");
-      headersShapeId =
-        shapeFieldShapeId(catalog, executable.resultShapeId, "headers")
-        ?? genericHeadersShape;
-      statusShapeId =
-        shapeFieldShapeId(catalog, executable.resultShapeId, "status")
-        ?? genericStatusShape;
-      break;
-    case "mcp":
-      dataShapeId = executable.outputShapeId;
-      errorShapeId = undefined;
-      statusShapeId = constNullShape(
-        catalog,
-        capability,
-        `executionResult:${capability.id}:status:null`,
-      );
-      break;
-  }
+  dataShapeId =
+    executable.projection.resultDataShapeId
+    ?? projectResultShapeFromResponses(catalog, capability, responseSet);
+  errorShapeId =
+    executable.projection.resultErrorShapeId
+    ?? projectErrorShapeFromResponses(catalog, capability, responseSet);
+  headersShapeId =
+    executable.projection.resultHeadersShapeId
+    ?? genericHeadersShape;
+  statusShapeId =
+    executable.projection.resultStatusShapeId
+    ?? genericStatusShape;
 
   const dataFieldShapeId = nullableShape(catalog, capability, {
     label: `executionResult:${capability.id}:data`,
@@ -1031,370 +994,36 @@ const groupFieldShape = (
   });
 
 const projectHttpCallShape = (
-  catalog: CatalogV1,
-  capability: Capability,
-  executable: HttpExecutable,
-): ShapeSymbolId => {
-  const chain = scopeChain(catalog, executable.scopeId);
-  const defaults = mergeScopeDefaults(chain);
-
-  const byLocation: Record<
-    "path" | "query" | "header" | "cookie",
-    ParameterSymbol[]
-  > = {
-    path: [],
-    query: [],
-    header: [],
-    cookie: [],
-  };
-
-  const pushParameter = (parameterId: ParameterSymbolId) => {
-    const parameter = getParameter(catalog, parameterId);
-    if (parameter) {
-      byLocation[parameter.location].push(parameter);
-    }
-  };
-
-  for (const parameterId of defaults.parameterIds ?? []) {
-    pushParameter(parameterId);
-  }
-  for (const parameterId of executable.pathParameterIds ?? []) {
-    pushParameter(parameterId);
-  }
-  for (const parameterId of executable.queryParameterIds ?? []) {
-    pushParameter(parameterId);
-  }
-  for (const parameterId of executable.headerParameterIds ?? []) {
-    pushParameter(parameterId);
-  }
-  for (const parameterId of executable.cookieParameterIds ?? []) {
-    pushParameter(parameterId);
-  }
-
-  const explicitHeaders = unique([
-    ...(defaults.headerIds ?? []),
-  ])
-    .map((headerId: HeaderSymbolId) => getHeader(catalog, headerId))
-    .filter((symbol): symbol is HeaderSymbol => symbol !== undefined);
-
-  const reservedTopLevel = new Set(["body", "args", "select", "path", "query", "headers", "cookies"]);
-  const allNames = [
-    ...byLocation.path.map((parameter) => parameter.name),
-    ...byLocation.query.map((parameter) => parameter.name),
-    ...byLocation.header.map((parameter) => parameter.name),
-    ...byLocation.cookie.map((parameter) => parameter.name),
-  ];
-
-  const hasCollision = allNames.some((name, index) =>
-    reservedTopLevel.has(name) || allNames.indexOf(name) !== index
-  );
-
-  const topLevelFields: Record<string, { shapeId: ShapeSymbolId; docs?: DocumentationBlock }> = {};
-  const topLevelRequired: string[] = [];
-
-  const groupedFieldNames: Array<keyof typeof byLocation> = hasCollision
-    ? ["path", "query", "header", "cookie"]
-    : [];
-
-  if (hasCollision) {
-    createDiagnostic(catalog, {
-      idSeed: {
-        code: "projection_collision_grouped_fields",
-        capabilityId: capability.id,
-      },
-      level: "info",
-      code: "projection_collision_grouped_fields",
-      message: `Grouped parameter fields for ${capability.id} to avoid collisions`,
-      provenance: capability.provenance,
-    });
-  }
-
-  for (const location of Object.keys(byLocation) as Array<keyof typeof byLocation>) {
-    const parameters = byLocation[location];
-    if (parameters.length === 0) {
-      continue;
-    }
-
-    if (groupedFieldNames.includes(location)) {
-      const groupFields: Record<string, { shapeId: ShapeSymbolId; docs?: DocumentationBlock }> = {};
-      const groupRequired: string[] = [];
-      for (const parameter of parameters) {
-        groupFields[parameter.name] = {
-          shapeId: parameterShapeId(catalog, capability, parameter),
-          docs: parameter.docs,
-        };
-        if (parameter.required) {
-          groupRequired.push(parameter.name);
-        }
-      }
-
-      const groupKey = location === "header" ? "headers" : location === "cookie" ? "cookies" : location;
-      topLevelFields[groupKey] = {
-        shapeId: groupFieldShape(catalog, capability, groupKey, groupFields, groupRequired),
-      };
-      if (groupRequired.length > 0) {
-        topLevelRequired.push(groupKey);
-      }
-      continue;
-    }
-
-    for (const parameter of parameters) {
-      topLevelFields[parameter.name] = {
-        shapeId: parameterShapeId(catalog, capability, parameter),
-        docs: parameter.docs,
-      };
-      if (parameter.required) {
-        topLevelRequired.push(parameter.name);
-      }
-    }
-  }
-
-  for (const header of explicitHeaders) {
-    if (hasCollision) {
-      const existing = topLevelFields.headers
-        ? getShape(catalog, topLevelFields.headers.shapeId)
-        : undefined;
-      const fields = existing && existing.node.type === "object"
-        ? ({ ...existing.node.fields } as Record<string, { shapeId: ShapeSymbolId; docs?: DocumentationBlock }>)
-        : {};
-      fields[header.name] = {
-        shapeId: header.schemaShapeId
-          ?? createSyntheticShape(catalog, {
-            capability,
-            label: `header:${header.id}:unknown`,
-            title: header.name,
-            docs: header.docs,
-            node: {
-              type: "unknown",
-              reason: `Missing shape for header ${header.id}`,
-            },
-          }),
-        ...(header.docs ? { docs: header.docs } : {}),
-      };
-      topLevelFields.headers = {
-        shapeId: groupFieldShape(
-          catalog,
-          capability,
-          "headers",
-          Object.fromEntries(
-            Object.entries(fields).map(([name, field]) => [name, { shapeId: field.shapeId, docs: field.docs }]),
-          ),
-          [],
-        ),
-      };
-      continue;
-    }
-
-    topLevelFields[header.name] = {
-      shapeId: header.schemaShapeId
-        ?? createSyntheticShape(catalog, {
-          capability,
-          label: `header:${header.id}:unknown`,
-          title: header.name,
-          docs: header.docs,
-          node: {
-            type: "unknown",
-            reason: `Missing shape for header ${header.id}`,
-          },
-        }),
-      docs: header.docs,
-    };
-  }
-
-  const bodyShapeId = requestBodyShapeId(catalog, capability, executable.requestBodyId);
-  if (bodyShapeId) {
-    topLevelFields.body = { shapeId: bodyShapeId };
-    const requestBody = executable.requestBodyId
-      ? catalog.symbols[executable.requestBodyId]
-      : undefined;
-    if (requestBody && requestBody.kind === "requestBody" && requestBody.required) {
-      topLevelRequired.push("body");
-    }
-  }
-
-  return createSyntheticShape(catalog, {
-    capability,
-    label: `call:${capability.id}`,
-    title: `${capability.surface.title ?? capability.id} call`,
-    node: {
-      type: "object",
-      fields: Object.fromEntries(
-        Object.entries(topLevelFields).map(([name, field]) => [
-          name,
-          {
-            shapeId: field.shapeId,
-            ...(field.docs ? { docs: field.docs } : {}),
-          },
-        ]),
-      ),
-      ...(topLevelRequired.length > 0 ? { required: unique(topLevelRequired) } : {}),
-      additionalProperties: false,
-    },
-    diagnostic: {
-      level: "info",
-      code: "projection_call_shape_synthesized",
-      message: `Synthesized HTTP call shape for ${capability.id}`,
-    },
-  });
-};
+  _catalog: CatalogV1,
+  _capability: Capability,
+  executable: Executable,
+): ShapeSymbolId => executable.projection.callShapeId;
 
 const projectGraphqlCallShape = (
-  catalog: CatalogV1,
-  capability: Capability,
-  executable: GraphQLExecutable,
-): ShapeSymbolId => {
-  const argumentShape = getShape(catalog, executable.argumentShapeId);
-  const reserved = new Set(["body", "args", "select", "path", "query", "headers", "cookies"]);
-
-  const canFlatten =
-    argumentShape?.node.type === "object"
-    && Object.keys(argumentShape.node.fields).every((name) => !reserved.has(name));
-
-  const fields: Record<string, { shapeId: ShapeSymbolId; docs?: DocumentationBlock }> = {};
-  const required: string[] = [];
-
-  if (canFlatten && argumentShape.node.type === "object") {
-    for (const [name, field] of Object.entries(argumentShape.node.fields)) {
-      fields[name] = {
-        shapeId: field.shapeId,
-        docs: field.docs,
-      };
-    }
-    required.push(...(argumentShape.node.required ?? []));
-  } else {
-    fields.args = {
-      shapeId: executable.argumentShapeId,
-      docs: argumentShape?.docs,
-    };
-    required.push("args");
-  }
-
-  if (executable.selectionMode === "caller") {
-    fields.select = {
-      shapeId:
-        executable.selectionShapeId
-        ?? createSyntheticShape(catalog, {
-          capability,
-          label: `select:${capability.id}:unknown`,
-          title: `${capability.surface.title ?? capability.id} selection`,
-          node: {
-            type: "unknown",
-            reason: `Missing selection shape for ${capability.id}`,
-          },
-          diagnostic: {
-            level: "warning",
-            code: "selection_shape_missing",
-            message: `Missing selection shape for ${capability.id}`,
-          },
-        }),
-    };
-    required.push("select");
-  }
-
-  return createSyntheticShape(catalog, {
-    capability,
-    label: `call:${capability.id}`,
-    title: `${capability.surface.title ?? capability.id} call`,
-    node: {
-      type: "object",
-      fields: Object.fromEntries(
-        Object.entries(fields).map(([name, field]) => [
-          name,
-          {
-            shapeId: field.shapeId,
-            ...(field.docs ? { docs: field.docs } : {}),
-          },
-        ]),
-      ),
-      ...(required.length > 0 ? { required: unique(required) } : {}),
-      additionalProperties: false,
-    },
-    diagnostic: {
-      level: "info",
-      code: "projection_call_shape_synthesized",
-      message: `Synthesized GraphQL call shape for ${capability.id}`,
-    },
-  });
-};
+  _catalog: CatalogV1,
+  _capability: Capability,
+  executable: Executable,
+): ShapeSymbolId => executable.projection.callShapeId;
 
 const projectMcpCallShape = (
-  catalog: CatalogV1,
-  capability: Capability,
-  executable: McpExecutable,
-): ShapeSymbolId => {
-  if (!executable.inputShapeId) {
-    return createSyntheticShape(catalog, {
-      capability,
-      label: `call:${capability.id}:empty`,
-      title: `${capability.surface.title ?? capability.id} call`,
-      node: {
-        type: "object",
-        fields: {},
-        additionalProperties: false,
-      },
-      diagnostic: {
-        level: "info",
-        code: "projection_call_shape_synthesized",
-        message: `Synthesized empty MCP call shape for ${capability.id}`,
-      },
-    });
-  }
-
-  const inputShape = getShape(catalog, executable.inputShapeId);
-  if (inputShape?.node.type === "object") {
-    return executable.inputShapeId;
-  }
-
-  return createSyntheticShape(catalog, {
-    capability,
-    label: `call:${capability.id}`,
-    title: `${capability.surface.title ?? capability.id} call`,
-    node: {
-      type: "object",
-      fields: {
-        input: {
-          shapeId: executable.inputShapeId,
-        },
-      },
-      required: ["input"],
-      additionalProperties: false,
-    },
-    diagnostic: {
-      level: "info",
-      code: "projection_call_shape_synthesized",
-      message: `Wrapped non-object MCP input shape for ${capability.id}`,
-    },
-  });
-};
+  _catalog: CatalogV1,
+  _capability: Capability,
+  executable: Executable,
+): ShapeSymbolId => executable.projection.callShapeId;
 
 const projectCapability = (
   catalog: CatalogV1,
   capability: Capability,
 ): ToolDescriptor => {
   const executable = chooseExecutable(catalog, capability);
-  const responseSet = catalog.responseSets[executable.responseSetId];
+  const responseSet = catalog.responseSets[executable.projection.responseSetId];
 
   if (!responseSet) {
-    throw new Error(`Missing response set ${executable.responseSetId} for ${capability.id}`);
+    throw new Error(`Missing response set ${executable.projection.responseSetId} for ${capability.id}`);
   }
 
-  let callShapeId: ShapeSymbolId;
-  let resultShapeId: ShapeSymbolId | undefined;
-
-  switch (executable.protocol) {
-    case "http":
-      callShapeId = projectHttpCallShape(catalog, capability, executable);
-      resultShapeId = projectExecutionResultShape(catalog, capability, executable, responseSet);
-      break;
-    case "graphql":
-      callShapeId = projectGraphqlCallShape(catalog, capability, executable);
-      resultShapeId = projectExecutionResultShape(catalog, capability, executable, responseSet);
-      break;
-    case "mcp":
-      callShapeId = projectMcpCallShape(catalog, capability, executable);
-      resultShapeId = projectExecutionResultShape(catalog, capability, executable, responseSet);
-      break;
-  }
+  const callShapeId = executable.projection.callShapeId;
+  const resultShapeId = projectExecutionResultShape(catalog, capability, executable, responseSet);
 
   const diagnosticIds = unique([
     ...(capability.diagnosticIds ?? []),
@@ -1419,7 +1048,7 @@ const projectCapability = (
     },
     callShapeId,
     ...(resultShapeId ? { resultShapeId } : {}),
-    responseSetId: executable.responseSetId,
+    responseSetId: executable.projection.responseSetId,
     diagnosticCounts: {
       warning: diagnostics.filter((diagnostic) => diagnostic.level === "warning").length,
       error: diagnostics.filter((diagnostic) => diagnostic.level === "error").length,
@@ -1455,8 +1084,11 @@ const searchDoc = (
   ...(capability.surface.tags ? { tags: [...capability.surface.tags] } : {}),
   protocolHints: unique(
     capability.executableIds
-      .map((executableId: ExecutableId) => catalog.executables[executableId]?.protocol)
-      .filter((protocol): protocol is Executable["protocol"] => protocol !== undefined),
+      .map((executableId: ExecutableId) =>
+        catalog.executables[executableId]?.display?.protocol
+        ?? catalog.executables[executableId]?.adapterKey
+      )
+      .filter((protocol): protocol is string => protocol !== undefined),
   ),
   authHints: authHintStrings(catalog, capability.auth),
   effect: capability.semantics.effect,
@@ -1875,11 +1507,51 @@ export const validateCatalogInvariants = (
       });
     }
 
-    if (!catalog.responseSets[executable.responseSetId]) {
+    if (!catalog.responseSets[executable.projection.responseSetId]) {
       violations.push({
         code: "missing_response_set",
         entityId: executable.id,
-        message: `Executable ${executable.id} references missing response set ${executable.responseSetId}`,
+        message: `Executable ${executable.id} references missing response set ${executable.projection.responseSetId}`,
+      });
+    }
+
+    const projectedShapeRefs = [
+      {
+        kind: "call",
+        shapeId: executable.projection.callShapeId,
+      },
+      {
+        kind: "result data",
+        shapeId: executable.projection.resultDataShapeId,
+      },
+      {
+        kind: "result error",
+        shapeId: executable.projection.resultErrorShapeId,
+      },
+      {
+        kind: "result headers",
+        shapeId: executable.projection.resultHeadersShapeId,
+      },
+      {
+        kind: "result status",
+        shapeId: executable.projection.resultStatusShapeId,
+      },
+    ];
+
+    for (const projectedShape of projectedShapeRefs) {
+      if (!projectedShape.shapeId) {
+        continue;
+      }
+
+      const symbol = catalog.symbols[projectedShape.shapeId];
+      if (symbol?.kind === "shape") {
+        continue;
+      }
+
+      violations.push({
+        code: "missing_projection_shape",
+        entityId: executable.id,
+        message: `Executable ${executable.id} references missing ${projectedShape.kind} shape ${projectedShape.shapeId}`,
       });
     }
   }
@@ -1970,49 +1642,5 @@ export const projectSymbolExpandedView = (
             .filter((diagnostic): diagnostic is ImportDiagnostic => diagnostic !== undefined),
         }
       : {}),
-  };
-};
-
-export const buildInvocationPlan = (input: {
-  catalog: CatalogV1;
-  capabilityId: CapabilityId;
-  executableId?: ExecutableId;
-  connectionBindingId: string;
-  resolvedEndpoint?: string;
-  resolvedAuth?: unknown;
-  resolvedInteraction?: Partial<InvocationPlan["resolvedInteraction"]>;
-  requestPlan: unknown;
-}): InvocationPlan => {
-  const capability = input.catalog.capabilities[input.capabilityId];
-  if (!capability) {
-    throw new Error(`Unknown capability ${input.capabilityId}`);
-  }
-
-  const executable = input.executableId
-    ? input.catalog.executables[input.executableId]
-    : chooseExecutable(input.catalog, capability);
-  if (!executable) {
-    throw new Error(`Unknown executable for capability ${input.capabilityId}`);
-  }
-
-  const scopes = scopeChain(input.catalog, executable.scopeId).map((scope) => scope.id);
-
-  return {
-    capabilityId: capability.id,
-    executableId: executable.id,
-    connectionBindingId: input.connectionBindingId,
-    resolvedScopeChain: scopes,
-    ...(input.resolvedEndpoint ? { resolvedEndpoint: input.resolvedEndpoint } : {}),
-    ...(input.resolvedAuth !== undefined ? { resolvedAuth: input.resolvedAuth } : {}),
-    resolvedInteraction: {
-      requiresApproval: input.resolvedInteraction?.requiresApproval
-        ?? capability.interaction.approval.mayRequire,
-      mayPauseForElicitation: input.resolvedInteraction?.mayPauseForElicitation
-        ?? capability.interaction.elicitation.mayRequest,
-      resumable: input.resolvedInteraction?.resumable
-        ?? capability.interaction.resume.supported,
-    },
-    requestPlan: input.requestPlan,
-    provenance: capability.provenance,
   };
 };

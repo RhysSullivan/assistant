@@ -1,6 +1,6 @@
 ---
 title: "MCP"
-description: "How executor uses MCP both as a source family and as an external interface."
+description: "How executor uses MCP both as an adapter and as an external interface."
 ---
 
 MCP shows up in executor in two different ways.
@@ -9,9 +9,9 @@ MCP shows up in executor in two different ways.
 
 This is the source side of MCP.
 
-When a user connects an MCP endpoint, executor treats it as a source family with MCP-specific connection, discovery, and invocation behavior. The control plane persists the binding and credential state, while MCP-specific execution behavior lives behind the adapter and codemode layers.
+When a user connects an MCP endpoint, executor treats it as an adapter with MCP-specific connection, discovery, and invocation behavior. The control plane persists the binding and credential state, while MCP-specific execution behavior lives behind the adapter and codemode layers.
 
-This is why MCP is modeled as its own broad family instead of being treated like just another HTTP format.
+This is why MCP is modeled as its own adapter instead of being flattened into a generic HTTP execution model.
 
 ## 2. Executor can expose itself as an MCP server
 
@@ -40,12 +40,12 @@ Keeping that distinction clear avoids collapsing very different responsibilities
 Broadly:
 
 - control plane owns workspace state, bindings, credentials, and execution lifecycle
-- `packages/drivers/mcp` owns MCP tool loading and invocation helpers
+- `packages/sources/mcp` owns MCP tool loading and invocation helpers
 - `packages/hosts/mcp` owns the local MCP server surface
 - `packages/platform/server` mounts the `/mcp` handler
 
 ## Why MCP stays flexible in this model
 
-Because MCP is handled as a family with its own adapter/runtime behavior, executor can support protocol-specific features such as sessions, elicitation, and resume without bending the generic `http_api` model to fit them.
+Because MCP keeps its own adapter/runtime behavior, executor can support protocol-specific features such as sessions, elicitation, and resume without bending the generic imported-tool model to fit them.
 
 That is the main reason MCP is a first-class category in the architecture.

@@ -24,9 +24,6 @@ import type {
   CatalogSnapshotV1,
   CatalogV1,
   Executable,
-  GraphQLExecutable,
-  HttpExecutable,
-  McpExecutable,
   ShapeSymbol,
   Symbol as IrSymbol,
 } from "@executor/ir/model";
@@ -504,77 +501,11 @@ export const shapeToJsonSchema = (catalog: CatalogV1, rootShapeId: string): unkn
     : rootSchema;
 };
 
-const graphqlErrorItemSchema = (): Record<string, unknown> => ({
-  type: "object",
-  properties: {
-    message: {
-      type: "string",
-      description: "GraphQL error message.",
-    },
-    path: {
-      type: "array",
-      description: "Path to the field that produced the error.",
-      items: {
-        anyOf: [
-          { type: "string" },
-          { type: "number" },
-        ],
-      },
-    },
-    locations: {
-      type: "array",
-      description: "Source locations for the error in the GraphQL document.",
-      items: {
-        type: "object",
-        properties: {
-          line: { type: "number" },
-          column: { type: "number" },
-        },
-        required: ["line", "column"],
-        additionalProperties: false,
-      },
-    },
-    extensions: {
-      type: "object",
-      description: "Additional provider-specific GraphQL error metadata.",
-      additionalProperties: true,
-    },
-  },
-  required: ["message"],
-  additionalProperties: true,
-});
-
 const projectorForProjectedCatalog = (projected: ProjectedCatalog): CatalogTypeProjector =>
   createCatalogTypeProjector({
     catalog: projected.catalog,
     roots: projectedCatalogTypeRoots(projected),
   });
-
-const applyGraphqlSchemaHints = (executable: Executable, schema: unknown): unknown => {
-  if (executable.protocol !== "graphql") {
-    return schema;
-  }
-
-  const root = asJsonRecord(schema);
-  const properties = asJsonRecord(root.properties);
-  const errors = asJsonRecord(properties.errors);
-  const errorItems = asJsonRecord(errors.items);
-
-  if (errors.type !== "array" || Object.keys(errorItems).length > 0) {
-    return schema;
-  }
-
-  return {
-    ...root,
-    properties: {
-      ...properties,
-      errors: {
-        ...errors,
-        items: graphqlErrorItemSchema(),
-      },
-    },
-  };
-};
 
 const codemodeDescriptorFromCapability = (input: {
   source: Source;
@@ -583,6 +514,7 @@ const codemodeDescriptorFromCapability = (input: {
   executable: Executable;
   typeProjector: CatalogTypeProjector;
   includeSchemas: boolean;
+  includeTypePreviews: boolean;
 }): CatalogToolDescriptor => {
   const projectedDescriptor = input.projected.toolDescriptors[input.capability.id];
   const path = projectedDescriptor.toolPath.join(".");
@@ -597,17 +529,16 @@ const codemodeDescriptorFromCapability = (input: {
     input.includeSchemas && projectedDescriptor.resultShapeId
       ? shapeToJsonSchema(input.projected.catalog, projectedDescriptor.resultShapeId)
       : undefined;
-  const outputSchema =
-    rawOutputSchema === undefined
-      ? undefined
-      : applyGraphqlSchemaHints(input.executable, rawOutputSchema);
-  const inputTypePreview = input.typeProjector.renderSelfContainedShape(
-    projectedDescriptor.callShapeId,
-    {
-      aliasHint: joinTypeNameSegments(...projectedDescriptor.toolPath, "call"),
-    },
-  );
-  const outputTypePreview = projectedDescriptor.resultShapeId
+  const outputSchema = rawOutputSchema;
+  const inputTypePreview = input.includeTypePreviews
+    ? input.typeProjector.renderSelfContainedShape(
+        projectedDescriptor.callShapeId,
+        {
+          aliasHint: joinTypeNameSegments(...projectedDescriptor.toolPath, "call"),
+        },
+      )
+    : undefined;
+  const outputTypePreview = input.includeTypePreviews && projectedDescriptor.resultShapeId
     ? input.typeProjector.renderSelfContainedShape(projectedDescriptor.resultShapeId, {
         aliasHint: joinTypeNameSegments(...projectedDescriptor.toolPath, "result"),
       })
@@ -622,11 +553,12 @@ const codemodeDescriptorFromCapability = (input: {
     ...(outputSchema !== undefined ? { outputSchema } : {}),
     inputTypePreview,
     ...(outputTypePreview !== undefined ? { outputTypePreview } : {}),
-    providerKind: input.executable.protocol,
+    providerKind: input.executable.adapterKey,
     providerData: {
       capabilityId: input.capability.id,
       executableId: input.executable.id,
-      protocol: input.executable.protocol,
+      adapterKey: input.executable.adapterKey,
+      display: input.executable.display,
     },
   };
 };
@@ -635,6 +567,7 @@ const loadedCatalogToolFromCapability = (input: {
   catalogEntry: LoadedSourceCatalog;
   capability: Capability;
   includeSchemas: boolean;
+  includeTypePreviews: boolean;
 }): LoadedSourceCatalogTool => {
   const executable = chooseExecutable(input.catalogEntry.projected.catalog, input.capability);
   const projectedDescriptor = input.catalogEntry.projected.toolDescriptors[input.capability.id];
@@ -645,6 +578,7 @@ const loadedCatalogToolFromCapability = (input: {
     executable,
     typeProjector: input.catalogEntry.typeProjector,
     includeSchemas: input.includeSchemas,
+    includeTypePreviews: input.includeTypePreviews,
   });
   const path = descriptorPath(descriptor);
   const searchDoc = input.catalogEntry.projected.searchDocs[input.capability.id];
@@ -921,6 +855,7 @@ export const loadSourceWithCatalog = (input: {
 export const expandCatalogTools = (input: {
   catalogs: readonly LoadedSourceCatalog[];
   includeSchemas: boolean;
+  includeTypePreviews?: boolean;
 }): Effect.Effect<readonly LoadedSourceCatalogTool[], Error, never> =>
   Effect.succeed(
     input.catalogs.flatMap((catalogEntry) =>
@@ -929,6 +864,7 @@ export const expandCatalogTools = (input: {
           catalogEntry,
           capability,
           includeSchemas: input.includeSchemas,
+          includeTypePreviews: input.includeTypePreviews ?? true,
         })),
     ),
   );
@@ -937,6 +873,7 @@ export const expandCatalogToolByPath = (input: {
   catalogs: readonly LoadedSourceCatalog[];
   path: string;
   includeSchemas: boolean;
+  includeTypePreviews?: boolean;
 }): Effect.Effect<LoadedSourceCatalogTool | null, Error, never> =>
   Effect.succeed(
     input.catalogs
@@ -948,6 +885,7 @@ export const expandCatalogToolByPath = (input: {
                   catalogEntry,
                   capability,
                   includeSchemas: input.includeSchemas,
+                  includeTypePreviews: input.includeTypePreviews ?? true,
                 }),
               ]
             : [];

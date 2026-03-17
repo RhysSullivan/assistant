@@ -53,7 +53,9 @@ const runEffect = async <A>(
 
 import {
   type ExecutorAddSourceInput,
+  type ExecutorCredentialManagedSourceInput,
   type ExecutorHttpSourceAuthInput,
+  type ExecutorMcpSourceInput,
   type RuntimeSourceAuthService,
 } from "./source-auth-service";
 import {
@@ -63,6 +65,7 @@ import {
 import {
   ExecutorAddSourceInputSchema,
   executorAddableSourceAdapters,
+  sourceAdapterRequiresInteractiveConnect,
 } from "./source-adapters";
 import { decodeSourceCredentialSelectionContent } from "./source-credential-interactions";
 
@@ -133,6 +136,103 @@ const trimOrNull = (value: string | null | undefined): string | null => {
 const toSerializableValue = <A>(value: A): A =>
   JSON.parse(JSON.stringify(value)) as A;
 
+type ExecutorSourcesAddToolArgs =
+  | Omit<ExecutorMcpSourceInput, "workspaceId" | "actorAccountId" | "executionId" | "interactionId">
+  | Omit<
+      ExecutorCredentialManagedSourceInput,
+      "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+    >;
+
+type ExecutorGoogleDiscoveryToolArgs = Omit<
+  Extract<ExecutorCredentialManagedSourceInput, { service: string; version: string }>,
+  "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+>;
+
+type ExecutorOpenApiToolArgs = Omit<
+  Extract<ExecutorCredentialManagedSourceInput, { specUrl: string }>,
+  "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+>;
+
+type ExecutorGraphqlToolArgs = Omit<
+  Extract<ExecutorCredentialManagedSourceInput, { kind: "graphql" }>,
+  "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+>;
+
+type ExecutorCredentialPromptArgs = {
+  workspaceId: WorkspaceId;
+  sourceId: Source["id"];
+  kind: ExecutorCredentialManagedSourceInput["kind"];
+  endpoint?: string;
+  specUrl?: string;
+  service?: string;
+  version?: string;
+  discoveryUrl?: string | null;
+  name?: string | null;
+  namespace?: string | null;
+};
+
+const isExecutorMcpToolArgs = (
+  args: ExecutorSourcesAddToolArgs,
+): args is Omit<ExecutorMcpSourceInput, "workspaceId" | "actorAccountId" | "executionId" | "interactionId"> =>
+  args.kind === undefined || sourceAdapterRequiresInteractiveConnect(args.kind);
+
+const isExecutorCredentialManagedSourceInput = (
+  input: ExecutorAddSourceInput,
+): input is ExecutorCredentialManagedSourceInput =>
+  typeof input.kind === "string";
+
+const prepareExecutorAddSourceInput = (input: {
+  args: ExecutorSourcesAddToolArgs;
+  workspaceId: WorkspaceId;
+  accountId: AccountId;
+  executionId: ReturnType<typeof toExecutionId>;
+  interactionId: ReturnType<typeof ExecutionInteractionIdSchema.make>;
+}): ExecutorAddSourceInput => {
+  if (isExecutorMcpToolArgs(input.args)) {
+    return {
+      kind: input.args.kind,
+      endpoint: input.args.endpoint,
+      name: input.args.name ?? null,
+      namespace: input.args.namespace ?? null,
+      workspaceId: input.workspaceId,
+      actorAccountId: input.accountId,
+      executionId: input.executionId,
+      interactionId: input.interactionId,
+    } satisfies ExecutorMcpSourceInput;
+  }
+
+  if ("service" in input.args) {
+    const args = input.args as ExecutorGoogleDiscoveryToolArgs;
+    return {
+      ...args,
+      workspaceId: input.workspaceId,
+      actorAccountId: input.accountId,
+      executionId: input.executionId,
+      interactionId: input.interactionId,
+    } satisfies Extract<ExecutorCredentialManagedSourceInput, { service: string; version: string }>;
+  }
+
+  if ("specUrl" in input.args) {
+    const args = input.args as ExecutorOpenApiToolArgs;
+    return {
+      ...args,
+      workspaceId: input.workspaceId,
+      actorAccountId: input.accountId,
+      executionId: input.executionId,
+      interactionId: input.interactionId,
+    } satisfies Extract<ExecutorCredentialManagedSourceInput, { specUrl: string }>;
+  }
+
+  const args = input.args as ExecutorGraphqlToolArgs;
+  return {
+    ...args,
+    workspaceId: input.workspaceId,
+    actorAccountId: input.accountId,
+    executionId: input.executionId,
+    interactionId: input.interactionId,
+  } satisfies Extract<ExecutorCredentialManagedSourceInput, { kind: "graphql" }>;
+};
+
 const resolveLocalCredentialUrl = (input: {
   baseUrl: string;
   workspaceId: WorkspaceId;
@@ -146,18 +246,7 @@ const resolveLocalCredentialUrl = (input: {
   ).toString();
 
 const promptForSourceCredentialSelection = (input: {
-  args: {
-    workspaceId: WorkspaceId;
-    sourceId: Source["id"];
-    kind: "openapi" | "graphql" | "google_discovery";
-    endpoint?: string;
-    specUrl?: string;
-    service?: string;
-    version?: string;
-    discoveryUrl?: string | null;
-    name?: string | null;
-    namespace?: string | null;
-  };
+  args: ExecutorCredentialPromptArgs;
   credentialSlot: "runtime" | "import";
   source: Source;
   executionId: string;
@@ -239,60 +328,18 @@ export const createExecutorToolMap = (input: {
       description: buildExecutorSourcesAddDescription(),
       inputSchema: ExecutorSourcesAddInputSchema,
       outputSchema: ExecutorSourcesAddOutputSchema,
-      execute: async (
-        args:
-          | {
-            kind?: "mcp";
-            endpoint: string;
-            name?: string | null;
-            namespace?: string | null;
-          }
-          | {
-            kind: "openapi";
-            endpoint: string;
-            specUrl: string;
-            name?: string | null;
-            namespace?: string | null;
-          }
-          | {
-            kind: "graphql";
-            endpoint: string;
-            name?: string | null;
-            namespace?: string | null;
-          }
-          | {
-            kind: "google_discovery";
-            service: string;
-            version: string;
-            discoveryUrl?: string | null;
-            name?: string | null;
-            namespace?: string | null;
-          },
-        context,
-      ): Promise<Source> => {
+      execute: async (args: ExecutorSourcesAddToolArgs, context): Promise<Source> => {
         const executionId = toExecutionId(context?.invocation?.runId);
         const interactionId = ExecutionInteractionIdSchema.make(
           `executor.sources.add:${crypto.randomUUID()}`,
         );
-        const preparedArgs: ExecutorAddSourceInput =
-          args.kind === undefined || args.kind === "mcp"
-            ? {
-              kind: args.kind,
-              endpoint: args.endpoint,
-              name: args.name ?? null,
-              namespace: args.namespace ?? null,
-              workspaceId: input.workspaceId,
-              actorAccountId: input.accountId,
-              executionId,
-              interactionId,
-            }
-            : {
-              ...args,
-              workspaceId: input.workspaceId,
-              actorAccountId: input.accountId,
-              executionId,
-              interactionId,
-            };
+        const preparedArgs = prepareExecutorAddSourceInput({
+          args,
+          workspaceId: input.workspaceId,
+          accountId: input.accountId,
+          executionId,
+          interactionId,
+        });
         let result = await runEffect(
           input.sourceAuthService.addExecutorSource(
             preparedArgs,
@@ -318,10 +365,10 @@ export const createExecutorToolMap = (input: {
 
         if (result.kind === "credential_required") {
           let pendingResult = result;
-          let pendingArgs = preparedArgs as Extract<
-            ExecutorAddSourceInput,
-            { kind: "openapi" | "graphql" | "google_discovery" }
-          >;
+          if (!isExecutorCredentialManagedSourceInput(preparedArgs)) {
+            throw new Error("Credential-managed source setup expected a named adapter kind");
+          }
+          let pendingArgs: ExecutorCredentialManagedSourceInput = preparedArgs;
 
           while (pendingResult.kind === "credential_required") {
             const selectedAuth = await runEffect(

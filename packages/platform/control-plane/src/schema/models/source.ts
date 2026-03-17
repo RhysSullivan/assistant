@@ -1,4 +1,14 @@
 import { Schema } from "effect";
+export {
+  SourceImportAuthPolicySchema,
+  SourceTransportSchema,
+  StringMapSchema,
+} from "@executor/source-core";
+import {
+  SourceImportAuthPolicySchema,
+  SourceTransportSchema,
+  StringMapSchema,
+} from "@executor/source-core";
 
 import { TimestampMsSchema } from "../common";
 import {
@@ -19,18 +29,6 @@ export const SourceStatusSchema = Schema.Literal(
   "auth_required",
   "connected",
   "error",
-);
-
-export const SourceTransportSchema = Schema.Literal(
-  "auto",
-  "streamable-http",
-  "sse",
-);
-
-export const SourceImportAuthPolicySchema = Schema.Literal(
-  "none",
-  "reuse_runtime",
-  "separate",
 );
 
 export const SourceAuthSchema = Schema.Union(
@@ -84,11 +82,6 @@ export const SourceAuthSchema = Schema.Union(
     clientInformationJson: Schema.NullOr(Schema.String),
   }),
 );
-
-export const StringMapSchema = Schema.Record({
-  key: Schema.String,
-  value: Schema.String,
-});
 
 export const SourceBindingVersionSchema = Schema.Number;
 
