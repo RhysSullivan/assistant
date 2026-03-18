@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { FileSystem } from "@effect/platform";
 import {
   createToolCatalogFromTools,
@@ -331,29 +330,44 @@ const transpileSourceFile = (input: {
     return rewriteRelativeImportSpecifiers(transpiled.outputText);
   });
 
-const resolveExecutorNodeModulesDirectory = (): string | null => {
-  const require = createRequire(import.meta.url);
-  let current = dirname(require.resolve("typescript"));
+const resolveExecutorNodeModulesDirectory = (): Effect.Effect<
+  string | null,
+  LocalFileSystemError,
+  FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    let current = dirname(fileURLToPath(import.meta.url));
 
-  while (true) {
-    if (basename(current) === "node_modules") {
-      return current;
+    while (true) {
+      const candidate = join(current, "node_modules");
+      const exists = yield* fs
+        .exists(candidate)
+        .pipe(
+          Effect.mapError(
+            mapFileSystemError(
+              candidate,
+              "check executor node_modules directory",
+            ),
+          ),
+        );
+      if (exists) {
+        return candidate;
+      }
+
+      const parent = dirname(current);
+      if (parent === current) {
+        return null;
+      }
+      current = parent;
     }
-
-    const parent = dirname(current);
-    if (parent === current) {
-      return null;
-    }
-    current = parent;
-  }
-};
-
-const EXECUTOR_NODE_MODULES_DIRECTORY = resolveExecutorNodeModulesDirectory();
+  });
 
 const ensureArtifactNodeModulesLink = (artifactRoot: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const linkPath = join(artifactRoot, "node_modules");
+    const executorNodeModulesDirectory = yield* resolveExecutorNodeModulesDirectory();
     const exists = yield* fs
       .exists(linkPath)
       .pipe(
@@ -365,12 +379,12 @@ const ensureArtifactNodeModulesLink = (artifactRoot: string) =>
       return;
     }
 
-    if (EXECUTOR_NODE_MODULES_DIRECTORY === null) {
+    if (executorNodeModulesDirectory === null) {
       return;
     }
 
     yield* fs
-      .symlink(EXECUTOR_NODE_MODULES_DIRECTORY, linkPath)
+      .symlink(executorNodeModulesDirectory, linkPath)
       .pipe(
         Effect.mapError(
           mapFileSystemError(linkPath, "create local tool node_modules link"),
