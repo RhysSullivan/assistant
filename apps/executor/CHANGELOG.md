@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.4-beta.2
+
+### Patch Changes
+
+- f0a3802: Fix legacy format parsing
+
 ## 1.2.4-beta.1
 
 ### Patch Changes
