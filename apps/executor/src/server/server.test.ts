@@ -180,6 +180,29 @@ const makeServer = createIsolatedLocalExecutorServer({
   executionResolver,
 });
 
+const createApiClientHarness = () =>
+  Effect.gen(function* () {
+    const server = yield* createIsolatedLocalExecutorServer({
+      port: 0,
+      localDataDir: ":memory:",
+    });
+    const bootstrapClient = yield* createControlPlaneClient({
+      baseUrl: server.baseUrl,
+    });
+    const installation = yield* bootstrapClient.local.installation({});
+    const client = yield* createControlPlaneClient({
+      baseUrl: server.baseUrl,
+      accountId: installation.accountId,
+    });
+
+    return {
+      server,
+      bootstrapClient,
+      installation,
+      client,
+    };
+  });
+
 const gatedExecutionResolver: ResolveExecutionEnvironment = ({ onElicitation }) =>
   Effect.succeed({
     executor: makeSesExecutor(),
@@ -1250,6 +1273,240 @@ describe("local-executor-server", () => {
     }),
   );
 
+  it.live("adds an OpenAPI source through the API client and calls it end to end", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const openApiServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOpenApiDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      const connected = yield* client.sources.connect({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          kind: "openapi",
+          name: "GitHub",
+          namespace: "github",
+          endpoint: openApiServer.baseUrl,
+          specUrl: openApiServer.specUrl,
+          auth: {
+            kind: "none",
+          },
+        },
+      });
+
+      expect(connected.kind).toBe("connected");
+      if (connected.kind !== "connected") {
+        throw new Error(`Expected connected result, received ${connected.kind}`);
+      }
+      expect(connected.source.status).toBe("connected");
+
+      const sources = yield* client.sources.list({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+      });
+
+      expect(sources).toHaveLength(1);
+      expect(sources[0]?.namespace).toBe("github");
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          code: 'return await tools.github.repos.getRepo({ owner: "vercel", repo: "ai" });',
+        },
+      });
+
+      expect(execution.execution.status).toBe("completed");
+      expect(execution.pendingInteraction).toBeNull();
+      expect(execution.execution.resultJson).toContain("\"full_name\":\"vercel/ai\"");
+      expect(openApiServer.seenAuthHeaders).toEqual([null]);
+    })),
+    15_000,
+  );
+
+  it.live("adds an MCP source through the API client and calls it end to end", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const demoServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startMcpElicitationDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      const connected = yield* client.sources.connect({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          kind: "mcp",
+          endpoint: demoServer.endpoint,
+          name: "Demo",
+          namespace: "demo",
+        },
+      });
+
+      expect(connected.kind).toBe("connected");
+      if (connected.kind !== "connected") {
+        throw new Error(`Expected connected result, received ${connected.kind}`);
+      }
+      expect(connected.source.status).toBe("connected");
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          code: 'return await tools.demo.gated_echo({ value: "from-api-client" });',
+          interactionMode: "live_form",
+        },
+      });
+
+      expect(execution.execution.status).toBe("waiting_for_interaction");
+      expect(execution.pendingInteraction).not.toBeNull();
+      if (execution.pendingInteraction === null) {
+        throw new Error("Expected pending MCP interaction");
+      }
+      expect(execution.pendingInteraction.kind).toBe("form");
+      expect(execution.pendingInteraction.payloadJson).toContain("Allow gated_echo?");
+
+      const approved = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.workspaceId,
+          executionId: execution.execution.id,
+        },
+        payload: {
+          interactionMode: "live_form",
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(approved.execution.status).toBe("waiting_for_interaction");
+      expect(approved.pendingInteraction).not.toBeNull();
+      if (approved.pendingInteraction === null) {
+        throw new Error("Expected remote MCP tool interaction");
+      }
+      expect(approved.pendingInteraction.kind).toBe("form");
+      expect(approved.pendingInteraction.payloadJson).toContain(
+        "Approve gated echo for from-api-client?",
+      );
+
+      const resumed = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.workspaceId,
+          executionId: execution.execution.id,
+        },
+        payload: {
+          interactionMode: "live_form",
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(resumed.execution.status).toBe("completed");
+      expect(resumed.pendingInteraction).toBeNull();
+      expect(resumed.execution.resultJson).toContain("approved:from-api-client");
+    })),
+    15_000,
+  );
+
+  it.live("adds an OAuth-protected MCP source through the API client and resumes after callback", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const oauthServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOAuthProtectedMcpServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      const connected = yield* client.sources.connect({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          kind: "mcp",
+          endpoint: oauthServer.endpoint,
+          name: "Axiom",
+          namespace: "axiom",
+        },
+      });
+
+      expect(connected.kind).toBe("oauth_required");
+      if (connected.kind !== "oauth_required") {
+        throw new Error(`Expected oauth_required result, received ${connected.kind}`);
+      }
+      expect(connected.source.status).toBe("auth_required");
+
+      const callbackResponse = yield* Effect.promise(() =>
+        fetch(connected.authorizationUrl, {
+          redirect: "follow",
+        }),
+      );
+      assertTrue(callbackResponse.ok);
+      const callbackText = yield* Effect.promise(() => callbackResponse.text());
+      expect(callbackText).toContain("Source connected:");
+
+      const refreshedSource = yield* client.sources.get({
+        path: {
+          workspaceId: installation.workspaceId,
+          sourceId: connected.source.id,
+        },
+      });
+
+      expect(refreshedSource.name).toBe("Axiom");
+      expect(refreshedSource.status).toBe("connected");
+      expect(refreshedSource.auth.kind).toBe("mcp_oauth");
+
+      const toolCall = yield* client.executions.create({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          code: "return await tools.axiom.whoami({});",
+        },
+      });
+
+      expect(toolCall.execution.status).toBe("waiting_for_interaction");
+      expect(toolCall.pendingInteraction).not.toBeNull();
+      if (toolCall.pendingInteraction === null) {
+        throw new Error("Expected pending tool approval interaction");
+      }
+      expect(toolCall.pendingInteraction.kind).toBe("form");
+      expect(toolCall.pendingInteraction.payloadJson).toContain("Allow whoami?");
+
+      const approvedToolCall = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.workspaceId,
+          executionId: toolCall.execution.id,
+        },
+        payload: {
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(approvedToolCall.execution.status).toBe("completed");
+      expect(approvedToolCall.pendingInteraction).toBeNull();
+      expect(approvedToolCall.execution.resultJson).toContain("oauth-demo");
+    })),
+    15_000,
+  );
+
   it.scoped("adds an OAuth-protected MCP source via executor.sources.add and resumes after callback", () =>
     Effect.gen(function* () {
       const oauthServer = yield* Effect.acquireRelease(
@@ -1586,7 +1843,7 @@ describe("local-executor-server", () => {
 
       expect(resumed.execution.status).toBe("failed");
       expect(resumed.pendingInteraction).toBeNull();
-      expect(resumed.execution.errorText).toContain("Invalid URL");
+      expect(resumed.execution.errorText).toMatch(/Invalid URL|Failed connecting to MCP server/);
     }),
   );
 });

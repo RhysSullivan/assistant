@@ -1,0 +1,31 @@
+{
+  "mode": "pre",
+  "tag": "beta",
+  "initialVersions": {
+    "@executor/docs": "0.0.0",
+    "executor": "1.2.3",
+    "@executor/mcp-elicitation-demo": "0.0.0",
+    "@executor/web": "0.0.0",
+    "@executor/serve-skills-via-mcp-demo": "0.0.0",
+    "@executor/auth-mcp-oauth": "0.0.0",
+    "@executor/auth-oauth2": "0.0.0",
+    "@executor/react": "0.0.0",
+    "@executor/kitchen-sink": "0.0.0",
+    "@executor/ai-sdk-adapter": "0.0.0",
+    "@executor/executor-mcp": "0.0.0",
+    "@executor/codemode-core": "0.0.0",
+    "@executor/ir": "0.0.0",
+    "@executor/runtime-deno-subprocess": "0.0.0",
+    "@executor/runtime-quickjs": "0.0.0",
+    "@executor/runtime-ses": "0.0.0",
+    "@executor/control-plane": "0.0.0",
+    "@executor/server": "0.0.0",
+    "@executor/source-builtins": "0.0.0",
+    "@executor/source-core": "0.0.0",
+    "@executor/source-google-discovery": "0.0.0",
+    "@executor/source-graphql": "0.0.0",
+    "@executor/source-mcp": "0.0.0",
+    "@executor/source-openapi": "0.0.0"
+  },
+  "changesets": []
+}

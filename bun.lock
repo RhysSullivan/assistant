@@ -89,6 +89,17 @@
         "vite": "^7.3.1",
       },
     },
+    "examples/serve-skills-via-mcp": {
+      "name": "@executor/serve-skills-via-mcp-demo",
+      "version": "0.0.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.26.0",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
     "packages/auth/mcp-oauth": {
       "name": "@executor/auth-mcp-oauth",
       "version": "0.0.0",
@@ -649,6 +660,8 @@
     "@executor/runtime-quickjs": ["@executor/runtime-quickjs@workspace:packages/kernel/runtime-quickjs"],
 
     "@executor/runtime-ses": ["@executor/runtime-ses@workspace:packages/kernel/runtime-ses"],
+
+    "@executor/serve-skills-via-mcp-demo": ["@executor/serve-skills-via-mcp-demo@workspace:examples/serve-skills-via-mcp"],
 
     "@executor/server": ["@executor/server@workspace:packages/platform/server"],
 

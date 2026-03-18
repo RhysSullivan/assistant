@@ -24,6 +24,17 @@
         "src/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"
       ]
     },
+    "examples/*": {
+      "entry": [
+        "src/index.ts",
+        "src/main.ts",
+        "src/server.ts",
+        "src/smoke.ts"
+      ],
+      "project": [
+        "src/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"
+      ]
+    },
     "packages/*/*": {
       "entry": [
         "src/index.ts",

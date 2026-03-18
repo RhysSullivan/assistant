@@ -1,0 +1,21 @@
+{
+  "name": "@executor/serve-skills-via-mcp-demo",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "start": "bun src/main.ts",
+    "smoke": "bun src/smoke.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "bun-types": "catalog:"
+  },
+  "version": "0.0.0"
+}
