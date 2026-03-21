@@ -1,4 +1,17 @@
 {
+  "sources": {
+    "github": {
+      "kind": "openapi",
+      "name": "GitHub",
+      "connection": {
+        "endpoint": "https://api.github.com/"
+      },
+      "binding": {
+        "specUrl": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
+        "defaultHeaders": null
+      }
+    }
+  },
   "policies": {
     "demo.*": {
       "match": "demo.*",

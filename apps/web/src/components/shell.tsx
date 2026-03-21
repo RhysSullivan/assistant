@@ -27,6 +27,8 @@ const { VITE_APP_VERSION, VITE_GITHUB_URL } = (import.meta as ImportMeta & {
 
 type UpdateChannel = "latest" | "beta";
 
+const EXECUTOR_DIST_TAGS_PATH = "/v1/app/npm/dist-tags";
+
 type ParsedVersion = {
   readonly major: number;
   readonly minor: number;
@@ -139,8 +141,13 @@ function useLatestVersion(currentVersion: string) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("https://registry.npmjs.org/-/package/executor/dist-tags")
-      .then((res) => res.json())
+    fetch(EXECUTOR_DIST_TAGS_PATH)
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to load dist tags: ${res.status}`);
+        }
+        return res.json() as Promise<Partial<Record<UpdateChannel, string>>>;
+      })
       .then((data: Partial<Record<UpdateChannel, string>>) => {
         if (!cancelled) {
           setLatestVersion(data[channel] ?? null);

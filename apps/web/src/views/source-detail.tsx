@@ -122,12 +122,50 @@ const readBindingTransport = (source: Source): "auto" | "streamable-http" | "sse
     : undefined;
 };
 
+type RefreshableHttpAuth =
+  | { kind: "none" }
+  | {
+      kind: "bearer";
+      headerName?: string | null;
+      prefix?: string | null;
+      token?: string | null;
+      tokenRef?: { providerId: string; handle: string } | null;
+    }
+  | {
+      kind: "oauth2";
+      headerName?: string | null;
+      prefix?: string | null;
+      accessToken?: string | null;
+      accessTokenRef?: { providerId: string; handle: string } | null;
+      refreshToken?: string | null;
+      refreshTokenRef?: { providerId: string; handle: string } | null;
+    };
+
 const refreshableHttpAuth = (
   auth: Source["auth"],
-): Extract<Source["auth"], { kind: "none" | "bearer" | "oauth2" }> | undefined =>
-  auth.kind === "none" || auth.kind === "bearer" || auth.kind === "oauth2"
-    ? auth
-    : undefined;
+): RefreshableHttpAuth | undefined => {
+  switch (auth.kind) {
+    case "none":
+      return { kind: "none" };
+    case "bearer":
+      return {
+        kind: "bearer",
+        headerName: auth.headerName,
+        prefix: auth.prefix,
+        tokenRef: auth.token,
+      };
+    case "oauth2":
+      return {
+        kind: "oauth2",
+        headerName: auth.headerName,
+        prefix: auth.prefix,
+        accessTokenRef: auth.accessToken,
+        refreshTokenRef: auth.refreshToken,
+      };
+    default:
+      return undefined;
+  }
+};
 
 const refreshPayloadFromSource = (source: Source): ConnectSourcePayload | null => {
   switch (source.kind) {
@@ -193,6 +231,8 @@ const refreshPayloadFromSource = (source: Source): ConnectSourcePayload | null =
         auth: refreshableHttpAuth(source.auth),
       };
     }
+    default:
+      return null;
   }
 };
 

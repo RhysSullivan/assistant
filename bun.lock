@@ -325,8 +325,6 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
-        "@executor/platform-api": "workspace:*",
-        "@executor/platform-internal": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@types/node": "catalog:",
         "bun-types": "catalog:",

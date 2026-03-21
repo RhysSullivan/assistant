@@ -98,6 +98,10 @@ export type LocalExecutorRequestHandler = {
 type ControlPlaneWebHandler = ReturnType<typeof HttpApiBuilder.toWebHandler>;
 type ExecutorMcpHandler = ReturnType<typeof createExecutorMcpRequestHandler>;
 
+const EXECUTOR_NPM_DIST_TAGS_PATHNAME = "/v1/app/npm/dist-tags";
+const EXECUTOR_NPM_DIST_TAGS_URL =
+  "https://registry.npmjs.org/-/package/executor/dist-tags";
+
 const disposeRuntime = (runtime: ControlPlaneRuntime) =>
   Effect.tryPromise({
     try: () => runtime.close(),
@@ -306,6 +310,34 @@ const isApiRequest = (request: Request): boolean => {
   return pathname === "/mcp" || pathname === "/v1" || pathname.startsWith("/v1/");
 };
 
+const handleExecutorNpmDistTagsRequest = async (): Promise<Response> => {
+  try {
+    const upstream = await fetch(EXECUTOR_NPM_DIST_TAGS_URL, {
+      headers: {
+        accept: "application/json",
+      },
+    });
+    const body = upstream.ok ? await upstream.text() : "{}";
+    return new Response(body, {
+      status: upstream.ok ? 200 : 502,
+      headers: {
+        "cache-control": upstream.ok
+          ? upstream.headers.get("cache-control") ?? "public, max-age=300"
+          : "no-store",
+        "content-type": "application/json; charset=utf-8",
+      },
+    });
+  } catch {
+    return new Response("{}", {
+      status: 502,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+      },
+    });
+  }
+};
+
 export const createLocalExecutorRequestHandler = (
   options: StartLocalExecutorServerOptions = {},
 ): Effect.Effect<LocalExecutorRequestHandler, Error, Scope.Scope> =>
@@ -359,6 +391,9 @@ export const createLocalExecutorRequestHandler = (
       runtime,
       handleApiRequest: (request) => {
         const pathname = new URL(request.url).pathname;
+        if (pathname === EXECUTOR_NPM_DIST_TAGS_PATHNAME) {
+          return handleExecutorNpmDistTagsRequest();
+        }
         return pathname === "/mcp"
           ? mcpHandler.handleRequest(request)
           : apiHandler.handler(request);

@@ -6,7 +6,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 import {
   ControlPlaneApi,
   createControlPlaneApiLayer,
-} from "@executor/platform-api";
+} from "../../../../api/src/index";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 

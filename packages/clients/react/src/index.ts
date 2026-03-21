@@ -3,12 +3,14 @@ import type * as Registry from "@effect-atom/atom/Registry";
 import { RegistryContext, RegistryProvider, useAtomValue } from "@effect-atom/atom-react";
 import {
   createControlPlaneClient,
+  type ControlPlaneClient,
+} from "@executor/platform-api/client";
+import {
   type CompleteSourceOAuthResult,
   type ConnectSourceBatchPayload,
   type ConnectSourceBatchResult,
   type ConnectSourcePayload,
   type ConnectSourceResult,
-  type ControlPlaneClient,
   type CreateSecretPayload,
   type CreateSecretResult,
   type CreateSourcePayload,

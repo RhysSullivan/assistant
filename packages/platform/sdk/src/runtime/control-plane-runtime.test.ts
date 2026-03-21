@@ -23,7 +23,7 @@ import {
 import type { ToolPath } from "@executor/codemode-core";
 import { createCatalogImportMetadata } from "@executor/source-core";
 import { createGraphqlCatalogFragment } from "@executor/source-graphql";
-import { createExecutorAdminToolMap } from "@executor/platform-internal";
+import { createExecutorAdminToolMap } from "../../../internal/src/index";
 
 import {
   type ControlPlaneRuntime,
