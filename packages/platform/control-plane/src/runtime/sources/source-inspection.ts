@@ -301,7 +301,7 @@ const resolveSourceInspectionTool = (input: {
       catalogs: [loaded.catalogEntry],
       path: input.toolPath,
       includeSchemas: true,
-      includeTypePreviews: true,
+      includeTypePreviews: false,
     });
 
     return {
@@ -393,7 +393,8 @@ export const getSourceInspection = (input: {
     const inspection = yield* resolveSourceInspection({
       ...input,
       includeSchemas: false,
-      includeTypePreviews: true,
+      // Keep the initial tool list lightweight; full type previews are built on demand per tool.
+      includeTypePreviews: false,
     });
 
     return {
@@ -452,7 +453,7 @@ export const discoverSourceInspectionTools = (input: {
       workspaceId: input.workspaceId,
       sourceId: input.sourceId,
       includeSchemas: false,
-      includeTypePreviews: true,
+      includeTypePreviews: false,
     });
     const queryTokens = tokenize(input.payload.query);
     const results = inspection.tools

@@ -487,6 +487,7 @@ describe("source-type-declarations", () => {
       );
       expect(sourceDeclaration).toContain("type LinearTeamsCall = {");
       expect(sourceDeclaration).toContain("type LinearTeamsResult = {");
+      expect(sourceDeclaration).toContain("type LinearTeamsSearchResult = {");
       expect(sourceDeclaration.match(/type LinearTeamsCall =/g)?.length).toBe(
         1,
       );
@@ -497,8 +498,13 @@ describe("source-type-declarations", () => {
         "teams: (args?: LinearTeamsCall) => Promise<LinearTeamsResult>;",
       );
       expect(sourceDeclaration).toContain(
-        "teamsSearch: (args?: LinearTeamsCall) => Promise<LinearTeamsResult>;",
+        "teamsSearch: (args?: LinearTeamsCall) => Promise<LinearTeamsSearchResult>;",
       );
+      expect(sourceDeclaration).toContain("filter?: {");
+      expect(sourceDeclaration).toContain("name?: string;");
+      expect(sourceDeclaration).not.toContain("type ResultData");
+      expect(sourceDeclaration).not.toContain("type ResponseHeaders");
+      expect(sourceDeclaration).not.toContain("Member1");
       expect(sourceDeclaration).not.toMatch(/type\s+[0-9]/);
       expect(aggregateDeclaration).toContain(
         'import type { SourceTools_src_linear } from "../sources/src_linear";',
@@ -687,10 +693,15 @@ describe("source-type-declarations", () => {
             "src_linear.d.ts",
           ),
         );
-
-        expect(sourceDeclaration).toContain("unsupportedNot?: unknown;");
         expect(sourceDeclaration).toContain(
-          "unsupportedConditional?: unknown;",
+          "unsupportedNot?: UnsupportedNot;",
+        );
+        expect(sourceDeclaration).toContain(
+          "unsupportedConditional?: UnsupportedConditional;",
+        );
+        expect(sourceDeclaration).toContain("type UnsupportedNot = unknown;");
+        expect(sourceDeclaration).toContain(
+          "type UnsupportedConditional = unknown;",
         );
       }),
   );
@@ -926,7 +937,10 @@ describe("source-type-declarations", () => {
         );
 
         expect(sourceDeclaration).toContain(
-          "teams: (args?: LinearTeamsCall) => Promise<{",
+          "teams: (args?: LinearTeamsCall) => Promise<LinearTeamsResult>;",
+        );
+        expect(sourceDeclaration).toContain(
+          "type AbuseBlockHistoryItem = {",
         );
         expect(sourceDeclaration).toContain("actor?: string;");
         expect(sourceDeclaration).toContain('action: "blocked";');

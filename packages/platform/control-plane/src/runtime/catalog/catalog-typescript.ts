@@ -5,6 +5,7 @@ import type { ShapeSymbolId } from "@executor/ir/ids";
 import type {
   CatalogV1,
   DocumentationBlock,
+  ProvenanceRef,
   ShapeNode,
   ShapeSymbol,
 } from "@executor/ir/model";
@@ -52,7 +53,6 @@ export type CatalogTypeProjector = {
 };
 
 const VALID_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const TYPE_ALIAS_REFERENCE_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 const hashSignature = (value: string): string =>
   createHash("sha256").update(value).digest("hex").slice(0, 24);
@@ -159,6 +159,89 @@ const isSyntheticShapeLabel = (value: string): boolean =>
   /^shape_[a-f0-9_]+$/i.test(value);
 
 const looksLikeHumanPhrase = (value: string): boolean => /\s/.test(value.trim());
+
+const nominalTypeName = (shape: ShapeSymbol): string | undefined => {
+  const title = shape.title?.trim();
+  return title && !isSyntheticShapeLabel(title)
+    ? formatTypeNameSegment(title)
+    : undefined;
+};
+
+const decodePointerSegment = (value: string): string =>
+  value.replace(/~1/g, "/").replace(/~0/g, "~");
+
+const meaningfulProvenanceName = (value: string): string | undefined => {
+  const stripped = value.trim();
+  if (
+    stripped.length === 0
+    || /^\d+$/.test(stripped)
+    || [
+      "$defs",
+      "definitions",
+      "components",
+      "schemas",
+      "schema",
+      "properties",
+      "items",
+      "additionalProperties",
+      "patternProperties",
+      "allOf",
+      "anyOf",
+      "oneOf",
+      "not",
+      "if",
+      "then",
+      "else",
+      "input",
+      "output",
+      "graphql",
+      "scalars",
+      "responses",
+      "headers",
+      "parameters",
+      "requestBody",
+    ].includes(stripped)
+  ) {
+    return undefined;
+  }
+
+  return formatTypeNameSegment(stripped);
+};
+
+const typeNameFromProvenance = (provenance: readonly ProvenanceRef[]): string | undefined => {
+  for (const entry of provenance) {
+    const pointer = entry.pointer;
+    if (!pointer?.startsWith("#/")) {
+      continue;
+    }
+
+    const segments = pointer
+      .slice(2)
+      .split("/")
+      .map(decodePointerSegment);
+    const markerIndexes = segments.flatMap((segment, index) =>
+      ["$defs", "definitions", "schemas", "input", "output"].includes(segment)
+        ? [index]
+        : []
+    );
+
+    for (const markerIndex of markerIndexes) {
+      const candidate = meaningfulProvenanceName(segments[markerIndex + 1] ?? "");
+      if (candidate) {
+        return candidate;
+      }
+    }
+
+    for (let index = segments.length - 1; index >= 0; index -= 1) {
+      const candidate = meaningfulProvenanceName(segments[index] ?? "");
+      if (candidate) {
+        return candidate;
+      }
+    }
+  }
+
+  return undefined;
+};
 
 const cleanDocText = (value: string | undefined): string | null => {
   const trimmed = value?.trim();
@@ -475,14 +558,17 @@ export const createCatalogTypeProjector = (input: {
 }): CatalogTypeProjector => {
   const { catalog, roots } = input;
   const signatureCache = new Map<ShapeSymbolId, SignatureInfo>();
-  const recursiveSignatures = new Set<string>();
-  const shapeIdsBySignature = new Map<string, ShapeSymbolId[]>();
-  const usageCountBySignature = new Map<string, number>();
-  const aliasNameBySignature = new Map<string, string>();
-  const canonicalTypeBySignature = new Map<string, string>();
-  const rootAliasHintBySignature = new Map<string, string>();
+  const rootShapeIds = new Set(roots.map((root) => root.shapeId));
+  const reachableShapeIds = new Set<ShapeSymbolId>();
+  const recursiveShapeIds = new Set<ShapeSymbolId>();
+  const explicitRefTargetShapeIds = new Set<ShapeSymbolId>();
+  const aliasNameByShapeId = new Map<ShapeSymbolId, string>();
+  const rootAliasHintByShapeId = new Map<ShapeSymbolId, string>();
+  const declarationBodyByShapeId = new Map<ShapeSymbolId, string>();
+  const nominalTypeNameByShapeId = new Map<ShapeSymbolId, string>();
+  const nominalTypeNameCounts = new Map<string, number>();
   const usedAliasNames = new Set<string>();
-  const usedAliasSignatures = new Set<string>();
+  const usedAliasShapeIds = new Set<ShapeSymbolId>();
 
   const shapeSignatureInfo = (shapeId: ShapeSymbolId, stack: readonly ShapeSymbolId[] = []): SignatureInfo => {
     const cached = signatureCache.get(shapeId);
@@ -590,24 +676,12 @@ export const createCatalogTypeProjector = (input: {
       recursive,
     };
 
-    if (signature.recursive) {
-      recursiveSignatures.add(signature.key);
-    }
-
     signatureCache.set(shapeId, signature);
-    const group = shapeIdsBySignature.get(signature.key);
-    if (group) {
-      group.push(shapeId);
-    } else {
-      shapeIdsBySignature.set(signature.key, [shapeId]);
-    }
     return signature;
   };
 
   const shapeSignature = (shapeId: ShapeSymbolId, stack: readonly ShapeSymbolId[] = []): string =>
     shapeSignatureInfo(shapeId, stack).key;
-
-  const reachableShapeIds = new Set<ShapeSymbolId>();
 
   const collectReachableShapes = (shapeId: ShapeSymbolId): void => {
     if (reachableShapeIds.has(shapeId)) {
@@ -624,33 +698,81 @@ export const createCatalogTypeProjector = (input: {
     collectReachableShapes(root.shapeId);
   }
 
-  for (const rootShapeId of roots.map((root) => root.shapeId)) {
-    const rootShape = getShapeSymbol(catalog, rootShapeId);
-    if (isInlineShapeNode(rootShape.node)) {
+  for (const shapeId of reachableShapeIds) {
+    const shape = getShapeSymbol(catalog, shapeId);
+    if (shape.synthetic) {
       continue;
     }
 
-    const signature = shapeSignature(rootShapeId);
-    usageCountBySignature.set(signature, (usageCountBySignature.get(signature) ?? 0) + 1);
+    const name = nominalTypeName(shape);
+    if (!name) {
+      continue;
+    }
+
+    nominalTypeNameByShapeId.set(shapeId, name);
+    nominalTypeNameCounts.set(name, (nominalTypeNameCounts.get(name) ?? 0) + 1);
   }
 
-  for (const shapeId of reachableShapeIds) {
+  const uniqueNominalTypeNameForShapeId = (
+    shapeId: ShapeSymbolId,
+  ): string | undefined => {
+    const name = nominalTypeNameByShapeId.get(shapeId);
+    return name && nominalTypeNameCounts.get(name) === 1
+      ? name
+      : undefined;
+  };
+
+  const visitingShapeIds: Array<ShapeSymbolId> = [];
+  const processedShapeIds = new Set<ShapeSymbolId>();
+
+  const markRecursiveShapes = (cycleStartShapeId: ShapeSymbolId): void => {
+    const cycleStartIndex = visitingShapeIds.indexOf(cycleStartShapeId);
+    if (cycleStartIndex === -1) {
+      recursiveShapeIds.add(cycleStartShapeId);
+      return;
+    }
+
+    for (const recursiveShapeId of visitingShapeIds.slice(cycleStartIndex)) {
+      recursiveShapeIds.add(recursiveShapeId);
+    }
+    recursiveShapeIds.add(cycleStartShapeId);
+  };
+
+  const detectRecursiveShapes = (shapeId: ShapeSymbolId): void => {
+    if (processedShapeIds.has(shapeId)) {
+      return;
+    }
+
+    if (visitingShapeIds.includes(shapeId)) {
+      markRecursiveShapes(shapeId);
+      return;
+    }
+
+    visitingShapeIds.push(shapeId);
     for (const childShapeId of childShapeIds(getShapeSymbol(catalog, shapeId).node)) {
-      const childShape = getShapeSymbol(catalog, childShapeId);
-      if (isInlineShapeNode(childShape.node)) {
+      if (visitingShapeIds.includes(childShapeId)) {
+        markRecursiveShapes(childShapeId);
         continue;
       }
 
-      const signature = shapeSignature(childShapeId);
-      usageCountBySignature.set(signature, (usageCountBySignature.get(signature) ?? 0) + 1);
+      detectRecursiveShapes(childShapeId);
+    }
+    visitingShapeIds.pop();
+    processedShapeIds.add(shapeId);
+  };
+
+  for (const root of roots) {
+    detectRecursiveShapes(root.shapeId);
+    const existing = rootAliasHintByShapeId.get(root.shapeId);
+    if (!existing || root.aliasHint.length < existing.length) {
+      rootAliasHintByShapeId.set(root.shapeId, root.aliasHint);
     }
   }
 
-  for (const root of roots) {
-    const signature = shapeSignature(root.shapeId);
-    const existing = rootAliasHintBySignature.get(signature);
-    if (!existing || root.aliasHint.length < existing.length) {
-      rootAliasHintBySignature.set(signature, root.aliasHint);
+  for (const shapeId of reachableShapeIds) {
+    const shape = getShapeSymbol(catalog, shapeId);
+    if (shape.node.type === "ref") {
+      explicitRefTargetShapeIds.add(shape.node.target);
     }
   }
 
@@ -883,60 +1005,56 @@ export const createCatalogTypeProjector = (input: {
     return baseText ? `${wrapCompositeType(baseText)} & (${unionText})` : unionText;
   };
 
-  const representativeShapeIdForSignature = (signature: string): ShapeSymbolId => {
-    const group = shapeIdsBySignature.get(signature);
-    if (!group || group.length === 0) {
-      throw new Error(`Missing representative shape for signature ${signature}`);
-    }
-
-    const sorted = [...group].sort((left, right) => {
-      const leftShape = getShapeSymbol(catalog, left);
-      const rightShape = getShapeSymbol(catalog, right);
-      const leftTitle = leftShape.title ?? leftShape.id;
-      const rightTitle = rightShape.title ?? rightShape.id;
-      const leftRefPenalty = leftShape.node.type === "ref" ? 1 : 0;
-      const rightRefPenalty = rightShape.node.type === "ref" ? 1 : 0;
-      const leftSynthetic = isSyntheticShapeLabel(leftTitle) ? 1 : 0;
-      const rightSynthetic = isSyntheticShapeLabel(rightTitle) ? 1 : 0;
-      return leftRefPenalty - rightRefPenalty
-        || leftSynthetic - rightSynthetic
-        || leftTitle.localeCompare(rightTitle);
-    });
-
-    return sorted[0]!;
-  };
-
-  const aliasNameForSignature = (signature: string, hint?: string): string => {
-    const existing = aliasNameBySignature.get(signature);
+  const aliasNameForShapeId = (shapeId: ShapeSymbolId, hint?: string): string => {
+    const existing = aliasNameByShapeId.get(shapeId);
     if (existing) {
       return existing;
     }
 
-    const representative = getShapeSymbol(catalog, representativeShapeIdForSignature(signature));
-    const representativeName = representative.title ?? representative.id;
-    const rootHint = rootAliasHintBySignature.get(signature);
-    const contextualHint = hint ? compactAliasHint(joinTypeNameSegments(hint)) : undefined;
-    const representativeTypeName = !isSyntheticShapeLabel(representativeName) && !looksLikeHumanPhrase(representativeName)
-      ? formatTypeNameSegment(representativeName)
-      : undefined;
-    const baseName = rootHint
-      ?? representativeTypeName
-      ?? contextualHint
-      ?? formatTypeNameSegment(representative.id);
-    let candidate = baseName;
+    const shape = getShapeSymbol(catalog, shapeId);
+    const rootHint = rootAliasHintByShapeId.get(shapeId);
+    const contextualHint = hint ? compactAliasHint(hint) : undefined;
+    const uniqueNominalName = uniqueNominalTypeNameForShapeId(shapeId);
+    const nameCandidates = [
+      rootHint,
+      uniqueNominalName,
+      typeNameFromProvenance(shape.provenance),
+      nominalTypeNameByShapeId.get(shapeId),
+      contextualHint,
+      formatTypeNameSegment(shape.id),
+    ].filter((candidate): candidate is string => candidate !== undefined);
+    const [baseName = formatTypeNameSegment(shape.id)] = nameCandidates;
+    let candidate =
+      nameCandidates.find((name) => !usedAliasNames.has(name))
+      ?? baseName;
     let suffix = 2;
     while (usedAliasNames.has(candidate)) {
       candidate = `${baseName}_${String(suffix)}`;
       suffix += 1;
     }
 
-    aliasNameBySignature.set(signature, candidate);
+    aliasNameByShapeId.set(shapeId, candidate);
     usedAliasNames.add(candidate);
     return candidate;
   };
 
-  const shouldAliasSignature = (signature: string): boolean =>
-    recursiveSignatures.has(signature) || (usageCountBySignature.get(signature) ?? 0) > 1;
+  const shouldEmitDeclarationShape = (shapeId: ShapeSymbolId): boolean => {
+    const shape = getShapeSymbol(catalog, shapeId);
+    if (isInlineShapeNode(shape.node)) {
+      return false;
+    }
+
+    if (rootShapeIds.has(shapeId)) {
+      return true;
+    }
+
+    if (shape.node.type === "ref") {
+      return false;
+    }
+
+    return uniqueNominalTypeNameForShapeId(shapeId) !== undefined
+      || explicitRefTargetShapeIds.has(shapeId);
+  };
 
   const renderDeclarationShapeBody = (
     shapeId: ShapeSymbolId,
@@ -965,21 +1083,15 @@ export const createCatalogTypeProjector = (input: {
     }
   };
 
-  const canonicalTypeForSignature = (signature: string, hint?: string): string => {
-    const existing = canonicalTypeBySignature.get(signature);
+  const renderDeclarationBodyForShapeId = (shapeId: ShapeSymbolId): string => {
+    const existing = declarationBodyByShapeId.get(shapeId);
     if (existing) {
       return existing;
     }
 
-    const aliasName = aliasNameForSignature(signature, hint);
-    canonicalTypeBySignature.set(signature, aliasName);
-    const representativeShapeId = representativeShapeIdForSignature(signature);
-    const body = renderDeclarationShapeBody(representativeShapeId, [representativeShapeId], aliasName);
-    const canonical = TYPE_ALIAS_REFERENCE_PATTERN.test(body) && body !== aliasName
-      ? body
-      : aliasName;
-    canonicalTypeBySignature.set(signature, canonical);
-    return canonical;
+    const body = renderDeclarationShapeBody(shapeId, [shapeId], aliasNameForShapeId(shapeId));
+    declarationBodyByShapeId.set(shapeId, body);
+    return body;
   };
 
   const renderDeclarationShape: RenderShape = (shapeId, options = {}) => {
@@ -988,16 +1100,21 @@ export const createCatalogTypeProjector = (input: {
       return renderInlineShapeNode(shape.node);
     }
 
-    const signature = shapeSignature(shapeId);
-    if (shouldAliasSignature(signature)) {
-      usedAliasSignatures.add(signature);
-      return canonicalTypeForSignature(signature, options.aliasHint);
+    const stack = options.stack ?? [];
+    if (shape.node.type === "ref" && !rootShapeIds.has(shapeId)) {
+      if (stack.includes(shapeId)) {
+        return renderDeclarationShape(shape.node.target, {
+          stack,
+          aliasHint: options.aliasHint,
+        });
+      }
+
+      return renderDeclarationShapeBody(shapeId, [...stack, shapeId], options.aliasHint);
     }
 
-    const stack = options.stack ?? [];
-    if (stack.includes(shapeId)) {
-      usedAliasSignatures.add(signature);
-      return canonicalTypeForSignature(signature, options.aliasHint);
+    if (stack.includes(shapeId) || shouldEmitDeclarationShape(shapeId)) {
+      usedAliasShapeIds.add(shapeId);
+      return aliasNameForShapeId(shapeId, options.aliasHint);
     }
 
     return renderDeclarationShapeBody(shapeId, [...stack, shapeId], options.aliasHint);
@@ -1063,53 +1180,43 @@ export const createCatalogTypeProjector = (input: {
   };
 
   const supportingDeclarations = (): readonly string[] => {
-    const pending = [...usedAliasSignatures];
-    const emitted = new Set<string>();
+    const pending = [...usedAliasShapeIds];
+    const emitted = new Set<ShapeSymbolId>();
+    let pendingIndex = 0;
 
-    while (pending.length > 0) {
-      const signature = pending.pop()!;
-      if (emitted.has(signature)) {
+    while (pendingIndex < pending.length) {
+      const shapeId = pending[pendingIndex++]!;
+      if (emitted.has(shapeId)) {
         continue;
       }
 
-      emitted.add(signature);
-      const representativeShapeId = representativeShapeIdForSignature(signature);
-      renderDeclarationShapeBody(representativeShapeId, [representativeShapeId], aliasNameForSignature(signature));
+      emitted.add(shapeId);
+      renderDeclarationBodyForShapeId(shapeId);
 
-      for (const discoveredSignature of usedAliasSignatures) {
-        if (!emitted.has(discoveredSignature)) {
-          pending.push(discoveredSignature);
+      for (const discoveredShapeId of usedAliasShapeIds) {
+        if (!emitted.has(discoveredShapeId)) {
+          pending.push(discoveredShapeId);
         }
       }
     }
 
-    return [...emitted]
-      .sort((left, right) => aliasNameForSignature(left).localeCompare(aliasNameForSignature(right)))
-      .map((signature) => {
-        const canonicalType = canonicalTypeForSignature(signature);
-        const representativeShapeId = representativeShapeIdForSignature(signature);
-        const aliasName = aliasNameForSignature(signature);
-        const representativeShape = getShapeSymbol(catalog, representativeShapeId);
+    const declarations = [...emitted]
+      .sort((left, right) => aliasNameForShapeId(left).localeCompare(aliasNameForShapeId(right)))
+      .map((shapeId) => {
+        const aliasName = aliasNameForShapeId(shapeId);
+        const shape = getShapeSymbol(catalog, shapeId);
         const comment = documentationComment({
-          title: representativeShape.title,
-          docs: representativeShape.docs,
-          deprecated: representativeShape.deprecated,
+          title: shape.title,
+          docs: shape.docs,
+          deprecated: shape.deprecated,
           includeTitle: true,
         });
-        if (canonicalType !== aliasName) {
-          return comment
-            ? `${comment}\ntype ${aliasName} = ${canonicalType};`
-            : `type ${aliasName} = ${canonicalType};`;
-        }
-        const body = renderDeclarationShapeBody(representativeShapeId, [representativeShapeId], aliasName);
-        if (body === aliasName) {
-          return "";
-        }
-
+        const body = renderDeclarationBodyForShapeId(shapeId);
         const declaration = `type ${aliasName} = ${body};`;
         return comment ? `${comment}\n${declaration}` : declaration;
-      })
-      .filter((declaration) => declaration.length > 0);
+      });
+
+    return declarations;
   };
 
   return {

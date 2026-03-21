@@ -48,6 +48,80 @@ const asStringArray = (value: unknown): string[] =>
     return stringValue === null ? [] : [stringValue];
   });
 
+const decodePointerSegment = (value: string): string =>
+  value.replace(/~1/g, "/").replace(/~0/g, "~");
+
+const isNamedSchemaPointer = (pointer: string): boolean => {
+  if (!pointer.startsWith("#/")) {
+    return false;
+  }
+
+  const segments = pointer
+    .slice(2)
+    .split("/")
+    .map(decodePointerSegment);
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const next = segments[index + 1];
+    const afterNext = segments[index + 2];
+
+    if (
+      (segment === "$defs" || segment === "definitions")
+      && next !== undefined
+    ) {
+      if (index + 2 === segments.length) {
+        return true;
+      }
+      continue;
+    }
+
+    if (
+      segment === "components"
+      && next !== undefined
+      && afterNext !== undefined
+      && [
+        "schemas",
+        "responses",
+        "parameters",
+        "headers",
+        "requestBodies",
+        "examples",
+        "links",
+        "callbacks",
+      ].includes(next)
+    ) {
+      if (index + 3 === segments.length) {
+        return true;
+      }
+      continue;
+    }
+
+    if (
+      segment === "graphql"
+      && next !== undefined
+      && afterNext !== undefined
+      && ["input", "output", "scalars", "enums"].includes(next)
+    ) {
+      if (index + 3 === segments.length) {
+        return true;
+      }
+      continue;
+    }
+
+    if (
+      ["input", "output", "scalars", "enums"].includes(segment)
+      && next !== undefined
+    ) {
+      if (index + 2 === segments.length) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
 const addDiagnostic = (
   catalog: CatalogFragmentBuilder,
   input: Omit<ImportDiagnostic, "id">,
@@ -148,6 +222,8 @@ export const createJsonSchemaImporter = (input: {
         description: asString(objectSchema.description),
       });
       const deprecated = asBoolean(objectSchema.deprecated) ?? undefined;
+      const preserveNominalIdentity =
+        title !== undefined || isNamedSchemaPointer(key);
 
       const register = (
         node: ShapeNode,
@@ -158,7 +234,7 @@ export const createJsonSchemaImporter = (input: {
       ): ReturnType<typeof ShapeSymbolIdSchema.make> => {
         const signature = stableStringify(node);
         const recursive = recursiveShapeIds.has(shapeId);
-        const existingShapeId = recursive
+        const existingShapeId = recursive || preserveNominalIdentity
           ? undefined
           : structuralCache.get(signature);
 
@@ -214,7 +290,7 @@ export const createJsonSchemaImporter = (input: {
             : {}),
         } satisfies ShapeSymbol;
 
-        if (!recursive) {
+        if (!recursive && !preserveNominalIdentity) {
           structuralCache.set(signature, shapeId);
         }
 

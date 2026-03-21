@@ -920,7 +920,7 @@ const declarationBlockForShape = (input: {
             }),
           ].join("\n\n");
 
-      return formatWithPrettier(declarationText, "typescript-module");
+      return declarationText;
     },
     catch: (cause) =>
       cause instanceof Error ? cause : new Error(String(cause)),

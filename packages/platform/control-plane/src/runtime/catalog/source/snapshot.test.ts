@@ -1198,4 +1198,160 @@ describe("source-catalog-snapshot", () => {
       ),
     ).toBe(false);
   });
+
+  it("collapses GraphQL typename-only output stubs to a shared ref", () => {
+    const snapshot = createGraphqlCatalogSnapshot({
+      source: {
+        ...baseSource,
+        kind: "graphql",
+        namespace: "linear",
+      },
+      documents: [],
+      operations: [
+        {
+          toolId: "teamDepthRefs",
+          title: "Team Depth Refs",
+          description: "Return depth-limited Team variants.",
+          effect: "read",
+          inputSchema: {
+            type: "object",
+            additionalProperties: false,
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              data: {
+                $ref: "#/$defs/graphql/output/Team",
+              },
+              errors: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    message: {
+                      type: "string",
+                    },
+                  },
+                  required: ["message"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["data", "errors"],
+            additionalProperties: false,
+            $defs: {
+              graphql: {
+                output: {
+                  Team: {
+                    type: "object",
+                    properties: {
+                      organization: {
+                        $ref: "#/$defs/graphql/output/GraphqlTypenameOnly",
+                      },
+                      projects: {
+                        $ref: "#/$defs/graphql/output/GraphqlTypenameOnly",
+                      },
+                      __typename: {
+                        type: "string",
+                      },
+                    },
+                    required: ["organization", "projects", "__typename"],
+                    additionalProperties: false,
+                  },
+                  GraphqlTypenameOnly: {
+                    type: "object",
+                    properties: {
+                      __typename: {
+                        type: "string",
+                      },
+                    },
+                    required: ["__typename"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+            },
+          },
+          providerData: {
+            kind: "graphql",
+            toolKind: "field",
+            toolId: "teamDepthRefs",
+            rawToolId: "teamDepthRefs",
+            group: "query",
+            leaf: "teamDepthRefs",
+            fieldName: "teamDepthRefs",
+            operationType: "query",
+            operationName: "TeamDepthRefsQuery",
+            operationDocument:
+              "query TeamDepthRefsQuery { teamDepthRefs { organization { __typename } projects { __typename } __typename } }",
+            queryTypeName: "Query",
+            mutationTypeName: null,
+            subscriptionTypeName: null,
+          },
+        },
+      ],
+    });
+
+    const executable = Object.values(snapshot.catalog.executables)[0]!;
+    const resultShape =
+      snapshot.catalog.symbols[executable.projection.resultDataShapeId!];
+    expect(resultShape?.kind).toBe("shape");
+    if (!resultShape || resultShape.kind !== "shape") {
+      throw new Error("Expected result data shape symbol");
+    }
+
+    expect(resultShape.node.type).toBe("ref");
+    if (resultShape.node.type !== "ref") {
+      throw new Error("Expected result data ref shape");
+    }
+
+    const teamShape = snapshot.catalog.symbols[resultShape.node.target];
+    expect(teamShape?.kind).toBe("shape");
+    if (!teamShape || teamShape.kind !== "shape" || teamShape.node.type !== "object") {
+      throw new Error("Expected Team object shape");
+    }
+
+    const organizationFieldShape =
+      snapshot.catalog.symbols[teamShape.node.fields.organization!.shapeId];
+    const projectsFieldShape =
+      snapshot.catalog.symbols[teamShape.node.fields.projects!.shapeId];
+    expect(organizationFieldShape?.kind).toBe("shape");
+    expect(projectsFieldShape?.kind).toBe("shape");
+    if (
+      !organizationFieldShape
+      || organizationFieldShape.kind !== "shape"
+      || organizationFieldShape.node.type !== "ref"
+      || !projectsFieldShape
+      || projectsFieldShape.kind !== "shape"
+      || projectsFieldShape.node.type !== "ref"
+    ) {
+      throw new Error("Expected GraphQL output ref field shapes");
+    }
+
+    expect(organizationFieldShape.node.target).toBe(
+      projectsFieldShape.node.target,
+    );
+
+    const organizationTarget =
+      snapshot.catalog.symbols[organizationFieldShape.node.target];
+    const projectsTarget =
+      snapshot.catalog.symbols[projectsFieldShape.node.target];
+    expect(organizationTarget?.kind).toBe("shape");
+    expect(projectsTarget?.kind).toBe("shape");
+    if (
+      !organizationTarget
+      || organizationTarget.kind !== "shape"
+      || !projectsTarget
+      || projectsTarget.kind !== "shape"
+    ) {
+      throw new Error("Expected GraphQL output target shapes");
+    }
+
+    expect(organizationTarget.provenance[0]?.pointer).toBe(
+      "#/$defs/graphql/output/GraphqlTypenameOnly",
+    );
+    expect(projectsTarget.provenance[0]?.pointer).toBe(
+      "#/$defs/graphql/output/GraphqlTypenameOnly",
+    );
+  });
 });

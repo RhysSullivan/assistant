@@ -469,6 +469,9 @@ const graphqlInputObjectRef = (name: string): string =>
 const graphqlOutputTypeRef = (name: string, depth: number): string =>
   `${GRAPHQL_SCHEMA_REF_PREFIX}/output/${depth === 0 ? name : `${name}__depth${depth}`}`;
 
+const graphqlTypenameOnlyOutputRef = (): string =>
+  `${GRAPHQL_SCHEMA_REF_PREFIX}/output/GraphqlTypenameOnly`;
+
 const schemaRef = (ref: string): JsonSchema => ({
   $ref: ref,
 });
@@ -488,6 +491,15 @@ const createGraphqlSchemaRefTableBuilder = () => {
 
   const defineRefSchema = (ref: string, schema: JsonSchema): void => {
     refTable[ref] = JSON.stringify(schema);
+  };
+
+  const ensureTypenameOnlyOutputRef = (): JsonSchema => {
+    const ref = graphqlTypenameOnlyOutputRef();
+    if (!(ref in refTable)) {
+      defineRefSchema(ref, typenameOnlyObjectSchema());
+    }
+
+    return schemaRef(ref);
   };
 
   const ensureScalarRef = (name: string): JsonSchema => {
@@ -614,28 +626,26 @@ const createGraphqlSchemaRefTableBuilder = () => {
     if (isUnionType(namedType)) {
       const result = {
         selectionSet: "{ __typename }",
-        schema: schemaRef(ref),
+        schema: ensureTypenameOnlyOutputRef(),
       } satisfies SelectedGraphqlOutput;
       outputSelectionsByRef.set(ref, result);
-      defineRefSchema(ref, typenameOnlyObjectSchema());
       return result;
     }
 
     if (!isObjectType(namedType) && !isInterfaceType(namedType)) {
       return {
         selectionSet: "{ __typename }",
-        schema: typenameOnlyObjectSchema(),
+        schema: ensureTypenameOnlyOutputRef(),
       };
     }
 
     const fallback = {
       selectionSet: "{ __typename }",
-      schema: schemaRef(ref),
+      schema: ensureTypenameOnlyOutputRef(),
     } satisfies SelectedGraphqlOutput;
     outputSelectionsByRef.set(ref, fallback);
 
     if (depth >= 2) {
-      defineRefSchema(ref, typenameOnlyObjectSchema());
       return fallback;
     }
 
@@ -665,7 +675,6 @@ const createGraphqlSchemaRefTableBuilder = () => {
     ]);
 
     if (selectedFields.length === 0) {
-      defineRefSchema(ref, typenameOnlyObjectSchema());
       return fallback;
     }
 

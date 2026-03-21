@@ -157,6 +157,38 @@ describe("local-executor-server real ingestion", () => {
       expect(connected.source.status).toBe("connected");
       expect(connected.source.namespace).toBe("linear");
 
+      const inspection = yield* client.sources.inspection({
+        path: {
+          workspaceId: installation.workspaceId,
+          sourceId: connected.source.id,
+        },
+      });
+
+      expect(inspection.source.kind).toBe("graphql");
+      expect(inspection.toolCount).toBeGreaterThan(100);
+      expect(
+        inspection.tools.every((tool) => tool.inputTypePreview === undefined),
+      ).toBe(true);
+      expect(
+        inspection.tools.every((tool) => tool.outputTypePreview === undefined),
+      ).toBe(true);
+
+      const toolDetail = yield* client.sources.inspectionTool({
+        path: {
+          workspaceId: installation.workspaceId,
+          sourceId: connected.source.id,
+          toolPath: "linear.administrableTeams",
+        },
+      });
+
+      expect(toolDetail.summary.path).toBe("linear.administrableTeams");
+      expect(toolDetail.summary.inputTypePreview).toBeUndefined();
+      expect(toolDetail.summary.outputTypePreview).toBeUndefined();
+      expect(toolDetail.contract.input.typeDeclaration).toContain(
+        "type LinearAdministrableTeamsCall = {",
+      );
+      expect(toolDetail.contract.input.schemaJson).toContain("\"$defs\"");
+
       const storedSource = yield* client.sources.get({
         path: {
           workspaceId: installation.workspaceId,
