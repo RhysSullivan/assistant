@@ -9,9 +9,7 @@ import * as Schema from "effect/Schema";
 import { makeToolInvokerFromTools } from "@executor/codemode-core";
 import { makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
 
-import {
-  createControlPlaneRuntime,
-} from "../index";
+import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "../../../../sdk-file/src/index";
 import { withControlPlaneClient } from "./test-http-client";
 
 const makeExecutionResolver = () => {

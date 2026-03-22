@@ -1,4 +1,5 @@
 import { toTool, type ToolMap } from "@executor/codemode-core";
+import type { Executor } from "@executor/platform-sdk";
 import {
   type AccountId,
   LocalInstallationSchema,
@@ -45,47 +46,39 @@ import {
   UpdateSecretPayloadSchema,
   UpdateSecretResultSchema,
   type UpdateSecretPayload,
-} from "@executor/platform-sdk/local/contracts";
+} from "@executor/platform-sdk/contracts";
 import {
   createLocalSecret,
+  createPolicy,
   deleteLocalSecret,
+  discoverSource,
+  discoverSourceInspectionTools,
   getLocalInstanceConfig,
+  getPolicy,
+  getSource,
+  getSourceInspection,
+  getSourceInspectionToolDetail,
   listLocalSecrets,
+  listPolicies,
+  listSources,
+  removePolicy,
+  removeSource,
   updateLocalSecret,
-} from "@executor/platform-sdk/local/secrets";
+  updatePolicy,
+  updateSource,
+} from "@executor/platform-sdk/operations";
 import {
   CreatePolicyPayloadSchema,
   type CreatePolicyPayload,
   type UpdatePolicyPayload,
   UpdatePolicyPayloadSchema,
-} from "@executor/platform-sdk/policies/contracts";
-import {
-  createPolicy,
-  getPolicy,
-  listPolicies,
-  removePolicy,
-  updatePolicy,
-} from "@executor/platform-sdk/policies/operations";
+} from "@executor/platform-sdk/contracts";
 import {
   CreateWorkspaceOauthClientPayloadSchema,
   DiscoverSourcePayloadSchema,
   type CreateWorkspaceOauthClientPayload,
   UpdateSourcePayloadSchema,
-} from "@executor/platform-sdk/sources/contracts";
-import {
-  discoverSource,
-} from "@executor/platform-sdk/sources/discovery";
-import {
-  discoverSourceInspectionTools,
-  getSourceInspection,
-  getSourceInspectionToolDetail,
-} from "@executor/platform-sdk/sources/inspection";
-import {
-  getSource,
-  listSources,
-  removeSource,
-  updateSource,
-} from "@executor/platform-sdk/sources/operations";
+} from "@executor/platform-sdk/contracts";
 
 const emptyInputSchema = Schema.standardSchemaV1(Schema.Struct({}));
 const localInstallationOutputSchema = Schema.standardSchemaV1(
@@ -260,7 +253,7 @@ const runWorkspaceStorageEffect = <A, E, R>(input: {
     ) as Effect.Effect<A, E, never>,
   );
 
-export const createExecutorAdminToolMap = (
+export const createWorkspaceExecutorAdminToolMap = (
   input: WorkspaceInternalToolContext,
 ): ToolMap => {
   const runtimeLayer = makeRuntimeLayer({
@@ -685,6 +678,296 @@ export const createExecutorAdminToolMap = (
             runtimeLayer,
             runtimeLocalWorkspace: input.runtimeLocalWorkspace,
           }),
+      },
+      metadata,
+    }),
+  };
+};
+
+export const createExecutorAdminToolMap = (input: {
+  executor: Executor;
+}): ToolMap => {
+  const metadata = {
+    sourceKey: "executor",
+    interaction: "auto" as const,
+  };
+
+  return {
+    "executor.local.installation.get": toTool({
+      tool: {
+        description:
+          "Get the active local executor installation account and workspace ids.",
+        inputSchema: emptyInputSchema,
+        outputSchema: localInstallationOutputSchema,
+        execute: () => Promise.resolve(input.executor.installation),
+      },
+      metadata,
+    }),
+    "executor.local.config.get": toTool({
+      tool: {
+        description:
+          "Get local instance config such as supported secret providers.",
+        inputSchema: emptyInputSchema,
+        outputSchema: instanceConfigOutputSchema,
+        execute: () => input.executor.local.config(),
+      },
+      metadata,
+    }),
+    "executor.secrets.list": toTool({
+      tool: {
+        description:
+          "List locally stored secrets and the sources linked to them.",
+        inputSchema: emptyInputSchema,
+        outputSchema: secretListOutputSchema,
+        execute: () => input.executor.secrets.list(),
+      },
+      metadata,
+    }),
+    "executor.secrets.create": toTool({
+      tool: {
+        description:
+          "Create a local secret without putting the raw value into source config.",
+        inputSchema: createSecretInputSchema,
+        outputSchema: Schema.standardSchemaV1(CreateSecretResultSchema),
+        execute: (payload: CreateSecretPayload) =>
+          input.executor.secrets.create(payload),
+      },
+      metadata,
+    }),
+    "executor.secrets.update": toTool({
+      tool: {
+        description:
+          "Update a stored secret name and optionally rotate its value.",
+        inputSchema: updateSecretInputSchema,
+        outputSchema: Schema.standardSchemaV1(UpdateSecretResultSchema),
+        execute: (payload: {
+          secretId: string;
+          payload: UpdateSecretPayload;
+        }) => input.executor.secrets.update(payload),
+      },
+      metadata,
+    }),
+    "executor.secrets.remove": toTool({
+      tool: {
+        description: "Remove a stored local secret.",
+        inputSchema: removeSecretInputSchema,
+        outputSchema: Schema.standardSchemaV1(DeleteSecretResultSchema),
+        execute: ({ secretId }: { secretId: string }) =>
+          input.executor.secrets.remove(secretId),
+      },
+      metadata,
+    }),
+    "executor.sources.discover": toTool({
+      tool: {
+        description:
+          "Probe a URL and infer whether it looks like MCP, OpenAPI, GraphQL, or another supported source.",
+        inputSchema: discoverSourceInputSchema,
+        outputSchema: sourceDiscoveryOutputSchema,
+        execute: (payload: { url: string; probeAuth?: unknown }) =>
+          input.executor.sources.discover({
+            url: payload.url,
+            probeAuth: payload.probeAuth as never,
+          }),
+      },
+      metadata,
+    }),
+    "executor.sources.list": toTool({
+      tool: {
+        description: "List sources connected in the current workspace.",
+        inputSchema: emptyInputSchema,
+        outputSchema: listSourcesOutputSchema,
+        execute: () => input.executor.sources.list(),
+      },
+      metadata,
+    }),
+    "executor.sources.get": toTool({
+      tool: {
+        description: "Get one source by id.",
+        inputSchema: getSourceInputSchema,
+        outputSchema: sourceOutputSchema,
+        execute: ({ sourceId }: { sourceId: string }) =>
+          input.executor.sources.get(sourceId as never),
+      },
+      metadata,
+    }),
+    "executor.sources.update": toTool({
+      tool: {
+        description: "Update a source definition in the current workspace.",
+        inputSchema: updateSourceInputSchema,
+        outputSchema: sourceOutputSchema,
+        execute: (payload: {
+          sourceId: string;
+          payload: Record<string, unknown>;
+        }) =>
+          input.executor.sources.update(
+            payload.sourceId as never,
+            payload.payload as never,
+          ),
+      },
+      metadata,
+    }),
+    "executor.sources.remove": toTool({
+      tool: {
+        description: "Remove a source from the current workspace.",
+        inputSchema: getSourceInputSchema,
+        outputSchema: removeResultSchema,
+        execute: async ({ sourceId }: { sourceId: string }) => ({
+          removed: await input.executor.sources.remove(sourceId as never),
+        }),
+      },
+      metadata,
+    }),
+    "executor.sources.inspect.get": toTool({
+      tool: {
+        description: "Inspect the tool model for one connected source.",
+        inputSchema: getSourceInputSchema,
+        outputSchema: sourceInspectionOutputSchema,
+        execute: ({ sourceId }: { sourceId: string }) =>
+          input.executor.sources.inspection.get(sourceId as never),
+      },
+      metadata,
+    }),
+    "executor.sources.inspect.tool": toTool({
+      tool: {
+        description: "Inspect one tool inside a connected source.",
+        inputSchema: inspectToolInputSchema,
+        outputSchema: sourceInspectionToolOutputSchema,
+        execute: ({
+          sourceId,
+          toolPath,
+        }: {
+          sourceId: string;
+          toolPath: string;
+        }) =>
+          input.executor.sources.inspection.tool({
+            sourceId: sourceId as never,
+            toolPath,
+          }),
+      },
+      metadata,
+    }),
+    "executor.sources.inspect.discover": toTool({
+      tool: {
+        description: "Search within a single source's inspected tools.",
+        inputSchema: inspectDiscoverInputSchema,
+        outputSchema: sourceInspectionDiscoverOutputSchema,
+        execute: ({
+          sourceId,
+          payload,
+        }: {
+          sourceId: string;
+          payload: { query: string; limit?: number };
+        }) =>
+          input.executor.sources.inspection.discover({
+            sourceId: sourceId as never,
+            payload: payload as never,
+          }),
+      },
+      metadata,
+    }),
+    "executor.sources.oauthClients.list": toTool({
+      tool: {
+        description: "List stored workspace OAuth clients for one provider.",
+        inputSchema: workspaceOauthClientListInputSchema,
+        outputSchema: workspaceOauthClientListOutputSchema,
+        execute: ({ providerKey }: { providerKey: string }) =>
+          input.executor.sources.oauthClients.list(providerKey),
+      },
+      metadata,
+    }),
+    "executor.sources.oauthClients.create": toTool({
+      tool: {
+        description:
+          "Create a workspace OAuth client for a provider-backed source flow.",
+        inputSchema: createWorkspaceOauthClientInputSchema,
+        outputSchema: Schema.standardSchemaV1(WorkspaceOauthClientSchema),
+        execute: (payload: CreateWorkspaceOauthClientPayload) =>
+          input.executor.sources.oauthClients.create(payload),
+      },
+      metadata,
+    }),
+    "executor.sources.oauthClients.remove": toTool({
+      tool: {
+        description: "Remove a stored workspace OAuth client.",
+        inputSchema: removeWorkspaceOauthClientInputSchema,
+        outputSchema: removeResultSchema,
+        execute: async ({
+          oauthClientId,
+        }: {
+          oauthClientId: string;
+        }) => ({
+          removed: await input.executor.sources.oauthClients.remove(
+            oauthClientId as never,
+          ),
+        }),
+      },
+      metadata,
+    }),
+    "executor.sources.providerGrants.remove": toTool({
+      tool: {
+        description: "Remove one stored provider auth grant.",
+        inputSchema: removeProviderGrantInputSchema,
+        outputSchema: removeResultSchema,
+        execute: async ({ grantId }: { grantId: string }) => ({
+          removed: await input.executor.sources.providerGrants.remove(
+            grantId as never,
+          ),
+        }),
+      },
+      metadata,
+    }),
+    "executor.policies.list": toTool({
+      tool: {
+        description: "List local workspace policies.",
+        inputSchema: emptyInputSchema,
+        outputSchema: listPoliciesOutputSchema,
+        execute: () => input.executor.policies.list(),
+      },
+      metadata,
+    }),
+    "executor.policies.create": toTool({
+      tool: {
+        description: "Create a local workspace policy.",
+        inputSchema: createPolicyInputSchema,
+        outputSchema: localWorkspacePolicyOutputSchema,
+        execute: (payload: CreatePolicyPayload) =>
+          input.executor.policies.create(payload),
+      },
+      metadata,
+    }),
+    "executor.policies.get": toTool({
+      tool: {
+        description: "Get one local workspace policy by id.",
+        inputSchema: policyIdInputSchema,
+        outputSchema: localWorkspacePolicyOutputSchema,
+        execute: ({ policyId }: { policyId: string }) =>
+          input.executor.policies.get(policyId),
+      },
+      metadata,
+    }),
+    "executor.policies.update": toTool({
+      tool: {
+        description: "Update a local workspace policy.",
+        inputSchema: updatePolicyInputSchema,
+        outputSchema: localWorkspacePolicyOutputSchema,
+        execute: ({
+          policyId,
+          payload,
+        }: {
+          policyId: string;
+          payload: UpdatePolicyPayload;
+        }) => input.executor.policies.update(policyId, payload),
+      },
+      metadata,
+    }),
+    "executor.policies.remove": toTool({
+      tool: {
+        description: "Remove a local workspace policy.",
+        inputSchema: policyIdInputSchema,
+        outputSchema: removeResultSchema,
+        execute: async ({ policyId }: { policyId: string }) => ({
+          removed: await input.executor.policies.remove(policyId),
+        }),
       },
       metadata,
     }),

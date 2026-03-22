@@ -22,10 +22,10 @@ import * as Schema from "effect/Schema";
 import type { RuntimeLocalWorkspaceState } from "../local/runtime-context";
 import {
   type LocalStorageServices,
-  LocalInstallationStore,
-  LocalSourceArtifactStore,
-  LocalWorkspaceConfigStore,
-  LocalWorkspaceStateStore,
+  type InstallationStoreShape,
+  type SourceArtifactStoreShape,
+  type WorkspaceConfigStoreShape,
+  type WorkspaceStateStoreShape,
   makeLocalStorageLayer,
 } from "../local/storage";
 import { provideOptionalRuntimeLocalWorkspace } from "../local/runtime-context";
@@ -34,14 +34,15 @@ import { runtimeEffectError } from "../effect-errors";
 /** Run an Effect as a Promise, preserving the original error (not FiberFailure). */
 const runEffect = async <A>(
   effect: Effect.Effect<A, unknown, LocalStorageServices>,
+  storage: {
+    installationStore: InstallationStoreShape;
+    workspaceConfigStore: WorkspaceConfigStoreShape;
+    workspaceStateStore: WorkspaceStateStoreShape;
+    sourceArtifactStore: SourceArtifactStoreShape;
+  },
   runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null = null,
 ): Promise<A> => {
-  const baseLayer = makeLocalStorageLayer({
-    installationStore: LocalInstallationStore,
-    workspaceConfigStore: LocalWorkspaceConfigStore,
-    workspaceStateStore: LocalWorkspaceStateStore,
-    sourceArtifactStore: LocalSourceArtifactStore,
-  });
+  const baseLayer = makeLocalStorageLayer(storage);
   const exit = await Effect.runPromiseExit(
     provideOptionalRuntimeLocalWorkspace(
       effect.pipe(Effect.provide(baseLayer)),
@@ -314,6 +315,10 @@ export const createExecutorToolMap = (input: {
   workspaceId: WorkspaceId;
   accountId: AccountId;
   sourceAuthService: RuntimeSourceAuthService;
+  installationStore: InstallationStoreShape;
+  workspaceConfigStore: WorkspaceConfigStoreShape;
+  workspaceStateStore: WorkspaceStateStoreShape;
+  sourceArtifactStore: SourceArtifactStoreShape;
   runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null;
 }): ToolMap => ({
   "executor.sources.add": toTool({
@@ -349,6 +354,12 @@ export const createExecutorToolMap = (input: {
               }
               : undefined,
           ),
+          {
+            installationStore: input.installationStore,
+            workspaceConfigStore: input.workspaceConfigStore,
+            workspaceStateStore: input.workspaceStateStore,
+            sourceArtifactStore: input.sourceArtifactStore,
+          },
           input.runtimeLocalWorkspace,
         );
 
@@ -382,6 +393,12 @@ export const createExecutorToolMap = (input: {
                 invocation: context?.invocation,
                 onElicitation: context?.onElicitation,
               }),
+              {
+                installationStore: input.installationStore,
+                workspaceConfigStore: input.workspaceConfigStore,
+                workspaceStateStore: input.workspaceStateStore,
+                sourceArtifactStore: input.sourceArtifactStore,
+              },
               input.runtimeLocalWorkspace,
             );
 
@@ -412,6 +429,12 @@ export const createExecutorToolMap = (input: {
                   }
                   : undefined,
               ),
+              {
+                installationStore: input.installationStore,
+                workspaceConfigStore: input.workspaceConfigStore,
+                workspaceStateStore: input.workspaceStateStore,
+                sourceArtifactStore: input.sourceArtifactStore,
+              },
               input.runtimeLocalWorkspace,
             );
 
@@ -456,6 +479,12 @@ export const createExecutorToolMap = (input: {
               elicitationId: result.sessionId,
             },
           }),
+          {
+            installationStore: input.installationStore,
+            workspaceConfigStore: input.workspaceConfigStore,
+            workspaceStateStore: input.workspaceStateStore,
+            sourceArtifactStore: input.sourceArtifactStore,
+          },
           input.runtimeLocalWorkspace,
         );
 
@@ -469,6 +498,12 @@ export const createExecutorToolMap = (input: {
             sourceId: result.source.id,
             actorAccountId: input.accountId,
           }),
+          {
+            installationStore: input.installationStore,
+            workspaceConfigStore: input.workspaceConfigStore,
+            workspaceStateStore: input.workspaceStateStore,
+            sourceArtifactStore: input.sourceArtifactStore,
+          },
           input.runtimeLocalWorkspace,
         );
         return toSerializableValue(connected);

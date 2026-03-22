@@ -9,12 +9,16 @@ import { Readable } from "node:stream";
 import { FileSystem, HttpApiBuilder, HttpServer } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
-  createControlPlaneApiLayer,
+  createExecutorApiLayer,
 } from "@executor/platform-api";
 import { createExecutorMcpRequestHandler } from "@executor/executor-mcp";
-import { createExecutorAdminToolMap } from "@executor/platform-internal";
+import { createWorkspaceExecutorAdminToolMap } from "@executor/platform-internal";
 import {
-  createControlPlaneRuntime,
+  createExecutorEffect,
+  type Executor,
+} from "@executor/platform-sdk";
+import { createLocalExecutorBackend } from "@executor/platform-sdk-file";
+import {
   type ResolveExecutionEnvironment,
   type ResolveSecretMaterial,
   type ControlPlaneRuntime,
@@ -71,6 +75,7 @@ type StaticUiOptions = {
 };
 
 export type LocalExecutorServer = {
+  readonly executor: Executor;
   readonly runtime: ControlPlaneRuntime;
   readonly port: number;
   readonly host: string;
@@ -89,6 +94,7 @@ export type StartLocalExecutorServerOptions = {
 };
 
 export type LocalExecutorRequestHandler = {
+  readonly executor: Executor;
   readonly runtime: ControlPlaneRuntime;
   readonly handleApiRequest: (request: Request) => Promise<Response>;
   readonly getBaseUrl: () => string | undefined;
@@ -102,25 +108,27 @@ const EXECUTOR_NPM_DIST_TAGS_PATHNAME = "/v1/app/npm/dist-tags";
 const EXECUTOR_NPM_DIST_TAGS_URL =
   "https://registry.npmjs.org/-/package/executor/dist-tags";
 
-const disposeRuntime = (runtime: ControlPlaneRuntime) =>
+const disposeExecutor = (executor: Executor) =>
   Effect.tryPromise({
-    try: () => runtime.close(),
+    try: () => executor.close(),
     catch: (cause) =>
-      cause instanceof Error ? cause : new Error(String(cause ?? "runtime close failed")),
+      cause instanceof Error ? cause : new Error(String(cause ?? "executor close failed")),
   }).pipe(Effect.orDie);
 
-const createRuntime = (
+const createExecutorRuntime = (
   localDataDir: string,
   getLocalServerBaseUrl: () => string | undefined,
   options: StartLocalExecutorServerOptions,
 ) =>
-  createControlPlaneRuntime({
-    workspaceRoot: options.workspaceRoot,
+  createExecutorEffect({
+    backend: createLocalExecutorBackend({
+      workspaceRoot: options.workspaceRoot,
+      localDataDir,
+    }),
     executionResolver: options.executionResolver,
-    createInternalToolMap: createExecutorAdminToolMap,
+    createInternalToolMap: createWorkspaceExecutorAdminToolMap,
     resolveSecretMaterial: options.resolveSecretMaterial,
     getLocalServerBaseUrl,
-    localDataDir,
   }).pipe(
     Effect.mapError((cause) =>
       cause instanceof Error ? cause : new Error(String(cause)),
@@ -128,7 +136,7 @@ const createRuntime = (
   );
 
 const createControlPlaneWebHandler = (
-  runtime: ControlPlaneRuntime,
+  executor: Executor,
   tracingRuntime: ReturnType<typeof createLocalTracingRuntimeFromEnv>,
 ) =>
   Effect.acquireRelease(
@@ -137,7 +145,7 @@ const createControlPlaneWebHandler = (
         Layer.merge(
           HttpApiBuilder.middlewareOpenApi({ path: "/v1/openapi.json" }).pipe(
             Layer.provideMerge(
-              createControlPlaneApiLayer(runtime.runtimeLayer).pipe(
+              createExecutorApiLayer(executor).pipe(
                 Layer.provideMerge(tracingRuntime?.layer ?? Layer.empty),
               ),
             )
@@ -369,14 +377,17 @@ export const createLocalExecutorRequestHandler = (
       });
     }
 
-    const runtime = yield* Effect.acquireRelease(
-      createRuntime(requestedLocalDataDir, () => baseUrlRef, options),
-      disposeRuntime,
+    const executor = yield* Effect.acquireRelease(
+      createExecutorRuntime(requestedLocalDataDir, () => baseUrlRef, options),
+      disposeExecutor,
     );
 
-    const apiHandler = yield* createControlPlaneWebHandler(runtime, tracingRuntime);
+    const apiHandler = yield* createControlPlaneWebHandler(
+      executor,
+      tracingRuntime,
+    );
     const mcpHandler = yield* Effect.acquireRelease(
-      Effect.sync(() => createExecutorMcpRequestHandler(runtime)),
+      Effect.sync(() => createExecutorMcpRequestHandler(executor.runtime)),
       (handler: ExecutorMcpHandler) =>
         Effect.tryPromise({
           try: () => handler.close(),
@@ -388,7 +399,8 @@ export const createLocalExecutorRequestHandler = (
     );
 
     return {
-      runtime,
+      executor,
+      runtime: executor.runtime,
       handleApiRequest: (request) => {
         const pathname = new URL(request.url).pathname;
         if (pathname === EXECUTOR_NPM_DIST_TAGS_PATHNAME) {
@@ -465,6 +477,7 @@ export const createLocalExecutorServer = (
     requestHandler.setBaseUrl(baseUrl);
 
     return {
+      executor: requestHandler.executor,
       runtime: requestHandler.runtime,
       host,
       port: resolvedAddress.port,

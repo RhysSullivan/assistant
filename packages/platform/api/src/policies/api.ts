@@ -2,7 +2,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
   CreatePolicyPayloadSchema,
   UpdatePolicyPayloadSchema,
-} from "@executor/platform-sdk/policies/contracts";
+} from "@executor/platform-sdk/contracts";
 import {
   ControlPlaneBadRequestError,
   ControlPlaneForbiddenError,
@@ -20,7 +20,7 @@ import * as Schema from "effect/Schema";
 export type {
   CreatePolicyPayload,
   UpdatePolicyPayload,
-} from "@executor/platform-sdk/policies/contracts";
+} from "@executor/platform-sdk/contracts";
 
 export {
   CreatePolicyPayloadSchema,

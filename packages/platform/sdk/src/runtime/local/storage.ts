@@ -38,10 +38,10 @@ import type { Source } from "#schema";
 export type InstallationStoreShape = {
   load: (
     context: ResolvedLocalWorkspaceContext,
-  ) => Effect.Effect<LocalInstallation, never, never>;
+  ) => Effect.Effect<LocalInstallation, Error, never>;
   getOrProvision: (input: {
     context: ResolvedLocalWorkspaceContext;
-  }) => Effect.Effect<LocalInstallation, never, never>;
+  }) => Effect.Effect<LocalInstallation, Error, never>;
 };
 
 export class InstallationStore extends Context.Tag(

@@ -7,7 +7,7 @@ import {
   SecretListItemSchema,
   UpdateSecretPayloadSchema,
   UpdateSecretResultSchema,
-} from "@executor/platform-sdk/local/contracts";
+} from "@executor/platform-sdk/contracts";
 import {
   ControlPlaneBadRequestError,
   ControlPlaneNotFoundError,
@@ -26,7 +26,7 @@ export type {
   SecretProvider,
   UpdateSecretPayload,
   UpdateSecretResult,
-} from "@executor/platform-sdk/local/contracts";
+} from "@executor/platform-sdk/contracts";
 
 export class LocalApi extends HttpApiGroup.make("local")
   .add(
@@ -38,7 +38,8 @@ export class LocalApi extends HttpApiGroup.make("local")
   )
   .add(
     HttpApiEndpoint.get("config")`/local/config`
-      .addSuccess(InstanceConfigSchema),
+      .addSuccess(InstanceConfigSchema)
+      .addError(ControlPlaneStorageError),
   )
   .add(
     HttpApiEndpoint.get("listSecrets")`/local/secrets`

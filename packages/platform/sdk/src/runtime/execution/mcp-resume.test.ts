@@ -20,9 +20,9 @@ import { discoverMcpToolsFromConnector } from "@executor/source-mcp";
 import { makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
 
 import {
-  createControlPlaneRuntime,
   type ResolveExecutionEnvironment,
 } from "../index";
+import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "../../../../sdk-file/src/index";
 import { withControlPlaneClient } from "./test-http-client";
 
 type McpFormServer = {

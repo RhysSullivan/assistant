@@ -7,28 +7,18 @@ import type {
   ExecutionInteraction,
   Source,
   WorkspaceId,
+  WorkspaceOauthClient,
 } from "@executor/platform-sdk/schema";
+import type {
+  ExecutorMcpSourceInput,
+  ExecutorSourceInput,
+} from "@executor/platform-sdk";
 import * as Effect from "effect/Effect";
 
 import {
-  completeSourceCredentialSetup,
-  createSource,
-  discoverSource,
-  discoverSourceInspectionTools,
-  getSource,
-  getSourceCredentialInteraction,
-  getSourceInspection,
-  getSourceInspectionToolDetail,
-  listSources,
-  removeSource,
-  submitSourceCredentialInteraction,
-  updateSource,
-} from "@executor/platform-sdk";
-import {
   sourceAdapterRequiresInteractiveConnect,
-  RuntimeSourceAuthServiceTag,
-  type ExecutorAddSourceInput,
 } from "@executor/platform-sdk/runtime";
+import { WorkspaceOauthClientIdSchema } from "@executor/platform-sdk/schema";
 
 import {
   ControlPlaneBadRequestError,
@@ -37,7 +27,10 @@ import {
 } from "../errors";
 import { ControlPlaneApi } from "../api";
 import type { ConnectSourcePayload } from "./api";
-import { resolveRequestedLocalWorkspace } from "../local-context";
+import {
+  getControlPlaneExecutor,
+  resolveRequestedLocalWorkspace,
+} from "../local-context";
 
 const readHeader = (headers: unknown, name: string): string | null => {
   if (headers == null || typeof headers !== "object") {
@@ -92,6 +85,80 @@ const isInteractiveConnectPayload = (
 ): payload is Extract<ConnectSourcePayload, { kind?: "mcp" }> =>
   payload.kind === undefined ||
   sourceAdapterRequiresInteractiveConnect(payload.kind);
+
+const nullToUndefined = <T>(value: T | null | undefined): T | undefined =>
+  value ?? undefined;
+
+const toWorkspaceOauthClientId = (
+  value: string | null | undefined,
+): WorkspaceOauthClient["id"] | null | undefined =>
+  value == null ? value : WorkspaceOauthClientIdSchema.make(value);
+
+const toExecutorSourceInput = (
+  payload: ConnectSourcePayload,
+): ExecutorSourceInput | null => {
+  if (isInteractiveConnectPayload(payload)) {
+    return null;
+  }
+
+  switch (payload.kind) {
+    case "openapi":
+      return {
+        kind: "openapi",
+        endpoint: payload.endpoint,
+        specUrl: payload.specUrl,
+        name: payload.name,
+        namespace: payload.namespace,
+        importAuthPolicy: nullToUndefined(payload.importAuthPolicy),
+        importAuth: payload.importAuth,
+        auth: payload.auth,
+      };
+    case "graphql":
+      return {
+        kind: "graphql",
+        endpoint: payload.endpoint,
+        name: payload.name,
+        namespace: payload.namespace,
+        importAuthPolicy: nullToUndefined(payload.importAuthPolicy),
+        importAuth: payload.importAuth,
+        auth: payload.auth,
+      };
+    case "google_discovery":
+      return {
+        kind: "google_discovery",
+        service: payload.service,
+        version: payload.version,
+        discoveryUrl: payload.discoveryUrl,
+        scopes: payload.scopes,
+        workspaceOauthClientId: toWorkspaceOauthClientId(
+          payload.workspaceOauthClientId,
+        ),
+        oauthClient: payload.oauthClient,
+        name: payload.name,
+        namespace: payload.namespace,
+        importAuthPolicy: nullToUndefined(payload.importAuthPolicy),
+        importAuth: payload.importAuth,
+        auth: payload.auth,
+      };
+  }
+};
+
+const toExecutorMcpSourceInput = (
+  payload: Extract<ConnectSourcePayload, { kind?: "mcp" }>,
+  baseUrl: string | null,
+): ExecutorMcpSourceInput => ({
+  endpoint: payload.endpoint,
+  name: payload.name,
+  namespace: payload.namespace,
+  transport: payload.transport,
+  queryParams: payload.queryParams,
+  headers: payload.headers,
+  command: payload.command,
+  args: payload.args,
+  env: payload.env,
+  cwd: payload.cwd,
+  baseUrl,
+});
 
 const escapeHtml = (value: string): string =>
   value
@@ -595,8 +662,13 @@ const sourceOAuthPopupResultDocument = (input: {
   </body>
 </html>`;
 
-const htmlResponse = (html: string, status = 200) =>
-  HttpServerResponse.html(html).pipe(HttpServerResponse.setStatus(status));
+const htmlResponse = (
+  html: string,
+  status = 200,
+): ReturnType<typeof HttpServerResponse.html> =>
+  HttpServerResponse.html(html).pipe(
+    HttpServerResponse.setStatus(status),
+  ) as ReturnType<typeof HttpServerResponse.html>;
 
 const credentialErrorResponse = (input: {
   title: string;
@@ -636,11 +708,16 @@ const credentialSubmitErrorResponse = (input: {
   message: string;
   status: number;
 }) =>
-  getSourceCredentialInteraction({
-    workspaceId: input.workspaceId,
-    sourceId: input.sourceId,
-    interactionId: input.interactionId,
-  }).pipe(
+  resolveRequestedLocalWorkspace(
+    "sources.credentialSubmit",
+    input.workspaceId,
+  ).pipe(
+    Effect.flatMap((executor) =>
+      executor.effect.local.credentials.get({
+          sourceId: input.sourceId,
+          interactionId: input.interactionId,
+        }),
+    ),
     Effect.match({
       onFailure: () =>
         credentialErrorResponse({
@@ -671,53 +748,45 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("discover", ({ payload }) =>
-        discoverSource({
-          url: payload.url,
-          probeAuth: payload.probeAuth,
-        }).pipe(
-          Effect.catchAll((cause) =>
-            Effect.fail(toBadRequestError("sources.discover", cause)),
-          ),
-        ),
+        Effect.flatMap(getControlPlaneExecutor(), (executor) =>
+          executor.effect.sources.discover({
+              url: payload.url,
+              probeAuth: payload.probeAuth,
+            }).pipe(
+            Effect.catchAll((cause) =>
+              Effect.fail(toBadRequestError("sources.discover", cause)),
+            ),
+          )
+        )
       )
       .handle("connect", ({ path, payload }) =>
         resolveRequestedLocalWorkspace(
           "sources.connect",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
+          Effect.flatMap((executor) =>
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest;
-              const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
               const baseUrl = resolveRequestOrigin(request);
 
               if (isInteractiveConnectPayload(payload)) {
-                return yield* sourceAuthService.connectMcpSource({
-                  workspaceId: path.workspaceId,
-                  actorAccountId: runtimeLocalWorkspace.installation.accountId,
-                  endpoint: payload.endpoint,
-                  name: payload.name,
-                  namespace: payload.namespace,
-                  transport: payload.transport,
-                  queryParams: payload.queryParams,
-                  headers: payload.headers,
-                  command: payload.command,
-                  args: payload.args,
-                  env: payload.env,
-                  cwd: payload.cwd,
-                  baseUrl,
-                });
+                return yield* executor.effect.sources.connect(
+                  toExecutorMcpSourceInput(payload, baseUrl),
+                );
               }
 
-              return yield* sourceAuthService.addExecutorSource(
-                {
-                  workspaceId: path.workspaceId,
-                  actorAccountId: runtimeLocalWorkspace.installation.accountId,
-                  executionId: null,
-                  interactionId: null,
-                  ...(payload as Record<string, unknown>),
-                } as ExecutorAddSourceInput,
-                { baseUrl },
+              const sourceInput = toExecutorSourceInput(payload);
+              if (sourceInput) {
+                return yield* executor.effect.sources.add(sourceInput, {
+                    baseUrl,
+                  });
+              }
+
+              return yield* Effect.fail(
+                toBadRequestError(
+                  "sources.connect",
+                  new Error("Unsupported source connect payload"),
+                ),
               );
             }).pipe(
               Effect.catchAll((cause) =>
@@ -732,20 +801,12 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.connectBatch",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
+          Effect.flatMap((executor) =>
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest;
-              const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
-              const baseUrl = resolveRequestOrigin(request);
-
-              return yield* sourceAuthService.connectGoogleDiscoveryBatch({
-                workspaceId: path.workspaceId,
-                actorAccountId: runtimeLocalWorkspace.installation.accountId,
-                executionId: null,
-                interactionId: null,
-                workspaceOauthClientId: payload.workspaceOauthClientId,
-                sources: payload.sources,
-                baseUrl,
+              return yield* executor.effect.sources.connectBatch({
+                ...payload,
+                baseUrl: resolveRequestOrigin(request),
               });
             }).pipe(
               Effect.catchAll((cause) =>
@@ -760,20 +821,14 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.listWorkspaceOauthClients",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap(() =>
-            Effect.gen(function* () {
-              const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
-              return yield* sourceAuthService.listWorkspaceOauthClients({
-                workspaceId: path.workspaceId,
-                providerKey: urlParams.providerKey,
-              });
-            }).pipe(
+          Effect.flatMap((executor) =>
+            executor.effect.sources.oauthClients.list(urlParams.providerKey).pipe(
               Effect.catchAll((cause) =>
                 Effect.fail(
                   toBadRequestError("sources.listWorkspaceOauthClients", cause),
                 ),
               ),
-            ),
+            )
           ),
         ),
       )
@@ -782,16 +837,8 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.createWorkspaceOauthClient",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap(() =>
-            Effect.gen(function* () {
-              const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
-              return yield* sourceAuthService.createWorkspaceOauthClient({
-                workspaceId: path.workspaceId,
-                providerKey: payload.providerKey,
-                label: payload.label,
-                oauthClient: payload.oauthClient,
-              });
-            }).pipe(
+          Effect.flatMap((executor) =>
+            executor.effect.sources.oauthClients.create(payload).pipe(
               Effect.catchAll((cause) =>
                 Effect.fail(
                   toBadRequestError(
@@ -800,7 +847,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
                   ),
                 ),
               ),
-            ),
+            )
           ),
         ),
       )
@@ -809,17 +856,9 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.removeWorkspaceOauthClient",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap(() =>
-            Effect.gen(function* () {
-              const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
-              const removed =
-                yield* sourceAuthService.removeWorkspaceOauthClient({
-                  workspaceId: path.workspaceId,
-                  oauthClientId: path.oauthClientId,
-                });
-
-              return { removed };
-            }).pipe(
+          Effect.flatMap((executor) =>
+            executor.effect.sources.oauthClients.remove(path.oauthClientId).pipe(
+              Effect.map((result) => ({ removed: result })),
               Effect.catchAll((cause) =>
                 Effect.fail(
                   toBadRequestError(
@@ -828,7 +867,7 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
                   ),
                 ),
               ),
-            ),
+            )
           ),
         ),
       )
@@ -837,60 +876,34 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.removeProviderAuthGrant",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap(() =>
-            Effect.gen(function* () {
-              const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
-              const removed = yield* sourceAuthService
-                .removeProviderAuthGrant({
-                  workspaceId: path.workspaceId,
-                  grantId: path.grantId,
-                })
-                .pipe(
-                  Effect.catchAll((cause) =>
-                    Effect.fail(
-                      toBadRequestError(
-                        "sources.removeProviderAuthGrant",
-                        cause,
-                      ),
-                    ),
+          Effect.flatMap((executor) =>
+            executor.effect.sources.providerGrants.remove(path.grantId).pipe(
+              Effect.map((result) => ({ removed: result })),
+              Effect.catchAll((cause) =>
+                Effect.fail(
+                  toBadRequestError(
+                    "sources.removeProviderAuthGrant",
+                    cause,
                   ),
-                );
-
-              return { removed };
-            }),
+                ),
+              ),
+            )
           ),
         ),
       )
       .handle("list", ({ path }) =>
         resolveRequestedLocalWorkspace("sources.list", path.workspaceId).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
-            listSources({
-              workspaceId: path.workspaceId,
-              accountId: runtimeLocalWorkspace.installation.accountId,
-            }),
-          ),
+          Effect.flatMap((executor) => executor.effect.sources.list()),
         ),
       )
       .handle("create", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("sources.create", path.workspaceId).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
-            createSource({
-              workspaceId: path.workspaceId,
-              accountId: runtimeLocalWorkspace.installation.accountId,
-              payload,
-            }),
-          ),
+          Effect.flatMap((executor) => executor.effect.sources.create(payload)),
         ),
       )
       .handle("get", ({ path }) =>
         resolveRequestedLocalWorkspace("sources.get", path.workspaceId).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
-            getSource({
-              workspaceId: path.workspaceId,
-              sourceId: path.sourceId,
-              accountId: runtimeLocalWorkspace.installation.accountId,
-            }),
-          ),
+          Effect.flatMap((executor) => executor.effect.sources.get(path.sourceId)),
         ),
       )
       .handle("inspection", ({ path }) =>
@@ -898,11 +911,8 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.inspection",
           path.workspaceId,
         ).pipe(
-          Effect.zipRight(
-            getSourceInspection({
-              workspaceId: path.workspaceId,
-              sourceId: path.sourceId,
-            }),
+          Effect.flatMap((executor) =>
+            executor.effect.sources.inspection.get(path.sourceId),
           ),
         ),
       )
@@ -911,12 +921,11 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.inspection_tool",
           path.workspaceId,
         ).pipe(
-          Effect.zipRight(
-            getSourceInspectionToolDetail({
-              workspaceId: path.workspaceId,
-              sourceId: path.sourceId,
-              toolPath: path.toolPath,
-            }),
+          Effect.flatMap((executor) =>
+            executor.effect.sources.inspection.tool({
+                sourceId: path.sourceId,
+                toolPath: path.toolPath,
+              }),
           ),
         ),
       )
@@ -925,43 +934,38 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.inspection_discover",
           path.workspaceId,
         ).pipe(
-          Effect.zipRight(
-            discoverSourceInspectionTools({
-              workspaceId: path.workspaceId,
-              sourceId: path.sourceId,
-              payload,
-            }),
+          Effect.flatMap((executor) =>
+            executor.effect.sources.inspection.discover({
+                sourceId: path.sourceId,
+                payload,
+              }),
           ),
         ),
       )
       .handle("update", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("sources.update", path.workspaceId).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
-            updateSource({
-              workspaceId: path.workspaceId,
-              sourceId: path.sourceId,
-              accountId: runtimeLocalWorkspace.installation.accountId,
-              payload,
-            }),
+          Effect.flatMap((executor) =>
+            executor.effect.sources.update(path.sourceId, payload)
           ),
         ),
       )
       .handle("remove", ({ path }) =>
         resolveRequestedLocalWorkspace("sources.remove", path.workspaceId).pipe(
-          Effect.zipRight(
-            removeSource({
-              workspaceId: path.workspaceId,
-              sourceId: path.sourceId,
-            }),
-          ),
+          Effect.flatMap((executor) => executor.effect.sources.remove(path.sourceId)),
+          Effect.map((result) => ({ removed: result.removed })),
         ),
       )
       .handle("credentialPage", ({ path, urlParams }) =>
-        getSourceCredentialInteraction({
-          workspaceId: path.workspaceId,
-          sourceId: path.sourceId,
-          interactionId: urlParams.interactionId,
-        }).pipe(
+        resolveRequestedLocalWorkspace(
+          "sources.credentialPage",
+          path.workspaceId,
+        ).pipe(
+          Effect.flatMap((executor) =>
+            executor.effect.local.credentials.get({
+                sourceId: path.sourceId,
+                interactionId: urlParams.interactionId,
+              }),
+          ),
           Effect.map((interaction) =>
             htmlResponse(
               credentialPageDocument({
@@ -976,39 +980,44 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
               }),
             ),
           ),
-          Effect.catchTags({
-            ControlPlaneNotFoundError: (error) =>
-              Effect.succeed(
-                credentialErrorResponse({
-                  title: "Source Credential Request Unavailable",
-                  message: error.message,
-                  status: credentialErrorStatus(error),
-                }),
-              ),
-            ControlPlaneStorageError: (error) =>
-              Effect.succeed(
-                credentialErrorResponse({
-                  title: "Source Credential Request Failed",
-                  message: error.message,
-                  status: credentialErrorStatus(error),
-                }),
-              ),
-          }),
+          Effect.catchAll((error) =>
+            Effect.succeed(
+              credentialErrorResponse({
+                title:
+                  error instanceof ControlPlaneNotFoundError
+                    ? "Source Credential Request Unavailable"
+                    : "Source Credential Request Failed",
+                message:
+                  error instanceof Error ? error.message : "Source credential request failed",
+                status:
+                  error instanceof ControlPlaneNotFoundError
+                    || error instanceof ControlPlaneStorageError
+                    || error instanceof ControlPlaneBadRequestError
+                    ? credentialErrorStatus(error)
+                    : 500,
+              }),
+            ),
+          ),
         ),
       )
       .handle("credentialSubmit", ({ path, urlParams, payload }) =>
-        submitSourceCredentialInteraction({
-          workspaceId: path.workspaceId,
-          sourceId: path.sourceId,
-          interactionId: urlParams.interactionId,
-          action:
-            payload.action === "cancel"
-              ? "cancel"
-              : payload.action === "continue"
-                ? "continue"
-                : "submit",
-          token: payload.token,
-        }).pipe(
+        resolveRequestedLocalWorkspace(
+          "sources.credentialSubmit",
+          path.workspaceId,
+        ).pipe(
+          Effect.flatMap((executor) =>
+            executor.effect.local.credentials.submit({
+                sourceId: path.sourceId,
+                interactionId: urlParams.interactionId,
+                action:
+                  payload.action === "cancel"
+                    ? "cancel"
+                    : payload.action === "continue"
+                      ? "continue"
+                      : "submit",
+                token: payload.token,
+              }),
+          ),
           Effect.map((result) =>
             htmlResponse(
               credentialPageDocument({
@@ -1037,43 +1046,49 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
               }),
             ),
           ),
-          Effect.catchTags({
-            ControlPlaneBadRequestError: (error) =>
-              credentialSubmitErrorResponse({
+          Effect.catchAll((error) => {
+            if (error instanceof ControlPlaneBadRequestError) {
+              return credentialSubmitErrorResponse({
                 workspaceId: path.workspaceId,
                 sourceId: path.sourceId,
                 interactionId: urlParams.interactionId,
                 message: error.message,
                 status: credentialErrorStatus(error),
+              });
+            }
+
+            return Effect.succeed(
+              credentialErrorResponse({
+                title:
+                  error instanceof ControlPlaneNotFoundError
+                    ? "Source Credential Request Unavailable"
+                    : "Source Credential Request Failed",
+                message:
+                  error instanceof Error ? error.message : "Source credential request failed",
+                status:
+                  error instanceof ControlPlaneNotFoundError
+                    || error instanceof ControlPlaneStorageError
+                    ? credentialErrorStatus(error)
+                    : 500,
               }),
-            ControlPlaneNotFoundError: (error) =>
-              Effect.succeed(
-                credentialErrorResponse({
-                  title: "Source Credential Request Unavailable",
-                  message: error.message,
-                  status: credentialErrorStatus(error),
-                }),
-              ),
-            ControlPlaneStorageError: (error) =>
-              Effect.succeed(
-                credentialErrorResponse({
-                  title: "Source Credential Request Failed",
-                  message: error.message,
-                  status: credentialErrorStatus(error),
-                }),
-              ),
+            );
           }),
         ),
       )
       .handle("credentialComplete", ({ path, urlParams }) =>
-        completeSourceCredentialSetup({
-          workspaceId: path.workspaceId,
-          sourceId: path.sourceId,
-          state: urlParams.state,
-          code: urlParams.code,
-          error: urlParams.error,
-          errorDescription: urlParams.error_description,
-        }).pipe(
+        resolveRequestedLocalWorkspace(
+          "sources.credentialComplete",
+          path.workspaceId,
+        ).pipe(
+          Effect.flatMap((executor) =>
+            executor.effect.local.credentials.complete({
+                sourceId: path.sourceId,
+                state: urlParams.state,
+                code: urlParams.code,
+                error: urlParams.error,
+                errorDescription: urlParams.error_description,
+              }),
+          ),
           Effect.map((completed) =>
             htmlResponse(
               sourceOAuthPopupResultDocument({
@@ -1119,13 +1134,10 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
           "sources.providerOauthComplete",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
+          Effect.flatMap((executor) =>
             Effect.gen(function* () {
-              const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
-              const completed =
-                yield* sourceAuthService.completeProviderOauthCallback({
+              const completed = yield* executor.effect.oauth.completeProviderCallback({
                   workspaceId: path.workspaceId,
-                  actorAccountId: runtimeLocalWorkspace.installation.accountId,
                   state: urlParams.state,
                   code: urlParams.code,
                   error: urlParams.error,

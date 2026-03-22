@@ -4,20 +4,14 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./backend": "./src/backend.ts",
+    "./contracts": "./src/contracts.ts",
+    "./executor": "./src/executor.ts",
     "./errors": "./src/errors.ts",
+    "./operations": "./src/operations.ts",
     "./string-schemas": "./src/string-schemas.ts",
-    "./executions/contracts": "./src/executions/contracts.ts",
     "./schema": "./src/schema/index.ts",
-    "./runtime": "./src/runtime/index.ts",
-    "./local/contracts": "./src/local/contracts.ts",
-    "./local/operations": "./src/local/operations.ts",
-    "./local/secrets": "./src/local/secrets.ts",
-    "./policies/contracts": "./src/policies/contracts.ts",
-    "./policies/operations": "./src/policies/operations.ts",
-    "./sources/contracts": "./src/sources/contracts.ts",
-    "./sources/discovery": "./src/sources/discovery.ts",
-    "./sources/inspection": "./src/sources/inspection.ts",
-    "./sources/operations": "./src/sources/operations.ts"
+    "./runtime": "./src/runtime/index.ts"
   },
   "imports": {
     "#runtime": "./src/runtime/index.ts",

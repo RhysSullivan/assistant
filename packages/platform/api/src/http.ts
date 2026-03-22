@@ -1,7 +1,9 @@
 import { HttpApiBuilder } from "@effect/platform";
 import * as Layer from "effect/Layer";
+import type { Executor } from "@executor/platform-sdk";
 
 import { ControlPlaneApi } from "./api";
+import { createControlPlaneExecutorLayer } from "./executor-context";
 import { ControlPlaneExecutionsLive } from "./executions/http";
 import { ControlPlaneLocalLive } from "./local/http";
 import { ControlPlaneOAuthLive } from "./oauth/http";
@@ -18,15 +20,14 @@ export const ControlPlaneApiLive = HttpApiBuilder.api(ControlPlaneApi).pipe(
 
 export type ControlPlaneApiRuntimeContext = Layer.Layer.Context<typeof ControlPlaneApiLive>;
 
-export type BuiltControlPlaneApiLayer = Layer.Layer<
-  Layer.Layer.Success<typeof ControlPlaneApiLive>,
-  Layer.Layer.Error<typeof ControlPlaneApiLive>,
-  never
+export const createControlPlaneApiLayer = (executor: Executor) =>
+  ControlPlaneApiLive.pipe(
+    Layer.provide(createControlPlaneExecutorLayer(executor)),
+  );
+
+export type BuiltControlPlaneApiLayer = ReturnType<
+  typeof createControlPlaneApiLayer
 >;
 
-export const createControlPlaneApiLayer = <ERuntime>(
-  runtimeLayer: Layer.Layer<ControlPlaneApiRuntimeContext, ERuntime, never>,
-) =>
-  ControlPlaneApiLive.pipe(
-    Layer.provide(runtimeLayer),
-  );
+export const createExecutorApiLayer = (executor: Executor) =>
+  createControlPlaneApiLayer(executor);

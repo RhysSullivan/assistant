@@ -23,15 +23,15 @@ import {
 import type { ToolPath } from "@executor/codemode-core";
 import { createCatalogImportMetadata } from "@executor/source-core";
 import { createGraphqlCatalogFragment } from "@executor/source-graphql";
-import { createExecutorAdminToolMap } from "../../../internal/src/index";
+import { createWorkspaceExecutorAdminToolMap } from "../../../internal/src/index";
 
 import {
   type ControlPlaneRuntime,
-  createControlPlaneRuntime,
   LiveExecutionManagerService,
   provideControlPlaneRuntime,
   RuntimeExecutionResolverService,
 } from "./index";
+import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "../../../sdk-file/src/index";
 import { createSourceFromPayload } from "./sources/source-definitions";
 import { decodeSourceCredentialSelectionContent } from "./sources/source-credential-interactions";
 import { persistSource } from "./sources/source-store";
@@ -67,7 +67,7 @@ const makeRuntime = Effect.gen(function* () {
       workspaceRoot,
       homeConfigPath,
       homeStateDirectory,
-      createInternalToolMap: createExecutorAdminToolMap,
+      createInternalToolMap: createWorkspaceExecutorAdminToolMap,
     }),
     (runtime) => Effect.promise(() => runtime.close()).pipe(Effect.orDie),
   );

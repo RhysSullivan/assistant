@@ -1,12 +1,5 @@
 import { HttpApiBuilder } from "@effect/platform";
 import * as Effect from "effect/Effect";
-import {
-  createPolicy,
-  getPolicy,
-  listPolicies,
-  removePolicy,
-  updatePolicy,
-} from "@executor/platform-sdk";
 
 import { ControlPlaneApi } from "../api";
 import { resolveRequestedLocalWorkspace } from "../local-context";
@@ -18,7 +11,7 @@ export const ControlPlanePoliciesLive = HttpApiBuilder.group(
     handlers
       .handle("list", ({ path }) =>
         resolveRequestedLocalWorkspace("policies.list", path.workspaceId).pipe(
-          Effect.zipRight(listPolicies(path.workspaceId)),
+          Effect.flatMap((executor) => executor.effect.policies.list()),
         ),
       )
       .handle("create", ({ path, payload }) =>
@@ -26,19 +19,12 @@ export const ControlPlanePoliciesLive = HttpApiBuilder.group(
           "policies.create",
           path.workspaceId,
         ).pipe(
-          Effect.zipRight(
-            createPolicy({ workspaceId: path.workspaceId, payload }),
-          ),
+          Effect.flatMap((executor) => executor.effect.policies.create(payload)),
         ),
       )
       .handle("get", ({ path }) =>
         resolveRequestedLocalWorkspace("policies.get", path.workspaceId).pipe(
-          Effect.zipRight(
-            getPolicy({
-              workspaceId: path.workspaceId,
-              policyId: path.policyId,
-            }),
-          ),
+          Effect.flatMap((executor) => executor.effect.policies.get(path.policyId)),
         ),
       )
       .handle("update", ({ path, payload }) =>
@@ -46,12 +32,8 @@ export const ControlPlanePoliciesLive = HttpApiBuilder.group(
           "policies.update",
           path.workspaceId,
         ).pipe(
-          Effect.zipRight(
-            updatePolicy({
-              workspaceId: path.workspaceId,
-              policyId: path.policyId,
-              payload,
-            }),
+          Effect.flatMap((executor) =>
+            executor.effect.policies.update(path.policyId, payload)
           ),
         ),
       )
@@ -60,12 +42,10 @@ export const ControlPlanePoliciesLive = HttpApiBuilder.group(
           "policies.remove",
           path.workspaceId,
         ).pipe(
-          Effect.zipRight(
-            removePolicy({
-              workspaceId: path.workspaceId,
-              policyId: path.policyId,
-            }),
-          ),
+          Effect.flatMap((executor) => executor.effect.policies.remove(path.policyId)),
+          Effect.map((result) => ({
+            removed: result.removed,
+          })),
         ),
       ),
 );
