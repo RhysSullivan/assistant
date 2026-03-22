@@ -20,10 +20,10 @@ import {
   type SecretMaterial,
   type SourceAuthSession,
   SourceAuthSessionSchema,
-  type WorkspaceOauthClient,
-  WorkspaceOauthClientSchema,
-  type WorkspaceSourceOauthClient,
-  WorkspaceSourceOauthClientSchema,
+  type ScopeOauthClient,
+  ScopeOauthClientSchema,
+  type ScopedSourceOauthClient,
+  ScopedSourceOauthClientSchema,
 } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -43,8 +43,8 @@ const LocalExecutorStateSnapshotSchema = Schema.Struct({
   version: Schema.Literal(LOCAL_EXECUTOR_STATE_VERSION),
   authArtifacts: Schema.Array(AuthArtifactSchema),
   authLeases: Schema.Array(AuthLeaseSchema),
-  sourceOauthClients: Schema.Array(WorkspaceSourceOauthClientSchema),
-  workspaceOauthClients: Schema.Array(WorkspaceOauthClientSchema),
+  sourceOauthClients: Schema.Array(ScopedSourceOauthClientSchema),
+  scopeOauthClients: Schema.Array(ScopeOauthClientSchema),
   providerAuthGrants: Schema.Array(ProviderAuthGrantSchema),
   sourceAuthSessions: Schema.Array(SourceAuthSessionSchema),
   secretMaterials: Schema.Array(SecretMaterialSchema),
@@ -69,7 +69,7 @@ const defaultLocalExecutorStateSnapshot = (): LocalExecutorStateSnapshot => ({
   authArtifacts: [],
   authLeases: [],
   sourceOauthClients: [],
-  workspaceOauthClients: [],
+  scopeOauthClients: [],
   providerAuthGrants: [],
   sourceAuthSessions: [],
   secretMaterials: [],
@@ -114,7 +114,7 @@ const localExecutorStatePath = (
   join(
     context.homeStateDirectory,
     "workspaces",
-    deriveLocalInstallation(context).workspaceId,
+    deriveLocalInstallation(context).scopeId,
     LOCAL_EXECUTOR_STATE_BASENAME,
   );
 
@@ -230,9 +230,9 @@ const mergeAuthArtifacts = (
   for (const artifact of imported) {
     merged.set(
       [
-        artifact.workspaceId,
+        artifact.scopeId,
         artifact.sourceId,
-        artifact.actorAccountId ?? "",
+        artifact.actorScopeId ?? "",
         artifact.slot,
       ].join("::"),
       cloneValue(artifact),
@@ -242,9 +242,9 @@ const mergeAuthArtifacts = (
   for (const artifact of current) {
     merged.set(
       [
-        artifact.workspaceId,
+        artifact.scopeId,
         artifact.sourceId,
-        artifact.actorAccountId ?? "",
+        artifact.actorScopeId ?? "",
         artifact.slot,
       ].join("::"),
       cloneValue(artifact),
@@ -255,14 +255,14 @@ const mergeAuthArtifacts = (
 };
 
 const mergeSourceOauthClients = (
-  current: readonly WorkspaceSourceOauthClient[],
-  imported: readonly WorkspaceSourceOauthClient[],
-): WorkspaceSourceOauthClient[] => {
-  const merged = new Map<string, WorkspaceSourceOauthClient>();
+  current: readonly ScopedSourceOauthClient[],
+  imported: readonly ScopedSourceOauthClient[],
+): ScopedSourceOauthClient[] => {
+  const merged = new Map<string, ScopedSourceOauthClient>();
 
   for (const oauthClient of imported) {
     merged.set(
-      [oauthClient.workspaceId, oauthClient.sourceId, oauthClient.providerKey].join(
+      [oauthClient.scopeId, oauthClient.sourceId, oauthClient.providerKey].join(
         "::",
       ),
       cloneValue(oauthClient),
@@ -271,7 +271,7 @@ const mergeSourceOauthClients = (
 
   for (const oauthClient of current) {
     merged.set(
-      [oauthClient.workspaceId, oauthClient.sourceId, oauthClient.providerKey].join(
+      [oauthClient.scopeId, oauthClient.sourceId, oauthClient.providerKey].join(
         "::",
       ),
       cloneValue(oauthClient),
@@ -282,21 +282,21 @@ const mergeSourceOauthClients = (
 };
 
 const mergeWorkspaceOauthClients = (
-  current: readonly WorkspaceOauthClient[],
-  imported: readonly WorkspaceOauthClient[],
-): WorkspaceOauthClient[] => {
-  const merged = new Map<string, WorkspaceOauthClient>();
+  current: readonly ScopeOauthClient[],
+  imported: readonly ScopeOauthClient[],
+): ScopeOauthClient[] => {
+  const merged = new Map<string, ScopeOauthClient>();
 
   for (const oauthClient of imported) {
     merged.set(
-      [oauthClient.workspaceId, oauthClient.providerKey, oauthClient.id].join("::"),
+      [oauthClient.scopeId, oauthClient.providerKey, oauthClient.id].join("::"),
       cloneValue(oauthClient),
     );
   }
 
   for (const oauthClient of current) {
     merged.set(
-      [oauthClient.workspaceId, oauthClient.providerKey, oauthClient.id].join("::"),
+      [oauthClient.scopeId, oauthClient.providerKey, oauthClient.id].join("::"),
       cloneValue(oauthClient),
     );
   }
@@ -326,9 +326,9 @@ export const mergeImportedLocalExecutorStateSnapshot = (input: {
     input.current.sourceOauthClients,
     input.imported.sourceOauthClients ?? [],
   ),
-  workspaceOauthClients: mergeWorkspaceOauthClients(
-    input.current.workspaceOauthClients,
-    input.imported.workspaceOauthClients ?? [],
+  scopeOauthClients: mergeWorkspaceOauthClients(
+    input.current.scopeOauthClients,
+    input.imported.scopeOauthClients ?? [],
   ),
   providerAuthGrants: mergeProviderAuthGrants(
     input.current.providerAuthGrants,
@@ -440,40 +440,40 @@ export const createLocalExecutorStateStore = (
 
   return {
     authArtifacts: {
-      listByWorkspaceId: (workspaceId: AuthArtifact["workspaceId"]) =>
+      listByScopeId: (scopeId: AuthArtifact["scopeId"]) =>
         stateManager.read((state) =>
           sortByUpdatedAtAndIdAsc(
-            state.authArtifacts.filter((artifact) => artifact.workspaceId === workspaceId),
+            state.authArtifacts.filter((artifact) => artifact.scopeId === scopeId),
           ),
         ),
 
-      listByWorkspaceAndSourceId: (input: {
-        workspaceId: AuthArtifact["workspaceId"];
+      listByScopeAndSourceId: (input: {
+        scopeId: AuthArtifact["scopeId"];
         sourceId: AuthArtifact["sourceId"];
       }) =>
         stateManager.read((state) =>
           sortByUpdatedAtAndIdAsc(
             state.authArtifacts.filter(
               (artifact) =>
-                artifact.workspaceId === input.workspaceId
+                artifact.scopeId === input.scopeId
                 && artifact.sourceId === input.sourceId,
             ),
           ),
         ),
 
-      getByWorkspaceSourceAndActor: (input: {
-        workspaceId: AuthArtifact["workspaceId"];
+      getByScopeSourceAndActor: (input: {
+        scopeId: AuthArtifact["scopeId"];
         sourceId: AuthArtifact["sourceId"];
-        actorAccountId: AuthArtifact["actorAccountId"];
+        actorScopeId: AuthArtifact["actorScopeId"];
         slot: AuthArtifact["slot"];
       }) =>
         stateManager.read((state) => {
           const artifact = state.authArtifacts.find(
             (candidate) =>
-              candidate.workspaceId === input.workspaceId
+              candidate.scopeId === input.scopeId
               && candidate.sourceId === input.sourceId
               && candidate.slot === input.slot
-              && actorEquals(candidate.actorAccountId, input.actorAccountId),
+              && actorEquals(candidate.actorScopeId, input.actorScopeId),
           );
 
           return artifact ? Option.some(cloneValue(artifact)) : Option.none<AuthArtifact>();
@@ -484,10 +484,10 @@ export const createLocalExecutorStateStore = (
           const nextArtifacts = state.authArtifacts.filter(
             (candidate) =>
               !(
-                candidate.workspaceId === artifact.workspaceId
+                candidate.scopeId === artifact.scopeId
                 && candidate.sourceId === artifact.sourceId
                 && candidate.slot === artifact.slot
-                && actorEquals(candidate.actorAccountId, artifact.actorAccountId)
+                && actorEquals(candidate.actorScopeId, artifact.actorScopeId)
               ),
           );
           nextArtifacts.push(cloneValue(artifact));
@@ -501,18 +501,18 @@ export const createLocalExecutorStateStore = (
           } satisfies StateMutationResult<void>;
         }),
 
-      removeByWorkspaceSourceAndActor: (input: {
-        workspaceId: AuthArtifact["workspaceId"];
+      removeByScopeSourceAndActor: (input: {
+        scopeId: AuthArtifact["scopeId"];
         sourceId: AuthArtifact["sourceId"];
-        actorAccountId: AuthArtifact["actorAccountId"];
+        actorScopeId: AuthArtifact["actorScopeId"];
         slot?: AuthArtifact["slot"];
       }) =>
         stateManager.mutate((state) => {
           const nextArtifacts = state.authArtifacts.filter(
             (candidate) =>
-              candidate.workspaceId !== input.workspaceId
+              candidate.scopeId !== input.scopeId
               || candidate.sourceId !== input.sourceId
-              || !actorEquals(candidate.actorAccountId, input.actorAccountId)
+              || !actorEquals(candidate.actorScopeId, input.actorScopeId)
               || (input.slot !== undefined && candidate.slot !== input.slot),
           );
 
@@ -525,14 +525,14 @@ export const createLocalExecutorStateStore = (
           } satisfies StateMutationResult<boolean>;
         }),
 
-      removeByWorkspaceAndSourceId: (input: {
-        workspaceId: AuthArtifact["workspaceId"];
+      removeByScopeAndSourceId: (input: {
+        scopeId: AuthArtifact["scopeId"];
         sourceId: AuthArtifact["sourceId"];
       }) =>
         stateManager.mutate((state) => {
           const nextArtifacts = state.authArtifacts.filter(
             (candidate) =>
-              candidate.workspaceId !== input.workspaceId
+              candidate.scopeId !== input.scopeId
               || candidate.sourceId !== input.sourceId,
           );
 
@@ -591,30 +591,30 @@ export const createLocalExecutorStateStore = (
     },
 
     sourceOauthClients: {
-      getByWorkspaceSourceAndProvider: (input: {
-        workspaceId: WorkspaceSourceOauthClient["workspaceId"];
-        sourceId: WorkspaceSourceOauthClient["sourceId"];
+      getByScopeSourceAndProvider: (input: {
+        scopeId: ScopedSourceOauthClient["scopeId"];
+        sourceId: ScopedSourceOauthClient["sourceId"];
         providerKey: string;
       }) =>
         stateManager.read((state) => {
           const oauthClient = state.sourceOauthClients.find(
             (candidate) =>
-              candidate.workspaceId === input.workspaceId
+              candidate.scopeId === input.scopeId
               && candidate.sourceId === input.sourceId
               && candidate.providerKey === input.providerKey,
           );
 
           return oauthClient
             ? Option.some(cloneValue(oauthClient))
-            : Option.none<WorkspaceSourceOauthClient>();
+            : Option.none<ScopedSourceOauthClient>();
         }),
 
-      upsert: (oauthClient: WorkspaceSourceOauthClient) =>
+      upsert: (oauthClient: ScopedSourceOauthClient) =>
         stateManager.mutate((state) => {
           const nextOauthClients = state.sourceOauthClients.filter(
             (candidate) =>
               !(
-                candidate.workspaceId === oauthClient.workspaceId
+                candidate.scopeId === oauthClient.scopeId
                 && candidate.sourceId === oauthClient.sourceId
                 && candidate.providerKey === oauthClient.providerKey
               ),
@@ -630,14 +630,14 @@ export const createLocalExecutorStateStore = (
           } satisfies StateMutationResult<void>;
         }),
 
-      removeByWorkspaceAndSourceId: (input: {
-        workspaceId: WorkspaceSourceOauthClient["workspaceId"];
-        sourceId: WorkspaceSourceOauthClient["sourceId"];
+      removeByScopeAndSourceId: (input: {
+        scopeId: ScopedSourceOauthClient["scopeId"];
+        sourceId: ScopedSourceOauthClient["sourceId"];
       }) =>
         stateManager.mutate((state) => {
           const nextOauthClients = state.sourceOauthClients.filter(
             (candidate) =>
-              candidate.workspaceId !== input.workspaceId
+              candidate.scopeId !== input.scopeId
               || candidate.sourceId !== input.sourceId,
           );
 
@@ -651,35 +651,35 @@ export const createLocalExecutorStateStore = (
         }),
     },
 
-    workspaceOauthClients: {
-      listByWorkspaceAndProvider: (input: {
-        workspaceId: WorkspaceOauthClient["workspaceId"];
+    scopeOauthClients: {
+      listByScopeAndProvider: (input: {
+        scopeId: ScopeOauthClient["scopeId"];
         providerKey: string;
       }) =>
         stateManager.read((state) =>
           sortByUpdatedAtAndIdAsc(
-            state.workspaceOauthClients.filter(
+            state.scopeOauthClients.filter(
               (candidate) =>
-                candidate.workspaceId === input.workspaceId
+                candidate.scopeId === input.scopeId
                 && candidate.providerKey === input.providerKey,
             ),
           ),
         ),
 
-      getById: (id: WorkspaceOauthClient["id"]) =>
+      getById: (id: ScopeOauthClient["id"]) =>
         stateManager.read((state) => {
-          const oauthClient = state.workspaceOauthClients.find(
+          const oauthClient = state.scopeOauthClients.find(
             (candidate) => candidate.id === id,
           );
 
           return oauthClient
             ? Option.some(cloneValue(oauthClient))
-            : Option.none<WorkspaceOauthClient>();
+            : Option.none<ScopeOauthClient>();
         }),
 
-      upsert: (oauthClient: WorkspaceOauthClient) =>
+      upsert: (oauthClient: ScopeOauthClient) =>
         stateManager.mutate((state) => {
-          const nextOauthClients = state.workspaceOauthClients.filter(
+          const nextOauthClients = state.scopeOauthClients.filter(
             (candidate) => candidate.id !== oauthClient.id,
           );
           nextOauthClients.push(cloneValue(oauthClient));
@@ -687,50 +687,50 @@ export const createLocalExecutorStateStore = (
           return {
             state: {
               ...state,
-              workspaceOauthClients: nextOauthClients,
+              scopeOauthClients: nextOauthClients,
             },
             value: undefined,
           } satisfies StateMutationResult<void>;
         }),
 
-      removeById: (id: WorkspaceOauthClient["id"]) =>
+      removeById: (id: ScopeOauthClient["id"]) =>
         stateManager.mutate((state) => {
-          const nextOauthClients = state.workspaceOauthClients.filter(
+          const nextOauthClients = state.scopeOauthClients.filter(
             (candidate) => candidate.id !== id,
           );
 
           return {
             state: {
               ...state,
-              workspaceOauthClients: nextOauthClients,
+              scopeOauthClients: nextOauthClients,
             },
-            value: nextOauthClients.length !== state.workspaceOauthClients.length,
+            value: nextOauthClients.length !== state.scopeOauthClients.length,
           } satisfies StateMutationResult<boolean>;
         }),
     },
 
     providerAuthGrants: {
-      listByWorkspaceId: (workspaceId: ProviderAuthGrant["workspaceId"]) =>
+      listByScopeId: (scopeId: ProviderAuthGrant["scopeId"]) =>
         stateManager.read((state) =>
           sortByUpdatedAtAndIdAsc(
             state.providerAuthGrants.filter(
-              (grant) => grant.workspaceId === workspaceId,
+              (grant) => grant.scopeId === scopeId,
             ),
           ),
         ),
 
-      listByWorkspaceActorAndProvider: (input: {
-        workspaceId: ProviderAuthGrant["workspaceId"];
-        actorAccountId: ProviderAuthGrant["actorAccountId"];
+      listByScopeActorAndProvider: (input: {
+        scopeId: ProviderAuthGrant["scopeId"];
+        actorScopeId: ProviderAuthGrant["actorScopeId"];
         providerKey: string;
       }) =>
         stateManager.read((state) =>
           sortByUpdatedAtAndIdAsc(
             state.providerAuthGrants.filter(
               (grant) =>
-                grant.workspaceId === input.workspaceId
+                grant.scopeId === input.scopeId
                 && grant.providerKey === input.providerKey
-                && actorEquals(grant.actorAccountId, input.actorAccountId),
+                && actorEquals(grant.actorScopeId, input.actorScopeId),
             ),
           ),
         ),
@@ -782,11 +782,11 @@ export const createLocalExecutorStateStore = (
       listAll: () =>
         stateManager.read((state) => sortByUpdatedAtAndIdAsc(state.sourceAuthSessions)),
 
-      listByWorkspaceId: (workspaceId: SourceAuthSession["workspaceId"]) =>
+      listByScopeId: (scopeId: SourceAuthSession["scopeId"]) =>
         stateManager.read((state) =>
           sortByUpdatedAtAndIdAsc(
             state.sourceAuthSessions.filter(
-              (session) => session.workspaceId === workspaceId,
+              (session) => session.scopeId === scopeId,
             ),
           ),
         ),
@@ -811,20 +811,20 @@ export const createLocalExecutorStateStore = (
             : Option.none<SourceAuthSession>();
         }),
 
-      getPendingByWorkspaceSourceAndActor: (input: {
-        workspaceId: SourceAuthSession["workspaceId"];
+      getPendingByScopeSourceAndActor: (input: {
+        scopeId: SourceAuthSession["scopeId"];
         sourceId: SourceAuthSession["sourceId"];
-        actorAccountId: SourceAuthSession["actorAccountId"];
+        actorScopeId: SourceAuthSession["actorScopeId"];
         credentialSlot?: SourceAuthSession["credentialSlot"];
       }) =>
         stateManager.read((state) => {
           const session = sortByUpdatedAtAndIdAsc(
             state.sourceAuthSessions.filter(
               (candidate) =>
-                candidate.workspaceId === input.workspaceId
+                candidate.scopeId === input.scopeId
                 && candidate.sourceId === input.sourceId
                 && candidate.status === "pending"
-                && actorEquals(candidate.actorAccountId, input.actorAccountId)
+                && actorEquals(candidate.actorScopeId, input.actorScopeId)
                 && (input.credentialSlot === undefined
                   || candidate.credentialSlot === input.credentialSlot),
             ),
@@ -846,7 +846,7 @@ export const createLocalExecutorStateStore = (
 
       update: (
         id: SourceAuthSession["id"],
-        patch: Partial<Omit<SourceAuthSession, "id" | "workspaceId" | "sourceId" | "createdAt">>,
+        patch: Partial<Omit<SourceAuthSession, "id" | "scopeId" | "sourceId" | "createdAt">>,
       ) =>
         stateManager.mutate((state) => {
           let updated: SourceAuthSession | null = null;
@@ -887,14 +887,14 @@ export const createLocalExecutorStateStore = (
           } satisfies StateMutationResult<void>;
         }),
 
-      removeByWorkspaceAndSourceId: (
-        workspaceId: SourceAuthSession["workspaceId"],
+      removeByScopeAndSourceId: (
+        scopeId: SourceAuthSession["scopeId"],
         sourceId: SourceAuthSession["sourceId"],
       ) =>
         stateManager.mutate((state) => {
           const nextSessions = state.sourceAuthSessions.filter(
             (candidate) =>
-              candidate.workspaceId !== workspaceId || candidate.sourceId !== sourceId,
+              candidate.scopeId !== scopeId || candidate.sourceId !== sourceId,
           );
 
           return {
@@ -993,14 +993,14 @@ export const createLocalExecutorStateStore = (
             : Option.none<Execution>();
         }),
 
-      getByWorkspaceAndId: (
-        workspaceId: Execution["workspaceId"],
+      getByScopeAndId: (
+        scopeId: Execution["scopeId"],
         executionId: Execution["id"],
       ) =>
         stateManager.read((state) => {
           const execution = state.executions.find(
             (candidate) =>
-              candidate.workspaceId === workspaceId && candidate.id === executionId,
+              candidate.scopeId === scopeId && candidate.id === executionId,
           );
           return execution
             ? Option.some(cloneValue(execution))
@@ -1019,7 +1019,7 @@ export const createLocalExecutorStateStore = (
       update: (
         executionId: Execution["id"],
         patch: Partial<
-          Omit<Execution, "id" | "workspaceId" | "createdByAccountId" | "createdAt">
+          Omit<Execution, "id" | "scopeId" | "createdByAccountId" | "createdAt">
         >,
       ) =>
         stateManager.mutate((state) => {

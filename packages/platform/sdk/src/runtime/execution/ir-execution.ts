@@ -1,11 +1,24 @@
-import type { AccountId, Source } from "#schema";
-import type { OnElicitation } from "@executor/codemode-core";
+import type {
+  ScopeId,
+  Source,
+} from "#schema";
+import type {
+  OnElicitation,
+} from "@executor/codemode-core";
 import * as Effect from "effect/Effect";
 
-import type { LoadedSourceCatalogToolIndexEntry } from "../catalog/source/runtime";
-import type { ResolvedSourceAuthMaterial } from "../auth/source-auth-material";
-import { getSourceAdapter } from "../sources/source-adapters";
-import { runtimeEffectError } from "../effect-errors";
+import type {
+  LoadedSourceCatalogToolIndexEntry,
+} from "../catalog/source/runtime";
+import type {
+  ResolvedSourceAuthMaterial,
+} from "../auth/source-auth-material";
+import {
+  getSourceAdapter,
+} from "../sources/source-adapters";
+import {
+  runtimeEffectError,
+} from "../effect-errors";
 
 export const invocationDescriptorFromTool = (input: {
   tool: LoadedSourceCatalogToolIndexEntry;
@@ -39,8 +52,8 @@ export const invocationDescriptorFromTool = (input: {
 });
 
 export const invokeIrTool = (input: {
-  workspaceId: Source["workspaceId"];
-  accountId: AccountId;
+  scopeId: Source["scopeId"];
+  actorScopeId: ScopeId;
   tool: LoadedSourceCatalogToolIndexEntry;
   auth: ResolvedSourceAuthMaterial;
   args: unknown;

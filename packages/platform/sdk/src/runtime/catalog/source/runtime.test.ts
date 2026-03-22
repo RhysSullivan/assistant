@@ -1,4 +1,8 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import type {
@@ -10,7 +14,7 @@ import {
   SourceCatalogIdSchema,
   SourceCatalogRevisionIdSchema,
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
 } from "#schema";
 
 import {
@@ -27,7 +31,10 @@ import {
   ScopeIdSchema,
   ShapeSymbolIdSchema,
 } from "@executor/ir/ids";
-import type { CatalogV1, ProvenanceRef } from "@executor/ir/model";
+import type {
+  CatalogV1,
+  ProvenanceRef,
+} from "@executor/ir/model";
 import {
   createCatalogTypeProjector,
   formatTypeNameSegment,
@@ -274,7 +281,7 @@ const createLoadedCatalog = (options?: {
 
   const source = {
     id: SourceIdSchema.make("src_linear"),
-    workspaceId: WorkspaceIdSchema.make("ws_linear"),
+    scopeId: ScopeIdSchema.make("ws_linear"),
     name: "Linear",
     kind: "graphql-schema",
     endpoint: "https://api.linear.app/graphql",
@@ -294,7 +301,7 @@ const createLoadedCatalog = (options?: {
 
   const sourceRecord = {
     id: source.id,
-    workspaceId: source.workspaceId,
+    scopeId: source.scopeId,
     catalogId: SourceCatalogIdSchema.make("catalog_linear"),
     catalogRevisionId: SourceCatalogRevisionIdSchema.make("catalog_revision_linear"),
     name: source.name,

@@ -1,11 +1,13 @@
-import { sha256Hex } from "@executor/codemode-core";
+import {
+  sha256Hex,
+} from "@executor/codemode-core";
 
 import type {
   CreateSourcePayload,
   UpdateSourcePayload,
 } from "../../sources/contracts";
 import type {
-  AccountId,
+  ScopeId,
   AuthArtifact,
   Source,
   SourceAuth,
@@ -17,7 +19,6 @@ import type {
   StoredSourceRecord,
   StoredSourceCatalogRecord,
   StoredSourceCatalogRevisionRecord,
-  WorkspaceId,
 } from "#schema";
 import {
   AuthArtifactIdSchema,
@@ -27,12 +28,17 @@ import {
 } from "#schema";
 import * as Effect from "effect/Effect";
 
-import { getSourceAdapter, getSourceAdapterForSource } from "./source-adapters";
+import {
+  getSourceAdapter,
+  getSourceAdapterForSource,
+} from "./source-adapters";
 import {
   authArtifactFromSourceAuth,
   sourceAuthFromAuthArtifact,
 } from "../auth/auth-artifacts";
-import { runtimeEffectError } from "../effect-errors";
+import {
+  runtimeEffectError,
+} from "../effect-errors";
 
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value === null || value === undefined) {
@@ -277,7 +283,7 @@ const validateSourceByKind = (source: Source): Effect.Effect<Source, Error, neve
   );
 
 export const createSourceFromPayload = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
   payload: CreateSourcePayload;
   now: number;
@@ -292,7 +298,7 @@ export const createSourceFromPayload = (input: {
 
     return yield* validateSourceByKind({
       id: input.sourceId,
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       name: input.payload.name.trim(),
       kind: input.payload.kind,
       endpoint: input.payload.endpoint.trim(),
@@ -370,7 +376,7 @@ export const createSourceCatalogRecord = (input: {
   providerKey: sourceCatalogProviderKeyFromSource(input.source),
   name: input.source.name,
   summary: null,
-  visibility: "workspace",
+  visibility: "scope",
   latestRevisionId: input.latestRevisionId,
   createdAt: input.source.createdAt,
   updatedAt: input.source.updatedAt,
@@ -402,7 +408,7 @@ export const splitSourceForStorage = (input: {
   source: Source;
   catalogId: SourceCatalogId;
   catalogRevisionId: SourceCatalogRevisionId;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   existingRuntimeAuthArtifactId?: AuthArtifact["id"] | null;
   existingImportAuthArtifactId?: AuthArtifact["id"] | null;
 }): {
@@ -412,7 +418,7 @@ export const splitSourceForStorage = (input: {
 } => {
   const sourceRecord: StoredSourceRecord = {
     id: input.source.id,
-    workspaceId: input.source.workspaceId,
+    scopeId: input.source.scopeId,
     catalogId: input.catalogId,
     catalogRevisionId: input.catalogRevisionId,
     name: input.source.name,
@@ -435,7 +441,7 @@ export const splitSourceForStorage = (input: {
       source: input.source,
       auth: input.source.auth,
       slot: "runtime",
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
       existingAuthArtifactId: input.existingRuntimeAuthArtifactId
         ?? AuthArtifactIdSchema.make(`auth_art_${crypto.randomUUID()}`),
     }),
@@ -444,7 +450,7 @@ export const splitSourceForStorage = (input: {
           source: input.source,
           auth: input.source.importAuth,
           slot: "import",
-          actorAccountId: input.actorAccountId,
+          actorScopeId: input.actorScopeId,
           existingAuthArtifactId: input.existingImportAuthArtifactId
             ?? AuthArtifactIdSchema.make(`auth_art_${crypto.randomUUID()}`),
         })
@@ -466,7 +472,7 @@ export const projectSourceFromStorage = (input: {
 
     return {
       id: input.sourceRecord.id,
-      workspaceId: input.sourceRecord.workspaceId,
+      scopeId: input.sourceRecord.scopeId,
       name: input.sourceRecord.name,
       kind: input.sourceRecord.kind,
       endpoint: input.sourceRecord.endpoint,
@@ -507,7 +513,7 @@ export const projectSourcesFromStorage = (input: {
       import: null,
     };
     const current = authArtifact.slot === "runtime" ? existing.runtime : existing.import;
-    if (current === null || (current.actorAccountId === null && authArtifact.actorAccountId !== null)) {
+    if (current === null || (current.actorScopeId === null && authArtifact.actorScopeId !== null)) {
       authArtifactsBySourceId.set(authArtifact.sourceId, {
         ...existing,
         [authArtifact.slot]: authArtifact,

@@ -36,6 +36,7 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
+        "@executor/effect-test-utils": "workspace:*",
         "@executor/mcp-elicitation-demo": "workspace:*",
         "@executor/runtime-ses": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.26.0",
@@ -150,6 +151,7 @@
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/vitest": "catalog:",
+        "@executor/effect-test-utils": "workspace:*",
         "@executor/platform-sdk-file": "workspace:*",
         "@types/jsdom": "^21.1.7",
         "@types/node": "catalog:",
@@ -162,6 +164,20 @@
       },
       "peerDependencies": {
         "react": ">=18 <20",
+      },
+    },
+    "packages/dev/effect-test-utils": {
+      "name": "@executor/effect-test-utils",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@effect/platform-node": "catalog:",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+        "typescript": "^5.9.3",
       },
     },
     "packages/dev/kitchen-sink": {
@@ -337,6 +353,7 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
+        "@executor/effect-test-utils": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
@@ -708,6 +725,8 @@
     "@executor/codemode-core": ["@executor/codemode-core@workspace:packages/kernel/core"],
 
     "@executor/docs": ["@executor/docs@workspace:apps/docs"],
+
+    "@executor/effect-test-utils": ["@executor/effect-test-utils@workspace:packages/dev/effect-test-utils"],
 
     "@executor/executor-mcp": ["@executor/executor-mcp@workspace:packages/hosts/mcp"],
 

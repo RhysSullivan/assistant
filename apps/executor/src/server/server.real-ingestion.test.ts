@@ -39,7 +39,7 @@ const createApiClientHarness = () =>
     const installation = yield* bootstrapClient.local.installation({});
     const client = yield* createExecutorApiClient({
       baseUrl: server.baseUrl,
-      accountId: installation.accountId,
+      accountId: installation.actorScopeId,
     });
 
     return {
@@ -75,7 +75,7 @@ describe("local-executor-server real ingestion", () => {
 
       const connected = yield* client.sources.connect({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           kind: "openapi",
@@ -96,7 +96,7 @@ describe("local-executor-server real ingestion", () => {
 
       const inspection = yield* client.sources.inspection({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           sourceId: connected.source.id,
         },
       });
@@ -106,7 +106,7 @@ describe("local-executor-server real ingestion", () => {
 
       const discoveredTools = yield* client.sources.inspectionDiscover({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           sourceId: connected.source.id,
         },
         payload: {
@@ -137,7 +137,7 @@ describe("local-executor-server real ingestion", () => {
 
       const connected = yield* client.sources.connect({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           kind: "graphql",
@@ -159,7 +159,7 @@ describe("local-executor-server real ingestion", () => {
 
       const inspection = yield* client.sources.inspection({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           sourceId: connected.source.id,
         },
       });
@@ -175,7 +175,7 @@ describe("local-executor-server real ingestion", () => {
 
       const toolDetail = yield* client.sources.inspectionTool({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           sourceId: connected.source.id,
           toolPath: "linear.administrableTeams",
         },
@@ -191,7 +191,7 @@ describe("local-executor-server real ingestion", () => {
 
       const storedSource = yield* client.sources.get({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           sourceId: connected.source.id,
         },
       });
@@ -218,7 +218,7 @@ describe("local-executor-server real ingestion", () => {
 
       const connected = yield* client.sources.connect({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           kind: "mcp",
@@ -235,7 +235,7 @@ describe("local-executor-server real ingestion", () => {
 
       const inspection = yield* client.sources.inspection({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           sourceId: connected.source.id,
         },
       });
@@ -245,7 +245,7 @@ describe("local-executor-server real ingestion", () => {
 
       const discoveredTools = yield* client.sources.inspectionDiscover({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           sourceId: connected.source.id,
         },
         payload: {

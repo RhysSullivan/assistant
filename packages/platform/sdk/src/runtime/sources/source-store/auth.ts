@@ -1,18 +1,27 @@
 import type {
-  AccountId,
+  ScopeId,
   AuthArtifact,
   CredentialSlot,
   ProviderAuthGrant,
   Source,
-  WorkspaceId,
 } from "#schema";
-import { decodeProviderGrantRefAuthArtifactConfig } from "#schema";
+import {
+  decodeProviderGrantRefAuthArtifactConfig,
+} from "#schema";
 import * as Effect from "effect/Effect";
 
-import { authArtifactSecretMaterialRefs } from "../../auth/auth-artifacts";
-import { removeAuthLeaseAndSecrets } from "../../auth/auth-leases";
-import type { DeleteSecretMaterial } from "../../workspace/secret-material-providers";
-import type { ExecutorStateStoreShape } from "../../executor-state-store";
+import {
+  authArtifactSecretMaterialRefs,
+} from "../../auth/auth-artifacts";
+import {
+  removeAuthLeaseAndSecrets,
+} from "../../auth/auth-leases";
+import type {
+  DeleteSecretMaterial,
+} from "../../scope/secret-material-providers";
+import type {
+  ExecutorStateStoreShape,
+} from "../../executor-state-store";
 
 const secretRefKey = (ref: { providerId: string; handle: string }): string =>
   `${ref.providerId}:${ref.handle}`;
@@ -60,52 +69,52 @@ export const providerGrantIdsFromArtifacts = (
 
 export const selectPreferredAuthArtifact = (input: {
   authArtifacts: ReadonlyArray<AuthArtifact>;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   slot: CredentialSlot;
 }): AuthArtifact | null => {
   const matchingSlot = input.authArtifacts.filter(
     (artifact) => artifact.slot === input.slot,
   );
 
-  if (input.actorAccountId !== undefined) {
+  if (input.actorScopeId !== undefined) {
     const exact = matchingSlot.find(
-      (artifact) => artifact.actorAccountId === input.actorAccountId,
+      (artifact) => artifact.actorScopeId === input.actorScopeId,
     );
     if (exact) {
       return exact;
     }
   }
 
-  return matchingSlot.find((artifact) => artifact.actorAccountId === null) ?? null;
+  return matchingSlot.find((artifact) => artifact.actorScopeId === null) ?? null;
 };
 
 export const selectExactAuthArtifact = (input: {
   authArtifacts: ReadonlyArray<AuthArtifact>;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   slot: CredentialSlot;
 }): AuthArtifact | null =>
   input.authArtifacts.find(
     (artifact) =>
       artifact.slot === input.slot &&
-      artifact.actorAccountId === (input.actorAccountId ?? null),
+      artifact.actorScopeId === (input.actorScopeId ?? null),
   ) ?? null;
 
 export const removeAuthArtifactsForSource = (
   executorState: ExecutorStateStoreShape,
   input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     sourceId: Source["id"];
   },
   deleteSecretMaterial: DeleteSecretMaterial,
 ) =>
   Effect.gen(function* () {
-    const existingAuthArtifacts = yield* executorState.authArtifacts.listByWorkspaceAndSourceId({
-      workspaceId: input.workspaceId,
+    const existingAuthArtifacts = yield* executorState.authArtifacts.listByScopeAndSourceId({
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
     });
 
-    yield* executorState.authArtifacts.removeByWorkspaceAndSourceId({
-      workspaceId: input.workspaceId,
+    yield* executorState.authArtifacts.removeByScopeAndSourceId({
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
     });
 

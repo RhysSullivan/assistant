@@ -1,5 +1,9 @@
-import { createServer } from "node:http";
-import { fileURLToPath } from "node:url";
+import {
+  createServer,
+} from "node:http";
+import {
+  fileURLToPath,
+} from "node:url";
 
 import {
   FileSystem,
@@ -9,7 +13,9 @@ import {
   HttpApiSchema,
   OpenApi,
 } from "@effect/platform";
-import { NodeFileSystem } from "@effect/platform-node";
+import {
+  NodeFileSystem,
+} from "@effect/platform-node";
 import {
   buildOpenApiToolPresentation,
   compileOpenApiToolDefinitions,
@@ -21,7 +27,11 @@ import {
   compileGoogleDiscoveryToolDefinitions,
   extractGoogleDiscoveryManifest,
 } from "@executor/source-google-discovery";
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 
 import type {
   Source,
@@ -32,13 +42,19 @@ import {
   SourceCatalogIdSchema,
   SourceCatalogRevisionIdSchema,
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
 } from "#schema";
 import * as Effect from "effect/Effect";
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 
-import { projectCatalogForAgentSdk } from "@executor/ir/catalog";
-import type { CatalogSnapshotV1 } from "@executor/ir/model";
+import {
+  projectCatalogForAgentSdk,
+} from "@executor/ir/catalog";
+import type {
+  CatalogSnapshotV1,
+} from "@executor/ir/model";
 import {
   createCatalogTypeProjector,
   projectedCatalogTypeRoots,
@@ -52,12 +68,20 @@ import {
   expandCatalogToolByPath,
   type LoadedSourceCatalog,
 } from "../catalog/source/runtime";
-import { invokeIrTool } from "../execution/ir-execution";
-import { createGoogleDiscoveryCatalogSnapshot } from "@executor/source-google-discovery";
-import { createGraphqlCatalogSnapshot } from "@executor/source-graphql";
-import { createOpenApiCatalogSnapshot } from "@executor/source-openapi";
+import {
+  invokeIrTool,
+} from "../execution/ir-execution";
+import {
+  createGoogleDiscoveryCatalogSnapshot,
+} from "@executor/source-google-discovery";
+import {
+  createGraphqlCatalogSnapshot,
+} from "@executor/source-graphql";
+import {
+  createOpenApiCatalogSnapshot,
+} from "@executor/source-openapi";
 
-const FIXTURE_WORKSPACE_ID = WorkspaceIdSchema.make("ws_source_fixture_matrix");
+const FIXTURE_WORKSPACE_ID = ScopeIdSchema.make("ws_source_fixture_matrix");
 
 const readFixture = (name: string) =>
   FileSystem.FileSystem.pipe(
@@ -79,7 +103,7 @@ const makeSource = (input: {
   binding: Source["binding"];
 }): Source => ({
   id: SourceIdSchema.make(input.id),
-  workspaceId: FIXTURE_WORKSPACE_ID,
+  scopeId: FIXTURE_WORKSPACE_ID,
   name: input.name,
   kind: input.kind,
   endpoint: input.endpoint,
@@ -107,7 +131,7 @@ const makeLoadedCatalog = (input: {
   );
   const sourceRecord = {
     id: input.source.id,
-    workspaceId: input.source.workspaceId,
+    scopeId: input.source.scopeId,
     catalogId,
     catalogRevisionId: revisionId,
     name: input.source.name,
@@ -725,8 +749,8 @@ describe("source adapter fixture matrix", () => {
 
             const getItemResult = await Effect.runPromise(
               invokeIrTool({
-                workspaceId: source.workspaceId,
-                accountId: "acct_fixture" as any,
+                scopeId: source.scopeId,
+                actorScopeId: "acct_fixture" as any,
                 tool: getItemTool,
                 auth,
                 args: {
@@ -741,8 +765,8 @@ describe("source adapter fixture matrix", () => {
             );
             const submitFormResult = await Effect.runPromise(
               invokeIrTool({
-                workspaceId: source.workspaceId,
-                accountId: "acct_fixture" as any,
+                scopeId: source.scopeId,
+                actorScopeId: "acct_fixture" as any,
                 tool: submitFormTool,
                 auth,
                 args: {
@@ -898,8 +922,8 @@ describe("source adapter fixture matrix", () => {
 
             const result = await Effect.runPromise(
               invokeIrTool({
-                workspaceId: source.workspaceId,
-                accountId: "acct_fixture" as any,
+                scopeId: source.scopeId,
+                actorScopeId: "acct_fixture" as any,
                 tool,
                 auth,
                 args: {
@@ -1332,8 +1356,8 @@ describe("source adapter fixture matrix", () => {
           } as const;
 
           const result = yield* invokeIrTool({
-            workspaceId: source.workspaceId,
-            accountId: "acct_fixture" as any,
+            scopeId: source.scopeId,
+            actorScopeId: "acct_fixture" as any,
             tool,
             auth,
             args: {},

@@ -7,7 +7,7 @@ export * from "./models/source-catalog";
 export * from "./models/auth-artifact";
 export * from "./models/auth-lease";
 export * from "./models/source-oauth-client";
-export * from "./models/workspace-oauth-client";
+export * from "./models/scope-oauth-client";
 export * from "./models/provider-auth-grant";
 export * from "./models/secret-material";
 export * from "./models/source-auth-session";

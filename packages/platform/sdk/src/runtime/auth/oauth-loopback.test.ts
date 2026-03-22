@@ -1,9 +1,17 @@
-import { createServer } from "node:http";
+import {
+  createServer,
+} from "node:http";
 
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { startOauthLoopbackRedirectServer } from "./oauth-loopback";
+import {
+  startOauthLoopbackRedirectServer,
+} from "./oauth-loopback";
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));

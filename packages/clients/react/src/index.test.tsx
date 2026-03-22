@@ -1,8 +1,19 @@
 import { createServer } from "node:http";
 
-import { FileSystem, HttpApiBuilder, HttpServer } from "@effect/platform";
+import {
+  FileSystem,
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpServer,
+  OpenApi,
+} from "@effect/platform";
 import { NodeFileSystem, NodeHttpServer } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
+import {
+  startOpenApiTestServer,
+} from "@executor/effect-test-utils";
 import {
   createExecutorApiLayer,
 } from "@executor/platform-api";
@@ -17,6 +28,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { JSDOM } from "jsdom";
 import * as React from "react";
@@ -225,83 +237,38 @@ type OpenApiSpecServer = RunningServer & {
   specUrl: string;
 };
 
-const startOpenApiSpecServer = async (): Promise<OpenApiSpecServer> => {
-  const spec = {
-    openapi: "3.0.3",
-    info: {
-      title: "Hook Test API",
-      version: "1.0.0",
-    },
-    paths: {
-      "/ping": {
-        get: {
-          operationId: "ping",
-          responses: {
-            200: {
-              description: "ok",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      ok: { type: "boolean" },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  };
+class HooksTestPingApi extends HttpApiGroup.make("ping")
+  .add(
+    HttpApiEndpoint.get("ping")`/ping`
+      .addSuccess(
+        Schema.Struct({
+          ok: Schema.Boolean,
+        }),
+      ),
+  )
+{}
 
-  const server = createServer((req, res) => {
-    if (req.url === "/openapi.json") {
-      res.statusCode = 200;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify(spec));
-      return;
-    }
+class HooksTestOpenApi extends HttpApi.make("hooksTest").add(HooksTestPingApi) {}
 
-    if (req.url === "/ping") {
-      res.statusCode = 200;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ ok: true }));
-      return;
-    }
-
-    res.statusCode = 404;
-    res.end("not found");
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
-  });
-
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Failed to bind OpenAPI spec server");
-  }
-
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  return {
-    baseUrl,
-    specUrl: `${baseUrl}/openapi.json`,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          resolve();
-        });
+const hooksTestOpenApiSpec = OpenApi.fromApi(HooksTestOpenApi);
+const hooksTestOpenApiLive = HttpApiBuilder.group(
+  HooksTestOpenApi,
+  "ping",
+  (handlers) =>
+    handlers.handle("ping", () =>
+      Effect.succeed({
+        ok: true,
       }),
-  };
+    ),
+);
+const hooksTestOpenApiLayer = HttpApiBuilder.api(HooksTestOpenApi).pipe(
+  Layer.provide(hooksTestOpenApiLive),
+);
+
+const startOpenApiSpecServer = async (): Promise<OpenApiSpecServer> => {
+  return startOpenApiTestServer({
+    apiLayer: hooksTestOpenApiLayer,
+  });
 };
 
 async function requestJson<T>(input: {
@@ -343,42 +310,14 @@ const seedStoredOpenApiSource = async (input: {
   name: string;
   specUrl?: string;
 }): Promise<Source> => {
-  const sourceDocumentText = JSON.stringify({
-    openapi: "3.0.3",
-    info: {
-      title: input.name,
-      version: "1.0.0",
-    },
-    paths: {
-      "/ping": {
-        get: {
-          operationId: "ping",
-          responses: {
-            200: {
-              description: "ok",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      ok: { type: "boolean" },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
+  const sourceDocumentText = JSON.stringify(hooksTestOpenApiSpec);
   const specUrl = input.specUrl ?? `data:application/json,${encodeURIComponent(sourceDocumentText)}`;
 
   return requestJson<Source>({
     baseUrl: input.server.baseUrl,
-    path: `/v1/workspaces/${input.installation.workspaceId}/sources`,
+    path: `/v1/workspaces/${input.installation.scopeId}/sources`,
     method: "POST",
-    accountId: input.installation.accountId,
+    accountId: input.installation.actorScopeId,
     payload: {
       name: input.name,
       kind: "openapi",

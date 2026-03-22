@@ -1,17 +1,27 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
   type Source,
 } from "#schema";
 
-import type { LoadedLocalExecutorConfig } from "../workspace-config";
-import { buildLocalSourceRecord } from "./source-store";
-import type { LocalWorkspaceState } from "../workspace-state";
+import type {
+  LoadedLocalExecutorConfig,
+} from "../scope-config";
+import {
+  buildLocalSourceRecord,
+} from "./source-store";
+import type {
+  LocalScopeState,
+} from "../scope-state";
 
-const workspaceId = WorkspaceIdSchema.make("ws_source_store");
+const scopeId = ScopeIdSchema.make("ws_source_store");
 const sourceId = SourceIdSchema.make("linear");
 
 const loadedConfig: LoadedLocalExecutorConfig = {
@@ -36,7 +46,7 @@ const loadedConfig: LoadedLocalExecutorConfig = {
   projectConfigPath: "/tmp/project-config.jsonc",
 };
 
-const workspaceState: LocalWorkspaceState = {
+const scopeState: LocalScopeState = {
   version: 1,
   sources: {
     [sourceId]: {
@@ -54,16 +64,16 @@ describe("source-store", () => {
   it.effect("projects configured sources without reading local artifacts", () =>
     Effect.gen(function* () {
       const result = yield* buildLocalSourceRecord({
-        workspaceId,
+        scopeId,
         loadedConfig,
-        workspaceState,
+        scopeState,
         sourceId,
         authArtifacts: [],
       });
 
       expect(result.source).toEqual({
         id: sourceId,
-        workspaceId,
+        scopeId,
         name: "Linear GraphQL",
         kind: "graphql",
         endpoint: "https://api.linear.app/graphql",

@@ -154,8 +154,8 @@ const loadExecuteDescription = (runtime: ExecutorRuntime): Promise<string> =>
     Effect.gen(function* () {
       const resolveExecutionEnvironment = yield* RuntimeExecutionResolverService;
       const environment = yield* resolveExecutionEnvironment({
-        workspaceId: runtime.localInstallation.workspaceId,
-        accountId: runtime.localInstallation.accountId,
+        scopeId: runtime.localInstallation.scopeId,
+        actorScopeId: runtime.localInstallation.actorScopeId,
         executionId: ExecutionIdSchema.make("exec_mcp_help"),
       });
 
@@ -260,7 +260,7 @@ const buildToolResult = (envelope: ExecutionEnvelope): ExecutorMcpToolResult => 
 
 const waitForInteractionProgress = async (input: {
   runtime: ExecutorRuntime;
-  workspaceId: string;
+  scopeId: string;
   executionId: string;
   pendingInteractionId: string;
 }): Promise<ExecutionEnvelope> => {
@@ -268,7 +268,7 @@ const waitForInteractionProgress = async (input: {
     const next = await runControlPlane(
       input.runtime,
       getExecution({
-        workspaceId: input.workspaceId as never,
+        scopeId: input.scopeId as never,
         executionId: input.executionId as never,
       }),
     );
@@ -286,8 +286,8 @@ const waitForInteractionProgress = async (input: {
 
 const driveExecutionWithElicitation = async (input: {
   runtime: ExecutorRuntime;
-  workspaceId: string;
-  accountId: string;
+  scopeId: string;
+  actorScopeId: string;
   server: McpServer;
   envelope: ExecutionEnvelope;
 }): Promise<ExecutionEnvelope> => {
@@ -317,13 +317,13 @@ const driveExecutionWithElicitation = async (input: {
       current = await runControlPlane(
         input.runtime,
         resumeExecution({
-          workspaceId: input.workspaceId as never,
+          scopeId: input.scopeId as never,
           executionId: current.execution.id as never,
           payload: {
             responseJson: JSON.stringify(response),
             interactionMode: interactionModeForServer(input.server),
           },
-          resumedByAccountId: input.accountId as never,
+          resumedByScopeId: input.actorScopeId as never,
         }),
       );
       continue;
@@ -340,13 +340,13 @@ const driveExecutionWithElicitation = async (input: {
       current = await runControlPlane(
         input.runtime,
         resumeExecution({
-          workspaceId: input.workspaceId as never,
+          scopeId: input.scopeId as never,
           executionId: current.execution.id as never,
           payload: {
             responseJson: JSON.stringify(response),
             interactionMode: interactionModeForServer(input.server),
           },
-          resumedByAccountId: input.accountId as never,
+          resumedByScopeId: input.actorScopeId as never,
         }),
       );
       continue;
@@ -354,7 +354,7 @@ const driveExecutionWithElicitation = async (input: {
 
     current = await waitForInteractionProgress({
       runtime: input.runtime,
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       executionId: current.execution.id,
       pendingInteractionId: pending.id,
     });
@@ -365,15 +365,15 @@ const driveExecutionWithElicitation = async (input: {
 
 const driveExecutionWithoutElicitation = async (input: {
   runtime: ExecutorRuntime;
-  workspaceId: string;
-  accountId: string;
+  scopeId: string;
+  actorScopeId: string;
   executionId: string;
   initialResponse?: ResumeResponseInput;
 }): Promise<ExecutionEnvelope> => {
   let current = await runControlPlane(
     input.runtime,
     getExecution({
-      workspaceId: input.workspaceId as never,
+      scopeId: input.scopeId as never,
       executionId: input.executionId as never,
     }),
   );
@@ -388,13 +388,13 @@ const driveExecutionWithoutElicitation = async (input: {
     current = await runControlPlane(
       input.runtime,
         resumeExecution({
-          workspaceId: input.workspaceId as never,
+          scopeId: input.scopeId as never,
           executionId: current.execution.id as never,
           payload: {
             responseJson: JSON.stringify(response),
             interactionMode: "detach",
           },
-          resumedByAccountId: input.accountId as never,
+          resumedByScopeId: input.actorScopeId as never,
         }),
     );
     response = undefined;
@@ -416,8 +416,8 @@ const createExecutorMcpServer = async (config: {
     },
   );
 
-  const workspaceId = config.runtime.localInstallation.workspaceId;
-  const accountId = config.runtime.localInstallation.accountId;
+  const scopeId = config.runtime.localInstallation.scopeId;
+  const actorScopeId = config.runtime.localInstallation.actorScopeId;
 
   const executeTool = server.registerTool(
     "execute",
@@ -429,20 +429,20 @@ const createExecutorMcpServer = async (config: {
       let created = await runControlPlane(
         config.runtime,
         createExecution({
-          workspaceId,
+          scopeId,
           payload: {
             code,
             interactionMode: interactionModeForServer(server),
           },
-          createdByAccountId: accountId,
+          createdByScopeId: actorScopeId,
         }),
       );
 
       if (supportsManagedElicitation(server)) {
         created = await driveExecutionWithElicitation({
           runtime: config.runtime,
-          workspaceId,
-          accountId,
+          scopeId,
+          actorScopeId,
           server,
           envelope: created,
         });
@@ -469,8 +469,8 @@ const createExecutorMcpServer = async (config: {
     ) => {
       const resumed = await driveExecutionWithoutElicitation({
         runtime: config.runtime,
-        workspaceId,
-        accountId,
+        scopeId,
+        actorScopeId,
         executionId: input.resumePayload.executionId,
         initialResponse: input.response,
       });

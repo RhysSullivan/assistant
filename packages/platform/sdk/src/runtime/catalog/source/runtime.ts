@@ -3,11 +3,10 @@ import {
   type ToolDescriptor as CatalogToolDescriptor,
 } from "@executor/codemode-core";
 import type {
-  AccountId,
+  ScopeId,
   Source,
   StoredSourceRecord,
   StoredSourceCatalogRevisionRecord,
-  WorkspaceId,
 } from "#schema";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -19,7 +18,9 @@ import {
   projectCatalogForAgentSdk,
   type ProjectedCatalog,
 } from "@executor/ir/catalog";
-import type { ShapeSymbolId } from "@executor/ir/ids";
+import type {
+  ShapeSymbolId,
+} from "@executor/ir/ids";
 import type {
   Capability,
   CatalogSnapshotV1,
@@ -27,7 +28,9 @@ import type {
   Executable,
   ShapeSymbol,
 } from "@executor/ir/model";
-import { LocalSourceArtifactMissingError } from "../../workspace-errors";
+import {
+  LocalSourceArtifactMissingError,
+} from "../../scope-errors";
 import {
   createCatalogTypeProjector,
   documentationComment,
@@ -36,21 +39,27 @@ import {
   shapeAllowsOmittedArgs,
   type CatalogTypeProjector,
 } from "../catalog-typescript";
-import { formatWithPrettier } from "../prettier-format";
 import {
-  RuntimeLocalWorkspaceService,
-  type RuntimeLocalWorkspaceState,
-} from "../../workspace/runtime-context";
-import type { LocalSourceArtifact } from "../../source-artifacts";
+  formatWithPrettier,
+} from "../prettier-format";
+import {
+  RuntimeLocalScopeService,
+  type RuntimeLocalScopeState,
+} from "../../scope/runtime-context";
+import type {
+  LocalSourceArtifact,
+} from "../../source-artifacts";
 import {
   SourceArtifactStore,
   type SourceArtifactStoreShape,
-} from "../../workspace/storage";
+} from "../../scope/storage";
 import {
   RuntimeSourceStoreService,
   type RuntimeSourceStore,
 } from "../../sources/source-store";
-import { runtimeEffectError } from "../../effect-errors";
+import {
+  runtimeEffectError,
+} from "../../effect-errors";
 
 type CatalogImportMetadata = CatalogSnapshotV1["import"];
 
@@ -644,7 +653,7 @@ const sourceRecordFromCatalogArtifact = (input: {
   };
 }): StoredSourceRecord => ({
   id: input.source.id,
-  workspaceId: input.source.workspaceId,
+  scopeId: input.source.scopeId,
   catalogId: input.artifact.catalogId,
   catalogRevisionId: input.artifact.revision.id,
   name: input.source.name,
@@ -663,23 +672,23 @@ const sourceRecordFromCatalogArtifact = (input: {
 
 type RuntimeSourceCatalogStoreShape = {
   loadWorkspaceSourceCatalogs: (input: {
-    workspaceId: WorkspaceId;
-    actorAccountId?: AccountId | null;
+    scopeId: ScopeId;
+    actorScopeId?: ScopeId | null;
   }) => Effect.Effect<readonly LoadedSourceCatalog[], Error, never>;
   loadSourceWithCatalog: (input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     sourceId: Source["id"];
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
   }) => Effect.Effect<LoadedSourceCatalog, Error | LocalSourceArtifactMissingError, never>;
   loadWorkspaceSourceCatalogToolIndex: (input: {
-    workspaceId: WorkspaceId;
-    actorAccountId?: AccountId | null;
+    scopeId: ScopeId;
+    actorScopeId?: ScopeId | null;
     includeSchemas: boolean;
   }) => Effect.Effect<readonly LoadedSourceCatalogToolIndexEntry[], Error, never>;
   loadWorkspaceSourceCatalogToolByPath: (input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     path: string;
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
     includeSchemas: boolean;
   }) => Effect.Effect<LoadedSourceCatalogToolIndexEntry | null, Error, never>;
 };
@@ -691,25 +700,25 @@ export class RuntimeSourceCatalogStoreService extends Context.Tag(
 )<RuntimeSourceCatalogStoreService, RuntimeSourceCatalogStoreShape>() {}
 
 type RuntimeSourceCatalogStoreDeps = {
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState;
+  runtimeLocalScope: RuntimeLocalScopeState;
   sourceStore: RuntimeSourceStore;
   sourceArtifactStore: SourceArtifactStoreShape;
 };
 
 type SourceCatalogRuntimeServices =
-  | RuntimeLocalWorkspaceService
+  | RuntimeLocalScopeService
   | RuntimeSourceStoreService
   | SourceArtifactStore;
 
 const ensureRuntimeCatalogWorkspace = (
   deps: RuntimeSourceCatalogStoreDeps,
-  workspaceId: WorkspaceId,
+  scopeId: ScopeId,
 ) =>
   Effect.gen(function* () {
-  if (deps.runtimeLocalWorkspace.installation.workspaceId !== workspaceId) {
+  if (deps.runtimeLocalScope.installation.scopeId !== scopeId) {
     return yield* Effect.fail(
       runtimeEffectError("catalog/source/runtime",
-        `Runtime local workspace mismatch: expected ${workspaceId}, got ${deps.runtimeLocalWorkspace.installation.workspaceId}`,
+        `Runtime local scope mismatch: expected ${scopeId}, got ${deps.runtimeLocalScope.installation.scopeId}`,
       ),
     );
   }
@@ -723,15 +732,15 @@ const buildSnapshotFromArtifact = (input: {
 };
 
 const loadWorkspaceSourceCatalogsWithDeps = (deps: RuntimeSourceCatalogStoreDeps, input: {
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
 }): Effect.Effect<readonly LoadedSourceCatalog[], Error, never> =>
   Effect.gen(function* () {
-    yield* ensureRuntimeCatalogWorkspace(deps, input.workspaceId);
-    const sources = yield* deps.sourceStore.loadSourcesInWorkspace(
-      input.workspaceId,
+    yield* ensureRuntimeCatalogWorkspace(deps, input.scopeId);
+    const sources = yield* deps.sourceStore.loadSourcesInScope(
+      input.scopeId,
       {
-        actorAccountId: input.actorAccountId,
+        actorScopeId: input.actorScopeId,
       },
     );
 
@@ -773,16 +782,16 @@ const loadWorkspaceSourceCatalogsWithDeps = (deps: RuntimeSourceCatalogStoreDeps
   });
 
 const loadSourceWithCatalogWithDeps = (deps: RuntimeSourceCatalogStoreDeps, input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
 }): Effect.Effect<LoadedSourceCatalog, Error | LocalSourceArtifactMissingError, never> =>
   Effect.gen(function* () {
-    yield* ensureRuntimeCatalogWorkspace(deps, input.workspaceId);
+    yield* ensureRuntimeCatalogWorkspace(deps, input.scopeId);
     const source = yield* deps.sourceStore.loadSourceById({
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
     });
     const artifact = yield* deps.sourceArtifactStore.read({
       sourceId: source.id,
@@ -819,17 +828,17 @@ const loadSourceWithCatalogWithDeps = (deps: RuntimeSourceCatalogStoreDeps, inpu
   });
 
 export const loadWorkspaceSourceCatalogs = (input: {
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
 }): Effect.Effect<readonly LoadedSourceCatalog[], Error, SourceCatalogRuntimeServices> =>
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* RuntimeLocalWorkspaceService;
+    const runtimeLocalScope = yield* RuntimeLocalScopeService;
     const sourceStore = yield* RuntimeSourceStoreService;
     const sourceArtifactStore = yield* SourceArtifactStore;
 
     return yield* loadWorkspaceSourceCatalogsWithDeps(
       {
-        runtimeLocalWorkspace,
+        runtimeLocalScope,
         sourceStore,
         sourceArtifactStore,
       },
@@ -838,22 +847,22 @@ export const loadWorkspaceSourceCatalogs = (input: {
   });
 
 export const loadSourceWithCatalog = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
 }): Effect.Effect<
   LoadedSourceCatalog,
   Error | LocalSourceArtifactMissingError,
   SourceCatalogRuntimeServices
 > =>
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* RuntimeLocalWorkspaceService;
+    const runtimeLocalScope = yield* RuntimeLocalScopeService;
     const sourceStore = yield* RuntimeSourceStoreService;
     const sourceArtifactStore = yield* SourceArtifactStore;
 
     return yield* loadSourceWithCatalogWithDeps(
       {
-        runtimeLocalWorkspace,
+        runtimeLocalScope,
         sourceStore,
         sourceArtifactStore,
       },
@@ -1096,8 +1105,8 @@ export const expandCatalogToolByPath = (input: {
   );
 
 export const loadWorkspaceSourceCatalogToolIndex = (input: {
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   includeSchemas: boolean;
 }): Effect.Effect<
   readonly LoadedSourceCatalogToolIndexEntry[],
@@ -1106,8 +1115,8 @@ export const loadWorkspaceSourceCatalogToolIndex = (input: {
 > =>
   Effect.gen(function* () {
     const catalogs = yield* loadWorkspaceSourceCatalogs({
-      workspaceId: input.workspaceId,
-      actorAccountId: input.actorAccountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
     });
     const tools = yield* expandCatalogTools({
       catalogs,
@@ -1129,9 +1138,9 @@ export const loadWorkspaceSourceCatalogToolIndex = (input: {
   });
 
 export const loadWorkspaceSourceCatalogToolByPath = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   path: string;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   includeSchemas: boolean;
 }): Effect.Effect<
   LoadedSourceCatalogToolIndexEntry | null,
@@ -1140,8 +1149,8 @@ export const loadWorkspaceSourceCatalogToolByPath = (input: {
 > =>
   Effect.gen(function* () {
     const catalogs = yield* loadWorkspaceSourceCatalogs({
-      workspaceId: input.workspaceId,
-      actorAccountId: input.actorAccountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
     });
     const tool = yield* expandCatalogToolByPath({
       catalogs,
@@ -1168,12 +1177,12 @@ export const loadWorkspaceSourceCatalogToolByPath = (input: {
 export const RuntimeSourceCatalogStoreLive = Layer.effect(
   RuntimeSourceCatalogStoreService,
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* RuntimeLocalWorkspaceService;
+    const runtimeLocalScope = yield* RuntimeLocalScopeService;
     const sourceStore = yield* RuntimeSourceStoreService;
     const sourceArtifactStore = yield* SourceArtifactStore;
 
     const deps: RuntimeSourceCatalogStoreDeps = {
-      runtimeLocalWorkspace,
+      runtimeLocalScope,
       sourceStore,
       sourceArtifactStore,
     };
@@ -1185,13 +1194,13 @@ export const RuntimeSourceCatalogStoreLive = Layer.effect(
         loadSourceWithCatalogWithDeps(deps, input),
       loadWorkspaceSourceCatalogToolIndex: (input) =>
         loadWorkspaceSourceCatalogToolIndex(input).pipe(
-          Effect.provideService(RuntimeLocalWorkspaceService, runtimeLocalWorkspace),
+          Effect.provideService(RuntimeLocalScopeService, runtimeLocalScope),
           Effect.provideService(RuntimeSourceStoreService, sourceStore),
           Effect.provideService(SourceArtifactStore, sourceArtifactStore),
         ),
       loadWorkspaceSourceCatalogToolByPath: (input) =>
         loadWorkspaceSourceCatalogToolByPath(input).pipe(
-          Effect.provideService(RuntimeLocalWorkspaceService, runtimeLocalWorkspace),
+          Effect.provideService(RuntimeLocalScopeService, runtimeLocalScope),
           Effect.provideService(RuntimeSourceStoreService, sourceStore),
           Effect.provideService(SourceArtifactStore, sourceArtifactStore),
         ),

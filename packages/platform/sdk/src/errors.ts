@@ -1,4 +1,6 @@
-import { HttpApiSchema } from "@effect/platform";
+import {
+  HttpApiSchema,
+} from "@effect/platform";
 import * as Schema from "effect/Schema";
 
 export class ControlPlaneBadRequestError extends Schema.TaggedError<ControlPlaneBadRequestError>()(

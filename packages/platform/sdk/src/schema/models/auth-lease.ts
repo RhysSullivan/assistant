@@ -1,13 +1,16 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 import * as Option from "effect/Option";
 
-import { TimestampMsSchema } from "../common";
 import {
-  AccountIdSchema,
+  TimestampMsSchema,
+} from "../common";
+import {
+  ScopeIdSchema,
   AuthArtifactIdSchema,
   AuthLeaseIdSchema,
   SourceIdSchema,
-  WorkspaceIdSchema,
 } from "../ids";
 
 import {
@@ -19,9 +22,9 @@ import {
 export const AuthLeaseSchema = Schema.Struct({
   id: AuthLeaseIdSchema,
   authArtifactId: AuthArtifactIdSchema,
-  workspaceId: WorkspaceIdSchema,
+  scopeId: ScopeIdSchema,
   sourceId: SourceIdSchema,
-  actorAccountId: Schema.NullOr(AccountIdSchema),
+  actorScopeId: Schema.NullOr(ScopeIdSchema),
   slot: AuthArtifactSlotSchema,
   placementsTemplateJson: Schema.String,
   expiresAt: Schema.NullOr(TimestampMsSchema),

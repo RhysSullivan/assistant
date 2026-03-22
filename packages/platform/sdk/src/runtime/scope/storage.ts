@@ -1,12 +1,25 @@
-import type { LocalInstallation, LocalExecutorConfig } from "#schema";
+import type {
+  LocalInstallation,
+  LocalExecutorConfig,
+} from "#schema";
 import * as Context from "effect/Context";
 import * as Layer from "effect/Layer";
 
-import type { LoadedLocalExecutorConfig } from "../workspace-config";
-import type { LocalSourceArtifact } from "../source-artifacts";
-import type { LocalWorkspaceState } from "../workspace-state";
-import type { SourceCatalogSyncResult } from "@executor/source-core";
-import type { Source } from "#schema";
+import type {
+  LoadedLocalExecutorConfig,
+} from "../scope-config";
+import type {
+  LocalSourceArtifact,
+} from "../source-artifacts";
+import type {
+  LocalScopeState,
+} from "../scope-state";
+import type {
+  SourceCatalogSyncResult,
+} from "@executor/source-core";
+import type {
+  Source,
+} from "#schema";
 
 export type InstallationStoreShape = {
   load: () => import("effect/Effect").Effect<LocalInstallation, Error, never>;
@@ -17,28 +30,28 @@ export class InstallationStore extends Context.Tag(
   "#runtime/InstallationStore",
 )<InstallationStore, InstallationStoreShape>() {}
 
-export type WorkspaceConfigStoreShape = {
+export type ScopeConfigStoreShape = {
   load: () => import("effect/Effect").Effect<LoadedLocalExecutorConfig, Error, never>;
   writeProject: (input: {
     config: LocalExecutorConfig;
   }) => import("effect/Effect").Effect<void, Error, never>;
-  resolveRelativePath: (input: { path: string; workspaceRoot: string }) => string;
+  resolveRelativePath: (input: { path: string; scopeRoot: string }) => string;
 };
 
-export class WorkspaceConfigStore extends Context.Tag(
-  "#runtime/WorkspaceConfigStore",
-)<WorkspaceConfigStore, WorkspaceConfigStoreShape>() {}
+export class ScopeConfigStore extends Context.Tag(
+  "#runtime/ScopeConfigStore",
+)<ScopeConfigStore, ScopeConfigStoreShape>() {}
 
-export type WorkspaceStateStoreShape = {
-  load: () => import("effect/Effect").Effect<LocalWorkspaceState, Error, never>;
+export type ScopeStateStoreShape = {
+  load: () => import("effect/Effect").Effect<LocalScopeState, Error, never>;
   write: (input: {
-    state: LocalWorkspaceState;
+    state: LocalScopeState;
   }) => import("effect/Effect").Effect<void, Error, never>;
 };
 
-export class WorkspaceStateStore extends Context.Tag(
-  "#runtime/WorkspaceStateStore",
-)<WorkspaceStateStore, WorkspaceStateStoreShape>() {}
+export class ScopeStateStore extends Context.Tag(
+  "#runtime/ScopeStateStore",
+)<ScopeStateStore, ScopeStateStoreShape>() {}
 
 export type SourceArtifactStoreShape = {
   build: (input: {
@@ -63,33 +76,33 @@ export class SourceArtifactStore extends Context.Tag(
 
 export type LocalStorageServices =
   | InstallationStore
-  | WorkspaceConfigStore
-  | WorkspaceStateStore
+  | ScopeConfigStore
+  | ScopeStateStore
   | SourceArtifactStore;
 
-export type WorkspaceStorageServices =
-  | WorkspaceConfigStore
-  | WorkspaceStateStore
+export type ScopeStorageServices =
+  | ScopeConfigStore
+  | ScopeStateStore
   | SourceArtifactStore;
 
-export const makeWorkspaceStorageLayer = (input: {
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+export const makeScopeStorageLayer = (input: {
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
 }) =>
   Layer.mergeAll(
-    Layer.succeed(WorkspaceConfigStore, input.workspaceConfigStore),
-    Layer.succeed(WorkspaceStateStore, input.workspaceStateStore),
+    Layer.succeed(ScopeConfigStore, input.scopeConfigStore),
+    Layer.succeed(ScopeStateStore, input.scopeStateStore),
     Layer.succeed(SourceArtifactStore, input.sourceArtifactStore),
   );
 
 export const makeLocalStorageLayer = (input: {
   installationStore: InstallationStoreShape;
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
 }) =>
   Layer.mergeAll(
     Layer.succeed(InstallationStore, input.installationStore),
-    makeWorkspaceStorageLayer(input),
+    makeScopeStorageLayer(input),
   );

@@ -1,14 +1,35 @@
-import { createServer } from "node:http";
-import { join } from "node:path";
+import {
+  createServer,
+} from "node:http";
+import {
+  join,
+} from "node:path";
 
-import { FileSystem } from "@effect/platform";
-import { NodeFileSystem } from "@effect/platform-node";
-import { describe, expect, it } from "@effect/vitest";
-import { assertTrue } from "@effect/vitest/utils";
+import {
+  FileSystem,
+  HttpApi,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiSchema,
+  HttpApiBuilder,
+} from "@effect/platform";
+import {
+  NodeFileSystem,
+} from "@effect/platform-node";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
+import {
+  assertTrue,
+} from "@effect/vitest/utils";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import {
   ExecutionIdSchema,
@@ -18,12 +39,23 @@ import {
   SecretMaterialIdSchema,
   SourceAuthSessionIdSchema,
   SourceIdSchema,
-  WorkspaceOauthClientIdSchema,
+  ScopeOauthClientIdSchema,
 } from "#schema";
-import type { ToolPath } from "@executor/codemode-core";
-import { createCatalogImportMetadata } from "@executor/source-core";
-import { createGraphqlCatalogFragment } from "@executor/source-graphql";
-import { createWorkspaceExecutorAdminToolMap } from "../../../internal/src/index";
+import type {
+  ToolPath,
+} from "@executor/codemode-core";
+import {
+  makeOpenApiTestServer,
+} from "@executor/effect-test-utils";
+import {
+  createCatalogImportMetadata,
+} from "@executor/source-core";
+import {
+  createGraphqlCatalogFragment,
+} from "@executor/source-graphql";
+import {
+  createWorkspaceExecutorAdminToolMap,
+} from "../../../internal/src/index";
 
 import {
   type ExecutorRuntime,
@@ -31,14 +63,22 @@ import {
   provideExecutorRuntime,
   RuntimeExecutionResolverService,
 } from "./index";
-import { createSourceFromPayload } from "./sources/source-definitions";
-import { decodeSourceCredentialSelectionContent } from "./sources/source-credential-interactions";
-import { persistSource } from "./sources/source-store";
+import {
+  createSourceFromPayload,
+} from "./sources/source-definitions";
+import {
+  decodeSourceCredentialSelectionContent,
+} from "./sources/source-credential-interactions";
+import {
+  persistSource,
+} from "./sources/source-store";
 import {
   withExecutorApiClient,
   withExecutorApiRequestHandler,
 } from "./execution/test-http-client";
-import { runtimeEffectError } from "./effect-errors";
+import {
+  runtimeEffectError,
+} from "./effect-errors";
 import {
   buildLocalSourceArtifact,
   createLocalExecutorRuntime as createExecutorRuntime,
@@ -57,15 +97,15 @@ import {
 
 const makeRuntime = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const workspaceRoot = yield* fs.makeTempDirectoryScoped({
+  const scopeRoot = yield* fs.makeTempDirectoryScoped({
     prefix: "executor-runtime-",
   });
-  const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
-  const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
+  const homeConfigPath = join(scopeRoot, ".executor-home.jsonc");
+  const homeStateDirectory = join(scopeRoot, ".executor-home-state");
 
   return yield* Effect.acquireRelease(
     createExecutorRuntime({
-      workspaceRoot,
+      workspaceRoot: scopeRoot,
       homeConfigPath,
       homeStateDirectory,
       createInternalToolMap: createWorkspaceExecutorAdminToolMap,
@@ -74,11 +114,19 @@ const makeRuntime = Effect.gen(function* () {
   );
 }).pipe(Effect.provide(NodeFileSystem.layer));
 
-type OpenApiSpecServer = {
-  baseUrl: string;
-  specUrl: string;
-  close: () => Promise<void>;
-};
+const ownerParam = HttpApiSchema.param("owner", Schema.String);
+const repoParam = HttpApiSchema.param("repo", Schema.String);
+
+class RuntimeTestReposApi extends HttpApiGroup.make("repos")
+  .add(
+    HttpApiEndpoint.get("getRepo")`/repos/${ownerParam}/${repoParam}`
+      .addSuccess(Schema.Unknown),
+  )
+{}
+
+class RuntimeTestOpenApi extends HttpApi.make("runtimeTest").add(
+  RuntimeTestReposApi,
+) {}
 
 type GoogleWorkspaceTestServer = {
   baseUrl: string;
@@ -99,73 +147,25 @@ type GoogleWorkspaceTestServer = {
   close: () => Promise<void>;
 };
 
-const makeOpenApiSpecServer = Effect.acquireRelease(
-  Effect.promise<OpenApiSpecServer>(
-    () =>
-      new Promise<OpenApiSpecServer>((resolve, reject) => {
-        const openApiDocument = JSON.stringify({
-          openapi: "3.0.3",
-          info: {
-            title: "GitHub Test API",
-            version: "1.0.0",
-          },
-          paths: {
-            "/repos/{owner}/{repo}": {
-              get: {
-                operationId: "repos/get-repo",
-                tags: ["repos"],
-                summary: "Get a repository",
-                responses: {
-                  200: {
-                    description: "ok",
-                  },
-                },
-              },
-            },
-          },
-        });
-
-        const server = createServer((request, response) => {
-          if (request.url !== "/openapi.json") {
-            response.statusCode = 404;
-            response.end();
-            return;
-          }
-
-          response.statusCode = 200;
-          response.setHeader("content-type", "application/json");
-          response.end(openApiDocument);
-        });
-
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
-          const address = server.address();
-          if (!address || typeof address === "string") {
-            reject(new Error("Failed to bind OpenAPI runtime test server"));
-            return;
-          }
-
-          const baseUrl = `http://127.0.0.1:${address.port}`;
-          resolve({
-            baseUrl,
-            specUrl: `${baseUrl}/openapi.json`,
-            close: () =>
-              new Promise<void>((closeResolve, closeReject) => {
-                server.close((error) => {
-                  if (error) {
-                    closeReject(error);
-                    return;
-                  }
-
-                  closeResolve();
-                });
-              }),
-          });
-        });
+const runtimeTestOpenApiLive = HttpApiBuilder.group(
+  RuntimeTestOpenApi,
+  "repos",
+  (handlers) =>
+    handlers.handle("getRepo", ({ path }) =>
+      Effect.succeed({
+        full_name: `${path.owner}/${path.repo}`,
+        private: false,
       }),
-  ),
-  (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+    ),
 );
+
+const runtimeTestOpenApiLayer = HttpApiBuilder.api(RuntimeTestOpenApi).pipe(
+  Layer.provide(runtimeTestOpenApiLive),
+);
+
+const makeOpenApiSpecServer = makeOpenApiTestServer({
+  apiLayer: runtimeTestOpenApiLayer,
+});
 
 const makeGoogleWorkspaceTestServer = Effect.acquireRelease(
   Effect.promise<GoogleWorkspaceTestServer>(
@@ -379,7 +379,7 @@ const createPersistedGoogleSource = (input: {
   Effect.gen(function* () {
     const installation = input.runtime.localInstallation;
     const source = yield* createSourceFromPayload({
-      workspaceId: installation.workspaceId,
+      scopeId: installation.scopeId,
       sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
       payload: {
         name: input.name,
@@ -402,7 +402,7 @@ const createPersistedGoogleSource = (input: {
     });
 
     return yield* persistSource(input.runtime.storage.executorState, source, {
-      actorAccountId: installation.accountId,
+      actorScopeId: installation.actorScopeId,
     }).pipe((effect) => provideExecutorRuntime(effect, input.runtime));
   });
 
@@ -430,8 +430,8 @@ const invokeWorkspaceTool = <A>(input: {
       const installation = input.runtime.localInstallation;
       const resolveEnvironment = yield* RuntimeExecutionResolverService;
       const environment = yield* resolveEnvironment({
-        workspaceId: installation.workspaceId,
-        accountId: installation.accountId,
+        scopeId: installation.scopeId,
+        actorScopeId: installation.actorScopeId,
         executionId: ExecutionIdSchema.make(`exec_tool_${crypto.randomUUID()}`),
       });
 
@@ -449,14 +449,14 @@ describe("executor-runtime", () => {
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        const workspaceRoot = yield* fs.makeTempDirectoryScoped({
+        const scopeRoot = yield* fs.makeTempDirectoryScoped({
           prefix: "executor-local-config-runtime-",
         });
-        const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
-        const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
+        const homeConfigPath = join(scopeRoot, ".executor-home.jsonc");
+        const homeStateDirectory = join(scopeRoot, ".executor-home-state");
         const runtime = yield* Effect.acquireRelease(
           createExecutorRuntime({
-            workspaceRoot,
+            workspaceRoot: scopeRoot,
             homeConfigPath,
             homeStateDirectory,
           }),
@@ -467,10 +467,10 @@ describe("executor-runtime", () => {
         const installation = runtime.localInstallation;
 
         const createdSource = yield* withExecutorApiClient(
-          { runtime, accountId: installation.accountId },
+          { runtime, actorScopeId: installation.actorScopeId },
           (client) =>
             client.sources.create({
-              path: { workspaceId: installation.workspaceId },
+              path: { workspaceId: installation.scopeId },
               payload: {
                 name: "GitHub",
                 kind: "openapi",
@@ -485,7 +485,7 @@ describe("executor-runtime", () => {
             }),
         );
 
-        const configPath = join(workspaceRoot, ".executor", "executor.jsonc");
+        const configPath = join(scopeRoot, ".executor", "executor.jsonc");
         const createdConfig = JSON.parse(
           yield* fs.readFileString(configPath, "utf8"),
         ) as {
@@ -500,11 +500,11 @@ describe("executor-runtime", () => {
         );
 
         const removed = yield* withExecutorApiClient(
-          { runtime, accountId: installation.accountId },
+          { runtime, actorScopeId: installation.actorScopeId },
           (client) =>
             client.sources.remove({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
                 sourceId: createdSource.id,
               },
             }),
@@ -615,11 +615,11 @@ describe("executor-runtime", () => {
         const openApiServer = yield* makeOpenApiSpecServer;
         const installation = runtime.localInstallation;
         const createdSource = yield* withExecutorApiClient(
-          { runtime, accountId: installation.accountId },
+          { runtime, actorScopeId: installation.actorScopeId },
           (client) =>
             client.sources.create({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
               payload: {
                 name: "GitHub",
@@ -640,15 +640,15 @@ describe("executor-runtime", () => {
         );
 
         const localInstallation = yield* invokeWorkspaceTool<{
-          workspaceId: string;
-          accountId: string;
+          scopeId: string;
+          actorScopeId: string;
         }>({
           runtime,
           path: "executor.local.installation.get" as ToolPath,
           args: {},
         });
-        expect(localInstallation.workspaceId).toBe(installation.workspaceId);
-        expect(localInstallation.accountId).toBe(installation.accountId);
+        expect(localInstallation.scopeId).toBe(installation.scopeId);
+        expect(localInstallation.actorScopeId).toBe(installation.actorScopeId);
 
         const localConfig = yield* invokeWorkspaceTool<{
           defaultSecretStoreProvider: string;
@@ -723,11 +723,11 @@ describe("executor-runtime", () => {
         expect(loadedPolicy.id).toBe(createdPolicy.id);
 
         const listedPolicies = yield* withExecutorApiClient(
-          { runtime, accountId: installation.accountId },
+          { runtime, actorScopeId: installation.actorScopeId },
           (client) =>
             client.policies.list({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
             }),
         );
@@ -768,11 +768,11 @@ describe("executor-runtime", () => {
         expect(removedSource.removed).toBe(true);
 
         const apiSources = yield* withExecutorApiClient(
-          { runtime, accountId: installation.accountId },
+          { runtime, actorScopeId: installation.actorScopeId },
           (client) =>
             client.sources.list({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
             }),
         );
@@ -798,8 +798,8 @@ describe("executor-runtime", () => {
 
         yield* runtime.storage.executorState.executions.insert({
           id: executionId,
-          workspaceId: installation.workspaceId,
-          createdByAccountId: installation.accountId,
+          scopeId: installation.scopeId,
+          createdByScopeId: installation.actorScopeId,
           status: "running",
           code: "return await tools.executor.sources.add(...)",
           resultJson: null,
@@ -812,7 +812,7 @@ describe("executor-runtime", () => {
         });
 
         const localSource = yield* createSourceFromPayload({
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           sourceId,
           payload: {
             name: "GitHub",
@@ -832,7 +832,7 @@ describe("executor-runtime", () => {
           now,
         }).pipe(Effect.orDie);
         yield* persistSource(runtime.storage.executorState, localSource, {
-          actorAccountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
         }).pipe(
           (effect) => provideExecutorRuntime(effect, runtime),
           Effect.orDie,
@@ -854,13 +854,13 @@ describe("executor-runtime", () => {
               endpoint: "https://api.github.com",
               specUrl: "https://example.com/github-openapi.yaml",
               name: "GitHub",
-              workspaceId: installation.workspaceId,
+              scopeId: installation.scopeId,
               sourceId,
             },
             elicitation: {
               mode: "url",
               message: "Open the secure credential page to connect GitHub",
-              url: `http://127.0.0.1/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/${encodeURIComponent(sourceId)}/credentials?interactionId=${encodeURIComponent(interactionId)}`,
+              url: `http://127.0.0.1/v1/workspaces/${encodeURIComponent(installation.scopeId)}/sources/${encodeURIComponent(sourceId)}/credentials?interactionId=${encodeURIComponent(interactionId)}`,
               elicitationId: interactionSuffix,
             },
           });
@@ -893,7 +893,7 @@ describe("executor-runtime", () => {
           (handleRequest) =>
             Effect.promise(async () => {
               const url = new URL(
-                `/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/${encodeURIComponent(sourceId)}/credentials`,
+                `/v1/workspaces/${encodeURIComponent(installation.scopeId)}/sources/${encodeURIComponent(sourceId)}/credentials`,
                 "http://127.0.0.1",
               );
               url.searchParams.set("interactionId", pendingInteraction.value.id);
@@ -910,7 +910,7 @@ describe("executor-runtime", () => {
           (handleRequest) =>
             Effect.promise(async () => {
               const url = new URL(
-                `/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/${encodeURIComponent(sourceId)}/credentials`,
+                `/v1/workspaces/${encodeURIComponent(installation.scopeId)}/sources/${encodeURIComponent(sourceId)}/credentials`,
                 "http://127.0.0.1",
               );
               url.searchParams.set("interactionId", pendingInteraction.value.id);
@@ -978,12 +978,12 @@ describe("executor-runtime", () => {
   it.scoped("loads a v1.2.3-style workspace artifact on startup", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectoryScoped({
+      const scopeRoot = yield* fs.makeTempDirectoryScoped({
         prefix: "executor-runtime-v123-",
       });
-      const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
-      const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
-      const configDirectory = join(workspaceRoot, ".executor");
+      const homeConfigPath = join(scopeRoot, ".executor-home.jsonc");
+      const homeStateDirectory = join(scopeRoot, ".executor-home-state");
+      const configDirectory = join(scopeRoot, ".executor");
       const configPath = join(configDirectory, "executor.jsonc");
       const sourceId = SourceIdSchema.make("graphql");
       const now = Date.now();
@@ -1010,13 +1010,13 @@ describe("executor-runtime", () => {
       );
 
       const context = yield* resolveLocalWorkspaceContext({
-        workspaceRoot,
+        workspaceRoot: scopeRoot,
         homeConfigPath,
         homeStateDirectory,
       });
       const installation = deriveLocalInstallation(context);
       const source = yield* createSourceFromPayload({
-        workspaceId: installation.workspaceId,
+        scopeId: installation.scopeId,
         sourceId,
         payload: {
           name: "GraphQL API",
@@ -1108,7 +1108,7 @@ describe("executor-runtime", () => {
           authArtifacts: [],
           authLeases: [],
           sourceOauthClients: [],
-          workspaceOauthClients: [],
+          scopeOauthClients: [],
           providerAuthGrants: [],
           sourceAuthSessions: [],
           secretMaterials: [],
@@ -1145,7 +1145,7 @@ describe("executor-runtime", () => {
 
       const runtime = yield* Effect.acquireRelease(
         createExecutorRuntime({
-          workspaceRoot,
+          workspaceRoot: scopeRoot,
           homeConfigPath,
           homeStateDirectory,
         }),
@@ -1154,11 +1154,11 @@ describe("executor-runtime", () => {
       );
 
       const inspection = yield* withExecutorApiClient(
-        { runtime, accountId: installation.accountId },
+        { runtime, actorScopeId: installation.actorScopeId },
         (client) =>
           client.sources.inspection({
             path: {
-              workspaceId: installation.workspaceId,
+              workspaceId: installation.scopeId,
               sourceId,
             },
           }),
@@ -1179,13 +1179,13 @@ describe("executor-runtime", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const openApiServer = yield* makeOpenApiSpecServer;
-        const workspaceRoot = yield* fs.makeTempDirectoryScoped({
+        const scopeRoot = yield* fs.makeTempDirectoryScoped({
           prefix: "executor-runtime-startup-rebuild-",
         });
-        const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
-        const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
+        const homeConfigPath = join(scopeRoot, ".executor-home.jsonc");
+        const homeStateDirectory = join(scopeRoot, ".executor-home-state");
         const context = yield* resolveLocalWorkspaceContext({
-          workspaceRoot,
+          workspaceRoot: scopeRoot,
           homeConfigPath,
           homeStateDirectory,
         });
@@ -1193,7 +1193,7 @@ describe("executor-runtime", () => {
         const sourceId = SourceIdSchema.make("github");
         const now = Date.now();
         const source = yield* createSourceFromPayload({
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           sourceId,
           payload: {
             name: "GitHub",
@@ -1251,7 +1251,7 @@ describe("executor-runtime", () => {
 
         const runtime = yield* Effect.acquireRelease(
           createExecutorRuntime({
-            workspaceRoot,
+            workspaceRoot: scopeRoot,
             homeConfigPath,
             homeStateDirectory,
           }),
@@ -1266,11 +1266,11 @@ describe("executor-runtime", () => {
         expect(rebuiltArtifact).not.toBeNull();
 
         const inspection = yield* withExecutorApiClient(
-          { runtime, accountId: installation.accountId },
+          { runtime, actorScopeId: installation.actorScopeId },
           (client) =>
             client.sources.inspection({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
                 sourceId,
               },
             }),
@@ -1290,7 +1290,7 @@ describe("executor-runtime", () => {
         const now = Date.now();
 
         const localSource = yield* createSourceFromPayload({
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           sourceId,
           payload: {
             name: "Google Drive",
@@ -1314,18 +1314,18 @@ describe("executor-runtime", () => {
           now,
         }).pipe(Effect.orDie);
         yield* persistSource(runtime.storage.executorState, localSource, {
-          actorAccountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
         }).pipe(
           (effect) => provideExecutorRuntime(effect, runtime),
           Effect.orDie,
         );
 
         const inspection = yield* withExecutorApiClient(
-          { runtime, accountId: installation.accountId },
+          { runtime, actorScopeId: installation.actorScopeId },
           (client) =>
             client.sources.inspection({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
                 sourceId,
               },
             }),
@@ -1348,7 +1348,7 @@ describe("executor-runtime", () => {
         const now = Date.now();
 
         const localSource = yield* createSourceFromPayload({
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           sourceId,
           payload: {
             name: "Google Drive",
@@ -1372,7 +1372,7 @@ describe("executor-runtime", () => {
           now,
         }).pipe(Effect.orDie);
         yield* persistSource(runtime.storage.executorState, localSource, {
-          actorAccountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
         }).pipe(
           (effect) => provideExecutorRuntime(effect, runtime),
           Effect.orDie,
@@ -1380,11 +1380,11 @@ describe("executor-runtime", () => {
 
         const error = yield* expectLeft(
           withExecutorApiClient(
-            { runtime, accountId: installation.accountId },
+            { runtime, actorScopeId: installation.actorScopeId },
             (client) =>
               client.sources.inspection({
                 path: {
-                  workspaceId: installation.workspaceId,
+                  workspaceId: installation.scopeId,
                   sourceId,
                 },
               }),
@@ -1415,8 +1415,8 @@ describe("executor-runtime", () => {
 
         yield* runtime.storage.executorState.executions.insert({
           id: executionId,
-          workspaceId: installation.workspaceId,
-          createdByAccountId: installation.accountId,
+          scopeId: installation.scopeId,
+          createdByScopeId: installation.actorScopeId,
           status: "running",
           code: "return await tools.executor.sources.add(...)",
           resultJson: null,
@@ -1429,7 +1429,7 @@ describe("executor-runtime", () => {
         });
 
         const localSource = yield* createSourceFromPayload({
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           sourceId,
           payload: {
             name: "GitHub",
@@ -1449,7 +1449,7 @@ describe("executor-runtime", () => {
           now,
         }).pipe(Effect.orDie);
         yield* persistSource(runtime.storage.executorState, localSource, {
-          actorAccountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
         }).pipe(
           (effect) => provideExecutorRuntime(effect, runtime),
           Effect.orDie,
@@ -1471,13 +1471,13 @@ describe("executor-runtime", () => {
               endpoint: "https://api.github.com",
               specUrl: "https://example.com/github-openapi.yaml",
               name: "GitHub",
-              workspaceId: installation.workspaceId,
+              scopeId: installation.scopeId,
               sourceId,
             },
             elicitation: {
               mode: "url",
               message: "Open the secure credential page to connect GitHub",
-              url: `http://127.0.0.1/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/${encodeURIComponent(sourceId)}/credentials?interactionId=${encodeURIComponent(interactionId)}`,
+              url: `http://127.0.0.1/v1/workspaces/${encodeURIComponent(installation.scopeId)}/sources/${encodeURIComponent(sourceId)}/credentials?interactionId=${encodeURIComponent(interactionId)}`,
               elicitationId: interactionSuffix,
             },
           });
@@ -1505,7 +1505,7 @@ describe("executor-runtime", () => {
         assertTrue(Option.isSome(pendingInteraction));
 
         const submitted = yield* submitSourceCredentialInteraction({
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           sourceId,
           interactionId: pendingInteraction.value.id,
           action: "continue",
@@ -1538,7 +1538,7 @@ describe("executor-runtime", () => {
         const executionId = ExecutionIdSchema.make(
           "exec_local_graphql_credential_continue",
         );
-        const workspaceId = "ws_local_graphql" as const;
+        const scopeId = "ws_local_graphql" as const;
         const sourceId = SourceIdSchema.make("graphql_api");
         const now = Date.now();
         const decoded = decodeSourceCredentialInteraction({
@@ -1555,7 +1555,7 @@ describe("executor-runtime", () => {
               endpoint: "https://example.com/graphql",
               name: "GraphQL API",
               namespace: "graphql",
-              workspaceId,
+              scopeId,
               sourceId,
             },
             elicitation: {
@@ -1570,7 +1570,7 @@ describe("executor-runtime", () => {
         });
 
         expect(decoded).not.toBeNull();
-        expect(decoded?.workspaceId).toBe(workspaceId);
+        expect(decoded?.scopeId).toBe(scopeId);
         expect(decoded?.sourceId).toBe(sourceId);
         expect(decoded?.message).toContain("GraphQL API");
       }),
@@ -1589,7 +1589,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.createWorkspaceOauthClient({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
               payload: {
                 providerKey: "google_workspace",
@@ -1615,8 +1615,8 @@ describe("executor-runtime", () => {
         );
         yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
-          workspaceId: installation.workspaceId,
-          actorAccountId: installation.accountId,
+          scopeId: installation.scopeId,
+          actorScopeId: installation.actorScopeId,
           providerKey: "google_workspace",
           oauthClientId: oauthClient.id,
           tokenEndpoint: googleServer.tokenEndpoint,
@@ -1642,11 +1642,11 @@ describe("executor-runtime", () => {
         const result = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.connect({
             path: {
-              workspaceId: installation.workspaceId,
+              workspaceId: installation.scopeId,
             },
             payload: {
               kind: "google_discovery",
-              workspaceOauthClientId: oauthClient.id,
+              scopeOauthClientId: oauthClient.id,
               service: "drive",
               version: "v3",
               discoveryUrl: googleServer.discoveryUrl({
@@ -1698,7 +1698,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.createWorkspaceOauthClient({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
               payload: {
                 providerKey: "google_workspace",
@@ -1714,11 +1714,11 @@ describe("executor-runtime", () => {
         const result = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.connect({
             path: {
-              workspaceId: installation.workspaceId,
+              workspaceId: installation.scopeId,
             },
             payload: {
               kind: "google_discovery",
-              workspaceOauthClientId: oauthClient.id,
+              scopeOauthClientId: oauthClient.id,
               service: "gmail",
               version: "v1",
               discoveryUrl: googleServer.discoveryUrl({
@@ -1745,7 +1745,7 @@ describe("executor-runtime", () => {
         );
         expect(redirectUri).not.toBeNull();
         expect(new URL(redirectUri!).pathname).toBe(
-          `/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/oauth/provider/callback`,
+          `/v1/workspaces/${encodeURIComponent(installation.scopeId)}/oauth/provider/callback`,
         );
         expect(result.source.status).toBe("auth_required");
       }),
@@ -1765,7 +1765,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.createWorkspaceOauthClient({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
               payload: {
                 providerKey: "google_workspace",
@@ -1791,8 +1791,8 @@ describe("executor-runtime", () => {
         );
         yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
-          workspaceId: installation.workspaceId,
-          actorAccountId: installation.accountId,
+          scopeId: installation.scopeId,
+          actorScopeId: installation.actorScopeId,
           providerKey: "google_workspace",
           oauthClientId: oauthClient.id,
           tokenEndpoint: googleServer.tokenEndpoint,
@@ -1822,10 +1822,10 @@ describe("executor-runtime", () => {
         const result = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.connectBatch({
             path: {
-              workspaceId: installation.workspaceId,
+              workspaceId: installation.scopeId,
             },
             payload: {
-              workspaceOauthClientId: oauthClient.id,
+              scopeOauthClientId: oauthClient.id,
               sources: [
                 {
                   service: "gmail",
@@ -1894,7 +1894,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.createWorkspaceOauthClient({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
               payload: {
                 providerKey: "google_workspace",
@@ -1910,10 +1910,10 @@ describe("executor-runtime", () => {
         const result = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.connectBatch({
             path: {
-              workspaceId: installation.workspaceId,
+              workspaceId: installation.scopeId,
             },
             payload: {
-              workspaceOauthClientId: oauthClient.id,
+              scopeOauthClientId: oauthClient.id,
               sources: [
                 {
                   service: "gmail",
@@ -1939,7 +1939,7 @@ describe("executor-runtime", () => {
 
         expect(redirectUri).not.toBeNull();
         expect(new URL(redirectUri!).pathname).toBe(
-          `/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/oauth/provider/callback`,
+          `/v1/workspaces/${encodeURIComponent(installation.scopeId)}/oauth/provider/callback`,
         );
       }),
     60_000,
@@ -1958,7 +1958,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.createWorkspaceOauthClient({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
               payload: {
                 providerKey: "google_workspace",
@@ -2001,8 +2001,8 @@ describe("executor-runtime", () => {
         );
         yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
-          workspaceId: installation.workspaceId,
-          actorAccountId: installation.accountId,
+          scopeId: installation.scopeId,
+          actorScopeId: installation.actorScopeId,
           providerKey: "google_workspace",
           oauthClientId: oauthClient.id,
           tokenEndpoint: googleServer.tokenEndpoint,
@@ -2026,11 +2026,11 @@ describe("executor-runtime", () => {
         const state = `provider-state-${crypto.randomUUID()}`;
         yield* runtime.storage.executorState.sourceAuthSessions.upsert({
           id: sessionId,
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           sourceId: SourceIdSchema.make(
             `oauth_provider_${crypto.randomUUID()}`,
           ),
-          actorAccountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
           credentialSlot: "runtime",
           executionId: null,
           interactionId: null,
@@ -2083,7 +2083,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.providerOauthComplete({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
               },
               urlParams: {
                 state,
@@ -2111,7 +2111,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.get({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
                 sourceId: source.id,
               },
             }),
@@ -2148,14 +2148,14 @@ describe("executor-runtime", () => {
       Effect.gen(function* () {
         const runtime = yield* makeRuntime;
         const installation = runtime.localInstallation;
-        const oauthClientId = WorkspaceOauthClientIdSchema.make(
+        const oauthClientId = ScopeOauthClientIdSchema.make(
           `ws_oauth_client_${crypto.randomUUID()}`,
         );
         const refreshSecretId = "sec_google_refresh_orphan";
 
-        yield* runtime.storage.executorState.workspaceOauthClients.upsert({
+        yield* runtime.storage.executorState.scopeOauthClients.upsert({
           id: oauthClientId,
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           providerKey: "google_workspace",
           label: "Local Google Workspace Client",
           clientId: "google-client-id",
@@ -2177,8 +2177,8 @@ describe("executor-runtime", () => {
         );
         yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
-          workspaceId: installation.workspaceId,
-          actorAccountId: installation.accountId,
+          scopeId: installation.scopeId,
+          actorScopeId: installation.actorScopeId,
           providerKey: "google_workspace",
           oauthClientId,
           tokenEndpoint: "https://example.test/oauth/token",
@@ -2217,7 +2217,7 @@ describe("executor-runtime", () => {
         const removed = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.remove({
             path: {
-              workspaceId: installation.workspaceId,
+              workspaceId: installation.scopeId,
               sourceId: source.id,
             },
           }),
@@ -2238,14 +2238,14 @@ describe("executor-runtime", () => {
       Effect.gen(function* () {
         const runtime = yield* makeRuntime;
         const installation = runtime.localInstallation;
-        const oauthClientId = WorkspaceOauthClientIdSchema.make(
+        const oauthClientId = ScopeOauthClientIdSchema.make(
           `ws_oauth_client_${crypto.randomUUID()}`,
         );
         const refreshSecretId = "sec_google_refresh_revoke";
 
-        yield* runtime.storage.executorState.workspaceOauthClients.upsert({
+        yield* runtime.storage.executorState.scopeOauthClients.upsert({
           id: oauthClientId,
-          workspaceId: installation.workspaceId,
+          scopeId: installation.scopeId,
           providerKey: "google_workspace",
           label: "Local Google Workspace Client",
           clientId: "google-client-id",
@@ -2267,8 +2267,8 @@ describe("executor-runtime", () => {
         );
         yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
-          workspaceId: installation.workspaceId,
-          actorAccountId: installation.accountId,
+          scopeId: installation.scopeId,
+          actorScopeId: installation.actorScopeId,
           providerKey: "google_workspace",
           oauthClientId,
           tokenEndpoint: "https://example.test/oauth/token",
@@ -2324,7 +2324,7 @@ describe("executor-runtime", () => {
         const removed = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.removeProviderAuthGrant({
             path: {
-              workspaceId: installation.workspaceId,
+              workspaceId: installation.scopeId,
               grantId,
             },
           }),
@@ -2347,7 +2347,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.get({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
                 sourceId: driveSource.id,
               },
             }),
@@ -2357,7 +2357,7 @@ describe("executor-runtime", () => {
           (client) =>
             client.sources.get({
               path: {
-                workspaceId: installation.workspaceId,
+                workspaceId: installation.scopeId,
                 sourceId: gmailSource.id,
               },
             }),

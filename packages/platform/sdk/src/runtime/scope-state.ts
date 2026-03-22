@@ -13,13 +13,13 @@ const LocalWorkspaceSourceStateSchema = Schema.Struct({
   updatedAt: TimestampMsSchema,
 });
 
-const LocalWorkspacePolicyStateSchema = Schema.Struct({
+const LocalScopePolicyStateSchema = Schema.Struct({
   id: PolicyIdSchema,
   createdAt: TimestampMsSchema,
   updatedAt: TimestampMsSchema,
 });
 
-export const LocalWorkspaceStateSchema = Schema.Struct({
+export const LocalScopeStateSchema = Schema.Struct({
   version: Schema.Literal(1),
   sources: Schema.Record({
     key: Schema.String,
@@ -27,15 +27,15 @@ export const LocalWorkspaceStateSchema = Schema.Struct({
   }),
   policies: Schema.Record({
     key: Schema.String,
-    value: LocalWorkspacePolicyStateSchema,
+    value: LocalScopePolicyStateSchema,
   }),
 });
 
 export type LocalWorkspaceSourceState = typeof LocalWorkspaceSourceStateSchema.Type;
-export type LocalWorkspacePolicyState = typeof LocalWorkspacePolicyStateSchema.Type;
-export type LocalWorkspaceState = typeof LocalWorkspaceStateSchema.Type;
+export type LocalScopePolicyState = typeof LocalScopePolicyStateSchema.Type;
+export type LocalScopeState = typeof LocalScopeStateSchema.Type;
 
-export const defaultLocalWorkspaceState = (): LocalWorkspaceState => ({
+export const defaultLocalScopeState = (): LocalScopeState => ({
   version: 1,
   sources: {},
   policies: {},

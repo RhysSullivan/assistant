@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -6,17 +6,19 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiSchema,
-  OpenApi,
+  HttpApiBuilder,
   FileSystem,
 } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { assertTrue } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import { startMcpElicitationDemoServer } from "@executor/mcp-elicitation-demo";
 import { makeToolInvokerFromTools, toTool } from "@executor/codemode-core";
+import { startOpenApiTestServer } from "@executor/effect-test-utils";
 import {
   createExecutorApiClient,
   executorOpenApiSpec,
@@ -122,7 +124,7 @@ const writeConfiguredLocalMcpSource = (input: {
 
     const source = {
       id: sourceId,
-      workspaceId: installation.workspaceId,
+      scopeId: installation.scopeId,
       name: input.name ?? "Demo",
       kind: "mcp" as const,
       endpoint: input.endpoint,
@@ -196,7 +198,7 @@ const createApiClientHarness = () =>
     const installation = yield* bootstrapClient.local.installation({});
     const client = yield* createExecutorApiClient({
       baseUrl: server.baseUrl,
-      accountId: installation.accountId,
+      accountId: installation.actorScopeId,
     });
 
     return {
@@ -288,161 +290,89 @@ const repoParam = HttpApiSchema.param("repo", Schema.String);
 class ExecutorDemoReposApi extends HttpApiGroup.make("repos")
   .add(
     HttpApiEndpoint.get("getRepo")`/repos/${ownerParam}/${repoParam}`
-      .addSuccess(
-        Schema.Struct({
-          full_name: Schema.String,
-          private: Schema.Boolean,
-        }),
-      ),
+      .addSuccess(Schema.Unknown),
   )
 {}
 
 class ExecutorDemoApi extends HttpApi.make("executorDemo").add(ExecutorDemoReposApi) {}
 
-const executorDemoOpenApiSpec = OpenApi.fromApi(ExecutorDemoApi);
+class ExecutorDnsRecordsApi extends HttpApiGroup.make("records")
+  .add(
+    HttpApiEndpoint.post("createRecord")`/records`
+      .setPayload(
+        Schema.Struct({
+          type: Schema.optional(Schema.String),
+          name: Schema.optional(Schema.String),
+          value: Schema.String,
+        }),
+      )
+      .addSuccess(Schema.Unknown),
+  )
+{}
+
+class ExecutorDnsApi extends HttpApi.make("executorDns").add(
+  ExecutorDnsRecordsApi,
+) {}
 
 const startOpenApiDemoServer = async () => {
   const seenAuthHeaders: Array<string | null> = [];
+  const executorDemoLive = HttpApiBuilder.group(
+    ExecutorDemoApi,
+    "repos",
+    (handlers) =>
+      handlers.handle("getRepo", ({ path, request }) => {
+        const authorization = request.headers.authorization;
+        if (typeof authorization === "string") {
+          seenAuthHeaders.push(authorization);
+        } else {
+          seenAuthHeaders.push(null);
+        }
 
-  const handler = (req: IncomingMessage, res: ServerResponse) => {
-    if (req.url === "/openapi.json") {
-      res.statusCode = 200;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify(executorDemoOpenApiSpec));
-      return;
-    }
-
-    const match = req.url?.match(/^\/repos\/([^/]+)\/([^/]+)$/);
-    if (req.method === "GET" && match) {
-      seenAuthHeaders.push(
-        typeof req.headers.authorization === "string" ? req.headers.authorization : null,
-      );
-      res.statusCode = 200;
-      res.setHeader("content-type", "application/json");
-      res.end(
-        JSON.stringify({
-          full_name: `${decodeURIComponent(match[1] ?? "")}/${decodeURIComponent(match[2] ?? "")}`,
+        return Effect.succeed({
+          full_name: `${path.owner}/${path.repo}`,
           private: false,
-        }),
-      );
-      return;
-    }
+        });
+      }),
+  );
 
-    res.statusCode = 404;
-    res.end("not found");
-  };
-
-  const server = createServer(handler);
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
+  const server = await startOpenApiTestServer({
+    apiLayer: HttpApiBuilder.api(ExecutorDemoApi).pipe(
+      Layer.provide(executorDemoLive),
+    ),
   });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Failed to bind OpenAPI demo server");
-  }
 
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    specUrl: `http://127.0.0.1:${address.port}/openapi.json`,
+    ...server,
     seenAuthHeaders,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      }),
   };
 };
 
 const startMutatingOpenApiDemoServer = async () => {
   const createdBodies: Array<Record<string, unknown>> = [];
-  const openApiDocument = JSON.stringify({
-    openapi: "3.0.3",
-    info: {
-      title: "Executor DNS Demo API",
-      version: "1.0.0",
-    },
-    paths: {
-      "/records": {
-        post: {
-          operationId: "records.createRecord",
-          tags: ["records"],
-          summary: "Create a DNS record",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    type: { type: "string" },
-                    name: { type: "string" },
-                    value: { type: "string" },
-                  },
-                  required: ["type", "value"],
-                },
-              },
-            },
-          },
-          responses: {
-            200: {
-              description: "ok",
-            },
-          },
-        },
-      },
-    },
-  });
+  const executorDnsLive = HttpApiBuilder.group(
+    ExecutorDnsApi,
+    "records",
+    (handlers) =>
+      handlers.handle("createRecord", ({ payload }) => {
+        createdBodies.push(payload);
 
-  const handler = (req: IncomingMessage, res: ServerResponse) => {
-    if (req.url === "/openapi.json") {
-      res.statusCode = 200;
-      res.setHeader("content-type", "application/json");
-      res.end(openApiDocument);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/records") {
-      const chunks: Array<Buffer> = [];
-      req.on("data", (chunk) => {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      });
-      req.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        createdBodies.push(parsed);
-        res.statusCode = 200;
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({
+        return Effect.succeed({
           ok: true,
           id: `rec_${createdBodies.length}`,
-          record: parsed,
-        }));
-      });
-      return;
-    }
+          record: payload,
+        });
+      }),
+  );
 
-    res.statusCode = 404;
-    res.end("not found");
-  };
-
-  const server = createServer(handler);
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
+  const server = await startOpenApiTestServer({
+    apiLayer: HttpApiBuilder.api(ExecutorDnsApi).pipe(
+      Layer.provide(executorDnsLive),
+    ),
   });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Failed to bind mutating OpenAPI demo server");
-  }
 
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    specUrl: `http://127.0.0.1:${address.port}/openapi.json`,
+    ...server,
     createdBodies,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      }),
   };
 };
 
@@ -750,12 +680,12 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
 
       const execution = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: "return await tools.math.add({ a: 20, b: 22 });",
@@ -951,12 +881,12 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
 
       yield* client.sources.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           name: "Demo",
@@ -978,7 +908,7 @@ describe("local-executor-server", () => {
 
       const created = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: 'return await tools.demo.gated_echo({ value: "from-daemon" });',
@@ -995,7 +925,7 @@ describe("local-executor-server", () => {
 
       const approved = yield* client.executions.resume({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: created.execution.id,
         },
         payload: {
@@ -1018,7 +948,7 @@ describe("local-executor-server", () => {
 
       const resumed = yield* client.executions.resume({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: created.execution.id,
         },
         payload: {
@@ -1057,12 +987,12 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
 
       yield* client.sources.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           name: "Demo",
@@ -1085,7 +1015,7 @@ describe("local-executor-server", () => {
       for (const value of ["first", "second"]) {
         const created = yield* client.executions.create({
           path: {
-            workspaceId: installation.workspaceId,
+            workspaceId: installation.scopeId,
           },
           payload: {
             code: `return await tools.demo.gated_echo({ value: "${value}" });`,
@@ -1098,7 +1028,7 @@ describe("local-executor-server", () => {
 
         const approved = yield* client.executions.resume({
           path: {
-            workspaceId: installation.workspaceId,
+            workspaceId: installation.scopeId,
             executionId: created.execution.id,
           },
           payload: {
@@ -1121,7 +1051,7 @@ describe("local-executor-server", () => {
 
         const resumed = yield* client.executions.resume({
           path: {
-            workspaceId: installation.workspaceId,
+            workspaceId: installation.scopeId,
             executionId: created.execution.id,
           },
           payload: {
@@ -1160,12 +1090,12 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
 
       const existing = yield* client.sources.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           name: "Demo",
@@ -1187,7 +1117,7 @@ describe("local-executor-server", () => {
 
       const seeded = yield* seedDemoMcpSourceInWorkspace({
         client,
-        workspaceId: installation.workspaceId,
+        workspaceId: installation.scopeId,
         endpoint: demoServer.endpoint,
         name: "Demo",
         namespace: "demo",
@@ -1198,7 +1128,7 @@ describe("local-executor-server", () => {
 
       const sources = yield* client.sources.list({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
       });
 
@@ -1249,12 +1179,12 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
 
       yield* seedGithubOpenApiSourceInWorkspace({
         client,
-        workspaceId: installation.workspaceId,
+        workspaceId: installation.scopeId,
         endpoint: openApiServer.baseUrl,
         specUrl: openApiServer.specUrl,
         name: "GitHub",
@@ -1263,7 +1193,7 @@ describe("local-executor-server", () => {
 
       const execution = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: 'return await tools.github.repos.getRepo({ owner: "vercel", repo: "ai" });',
@@ -1287,7 +1217,7 @@ describe("local-executor-server", () => {
 
       const connected = yield* client.sources.connect({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           kind: "openapi",
@@ -1309,7 +1239,7 @@ describe("local-executor-server", () => {
 
       const sources = yield* client.sources.list({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
       });
 
@@ -1318,7 +1248,7 @@ describe("local-executor-server", () => {
 
       const execution = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: 'return await tools.github.repos.getRepo({ owner: "vercel", repo: "ai" });',
@@ -1343,7 +1273,7 @@ describe("local-executor-server", () => {
 
       const connected = yield* client.sources.connect({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           kind: "mcp",
@@ -1361,7 +1291,7 @@ describe("local-executor-server", () => {
 
       const execution = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: 'return await tools.demo.gated_echo({ value: "from-api-client" });',
@@ -1379,7 +1309,7 @@ describe("local-executor-server", () => {
 
       const approved = yield* client.executions.resume({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: execution.execution.id,
         },
         payload: {
@@ -1405,7 +1335,7 @@ describe("local-executor-server", () => {
 
       const resumed = yield* client.executions.resume({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: execution.execution.id,
         },
         payload: {
@@ -1436,7 +1366,7 @@ describe("local-executor-server", () => {
 
       const connected = yield* client.sources.connect({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           kind: "mcp",
@@ -1463,7 +1393,7 @@ describe("local-executor-server", () => {
 
       const refreshedSource = yield* client.sources.get({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           sourceId: connected.source.id,
         },
       });
@@ -1474,7 +1404,7 @@ describe("local-executor-server", () => {
 
       const toolCall = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: "return await tools.axiom.whoami({});",
@@ -1491,7 +1421,7 @@ describe("local-executor-server", () => {
 
       const approvedToolCall = yield* client.executions.resume({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: toolCall.execution.id,
         },
         payload: {
@@ -1529,12 +1459,12 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
 
       const added = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: `return await tools.executor.sources.add({ endpoint: ${JSON.stringify(oauthServer.endpoint)}, name: "Axiom", namespace: "axiom" });`,
@@ -1563,7 +1493,7 @@ describe("local-executor-server", () => {
         while (true) {
           const sources = yield* client.sources.list({
             path: {
-              workspaceId: installation.workspaceId,
+              workspaceId: installation.scopeId,
             },
           });
           const source = sources.find((entry) => entry.namespace === "axiom");
@@ -1581,7 +1511,7 @@ describe("local-executor-server", () => {
 
       const toolCall = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: "return await tools.axiom.whoami({});",
@@ -1597,7 +1527,7 @@ describe("local-executor-server", () => {
 
       const approvedToolCall = yield* client.executions.resume({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: toolCall.execution.id,
         },
         payload: {
@@ -1633,12 +1563,12 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
 
       const connected = yield* client.sources.connect({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           kind: "openapi",
@@ -1655,7 +1585,7 @@ describe("local-executor-server", () => {
 
       const gated = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: 'return await tools.dns.records.createRecord({ body: { type: "TXT", name: "", value: "hello world" } });',
@@ -1668,12 +1598,12 @@ describe("local-executor-server", () => {
         throw new Error("Expected pending approval interaction");
       }
       expect(gated.pendingInteraction.kind).toBe("form");
-      expect(gated.pendingInteraction.payloadJson).toContain("Allow Create a DNS record?");
+      expect(gated.pendingInteraction.payloadJson).toContain("Allow records.createRecord?");
       expect(gated.pendingInteraction.payloadJson).toContain("\"approve\"");
 
       const approved = yield* client.executions.resume({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: gated.execution.id,
         },
         payload: {
@@ -1691,7 +1621,7 @@ describe("local-executor-server", () => {
 
       const policy = yield* client.policies.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           resourcePattern: "dns.records.createRecord",
@@ -1703,7 +1633,7 @@ describe("local-executor-server", () => {
 
       const automatic = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: 'return await tools.dns.records.createRecord({ body: { type: "TXT", name: "", value: "hello again" } });',
@@ -1735,11 +1665,11 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
 
       const startResponse = yield* Effect.promise(() =>
-        fetch(`${server.baseUrl}/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/oauth/source-auth/start`, {
+        fetch(`${server.baseUrl}/v1/workspaces/${encodeURIComponent(installation.scopeId)}/oauth/source-auth/start`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            "x-executor-account-id": installation.accountId,
+            "x-executor-account-id": installation.actorScopeId,
           },
           body: JSON.stringify({
             provider: "mcp",
@@ -1774,11 +1704,11 @@ describe("local-executor-server", () => {
 
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
       const sources = yield* client.sources.list({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
       });
 
@@ -1804,7 +1734,7 @@ describe("local-executor-server", () => {
       const installation = yield* bootstrapClient.local.installation({});
       const client = yield* createExecutorApiClient({
         baseUrl: server.baseUrl,
-        accountId: installation.accountId,
+        accountId: installation.actorScopeId,
       });
       yield* writeConfiguredLocalMcpSource({
         workspaceRoot: server.workspaceRoot,
@@ -1816,7 +1746,7 @@ describe("local-executor-server", () => {
 
       const execution = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: 'return await tools.demo.gated_echo({ value: "broken" });',
@@ -1832,7 +1762,7 @@ describe("local-executor-server", () => {
 
       const resumed = yield* client.executions.resume({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: execution.execution.id,
         },
         payload: {

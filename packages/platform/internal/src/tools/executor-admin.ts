@@ -1,9 +1,9 @@
 import { toTool, type ToolMap } from "@executor/codemode-core";
 import type { Executor } from "@executor/platform-sdk";
 import {
-  type AccountId,
+  type ScopeId as AccountId,
   LocalInstallationSchema,
-  LocalWorkspacePolicySchema,
+  LocalScopePolicySchema,
   SourceDiscoveryResultSchema,
   SourceIdSchema,
   SourceInspectionDiscoverPayloadSchema,
@@ -11,8 +11,8 @@ import {
   SourceInspectionSchema,
   SourceInspectionToolDetailSchema,
   SourceSchema,
-  type WorkspaceId,
-  WorkspaceOauthClientSchema,
+  type ScopeId as WorkspaceId,
+  ScopeOauthClientSchema,
 } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -25,25 +25,25 @@ import {
   SecretMaterialStorerService,
   SecretMaterialUpdaterService,
   type ExecutorStateStoreShape,
-  type WorkspaceInternalToolContext,
+  type ScopeInternalToolContext as WorkspaceInternalToolContext,
   RuntimeSourceAuthService,
   RuntimeSourceCatalogSyncService,
   RuntimeSourceStore,
   RuntimeSourceStoreService,
 } from "@executor/platform-sdk/runtime";
 import {
-  type RuntimeLocalWorkspaceState,
-  provideOptionalRuntimeLocalWorkspace,
-} from "../../../sdk/src/runtime/workspace/runtime-context";
+  type RuntimeLocalScopeState,
+  provideOptionalRuntimeLocalScope,
+} from "../../../sdk/src/runtime/scope/runtime-context";
 import {
   SourceArtifactStore,
   type SourceArtifactStoreShape,
-  WorkspaceConfigStore,
-  type WorkspaceConfigStoreShape,
-  WorkspaceStateStore,
-  type WorkspaceStateStoreShape,
-  makeWorkspaceStorageLayer,
-} from "../../../sdk/src/runtime/workspace/storage";
+  ScopeConfigStore,
+  type ScopeConfigStoreShape,
+  ScopeStateStore,
+  type ScopeStateStoreShape,
+  makeScopeStorageLayer,
+} from "../../../sdk/src/runtime/scope/storage";
 import {
   CreateSecretPayloadSchema,
   CreateSecretResultSchema,
@@ -81,9 +81,9 @@ import {
   UpdatePolicyPayloadSchema,
 } from "@executor/platform-sdk/contracts";
 import {
-  CreateWorkspaceOauthClientPayloadSchema,
+  CreateScopeOauthClientPayloadSchema,
   DiscoverSourcePayloadSchema,
-  type CreateWorkspaceOauthClientPayload,
+  type CreateScopeOauthClientPayload as CreateWorkspaceOauthClientPayload,
   UpdateSourcePayloadSchema,
 } from "@executor/platform-sdk/contracts";
 
@@ -145,7 +145,7 @@ const inspectDiscoverInputSchema = Schema.standardSchemaV1(
   }),
 );
 const listPoliciesOutputSchema = Schema.standardSchemaV1(
-  Schema.Array(LocalWorkspacePolicySchema),
+  Schema.Array(LocalScopePolicySchema),
 );
 const policyIdInputSchema = Schema.standardSchemaV1(
   Schema.Struct({
@@ -167,10 +167,10 @@ const workspaceOauthClientListInputSchema = Schema.standardSchemaV1(
   }),
 );
 const workspaceOauthClientListOutputSchema = Schema.standardSchemaV1(
-  Schema.Array(WorkspaceOauthClientSchema),
+  Schema.Array(ScopeOauthClientSchema),
 );
 const createWorkspaceOauthClientInputSchema = Schema.standardSchemaV1(
-  CreateWorkspaceOauthClientPayloadSchema,
+  CreateScopeOauthClientPayloadSchema,
 );
 const removeWorkspaceOauthClientInputSchema = Schema.standardSchemaV1(
   Schema.Struct({
@@ -195,8 +195,8 @@ const sourceInspectionDiscoverOutputSchema = Schema.standardSchemaV1(
 const sourceDiscoveryOutputSchema = Schema.standardSchemaV1(
   SourceDiscoveryResultSchema,
 );
-const localWorkspacePolicyOutputSchema = Schema.standardSchemaV1(
-  LocalWorkspacePolicySchema,
+const localScopePolicyOutputSchema = Schema.standardSchemaV1(
+  LocalScopePolicySchema,
 );
 
 const makeRuntimeLayer = (input: {
@@ -205,8 +205,8 @@ const makeRuntimeLayer = (input: {
   sourceCatalogSyncService: Effect.Effect.Success<
     typeof RuntimeSourceCatalogSyncService
   >;
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
   instanceConfigResolver: WorkspaceInternalToolContext["instanceConfigResolver"];
   storeSecretMaterial: WorkspaceInternalToolContext["storeSecretMaterial"];
@@ -224,9 +224,9 @@ const makeRuntimeLayer = (input: {
     Layer.succeed(SecretMaterialStorerService, input.storeSecretMaterial),
     Layer.succeed(SecretMaterialDeleterService, input.deleteSecretMaterial),
     Layer.succeed(SecretMaterialUpdaterService, input.updateSecretMaterial),
-    makeWorkspaceStorageLayer({
-      workspaceConfigStore: input.workspaceConfigStore,
-      workspaceStateStore: input.workspaceStateStore,
+    makeScopeStorageLayer({
+      scopeConfigStore: input.scopeConfigStore,
+      scopeStateStore: input.scopeStateStore,
       sourceArtifactStore: input.sourceArtifactStore,
     }),
   );
@@ -241,34 +241,34 @@ const runRuntimeEffect = <A, E, R>(input: {
     | SecretMaterialStorerService
     | SecretMaterialDeleterService
     | SecretMaterialUpdaterService
-    | WorkspaceConfigStore
-    | WorkspaceStateStore
+    | ScopeConfigStore
+    | ScopeStateStore
     | SourceArtifactStore,
     never,
     never
   >;
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null;
+  runtimeLocalScope: RuntimeLocalScopeState | null;
 }) =>
   Effect.runPromise(
-    provideOptionalRuntimeLocalWorkspace(
+    provideOptionalRuntimeLocalScope(
       input.effect.pipe(Effect.provide(input.runtimeLayer)),
-      input.runtimeLocalWorkspace,
+      input.runtimeLocalScope,
     ) as Effect.Effect<A, E, never>,
   );
 
-const runWorkspaceStorageEffect = <A, E, R>(input: {
+const runScopeStorageEffect = <A, E, R>(input: {
   effect: Effect.Effect<A, E, R>;
-  workspaceStorageLayer: Layer.Layer<
-    WorkspaceConfigStore | WorkspaceStateStore | SourceArtifactStore,
+  scopeStorageLayer: Layer.Layer<
+    ScopeConfigStore | ScopeStateStore | SourceArtifactStore,
     never,
     never
   >;
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null;
+  runtimeLocalScope: RuntimeLocalScopeState | null;
 }) =>
   Effect.runPromise(
-    provideOptionalRuntimeLocalWorkspace(
-      input.effect.pipe(Effect.provide(input.workspaceStorageLayer)),
-      input.runtimeLocalWorkspace,
+    provideOptionalRuntimeLocalScope(
+      input.effect.pipe(Effect.provide(input.scopeStorageLayer)),
+      input.runtimeLocalScope,
     ) as Effect.Effect<A, E, never>,
   );
 
@@ -279,17 +279,17 @@ export const createWorkspaceExecutorAdminToolMap = (
     executorStateStore: input.executorStateStore,
     sourceStore: input.sourceStore,
     sourceCatalogSyncService: input.sourceCatalogSyncService,
-    workspaceConfigStore: input.workspaceConfigStore,
-    workspaceStateStore: input.workspaceStateStore,
+    scopeConfigStore: input.scopeConfigStore,
+    scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
     instanceConfigResolver: input.instanceConfigResolver,
     storeSecretMaterial: input.storeSecretMaterial,
     deleteSecretMaterial: input.deleteSecretMaterial,
     updateSecretMaterial: input.updateSecretMaterial,
   });
-  const workspaceStorageLayer = makeWorkspaceStorageLayer({
-    workspaceConfigStore: input.workspaceConfigStore,
-    workspaceStateStore: input.workspaceStateStore,
+  const scopeStorageLayer = makeScopeStorageLayer({
+    scopeConfigStore: input.scopeConfigStore,
+    scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
   });
 
@@ -306,8 +306,8 @@ export const createWorkspaceExecutorAdminToolMap = (
         inputSchema: emptyInputSchema,
         outputSchema: localInstallationOutputSchema,
         execute: async () => ({
-          workspaceId: input.workspaceId,
-          accountId: input.accountId,
+          scopeId: input.scopeId,
+          actorScopeId: input.actorScopeId,
         }),
       },
       metadata,
@@ -332,7 +332,7 @@ export const createWorkspaceExecutorAdminToolMap = (
           runRuntimeEffect({
             effect: listLocalSecrets(),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -347,7 +347,7 @@ export const createWorkspaceExecutorAdminToolMap = (
           runRuntimeEffect({
             effect: createLocalSecret(payload),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -365,7 +365,7 @@ export const createWorkspaceExecutorAdminToolMap = (
           runRuntimeEffect({
             effect: updateLocalSecret(payload),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -379,7 +379,7 @@ export const createWorkspaceExecutorAdminToolMap = (
           runRuntimeEffect({
             effect: deleteLocalSecret(secretId),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -408,11 +408,11 @@ export const createWorkspaceExecutorAdminToolMap = (
         execute: () =>
           runRuntimeEffect({
             effect: listSources({
-              workspaceId: input.workspaceId,
-              accountId: input.accountId as never,
+              scopeId: input.scopeId,
+              actorScopeId: input.actorScopeId as never,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -425,12 +425,12 @@ export const createWorkspaceExecutorAdminToolMap = (
         execute: ({ sourceId }: { sourceId: string }) =>
           runRuntimeEffect({
             effect: getSource({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               sourceId: sourceId as never,
-              accountId: input.accountId as never,
+              actorScopeId: input.actorScopeId as never,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -446,13 +446,13 @@ export const createWorkspaceExecutorAdminToolMap = (
         }) =>
           runRuntimeEffect({
             effect: updateSource({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               sourceId: payload.sourceId as never,
-              accountId: input.accountId as never,
+              actorScopeId: input.actorScopeId as never,
               payload: payload.payload as never,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -465,11 +465,11 @@ export const createWorkspaceExecutorAdminToolMap = (
         execute: ({ sourceId }: { sourceId: string }) =>
           runRuntimeEffect({
             effect: removeSource({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               sourceId: sourceId as never,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -482,11 +482,11 @@ export const createWorkspaceExecutorAdminToolMap = (
         execute: ({ sourceId }: { sourceId: string }) =>
           runRuntimeEffect({
             effect: getSourceInspection({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               sourceId: sourceId as never,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -505,12 +505,12 @@ export const createWorkspaceExecutorAdminToolMap = (
         }) =>
           runRuntimeEffect({
             effect: getSourceInspectionToolDetail({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               sourceId: sourceId as never,
               toolPath,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -529,12 +529,12 @@ export const createWorkspaceExecutorAdminToolMap = (
         }) =>
           runRuntimeEffect({
             effect: discoverSourceInspectionTools({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               sourceId: sourceId as never,
               payload: payload as never,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -545,13 +545,13 @@ export const createWorkspaceExecutorAdminToolMap = (
         inputSchema: workspaceOauthClientListInputSchema,
         outputSchema: workspaceOauthClientListOutputSchema,
         execute: ({ providerKey }: { providerKey: string }) =>
-          runWorkspaceStorageEffect({
-            effect: input.sourceAuthService.listWorkspaceOauthClients({
-              workspaceId: input.workspaceId,
+          runScopeStorageEffect({
+            effect: input.sourceAuthService.listScopeOauthClients({
+              scopeId: input.scopeId,
               providerKey,
             }),
-            workspaceStorageLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            scopeStorageLayer,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -561,17 +561,17 @@ export const createWorkspaceExecutorAdminToolMap = (
         description:
           "Create a workspace OAuth client used for shared provider auth flows.",
         inputSchema: createWorkspaceOauthClientInputSchema,
-        outputSchema: Schema.standardSchemaV1(WorkspaceOauthClientSchema),
+        outputSchema: Schema.standardSchemaV1(ScopeOauthClientSchema),
         execute: (payload: CreateWorkspaceOauthClientPayload) =>
-          runWorkspaceStorageEffect({
-            effect: input.sourceAuthService.createWorkspaceOauthClient({
-              workspaceId: input.workspaceId,
+          runScopeStorageEffect({
+            effect: input.sourceAuthService.createScopeOauthClient({
+              scopeId: input.scopeId,
               providerKey: payload.providerKey,
               label: payload.label,
               oauthClient: payload.oauthClient,
             }),
-            workspaceStorageLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            scopeStorageLayer,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -582,15 +582,15 @@ export const createWorkspaceExecutorAdminToolMap = (
         inputSchema: removeWorkspaceOauthClientInputSchema,
         outputSchema: removeResultSchema,
         execute: ({ oauthClientId }: { oauthClientId: string }) =>
-          runWorkspaceStorageEffect({
+          runScopeStorageEffect({
             effect: input.sourceAuthService
-              .removeWorkspaceOauthClient({
-                workspaceId: input.workspaceId,
+              .removeScopeOauthClient({
+                scopeId: input.scopeId,
                 oauthClientId: oauthClientId as never,
               })
               .pipe(Effect.map((removed) => ({ removed }))),
-            workspaceStorageLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            scopeStorageLayer,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -602,15 +602,15 @@ export const createWorkspaceExecutorAdminToolMap = (
         inputSchema: removeProviderGrantInputSchema,
         outputSchema: removeResultSchema,
         execute: ({ grantId }: { grantId: string }) =>
-          runWorkspaceStorageEffect({
+          runScopeStorageEffect({
             effect: input.sourceAuthService
               .removeProviderAuthGrant({
-                workspaceId: input.workspaceId,
+                scopeId: input.scopeId,
                 grantId: grantId as never,
               })
               .pipe(Effect.map((removed) => ({ removed }))),
-            workspaceStorageLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            scopeStorageLayer,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -622,9 +622,9 @@ export const createWorkspaceExecutorAdminToolMap = (
         outputSchema: listPoliciesOutputSchema,
         execute: () =>
           runRuntimeEffect({
-            effect: listPolicies(input.workspaceId),
+            effect: listPolicies(input.scopeId),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -633,15 +633,15 @@ export const createWorkspaceExecutorAdminToolMap = (
       tool: {
         description: "Create a local workspace policy.",
         inputSchema: createPolicyInputSchema,
-        outputSchema: localWorkspacePolicyOutputSchema,
+        outputSchema: localScopePolicyOutputSchema,
         execute: (payload: CreatePolicyPayload) =>
           runRuntimeEffect({
             effect: createPolicy({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               payload,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -650,15 +650,15 @@ export const createWorkspaceExecutorAdminToolMap = (
       tool: {
         description: "Get one local workspace policy by id.",
         inputSchema: policyIdInputSchema,
-        outputSchema: localWorkspacePolicyOutputSchema,
+        outputSchema: localScopePolicyOutputSchema,
         execute: ({ policyId }: { policyId: string }) =>
           runRuntimeEffect({
             effect: getPolicy({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               policyId: policyId as never,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -667,7 +667,7 @@ export const createWorkspaceExecutorAdminToolMap = (
       tool: {
         description: "Update a local workspace policy.",
         inputSchema: updatePolicyInputSchema,
-        outputSchema: localWorkspacePolicyOutputSchema,
+        outputSchema: localScopePolicyOutputSchema,
         execute: ({
           policyId,
           payload,
@@ -677,12 +677,12 @@ export const createWorkspaceExecutorAdminToolMap = (
         }) =>
           runRuntimeEffect({
             effect: updatePolicy({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               policyId: policyId as never,
               payload,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -695,11 +695,11 @@ export const createWorkspaceExecutorAdminToolMap = (
         execute: ({ policyId }: { policyId: string }) =>
           runRuntimeEffect({
             effect: removePolicy({
-              workspaceId: input.workspaceId,
+              scopeId: input.scopeId,
               policyId: policyId as never,
             }),
             runtimeLayer,
-            runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+            runtimeLocalScope: input.runtimeLocalScope,
           }),
       },
       metadata,
@@ -903,7 +903,7 @@ export const createExecutorAdminToolMap = (input: {
         description:
           "Create a workspace OAuth client for a provider-backed source flow.",
         inputSchema: createWorkspaceOauthClientInputSchema,
-        outputSchema: Schema.standardSchemaV1(WorkspaceOauthClientSchema),
+        outputSchema: Schema.standardSchemaV1(ScopeOauthClientSchema),
         execute: (payload: CreateWorkspaceOauthClientPayload) =>
           input.executor.sources.oauthClients.create(payload),
       },
@@ -952,7 +952,7 @@ export const createExecutorAdminToolMap = (input: {
       tool: {
         description: "Create a local workspace policy.",
         inputSchema: createPolicyInputSchema,
-        outputSchema: localWorkspacePolicyOutputSchema,
+        outputSchema: localScopePolicyOutputSchema,
         execute: (payload: CreatePolicyPayload) =>
           input.executor.policies.create(payload),
       },
@@ -962,7 +962,7 @@ export const createExecutorAdminToolMap = (input: {
       tool: {
         description: "Get one local workspace policy by id.",
         inputSchema: policyIdInputSchema,
-        outputSchema: localWorkspacePolicyOutputSchema,
+        outputSchema: localScopePolicyOutputSchema,
         execute: ({ policyId }: { policyId: string }) =>
           input.executor.policies.get(policyId),
       },
@@ -972,7 +972,7 @@ export const createExecutorAdminToolMap = (input: {
       tool: {
         description: "Update a local workspace policy.",
         inputSchema: updatePolicyInputSchema,
-        outputSchema: localWorkspacePolicyOutputSchema,
+        outputSchema: localScopePolicyOutputSchema,
         execute: ({
           policyId,
           payload,

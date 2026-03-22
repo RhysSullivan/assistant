@@ -1,13 +1,16 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 import * as Option from "effect/Option";
 
-import { TimestampMsSchema } from "../common";
 import {
-  AccountIdSchema,
+  TimestampMsSchema,
+} from "../common";
+import {
+  ScopeIdSchema,
   AuthArtifactIdSchema,
   ProviderAuthGrantIdSchema,
   SourceIdSchema,
-  WorkspaceIdSchema,
 } from "../ids";
 
 export const SecretRefSchema = Schema.Struct({
@@ -207,9 +210,9 @@ const decodeAuthGrantSetOption = Schema.decodeUnknownOption(AuthGrantSetJsonSche
 
 export const AuthArtifactSchema = Schema.Struct({
   id: AuthArtifactIdSchema,
-  workspaceId: WorkspaceIdSchema,
+  scopeId: ScopeIdSchema,
   sourceId: SourceIdSchema,
-  actorAccountId: Schema.NullOr(AccountIdSchema),
+  actorScopeId: Schema.NullOr(ScopeIdSchema),
   slot: AuthArtifactSlotSchema,
   artifactKind: AuthArtifactKindSchema,
   configJson: Schema.String,

@@ -12,9 +12,9 @@ import {
   SourceSchema,
   SourceStatusSchema,
   SourceOauthClientInputSchema,
-  WorkspaceIdSchema,
-  WorkspaceOauthClientIdSchema,
-  WorkspaceOauthClientSchema,
+  ScopeIdSchema,
+  ScopeOauthClientIdSchema,
+  ScopeOauthClientSchema,
 } from "../schema";
 import {
   ConnectSourcePayloadSchema,
@@ -84,20 +84,20 @@ export const CredentialOauthCompleteUrlParamsSchema = Schema.Struct({
   error_description: Schema.optional(Schema.String),
 });
 
-export const WorkspaceOauthClientQuerySchema = Schema.Struct({
+export const ScopeOauthClientQuerySchema = Schema.Struct({
   providerKey: Schema.String,
 });
 
-export const CreateWorkspaceOauthClientPayloadSchema = Schema.Struct({
+export const CreateScopeOauthClientPayloadSchema = Schema.Struct({
   providerKey: Schema.String,
   label: Schema.optional(Schema.NullOr(Schema.String)),
   oauthClient: SourceOauthClientInputSchema,
 });
 
-export type CreateWorkspaceOauthClientPayload =
-  typeof CreateWorkspaceOauthClientPayloadSchema.Type;
+export type CreateScopeOauthClientPayload =
+  typeof CreateScopeOauthClientPayloadSchema.Type;
 
-export const oauthClientIdParam = WorkspaceOauthClientIdSchema;
+export const oauthClientIdParam = ScopeOauthClientIdSchema;
 export const grantIdParam = ProviderAuthGrantIdSchema;
 
 const ConnectGoogleDiscoveryBatchSourceSchema = Schema.Struct({
@@ -110,7 +110,7 @@ const ConnectGoogleDiscoveryBatchSourceSchema = Schema.Struct({
 });
 
 export const ConnectSourceBatchPayloadSchema = Schema.Struct({
-  workspaceOauthClientId: WorkspaceOauthClientIdSchema,
+  scopeOauthClientId: ScopeOauthClientIdSchema,
   sources: Schema.Array(ConnectGoogleDiscoveryBatchSourceSchema),
 });
 
@@ -165,6 +165,6 @@ export {
   ConnectSourcePayloadSchema,
   type ConnectSourcePayload,
   SourceDiscoveryResultSchema,
-  WorkspaceIdSchema,
-  WorkspaceOauthClientSchema,
+  ScopeIdSchema,
+  ScopeOauthClientSchema,
 };

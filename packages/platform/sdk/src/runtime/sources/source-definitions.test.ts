@@ -1,11 +1,15 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
   CredentialIdSchema,
   decodeBuiltInAuthArtifactConfig,
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
   type Source,
 } from "#schema";
 
@@ -17,7 +21,9 @@ import {
   stableSourceCatalogRevisionId,
   updateSourceFromPayload,
 } from "./source-definitions";
-import { namespaceFromSourceName } from "./source-names";
+import {
+  namespaceFromSourceName,
+} from "./source-names";
 
 const openApiBinding = (
   specUrl = "https://api.github.com/openapi.json",
@@ -81,7 +87,7 @@ const mcpBinding = (
 
 const makeSource = (overrides: Partial<Source> = {}): Source => ({
   id: SourceIdSchema.make("src_source_definitions"),
-  workspaceId: WorkspaceIdSchema.make("ws_source_definitions"),
+  scopeId: ScopeIdSchema.make("ws_source_definitions"),
   name: "GitHub",
   kind: "openapi",
   endpoint: "https://api.github.com",
@@ -108,7 +114,7 @@ describe("source-definitions", () => {
         name: "Renamed GitHub",
       });
       const differentWorkspace = makeSource({
-        workspaceId: WorkspaceIdSchema.make("ws_source_definitions_other"),
+        scopeId: ScopeIdSchema.make("ws_source_definitions_other"),
       });
 
       expect(stableSourceCatalogId(source)).toBe(stableSourceCatalogId(source));
@@ -151,7 +157,7 @@ describe("source-definitions", () => {
       () =>
         Effect.gen(function* () {
           const source = yield* createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_create_defaults"),
+            scopeId: ScopeIdSchema.make("ws_create_defaults"),
             sourceId: SourceIdSchema.make("src_create_defaults"),
             payload: {
               name: "  GitHub  ",
@@ -216,7 +222,7 @@ describe("source-definitions", () => {
       () =>
         Effect.gen(function* () {
           const source = yield* createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_create_oauth_defaults"),
+            scopeId: ScopeIdSchema.make("ws_create_oauth_defaults"),
             sourceId: SourceIdSchema.make("src_create_oauth_defaults"),
             payload: {
               name: "GraphQL Demo",
@@ -253,7 +259,7 @@ describe("source-definitions", () => {
       Effect.gen(function* () {
         const invalidBearer = yield* Effect.flip(
           createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_invalid_bearer"),
+            scopeId: ScopeIdSchema.make("ws_invalid_bearer"),
             sourceId: SourceIdSchema.make("src_invalid_bearer"),
             payload: {
               name: "Bad Bearer",
@@ -279,7 +285,7 @@ describe("source-definitions", () => {
 
         const invalidRefresh = yield* Effect.flip(
           createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_invalid_refresh"),
+            scopeId: ScopeIdSchema.make("ws_invalid_refresh"),
             sourceId: SourceIdSchema.make("src_invalid_refresh"),
             payload: {
               name: "Bad OAuth",
@@ -313,7 +319,7 @@ describe("source-definitions", () => {
       Effect.gen(function* () {
         const invalidMcp = yield* Effect.flip(
           createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_invalid_mcp"),
+            scopeId: ScopeIdSchema.make("ws_invalid_mcp"),
             sourceId: SourceIdSchema.make("src_invalid_mcp"),
             payload: {
               name: "MCP",
@@ -332,7 +338,7 @@ describe("source-definitions", () => {
 
         const invalidOpenApiSpec = yield* Effect.flip(
           createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_invalid_openapi_spec"),
+            scopeId: ScopeIdSchema.make("ws_invalid_openapi_spec"),
             sourceId: SourceIdSchema.make("src_invalid_openapi_spec"),
             payload: {
               name: "OpenAPI",
@@ -349,7 +355,7 @@ describe("source-definitions", () => {
 
         const invalidOpenApiTransport = yield* Effect.flip(
           createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_invalid_openapi_transport"),
+            scopeId: ScopeIdSchema.make("ws_invalid_openapi_transport"),
             sourceId: SourceIdSchema.make("src_invalid_openapi_transport"),
             payload: {
               name: "OpenAPI",
@@ -369,7 +375,7 @@ describe("source-definitions", () => {
 
         const invalidGraphql = yield* Effect.flip(
           createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_invalid_graphql"),
+            scopeId: ScopeIdSchema.make("ws_invalid_graphql"),
             sourceId: SourceIdSchema.make("src_invalid_graphql"),
             payload: {
               name: "GraphQL",
@@ -388,7 +394,7 @@ describe("source-definitions", () => {
 
         const invalidInternal = yield* Effect.flip(
           createSourceFromPayload({
-            workspaceId: WorkspaceIdSchema.make("ws_invalid_internal"),
+            scopeId: ScopeIdSchema.make("ws_invalid_internal"),
             sourceId: SourceIdSchema.make("src_invalid_internal"),
             payload: {
               name: "Internal",

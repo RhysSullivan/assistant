@@ -1,26 +1,28 @@
 import type {
-  AccountId,
+  ScopeId,
   Source,
   SourceStatus,
 } from "#schema";
-import type { McpToolManifest } from "@executor/source-mcp";
+import type {
+  McpToolManifest,
+} from "@executor/source-mcp";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import {
-  RuntimeLocalWorkspaceService,
-  type RuntimeLocalWorkspaceState,
-} from "../../workspace/runtime-context";
+  RuntimeLocalScopeService,
+  type RuntimeLocalScopeState,
+} from "../../scope/runtime-context";
 import {
   SourceArtifactStore,
   type SourceArtifactStoreShape,
-  WorkspaceStateStore,
-  type WorkspaceStateStoreShape,
-} from "../../workspace/storage";
+  ScopeStateStore,
+  type ScopeStateStoreShape,
+} from "../../scope/storage";
 import {
-  type LocalWorkspaceState,
-} from "../../workspace-state";
+  type LocalScopeState,
+} from "../../scope-state";
 import {
   RuntimeSourceAuthMaterialService,
 } from "../../auth/source-auth-material";
@@ -30,13 +32,19 @@ import {
 import {
   catalogSyncResultFromMcpManifest,
 } from "@executor/source-mcp";
-import { SecretMaterialResolverService } from "../../workspace/secret-material-providers";
-import { snapshotFromSourceCatalogSyncResult } from "@executor/source-core";
+import {
+  SecretMaterialResolverService,
+} from "../../scope/secret-material-providers";
+import {
+  snapshotFromSourceCatalogSyncResult,
+} from "@executor/source-core";
 import {
   SourceTypeDeclarationsRefresherService,
   type SourceTypeDeclarationsRefresherShape,
 } from "./type-declarations";
-import { runtimeEffectError } from "../../effect-errors";
+import {
+  runtimeEffectError,
+} from "../../effect-errors";
 
 const shouldIndexSource = (source: Source): boolean =>
   source.enabled
@@ -44,8 +52,8 @@ const shouldIndexSource = (source: Source): boolean =>
   && getSourceAdapterForSource(source).catalogKind !== "internal";
 
 type RuntimeSourceCatalogSyncDeps = {
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  runtimeLocalScope: RuntimeLocalScopeState;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
   sourceTypeDeclarationsRefresher: SourceTypeDeclarationsRefresherShape;
   resolveSecretMaterial: Effect.Effect.Success<typeof SecretMaterialResolverService>;
@@ -53,8 +61,8 @@ type RuntimeSourceCatalogSyncDeps = {
 };
 
 type SourceCatalogSyncServices =
-  | RuntimeLocalWorkspaceService
-  | WorkspaceStateStore
+  | RuntimeLocalScopeService
+  | ScopeStateStore
   | SourceArtifactStore
   | SourceTypeDeclarationsRefresherService
   | RuntimeSourceAuthMaterialService
@@ -63,7 +71,7 @@ type SourceCatalogSyncServices =
 export type RuntimeSourceCatalogSyncShape = {
   sync: (input: {
     source: Source;
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
   }) => Effect.Effect<void, Error, never>;
   persistMcpCatalogSnapshotFromManifest: (input: {
     source: Source;
@@ -77,13 +85,13 @@ export class RuntimeSourceCatalogSyncService extends Context.Tag(
 
 const ensureRuntimeCatalogSyncWorkspace = (
   deps: RuntimeSourceCatalogSyncDeps,
-  workspaceId: Source["workspaceId"],
+  scopeId: Source["scopeId"],
 ) =>
   Effect.gen(function* () {
-  if (deps.runtimeLocalWorkspace.installation.workspaceId !== workspaceId) {
+  if (deps.runtimeLocalScope.installation.scopeId !== scopeId) {
     return yield* Effect.fail(
       runtimeEffectError("catalog/source/sync", 
-        `Runtime local workspace mismatch: expected ${workspaceId}, got ${deps.runtimeLocalWorkspace.installation.workspaceId}`,
+        `Runtime local scope mismatch: expected ${scopeId}, got ${deps.runtimeLocalScope.installation.scopeId}`,
       ),
     );
   }
@@ -93,16 +101,16 @@ const syncSourceCatalogWithDeps = (
   deps: RuntimeSourceCatalogSyncDeps,
   input: {
     source: Source;
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
   },
 ): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
-    yield* ensureRuntimeCatalogSyncWorkspace(deps, input.source.workspaceId);
+    yield* ensureRuntimeCatalogSyncWorkspace(deps, input.source.scopeId);
 
     if (!shouldIndexSource(input.source)) {
-      const state = yield* deps.workspaceStateStore.load();
+      const state = yield* deps.scopeStateStore.load();
       const existingSourceState = state.sources[input.source.id];
-      const nextState: LocalWorkspaceState = {
+      const nextState: LocalScopeState = {
         ...state,
         sources: {
           ...state.sources,
@@ -115,7 +123,7 @@ const syncSourceCatalogWithDeps = (
           },
         },
       };
-      yield* deps.workspaceStateStore.write({
+      yield* deps.scopeStateStore.write({
         state: nextState,
       });
       yield* deps.sourceTypeDeclarationsRefresher.refreshSourceInBackground({
@@ -133,7 +141,7 @@ const syncSourceCatalogWithDeps = (
         deps.sourceAuthMaterialService.resolve({
           source: input.source,
           slot,
-          actorAccountId: input.actorAccountId,
+          actorScopeId: input.actorScopeId,
         }),
     });
     const snapshot = snapshotFromSourceCatalogSyncResult(syncResult);
@@ -145,9 +153,9 @@ const syncSourceCatalogWithDeps = (
       }),
     });
 
-    const state = yield* deps.workspaceStateStore.load();
+    const state = yield* deps.scopeStateStore.load();
     const existingSourceState = state.sources[input.source.id];
-    const nextState: LocalWorkspaceState = {
+    const nextState: LocalScopeState = {
       ...state,
       sources: {
         ...state.sources,
@@ -160,7 +168,7 @@ const syncSourceCatalogWithDeps = (
         },
       },
     };
-    yield* deps.workspaceStateStore.write({
+    yield* deps.scopeStateStore.write({
       state: nextState,
     });
 
@@ -187,7 +195,7 @@ const persistMcpCatalogSnapshotFromManifestWithDeps = (
   },
 ): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
-    yield* ensureRuntimeCatalogSyncWorkspace(deps, input.source.workspaceId);
+    yield* ensureRuntimeCatalogSyncWorkspace(deps, input.source.scopeId);
     const syncResult = catalogSyncResultFromMcpManifest({
       source: input.source,
       endpoint: input.source.endpoint,
@@ -211,11 +219,11 @@ const persistMcpCatalogSnapshotFromManifestWithDeps = (
 
 export const syncSourceCatalog = (input: {
   source: Source;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
 }): Effect.Effect<void, Error, SourceCatalogSyncServices> =>
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* RuntimeLocalWorkspaceService;
-    const workspaceStateStore = yield* WorkspaceStateStore;
+    const runtimeLocalScope = yield* RuntimeLocalScopeService;
+    const scopeStateStore = yield* ScopeStateStore;
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceTypeDeclarationsRefresher =
       yield* SourceTypeDeclarationsRefresherService;
@@ -224,8 +232,8 @@ export const syncSourceCatalog = (input: {
 
     return yield* syncSourceCatalogWithDeps(
       {
-        runtimeLocalWorkspace,
-        workspaceStateStore,
+        runtimeLocalScope,
+        scopeStateStore,
         sourceArtifactStore,
         sourceTypeDeclarationsRefresher,
         resolveSecretMaterial,
@@ -233,7 +241,7 @@ export const syncSourceCatalog = (input: {
       },
       {
         source: input.source,
-        actorAccountId: input.actorAccountId,
+        actorScopeId: input.actorScopeId,
       },
     );
   });
@@ -243,8 +251,8 @@ export const persistMcpCatalogSnapshotFromManifest = (input: {
   manifest: McpToolManifest;
 }): Effect.Effect<void, Error, SourceCatalogSyncServices> =>
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* RuntimeLocalWorkspaceService;
-    const workspaceStateStore = yield* WorkspaceStateStore;
+    const runtimeLocalScope = yield* RuntimeLocalScopeService;
+    const scopeStateStore = yield* ScopeStateStore;
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceTypeDeclarationsRefresher =
       yield* SourceTypeDeclarationsRefresherService;
@@ -253,8 +261,8 @@ export const persistMcpCatalogSnapshotFromManifest = (input: {
 
     return yield* persistMcpCatalogSnapshotFromManifestWithDeps(
       {
-        runtimeLocalWorkspace,
-        workspaceStateStore,
+        runtimeLocalScope,
+        scopeStateStore,
         sourceArtifactStore,
         sourceTypeDeclarationsRefresher,
         resolveSecretMaterial,
@@ -267,8 +275,8 @@ export const persistMcpCatalogSnapshotFromManifest = (input: {
 export const RuntimeSourceCatalogSyncLive = Layer.effect(
   RuntimeSourceCatalogSyncService,
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* RuntimeLocalWorkspaceService;
-    const workspaceStateStore = yield* WorkspaceStateStore;
+    const runtimeLocalScope = yield* RuntimeLocalScopeService;
+    const scopeStateStore = yield* ScopeStateStore;
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceTypeDeclarationsRefresher =
       yield* SourceTypeDeclarationsRefresherService;
@@ -276,8 +284,8 @@ export const RuntimeSourceCatalogSyncLive = Layer.effect(
     const sourceAuthMaterialService = yield* RuntimeSourceAuthMaterialService;
 
     const deps: RuntimeSourceCatalogSyncDeps = {
-      runtimeLocalWorkspace,
-      workspaceStateStore,
+      runtimeLocalScope,
+      scopeStateStore,
       sourceArtifactStore,
       sourceTypeDeclarationsRefresher,
       resolveSecretMaterial,

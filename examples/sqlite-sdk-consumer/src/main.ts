@@ -5,8 +5,8 @@ const databasePath = process.env.DATABASE_PATH
 
 const executor = await createSqliteExecutor({
   databasePath,
-  workspaceName: "SQLite Example Workspace",
-  workspaceRoot: process.cwd(),
+  scopeName: "SQLite Example Workspace",
+  scopeRoot: process.cwd(),
 });
 
 try {

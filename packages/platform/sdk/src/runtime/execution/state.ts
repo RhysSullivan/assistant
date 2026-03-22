@@ -4,7 +4,10 @@ import type {
   ToolCatalog,
   ToolInvoker,
 } from "@executor/codemode-core";
-import type { AccountId, ExecutionId, WorkspaceId } from "#schema";
+import type {
+  ScopeId,
+  ExecutionId,
+} from "#schema";
 import * as Data from "effect/Data";
 import type * as Effect from "effect/Effect";
 
@@ -15,8 +18,8 @@ export type ExecutionEnvironment = {
 };
 
 export type ResolveExecutionEnvironment = (input: {
-  workspaceId: WorkspaceId;
-  accountId: AccountId;
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
   executionId: ExecutionId;
   onElicitation?: OnElicitation;
 }) => Effect.Effect<ExecutionEnvironment, unknown>;

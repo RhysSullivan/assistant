@@ -1,11 +1,14 @@
-import { Schema } from "effect";
-
-import { TimestampMsSchema } from "../common";
 import {
-  AccountIdSchema,
+  Schema,
+} from "effect";
+
+import {
+  TimestampMsSchema,
+} from "../common";
+import {
+  ScopeIdSchema,
   ProviderAuthGrantIdSchema,
-  WorkspaceIdSchema,
-  WorkspaceOauthClientIdSchema,
+  ScopeOauthClientIdSchema,
 } from "../ids";
 
 import {
@@ -15,10 +18,10 @@ import {
 
 export const ProviderAuthGrantSchema = Schema.Struct({
   id: ProviderAuthGrantIdSchema,
-  workspaceId: WorkspaceIdSchema,
-  actorAccountId: Schema.NullOr(AccountIdSchema),
+  scopeId: ScopeIdSchema,
+  actorScopeId: Schema.NullOr(ScopeIdSchema),
   providerKey: Schema.String,
-  oauthClientId: WorkspaceOauthClientIdSchema,
+  oauthClientId: ScopeOauthClientIdSchema,
   tokenEndpoint: Schema.String,
   clientAuthentication: OAuth2ClientAuthenticationMethodSchema,
   headerName: Schema.String,

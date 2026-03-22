@@ -1,4 +1,6 @@
-import type { LocalExecutorConfig } from "#schema";
+import type {
+  LocalExecutorConfig,
+} from "#schema";
 
 export type LoadedExecutorConfig = {
   config: LocalExecutorConfig | null;

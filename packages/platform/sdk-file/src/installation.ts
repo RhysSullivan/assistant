@@ -1,15 +1,14 @@
 import { createHash } from "node:crypto";
 
 import {
-  AccountIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
   type LocalInstallation,
 } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 
 import type { ResolvedLocalWorkspaceContext } from "./config";
 
-const LOCAL_ACCOUNT_ID = AccountIdSchema.make("acc_local_default");
+const LOCAL_ACCOUNT_ID = ScopeIdSchema.make("acc_local_default");
 
 const stableHash = (value: string): string =>
   createHash("sha256").update(value).digest("hex").slice(0, 16);
@@ -18,15 +17,19 @@ const normalizeSlashPath = (value: string): string =>
   value.replaceAll("\\", "/");
 
 const deriveWorkspaceId = (context: ResolvedLocalWorkspaceContext) =>
-  WorkspaceIdSchema.make(
+  ScopeIdSchema.make(
     `ws_local_${stableHash(normalizeSlashPath(context.workspaceRoot))}`,
   );
 
 export const deriveLocalInstallation = (
   context: ResolvedLocalWorkspaceContext,
 ): LocalInstallation => ({
-  accountId: LOCAL_ACCOUNT_ID,
-  workspaceId: deriveWorkspaceId(context),
+  actorScopeId: LOCAL_ACCOUNT_ID,
+  scopeId: deriveWorkspaceId(context),
+  resolutionScopeIds: [
+    deriveWorkspaceId(context),
+    LOCAL_ACCOUNT_ID,
+  ],
 });
 
 export const loadLocalInstallation = (

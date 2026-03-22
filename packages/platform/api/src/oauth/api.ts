@@ -4,7 +4,7 @@ import {
   SourceAuthSessionIdSchema,
   SourceTransportSchema,
   StringMapSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema as WorkspaceIdSchema,
 } from "@executor/platform-sdk/schema";
 import * as Schema from "effect/Schema";
 

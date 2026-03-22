@@ -2,25 +2,37 @@ import type {
   Execution,
   ExecutionInteraction,
   Source,
-  WorkspaceId,
+  ScopeId,
 } from "../schema";
 import {
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
 } from "../schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import { submitExecutionInteractionResponse } from "../runtime/execution/service";
-import { LiveExecutionManagerService } from "../runtime/execution/live";
-import { operationErrors } from "../runtime/policy/operation-errors";
-import { InstallationStore } from "../runtime/workspace/storage";
-import { RuntimeSourceAuthServiceTag } from "../runtime/sources/source-auth-service";
+import {
+  submitExecutionInteractionResponse,
+} from "../runtime/execution/service";
+import {
+  LiveExecutionManagerService,
+} from "../runtime/execution/live";
+import {
+  operationErrors,
+} from "../runtime/policy/operation-errors";
+import {
+  InstallationStore,
+} from "../runtime/scope/storage";
+import {
+  RuntimeSourceAuthServiceTag,
+} from "../runtime/sources/source-auth-service";
 import {
   createSourceCredentialSelectionBearerContent,
   createSourceCredentialSelectionNoneContent,
 } from "../runtime/sources/source-credential-interactions";
-import { ExecutorStateStore } from "../runtime/executor-state-store";
+import {
+  ExecutorStateStore,
+} from "../runtime/executor-state-store";
 
 const localOps = {
   installation: operationErrors("local.installation.get"),
@@ -34,7 +46,7 @@ type SourceCredentialInteraction = {
   executionId: Execution["id"];
   status: ExecutionInteraction["status"];
   message: string;
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
   sourceLabel: string;
   endpoint: string;
@@ -100,10 +112,10 @@ export const decodeSourceCredentialInteraction = (
       return null;
     }
 
-    const workspaceId = trimOrNull(asString(args.workspaceId));
+    const scopeId = trimOrNull(asString(args.scopeId));
     const sourceId = trimOrNull(asString(args.sourceId));
     const message = trimOrNull(asString(elicitation.message));
-    if (workspaceId === null || sourceId === null || message === null) {
+    if (scopeId === null || sourceId === null || message === null) {
       return null;
     }
 
@@ -112,7 +124,7 @@ export const decodeSourceCredentialInteraction = (
       executionId: interaction.executionId,
       status: interaction.status,
       message,
-      workspaceId: WorkspaceIdSchema.make(workspaceId),
+      scopeId: ScopeIdSchema.make(scopeId),
       sourceId: SourceIdSchema.make(sourceId),
     };
   } catch {
@@ -121,7 +133,7 @@ export const decodeSourceCredentialInteraction = (
 };
 
 const loadSourceCredentialInteraction = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
   interactionId: ExecutionInteraction["id"];
   operation:
@@ -153,18 +165,18 @@ const loadSourceCredentialInteraction = (input: {
     const decoded = decodeSourceCredentialInteraction(stored.value);
     if (
       decoded === null ||
-      decoded.workspaceId !== input.workspaceId ||
+      decoded.scopeId !== input.scopeId ||
       decoded.sourceId !== input.sourceId
     ) {
       return yield* input.operation.notFound(
         "Source credential request not found",
-        `workspaceId=${input.workspaceId} sourceId=${input.sourceId} interactionId=${input.interactionId}`,
+        `scopeId=${input.scopeId} sourceId=${input.sourceId} interactionId=${input.interactionId}`,
       );
     }
 
     const source = yield* sourceAuthService
       .getSourceById({
-        workspaceId: input.workspaceId,
+        scopeId: input.scopeId,
         sourceId: input.sourceId,
       })
       .pipe(
@@ -197,7 +209,7 @@ export const getLocalInstallation = () =>
   });
 
 export const getSourceCredentialInteraction = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
   interactionId: ExecutionInteraction["id"];
 }) =>
@@ -207,7 +219,7 @@ export const getSourceCredentialInteraction = (input: {
   });
 
 export const submitSourceCredentialInteraction = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
   interactionId: ExecutionInteraction["id"];
   action: "submit" | "continue" | "cancel";
@@ -215,7 +227,7 @@ export const submitSourceCredentialInteraction = (input: {
 }) =>
   Effect.gen(function* () {
     const interaction = yield* loadSourceCredentialInteraction({
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
       interactionId: input.interactionId,
       operation: localOps.sourceCredentialSubmit,
@@ -370,7 +382,7 @@ export const submitSourceCredentialInteraction = (input: {
   });
 
 export const completeSourceCredentialSetup = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
   state: string;
   code?: string | null;

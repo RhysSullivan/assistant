@@ -1,7 +1,13 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 
-import { TimestampMsSchema } from "../common";
-import { SecretMaterialIdSchema } from "../ids";
+import {
+  TimestampMsSchema,
+} from "../common";
+import {
+  SecretMaterialIdSchema,
+} from "../ids";
 
 export const SecretMaterialPurposeSchema = Schema.Literal(
   "auth_material",

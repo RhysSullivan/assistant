@@ -16,18 +16,31 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import type { ExecutorStateStoreShape } from "../executor-state-store";
-import { resolveAuthArtifactMaterial, type ResolvedSourceAuthMaterial } from "./auth-artifacts";
+import type {
+  ExecutorStateStoreShape,
+} from "../executor-state-store";
+import {
+  resolveAuthArtifactMaterial,
+  type ResolvedSourceAuthMaterial,
+} from "./auth-artifacts";
 import {
   type DeleteSecretMaterial,
   type ResolveSecretMaterial,
   type SecretMaterialResolveContext,
   type StoreSecretMaterial,
-} from "../workspace/secret-material-providers";
-import { refreshOAuth2AccessToken } from "./oauth2-pkce";
-import type { OAuth2TokenResponse } from "./oauth2-pkce";
-import { createPersistedMcpAuthProvider } from "./mcp-auth-provider";
-import { runtimeEffectError } from "../effect-errors";
+} from "../scope/secret-material-providers";
+import {
+  refreshOAuth2AccessToken,
+} from "./oauth2-pkce";
+import type {
+  OAuth2TokenResponse,
+} from "./oauth2-pkce";
+import {
+  createPersistedMcpAuthProvider,
+} from "./mcp-auth-provider";
+import {
+  runtimeEffectError,
+} from "../effect-errors";
 
 const LEASE_REFRESH_SKEW_MS = 60_000;
 
@@ -134,9 +147,9 @@ const refreshRefreshableOauth2AuthorizedUserArtifact = (input: {
     const nextLease: AuthLease = {
       id: input.lease?.id ?? AuthLeaseIdSchema.make(`auth_lease_${crypto.randomUUID()}`),
       authArtifactId: input.artifact.id,
-      workspaceId: input.artifact.workspaceId,
+      scopeId: input.artifact.scopeId,
       sourceId: input.artifact.sourceId,
-      actorAccountId: input.artifact.actorAccountId,
+      actorScopeId: input.artifact.actorScopeId,
       slot: input.artifact.slot,
       placementsTemplateJson: encodeLeasePlacementTemplatesJson([
         {
@@ -169,7 +182,7 @@ const refreshRefreshableOauth2AuthorizedUserArtifact = (input: {
     return nextLease;
   });
 
-const workspaceOauthClientSecretRef = (input: {
+const scopeOauthClientSecretRef = (input: {
   clientSecretProviderId: string | null;
   clientSecretHandle: string | null;
 }): SecretRef | null =>
@@ -212,9 +225,9 @@ const refreshProviderGrantRefArtifact = (input: {
     }
     const grant = grantOption.value;
 
-    const oauthClientOption = yield* input.executorState.workspaceOauthClients.getById(grant.oauthClientId);
+    const oauthClientOption = yield* input.executorState.scopeOauthClients.getById(grant.oauthClientId);
     if (Option.isNone(oauthClientOption)) {
-      return yield* runtimeEffectError("auth/auth-leases", `Workspace OAuth client not found: ${grant.oauthClientId}`);
+      return yield* runtimeEffectError("auth/auth-leases", `Scope OAuth client not found: ${grant.oauthClientId}`);
     }
     const oauthClient = oauthClientOption.value;
 
@@ -222,7 +235,7 @@ const refreshProviderGrantRefArtifact = (input: {
       ref: grant.refreshToken,
       context: input.context,
     });
-    const clientSecretRef = workspaceOauthClientSecretRef(oauthClient);
+    const clientSecretRef = scopeOauthClientSecretRef(oauthClient);
     const clientSecret = clientSecretRef
       ? yield* input.resolveSecretMaterial({
           ref: clientSecretRef,
@@ -277,9 +290,9 @@ const refreshProviderGrantRefArtifact = (input: {
     const nextLease: AuthLease = {
       id: input.lease?.id ?? AuthLeaseIdSchema.make(`auth_lease_${crypto.randomUUID()}`),
       authArtifactId: input.artifact.id,
-      workspaceId: input.artifact.workspaceId,
+      scopeId: input.artifact.scopeId,
       sourceId: input.artifact.sourceId,
-      actorAccountId: input.artifact.actorAccountId,
+      actorScopeId: input.artifact.actorScopeId,
       slot: input.artifact.slot,
       placementsTemplateJson: encodeLeasePlacementTemplatesJson([
         {
@@ -363,9 +376,9 @@ export const upsertOauth2AuthorizedUserLeaseFromTokenResponse = (input: {
     const nextLease: AuthLease = {
       id: existingLease?.id ?? AuthLeaseIdSchema.make(`auth_lease_${crypto.randomUUID()}`),
       authArtifactId: input.artifact.id,
-      workspaceId: input.artifact.workspaceId,
+      scopeId: input.artifact.scopeId,
       sourceId: input.artifact.sourceId,
-      actorAccountId: input.artifact.actorAccountId,
+      actorScopeId: input.artifact.actorScopeId,
       slot: input.artifact.slot,
       placementsTemplateJson: encodeLeasePlacementTemplatesJson([
         {

@@ -10,7 +10,7 @@ export type {
 import {
   ExecutionIdSchema,
   ExecutionEnvelopeSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema as WorkspaceIdSchema,
 } from "@executor/platform-sdk/schema";
 
 import {

@@ -14,6 +14,8 @@ Current rules:
 - `executor-monorepo/no-cross-workspace-relative-imports`
 - `executor-monorepo/no-direct-effect-tag-read`
 - `executor-monorepo/no-effect-run-in-effect-vitest-tests`
+- `executor-monorepo/no-manual-httpapi-openapi-bridge`
+- `executor-monorepo/no-manual-openapi-documents`
 - `executor-monorepo/no-node-fs-with-effect-imports`
 - `executor-monorepo/no-raw-effect-fail-errors`
 - `executor-monorepo/no-yield-effect-fail`

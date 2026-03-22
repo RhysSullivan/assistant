@@ -1,6 +1,10 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 
-import { TimestampMsSchema } from "../common";
+import {
+  TimestampMsSchema,
+} from "../common";
 import {
   SourceCatalogIdSchema,
   SourceCatalogRevisionIdSchema,
@@ -15,7 +19,7 @@ export const SourceCatalogAdapterKeySchema = Schema.String;
 
 export const SourceCatalogVisibilitySchema = Schema.Literal(
   "private",
-  "workspace",
+  "scope",
   "organization",
   "public",
 );

@@ -4,9 +4,13 @@ import {
   createSourceAdapterComposition,
   type SourceAdapter,
 } from "@executor/source-core";
-import { externalSourceAdapters } from "@executor/source-builtins";
+import {
+  externalSourceAdapters,
+} from "@executor/source-builtins";
 
-import { internalSourceAdapter } from "./internal";
+import {
+  internalSourceAdapter,
+} from "./internal";
 
 export type * from "@executor/source-core";
 

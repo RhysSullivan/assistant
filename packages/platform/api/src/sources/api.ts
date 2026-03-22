@@ -5,13 +5,13 @@ import {
   ConnectSourcePayloadSchema,
   ConnectSourceResultSchema,
   CreateSourcePayloadSchema,
-  CreateWorkspaceOauthClientPayloadSchema,
+  CreateScopeOauthClientPayloadSchema as CreateWorkspaceOauthClientPayloadSchema,
   CredentialOauthCompleteUrlParamsSchema,
   CredentialPageUrlParamsSchema,
   CredentialSubmitPayloadSchema,
   DiscoverSourcePayloadSchema,
   UpdateSourcePayloadSchema,
-  WorkspaceOauthClientQuerySchema,
+  ScopeOauthClientQuerySchema as WorkspaceOauthClientQuerySchema,
 } from "@executor/platform-sdk/contracts";
 import {
   ControlPlaneBadRequestError,
@@ -29,9 +29,9 @@ import {
   SourceInspectionSchema,
   SourceInspectionToolDetailSchema,
   SourceSchema,
-  WorkspaceOauthClientIdSchema,
-  WorkspaceOauthClientSchema,
-  WorkspaceIdSchema,
+  ScopeOauthClientIdSchema as WorkspaceOauthClientIdSchema,
+  ScopeOauthClientSchema as WorkspaceOauthClientSchema,
+  ScopeIdSchema as WorkspaceIdSchema,
 } from "@executor/platform-sdk/schema";
 import * as Schema from "effect/Schema";
 
@@ -41,7 +41,7 @@ export type {
   ConnectSourcePayload,
   ConnectSourceResult,
   CreateSourcePayload,
-  CreateWorkspaceOauthClientPayload,
+  CreateScopeOauthClientPayload as CreateWorkspaceOauthClientPayload,
   DiscoverSourcePayload,
   UpdateSourcePayload,
 } from "@executor/platform-sdk/contracts";

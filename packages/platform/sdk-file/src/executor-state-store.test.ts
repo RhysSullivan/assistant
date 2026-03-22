@@ -52,7 +52,7 @@ describe("local-executor-state-store", () => {
           authArtifacts: [],
           authLeases: [],
           sourceOauthClients: [],
-          workspaceOauthClients: [],
+          scopeOauthClients: [],
           providerAuthGrants: [],
           sourceAuthSessions: [],
           secretMaterials: [],

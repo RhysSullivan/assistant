@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 
 import {
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
   type Source,
 } from "@executor/platform-sdk/schema";
 
@@ -52,7 +52,7 @@ const makeContext = (): Effect.Effect<
 
 const makeSource = (): Source => ({
   id: SourceIdSchema.make("src_test"),
-  workspaceId: WorkspaceIdSchema.make("ws_test"),
+  scopeId: ScopeIdSchema.make("ws_test"),
   name: "Test Source",
   kind: "openapi",
   endpoint: "https://example.com/api",

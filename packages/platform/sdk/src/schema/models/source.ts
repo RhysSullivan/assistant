@@ -1,4 +1,6 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 export {
   SourceImportAuthPolicySchema,
   SourceTransportSchema,
@@ -10,16 +12,22 @@ import {
   StringMapSchema,
 } from "@executor/source-core";
 
-import { TimestampMsSchema } from "../common";
+import {
+  TimestampMsSchema,
+} from "../common";
 import {
   ProviderAuthGrantIdSchema,
   SourceIdSchema,
   SourceCatalogIdSchema,
   SourceCatalogRevisionIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
 } from "../ids";
-import { SecretRefSchema } from "./auth-artifact";
-import { JsonObjectSchema } from "./source-auth-session";
+import {
+  SecretRefSchema,
+} from "./auth-artifact";
+import {
+  JsonObjectSchema,
+} from "./source-auth-session";
 
 export const SourceKindSchema = Schema.String;
 
@@ -91,7 +99,7 @@ export const SourceBindingSchema = Schema.Struct({
 });
 
 const SourceStorageRowSchema = Schema.Struct({
-  workspaceId: WorkspaceIdSchema,
+  scopeId: ScopeIdSchema,
   sourceId: SourceIdSchema,
   catalogId: SourceCatalogIdSchema,
   catalogRevisionId: SourceCatalogRevisionIdSchema,
@@ -113,7 +121,7 @@ export const StoredSourceRecordSchema = Schema.transform(
   SourceStorageRowSchema,
   Schema.Struct({
     id: SourceIdSchema,
-    workspaceId: WorkspaceIdSchema,
+    scopeId: ScopeIdSchema,
     catalogId: SourceCatalogIdSchema,
     catalogRevisionId: SourceCatalogRevisionIdSchema,
     name: Schema.String,
@@ -133,7 +141,7 @@ export const StoredSourceRecordSchema = Schema.transform(
     strict: false,
     decode: (row) => ({
       id: row.sourceId,
-      workspaceId: row.workspaceId,
+      scopeId: row.scopeId,
       catalogId: row.catalogId,
       catalogRevisionId: row.catalogRevisionId,
       name: row.name,
@@ -150,7 +158,7 @@ export const StoredSourceRecordSchema = Schema.transform(
       updatedAt: row.updatedAt,
     }),
     encode: (source) => ({
-      workspaceId: source.workspaceId,
+      scopeId: source.scopeId,
       sourceId: source.id,
       catalogId: source.catalogId,
       catalogRevisionId: source.catalogRevisionId,
@@ -172,7 +180,7 @@ export const StoredSourceRecordSchema = Schema.transform(
 
 export const SourceSchema = Schema.Struct({
   id: SourceIdSchema,
-  workspaceId: WorkspaceIdSchema,
+  scopeId: ScopeIdSchema,
   name: Schema.String,
   kind: SourceKindSchema,
   endpoint: Schema.String,

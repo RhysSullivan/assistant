@@ -9,7 +9,9 @@ import {
   type SourceDiscoveryResult,
 } from "@executor/source-core";
 
-import { builtInSourceAdapters } from "../runtime/sources/source-adapters";
+import {
+  builtInSourceAdapters,
+} from "../runtime/sources/source-adapters";
 
 type DiscoverableSourceAdapter = SourceAdapter & {
   detectSource: NonNullable<SourceAdapter["detectSource"]>;

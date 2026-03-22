@@ -16,13 +16,13 @@ import {
   type ExecutorSecretMaterialBackend,
   type ExecutorSourceArtifactBackend,
   type ExecutorSourceTypeDeclarationsBackend,
-  type ExecutorWorkspaceConfigBackend,
-  type ExecutorWorkspaceStateBackend,
+  type ExecutorScopeConfigBackend,
+  type ExecutorScopeStateBackend,
 } from "@executor/platform-sdk";
 import type { ExecutorRuntimeOptions } from "@executor/platform-sdk/runtime";
 import {
   type AuthArtifact,
-  AccountIdSchema,
+  ScopeIdSchema,
   AuthArtifactSchema,
   type AuthLease,
   AuthLeaseSchema,
@@ -43,11 +43,10 @@ import {
   SourceAuthSessionSchema,
   SourceCatalogIdSchema,
   SourceCatalogRevisionIdSchema,
-  WorkspaceIdSchema,
-  type WorkspaceOauthClient,
-  WorkspaceOauthClientSchema,
-  type WorkspaceSourceOauthClient,
-  WorkspaceSourceOauthClientSchema,
+  type ScopeOauthClient,
+  ScopeOauthClientSchema,
+  type ScopedSourceOauthClient,
+  ScopedSourceOauthClientSchema,
   type SecretMaterial,
   type SecretRef,
 } from "@executor/platform-sdk/schema";
@@ -59,24 +58,24 @@ import { contentHash, snapshotFromSourceCatalogSyncResult } from "@executor/sour
 
 export type CreateSqliteExecutorBackendOptions = {
   databasePath?: string;
-  workspaceName?: string;
-  workspaceRoot?: string | null;
-  workspaceId?: string;
-  accountId?: string;
+  scopeName?: string;
+  scopeRoot?: string | null;
+  scopeId?: string;
+  actorScopeId?: string;
 };
 
 type DocumentNamespace =
   | "installation"
-  | "workspace_config"
-  | "workspace_state"
+  | "scope_config"
+  | "scope_state"
   | "source_artifact"
   | "executor_state";
 
 type ExecutorStateCollections = {
   authArtifacts: readonly AuthArtifact[];
   authLeases: readonly AuthLease[];
-  sourceOauthClients: readonly WorkspaceSourceOauthClient[];
-  workspaceOauthClients: readonly WorkspaceOauthClient[];
+  sourceOauthClients: readonly ScopedSourceOauthClient[];
+  scopeOauthClients: readonly ScopeOauthClient[];
   providerAuthGrants: readonly ProviderAuthGrant[];
   sourceAuthSessions: readonly SourceAuthSession[];
   secretMaterials: readonly SecretMaterial[];
@@ -90,10 +89,10 @@ const decodeConfig = Schema.decodeUnknownSync(LocalExecutorConfigSchema);
 const decodeAuthArtifacts = Schema.decodeUnknownSync(Schema.Array(AuthArtifactSchema));
 const decodeAuthLeases = Schema.decodeUnknownSync(Schema.Array(AuthLeaseSchema));
 const decodeSourceOauthClients = Schema.decodeUnknownSync(
-  Schema.Array(WorkspaceSourceOauthClientSchema),
+  Schema.Array(ScopedSourceOauthClientSchema),
 );
-const decodeWorkspaceOauthClients = Schema.decodeUnknownSync(
-  Schema.Array(WorkspaceOauthClientSchema),
+const decodeScopeOauthClients = Schema.decodeUnknownSync(
+  Schema.Array(ScopeOauthClientSchema),
 );
 const decodeProviderAuthGrants = Schema.decodeUnknownSync(
   Schema.Array(ProviderAuthGrantSchema),
@@ -117,10 +116,10 @@ type SourceArtifactBuildInput = Parameters<ExecutorSourceArtifactBackend["build"
 
 const SQLITE_SECRET_PROVIDER_ID = "sqlite";
 
-type WorkspaceState = Parameters<ExecutorWorkspaceStateBackend["write"]>[0];
+type ScopeState = Parameters<ExecutorScopeStateBackend["write"]>[0];
 const defaultProjectConfig = decodeConfig({});
 
-const defaultWorkspaceState = (): WorkspaceState => ({
+const defaultScopeState = (): ScopeState => ({
   version: 1 as const,
   sources: {},
   policies: {},
@@ -258,8 +257,12 @@ const createInstallationStore = (
 ): ExecutorInstallationBackend => {
   const provision = (): LocalInstallation =>
     decodeInstallation({
-      accountId: AccountIdSchema.make(options.accountId ?? "acct_sqlite_example"),
-      workspaceId: WorkspaceIdSchema.make(options.workspaceId ?? "ws_sqlite_example"),
+      actorScopeId: ScopeIdSchema.make(options.actorScopeId ?? "acct_sqlite_example"),
+      scopeId: ScopeIdSchema.make(options.scopeId ?? "ws_sqlite_example"),
+      resolutionScopeIds: [
+        ScopeIdSchema.make(options.scopeId ?? "ws_sqlite_example"),
+        ScopeIdSchema.make(options.actorScopeId ?? "acct_sqlite_example"),
+      ],
     });
 
   return {
@@ -276,13 +279,13 @@ const createInstallationStore = (
   };
 };
 
-const createWorkspaceConfigStore = (
+const createScopeConfigStore = (
   store: SqliteDocumentStore,
-): ExecutorWorkspaceConfigBackend => ({
+): ExecutorScopeConfigBackend => ({
   load: () =>
     effectTry("load workspace config", () => {
       const projectConfig = store.read(
-        "workspace_config",
+        "scope_config",
         "project",
         decodeConfig,
         () => defaultProjectConfig,
@@ -296,22 +299,22 @@ const createWorkspaceConfigStore = (
     }),
   writeProject: (config) =>
     effectTry("write workspace config", () => {
-      store.write("workspace_config", "project", config);
+      store.write("scope_config", "project", config);
     }),
-  resolveRelativePath: ({ path, workspaceRoot }) =>
-    resolvePath(workspaceRoot, path),
+  resolveRelativePath: ({ path, scopeRoot }) =>
+    resolvePath(scopeRoot, path),
 });
 
-const createWorkspaceStateStore = (
+const createScopeStateStore = (
   store: SqliteDocumentStore,
-): ExecutorWorkspaceStateBackend => ({
+): ExecutorScopeStateBackend => ({
   load: () =>
     effectTry("load workspace state", () =>
-      store.read("workspace_state", "active", (value) => value as ReturnType<typeof defaultWorkspaceState>, defaultWorkspaceState),
+      store.read("scope_state", "active", (value) => value as ReturnType<typeof defaultScopeState>, defaultScopeState),
     ),
   write: (state) =>
     effectTry("write workspace state", () => {
-      store.write("workspace_state", "active", state);
+      store.write("scope_state", "active", state);
     }),
 });
 
@@ -351,8 +354,8 @@ const createExecutorStateStore = (
         return store.read("executor_state", key, decodeAuthLeases, () => []) as ExecutorStateCollections[K];
       case "sourceOauthClients":
         return store.read("executor_state", key, decodeSourceOauthClients, () => []) as ExecutorStateCollections[K];
-      case "workspaceOauthClients":
-        return store.read("executor_state", key, decodeWorkspaceOauthClients, () => []) as ExecutorStateCollections[K];
+      case "scopeOauthClients":
+        return store.read("executor_state", key, decodeScopeOauthClients, () => []) as ExecutorStateCollections[K];
       case "providerAuthGrants":
         return store.read("executor_state", key, decodeProviderAuthGrants, () => []) as ExecutorStateCollections[K];
       case "sourceAuthSessions":
@@ -387,23 +390,23 @@ const createExecutorStateStore = (
 
   return {
     authArtifacts: {
-      listByWorkspaceId: (workspaceId) =>
+      listByScopeId: (scopeId) =>
         effectTry("list auth artifacts by workspace", () =>
-          readCollection("authArtifacts").filter((item) => item.workspaceId === workspaceId),
+          readCollection("authArtifacts").filter((item) => item.scopeId === scopeId),
         ),
-      listByWorkspaceAndSourceId: ({ workspaceId, sourceId }) =>
+      listByScopeAndSourceId: ({ scopeId, sourceId }) =>
         effectTry("list auth artifacts by source", () =>
           readCollection("authArtifacts").filter((item) =>
-            item.workspaceId === workspaceId && item.sourceId === sourceId
+            item.scopeId === scopeId && item.sourceId === sourceId
           ),
         ),
-      getByWorkspaceSourceAndActor: ({ workspaceId, sourceId, actorAccountId, slot }) =>
+      getByScopeSourceAndActor: ({ scopeId, sourceId, actorScopeId, slot }) =>
         effectTry("get auth artifact", () =>
           Option.fromNullable(
             readCollection("authArtifacts").find((item) =>
-              item.workspaceId === workspaceId
+              item.scopeId === scopeId
               && item.sourceId === sourceId
-              && sameActor(item.actorAccountId, actorAccountId)
+              && sameActor(item.actorScopeId, actorScopeId)
               && item.slot === slot
             ),
           ),
@@ -412,9 +415,9 @@ const createExecutorStateStore = (
         effectTry("upsert auth artifact", () => {
           updateCollection("authArtifacts", (items) => {
             const index = items.findIndex((item) =>
-              item.workspaceId === artifact.workspaceId
+              item.scopeId === artifact.scopeId
               && item.sourceId === artifact.sourceId
-              && sameActor(item.actorAccountId, artifact.actorAccountId)
+              && sameActor(item.actorScopeId, artifact.actorScopeId)
               && item.slot === artifact.slot
             );
             if (index >= 0) {
@@ -424,25 +427,25 @@ const createExecutorStateStore = (
             }
           });
         }),
-      removeByWorkspaceSourceAndActor: ({ workspaceId, sourceId, actorAccountId, slot }) =>
+      removeByScopeSourceAndActor: ({ scopeId, sourceId, actorScopeId, slot }) =>
         effectTry("remove auth artifact", () =>
           updateCollection("authArtifacts", (items) => {
             const before = items.length;
             const remaining = items.filter((item) => !(
-              item.workspaceId === workspaceId
+              item.scopeId === scopeId
               && item.sourceId === sourceId
-              && sameActor(item.actorAccountId, actorAccountId)
+              && sameActor(item.actorScopeId, actorScopeId)
               && (slot === undefined || item.slot === slot)
             ));
             items.splice(0, items.length, ...remaining);
             return before !== remaining.length;
           }),
         ),
-      removeByWorkspaceAndSourceId: ({ workspaceId, sourceId }) =>
+      removeByScopeAndSourceId: ({ scopeId, sourceId }) =>
         effectTry("remove auth artifacts by source", () =>
           updateCollection("authArtifacts", (items) => {
             const remaining = items.filter((item) =>
-              !(item.workspaceId === workspaceId && item.sourceId === sourceId)
+              !(item.scopeId === scopeId && item.sourceId === sourceId)
             );
             const removed = items.length - remaining.length;
             items.splice(0, items.length, ...remaining);
@@ -481,11 +484,11 @@ const createExecutorStateStore = (
         ),
     },
     sourceOauthClients: {
-      getByWorkspaceSourceAndProvider: ({ workspaceId, sourceId, providerKey }) =>
+      getByScopeSourceAndProvider: ({ scopeId, sourceId, providerKey }) =>
         effectTry("get source oauth client", () =>
           Option.fromNullable(
             readCollection("sourceOauthClients").find((item) =>
-              item.workspaceId === workspaceId
+              item.scopeId === scopeId
               && item.sourceId === sourceId
               && item.providerKey === providerKey
             ),
@@ -495,7 +498,7 @@ const createExecutorStateStore = (
         effectTry("upsert source oauth client", () => {
           updateCollection("sourceOauthClients", (items) => {
             const index = items.findIndex((item) =>
-              item.workspaceId === oauthClient.workspaceId
+              item.scopeId === oauthClient.scopeId
               && item.sourceId === oauthClient.sourceId
               && item.providerKey === oauthClient.providerKey
             );
@@ -506,11 +509,11 @@ const createExecutorStateStore = (
             }
           });
         }),
-      removeByWorkspaceAndSourceId: ({ workspaceId, sourceId }) =>
+      removeByScopeAndSourceId: ({ scopeId, sourceId }) =>
         effectTry("remove source oauth clients", () =>
           updateCollection("sourceOauthClients", (items) => {
             const remaining = items.filter((item) =>
-              !(item.workspaceId === workspaceId && item.sourceId === sourceId)
+              !(item.scopeId === scopeId && item.sourceId === sourceId)
             );
             const removed = items.length - remaining.length;
             items.splice(0, items.length, ...remaining);
@@ -518,22 +521,22 @@ const createExecutorStateStore = (
           }),
         ),
     },
-    workspaceOauthClients: {
-      listByWorkspaceAndProvider: ({ workspaceId, providerKey }) =>
+    scopeOauthClients: {
+      listByScopeAndProvider: ({ scopeId, providerKey }) =>
         effectTry("list workspace oauth clients", () =>
-          readCollection("workspaceOauthClients").filter((item) =>
-            item.workspaceId === workspaceId && item.providerKey === providerKey
+          readCollection("scopeOauthClients").filter((item) =>
+            item.scopeId === scopeId && item.providerKey === providerKey
           ),
         ),
       getById: (id) =>
         effectTry("get workspace oauth client", () =>
           Option.fromNullable(
-            readCollection("workspaceOauthClients").find((item) => item.id === id),
+            readCollection("scopeOauthClients").find((item) => item.id === id),
           ),
         ),
       upsert: (oauthClient) =>
         effectTry("upsert workspace oauth client", () => {
-          updateCollection("workspaceOauthClients", (items) => {
+          updateCollection("scopeOauthClients", (items) => {
             const index = items.findIndex((item) => item.id === oauthClient.id);
             if (index >= 0) {
               items[index] = oauthClient;
@@ -544,7 +547,7 @@ const createExecutorStateStore = (
         }),
       removeById: (id) =>
         effectTry("remove workspace oauth client", () =>
-          updateCollection("workspaceOauthClients", (items) => {
+          updateCollection("scopeOauthClients", (items) => {
             const remaining = items.filter((item) => item.id !== id);
             const removed = remaining.length !== items.length;
             items.splice(0, items.length, ...remaining);
@@ -553,15 +556,15 @@ const createExecutorStateStore = (
         ),
     },
     providerAuthGrants: {
-      listByWorkspaceId: (workspaceId) =>
+      listByScopeId: (scopeId) =>
         effectTry("list provider grants by workspace", () =>
-          readCollection("providerAuthGrants").filter((item) => item.workspaceId === workspaceId),
+          readCollection("providerAuthGrants").filter((item) => item.scopeId === scopeId),
         ),
-      listByWorkspaceActorAndProvider: ({ workspaceId, actorAccountId, providerKey }) =>
+      listByScopeActorAndProvider: ({ scopeId, actorScopeId, providerKey }) =>
         effectTry("list provider grants by actor", () =>
           readCollection("providerAuthGrants").filter((item) =>
-            item.workspaceId === workspaceId
-            && item.actorAccountId === actorAccountId
+            item.scopeId === scopeId
+            && item.actorScopeId === actorScopeId
             && item.providerKey === providerKey
           ),
         ),
@@ -595,9 +598,9 @@ const createExecutorStateStore = (
     sourceAuthSessions: {
       listAll: () =>
         effectTry("list source auth sessions", () => readCollection("sourceAuthSessions")),
-      listByWorkspaceId: (workspaceId) =>
+      listByScopeId: (scopeId) =>
         effectTry("list source auth sessions by workspace", () =>
-          readCollection("sourceAuthSessions").filter((item) => item.workspaceId === workspaceId),
+          readCollection("sourceAuthSessions").filter((item) => item.scopeId === scopeId),
         ),
       getById: (id) =>
         effectTry("get source auth session", () =>
@@ -611,13 +614,13 @@ const createExecutorStateStore = (
             readCollection("sourceAuthSessions").find((item) => item.state === state),
           ),
         ),
-      getPendingByWorkspaceSourceAndActor: ({ workspaceId, sourceId, actorAccountId, credentialSlot }) =>
+      getPendingByScopeSourceAndActor: ({ scopeId, sourceId, actorScopeId, credentialSlot }) =>
         effectTry("get pending source auth session", () =>
           Option.fromNullable(
             readCollection("sourceAuthSessions").find((item) =>
-              item.workspaceId === workspaceId
+              item.scopeId === scopeId
               && item.sourceId === sourceId
-              && item.actorAccountId === actorAccountId
+              && item.actorScopeId === actorScopeId
               && item.status === "pending"
               && (credentialSlot === undefined || item.credentialSlot === credentialSlot)
             ),
@@ -656,11 +659,11 @@ const createExecutorStateStore = (
             }
           });
         }),
-      removeByWorkspaceAndSourceId: (workspaceId, sourceId) =>
+      removeByScopeAndSourceId: (scopeId, sourceId) =>
         effectTry("remove source auth sessions", () =>
           updateCollection("sourceAuthSessions", (items) => {
             const remaining = items.filter((item) =>
-              !(item.workspaceId === workspaceId && item.sourceId === sourceId)
+              !(item.scopeId === scopeId && item.sourceId === sourceId)
             );
             const removed = remaining.length !== items.length;
             items.splice(0, items.length, ...remaining);
@@ -739,11 +742,11 @@ const createExecutorStateStore = (
             readCollection("executions").find((item) => item.id === executionId),
           ),
         ),
-      getByWorkspaceAndId: (workspaceId, executionId) =>
-        effectTry("get execution by workspace and id", () =>
+      getByScopeAndId: (scopeId, executionId) =>
+        effectTry("get execution by scope and id", () =>
           Option.fromNullable(
             readCollection("executions").find((item) =>
-              item.workspaceId === workspaceId && item.id === executionId
+              item.scopeId === scopeId && item.id === executionId
             ),
           ),
         ),
@@ -932,9 +935,9 @@ export const createSqliteExecutorBackend = (
         const secretMaterial = createSecretMaterialBackend(executorState);
 
         return {
-          workspace: {
-            workspaceName: options.workspaceName ?? "SQLite SDK Example",
-            workspaceRoot: options.workspaceRoot ?? null,
+          scope: {
+            scopeName: options.scopeName ?? "SQLite SDK Example",
+            scopeRoot: options.scopeRoot ?? null,
             metadata: {
               kind: "sqlite",
               databasePath,
@@ -942,8 +945,8 @@ export const createSqliteExecutorBackend = (
           },
           storage: {
             installation: createInstallationStore(store, options),
-            workspaceConfig: createWorkspaceConfigStore(store),
-            workspaceState: createWorkspaceStateStore(store),
+            scopeConfig: createScopeConfigStore(store),
+            scopeState: createScopeStateStore(store),
             sourceArtifacts: createSourceArtifactStore(store),
             executorState,
             secretMaterial,

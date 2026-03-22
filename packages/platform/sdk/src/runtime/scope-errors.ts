@@ -1,17 +1,17 @@
 import * as Data from "effect/Data";
 
-export class RuntimeLocalWorkspaceUnavailableError extends Data.TaggedError(
-  "RuntimeLocalWorkspaceUnavailableError",
+export class RuntimeLocalScopeUnavailableError extends Data.TaggedError(
+  "RuntimeLocalScopeUnavailableError",
 )<{
   readonly message: string;
 }> {}
 
-export class RuntimeLocalWorkspaceMismatchError extends Data.TaggedError(
-  "RuntimeLocalWorkspaceMismatchError",
+export class RuntimeLocalScopeMismatchError extends Data.TaggedError(
+  "RuntimeLocalScopeMismatchError",
 )<{
   readonly message: string;
-  readonly requestedWorkspaceId: string;
-  readonly activeWorkspaceId: string;
+  readonly requestedScopeId: string;
+  readonly activeScopeId: string;
 }> {}
 
 export class LocalConfiguredSourceNotFoundError extends Data.TaggedError(

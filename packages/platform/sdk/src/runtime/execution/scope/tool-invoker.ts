@@ -8,46 +8,73 @@ import {
   type ToolMap,
   type ToolInvoker,
 } from "@executor/codemode-core";
-import type { AccountId, Source } from "#schema";
+import type {
+  ScopeId,
+  Source,
+} from "#schema";
 import * as Effect from "effect/Effect";
 
-import { RuntimeSourceAuthMaterialService } from "../../auth/source-auth-material";
-import { RuntimeSourceCatalogStoreService } from "../../catalog/source/runtime";
-import type { RuntimeLocalWorkspaceState } from "../../workspace/runtime-context";
-import { type LocalToolRuntime } from "../../local-tool-runtime";
+import {
+  RuntimeSourceAuthMaterialService,
+} from "../../auth/source-auth-material";
+import {
+  RuntimeSourceCatalogStoreService,
+} from "../../catalog/source/runtime";
+import type {
+  RuntimeLocalScopeState,
+} from "../../scope/runtime-context";
+import {
+  type LocalToolRuntime,
+} from "../../local-tool-runtime";
 import {
   type InstallationStoreShape,
-  makeWorkspaceStorageLayer,
+  makeScopeStorageLayer,
   type SourceArtifactStoreShape,
-  type WorkspaceConfigStoreShape,
-  type WorkspaceStateStoreShape,
-} from "../../workspace/storage";
+  type ScopeConfigStoreShape,
+  type ScopeStateStoreShape,
+} from "../../scope/storage";
 import type {
   DeleteSecretMaterial,
   ResolveInstanceConfig,
   StoreSecretMaterial,
   UpdateSecretMaterial,
-} from "../../workspace/secret-material-providers";
-import type { ExecutorStateStoreShape } from "../../executor-state-store";
-import { RuntimeSourceAuthService } from "../../sources/source-auth-service";
-import { type RuntimeSourceStore } from "../../sources/source-store";
-import { createExecutorToolMap } from "../../sources/executor-tools";
-import { RuntimeSourceCatalogSyncService } from "../../catalog/source/sync";
-import { invokeIrTool } from "../ir-execution";
+} from "../../scope/secret-material-providers";
+import type {
+  ExecutorStateStoreShape,
+} from "../../executor-state-store";
+import {
+  RuntimeSourceAuthService,
+} from "../../sources/source-auth-service";
+import {
+  type RuntimeSourceStore,
+} from "../../sources/source-store";
+import {
+  createExecutorToolMap,
+} from "../../sources/executor-tools";
+import {
+  RuntimeSourceCatalogSyncService,
+} from "../../catalog/source/sync";
+import {
+  invokeIrTool,
+} from "../ir-execution";
 import {
   authorizePersistedToolInvocation,
   toSecretResolutionContext,
 } from "./authorization";
-import { provideRuntimeLocalWorkspace } from "./local";
 import {
-  createWorkspaceSourceCatalog,
+  provideRuntimeLocalScope,
+} from "./local";
+import {
+  createScopeSourceCatalog,
   loadWorkspaceCatalogToolByPath,
 } from "./source-catalog";
-import { runtimeEffectError } from "../../effect-errors";
+import {
+  runtimeEffectError,
+} from "../../effect-errors";
 
-export type WorkspaceInternalToolContext = {
-  workspaceId: Source["workspaceId"];
-  accountId: AccountId;
+export type ScopeInternalToolContext = {
+  scopeId: Source["scopeId"];
+  actorScopeId: ScopeId;
   executorStateStore: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSyncService: Effect.Effect.Success<
@@ -59,19 +86,19 @@ export type WorkspaceInternalToolContext = {
   storeSecretMaterial: StoreSecretMaterial;
   deleteSecretMaterial: DeleteSecretMaterial;
   updateSecretMaterial: UpdateSecretMaterial;
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null;
+  runtimeLocalScope: RuntimeLocalScopeState | null;
 };
 
-export type CreateWorkspaceInternalToolMap = (
-  input: WorkspaceInternalToolContext,
+export type CreateScopeInternalToolMap = (
+  input: ScopeInternalToolContext,
 ) => ToolMap;
 
-export const createWorkspaceToolInvoker = (input: {
-  workspaceId: Source["workspaceId"];
-  accountId: AccountId;
+export const createScopeToolInvoker = (input: {
+  scopeId: Source["scopeId"];
+  actorScopeId: ScopeId;
   executorStateStore: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSyncService: Effect.Effect.Success<
@@ -85,16 +112,16 @@ export const createWorkspaceToolInvoker = (input: {
   storeSecretMaterial: StoreSecretMaterial;
   deleteSecretMaterial: DeleteSecretMaterial;
   updateSecretMaterial: UpdateSecretMaterial;
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
   sourceAuthMaterialService: Effect.Effect.Success<
     typeof RuntimeSourceAuthMaterialService
   >;
   sourceAuthService: RuntimeSourceAuthService;
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null;
+  runtimeLocalScope: RuntimeLocalScopeState | null;
   localToolRuntime: LocalToolRuntime;
-  createInternalToolMap?: CreateWorkspaceInternalToolMap;
+  createInternalToolMap?: CreateScopeInternalToolMap;
   onElicitation?: Parameters<
     typeof makeToolInvokerFromTools
   >[0]["onElicitation"];
@@ -102,28 +129,28 @@ export const createWorkspaceToolInvoker = (input: {
   catalog: ToolCatalog;
   toolInvoker: ToolInvoker;
 } => {
-  const workspaceStorageLayer = makeWorkspaceStorageLayer({
-    workspaceConfigStore: input.workspaceConfigStore,
-    workspaceStateStore: input.workspaceStateStore,
+  const scopeStorageLayer = makeScopeStorageLayer({
+    scopeConfigStore: input.scopeConfigStore,
+    scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
   });
   const provideWorkspaceStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    effect.pipe(Effect.provide(workspaceStorageLayer));
+    effect.pipe(Effect.provide(scopeStorageLayer));
 
   const executorTools = createExecutorToolMap({
-    workspaceId: input.workspaceId,
-    accountId: input.accountId,
+    scopeId: input.scopeId,
+    actorScopeId: input.actorScopeId,
     sourceAuthService: input.sourceAuthService,
     installationStore: input.installationStore,
-    workspaceConfigStore: input.workspaceConfigStore,
-    workspaceStateStore: input.workspaceStateStore,
+    scopeConfigStore: input.scopeConfigStore,
+    scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
-    runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+    runtimeLocalScope: input.runtimeLocalScope,
   });
   const internalTools =
     input.createInternalToolMap?.({
-      workspaceId: input.workspaceId,
-      accountId: input.accountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
       executorStateStore: input.executorStateStore,
       sourceStore: input.sourceStore,
       sourceCatalogSyncService: input.sourceCatalogSyncService,
@@ -133,19 +160,19 @@ export const createWorkspaceToolInvoker = (input: {
       storeSecretMaterial: input.storeSecretMaterial,
       deleteSecretMaterial: input.deleteSecretMaterial,
       updateSecretMaterial: input.updateSecretMaterial,
-      workspaceConfigStore: input.workspaceConfigStore,
-      workspaceStateStore: input.workspaceStateStore,
+      scopeConfigStore: input.scopeConfigStore,
+      scopeStateStore: input.scopeStateStore,
       sourceArtifactStore: input.sourceArtifactStore,
-      runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+      runtimeLocalScope: input.runtimeLocalScope,
     }) ?? {};
-  const sourceCatalog = createWorkspaceSourceCatalog({
-    workspaceId: input.workspaceId,
-    accountId: input.accountId,
+  const sourceCatalog = createScopeSourceCatalog({
+    scopeId: input.scopeId,
+    actorScopeId: input.actorScopeId,
     sourceCatalogStore: input.sourceCatalogStore,
-    workspaceConfigStore: input.workspaceConfigStore,
-    workspaceStateStore: input.workspaceStateStore,
+    scopeConfigStore: input.scopeConfigStore,
+    scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
-    runtimeLocalWorkspace: input.runtimeLocalWorkspace,
+    runtimeLocalScope: input.runtimeLocalScope,
   });
   let catalog: ToolCatalog | null = null;
   const systemTools = createSystemToolMap({
@@ -180,25 +207,25 @@ export const createWorkspaceToolInvoker = (input: {
     args: unknown;
     context?: Record<string, unknown>;
   }) =>
-    provideRuntimeLocalWorkspace(
+    provideRuntimeLocalScope(
       provideWorkspaceStorage(
         Effect.gen(function* () {
           const catalogTool = yield* loadWorkspaceCatalogToolByPath({
-            workspaceId: input.workspaceId,
-            accountId: input.accountId,
+            scopeId: input.scopeId,
+            actorScopeId: input.actorScopeId,
             sourceCatalogStore: input.sourceCatalogStore,
             path: invocation.path,
             includeSchemas: false,
           });
           if (!catalogTool) {
             return yield* runtimeEffectError(
-              "execution/workspace/tool-invoker",
+              "execution/scope/tool-invoker",
               `Unknown tool path: ${invocation.path}`,
             );
           }
 
           yield* authorizePersistedToolInvocation({
-            workspaceId: input.workspaceId,
+            scopeId: input.scopeId,
             tool: catalogTool,
             args: invocation.args,
             context: invocation.context,
@@ -207,12 +234,12 @@ export const createWorkspaceToolInvoker = (input: {
 
           const auth = yield* input.sourceAuthMaterialService.resolve({
             source: catalogTool.source,
-            actorAccountId: input.accountId,
+            actorScopeId: input.actorScopeId,
             context: toSecretResolutionContext(invocation.context),
           });
           return yield* invokeIrTool({
-            workspaceId: input.workspaceId,
-            accountId: input.accountId,
+            scopeId: input.scopeId,
+            actorScopeId: input.actorScopeId,
             tool: catalogTool,
             auth,
             args: invocation.args,
@@ -221,18 +248,18 @@ export const createWorkspaceToolInvoker = (input: {
           });
         }),
       ),
-      input.runtimeLocalWorkspace,
+      input.runtimeLocalScope,
     );
 
   return {
     catalog,
     toolInvoker: {
       invoke: ({ path, args, context }) =>
-        provideRuntimeLocalWorkspace(
+        provideRuntimeLocalScope(
           authoredToolPaths.has(path)
             ? authoredInvoker.invoke({ path, args, context })
             : invokePersistedTool({ path, args, context }),
-          input.runtimeLocalWorkspace,
+          input.runtimeLocalScope,
         ),
     },
   };

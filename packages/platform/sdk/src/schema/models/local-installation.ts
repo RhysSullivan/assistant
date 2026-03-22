@@ -1,13 +1,13 @@
 import * as Schema from "effect/Schema";
 
 import {
-  AccountIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
 } from "../ids";
 
 export const LocalInstallationSchema = Schema.Struct({
-  accountId: AccountIdSchema,
-  workspaceId: WorkspaceIdSchema,
+  scopeId: ScopeIdSchema,
+  actorScopeId: ScopeIdSchema,
+  resolutionScopeIds: Schema.Array(ScopeIdSchema),
 });
 
 export const LocalInstallationInsertSchema = LocalInstallationSchema;

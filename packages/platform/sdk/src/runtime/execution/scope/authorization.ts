@@ -1,15 +1,32 @@
-import { type ToolPath, makeToolInvokerFromTools } from "@executor/codemode-core";
-import type { Source } from "#schema";
+import {
+  type ToolPath,
+  makeToolInvokerFromTools,
+} from "@executor/codemode-core";
+import type {
+  Source,
+} from "#schema";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { LoadedSourceCatalogToolIndexEntry } from "../../catalog/source/runtime";
-import type { SecretMaterialResolveContext } from "../../workspace/secret-material-providers";
-import type { WorkspaceStorageServices } from "../../workspace/storage";
-import { invocationDescriptorFromTool } from "../ir-execution";
-import { evaluateInvocationPolicy } from "../../policy/invocation-policy-engine";
-import { loadRuntimeLocalWorkspacePolicies } from "../../../policies/operations";
+import type {
+  LoadedSourceCatalogToolIndexEntry,
+} from "../../catalog/source/runtime";
+import type {
+  SecretMaterialResolveContext,
+} from "../../scope/secret-material-providers";
+import type {
+  ScopeStorageServices,
+} from "../../scope/storage";
+import {
+  invocationDescriptorFromTool,
+} from "../ir-execution";
+import {
+  evaluateInvocationPolicy,
+} from "../../policy/invocation-policy-engine";
+import {
+  loadRuntimeLocalScopePolicies,
+} from "../../../policies/operations";
 
 const asToolPath = (value: string): ToolPath => value as ToolPath;
 
@@ -64,23 +81,23 @@ export const toSecretResolutionContext = (
 const failAuthorization = (message: string): Effect.Effect<never, Error, never> =>
   Effect.fail(new Error(message));
 
-type WorkspaceToolElicitation = Parameters<
+type ScopeToolElicitation = Parameters<
   typeof makeToolInvokerFromTools
 >[0]["onElicitation"];
 
 export const authorizePersistedToolInvocation = (input: {
-  workspaceId: Source["workspaceId"];
+  scopeId: Source["scopeId"];
   tool: LoadedSourceCatalogToolIndexEntry;
   args: unknown;
   context?: Record<string, unknown>;
-  onElicitation?: WorkspaceToolElicitation;
-}): Effect.Effect<void, Error, WorkspaceStorageServices> =>
+  onElicitation?: ScopeToolElicitation;
+}): Effect.Effect<void, Error, ScopeStorageServices> =>
   Effect.gen(function* () {
     const descriptor = invocationDescriptorFromTool({
       tool: input.tool,
     });
-    const localWorkspacePolicies = yield* loadRuntimeLocalWorkspacePolicies(
-      input.workspaceId,
+    const localScopePolicies = yield* loadRuntimeLocalScopePolicies(
+      input.scopeId,
     ).pipe(
       Effect.mapError((cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
@@ -90,9 +107,9 @@ export const authorizePersistedToolInvocation = (input: {
     const decision = evaluateInvocationPolicy({
       descriptor,
       args: input.args,
-      policies: localWorkspacePolicies.policies,
+      policies: localScopePolicies.policies,
       context: {
-        workspaceId: input.workspaceId,
+        scopeId: input.scopeId,
       },
     });
 

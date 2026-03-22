@@ -35,8 +35,8 @@ const makeEnvelope = (
 ): ExecutionEnvelope => ({
   execution: {
     id: "exec_123" as never,
-    workspaceId: "ws_123" as never,
-    createdByAccountId: "acct_123" as never,
+    scopeId: "ws_123" as never,
+    createdByScopeId: "acct_123" as never,
     status: "waiting_for_interaction",
     code: "return await tools.executor.sources.add({ endpoint: 'https://mcp.axiom.co/mcp' });",
     resultJson: null,

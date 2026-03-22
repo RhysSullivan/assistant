@@ -1,13 +1,22 @@
-import type { AccountId, Source, WorkspaceId } from "#schema";
+import type {
+  ScopeId,
+  Source,
+} from "#schema";
 import * as Effect from "effect/Effect";
 
-import { removeAuthLeaseAndSecrets } from "../../auth/auth-leases";
+import {
+  removeAuthLeaseAndSecrets,
+} from "../../auth/auth-leases";
 import {
   clearProviderGrantOrphanedAt,
   markProviderGrantOrphanedIfUnused,
 } from "../../auth/provider-grant-lifecycle";
-import type { DeleteSecretMaterial } from "../../workspace/secret-material-providers";
-import type { LocalWorkspaceState } from "../../workspace-state";
+import type {
+  DeleteSecretMaterial,
+} from "../../scope/secret-material-providers";
+import type {
+  LocalScopeState,
+} from "../../scope-state";
 import {
   stableSourceCatalogId,
   stableSourceCatalogRevisionId,
@@ -26,37 +35,37 @@ import {
 } from "./config";
 import {
   type RuntimeSourceStoreDeps,
-  resolveRuntimeLocalWorkspaceFromDeps,
+  resolveRuntimeLocalScopeFromDeps,
 } from "./deps";
 import {
   loadSourceByIdWithDeps,
-  shouldRefreshWorkspaceDeclarationsAfterPersist,
-  syncWorkspaceSourceTypeDeclarationsWithDeps,
+  shouldRefreshScopeDeclarationsAfterPersist,
+  syncScopeSourceTypeDeclarationsWithDeps,
 } from "./records";
 
 export const removeSourceByIdWithDeps = (
   deps: RuntimeSourceStoreDeps,
   input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     sourceId: Source["id"];
   },
   deleteSecretMaterial: DeleteSecretMaterial,
 ): Effect.Effect<boolean, Error, never> =>
   Effect.gen(function* () {
-    const localWorkspace = yield* resolveRuntimeLocalWorkspaceFromDeps(
+    const localScope = yield* resolveRuntimeLocalScopeFromDeps(
       deps,
-      input.workspaceId,
+      input.scopeId,
     );
-    if (!localWorkspace.loadedConfig.config?.sources?.[input.sourceId]) {
+    if (!localScope.loadedConfig.config?.sources?.[input.sourceId]) {
       return false;
     }
 
-    const projectConfig = cloneJson(localWorkspace.loadedConfig.projectConfig ?? {});
+    const projectConfig = cloneJson(localScope.loadedConfig.projectConfig ?? {});
     const sources = {
       ...projectConfig.sources,
     };
     delete sources[input.sourceId];
-    yield* localWorkspace.workspaceConfigStore.writeProject({
+    yield* localScope.scopeConfigStore.writeProject({
       config: {
         ...projectConfig,
         sources,
@@ -64,30 +73,30 @@ export const removeSourceByIdWithDeps = (
     });
 
     const { [input.sourceId]: _removedSource, ...remainingSources } =
-      localWorkspace.workspaceState.sources;
-    const workspaceState: LocalWorkspaceState = {
-      ...localWorkspace.workspaceState,
+      localScope.scopeState.sources;
+    const scopeState: LocalScopeState = {
+      ...localScope.scopeState,
       sources: remainingSources,
     };
-    yield* localWorkspace.workspaceStateStore.write({
-      state: workspaceState,
+    yield* localScope.scopeStateStore.write({
+      state: scopeState,
     });
-    yield* localWorkspace.sourceArtifactStore.remove({
+    yield* localScope.sourceArtifactStore.remove({
       sourceId: input.sourceId,
     });
     const existingAuthArtifacts =
-      yield* deps.executorState.authArtifacts.listByWorkspaceAndSourceId({
-        workspaceId: input.workspaceId,
+      yield* deps.executorState.authArtifacts.listByScopeAndSourceId({
+        scopeId: input.scopeId,
         sourceId: input.sourceId,
       });
     const removedGrantIds = providerGrantIdsFromArtifacts(existingAuthArtifacts);
 
-    yield* deps.executorState.sourceAuthSessions.removeByWorkspaceAndSourceId(
-      input.workspaceId,
+    yield* deps.executorState.sourceAuthSessions.removeByScopeAndSourceId(
+      input.scopeId,
       input.sourceId,
     );
-    yield* deps.executorState.sourceOauthClients.removeByWorkspaceAndSourceId({
-      workspaceId: input.workspaceId,
+    yield* deps.executorState.sourceOauthClients.removeByScopeAndSourceId({
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
     });
     yield* removeAuthArtifactsForSource(deps.executorState, input, deleteSecretMaterial);
@@ -95,12 +104,12 @@ export const removeSourceByIdWithDeps = (
       [...removedGrantIds],
       (grantId) =>
         markProviderGrantOrphanedIfUnused(deps.executorState, {
-          workspaceId: input.workspaceId,
+          scopeId: input.scopeId,
           grantId,
         }),
       { discard: true },
     );
-    yield* syncWorkspaceSourceTypeDeclarationsWithDeps(deps, input.workspaceId);
+    yield* syncScopeSourceTypeDeclarationsWithDeps(deps, input.scopeId);
 
     return true;
   });
@@ -109,42 +118,42 @@ export const persistSourceWithDeps = (
   deps: RuntimeSourceStoreDeps,
   source: Source,
   options: {
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
   } = {},
   deleteSecretMaterial: DeleteSecretMaterial,
 ): Effect.Effect<Source, Error, never> =>
   Effect.gen(function* () {
-    const localWorkspace = yield* resolveRuntimeLocalWorkspaceFromDeps(
+    const localScope = yield* resolveRuntimeLocalScopeFromDeps(
       deps,
-      source.workspaceId,
+      source.scopeId,
     );
     const nextSource = {
       ...source,
       id:
-        localWorkspace.loadedConfig.config?.sources?.[source.id] ||
-        localWorkspace.workspaceState.sources[source.id]
+        localScope.loadedConfig.config?.sources?.[source.id] ||
+        localScope.scopeState.sources[source.id]
           ? source.id
           : deriveLocalSourceId(
               source,
-              new Set(Object.keys(localWorkspace.loadedConfig.config?.sources ?? {})),
+              new Set(Object.keys(localScope.loadedConfig.config?.sources ?? {})),
             ),
     } satisfies Source;
     const existingAuthArtifacts =
-      yield* deps.executorState.authArtifacts.listByWorkspaceAndSourceId({
-        workspaceId: nextSource.workspaceId,
+      yield* deps.executorState.authArtifacts.listByScopeAndSourceId({
+        scopeId: nextSource.scopeId,
         sourceId: nextSource.id,
       });
     const existingRuntimeAuthArtifact = selectExactAuthArtifact({
       authArtifacts: existingAuthArtifacts,
-      actorAccountId: options.actorAccountId,
+      actorScopeId: options.actorScopeId,
       slot: "runtime",
     });
     const existingImportAuthArtifact = selectExactAuthArtifact({
       authArtifacts: existingAuthArtifacts,
-      actorAccountId: options.actorAccountId,
+      actorScopeId: options.actorScopeId,
       slot: "import",
     });
-    const projectConfig = cloneJson(localWorkspace.loadedConfig.projectConfig ?? {});
+    const projectConfig = cloneJson(localScope.loadedConfig.projectConfig ?? {});
     const sources = {
       ...projectConfig.sources,
     };
@@ -152,9 +161,9 @@ export const persistSourceWithDeps = (
     sources[nextSource.id] = configSourceFromLocalSource({
       source: nextSource,
       existingConfigAuth: existingConfigSource?.connection.auth,
-      config: localWorkspace.loadedConfig.config,
+      config: localScope.loadedConfig.config,
     });
-    yield* localWorkspace.workspaceConfigStore.writeProject({
+    yield* localScope.scopeConfigStore.writeProject({
       config: {
         ...projectConfig,
         sources,
@@ -165,7 +174,7 @@ export const persistSourceWithDeps = (
       source: nextSource,
       catalogId: stableSourceCatalogId(nextSource),
       catalogRevisionId: stableSourceCatalogRevisionId(nextSource),
-      actorAccountId: options.actorAccountId,
+      actorScopeId: options.actorScopeId,
       existingRuntimeAuthArtifactId: existingRuntimeAuthArtifact?.id ?? null,
       existingImportAuthArtifactId: existingImportAuthArtifact?.id ?? null,
     });
@@ -176,10 +185,10 @@ export const persistSourceWithDeps = (
           authArtifactId: existingRuntimeAuthArtifact.id,
         }, deleteSecretMaterial);
       }
-      yield* deps.executorState.authArtifacts.removeByWorkspaceSourceAndActor({
-        workspaceId: nextSource.workspaceId,
+      yield* deps.executorState.authArtifacts.removeByScopeSourceAndActor({
+        scopeId: nextSource.scopeId,
         sourceId: nextSource.id,
-        actorAccountId: options.actorAccountId ?? null,
+        actorScopeId: options.actorScopeId ?? null,
         slot: "runtime",
       });
     } else {
@@ -205,10 +214,10 @@ export const persistSourceWithDeps = (
           authArtifactId: existingImportAuthArtifact.id,
         }, deleteSecretMaterial);
       }
-      yield* deps.executorState.authArtifacts.removeByWorkspaceSourceAndActor({
-        workspaceId: nextSource.workspaceId,
+      yield* deps.executorState.authArtifacts.removeByScopeSourceAndActor({
+        scopeId: nextSource.scopeId,
         sourceId: nextSource.id,
-        actorAccountId: options.actorAccountId ?? null,
+        actorScopeId: options.actorScopeId ?? null,
         slot: "import",
       });
     } else {
@@ -249,17 +258,17 @@ export const persistSourceWithDeps = (
       [...previousGrantIds].filter((grantId) => !nextGrantIds.has(grantId)),
       (grantId) =>
         markProviderGrantOrphanedIfUnused(deps.executorState, {
-          workspaceId: nextSource.workspaceId,
+          scopeId: nextSource.scopeId,
           grantId,
         }),
       { discard: true },
     );
 
-    const existingSourceState = localWorkspace.workspaceState.sources[nextSource.id];
-    const workspaceState: LocalWorkspaceState = {
-      ...localWorkspace.workspaceState,
+    const existingSourceState = localScope.scopeState.sources[nextSource.id];
+    const scopeState: LocalScopeState = {
+      ...localScope.scopeState,
       sources: {
-        ...localWorkspace.workspaceState.sources,
+        ...localScope.scopeState.sources,
         [nextSource.id]: {
           status: nextSource.status,
           lastError: nextSource.lastError,
@@ -269,27 +278,27 @@ export const persistSourceWithDeps = (
         },
       },
     };
-    yield* localWorkspace.workspaceStateStore.write({
-      state: workspaceState,
+    yield* localScope.scopeStateStore.write({
+      state: scopeState,
     });
 
-    if (shouldRefreshWorkspaceDeclarationsAfterPersist(nextSource)) {
-      yield* syncWorkspaceSourceTypeDeclarationsWithDeps(
+    if (shouldRefreshScopeDeclarationsAfterPersist(nextSource)) {
+      yield* syncScopeSourceTypeDeclarationsWithDeps(
         deps,
-        nextSource.workspaceId,
+        nextSource.scopeId,
         options,
       );
     }
 
     return yield* loadSourceByIdWithDeps(deps, {
-      workspaceId: nextSource.workspaceId,
+      scopeId: nextSource.scopeId,
       sourceId: nextSource.id,
-      actorAccountId: options.actorAccountId,
+      actorScopeId: options.actorScopeId,
     });
   }).pipe(
     Effect.withSpan("source.store.persist", {
       attributes: {
-        "executor.workspace.id": source.workspaceId,
+        "executor.scope.id": source.scopeId,
         "executor.source.id": source.id,
         "executor.source.kind": source.kind,
         "executor.source.status": source.status,

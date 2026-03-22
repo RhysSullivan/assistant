@@ -4,16 +4,26 @@ import type {
   Source,
   SourceId,
 } from "#schema";
-import { SourceIdSchema } from "#schema";
+import {
+  SourceIdSchema,
+} from "#schema";
 
-import type { LoadedLocalExecutorConfig } from "../../workspace-config";
-import { LocalUnsupportedSourceKindError } from "../../workspace-errors";
+import type {
+  LoadedLocalExecutorConfig,
+} from "../../scope-config";
+import {
+  LocalUnsupportedSourceKindError,
+} from "../../scope-errors";
 import {
   fromConfigSecretProviderId,
   toConfigSecretProviderId,
-} from "../../workspace/config-secrets";
-import { getSourceAdapterForSource } from "../source-adapters";
-import { slugify } from "../slug";
+} from "../../scope/config-secrets";
+import {
+  getSourceAdapterForSource,
+} from "../source-adapters";
+import {
+  slugify,
+} from "../slug";
 
 export const trimOrNull = (value: string | null | undefined): string | null => {
   if (value == null) {

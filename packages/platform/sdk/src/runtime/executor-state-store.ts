@@ -10,8 +10,8 @@ import type {
   ProviderAuthGrant,
   SecretMaterial,
   SourceAuthSession,
-  WorkspaceOauthClient,
-  WorkspaceSourceOauthClient,
+  ScopeOauthClient,
+  ScopedSourceOauthClient,
 } from "#schema";
 
 type SecretMaterialSummary = {
@@ -25,28 +25,28 @@ type SecretMaterialSummary = {
 
 export type ExecutorStateStoreShape = {
   authArtifacts: {
-    listByWorkspaceId: (
-      workspaceId: AuthArtifact["workspaceId"],
+    listByScopeId: (
+      scopeId: AuthArtifact["scopeId"],
     ) => Effect.Effect<readonly AuthArtifact[], Error, never>;
-    listByWorkspaceAndSourceId: (input: {
-      workspaceId: AuthArtifact["workspaceId"];
+    listByScopeAndSourceId: (input: {
+      scopeId: AuthArtifact["scopeId"];
       sourceId: AuthArtifact["sourceId"];
     }) => Effect.Effect<readonly AuthArtifact[], Error, never>;
-    getByWorkspaceSourceAndActor: (input: {
-      workspaceId: AuthArtifact["workspaceId"];
+    getByScopeSourceAndActor: (input: {
+      scopeId: AuthArtifact["scopeId"];
       sourceId: AuthArtifact["sourceId"];
-      actorAccountId: AuthArtifact["actorAccountId"];
+      actorScopeId: AuthArtifact["actorScopeId"];
       slot: AuthArtifact["slot"];
     }) => Effect.Effect<import("effect/Option").Option<AuthArtifact>, Error, never>;
     upsert: (artifact: AuthArtifact) => Effect.Effect<void, Error, never>;
-    removeByWorkspaceSourceAndActor: (input: {
-      workspaceId: AuthArtifact["workspaceId"];
+    removeByScopeSourceAndActor: (input: {
+      scopeId: AuthArtifact["scopeId"];
       sourceId: AuthArtifact["sourceId"];
-      actorAccountId: AuthArtifact["actorAccountId"];
+      actorScopeId: AuthArtifact["actorScopeId"];
       slot?: AuthArtifact["slot"];
     }) => Effect.Effect<boolean, Error, never>;
-    removeByWorkspaceAndSourceId: (input: {
-      workspaceId: AuthArtifact["workspaceId"];
+    removeByScopeAndSourceId: (input: {
+      scopeId: AuthArtifact["scopeId"];
       sourceId: AuthArtifact["sourceId"];
     }) => Effect.Effect<number, Error, never>;
   };
@@ -61,41 +61,41 @@ export type ExecutorStateStoreShape = {
     ) => Effect.Effect<boolean, Error, never>;
   };
   sourceOauthClients: {
-    getByWorkspaceSourceAndProvider: (input: {
-      workspaceId: WorkspaceSourceOauthClient["workspaceId"];
-      sourceId: WorkspaceSourceOauthClient["sourceId"];
+    getByScopeSourceAndProvider: (input: {
+      scopeId: ScopedSourceOauthClient["scopeId"];
+      sourceId: ScopedSourceOauthClient["sourceId"];
       providerKey: string;
     }) => Effect.Effect<
-      import("effect/Option").Option<WorkspaceSourceOauthClient>,
+      import("effect/Option").Option<ScopedSourceOauthClient>,
       Error,
       never
     >;
     upsert: (
-      oauthClient: WorkspaceSourceOauthClient,
+      oauthClient: ScopedSourceOauthClient,
     ) => Effect.Effect<void, Error, never>;
-    removeByWorkspaceAndSourceId: (input: {
-      workspaceId: WorkspaceSourceOauthClient["workspaceId"];
-      sourceId: WorkspaceSourceOauthClient["sourceId"];
+    removeByScopeAndSourceId: (input: {
+      scopeId: ScopedSourceOauthClient["scopeId"];
+      sourceId: ScopedSourceOauthClient["sourceId"];
     }) => Effect.Effect<number, Error, never>;
   };
-  workspaceOauthClients: {
-    listByWorkspaceAndProvider: (input: {
-      workspaceId: WorkspaceOauthClient["workspaceId"];
+  scopeOauthClients: {
+    listByScopeAndProvider: (input: {
+      scopeId: ScopeOauthClient["scopeId"];
       providerKey: string;
-    }) => Effect.Effect<readonly WorkspaceOauthClient[], Error, never>;
+    }) => Effect.Effect<readonly ScopeOauthClient[], Error, never>;
     getById: (
-      id: WorkspaceOauthClient["id"],
-    ) => Effect.Effect<import("effect/Option").Option<WorkspaceOauthClient>, Error, never>;
-    upsert: (oauthClient: WorkspaceOauthClient) => Effect.Effect<void, Error, never>;
-    removeById: (id: WorkspaceOauthClient["id"]) => Effect.Effect<boolean, Error, never>;
+      id: ScopeOauthClient["id"],
+    ) => Effect.Effect<import("effect/Option").Option<ScopeOauthClient>, Error, never>;
+    upsert: (oauthClient: ScopeOauthClient) => Effect.Effect<void, Error, never>;
+    removeById: (id: ScopeOauthClient["id"]) => Effect.Effect<boolean, Error, never>;
   };
   providerAuthGrants: {
-    listByWorkspaceId: (
-      workspaceId: ProviderAuthGrant["workspaceId"],
+    listByScopeId: (
+      scopeId: ProviderAuthGrant["scopeId"],
     ) => Effect.Effect<readonly ProviderAuthGrant[], Error, never>;
-    listByWorkspaceActorAndProvider: (input: {
-      workspaceId: ProviderAuthGrant["workspaceId"];
-      actorAccountId: ProviderAuthGrant["actorAccountId"];
+    listByScopeActorAndProvider: (input: {
+      scopeId: ProviderAuthGrant["scopeId"];
+      actorScopeId: ProviderAuthGrant["actorScopeId"];
       providerKey: string;
     }) => Effect.Effect<readonly ProviderAuthGrant[], Error, never>;
     getById: (
@@ -106,8 +106,8 @@ export type ExecutorStateStoreShape = {
   };
   sourceAuthSessions: {
     listAll: () => Effect.Effect<readonly SourceAuthSession[], Error, never>;
-    listByWorkspaceId: (
-      workspaceId: SourceAuthSession["workspaceId"],
+    listByScopeId: (
+      scopeId: SourceAuthSession["scopeId"],
     ) => Effect.Effect<readonly SourceAuthSession[], Error, never>;
     getById: (
       id: SourceAuthSession["id"],
@@ -115,10 +115,10 @@ export type ExecutorStateStoreShape = {
     getByState: (
       state: SourceAuthSession["state"],
     ) => Effect.Effect<import("effect/Option").Option<SourceAuthSession>, Error, never>;
-    getPendingByWorkspaceSourceAndActor: (input: {
-      workspaceId: SourceAuthSession["workspaceId"];
+    getPendingByScopeSourceAndActor: (input: {
+      scopeId: SourceAuthSession["scopeId"];
       sourceId: SourceAuthSession["sourceId"];
-      actorAccountId: SourceAuthSession["actorAccountId"];
+      actorScopeId: SourceAuthSession["actorScopeId"];
       credentialSlot?: SourceAuthSession["credentialSlot"];
     }) => Effect.Effect<
       import("effect/Option").Option<SourceAuthSession>,
@@ -129,12 +129,12 @@ export type ExecutorStateStoreShape = {
     update: (
       id: SourceAuthSession["id"],
       patch: Partial<
-        Omit<SourceAuthSession, "id" | "workspaceId" | "sourceId" | "createdAt">
+        Omit<SourceAuthSession, "id" | "scopeId" | "sourceId" | "createdAt">
       >,
     ) => Effect.Effect<import("effect/Option").Option<SourceAuthSession>, Error, never>;
     upsert: (session: SourceAuthSession) => Effect.Effect<void, Error, never>;
-    removeByWorkspaceAndSourceId: (
-      workspaceId: SourceAuthSession["workspaceId"],
+    removeByScopeAndSourceId: (
+      scopeId: SourceAuthSession["scopeId"],
       sourceId: SourceAuthSession["sourceId"],
     ) => Effect.Effect<boolean, Error, never>;
   };
@@ -158,15 +158,15 @@ export type ExecutorStateStoreShape = {
     getById: (
       executionId: Execution["id"],
     ) => Effect.Effect<import("effect/Option").Option<Execution>, Error, never>;
-    getByWorkspaceAndId: (
-      workspaceId: Execution["workspaceId"],
+    getByScopeAndId: (
+      scopeId: Execution["scopeId"],
       executionId: Execution["id"],
     ) => Effect.Effect<import("effect/Option").Option<Execution>, Error, never>;
     insert: (execution: Execution) => Effect.Effect<void, Error, never>;
     update: (
       executionId: Execution["id"],
       patch: Partial<
-        Omit<Execution, "id" | "workspaceId" | "createdByAccountId" | "createdAt">
+        Omit<Execution, "id" | "scopeId" | "createdByScopeId" | "createdAt">
       >,
     ) => Effect.Effect<import("effect/Option").Option<Execution>, Error, never>;
   };

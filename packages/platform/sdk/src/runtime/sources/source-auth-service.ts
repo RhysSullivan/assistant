@@ -9,7 +9,6 @@ import {
   type SourceAdapterOauth2SetupConfig,
 } from "@executor/source-core";
 import {
-  AccountId,
   type CredentialSlot,
   McpSourceAuthSessionDataJsonSchema,
   type McpSourceAuthSessionData,
@@ -30,12 +29,12 @@ import {
   SourceSchema,
   type SecretRef,
   type StringMap,
-  WorkspaceOauthClientIdSchema,
-  WorkspaceSourceOauthClientIdSchema,
-  WorkspaceSourceOauthClientMetadataJsonSchema,
-  type WorkspaceOauthClient,
-  type WorkspaceSourceOauthClientRedirectMode,
-  type WorkspaceId,
+  ScopeOauthClientIdSchema,
+  ScopedSourceOauthClientIdSchema,
+  ScopedSourceOauthClientMetadataJsonSchema,
+  type ScopeOauthClient,
+  type ScopedSourceOauthClientRedirectMode,
+  type ScopeId,
 } from "#schema";
 import * as Context from "effect/Context";
 import * as Either from "effect/Either";
@@ -51,15 +50,17 @@ import {
   type LiveExecutionManager,
 } from "../execution/live";
 import {
-  getRuntimeLocalWorkspaceOption,
-  provideOptionalRuntimeLocalWorkspace,
-  type RuntimeLocalWorkspaceState,
-} from "../workspace/runtime-context";
+  getRuntimeLocalScopeOption,
+  provideOptionalRuntimeLocalScope,
+  type RuntimeLocalScopeState,
+} from "../scope/runtime-context";
 import {
   exchangeMcpOAuthAuthorizationCode,
   startMcpOAuthAuthorization,
 } from "../auth/mcp-oauth";
-import { createPersistedMcpOAuthSourceAuth } from "../auth/mcp-auth-provider";
+import {
+  createPersistedMcpOAuthSourceAuth,
+} from "../auth/mcp-auth-provider";
 import {
   createSourceFromPayload,
   updateSourceFromPayload,
@@ -79,7 +80,7 @@ import {
   SecretMaterialResolverService,
   SecretMaterialStorerService,
   type StoreSecretMaterial,
-} from "../workspace/secret-material-providers";
+} from "../scope/secret-material-providers";
 import {
   removeAuthLeaseAndSecrets,
   upsertOauth2AuthorizedUserLeaseFromTokenResponse,
@@ -97,14 +98,23 @@ import {
   createPkceCodeVerifier,
   exchangeOAuth2AuthorizationCode,
 } from "../auth/oauth2-pkce";
-import { startOauthLoopbackRedirectServer } from "../auth/oauth-loopback";
+import {
+  startOauthLoopbackRedirectServer,
+} from "../auth/oauth-loopback";
 import {
   type RuntimeSourceStore,
   RuntimeSourceStoreService,
 } from "./source-store";
-import type { WorkspaceStorageServices } from "../workspace/storage";
-import { ExecutorStateStore, type ExecutorStateStoreShape } from "../executor-state-store";
-import { runtimeEffectError } from "../effect-errors";
+import type {
+  ScopeStorageServices,
+} from "../scope/storage";
+import {
+  ExecutorStateStore,
+  type ExecutorStateStoreShape,
+} from "../executor-state-store";
+import {
+  runtimeEffectError,
+} from "../effect-errors";
 
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value === null || value === undefined) {
@@ -199,11 +209,11 @@ const normalizeMcpEndpoint = (input: {
 
 const resolveSourceCredentialOauthCompleteUrl = (input: {
   baseUrl: string;
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
 }): string =>
   new URL(
-    `/v1/workspaces/${encodeURIComponent(input.workspaceId)}/sources/${encodeURIComponent(input.sourceId)}/credentials/oauth/complete`,
+    `/v1/workspaces/${encodeURIComponent(input.scopeId)}/sources/${encodeURIComponent(input.sourceId)}/credentials/oauth/complete`,
     input.baseUrl,
   ).toString();
 
@@ -217,10 +227,10 @@ const resolveSourceOAuthCallbackUrl = (input: {
 
 const resolveWorkspaceProviderOauthCompleteUrl = (input: {
   baseUrl: string;
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
 }): string =>
   new URL(
-    `/v1/workspaces/${encodeURIComponent(input.workspaceId)}/oauth/provider/callback`,
+    `/v1/workspaces/${encodeURIComponent(input.scopeId)}/oauth/provider/callback`,
     input.baseUrl,
   ).toString();
 
@@ -491,7 +501,7 @@ const serializeJson = (value: unknown): string | null => {
 };
 
 const updateSourceStatus = Effect.fn("source.status.update")((sourceStore: RuntimeSourceStore, source: Source, input: {
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   status: Source["status"];
   lastError?: string | null;
   auth?: Source["auth"];
@@ -499,9 +509,9 @@ const updateSourceStatus = Effect.fn("source.status.update")((sourceStore: Runti
 }) =>
   Effect.gen(function* () {
     const latest = yield* sourceStore.loadSourceById({
-      workspaceId: source.workspaceId,
+      scopeId: source.scopeId,
       sourceId: source.id,
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
     });
 
     return yield* sourceStore.persistSource({
@@ -512,7 +522,7 @@ const updateSourceStatus = Effect.fn("source.status.update")((sourceStore: Runti
       importAuth: input.importAuth ?? latest.importAuth,
       updatedAt: Date.now(),
     }, {
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
     });
   }).pipe(
     Effect.withSpan("source.status.update", {
@@ -564,8 +574,8 @@ export type ExecutorHttpSourceAuthInput =
 export type ExecutorAddSourceInput =
   | {
       kind?: "mcp";
-      workspaceId: WorkspaceId;
-      actorAccountId?: AccountId | null;
+      scopeId: ScopeId;
+      actorScopeId?: ScopeId | null;
       executionId: SourceAuthSession["executionId"];
       interactionId: SourceAuthSession["interactionId"];
       endpoint?: string | null;
@@ -581,8 +591,8 @@ export type ExecutorAddSourceInput =
     }
   | {
       kind: "openapi";
-      workspaceId: WorkspaceId;
-      actorAccountId?: AccountId | null;
+      scopeId: ScopeId;
+      actorScopeId?: ScopeId | null;
       executionId: SourceAuthSession["executionId"];
       interactionId: SourceAuthSession["interactionId"];
       endpoint: string;
@@ -595,8 +605,8 @@ export type ExecutorAddSourceInput =
     }
   | {
       kind: "graphql";
-      workspaceId: WorkspaceId;
-      actorAccountId?: AccountId | null;
+      scopeId: ScopeId;
+      actorScopeId?: ScopeId | null;
       executionId: SourceAuthSession["executionId"];
       interactionId: SourceAuthSession["interactionId"];
       endpoint: string;
@@ -608,15 +618,15 @@ export type ExecutorAddSourceInput =
     }
   | {
       kind: "google_discovery";
-      workspaceId: WorkspaceId;
-      actorAccountId?: AccountId | null;
+      scopeId: ScopeId;
+      actorScopeId?: ScopeId | null;
       executionId: SourceAuthSession["executionId"];
       interactionId: SourceAuthSession["interactionId"];
       service: string;
       version: string;
       discoveryUrl?: string | null;
       scopes?: ReadonlyArray<string> | null;
-      workspaceOauthClientId?: WorkspaceOauthClient["id"] | null;
+      scopeOauthClientId?: ScopeOauthClient["id"] | null;
       oauthClient?: SourceOauthClientInput | null;
       name?: string | null;
       namespace?: string | null;
@@ -641,8 +651,8 @@ export type ExecutorMcpSourceInput = Exclude<
 >;
 
 export type ConnectMcpSourceInput = {
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   sourceId?: Source["id"] | null;
   endpoint?: string | null;
   name?: string | null;
@@ -659,11 +669,11 @@ export type ConnectMcpSourceInput = {
 };
 
 export type ConnectGoogleDiscoveryBatchInput = {
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   executionId: SourceAuthSession["executionId"];
   interactionId: SourceAuthSession["interactionId"];
-  workspaceOauthClientId: WorkspaceOauthClient["id"];
+  scopeOauthClientId: ScopeOauthClient["id"];
   sources: ReadonlyArray<{
     service: string;
     version: string;
@@ -687,8 +697,8 @@ export type ConnectGoogleDiscoveryBatchResult = {
   } | null;
 };
 
-export type CreateWorkspaceOauthClientInput = {
-  workspaceId: WorkspaceId;
+export type CreateScopeOauthClientInput = {
+  scopeId: ScopeId;
   providerKey: string;
   label?: string | null;
   oauthClient: SourceOauthClientInput;
@@ -707,8 +717,8 @@ export type SourceOAuthProviderInput = {
 };
 
 export type StartSourceOAuthSessionInput = {
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   provider: SourceOAuthProviderInput;
   baseUrl?: string | null;
   displayName?: string | null;
@@ -928,11 +938,11 @@ type ResolvedSourceOauthClient = {
   providerKey: string;
   clientId: string;
   clientSecret: SecretRef | null;
-  redirectMode: WorkspaceSourceOauthClientRedirectMode;
+  redirectMode: ScopedSourceOauthClientRedirectMode;
 };
 
-type ResolvedWorkspaceOauthClient = ResolvedSourceOauthClient & {
-  id: WorkspaceOauthClient["id"];
+type ResolvedScopeOauthClient = ResolvedSourceOauthClient & {
+  id: ScopeOauthClient["id"];
   label: string | null;
 };
 
@@ -954,22 +964,22 @@ type RuntimeProviderAuthResult =
       authorizationUrl: string;
     };
 
-const decodeWorkspaceSourceOauthClientMetadataOption = Schema.decodeUnknownOption(
-  WorkspaceSourceOauthClientMetadataJsonSchema,
+const decodeScopedSourceOauthClientMetadataOption = Schema.decodeUnknownOption(
+  ScopedSourceOauthClientMetadataJsonSchema,
 );
 
-const encodeWorkspaceSourceOauthClientMetadataJson = Schema.encodeSync(
-  WorkspaceSourceOauthClientMetadataJsonSchema,
+const encodeScopedSourceOauthClientMetadataJson = Schema.encodeSync(
+  ScopedSourceOauthClientMetadataJsonSchema,
 );
 
 const sourceOauthClientRedirectMode = (client: {
   clientMetadataJson: string | null;
-}): WorkspaceSourceOauthClientRedirectMode => {
+}): ScopedSourceOauthClientRedirectMode => {
   if (client.clientMetadataJson === null) {
     return "app_callback";
   }
 
-  const decoded = decodeWorkspaceSourceOauthClientMetadataOption(
+  const decoded = decodeScopedSourceOauthClientMetadataOption(
     client.clientMetadataJson,
   );
   if (Option.isNone(decoded)) {
@@ -1009,8 +1019,8 @@ const upsertSourceOauthClient = (input: {
       return yield* runtimeEffectError("sources/source-auth-service", `Source ${input.source.id} does not support OAuth client configuration`);
     }
 
-    const existing = yield* input.executorState.sourceOauthClients.getByWorkspaceSourceAndProvider({
-      workspaceId: input.source.workspaceId,
+    const existing = yield* input.executorState.sourceOauthClients.getByScopeSourceAndProvider({
+      scopeId: input.source.scopeId,
       sourceId: input.source.id,
       providerKey: setupConfig.providerKey,
     });
@@ -1029,18 +1039,18 @@ const upsertSourceOauthClient = (input: {
     const now = Date.now();
     const clientId = Option.isSome(existing)
       ? existing.value.id
-      : WorkspaceSourceOauthClientIdSchema.make(
+      : ScopedSourceOauthClientIdSchema.make(
           `src_oauth_client_${crypto.randomUUID()}`,
         );
     yield* input.executorState.sourceOauthClients.upsert({
       id: clientId,
-      workspaceId: input.source.workspaceId,
+      scopeId: input.source.scopeId,
       sourceId: input.source.id,
       providerKey: setupConfig.providerKey,
       clientId: normalizedOauthClient.clientId,
       clientSecretProviderId: clientSecretRef?.providerId ?? null,
       clientSecretHandle: clientSecretRef?.handle ?? null,
-      clientMetadataJson: encodeWorkspaceSourceOauthClientMetadataJson({
+      clientMetadataJson: encodeScopedSourceOauthClientMetadataJson({
         redirectMode: normalizedOauthClient.redirectMode ?? "app_callback",
       }),
       createdAt: Option.isSome(existing) ? existing.value.createdAt : now,
@@ -1084,8 +1094,8 @@ const resolveExistingSourceOauthClient = (input: {
       return null;
     }
 
-    const existing = yield* input.executorState.sourceOauthClients.getByWorkspaceSourceAndProvider({
-      workspaceId: input.source.workspaceId,
+    const existing = yield* input.executorState.sourceOauthClients.getByScopeSourceAndProvider({
+      scopeId: input.source.scopeId,
       sourceId: input.source.id,
       providerKey: setupConfig.providerKey,
     });
@@ -1101,9 +1111,9 @@ const resolveExistingSourceOauthClient = (input: {
     };
   });
 
-const createWorkspaceOauthClient = (input: {
+const createScopeOauthClient = (input: {
   executorState: ExecutorStateStoreShape;
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   providerKey: string;
   oauthClient: SourceOauthClientInput;
   label?: string | null;
@@ -1111,7 +1121,7 @@ const createWorkspaceOauthClient = (input: {
     input: SourceOauthClientInput,
   ) => Effect.Effect<SourceOauthClientInput, Error, never>;
   storeSecretMaterial: StoreSecretMaterial;
-}): Effect.Effect<ResolvedWorkspaceOauthClient, Error, never> =>
+}): Effect.Effect<ResolvedScopeOauthClient, Error, never> =>
   Effect.gen(function* () {
     const normalizedOauthClient = input.normalizeOauthClient
       ? yield* input.normalizeOauthClient(input.oauthClient)
@@ -1123,19 +1133,19 @@ const createWorkspaceOauthClient = (input: {
         })
       : null;
     const now = Date.now();
-    const id = WorkspaceOauthClientIdSchema.make(
+    const id = ScopeOauthClientIdSchema.make(
       `ws_oauth_client_${crypto.randomUUID()}`,
     );
 
-    yield* input.executorState.workspaceOauthClients.upsert({
+    yield* input.executorState.scopeOauthClients.upsert({
       id,
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       providerKey: input.providerKey,
       label: trimOrNull(input.label) ?? null,
       clientId: normalizedOauthClient.clientId,
       clientSecretProviderId: clientSecretRef?.providerId ?? null,
       clientSecretHandle: clientSecretRef?.handle ?? null,
-      clientMetadataJson: encodeWorkspaceSourceOauthClientMetadataJson({
+      clientMetadataJson: encodeScopedSourceOauthClientMetadataJson({
         redirectMode: normalizedOauthClient.redirectMode ?? "app_callback",
       }),
       createdAt: now,
@@ -1152,23 +1162,28 @@ const createWorkspaceOauthClient = (input: {
     };
   });
 
-const resolveWorkspaceOauthClientById = (input: {
+const resolveScopeOauthClientById = (input: {
   executorState: ExecutorStateStoreShape;
-  workspaceId: WorkspaceId;
-  oauthClientId: WorkspaceOauthClient["id"];
+  scopeId: ScopeId;
+  oauthClientId: ScopeOauthClient["id"];
   providerKey: string;
-}): Effect.Effect<ResolvedWorkspaceOauthClient | null, Error, never> =>
+  localScopeState?: RuntimeLocalScopeState;
+}): Effect.Effect<ResolvedScopeOauthClient | null, Error, never> =>
   Effect.gen(function* () {
-    const existing = yield* input.executorState.workspaceOauthClients.getById(input.oauthClientId);
+    const existing = yield* input.executorState.scopeOauthClients.getById(input.oauthClientId);
     if (Option.isNone(existing)) {
       return null;
     }
 
+    const allowedScopeIds = resolvedScopeSearchOrder({
+      scopeId: input.scopeId,
+      localScopeState: input.localScopeState,
+    });
     if (
-      existing.value.workspaceId !== input.workspaceId
+      !allowedScopeIds.includes(existing.value.scopeId)
       || existing.value.providerKey !== input.providerKey
     ) {
-      return yield* runtimeEffectError("sources/source-auth-service", `Workspace OAuth client ${input.oauthClientId} is not valid for ${input.providerKey}`);
+      return yield* runtimeEffectError("sources/source-auth-service", `Scope OAuth client ${input.oauthClientId} is not valid for ${input.providerKey}`);
     }
 
     return {
@@ -1191,6 +1206,25 @@ const providerGrantCoversScopes = (
 
 const normalizeScopes = (scopes: ReadonlyArray<string>): ReadonlyArray<string> =>
   [...new Set(scopes.map((scope) => scope.trim()).filter((scope) => scope.length > 0))];
+
+const resolvedScopeSearchOrder = (input: {
+  scopeId: ScopeId;
+  localScopeState?: RuntimeLocalScopeState;
+}): ReadonlyArray<ScopeId> => {
+  const localScopeState = input.localScopeState;
+  if (!localScopeState) {
+    return [input.scopeId];
+  }
+
+  if (localScopeState.installation.scopeId !== input.scopeId) {
+    return [input.scopeId];
+  }
+
+  return [...new Set([
+    input.scopeId,
+    ...localScopeState.installation.resolutionScopeIds,
+  ])];
+};
 
 const authorizationParamsMatch = (
   left: SourceAdapterOauth2SetupConfig["authorizationParams"],
@@ -1272,34 +1306,44 @@ const mergeRuntimeProviderAuthSetupConfig = (
 
 const findReusableProviderGrant = (input: {
   executorState: ExecutorStateStoreShape;
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   providerKey: string;
-  oauthClientId: WorkspaceOauthClient["id"];
+  oauthClientId: ScopeOauthClient["id"];
   requiredScopes: ReadonlyArray<string>;
+  localScopeState?: RuntimeLocalScopeState;
 }): Effect.Effect<import("effect/Option").Option<import("#schema").ProviderAuthGrant>, Error, never> =>
-  Effect.map(
-    input.executorState.providerAuthGrants.listByWorkspaceActorAndProvider({
-      workspaceId: input.workspaceId,
-      actorAccountId: input.actorAccountId ?? null,
-      providerKey: input.providerKey,
-    }),
-    (grants) =>
-      Option.fromNullable(
-        grants.find(
-          (grant) =>
-            grant.oauthClientId === input.oauthClientId
-            && providerGrantCoversScopes(grant.grantedScopes, input.requiredScopes),
-        ),
-      ),
-  );
+  Effect.gen(function* () {
+    const scopeIds = resolvedScopeSearchOrder({
+      scopeId: input.scopeId,
+      localScopeState: input.localScopeState,
+    });
+
+    for (const candidateScopeId of scopeIds) {
+      const grants = yield* input.executorState.providerAuthGrants.listByScopeActorAndProvider({
+        scopeId: candidateScopeId,
+        actorScopeId: input.actorScopeId ?? null,
+        providerKey: input.providerKey,
+      });
+      const matchingGrant = grants.find(
+        (grant) =>
+          grant.oauthClientId === input.oauthClientId
+          && providerGrantCoversScopes(grant.grantedScopes, input.requiredScopes),
+      );
+      if (matchingGrant) {
+        return Option.some(matchingGrant);
+      }
+    }
+
+    return Option.none();
+  });
 
 const upsertProviderAuthGrant = (input: {
   executorState: ExecutorStateStoreShape;
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   providerKey: string;
-  oauthClientId: WorkspaceOauthClient["id"];
+  oauthClientId: ScopeOauthClient["id"];
   tokenEndpoint: string;
   clientAuthentication: "none" | "client_secret_post";
   headerName: string;
@@ -1328,8 +1372,8 @@ const upsertProviderAuthGrant = (input: {
     const now = Date.now();
     const nextGrant = {
       id: existingGrant?.id ?? ProviderAuthGrantIdSchema.make(`provider_grant_${crypto.randomUUID()}`),
-      workspaceId: input.workspaceId,
-      actorAccountId: input.actorAccountId ?? null,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId ?? null,
       providerKey: input.providerKey,
       oauthClientId: input.oauthClientId,
       tokenEndpoint: input.tokenEndpoint,
@@ -1369,16 +1413,16 @@ const startOauth2PkceSourceCredentialSetup = (input: {
   executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   source: Source;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   executionId?: SourceAuthSession["executionId"];
   interactionId?: SourceAuthSession["interactionId"];
   baseUrl: string;
-  redirectModeOverride?: WorkspaceSourceOauthClientRedirectMode;
+  redirectModeOverride?: ScopedSourceOauthClientRedirectMode;
   storeSecretMaterial: StoreSecretMaterial;
 }): Effect.Effect<
   Extract<ExecutorSourceAddResult, { kind: "oauth_required" }> | null,
   Error,
-  WorkspaceStorageServices
+  ScopeStorageServices
 > =>
   Effect.gen(function* () {
     const adapter = getSourceAdapterForSource(input.source);
@@ -1404,7 +1448,7 @@ const startOauth2PkceSourceCredentialSetup = (input: {
     const state = crypto.randomUUID();
     const completionUrl = resolveSourceCredentialOauthCompleteUrl({
       baseUrl: input.baseUrl,
-      workspaceId: input.source.workspaceId,
+      scopeId: input.source.scopeId,
       sourceId: input.source.id,
     });
     const redirectMode = input.redirectModeOverride ?? oauthClient.redirectMode;
@@ -1429,9 +1473,9 @@ const startOauth2PkceSourceCredentialSetup = (input: {
 
       yield* input.executorState.sourceAuthSessions.upsert({
         id: sessionId,
-        workspaceId: input.source.workspaceId,
+        scopeId: input.source.scopeId,
         sourceId: input.source.id,
-        actorAccountId: input.actorAccountId ?? null,
+        actorScopeId: input.actorScopeId ?? null,
         credentialSlot: "runtime",
         executionId: input.executionId ?? null,
         interactionId: input.interactionId ?? null,
@@ -1463,7 +1507,7 @@ const startOauth2PkceSourceCredentialSetup = (input: {
       });
 
       const authRequiredSource = yield* updateSourceStatus(input.sourceStore, input.source, {
-        actorAccountId: input.actorAccountId,
+        actorScopeId: input.actorScopeId,
         status: "auth_required",
         lastError: null,
       });
@@ -1486,13 +1530,13 @@ const startOauth2PkceSourceCredentialSetup = (input: {
 const startProviderOauthBatchCredentialSetup = (input: {
   executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   executionId?: SourceAuthSession["executionId"];
   interactionId?: SourceAuthSession["interactionId"];
   baseUrl: string;
-  redirectModeOverride?: WorkspaceSourceOauthClientRedirectMode;
-  workspaceOauthClient: ResolvedWorkspaceOauthClient;
+  redirectModeOverride?: ScopedSourceOauthClientRedirectMode;
+  scopeOauthClient: ResolvedScopeOauthClient;
   setupConfig: SourceAdapterOauth2SetupConfig;
   targetSources: ReadonlyArray<{
     source: Source;
@@ -1502,7 +1546,7 @@ const startProviderOauthBatchCredentialSetup = (input: {
   sessionId: SourceAuthSession["id"];
   authorizationUrl: string;
   source: Source;
-}, Error, WorkspaceStorageServices> =>
+}, Error, ScopeStorageServices> =>
   Effect.gen(function* () {
     if (input.targetSources.length === 0) {
       return yield* runtimeEffectError("sources/source-auth-service", "Provider OAuth setup requires at least one target source");
@@ -1512,9 +1556,9 @@ const startProviderOauthBatchCredentialSetup = (input: {
     const state = crypto.randomUUID();
     const completionUrl = resolveWorkspaceProviderOauthCompleteUrl({
       baseUrl: input.baseUrl,
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
     });
-    const redirectMode = input.redirectModeOverride ?? input.workspaceOauthClient.redirectMode;
+    const redirectMode = input.redirectModeOverride ?? input.scopeOauthClient.redirectMode;
     const redirectServer = redirectMode === "loopback"
       ? yield* startOauthLoopbackRedirectServer({
           completionUrl,
@@ -1526,7 +1570,7 @@ const startProviderOauthBatchCredentialSetup = (input: {
     return yield* Effect.gen(function* () {
       const authorizationUrl = buildOAuth2AuthorizationUrl({
         authorizationEndpoint: input.setupConfig.authorizationEndpoint,
-        clientId: input.workspaceOauthClient.clientId,
+        clientId: input.scopeOauthClient.clientId,
         redirectUri,
         scopes: [...normalizeScopes(input.setupConfig.scopes)],
         state,
@@ -1537,9 +1581,9 @@ const startProviderOauthBatchCredentialSetup = (input: {
 
       yield* input.executorState.sourceAuthSessions.upsert({
         id: sessionId,
-        workspaceId: input.workspaceId,
+        scopeId: input.scopeId,
         sourceId: SourceIdSchema.make(`oauth_provider_${crypto.randomUUID()}`),
-        actorAccountId: input.actorAccountId ?? null,
+        actorScopeId: input.actorScopeId ?? null,
         credentialSlot: "runtime",
         executionId: input.executionId ?? null,
         interactionId: input.interactionId ?? null,
@@ -1552,7 +1596,7 @@ const startProviderOauthBatchCredentialSetup = (input: {
           authorizationEndpoint: input.setupConfig.authorizationEndpoint,
           tokenEndpoint: input.setupConfig.tokenEndpoint,
           redirectUri,
-          oauthClientId: input.workspaceOauthClient.id,
+          oauthClientId: input.scopeOauthClient.id,
           clientAuthentication: input.setupConfig.clientAuthentication,
           scopes: [...normalizeScopes(input.setupConfig.scopes)],
           headerName: input.setupConfig.headerName,
@@ -1577,7 +1621,7 @@ const startProviderOauthBatchCredentialSetup = (input: {
         input.sourceStore,
         input.targetSources[0]!.source,
         {
-          actorAccountId: input.actorAccountId,
+          actorScopeId: input.actorScopeId,
           status: "auth_required",
           lastError: null,
         },
@@ -1587,7 +1631,7 @@ const startProviderOauthBatchCredentialSetup = (input: {
         input.targetSources.slice(1),
         (target) =>
           updateSourceStatus(input.sourceStore, target.source, {
-            actorAccountId: input.actorAccountId,
+            actorScopeId: input.actorScopeId,
             status: "auth_required",
             lastError: null,
           }).pipe(Effect.asVoid),
@@ -1612,31 +1656,33 @@ const connectSourcesWithProviderRuntimeAuth = (input: {
   executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   executionId?: SourceAuthSession["executionId"];
   interactionId?: SourceAuthSession["interactionId"];
   baseUrl?: string | null;
   getLocalServerBaseUrl?: () => string | undefined;
-  workspaceOauthClient: ResolvedWorkspaceOauthClient;
+  scopeOauthClient: ResolvedScopeOauthClient;
   targets: ReadonlyArray<RuntimeProviderAuthTarget>;
-}): Effect.Effect<RuntimeProviderAuthResult, Error, WorkspaceStorageServices> =>
+  localScopeState?: RuntimeLocalScopeState;
+}): Effect.Effect<RuntimeProviderAuthResult, Error, ScopeStorageServices> =>
   Effect.gen(function* () {
     const setupConfig = yield* mergeRuntimeProviderAuthSetupConfig(input.targets);
     const reusableGrant = yield* findReusableProviderGrant({
       executorState: input.executorState,
-      workspaceId: input.workspaceId,
-      actorAccountId: input.actorAccountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
       providerKey: setupConfig.providerKey,
-      oauthClientId: input.workspaceOauthClient.id,
+      oauthClientId: input.scopeOauthClient.id,
       requiredScopes: setupConfig.scopes,
+      localScopeState: input.localScopeState,
     });
 
     if (Option.isSome(reusableGrant)) {
       const connectedSources = yield* attachProviderGrantToSources({
         sourceStore: input.sourceStore,
         sourceCatalogSync: input.sourceCatalogSync,
-        actorAccountId: input.actorAccountId,
+        actorScopeId: input.actorScopeId,
         grantId: reusableGrant.value.id,
         providerKey: reusableGrant.value.providerKey,
         headerName: reusableGrant.value.headerName,
@@ -1665,13 +1711,13 @@ const connectSourcesWithProviderRuntimeAuth = (input: {
     const oauthRequired = yield* startProviderOauthBatchCredentialSetup({
       executorState: input.executorState,
       sourceStore: input.sourceStore,
-      workspaceId: input.workspaceId,
-      actorAccountId: input.actorAccountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
       executionId: input.executionId,
       interactionId: input.interactionId,
       baseUrl,
       redirectModeOverride: requestBaseUrl ? "app_callback" : undefined,
-      workspaceOauthClient: input.workspaceOauthClient,
+      scopeOauthClient: input.scopeOauthClient,
       setupConfig,
       targetSources: input.targets.map((target) => ({
         source: target.source,
@@ -1683,9 +1729,9 @@ const connectSourcesWithProviderRuntimeAuth = (input: {
       input.targets,
       (target) =>
         input.sourceStore.loadSourceById({
-          workspaceId: target.source.workspaceId,
+          scopeId: target.source.scopeId,
           sourceId: target.source.id,
-          actorAccountId: input.actorAccountId,
+          actorScopeId: input.actorScopeId,
         }),
       { discard: false },
     );
@@ -1701,7 +1747,7 @@ const connectSourcesWithProviderRuntimeAuth = (input: {
 const attachProviderGrantToSources = (input: {
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   grantId: ProviderAuthGrant["id"];
   providerKey: string;
   headerName: string;
@@ -1710,13 +1756,13 @@ const attachProviderGrantToSources = (input: {
     source: Source;
     requiredScopes: ReadonlyArray<string>;
   }>;
-}): Effect.Effect<ReadonlyArray<Source>, Error, WorkspaceStorageServices> =>
+}): Effect.Effect<ReadonlyArray<Source>, Error, ScopeStorageServices> =>
   Effect.forEach(
     input.targets,
     (target) =>
       Effect.gen(function* () {
         const connectedSource = yield* updateSourceStatus(input.sourceStore, target.source, {
-          actorAccountId: input.actorAccountId,
+          actorScopeId: input.actorScopeId,
           status: "connected",
           lastError: null,
           auth: {
@@ -1731,7 +1777,7 @@ const attachProviderGrantToSources = (input: {
 
         yield* input.sourceCatalogSync.sync({
           source: connectedSource,
-          actorAccountId: input.actorAccountId,
+          actorScopeId: input.actorScopeId,
         });
 
         return connectedSource;
@@ -1742,18 +1788,18 @@ const attachProviderGrantToSources = (input: {
 const removeProviderAuthGrantInternal = (input: {
   executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   grantId: ProviderAuthGrant["id"];
   deleteSecretMaterial: DeleteSecretMaterial;
-}): Effect.Effect<boolean, Error, WorkspaceStorageServices> =>
+}): Effect.Effect<boolean, Error, ScopeStorageServices> =>
   Effect.gen(function* () {
     const grantOption = yield* input.executorState.providerAuthGrants.getById(input.grantId);
-    if (Option.isNone(grantOption) || grantOption.value.workspaceId !== input.workspaceId) {
+    if (Option.isNone(grantOption) || grantOption.value.scopeId !== input.scopeId) {
       return false;
     }
 
     const references = yield* listProviderGrantRefArtifacts(input.executorState, {
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       grantId: input.grantId,
     });
 
@@ -1762,9 +1808,9 @@ const removeProviderAuthGrantInternal = (input: {
       (artifact) =>
         Effect.gen(function* () {
           const latestSource = yield* input.sourceStore.loadSourceById({
-            workspaceId: artifact.workspaceId,
+            scopeId: artifact.scopeId,
             sourceId: artifact.sourceId,
-            actorAccountId: artifact.actorAccountId,
+            actorScopeId: artifact.actorScopeId,
           }).pipe(
             Effect.catchAll(() => Effect.succeed(null)),
           );
@@ -1773,10 +1819,10 @@ const removeProviderAuthGrantInternal = (input: {
             yield* removeAuthLeaseAndSecrets(input.executorState, {
               authArtifactId: artifact.id,
             }, input.deleteSecretMaterial);
-            yield* input.executorState.authArtifacts.removeByWorkspaceSourceAndActor({
-              workspaceId: artifact.workspaceId,
+            yield* input.executorState.authArtifacts.removeByScopeSourceAndActor({
+              scopeId: artifact.scopeId,
               sourceId: artifact.sourceId,
-              actorAccountId: artifact.actorAccountId,
+              actorScopeId: artifact.actorScopeId,
               slot: artifact.slot,
             });
             return;
@@ -1790,7 +1836,7 @@ const removeProviderAuthGrantInternal = (input: {
             importAuth: artifact.slot === "import" ? { kind: "none" } : latestSource.importAuth,
             updatedAt: Date.now(),
           }, {
-            actorAccountId: artifact.actorAccountId,
+            actorScopeId: artifact.actorScopeId,
           }).pipe(Effect.asVoid);
         }),
       { discard: true },
@@ -1809,8 +1855,8 @@ const connectMcpSourceInternal = (input: {
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
   getLocalServerBaseUrl?: () => string | undefined;
   baseUrl?: string | null;
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
   sourceId?: Source["id"] | null;
   executionId?: SourceAuthSession["executionId"];
   interactionId?: SourceAuthSession["interactionId"];
@@ -1827,7 +1873,7 @@ const connectMcpSourceInternal = (input: {
   cwd?: string | null;
   mcpDiscoveryElicitation?: McpDiscoveryElicitationContext;
   resolveSecretMaterial: ResolveSecretMaterial;
-}): Effect.Effect<McpSourceConnectResult, Error, WorkspaceStorageServices> =>
+}): Effect.Effect<McpSourceConnectResult, Error, ScopeStorageServices> =>
   Effect.gen(function* () {
     const lookupEndpoint = input.sourceId
       ? null
@@ -1840,9 +1886,9 @@ const connectMcpSourceInternal = (input: {
     const existing = yield* (
       input.sourceId
         ? input.sourceStore.loadSourceById({
-            workspaceId: input.workspaceId,
+            scopeId: input.scopeId,
             sourceId: input.sourceId,
-            actorAccountId: input.actorAccountId,
+            actorScopeId: input.actorScopeId,
           }).pipe(
             Effect.flatMap((source) =>
               sourceAdapterRequiresInteractiveConnect(source.kind)
@@ -1850,8 +1896,8 @@ const connectMcpSourceInternal = (input: {
                 : Effect.fail(runtimeEffectError("sources/source-auth-service", `Expected MCP source, received ${source.kind}`)),
             ),
           )
-        : input.sourceStore.loadSourcesInWorkspace(input.workspaceId, {
-            actorAccountId: input.actorAccountId,
+        : input.sourceStore.loadSourcesInScope(input.scopeId, {
+            actorScopeId: input.actorScopeId,
           }).pipe(
             Effect.map((sources) =>
               sources.find(
@@ -1943,7 +1989,7 @@ const connectMcpSourceInternal = (input: {
           now,
         })
       : yield* createSourceFromPayload({
-          workspaceId: input.workspaceId,
+          scopeId: input.scopeId,
           sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
           payload: {
             name: chosenName,
@@ -1969,11 +2015,11 @@ const connectMcpSourceInternal = (input: {
         });
 
     const persistedDraft = yield* input.sourceStore.persistSource(draftSource, {
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
     });
     yield* input.sourceCatalogSync.sync({
       source: persistedDraft,
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
     });
 
     const discovered = yield* Effect.either(
@@ -1988,7 +2034,7 @@ const connectMcpSourceInternal = (input: {
       onRight: (result) =>
         Effect.gen(function* () {
           const connected = yield* updateSourceStatus(input.sourceStore, persistedDraft, {
-            actorAccountId: input.actorAccountId,
+            actorScopeId: input.actorScopeId,
             status: "connected",
             lastError: null,
             auth: { kind: "none" },
@@ -2003,7 +2049,7 @@ const connectMcpSourceInternal = (input: {
           return yield* Either.match(indexed, {
             onLeft: (error) =>
               updateSourceStatus(input.sourceStore, connected, {
-                actorAccountId: input.actorAccountId,
+                actorScopeId: input.actorScopeId,
                 status: "error",
                 lastError: error.message,
               }).pipe(
@@ -2031,7 +2077,7 @@ const connectMcpSourceInternal = (input: {
     const state = crypto.randomUUID();
     const redirectUrl = resolveSourceCredentialOauthCompleteUrl({
       baseUrl: localServerBaseUrl,
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: persistedDraft.id,
     });
     const oauthStart = yield* startMcpOAuthAuthorization({
@@ -2041,7 +2087,7 @@ const connectMcpSourceInternal = (input: {
     });
 
     const authRequiredSource = yield* updateSourceStatus(input.sourceStore, persistedDraft, {
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
       status: "auth_required",
       lastError: null,
     });
@@ -2049,9 +2095,9 @@ const connectMcpSourceInternal = (input: {
     const sessionNow = Date.now();
     yield* input.executorState.sourceAuthSessions.upsert({
       id: sessionId,
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: authRequiredSource.id,
-      actorAccountId: input.actorAccountId ?? null,
+      actorScopeId: input.actorScopeId ?? null,
       credentialSlot: "runtime",
       executionId: input.executionId ?? null,
       interactionId: input.interactionId ?? null,
@@ -2095,16 +2141,17 @@ const addExecutorHttpSource = (input: {
   resolveSecretMaterial: ResolveSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
   baseUrl?: string | null;
-}): Effect.Effect<ExecutorSourceAddResult, Error, WorkspaceStorageServices> =>
+  localScopeState?: RuntimeLocalScopeState;
+}): Effect.Effect<ExecutorSourceAddResult, Error, ScopeStorageServices> =>
   Effect.gen(function* () {
     const normalizedEndpoint = normalizeEndpoint(input.sourceInput.endpoint);
     const normalizedSpecUrl = input.sourceInput.kind === "openapi"
       ? normalizeEndpoint(input.sourceInput.specUrl)
       : null;
-    const existingSources = yield* input.sourceStore.loadSourcesInWorkspace(
-      input.sourceInput.workspaceId,
+    const existingSources = yield* input.sourceStore.loadSourcesInScope(
+      input.sourceInput.scopeId,
       {
-        actorAccountId: input.sourceInput.actorAccountId,
+        actorScopeId: input.sourceInput.actorScopeId,
       },
     );
     const existing = existingSources.find((source) => {
@@ -2175,7 +2222,7 @@ const addExecutorHttpSource = (input: {
           now,
         })
       : yield* createSourceFromPayload({
-          workspaceId: input.sourceInput.workspaceId,
+          scopeId: input.sourceInput.scopeId,
           sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
           payload: {
             name: chosenName,
@@ -2200,7 +2247,7 @@ const addExecutorHttpSource = (input: {
         });
 
     const persistedDraft = yield* input.sourceStore.persistSource(draftSource, {
-      actorAccountId: input.sourceInput.actorAccountId,
+      actorScopeId: input.sourceInput.actorScopeId,
     });
 
     if (shouldPromptForExecutorHttpRuntimeCredentialSetup({
@@ -2215,7 +2262,7 @@ const addExecutorHttpSource = (input: {
           executorState: input.executorState,
           sourceStore: input.sourceStore,
           source: persistedDraft,
-          actorAccountId: input.sourceInput.actorAccountId,
+          actorScopeId: input.sourceInput.actorScopeId,
           executionId: input.sourceInput.executionId,
           interactionId: input.sourceInput.interactionId,
           baseUrl,
@@ -2228,7 +2275,7 @@ const addExecutorHttpSource = (input: {
       }
 
       const authRequiredSource = yield* updateSourceStatus(input.sourceStore, persistedDraft, {
-        actorAccountId: input.sourceInput.actorAccountId,
+        actorScopeId: input.sourceInput.actorScopeId,
         status: "auth_required",
         lastError: null,
       });
@@ -2246,7 +2293,7 @@ const addExecutorHttpSource = (input: {
           ...persistedDraft,
           status: "connected",
         },
-        actorAccountId: input.sourceInput.actorAccountId,
+        actorScopeId: input.sourceInput.actorScopeId,
       }),
     );
 
@@ -2254,7 +2301,7 @@ const addExecutorHttpSource = (input: {
       onLeft: (error) =>
         isSourceCredentialRequiredError(error)
           ? updateSourceStatus(input.sourceStore, persistedDraft, {
-              actorAccountId: input.sourceInput.actorAccountId,
+              actorScopeId: input.sourceInput.actorScopeId,
               status: "auth_required",
               lastError: null,
             }).pipe(
@@ -2267,7 +2314,7 @@ const addExecutorHttpSource = (input: {
               ),
             )
           : updateSourceStatus(input.sourceStore, persistedDraft, {
-              actorAccountId: input.sourceInput.actorAccountId,
+              actorScopeId: input.sourceInput.actorScopeId,
               status: "error",
               lastError: error.message,
             }).pipe(
@@ -2275,7 +2322,7 @@ const addExecutorHttpSource = (input: {
             ),
       onRight: () =>
         updateSourceStatus(input.sourceStore, persistedDraft, {
-          actorAccountId: input.sourceInput.actorAccountId,
+          actorScopeId: input.sourceInput.actorScopeId,
           status: "connected",
           lastError: null,
         }).pipe(
@@ -2308,7 +2355,8 @@ const addExecutorGoogleDiscoverySource = (input: {
   resolveSecretMaterial: ResolveSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
   baseUrl?: string | null;
-}): Effect.Effect<ExecutorSourceAddResult, Error, WorkspaceStorageServices> =>
+  localScopeState?: RuntimeLocalScopeState;
+}): Effect.Effect<ExecutorSourceAddResult, Error, ScopeStorageServices> =>
   Effect.gen(function* () {
     const normalizedService = input.sourceInput.service.trim();
     const normalizedVersion = input.sourceInput.version.trim();
@@ -2316,10 +2364,10 @@ const addExecutorGoogleDiscoverySource = (input: {
       trimOrNull(input.sourceInput.discoveryUrl)
         ?? defaultGoogleDiscoveryUrl(normalizedService, normalizedVersion),
     );
-    const existingSources = yield* input.sourceStore.loadSourcesInWorkspace(
-      input.sourceInput.workspaceId,
+    const existingSources = yield* input.sourceStore.loadSourcesInScope(
+      input.sourceInput.scopeId,
       {
-        actorAccountId: input.sourceInput.actorAccountId,
+        actorScopeId: input.sourceInput.actorScopeId,
       },
     );
     const existing = existingSources.find((source) => {
@@ -2397,7 +2445,7 @@ const addExecutorGoogleDiscoverySource = (input: {
           now,
         })
       : yield* createSourceFromPayload({
-          workspaceId: input.sourceInput.workspaceId,
+          scopeId: input.sourceInput.scopeId,
           sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
           payload: {
             name: chosenName,
@@ -2421,7 +2469,7 @@ const addExecutorGoogleDiscoverySource = (input: {
         });
 
     const persistedDraft = yield* input.sourceStore.persistSource(draftSource, {
-      actorAccountId: input.sourceInput.actorAccountId,
+      actorScopeId: input.sourceInput.actorScopeId,
     });
     const googleAdapter = getSourceAdapterForSource(persistedDraft);
     const providerAuthTarget = yield* resolveRuntimeProviderAuthTarget(persistedDraft);
@@ -2431,18 +2479,19 @@ const addExecutorGoogleDiscoverySource = (input: {
       && input.sourceInput.auth === undefined
       && persistedDraft.auth.kind === "none"
     ) {
-      let workspaceOauthClient: ResolvedWorkspaceOauthClient | null = null;
-      if (input.sourceInput.workspaceOauthClientId) {
-        workspaceOauthClient = yield* resolveWorkspaceOauthClientById({
+      let scopeOauthClient: ResolvedScopeOauthClient | null = null;
+      if (input.sourceInput.scopeOauthClientId) {
+        scopeOauthClient = yield* resolveScopeOauthClientById({
           executorState: input.executorState,
-          workspaceId: persistedDraft.workspaceId,
-          oauthClientId: input.sourceInput.workspaceOauthClientId,
+          scopeId: persistedDraft.scopeId,
+          oauthClientId: input.sourceInput.scopeOauthClientId,
           providerKey: providerAuthTarget.setupConfig.providerKey,
+          localScopeState: input.localScopeState,
         });
       } else if (input.sourceInput.oauthClient) {
-        workspaceOauthClient = yield* createWorkspaceOauthClient({
+        scopeOauthClient = yield* createScopeOauthClient({
           executorState: input.executorState,
-          workspaceId: persistedDraft.workspaceId,
+          scopeId: persistedDraft.scopeId,
           providerKey: providerAuthTarget.setupConfig.providerKey,
           oauthClient: input.sourceInput.oauthClient,
           label: `${chosenName} OAuth Client`,
@@ -2451,7 +2500,7 @@ const addExecutorGoogleDiscoverySource = (input: {
         });
       }
 
-      if (workspaceOauthClient === null) {
+      if (scopeOauthClient === null) {
         return yield* runtimeEffectError(
           "sources/source-auth-service",
           `${providerAuthTarget.setupConfig.providerKey} shared auth requires a workspace OAuth client`,
@@ -2462,14 +2511,15 @@ const addExecutorGoogleDiscoverySource = (input: {
         executorState: input.executorState,
         sourceStore: input.sourceStore,
         sourceCatalogSync: input.sourceCatalogSync,
-        workspaceId: persistedDraft.workspaceId,
-        actorAccountId: input.sourceInput.actorAccountId,
+        scopeId: persistedDraft.scopeId,
+        actorScopeId: input.sourceInput.actorScopeId,
         executionId: input.sourceInput.executionId,
         interactionId: input.sourceInput.interactionId,
         baseUrl: input.baseUrl,
         getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-        workspaceOauthClient,
+        scopeOauthClient,
         targets: [providerAuthTarget],
+        localScopeState: input.localScopeState,
       });
 
       return providerAuthResult.kind === "connected"
@@ -2507,7 +2557,7 @@ const addExecutorGoogleDiscoverySource = (input: {
           executorState: input.executorState,
           sourceStore: input.sourceStore,
           source: persistedDraft,
-          actorAccountId: input.sourceInput.actorAccountId,
+          actorScopeId: input.sourceInput.actorScopeId,
           executionId: input.sourceInput.executionId,
           interactionId: input.sourceInput.interactionId,
           baseUrl,
@@ -2520,7 +2570,7 @@ const addExecutorGoogleDiscoverySource = (input: {
       }
 
       const authRequiredSource = yield* updateSourceStatus(input.sourceStore, persistedDraft, {
-        actorAccountId: input.sourceInput.actorAccountId,
+        actorScopeId: input.sourceInput.actorScopeId,
         status: "auth_required",
         lastError: null,
       });
@@ -2538,7 +2588,7 @@ const addExecutorGoogleDiscoverySource = (input: {
           ...persistedDraft,
           status: "connected",
         },
-        actorAccountId: input.sourceInput.actorAccountId,
+        actorScopeId: input.sourceInput.actorScopeId,
       }),
     );
 
@@ -2546,7 +2596,7 @@ const addExecutorGoogleDiscoverySource = (input: {
       onLeft: (error) =>
         isSourceCredentialRequiredError(error)
           ? updateSourceStatus(input.sourceStore, persistedDraft, {
-              actorAccountId: input.sourceInput.actorAccountId,
+              actorScopeId: input.sourceInput.actorScopeId,
               status: "auth_required",
               lastError: null,
             }).pipe(
@@ -2559,7 +2609,7 @@ const addExecutorGoogleDiscoverySource = (input: {
               ),
             )
           : updateSourceStatus(input.sourceStore, persistedDraft, {
-              actorAccountId: input.sourceInput.actorAccountId,
+              actorScopeId: input.sourceInput.actorScopeId,
               status: "error",
               lastError: error.message,
             }).pipe(
@@ -2567,7 +2617,7 @@ const addExecutorGoogleDiscoverySource = (input: {
             ),
       onRight: () =>
         updateSourceStatus(input.sourceStore, persistedDraft, {
-          actorAccountId: input.sourceInput.actorAccountId,
+          actorScopeId: input.sourceInput.actorScopeId,
           status: "connected",
           lastError: null,
         }).pipe(
@@ -2587,16 +2637,17 @@ const connectGoogleDiscoveryBatchInternal = (input: {
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
   sourceInput: ConnectGoogleDiscoveryBatchInput;
   getLocalServerBaseUrl?: () => string | undefined;
-}): Effect.Effect<ConnectGoogleDiscoveryBatchResult, Error, WorkspaceStorageServices> =>
+  localScopeState?: RuntimeLocalScopeState;
+}): Effect.Effect<ConnectGoogleDiscoveryBatchResult, Error, ScopeStorageServices> =>
   Effect.gen(function* () {
     if (input.sourceInput.sources.length === 0) {
       return yield* runtimeEffectError("sources/source-auth-service", "Google batch connect requires at least one source");
     }
 
-    const existingSources = yield* input.sourceStore.loadSourcesInWorkspace(
-      input.sourceInput.workspaceId,
+    const existingSources = yield* input.sourceStore.loadSourcesInScope(
+      input.sourceInput.scopeId,
       {
-        actorAccountId: input.sourceInput.actorAccountId,
+        actorScopeId: input.sourceInput.actorScopeId,
       },
     );
 
@@ -2664,7 +2715,7 @@ const connectGoogleDiscoveryBatchInternal = (input: {
                 now,
               })
             : yield* createSourceFromPayload({
-                workspaceId: input.sourceInput.workspaceId,
+                scopeId: input.sourceInput.scopeId,
                 sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
                 payload: {
                   name: chosenName,
@@ -2688,7 +2739,7 @@ const connectGoogleDiscoveryBatchInternal = (input: {
               });
 
           const persistedDraft = yield* input.sourceStore.persistSource(draftSource, {
-            actorAccountId: input.sourceInput.actorAccountId,
+            actorScopeId: input.sourceInput.actorScopeId,
           });
           const providerAuthTarget = yield* resolveRuntimeProviderAuthTarget(persistedDraft);
           if (providerAuthTarget === null) {
@@ -2700,28 +2751,30 @@ const connectGoogleDiscoveryBatchInternal = (input: {
       { discard: false },
     );
 
-    const workspaceOauthClient = yield* resolveWorkspaceOauthClientById({
+    const scopeOauthClient = yield* resolveScopeOauthClientById({
       executorState: input.executorState,
-      workspaceId: input.sourceInput.workspaceId,
-      oauthClientId: input.sourceInput.workspaceOauthClientId,
+      scopeId: input.sourceInput.scopeId,
+      oauthClientId: input.sourceInput.scopeOauthClientId,
       providerKey: persistedTargets[0]!.setupConfig.providerKey,
+      localScopeState: input.localScopeState,
     });
-    if (workspaceOauthClient === null) {
-      return yield* runtimeEffectError("sources/source-auth-service", `Workspace OAuth client not found: ${input.sourceInput.workspaceOauthClientId}`);
+    if (scopeOauthClient === null) {
+      return yield* runtimeEffectError("sources/source-auth-service", `Scope OAuth client not found: ${input.sourceInput.scopeOauthClientId}`);
     }
 
     const providerAuthResult = yield* connectSourcesWithProviderRuntimeAuth({
       executorState: input.executorState,
       sourceStore: input.sourceStore,
       sourceCatalogSync: input.sourceCatalogSync,
-      workspaceId: input.sourceInput.workspaceId,
-      actorAccountId: input.sourceInput.actorAccountId,
+      scopeId: input.sourceInput.scopeId,
+      actorScopeId: input.sourceInput.actorScopeId,
       executionId: input.sourceInput.executionId,
       interactionId: input.sourceInput.interactionId,
       baseUrl: input.sourceInput.baseUrl,
       getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-      workspaceOauthClient,
+      scopeOauthClient,
       targets: persistedTargets,
+      localScopeState: input.localScopeState,
     });
 
     if (providerAuthResult.kind === "connected") {
@@ -2749,10 +2802,10 @@ const connectGoogleDiscoveryBatchInternal = (input: {
 
 type RuntimeSourceAuthServiceShape = {
   getSourceById: (input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     sourceId: Source["id"];
-    actorAccountId?: AccountId | null;
-  }) => Effect.Effect<Source, Error, WorkspaceStorageServices>;
+    actorScopeId?: ScopeId | null;
+  }) => Effect.Effect<Source, Error, ScopeStorageServices>;
   getLocalServerBaseUrl: () => string | null;
   storeSecretMaterial: (input: {
     purpose: SecretMaterialPurpose;
@@ -2764,28 +2817,28 @@ type RuntimeSourceAuthServiceShape = {
       mcpDiscoveryElicitation?: McpDiscoveryElicitationContext;
       baseUrl?: string | null;
     },
-  ) => Effect.Effect<ExecutorSourceAddResult, Error, WorkspaceStorageServices>;
+  ) => Effect.Effect<ExecutorSourceAddResult, Error, ScopeStorageServices>;
   connectGoogleDiscoveryBatch: (
     input: ConnectGoogleDiscoveryBatchInput,
-  ) => Effect.Effect<ConnectGoogleDiscoveryBatchResult, Error, WorkspaceStorageServices>;
+  ) => Effect.Effect<ConnectGoogleDiscoveryBatchResult, Error, ScopeStorageServices>;
   connectMcpSource: (
     input: ConnectMcpSourceInput,
-  ) => Effect.Effect<McpSourceConnectResult, Error, WorkspaceStorageServices>;
-  listWorkspaceOauthClients: (input: {
-    workspaceId: WorkspaceId;
+  ) => Effect.Effect<McpSourceConnectResult, Error, ScopeStorageServices>;
+  listScopeOauthClients: (input: {
+    scopeId: ScopeId;
     providerKey: string;
-  }) => Effect.Effect<readonly WorkspaceOauthClient[], Error, WorkspaceStorageServices>;
-  createWorkspaceOauthClient: (
-    input: CreateWorkspaceOauthClientInput,
-  ) => Effect.Effect<WorkspaceOauthClient, Error, WorkspaceStorageServices>;
-  removeWorkspaceOauthClient: (input: {
-    workspaceId: WorkspaceId;
-    oauthClientId: WorkspaceOauthClient["id"];
-  }) => Effect.Effect<boolean, Error, WorkspaceStorageServices>;
+  }) => Effect.Effect<readonly ScopeOauthClient[], Error, ScopeStorageServices>;
+  createScopeOauthClient: (
+    input: CreateScopeOauthClientInput,
+  ) => Effect.Effect<ScopeOauthClient, Error, ScopeStorageServices>;
+  removeScopeOauthClient: (input: {
+    scopeId: ScopeId;
+    oauthClientId: ScopeOauthClient["id"];
+  }) => Effect.Effect<boolean, Error, ScopeStorageServices>;
   removeProviderAuthGrant: (input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     grantId: ProviderAuthGrant["id"];
-  }) => Effect.Effect<boolean, Error, WorkspaceStorageServices>;
+  }) => Effect.Effect<boolean, Error, ScopeStorageServices>;
   startSourceOAuthSession: (
     input: StartSourceOAuthSessionInput,
   ) => Effect.Effect<StartSourceOAuthSessionResult, Error, never>;
@@ -2794,24 +2847,24 @@ type RuntimeSourceAuthServiceShape = {
     code?: string | null;
     error?: string | null;
     errorDescription?: string | null;
-  }) => Effect.Effect<CompleteSourceOAuthSessionResult, Error, WorkspaceStorageServices>;
+  }) => Effect.Effect<CompleteSourceOAuthSessionResult, Error, ScopeStorageServices>;
   completeProviderOauthCallback: (input: {
-    workspaceId: WorkspaceId;
-    actorAccountId?: AccountId | null;
+    scopeId: ScopeId;
+    actorScopeId?: ScopeId | null;
     state: string;
     code?: string | null;
     error?: string | null;
     errorDescription?: string | null;
-  }) => Effect.Effect<CompleteProviderOauthCallbackResult, Error, WorkspaceStorageServices>;
+  }) => Effect.Effect<CompleteProviderOauthCallbackResult, Error, ScopeStorageServices>;
   completeSourceCredentialSetup: (input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     sourceId: Source["id"];
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
     state: string;
     code?: string | null;
     error?: string | null;
     errorDescription?: string | null;
-  }) => Effect.Effect<CompleteSourceCredentialSetupResult, Error, WorkspaceStorageServices>;
+  }) => Effect.Effect<CompleteSourceCredentialSetupResult, Error, ScopeStorageServices>;
 };
 
 type RuntimeSourceAuthDependencies = {
@@ -2823,10 +2876,10 @@ type RuntimeSourceAuthDependencies = {
   storeSecretMaterial: StoreSecretMaterial;
   deleteSecretMaterial: DeleteSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
-  localWorkspaceState?: RuntimeLocalWorkspaceState;
+  localScopeState?: RuntimeLocalScopeState;
 };
 
-type ProvideLocalWorkspace = <A, E, R>(
+type ProvideLocalScope = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ) => Effect.Effect<A, E, R>;
 
@@ -2836,9 +2889,9 @@ type RuntimeSourceConnectionServiceShape = Pick<
   | "addExecutorSource"
   | "connectGoogleDiscoveryBatch"
   | "connectMcpSource"
-  | "listWorkspaceOauthClients"
-  | "createWorkspaceOauthClient"
-  | "removeWorkspaceOauthClient"
+  | "listScopeOauthClients"
+  | "createScopeOauthClient"
+  | "removeScopeOauthClient"
   | "removeProviderAuthGrant"
 >;
 
@@ -2852,24 +2905,24 @@ type RuntimeSourceOAuthSessionServiceShape = Pick<
 
 const createRuntimeSourceConnectionService = (
   input: RuntimeSourceAuthDependencies,
-  provideLocalWorkspace: ProvideLocalWorkspace,
+  provideLocalWorkspace: ProvideLocalScope,
 ): RuntimeSourceConnectionServiceShape => {
   const mirrorLocalSourceResult = (
     result: ExecutorSourceAddResult,
-  ): Effect.Effect<ExecutorSourceAddResult, Error, WorkspaceStorageServices> =>
+  ): Effect.Effect<ExecutorSourceAddResult, Error, ScopeStorageServices> =>
     Effect.succeed(result);
   const mirrorLocalMcpSourceResult = (
     result: McpSourceConnectResult,
-  ): Effect.Effect<McpSourceConnectResult, Error, WorkspaceStorageServices> =>
+  ): Effect.Effect<McpSourceConnectResult, Error, ScopeStorageServices> =>
     Effect.succeed(result);
 
   return {
-    getSourceById: ({ workspaceId, sourceId, actorAccountId }) =>
+    getSourceById: ({ scopeId, sourceId, actorScopeId }) =>
       provideLocalWorkspace(
         input.sourceStore.loadSourceById({
-          workspaceId,
+          scopeId,
           sourceId,
-          actorAccountId,
+          actorScopeId,
         }),
       ),
 
@@ -2886,6 +2939,7 @@ const createRuntimeSourceConnectionService = (
               resolveSecretMaterial: input.resolveSecretMaterial,
               getLocalServerBaseUrl: input.getLocalServerBaseUrl,
               baseUrl: options?.baseUrl,
+              localScopeState: input.localScopeState,
             })
           : isExecutorHttpEndpointSourceInput(sourceInput)
           ? addExecutorHttpSource({
@@ -2898,6 +2952,7 @@ const createRuntimeSourceConnectionService = (
               resolveSecretMaterial: input.resolveSecretMaterial,
               getLocalServerBaseUrl: input.getLocalServerBaseUrl,
               baseUrl: options?.baseUrl,
+              localScopeState: input.localScopeState,
             })
           : isExecutorMcpSourceInput(sourceInput)
           ? connectMcpSourceInternal({
@@ -2905,8 +2960,8 @@ const createRuntimeSourceConnectionService = (
               sourceStore: input.sourceStore,
               sourceCatalogSync: input.sourceCatalogSync,
               getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-              workspaceId: sourceInput.workspaceId,
-              actorAccountId: sourceInput.actorAccountId,
+              scopeId: sourceInput.scopeId,
+              actorScopeId: sourceInput.actorScopeId,
               executionId: sourceInput.executionId,
               interactionId: sourceInput.interactionId,
               endpoint: sourceInput.endpoint,
@@ -2936,6 +2991,7 @@ const createRuntimeSourceConnectionService = (
           sourceCatalogSync: input.sourceCatalogSync,
           sourceInput,
           getLocalServerBaseUrl: input.getLocalServerBaseUrl,
+          localScopeState: input.localScopeState,
         }),
       ),
 
@@ -2946,8 +3002,8 @@ const createRuntimeSourceConnectionService = (
           sourceStore: input.sourceStore,
           sourceCatalogSync: input.sourceCatalogSync,
           getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-          workspaceId: sourceInput.workspaceId,
-          actorAccountId: sourceInput.actorAccountId,
+          scopeId: sourceInput.scopeId,
+          actorScopeId: sourceInput.actorScopeId,
           sourceId: sourceInput.sourceId,
           executionId: null,
           interactionId: null,
@@ -2969,54 +3025,71 @@ const createRuntimeSourceConnectionService = (
         ),
       ),
 
-    listWorkspaceOauthClients: ({ workspaceId, providerKey }) =>
+    listScopeOauthClients: ({ scopeId, providerKey }) =>
       provideLocalWorkspace(
-        input.executorState.workspaceOauthClients.listByWorkspaceAndProvider({
-          workspaceId,
-          providerKey,
+        Effect.gen(function* () {
+          const scopeIds = resolvedScopeSearchOrder({
+            scopeId,
+            localScopeState: input.localScopeState,
+          });
+          const clientsById = new Map<ScopeOauthClient["id"], ScopeOauthClient>();
+
+          for (const candidateScopeId of scopeIds) {
+            const clients = yield* input.executorState.scopeOauthClients.listByScopeAndProvider({
+              scopeId: candidateScopeId,
+              providerKey,
+            });
+            for (const client of clients) {
+              if (!clientsById.has(client.id)) {
+                clientsById.set(client.id, client);
+              }
+            }
+          }
+
+          return [...clientsById.values()];
         }),
       ),
 
-    createWorkspaceOauthClient: ({ workspaceId, providerKey, label, oauthClient }) =>
+    createScopeOauthClient: ({ scopeId, providerKey, label, oauthClient }) =>
       provideLocalWorkspace(
         Effect.gen(function* () {
           const sourceAdapter = findSourceAdapterByProviderKey(providerKey);
-          const created = yield* createWorkspaceOauthClient({
+          const created = yield* createScopeOauthClient({
             executorState: input.executorState,
-            workspaceId,
+            scopeId,
             providerKey,
             oauthClient,
             label,
             normalizeOauthClient: sourceAdapter?.normalizeOauthClientInput,
             storeSecretMaterial: input.storeSecretMaterial,
           });
-          const stored = yield* input.executorState.workspaceOauthClients.getById(created.id);
+          const stored = yield* input.executorState.scopeOauthClients.getById(created.id);
           if (Option.isNone(stored)) {
-            return yield* runtimeEffectError("sources/source-auth-service", `Workspace OAuth client ${created.id} was not persisted`);
+            return yield* runtimeEffectError("sources/source-auth-service", `Scope OAuth client ${created.id} was not persisted`);
           }
 
           return stored.value;
         }),
       ),
 
-    removeWorkspaceOauthClient: ({ workspaceId, oauthClientId }) =>
+    removeScopeOauthClient: ({ scopeId, oauthClientId }) =>
       provideLocalWorkspace(
         Effect.gen(function* () {
-          const oauthClient = yield* input.executorState.workspaceOauthClients.getById(oauthClientId);
-          if (Option.isNone(oauthClient) || oauthClient.value.workspaceId !== workspaceId) {
+          const oauthClient = yield* input.executorState.scopeOauthClients.getById(oauthClientId);
+          if (Option.isNone(oauthClient) || oauthClient.value.scopeId !== scopeId) {
             return false;
           }
 
-          const grants = yield* input.executorState.providerAuthGrants.listByWorkspaceId(workspaceId);
+          const grants = yield* input.executorState.providerAuthGrants.listByScopeId(scopeId);
           const dependentGrant = grants.find((grant) => grant.oauthClientId === oauthClientId);
           if (dependentGrant) {
             return yield* runtimeEffectError("sources/source-auth-service", 
-                `Workspace OAuth client ${oauthClientId} is still referenced by provider grant ${dependentGrant.id}`,
+                `Scope OAuth client ${oauthClientId} is still referenced by provider grant ${dependentGrant.id}`,
               );
           }
 
           const secretRef = sourceOauthClientSecretRef(oauthClient.value);
-          const removed = yield* input.executorState.workspaceOauthClients.removeById(oauthClientId);
+          const removed = yield* input.executorState.scopeOauthClients.removeById(oauthClientId);
           if (removed && secretRef) {
             yield* input.deleteSecretMaterial(secretRef).pipe(
               Effect.either,
@@ -3028,12 +3101,12 @@ const createRuntimeSourceConnectionService = (
         }),
       ),
 
-    removeProviderAuthGrant: ({ workspaceId, grantId }) =>
+    removeProviderAuthGrant: ({ scopeId, grantId }) =>
       provideLocalWorkspace(
         removeProviderAuthGrantInternal({
           executorState: input.executorState,
           sourceStore: input.sourceStore,
-          workspaceId,
+          scopeId,
           grantId,
           deleteSecretMaterial: input.deleteSecretMaterial,
         }),
@@ -3043,7 +3116,7 @@ const createRuntimeSourceConnectionService = (
 
 const createRuntimeSourceOAuthSessionService = (
   input: RuntimeSourceAuthDependencies,
-  provideLocalWorkspace: ProvideLocalWorkspace,
+  provideLocalWorkspace: ProvideLocalScope,
 ): RuntimeSourceOAuthSessionServiceShape => ({
   startSourceOAuthSession: (oauthInput) =>
     Effect.gen(function* () {
@@ -3069,9 +3142,9 @@ const createRuntimeSourceOAuthSessionService = (
 
       yield* input.executorState.sourceAuthSessions.upsert({
         id: sessionId,
-        workspaceId: oauthInput.workspaceId,
+        scopeId: oauthInput.scopeId,
         sourceId: SourceIdSchema.make(`oauth_draft_${crypto.randomUUID()}`),
-        actorAccountId: oauthInput.actorAccountId ?? null,
+        actorScopeId: oauthInput.actorScopeId ?? null,
         credentialSlot: "runtime",
         executionId: null,
         interactionId: null,
@@ -3215,7 +3288,7 @@ const createRuntimeSourceOAuthSessionService = (
       } satisfies CompleteSourceOAuthSessionResult;
     })),
 
-  completeProviderOauthCallback: ({ workspaceId, actorAccountId, state, code, error, errorDescription }) =>
+  completeProviderOauthCallback: ({ scopeId, actorScopeId, state, code, error, errorDescription }) =>
     provideLocalWorkspace(Effect.gen(function* () {
       const sessionOption = yield* input.executorState.sourceAuthSessions.getByState(state);
       if (Option.isNone(sessionOption)) {
@@ -3223,10 +3296,10 @@ const createRuntimeSourceOAuthSessionService = (
       }
 
       const session = sessionOption.value;
-      if (session.workspaceId !== workspaceId) {
-        return yield* runtimeEffectError("sources/source-auth-service", `Source auth session ${session.id} does not match workspaceId=${workspaceId}`);
+      if (session.scopeId !== scopeId) {
+        return yield* runtimeEffectError("sources/source-auth-service", `Source auth session ${session.id} does not match scopeId=${scopeId}`);
       }
-      if ((session.actorAccountId ?? null) !== (actorAccountId ?? null)) {
+      if ((session.actorScopeId ?? null) !== (actorScopeId ?? null)) {
         return yield* runtimeEffectError("sources/source-auth-service", `Source auth session ${session.id} does not match the active account`);
       }
       if (session.providerKind !== "oauth2_provider_batch") {
@@ -3238,9 +3311,9 @@ const createRuntimeSourceOAuthSessionService = (
           sessionData.targetSources,
           (target) =>
             input.sourceStore.loadSourceById({
-              workspaceId,
+              scopeId,
               sourceId: target.sourceId,
-              actorAccountId,
+              actorScopeId,
             }),
           { discard: false },
         );
@@ -3276,14 +3349,15 @@ const createRuntimeSourceOAuthSessionService = (
         return yield* runtimeEffectError("sources/source-auth-service", "OAuth session is missing the PKCE code verifier");
       }
 
-      const oauthClient = yield* resolveWorkspaceOauthClientById({
+      const oauthClient = yield* resolveScopeOauthClientById({
         executorState: input.executorState,
-        workspaceId,
+        scopeId,
         oauthClientId: sessionData.oauthClientId,
         providerKey: sessionData.providerKey,
+        localScopeState: input.localScopeState,
       });
       if (oauthClient === null) {
-        return yield* runtimeEffectError("sources/source-auth-service", `Workspace OAuth client not found: ${sessionData.oauthClientId}`);
+        return yield* runtimeEffectError("sources/source-auth-service", `Scope OAuth client not found: ${sessionData.oauthClientId}`);
       }
 
       let clientSecret: string | null = null;
@@ -3303,9 +3377,9 @@ const createRuntimeSourceOAuthSessionService = (
         code: authorizationCode,
       });
 
-      const availableGrants = yield* input.executorState.providerAuthGrants.listByWorkspaceActorAndProvider({
-        workspaceId,
-        actorAccountId: actorAccountId ?? null,
+      const availableGrants = yield* input.executorState.providerAuthGrants.listByScopeActorAndProvider({
+        scopeId,
+        actorScopeId: actorScopeId ?? null,
         providerKey: sessionData.providerKey,
       });
       const existingGrant = availableGrants.find(
@@ -3319,8 +3393,8 @@ const createRuntimeSourceOAuthSessionService = (
       );
       const nextGrant = yield* upsertProviderAuthGrant({
         executorState: input.executorState,
-        workspaceId,
-        actorAccountId,
+        scopeId,
+        actorScopeId,
         providerKey: sessionData.providerKey,
         oauthClientId: sessionData.oauthClientId,
         tokenEndpoint: sessionData.tokenEndpoint,
@@ -3339,9 +3413,9 @@ const createRuntimeSourceOAuthSessionService = (
         (target) =>
           Effect.map(
             input.sourceStore.loadSourceById({
-              workspaceId,
+              scopeId,
               sourceId: target.sourceId,
-              actorAccountId,
+              actorScopeId,
             }),
             (source) => ({
               source,
@@ -3354,7 +3428,7 @@ const createRuntimeSourceOAuthSessionService = (
       const connectedSources = yield* attachProviderGrantToSources({
         sourceStore: input.sourceStore,
         sourceCatalogSync: input.sourceCatalogSync,
-        actorAccountId,
+        actorScopeId,
         grantId: nextGrant.id,
         providerKey: nextGrant.providerKey,
         headerName: nextGrant.headerName,
@@ -3384,7 +3458,7 @@ const createRuntimeSourceOAuthSessionService = (
       } satisfies CompleteProviderOauthCallbackResult;
     })),
 
-  completeSourceCredentialSetup: ({ workspaceId, sourceId, actorAccountId, state, code, error, errorDescription }) =>
+  completeSourceCredentialSetup: ({ scopeId, sourceId, actorScopeId, state, code, error, errorDescription }) =>
     provideLocalWorkspace(Effect.gen(function* () {
       const sessionOption = yield* input.executorState.sourceAuthSessions.getByState(state);
       if (Option.isNone(sessionOption)) {
@@ -3392,22 +3466,22 @@ const createRuntimeSourceOAuthSessionService = (
       }
 
       const session = sessionOption.value;
-      if (session.workspaceId !== workspaceId || session.sourceId !== sourceId) {
+      if (session.scopeId !== scopeId || session.sourceId !== sourceId) {
         return yield* runtimeEffectError("sources/source-auth-service", 
-            `Source auth session ${session.id} does not match workspaceId=${workspaceId} sourceId=${sourceId}`,
+            `Source auth session ${session.id} does not match scopeId=${scopeId} sourceId=${sourceId}`,
           );
       }
       if (
-        actorAccountId !== undefined
-        && (session.actorAccountId ?? null) !== (actorAccountId ?? null)
+        actorScopeId !== undefined
+        && (session.actorScopeId ?? null) !== (actorScopeId ?? null)
       ) {
         return yield* runtimeEffectError("sources/source-auth-service", `Source auth session ${session.id} does not match the active account`);
       }
 
       const source = yield* input.sourceStore.loadSourceById({
-        workspaceId: session.workspaceId,
+        scopeId: session.scopeId,
         sourceId: session.sourceId,
-        actorAccountId: session.actorAccountId,
+        actorScopeId: session.actorScopeId,
       });
 
       if (session.status === "completed") {
@@ -3439,13 +3513,13 @@ const createRuntimeSourceOAuthSessionService = (
           }),
         );
         const failedSource = yield* updateSourceStatus(input.sourceStore, source, {
-          actorAccountId: session.actorAccountId,
+          actorScopeId: session.actorScopeId,
           status: "error",
           lastError: reason,
         });
         yield* input.sourceCatalogSync.sync({
           source: failedSource,
-          actorAccountId: session.actorAccountId,
+          actorScopeId: session.actorScopeId,
         });
         yield* completeLiveInteraction({
           executorState: input.executorState,
@@ -3503,7 +3577,7 @@ const createRuntimeSourceOAuthSessionService = (
           ? exchanged.scope!.split(/\s+/).filter((scope) => scope.length > 0)
           : [...oauthSessionData.scopes];
         connectedSource = yield* updateSourceStatus(input.sourceStore, source, {
-          actorAccountId: session.actorAccountId,
+          actorScopeId: session.actorScopeId,
           status: "connected",
           lastError: null,
           auth: {
@@ -3518,10 +3592,10 @@ const createRuntimeSourceOAuthSessionService = (
             grantSet: grantedScopes,
           },
         });
-        const authArtifact = yield* input.executorState.authArtifacts.getByWorkspaceSourceAndActor({
-          workspaceId: connectedSource.workspaceId,
+        const authArtifact = yield* input.executorState.authArtifacts.getByScopeSourceAndActor({
+          scopeId: connectedSource.scopeId,
           sourceId: connectedSource.id,
-          actorAccountId: session.actorAccountId ?? null,
+          actorScopeId: session.actorScopeId ?? null,
           slot: "runtime",
         });
         if (Option.isSome(authArtifact)) {
@@ -3583,7 +3657,7 @@ const createRuntimeSourceOAuthSessionService = (
           : null;
 
         connectedSource = yield* updateSourceStatus(input.sourceStore, source, {
-          actorAccountId: session.actorAccountId,
+          actorScopeId: session.actorScopeId,
           status: "connected",
           lastError: null,
           auth: createPersistedMcpOAuthSourceAuth({
@@ -3628,13 +3702,13 @@ const createRuntimeSourceOAuthSessionService = (
       const indexed = yield* Effect.either(
         input.sourceCatalogSync.sync({
           source: connectedSource,
-          actorAccountId: session.actorAccountId,
+          actorScopeId: session.actorScopeId,
         }),
       );
       yield* Either.match(indexed, {
         onLeft: (error) =>
           updateSourceStatus(input.sourceStore, connectedSource, {
-            actorAccountId: session.actorAccountId,
+            actorScopeId: session.actorScopeId,
             status: "error",
             lastError: error.message,
           }).pipe(
@@ -3660,8 +3734,8 @@ const createRuntimeSourceOAuthSessionService = (
 });
 
 export const createRuntimeSourceAuthService = (input: RuntimeSourceAuthDependencies) => {
-  const provideLocalWorkspace: ProvideLocalWorkspace = (effect) =>
-    provideOptionalRuntimeLocalWorkspace(effect, input.localWorkspaceState);
+  const provideLocalWorkspace: ProvideLocalScope = (effect) =>
+    provideOptionalRuntimeLocalScope(effect, input.localScopeState);
   const sourceConnection = createRuntimeSourceConnectionService(
     input,
     provideLocalWorkspace,
@@ -3704,7 +3778,7 @@ export const RuntimeSourceAuthServiceLive = (input: {
       const resolveSecretMaterial = yield* SecretMaterialResolverService;
       const storeSecretMaterial = yield* SecretMaterialStorerService;
       const deleteSecretMaterial = yield* SecretMaterialDeleterService;
-      const runtimeLocalWorkspace = yield* getRuntimeLocalWorkspaceOption();
+      const runtimeLocalScope = yield* getRuntimeLocalScopeOption();
 
       return createRuntimeSourceAuthService({
         executorState,
@@ -3715,7 +3789,7 @@ export const RuntimeSourceAuthServiceLive = (input: {
         storeSecretMaterial,
         deleteSecretMaterial,
         getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-        localWorkspaceState: runtimeLocalWorkspace ?? undefined,
+        localScopeState: runtimeLocalScope ?? undefined,
       });
     }),
   );

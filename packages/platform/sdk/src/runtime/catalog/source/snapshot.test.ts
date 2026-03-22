@@ -1,20 +1,34 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 
-import type { Source } from "#schema";
+import type {
+  Source,
+} from "#schema";
 
 import {
   buildGraphqlToolPresentation,
   compileGraphqlToolDefinitions,
   type GraphqlToolManifest,
 } from "@executor/source-graphql";
-import { createGoogleDiscoveryCatalogSnapshot } from "@executor/source-google-discovery";
-import { createGraphqlCatalogSnapshot } from "@executor/source-graphql";
-import { createMcpCatalogSnapshot } from "@executor/source-mcp";
-import { createOpenApiCatalogSnapshot } from "@executor/source-openapi";
+import {
+  createGoogleDiscoveryCatalogSnapshot,
+} from "@executor/source-google-discovery";
+import {
+  createGraphqlCatalogSnapshot,
+} from "@executor/source-graphql";
+import {
+  createMcpCatalogSnapshot,
+} from "@executor/source-mcp";
+import {
+  createOpenApiCatalogSnapshot,
+} from "@executor/source-openapi";
 
 const baseSource: Source = {
   id: "src_calendar" as Source["id"],
-  workspaceId: "ws_test" as Source["workspaceId"],
+  scopeId: "ws_test" as Source["scopeId"],
   name: "Calendar",
   kind: "openapi",
   endpoint: "https://api.example.test",

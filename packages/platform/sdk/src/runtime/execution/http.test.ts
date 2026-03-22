@@ -1,16 +1,36 @@
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { FileSystem } from "@effect/platform";
-import { NodeFileSystem } from "@effect/platform-node";
-import { describe, expect, it } from "@effect/vitest";
+import {
+  tmpdir,
+} from "node:os";
+import {
+  join,
+} from "node:path";
+import {
+  FileSystem,
+} from "@effect/platform";
+import {
+  NodeFileSystem,
+} from "@effect/platform-node";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { makeToolInvokerFromTools } from "@executor/codemode-core";
-import { makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
+import {
+  makeToolInvokerFromTools,
+} from "@executor/codemode-core";
+import {
+  makeDenoSubprocessExecutor,
+} from "@executor/runtime-deno-subprocess";
 
-import { createLocalExecutorRuntime as createExecutorRuntime } from "../../../../sdk-file/src/index";
-import { withExecutorApiClient } from "./test-http-client";
+import {
+  createLocalExecutorRuntime as createExecutorRuntime,
+} from "../../../../sdk-file/src/index";
+import {
+  withExecutorApiClient,
+} from "./test-http-client";
 
 const makeExecutionResolver = () => {
   const toolInvoker = makeToolInvokerFromTools({
@@ -41,22 +61,22 @@ const makeExecutionResolver = () => {
 const makeRuntime = Effect.acquireRelease(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const workspaceRoot = yield* fs.makeTempDirectory({
+    const scopeRoot = yield* fs.makeTempDirectory({
       directory: tmpdir(),
       prefix: "executor-execution-http-",
     });
 
     return {
-      workspaceRoot,
-      homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
-      homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
+      scopeRoot,
+      homeConfigPath: join(scopeRoot, ".executor-home.jsonc"),
+      homeStateDirectory: join(scopeRoot, ".executor-home-state"),
     };
   }).pipe(
     Effect.provide(NodeFileSystem.layer),
-    Effect.flatMap(({ workspaceRoot, homeConfigPath, homeStateDirectory }) =>
+    Effect.flatMap(({ scopeRoot, homeConfigPath, homeStateDirectory }) =>
       createExecutorRuntime({
         localDataDir: ":memory:",
-        workspaceRoot,
+        workspaceRoot: scopeRoot,
         homeConfigPath,
         homeStateDirectory,
         executionResolver: makeExecutionResolver(),
@@ -75,12 +95,12 @@ describe("execution-http", () => {
       const createExecution = yield* withExecutorApiClient(
         {
           runtime,
-          accountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
         },
         (client) =>
           client.executions.create({
             path: {
-              workspaceId: installation.workspaceId,
+              scopeId: installation.scopeId,
             },
             payload: {
               code: "return await tools.math.add({ a: 20, b: 22 });",
@@ -95,12 +115,12 @@ describe("execution-http", () => {
       const getExecution = yield* withExecutorApiClient(
         {
           runtime,
-          accountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
         },
         (client) =>
           client.executions.get({
             path: {
-              workspaceId: installation.workspaceId,
+              scopeId: installation.scopeId,
               executionId: createExecution.execution.id,
             },
           }),

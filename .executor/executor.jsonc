@@ -1,22 +1,117 @@
 {
   "sources": {
     "github": {
-      "kind": "openapi",
       "name": "GitHub",
       "connection": {
-        "endpoint": "https://api.github.com/"
+        "endpoint": "https://api.github.com"
       },
+      "kind": "openapi",
       "binding": {
-        "specUrl": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
+        "specUrl": "https://example.com/github-openapi.yaml",
         "defaultHeaders": null
       }
-    }
-  },
-  "policies": {
-    "demo.*": {
-      "match": "demo.*",
-      "action": "allow",
-      "approval": "auto"
+    },
+    "googleapis": {
+      "name": "Drive",
+      "namespace": "google.drive",
+      "connection": {
+        "endpoint": "http://127.0.0.1:60144/drive/$discovery/rest?version=v3"
+      },
+      "kind": "google_discovery",
+      "binding": {
+        "service": "drive",
+        "version": "v3",
+        "discoveryUrl": "http://127.0.0.1:60144/drive/$discovery/rest?version=v3",
+        "defaultHeaders": null,
+        "scopes": [
+          "scope:drive.readonly"
+        ]
+      }
+    },
+    "google-gmail": {
+      "name": "Gmail",
+      "namespace": "google.gmail",
+      "connection": {
+        "endpoint": "http://127.0.0.1:60197/gmail/$discovery/rest?version=v1"
+      },
+      "kind": "google_discovery",
+      "binding": {
+        "service": "gmail",
+        "version": "v1",
+        "discoveryUrl": "http://127.0.0.1:60197/gmail/$discovery/rest?version=v1",
+        "defaultHeaders": null,
+        "scopes": [
+          "scope:gmail.readonly"
+        ]
+      }
+    },
+    "google-calendar": {
+      "name": "Calendar",
+      "namespace": "google.calendar",
+      "connection": {
+        "endpoint": "http://127.0.0.1:60190/calendar/$discovery/rest?version=v3"
+      },
+      "kind": "google_discovery",
+      "binding": {
+        "service": "calendar",
+        "version": "v3",
+        "discoveryUrl": "http://127.0.0.1:60190/calendar/$discovery/rest?version=v3",
+        "defaultHeaders": null,
+        "scopes": [
+          "scope:calendar.readonly"
+        ]
+      }
+    },
+    "google-drive": {
+      "name": "Drive",
+      "namespace": "google.drive",
+      "connection": {
+        "endpoint": "http://127.0.0.1:60205/drive/$discovery/rest?version=v3"
+      },
+      "kind": "google_discovery",
+      "binding": {
+        "service": "drive",
+        "version": "v3",
+        "discoveryUrl": "http://127.0.0.1:60205/drive/$discovery/rest?version=v3",
+        "defaultHeaders": null,
+        "scopes": [
+          "scope:drive.readonly"
+        ]
+      }
+    },
+    "google-drive-2": {
+      "name": "Drive",
+      "namespace": "google.drive",
+      "connection": {
+        "endpoint": "https://example.test/drive/$discovery/rest?version=v3"
+      },
+      "kind": "google_discovery",
+      "binding": {
+        "service": "drive",
+        "version": "v3",
+        "discoveryUrl": "https://example.test/drive/$discovery/rest?version=v3",
+        "defaultHeaders": null,
+        "scopes": [
+          "scope:drive.readonly"
+        ]
+      }
+    },
+    "google-gmail-2": {
+      "kind": "google_discovery",
+      "name": "Gmail",
+      "namespace": "google.gmail",
+      "connection": {
+        "endpoint": "https://example.test/gmail/$discovery/rest?version=v1"
+      },
+      "binding": {
+        "service": "gmail",
+        "version": "v1",
+        "discoveryUrl": "https://example.test/gmail/$discovery/rest?version=v1",
+        "defaultHeaders": null,
+        "scopes": [
+          "scope:gmail.readonly"
+        ]
+      }
     }
   }
 }

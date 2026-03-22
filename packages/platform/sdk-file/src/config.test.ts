@@ -34,7 +34,7 @@ describe("local-config", () => {
         join(configDirectory, "executor.jsonc"),
         `{
   "runtime": "ses",
-  // local workspace config
+  // local scope config
   "sources": {
     "github": {
       "kind": "openapi",

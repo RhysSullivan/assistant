@@ -289,8 +289,8 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
         const environment = yield* Effect.gen(function* () {
           const resolveExecutionEnvironment = yield* RuntimeExecutionResolverService;
           return yield* resolveExecutionEnvironment({
-            workspaceId: executor.workspaceId,
-            accountId: executor.accountId,
+            scopeId: executor.scopeId,
+            actorScopeId: executor.actorScopeId,
             executionId: ExecutionIdSchema.make("exec_help"),
           });
         }).pipe(
@@ -403,7 +403,7 @@ const getLocalAuthedClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
     const installation = yield* bootstrapClient.local.installation({});
     const client = yield* createExecutorApiClient({
       baseUrl,
-      accountId: installation.accountId,
+      accountId: installation.actorScopeId,
     });
 
     return {
@@ -574,6 +574,10 @@ const getServerStatus = (
     const installation = reachable
       ? yield* getBootstrapClient(baseUrl).pipe(
           Effect.flatMap((client) => client.local.installation({})),
+          Effect.map((installation) => ({
+            accountId: installation.actorScopeId,
+            workspaceId: installation.scopeId,
+          })),
           Effect.catchAll(() => Effect.succeed(null)),
         )
       : null;
@@ -923,7 +927,7 @@ const promptInteraction = (input: {
 
 const waitForExecutionProgress = (input: {
   client: ExecutorApiClient;
-  workspaceId: ExecutionEnvelope["execution"]["workspaceId"];
+  workspaceId: ExecutionEnvelope["execution"]["scopeId"];
   executionId: ExecutionEnvelope["execution"]["id"];
   pendingInteractionId: ExecutionInteraction["id"];
 }) =>
@@ -987,7 +991,7 @@ const seedDemoMcpSource = (input: {
     const { installation, client } = yield* getLocalAuthedClient(input.baseUrl);
     const result = yield* seedDemoMcpSourceInWorkspace({
       client,
-      workspaceId: installation.workspaceId,
+      workspaceId: installation.scopeId,
       endpoint: input.endpoint,
       name: input.name,
       namespace: input.namespace,
@@ -1011,7 +1015,7 @@ const seedGithubOpenApiSource = (input: {
     const { installation, client } = yield* getLocalAuthedClient(input.baseUrl);
     const result = yield* seedGithubOpenApiSourceInWorkspace({
       client,
-      workspaceId: installation.workspaceId,
+      workspaceId: installation.scopeId,
       endpoint: input.endpoint,
       specUrl: input.specUrl,
       name: input.name,
@@ -1026,7 +1030,7 @@ const seedGithubOpenApiSource = (input: {
 
 const driveExecution = (input: {
   client: ExecutorApiClient;
-  workspaceId: ExecutionEnvelope["execution"]["workspaceId"];
+  workspaceId: ExecutionEnvelope["execution"]["scopeId"];
   envelope: ExecutionEnvelope;
   baseUrl: string;
   shouldOpenUrls: boolean;
@@ -1297,7 +1301,7 @@ const callCommand = Command.make(
       const { installation, client } = yield* getLocalAuthedClient(baseUrl);
       const created = yield* client.executions.create({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
         },
         payload: {
           code: resolvedCode,
@@ -1307,7 +1311,7 @@ const callCommand = Command.make(
 
       const settled = yield* driveExecution({
         client,
-        workspaceId: installation.workspaceId,
+        workspaceId: installation.scopeId,
         envelope: created,
         baseUrl,
         shouldOpenUrls: !noOpen,
@@ -1333,14 +1337,14 @@ const resumeCommand = Command.make(
       );
       const execution = yield* client.executions.get({
         path: {
-          workspaceId: installation.workspaceId,
+          workspaceId: installation.scopeId,
           executionId: decodedExecutionId,
         },
       });
 
       const settled = yield* driveExecution({
         client,
-        workspaceId: installation.workspaceId,
+        workspaceId: installation.scopeId,
         envelope: execution,
         baseUrl,
         shouldOpenUrls: !noOpen,

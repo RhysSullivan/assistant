@@ -65,8 +65,8 @@ describe("distribution flow", () => {
       const installationResponse = yield* harness.fetchText("/v1/local/installation");
       expect(installationResponse.status).toBe(200);
       const installation = JSON.parse(installationResponse.body) as {
-        workspaceId: string;
-        accountId: string;
+        scopeId: string;
+        actorScopeId: string;
       };
 
       const sesCall = yield* runCommand(
@@ -88,12 +88,12 @@ describe("distribution flow", () => {
       const installationAfterRestart = JSON.parse(
         installationAfterRestartResponse.body,
       ) as {
-        workspaceId: string;
-        accountId: string;
+        scopeId: string;
+        actorScopeId: string;
       };
 
-      expect(installationAfterRestart.workspaceId).toBe(installation.workspaceId);
-      expect(installationAfterRestart.accountId).toBe(installation.accountId);
+      expect(installationAfterRestart.scopeId).toBe(installation.scopeId);
+      expect(installationAfterRestart.actorScopeId).toBe(installation.actorScopeId);
 
       yield* runCommand(["down", "--base-url", harness.baseUrl]);
     });

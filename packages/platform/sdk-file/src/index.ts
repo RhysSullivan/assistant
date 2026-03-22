@@ -10,7 +10,7 @@ import {
   type ExecutorBackendServices,
   type ExecutorLocalToolBackend,
   type ExecutorSourceTypeDeclarationsBackend,
-  type ExecutorWorkspaceDescriptor,
+  type ExecutorScopeDescriptor,
 } from "@executor/platform-sdk";
 import type {
   LocalExecutorConfig,
@@ -198,11 +198,11 @@ const createBoundSourceTypeDeclarationsRefresher = (
     }),
 });
 
-const toExecutorWorkspaceContext = (
+const toExecutorScopeContext = (
   context: ResolvedLocalWorkspaceContext,
-): ExecutorWorkspaceDescriptor => ({
-  workspaceName: context.workspaceName,
-  workspaceRoot: context.workspaceRoot,
+): ExecutorScopeDescriptor => ({
+  scopeName: context.workspaceName,
+  scopeRoot: context.workspaceRoot,
   metadata: {
     kind: "file",
     configDirectory: context.configDirectory,
@@ -248,11 +248,11 @@ export const createLocalExecutorServicesEffect = (
       });
 
     return {
-      workspace: toExecutorWorkspaceContext(workspaceContext),
+      scope: toExecutorScopeContext(workspaceContext),
       storage: {
         installation: createBoundInstallationStore(workspaceContext),
-        workspaceConfig: workspaceConfigStore,
-        workspaceState: createBoundWorkspaceStateStore(
+        scopeConfig: workspaceConfigStore,
+        scopeState: createBoundWorkspaceStateStore(
           workspaceContext,
           fileSystem,
         ),

@@ -1,19 +1,23 @@
 import * as Effect from "effect/Effect";
 
 import type {
-  AccountId,
+  ScopeId,
   Execution,
   ExecutionEnvelope,
   ExecutionInteraction,
   LocalInstallation,
-  LocalWorkspacePolicy,
+  LocalScopePolicy,
   ProviderAuthGrant,
   Source,
-  WorkspaceId,
-  WorkspaceOauthClient,
+  ScopeOauthClient,
 } from "./schema";
-import { ExecutionIdSchema } from "./schema";
-import type { CreateExecutionPayload, ResumeExecutionPayload } from "./executions/contracts";
+import {
+  ExecutionIdSchema,
+} from "./schema";
+import type {
+  CreateExecutionPayload,
+  ResumeExecutionPayload,
+} from "./executions/contracts";
 import type {
   CreateSecretPayload,
   CreateSecretResult,
@@ -36,7 +40,10 @@ import {
   listLocalSecrets,
   updateLocalSecret,
 } from "./local/secrets";
-import type { CreatePolicyPayload, UpdatePolicyPayload } from "./policies/contracts";
+import type {
+  CreatePolicyPayload,
+  UpdatePolicyPayload,
+} from "./policies/contracts";
 import {
   createPolicy,
   getPolicy,
@@ -46,10 +53,12 @@ import {
 } from "./policies/operations";
 import type {
   CreateSourcePayload,
-  CreateWorkspaceOauthClientPayload,
+  CreateScopeOauthClientPayload,
   UpdateSourcePayload,
 } from "./sources/contracts";
-import { discoverSource } from "./sources/discovery";
+import {
+  discoverSource,
+} from "./sources/discovery";
 import {
   discoverSourceInspectionTools,
   getSourceInspection,
@@ -62,17 +71,23 @@ import {
   removeSource,
   updateSource,
 } from "./sources/operations";
-import type { ExecutorBackend } from "./backend";
+import type {
+  ExecutorBackend,
+} from "./backend";
 import {
   provideExecutorRuntime,
   type ExecutorRuntime,
   type ExecutorRuntimeOptions,
-  type CreateWorkspaceInternalToolMap,
+  type CreateScopeInternalToolMap,
   type ResolveExecutionEnvironment,
   type ResolveSecretMaterial,
   RuntimeSourceAuthServiceTag,
 } from "./runtime";
-import { createExecution, getExecution, resumeExecution } from "./runtime/execution/service";
+import {
+  createExecution,
+  getExecution,
+  resumeExecution,
+} from "./runtime/execution/service";
 import type {
   CompleteProviderOauthCallbackResult,
   CompleteSourceCredentialSetupResult,
@@ -96,29 +111,30 @@ type ProvidedEffect<T extends Effect.Effect<any, any, any>> = Effect.Effect<
 
 export type ExecutorSourceInput = DistributiveOmit<
   ExecutorAddSourceInput,
-  "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
 >;
 
 export type ExecutorSourceBatchInput = DistributiveOmit<
   ConnectGoogleDiscoveryBatchInput,
-  "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
 >;
 
 export type ExecutorMcpSourceInput = DistributiveOmit<
   ConnectMcpSourceInput,
-  "workspaceId" | "actorAccountId"
+  "scopeId" | "actorScopeId"
 >;
 
 export type ExecutorSourceOAuthInput = DistributiveOmit<
   StartSourceOAuthSessionInput,
-  "workspaceId" | "actorAccountId"
+  "scopeId" | "actorScopeId"
 >;
 
 export type Executor = {
   runtime: ExecutorRuntime;
   installation: LocalInstallation;
-  workspaceId: WorkspaceId;
-  accountId: AccountId;
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
+  resolutionScopeIds: ReadonlyArray<ScopeId>;
   provide: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, any>;
   run: <A, E, R>(effect: Effect.Effect<A, E, R>) => Promise<A>;
   close: () => Promise<void>;
@@ -202,12 +218,12 @@ export type Executor = {
       oauthClients: {
         list: (
           providerKey: string,
-        ) => Effect.Effect<ReadonlyArray<WorkspaceOauthClient>, Error, never>;
+        ) => Effect.Effect<ReadonlyArray<ScopeOauthClient>, Error, never>;
         create: (
-          payload: CreateWorkspaceOauthClientPayload,
-        ) => Effect.Effect<WorkspaceOauthClient, Error, never>;
+          payload: CreateScopeOauthClientPayload,
+        ) => Effect.Effect<ScopeOauthClient, Error, never>;
         remove: (
-          oauthClientId: WorkspaceOauthClient["id"],
+          oauthClientId: ScopeOauthClient["id"],
         ) => Effect.Effect<boolean, Error, never>;
       };
       providerGrants: {
@@ -225,8 +241,8 @@ export type Executor = {
         errorDescription?: string | null;
       }) => Effect.Effect<CompleteSourceOAuthSessionResult, Error, never>;
       completeProviderCallback: (input: {
-        workspaceId?: WorkspaceId;
-        actorAccountId?: AccountId | null;
+        scopeId?: ScopeId;
+        actorScopeId?: ScopeId | null;
         state: string;
         code?: string | null;
         error?: string | null;
@@ -275,13 +291,13 @@ export type Executor = {
     remove: (secretId: string) => Promise<DeleteSecretResult>;
   };
   policies: {
-    list: () => Promise<ReadonlyArray<LocalWorkspacePolicy>>;
-    create: (payload: CreatePolicyPayload) => Promise<LocalWorkspacePolicy>;
-    get: (policyId: string) => Promise<LocalWorkspacePolicy>;
+    list: () => Promise<ReadonlyArray<LocalScopePolicy>>;
+    create: (payload: CreatePolicyPayload) => Promise<LocalScopePolicy>;
+    get: (policyId: string) => Promise<LocalScopePolicy>;
     update: (
       policyId: string,
       payload: UpdatePolicyPayload,
-    ) => Promise<LocalWorkspacePolicy>;
+    ) => Promise<LocalScopePolicy>;
     remove: (policyId: string) => Promise<boolean>;
   };
   sources: {
@@ -314,11 +330,11 @@ export type Executor = {
       }) => Promise<Effect.Effect.Success<ReturnType<typeof discoverSourceInspectionTools>>>;
     };
     oauthClients: {
-      list: (providerKey: string) => Promise<ReadonlyArray<WorkspaceOauthClient>>;
+      list: (providerKey: string) => Promise<ReadonlyArray<ScopeOauthClient>>;
       create: (
-        payload: CreateWorkspaceOauthClientPayload,
-      ) => Promise<WorkspaceOauthClient>;
-      remove: (oauthClientId: WorkspaceOauthClient["id"]) => Promise<boolean>;
+        payload: CreateScopeOauthClientPayload,
+      ) => Promise<ScopeOauthClient>;
+      remove: (oauthClientId: ScopeOauthClient["id"]) => Promise<boolean>;
     };
     providerGrants: {
       remove: (grantId: ProviderAuthGrant["id"]) => Promise<boolean>;
@@ -333,8 +349,8 @@ export type Executor = {
       errorDescription?: string | null;
     }) => Promise<CompleteSourceOAuthSessionResult>;
     completeProviderCallback: (input: {
-      workspaceId?: WorkspaceId;
-      actorAccountId?: AccountId | null;
+      scopeId?: ScopeId;
+      actorScopeId?: ScopeId | null;
       state: string;
       code?: string | null;
       error?: string | null;
@@ -357,8 +373,8 @@ export type CreateExecutorOptions = ExecutorRuntimeOptions & {
 
 const fromRuntime = (runtime: ExecutorRuntime): Executor => {
   const installation = runtime.localInstallation;
-  const workspaceId = installation.workspaceId;
-  const accountId = installation.accountId;
+  const scopeId = installation.scopeId;
+  const actorScopeId = installation.actorScopeId;
   const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     provideExecutorRuntime(effect, runtime);
   const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -383,7 +399,7 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         get: ({ sourceId, interactionId }) =>
           provide(
             getSourceCredentialInteraction({
-              workspaceId,
+              scopeId,
               sourceId,
               interactionId,
             }),
@@ -391,7 +407,7 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         submit: ({ sourceId, interactionId, action, token }) =>
           provide(
             submitSourceCredentialInteraction({
-              workspaceId,
+              scopeId,
               sourceId,
               interactionId,
               action,
@@ -401,7 +417,7 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         complete: ({ sourceId, state, code, error, errorDescription }) =>
           provide(
             completeSourceCredentialSetup({
-              workspaceId,
+              scopeId,
               sourceId,
               state,
               code,
@@ -419,15 +435,15 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
       remove: (secretId: string) => provide(deleteLocalSecret(secretId)),
     },
     policies: {
-      list: () => provide(listPolicies(workspaceId)),
+      list: () => provide(listPolicies(scopeId)),
       create: (payload: CreatePolicyPayload) =>
-        provide(createPolicy({ workspaceId, payload })),
+        provide(createPolicy({ scopeId, payload })),
       get: (policyId: string) =>
-        provide(getPolicy({ workspaceId, policyId: policyId as never })),
+        provide(getPolicy({ scopeId, policyId: policyId as never })),
       update: (policyId: string, payload: UpdatePolicyPayload) =>
-        provide(updatePolicy({ workspaceId, policyId: policyId as never, payload })),
+        provide(updatePolicy({ scopeId, policyId: policyId as never, payload })),
       remove: (policyId: string) =>
-        provide(removePolicy({ workspaceId, policyId: policyId as never })),
+        provide(removePolicy({ scopeId, policyId: policyId as never })),
     },
     sources: {
       add: (input: ExecutorSourceInput, options?: { baseUrl?: string | null }) =>
@@ -436,8 +452,8 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
           return service.addExecutorSource(
             {
               ...input,
-              workspaceId,
-              actorAccountId: accountId,
+              scopeId,
+              actorScopeId: actorScopeId,
               executionId: session.executionId,
               interactionId: session.interactionId,
             },
@@ -448,8 +464,8 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         provideSourceAuth((service) =>
           service.connectMcpSource({
             ...payload,
-            workspaceId,
-            actorAccountId: accountId,
+            scopeId,
+            actorScopeId: actorScopeId,
           }),
         ),
       connectBatch: (payload: ExecutorSourceBatchInput) =>
@@ -457,8 +473,8 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
           const session = createSdkSourceSession();
           return service.connectGoogleDiscoveryBatch({
             ...payload,
-            workspaceId,
-            actorAccountId: accountId,
+            scopeId,
+            actorScopeId: actorScopeId,
             executionId: session.executionId,
             interactionId: session.interactionId,
           });
@@ -467,22 +483,22 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         url: string;
         probeAuth?: Parameters<typeof discoverSource>[0]["probeAuth"];
       }) => provide(discoverSource(input)),
-      list: () => provide(listSources({ workspaceId, accountId })),
+      list: () => provide(listSources({ scopeId, actorScopeId })),
       create: (payload: CreateSourcePayload) =>
-        provide(createSource({ workspaceId, accountId, payload })),
+        provide(createSource({ scopeId, actorScopeId, payload })),
       get: (sourceId: Source["id"]) =>
-        provide(getSource({ workspaceId, sourceId, accountId })),
+        provide(getSource({ scopeId, sourceId, actorScopeId })),
       update: (sourceId: Source["id"], payload: UpdateSourcePayload) =>
-        provide(updateSource({ workspaceId, sourceId, accountId, payload })),
+        provide(updateSource({ scopeId, sourceId, actorScopeId, payload })),
       remove: (sourceId: Source["id"]) =>
-        provide(removeSource({ workspaceId, sourceId })),
+        provide(removeSource({ scopeId, sourceId })),
       inspection: {
         get: (sourceId: Source["id"]) =>
-          provide(getSourceInspection({ workspaceId, sourceId })),
+          provide(getSourceInspection({ scopeId, sourceId })),
         tool: ({ sourceId, toolPath }: { sourceId: Source["id"]; toolPath: string }) =>
           provide(
             getSourceInspectionToolDetail({
-              workspaceId,
+              scopeId,
               sourceId,
               toolPath,
             }),
@@ -496,7 +512,7 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         }) =>
           provide(
             discoverSourceInspectionTools({
-              workspaceId,
+              scopeId,
               sourceId,
               payload,
             }),
@@ -505,24 +521,24 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
       oauthClients: {
         list: (providerKey: string) =>
           provideSourceAuth((service) =>
-            service.listWorkspaceOauthClients({
-              workspaceId,
+            service.listScopeOauthClients({
+              scopeId,
               providerKey,
             }),
           ),
-        create: (payload: CreateWorkspaceOauthClientPayload) =>
+        create: (payload: CreateScopeOauthClientPayload) =>
           provideSourceAuth((service) =>
-            service.createWorkspaceOauthClient({
-              workspaceId,
+            service.createScopeOauthClient({
+              scopeId,
               providerKey: payload.providerKey,
               label: payload.label,
               oauthClient: payload.oauthClient,
             }),
           ),
-        remove: (oauthClientId: WorkspaceOauthClient["id"]) =>
+        remove: (oauthClientId: ScopeOauthClient["id"]) =>
           provideSourceAuth((service) =>
-            service.removeWorkspaceOauthClient({
-              workspaceId,
+            service.removeScopeOauthClient({
+              scopeId,
               oauthClientId,
             }),
           ),
@@ -531,7 +547,7 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         remove: (grantId: ProviderAuthGrant["id"]) =>
           provideSourceAuth((service) =>
             service.removeProviderAuthGrant({
-              workspaceId,
+              scopeId,
               grantId,
             }),
           ),
@@ -542,8 +558,8 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         provideSourceAuth((service) =>
           service.startSourceOAuthSession({
             ...input,
-            workspaceId,
-            actorAccountId: accountId,
+            scopeId,
+            actorScopeId: actorScopeId,
           }),
         ),
       completeSourceAuth: ({ state, code, error, errorDescription }) =>
@@ -559,8 +575,8 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
         provideSourceAuth((service) =>
           service.completeProviderOauthCallback({
             ...input,
-            workspaceId: input.workspaceId ?? workspaceId,
-            actorAccountId: input.actorAccountId ?? accountId,
+            scopeId: input.scopeId ?? scopeId,
+            actorScopeId: input.actorScopeId ?? actorScopeId,
           }),
         ),
     },
@@ -568,20 +584,20 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
       create: (payload: CreateExecutionPayload) =>
         provide(
           createExecution({
-            workspaceId,
+            scopeId,
             payload,
-            createdByAccountId: accountId,
+            createdByScopeId: actorScopeId,
           }),
         ),
       get: (executionId: Execution["id"]) =>
-        provide(getExecution({ workspaceId, executionId })),
+        provide(getExecution({ scopeId, executionId })),
       resume: (executionId: Execution["id"], payload: ResumeExecutionPayload) =>
         provide(
           resumeExecution({
-            workspaceId,
+            scopeId,
             executionId,
             payload,
-            resumedByAccountId: accountId,
+            resumedByScopeId: actorScopeId,
           }),
         ),
     },
@@ -590,8 +606,9 @@ const fromRuntime = (runtime: ExecutorRuntime): Executor => {
   return {
     runtime,
     installation,
-    workspaceId,
-    accountId,
+    scopeId,
+    actorScopeId,
+    resolutionScopeIds: installation.resolutionScopeIds,
     provide,
     run,
     close: () => runtime.close(),

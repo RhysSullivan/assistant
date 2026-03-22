@@ -134,7 +134,7 @@ export const SourceBindingSchema = Schema.Struct({
 
 export const SourceSchema = Schema.Struct({
   id: Schema.String,
-  workspaceId: Schema.String,
+  scopeId: Schema.String,
   name: Schema.String,
   kind: SourceKindSchema,
   endpoint: Schema.String,
@@ -157,19 +157,19 @@ export const StoredSourceRecordSchema = Schema.Struct({
   bindingConfigJson: Schema.NullOr(Schema.String),
 });
 
-export const WorkspaceSourceOauthClientRedirectModeSchema = Schema.Literal(
+export const ScopedSourceOauthClientRedirectModeSchema = Schema.Literal(
   "app_callback",
   "loopback",
 );
 
-export const WorkspaceOauthClientIdSchema = Schema.String;
+export const ScopeOauthClientIdSchema = Schema.String;
 
 export const SourceOauthClientInputSchema = Schema.Struct({
   clientId: Schema.Trim.pipe(Schema.nonEmptyString()),
   clientSecret: Schema.optional(
     Schema.NullOr(Schema.Trim.pipe(Schema.nonEmptyString())),
   ),
-  redirectMode: Schema.optional(WorkspaceSourceOauthClientRedirectModeSchema),
+  redirectMode: Schema.optional(ScopedSourceOauthClientRedirectModeSchema),
 });
 
 export type SecretRef = typeof SecretRefSchema.Type;
@@ -185,6 +185,6 @@ export type SourceAuth = typeof SourceAuthSchema.Type;
 export type SourceBinding = typeof SourceBindingSchema.Type;
 export type Source = typeof SourceSchema.Type;
 export type StoredSourceRecord = typeof StoredSourceRecordSchema.Type;
-export type WorkspaceSourceOauthClientRedirectMode =
-  typeof WorkspaceSourceOauthClientRedirectModeSchema.Type;
+export type ScopedSourceOauthClientRedirectMode =
+  typeof ScopedSourceOauthClientRedirectModeSchema.Type;
 export type SourceOauthClientInput = typeof SourceOauthClientInputSchema.Type;

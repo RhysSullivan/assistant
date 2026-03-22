@@ -1,14 +1,30 @@
-import { createServer } from "node:http";
+import {
+  createServer,
+} from "node:http";
 
-import { describe, expect, it } from "@effect/vitest";
-import { SourceIdSchema } from "#schema";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
+import {
+  SourceIdSchema,
+} from "#schema";
 
 import * as Effect from "effect/Effect";
 
-import { googleDiscoverySourceAdapter } from "./google-discovery";
-import { snapshotFromSourceCatalogSyncResult } from "../catalog-sync-result";
-import { createSourceFromPayload } from "../source-definitions";
-import { runtimeEffectError } from "../../effect-errors";
+import {
+  googleDiscoverySourceAdapter,
+} from "./google-discovery";
+import {
+  snapshotFromSourceCatalogSyncResult,
+} from "../catalog-sync-result";
+import {
+  createSourceFromPayload,
+} from "../source-definitions";
+import {
+  runtimeEffectError,
+} from "../../effect-errors";
 
 const fetchLiveDiscoveryDocument = async (): Promise<string> => {
   const response = await fetch("https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest", {
@@ -66,7 +82,7 @@ describe("google discovery source adapter", () => {
         await withStaticServer(discoveryDocument, async (discoveryUrl) => {
           const source = await Effect.runPromise(
             createSourceFromPayload({
-              workspaceId: "ws_test" as any,
+              scopeId: "ws_test" as any,
               sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
               payload: {
                 name: "Google Sheets",

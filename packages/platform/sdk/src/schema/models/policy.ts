@@ -1,28 +1,35 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 
-import { TimestampMsSchema } from "../common";
-import { PolicyIdSchema, WorkspaceIdSchema } from "../ids";
+import {
+  TimestampMsSchema,
+} from "../common";
+import {
+  PolicyIdSchema,
+  ScopeIdSchema,
+} from "../ids";
 
-export const LocalWorkspacePolicyEffectSchema = Schema.Literal("allow", "deny");
-export const LocalWorkspacePolicyApprovalModeSchema = Schema.Literal("auto", "required");
+export const LocalScopePolicyEffectSchema = Schema.Literal("allow", "deny");
+export const LocalScopePolicyApprovalModeSchema = Schema.Literal("auto", "required");
 
-export const LocalWorkspacePolicySchema = Schema.Struct({
+export const LocalScopePolicySchema = Schema.Struct({
   id: PolicyIdSchema,
   key: Schema.String,
-  workspaceId: WorkspaceIdSchema,
+  scopeId: ScopeIdSchema,
   resourcePattern: Schema.String,
-  effect: LocalWorkspacePolicyEffectSchema,
-  approvalMode: LocalWorkspacePolicyApprovalModeSchema,
+  effect: LocalScopePolicyEffectSchema,
+  approvalMode: LocalScopePolicyApprovalModeSchema,
   priority: Schema.Number,
   enabled: Schema.Boolean,
   createdAt: TimestampMsSchema,
   updatedAt: TimestampMsSchema,
 });
 
-export const LocalWorkspacePolicyInsertSchema = LocalWorkspacePolicySchema;
-export const LocalWorkspacePolicyUpdateSchema = Schema.partial(LocalWorkspacePolicySchema);
+export const LocalScopePolicyInsertSchema = LocalScopePolicySchema;
+export const LocalScopePolicyUpdateSchema = Schema.partial(LocalScopePolicySchema);
 
-export type LocalWorkspacePolicyEffect = typeof LocalWorkspacePolicyEffectSchema.Type;
-export type LocalWorkspacePolicyApprovalMode =
-  typeof LocalWorkspacePolicyApprovalModeSchema.Type;
-export type LocalWorkspacePolicy = typeof LocalWorkspacePolicySchema.Type;
+export type LocalScopePolicyEffect = typeof LocalScopePolicyEffectSchema.Type;
+export type LocalScopePolicyApprovalMode =
+  typeof LocalScopePolicyApprovalModeSchema.Type;
+export type LocalScopePolicy = typeof LocalScopePolicySchema.Type;

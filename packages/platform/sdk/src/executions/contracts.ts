@@ -1,6 +1,8 @@
 import * as Schema from "effect/Schema";
 
-import { TrimmedNonEmptyStringSchema } from "../string-schemas";
+import {
+  TrimmedNonEmptyStringSchema,
+} from "../string-schemas";
 
 export const CreateExecutionPayloadSchema = Schema.Struct({
   code: TrimmedNonEmptyStringSchema,

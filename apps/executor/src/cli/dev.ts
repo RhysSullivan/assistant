@@ -1,5 +1,5 @@
 import type { ExecutorApiClient } from "@executor/platform-api";
-import { WorkspaceIdSchema } from "@executor/platform-sdk/schema";
+import { ScopeIdSchema } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 
 const readBindingString = (binding: Record<string, unknown>, key: string): string | null =>
@@ -41,7 +41,7 @@ export const seedDemoMcpSourceInWorkspace = (
   input: SeedDemoMcpSourceInput,
 ): Effect.Effect<SeedDemoMcpSourceResult, unknown, never> =>
   Effect.gen(function* () {
-    const workspaceId = WorkspaceIdSchema.make(input.workspaceId);
+    const workspaceId = ScopeIdSchema.make(input.workspaceId);
 
     const existing = yield* input.client.sources.list({
       path: {
@@ -138,7 +138,7 @@ export const seedGithubOpenApiSourceInWorkspace = (
   input: SeedGithubOpenApiSourceInput,
 ): Effect.Effect<SeedDemoMcpSourceResult, unknown, never> =>
   Effect.gen(function* () {
-    const workspaceId = WorkspaceIdSchema.make(input.workspaceId);
+    const workspaceId = ScopeIdSchema.make(input.workspaceId);
 
     const existing = yield* input.client.sources.list({
       path: {

@@ -2,7 +2,9 @@ import type {
   ElicitationResponse,
   OnElicitation,
 } from "@executor/codemode-core";
-import { clearMcpConnectionPoolRun } from "@executor/source-mcp";
+import {
+  clearMcpConnectionPoolRun,
+} from "@executor/source-mcp";
 import {
   ExecutionInteractionIdSchema,
   type Execution,
@@ -13,7 +15,9 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import type { ExecutorStateStoreShape } from "../executor-state-store";
+import type {
+  ExecutorStateStoreShape,
+} from "../executor-state-store";
 
 type VisibleExecutionState =
   | "running"

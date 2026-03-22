@@ -1,23 +1,25 @@
 import {
-  LocalWorkspacePolicyApprovalModeSchema,
-  LocalWorkspacePolicyEffectSchema,
+  LocalScopePolicyApprovalModeSchema,
+  LocalScopePolicyEffectSchema,
 } from "../schema";
 import * as Schema from "effect/Schema";
 
-import { OptionalTrimmedNonEmptyStringSchema } from "../string-schemas";
+import {
+  OptionalTrimmedNonEmptyStringSchema,
+} from "../string-schemas";
 
-const LocalWorkspacePolicyPayloadSchema = Schema.Struct({
+const LocalScopePolicyPayloadSchema = Schema.Struct({
   resourcePattern: OptionalTrimmedNonEmptyStringSchema,
-  effect: Schema.optional(LocalWorkspacePolicyEffectSchema),
-  approvalMode: Schema.optional(LocalWorkspacePolicyApprovalModeSchema),
+  effect: Schema.optional(LocalScopePolicyEffectSchema),
+  approvalMode: Schema.optional(LocalScopePolicyApprovalModeSchema),
   priority: Schema.optional(Schema.Number),
   enabled: Schema.optional(Schema.Boolean),
 });
 
-export const CreatePolicyPayloadSchema = LocalWorkspacePolicyPayloadSchema;
+export const CreatePolicyPayloadSchema = LocalScopePolicyPayloadSchema;
 
 export type CreatePolicyPayload = typeof CreatePolicyPayloadSchema.Type;
 
-export const UpdatePolicyPayloadSchema = LocalWorkspacePolicyPayloadSchema;
+export const UpdatePolicyPayloadSchema = LocalScopePolicyPayloadSchema;
 
 export type UpdatePolicyPayload = typeof UpdatePolicyPayloadSchema.Type;

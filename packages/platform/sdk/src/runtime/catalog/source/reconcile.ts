@@ -1,15 +1,24 @@
 import type {
-  AccountId,
+  ScopeId,
   Source,
-  WorkspaceId,
 } from "#schema";
 import * as Effect from "effect/Effect";
 
-import { RuntimeLocalWorkspaceService } from "../../workspace/runtime-context";
-import { SourceArtifactStore } from "../../workspace/storage";
-import { getSourceAdapterForSource } from "../../sources/source-adapters";
-import { RuntimeSourceStoreService } from "../../sources/source-store";
-import { RuntimeSourceCatalogSyncService } from "./sync";
+import {
+  RuntimeLocalScopeService,
+} from "../../scope/runtime-context";
+import {
+  SourceArtifactStore,
+} from "../../scope/storage";
+import {
+  getSourceAdapterForSource,
+} from "../../sources/source-adapters";
+import {
+  RuntimeSourceStoreService,
+} from "../../sources/source-store";
+import {
+  RuntimeSourceCatalogSyncService,
+} from "./sync";
 
 const shouldReconcileSource = (source: Source): boolean =>
   source.enabled
@@ -17,23 +26,23 @@ const shouldReconcileSource = (source: Source): boolean =>
   && getSourceAdapterForSource(source).catalogKind !== "internal";
 
 export const reconcileMissingSourceCatalogArtifacts = (input: {
-  workspaceId: WorkspaceId;
-  actorAccountId?: AccountId | null;
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
 }): Effect.Effect<
   void,
   Error,
-  | RuntimeLocalWorkspaceService
+  | RuntimeLocalScopeService
   | SourceArtifactStore
   | RuntimeSourceStoreService
   | RuntimeSourceCatalogSyncService
 > =>
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* RuntimeLocalWorkspaceService;
+    const runtimeLocalScope = yield* RuntimeLocalScopeService;
     const sourceStore = yield* RuntimeSourceStoreService;
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceCatalogSync = yield* RuntimeSourceCatalogSyncService;
-    const sources = yield* sourceStore.loadSourcesInWorkspace(input.workspaceId, {
-      actorAccountId: input.actorAccountId,
+    const sources = yield* sourceStore.loadSourcesInScope(input.scopeId, {
+      actorScopeId: input.actorScopeId,
     });
 
     for (const source of sources) {
@@ -50,7 +59,7 @@ export const reconcileMissingSourceCatalogArtifacts = (input: {
 
       yield* sourceCatalogSync.sync({
         source,
-        actorAccountId: input.actorAccountId,
+        actorScopeId: input.actorScopeId,
       }).pipe(
         Effect.catchAll(() => Effect.void),
       );
@@ -58,7 +67,7 @@ export const reconcileMissingSourceCatalogArtifacts = (input: {
   }).pipe(
     Effect.withSpan("source.catalog.reconcile_missing", {
       attributes: {
-        "executor.workspace.id": input.workspaceId,
+        "executor.scope.id": input.scopeId,
       },
     }),
   );

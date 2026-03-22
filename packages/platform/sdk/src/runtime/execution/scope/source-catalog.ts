@@ -2,7 +2,10 @@ import {
   createToolCatalogFromEntries,
   type ToolCatalog,
 } from "@executor/codemode-core";
-import type { AccountId, Source } from "#schema";
+import type {
+  ScopeId,
+  Source,
+} from "#schema";
 import * as Effect from "effect/Effect";
 
 import {
@@ -10,15 +13,19 @@ import {
   type LoadedSourceCatalogToolIndexEntry,
   catalogToolCatalogEntry,
 } from "../../catalog/source/runtime";
-import type { RuntimeLocalWorkspaceState } from "../../workspace/runtime-context";
+import type {
+  RuntimeLocalScopeState,
+} from "../../scope/runtime-context";
 import {
-  makeWorkspaceStorageLayer,
+  makeScopeStorageLayer,
   type SourceArtifactStoreShape,
-  type WorkspaceConfigStoreShape,
-  type WorkspaceStateStoreShape,
-  type WorkspaceStorageServices,
-} from "../../workspace/storage";
-import { provideRuntimeLocalWorkspace } from "./local";
+  type ScopeConfigStoreShape,
+  type ScopeStateStoreShape,
+  type ScopeStorageServices,
+} from "../../scope/storage";
+import {
+  provideRuntimeLocalScope,
+} from "./local";
 
 const tokenize = (value: string): string[] =>
   value
@@ -74,19 +81,19 @@ const queryTokenWeight = (token: string): number =>
   LOW_SIGNAL_QUERY_TOKENS.has(token) ? 0.25 : 1;
 
 export const loadWorkspaceCatalogTools = (input: {
-  workspaceId: Source["workspaceId"];
-  accountId: AccountId;
+  scopeId: Source["scopeId"];
+  actorScopeId: ScopeId;
   sourceCatalogStore: Effect.Effect.Success<typeof RuntimeSourceCatalogStoreService>;
   includeSchemas: boolean;
 }): Effect.Effect<
   readonly LoadedSourceCatalogToolIndexEntry[],
   Error,
-  WorkspaceStorageServices
+  ScopeStorageServices
 > =>
   Effect.map(
     input.sourceCatalogStore.loadWorkspaceSourceCatalogToolIndex({
-      workspaceId: input.workspaceId,
-      actorAccountId: input.accountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
       includeSchemas: input.includeSchemas,
     }),
     (tools) =>
@@ -96,20 +103,20 @@ export const loadWorkspaceCatalogTools = (input: {
   );
 
 export const loadWorkspaceCatalogToolByPath = (input: {
-  workspaceId: Source["workspaceId"];
-  accountId: AccountId;
+  scopeId: Source["scopeId"];
+  actorScopeId: ScopeId;
   sourceCatalogStore: Effect.Effect.Success<typeof RuntimeSourceCatalogStoreService>;
   path: string;
   includeSchemas: boolean;
 }): Effect.Effect<
   LoadedSourceCatalogToolIndexEntry | null,
   Error,
-  WorkspaceStorageServices
+  ScopeStorageServices
 > =>
   input.sourceCatalogStore.loadWorkspaceSourceCatalogToolByPath({
-    workspaceId: input.workspaceId,
+    scopeId: input.scopeId,
     path: input.path,
-    actorAccountId: input.accountId,
+    actorScopeId: input.actorScopeId,
     includeSchemas: input.includeSchemas,
   }).pipe(
     Effect.map((tool) =>
@@ -245,28 +252,28 @@ const scoreCatalogTool = (
   return score;
 };
 
-export const createWorkspaceSourceCatalog = (input: {
-  workspaceId: Source["workspaceId"];
-  accountId: AccountId;
+export const createScopeSourceCatalog = (input: {
+  scopeId: Source["scopeId"];
+  actorScopeId: ScopeId;
   sourceCatalogStore: Effect.Effect.Success<typeof RuntimeSourceCatalogStoreService>;
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null;
+  runtimeLocalScope: RuntimeLocalScopeState | null;
 }): ToolCatalog => {
-  const workspaceStorageLayer = makeWorkspaceStorageLayer({
-    workspaceConfigStore: input.workspaceConfigStore,
-    workspaceStateStore: input.workspaceStateStore,
+  const scopeStorageLayer = makeScopeStorageLayer({
+    scopeConfigStore: input.scopeConfigStore,
+    scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
   });
   const provideWorkspaceStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    effect.pipe(Effect.provide(workspaceStorageLayer));
+    effect.pipe(Effect.provide(scopeStorageLayer));
 
   const createSharedCatalog = (includeSchemas: boolean): Effect.Effect<ToolCatalog, Error, never> =>
     provideWorkspaceStorage(Effect.gen(function* () {
       const catalogTools = yield* loadWorkspaceCatalogTools({
-        workspaceId: input.workspaceId,
-        accountId: input.accountId,
+        scopeId: input.scopeId,
+        actorScopeId: input.actorScopeId,
         sourceCatalogStore: input.sourceCatalogStore,
         includeSchemas,
       });
@@ -283,15 +290,15 @@ export const createWorkspaceSourceCatalog = (input: {
 
   return {
     listNamespaces: ({ limit }) =>
-      provideRuntimeLocalWorkspace(
+      provideRuntimeLocalScope(
         Effect.flatMap(createSharedCatalog(false), (catalog) =>
           catalog.listNamespaces({ limit }),
         ),
-        input.runtimeLocalWorkspace,
+        input.runtimeLocalScope,
       ),
 
     listTools: ({ namespace, query, limit, includeSchemas = false }) =>
-      provideRuntimeLocalWorkspace(
+      provideRuntimeLocalScope(
         Effect.flatMap(createSharedCatalog(includeSchemas), (catalog) =>
           catalog.listTools({
             ...(namespace !== undefined ? { namespace } : {}),
@@ -300,19 +307,19 @@ export const createWorkspaceSourceCatalog = (input: {
             includeSchemas,
           }),
         ),
-        input.runtimeLocalWorkspace,
+        input.runtimeLocalScope,
       ),
 
     getToolByPath: ({ path, includeSchemas }) =>
-      provideRuntimeLocalWorkspace(
+      provideRuntimeLocalScope(
         Effect.flatMap(createSharedCatalog(includeSchemas), (catalog) =>
           catalog.getToolByPath({ path, includeSchemas }),
         ),
-        input.runtimeLocalWorkspace,
+        input.runtimeLocalScope,
       ),
 
     searchTools: ({ query, namespace, limit }) =>
-      provideRuntimeLocalWorkspace(
+      provideRuntimeLocalScope(
         Effect.flatMap(createSharedCatalog(false), (catalog) =>
           catalog.searchTools({
             query,
@@ -320,7 +327,7 @@ export const createWorkspaceSourceCatalog = (input: {
             limit,
           }),
         ),
-        input.runtimeLocalWorkspace,
+        input.runtimeLocalScope,
       ),
   } satisfies ToolCatalog;
 };

@@ -1,8 +1,16 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import type { LoadedSourceCatalogTool } from "../catalog/source/runtime";
-import { inspectionToolDetailFromTool } from "./source-inspection";
+import type {
+  LoadedSourceCatalogTool,
+} from "../catalog/source/runtime";
+import {
+  inspectionToolDetailFromTool,
+} from "./source-inspection";
 
 describe("source inspection", () => {
   it.effect("keeps the shared TypeScript contract first-class on tool detail", () =>

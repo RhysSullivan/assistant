@@ -1,4 +1,7 @@
-import { SecretRefSchema, type SecretRef } from "#schema";
+import {
+  SecretRefSchema,
+  type SecretRef,
+} from "#schema";
 import * as Schema from "effect/Schema";
 
 export const SourceCredentialSelectionContentSchema = Schema.Union(

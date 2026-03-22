@@ -3,30 +3,56 @@ import {
   makeToolInvokerFromTools,
   type ToolMap,
 } from "@executor/codemode-core";
-import { clearAllMcpConnectionPools } from "@executor/source-mcp";
-import type { LocalInstallation } from "#schema";
+import {
+  clearAllMcpConnectionPools,
+} from "@executor/source-mcp";
+import type {
+  LocalInstallation,
+} from "#schema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 
-import { RuntimeSourceAuthMaterialLive } from "./auth/source-auth-material";
-import { RuntimeSourceCatalogStoreLive } from "./catalog/source/runtime";
-import { reconcileMissingSourceCatalogArtifacts } from "./catalog/source/reconcile";
-import { RuntimeSourceCatalogSyncLive } from "./catalog/source/sync";
+import {
+  RuntimeSourceAuthMaterialLive,
+} from "./auth/source-auth-material";
+import {
+  RuntimeSourceCatalogStoreLive,
+} from "./catalog/source/runtime";
+import {
+  reconcileMissingSourceCatalogArtifacts,
+} from "./catalog/source/reconcile";
+import {
+  RuntimeSourceCatalogSyncLive,
+} from "./catalog/source/sync";
 import {
   SourceTypeDeclarationsRefresherService,
   type SourceTypeDeclarationsRefresherShape,
 } from "./catalog/source/type-declarations";
-import { createLiveExecutionManager, LiveExecutionManagerService } from "./execution/live";
-import { RuntimeExecutionResolverLive } from "./execution/workspace/environment";
-import type { CreateWorkspaceInternalToolMap, WorkspaceInternalToolContext } from "./execution/workspace/tool-invoker";
-import type { LoadedLocalExecutorConfig } from "./workspace-config";
-import type { LocalExecutorConfig } from "#schema";
-import type { InstanceConfig } from "../local/contracts";
+import {
+  createLiveExecutionManager,
+  LiveExecutionManagerService,
+} from "./execution/live";
+import {
+  RuntimeExecutionResolverLive,
+} from "./execution/scope/environment";
 import type {
-  ExecutorWorkspaceContext,
-  ExecutorWorkspaceDescriptor,
-} from "../workspace";
+  CreateScopeInternalToolMap,
+  ScopeInternalToolContext,
+} from "./execution/scope/tool-invoker";
+import type {
+  LoadedLocalExecutorConfig,
+} from "./scope-config";
+import type {
+  LocalExecutorConfig,
+} from "#schema";
+import type {
+  InstanceConfig,
+} from "../local/contracts";
+import type {
+  ExecutorScopeContext,
+  ExecutorScopeDescriptor,
+} from "../scope";
 import {
   LocalInstanceConfigService,
   type DeleteSecretMaterial,
@@ -37,12 +63,14 @@ import {
   SecretMaterialUpdaterService,
   type StoreSecretMaterial,
   type UpdateSecretMaterial,
-} from "./workspace/secret-material-providers";
-import type { LocalSourceArtifact } from "./source-artifacts";
+} from "./scope/secret-material-providers";
+import type {
+  LocalSourceArtifact,
+} from "./source-artifacts";
 import {
-  type RuntimeLocalWorkspaceState,
-  RuntimeLocalWorkspaceLive,
-} from "./workspace/runtime-context";
+  type RuntimeLocalScopeState,
+  RuntimeLocalScopeLive,
+} from "./scope/runtime-context";
 import {
   type LocalToolRuntime,
   type LocalToolRuntimeLoaderShape,
@@ -53,14 +81,25 @@ import {
   makeLocalStorageLayer,
   type InstallationStoreShape,
   type SourceArtifactStoreShape,
-  type WorkspaceConfigStoreShape,
-  type WorkspaceStateStoreShape,
-} from "./workspace/storage";
-import type { LocalWorkspaceState } from "./workspace-state";
-import { synchronizeLocalWorkspaceState } from "./workspace/workspace-sync";
-import { ExecutorStateStore, type ExecutorStateStoreShape } from "./executor-state-store";
-import { RuntimeSourceAuthServiceLive } from "./sources/source-auth-service";
-import { RuntimeSourceStoreLive } from "./sources/source-store";
+  type ScopeConfigStoreShape,
+  type ScopeStateStoreShape,
+} from "./scope/storage";
+import type {
+  LocalScopeState,
+} from "./scope-state";
+import {
+  synchronizeLocalScopeState,
+} from "./scope/scope-sync";
+import {
+  ExecutorStateStore,
+  type ExecutorStateStoreShape,
+} from "./executor-state-store";
+import {
+  RuntimeSourceAuthServiceLive,
+} from "./sources/source-auth-service";
+import {
+  RuntimeSourceStoreLive,
+} from "./sources/source-store";
 
 export * from "./execution/state";
 export * from "./sources/executor-tools";
@@ -73,28 +112,28 @@ export * from "./sources/source-credential-interactions";
 export * from "./sources/source-adapters/mcp";
 export * from "./sources/source-store";
 export * from "./executor-state-store";
-export * from "./execution/workspace/environment";
+export * from "./execution/scope/environment";
 export * from "../sources/inspection";
 export * from "../sources/discovery";
 export * from "./execution/service";
 export type {
-  CreateWorkspaceInternalToolMap,
-  WorkspaceInternalToolContext,
-} from "./execution/workspace/tool-invoker";
+  CreateScopeInternalToolMap,
+  ScopeInternalToolContext,
+} from "./execution/scope/tool-invoker";
 export {
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
   SecretMaterialResolverService,
   SecretMaterialStorerService,
   SecretMaterialUpdaterService,
-} from "./workspace/secret-material-providers";
+} from "./scope/secret-material-providers";
 export type {
   DeleteSecretMaterial,
   ResolveInstanceConfig,
   ResolveSecretMaterial,
   StoreSecretMaterial,
   UpdateSecretMaterial,
-} from "./workspace/secret-material-providers";
+} from "./scope/secret-material-providers";
 export {
   builtInSourceAdapters,
   connectableSourceAdapters,
@@ -112,7 +151,7 @@ export {
 
 export type ExecutorRuntimeOptions = {
   executionResolver?: ResolveExecutionEnvironment;
-  createInternalToolMap?: CreateWorkspaceInternalToolMap;
+  createInternalToolMap?: CreateScopeInternalToolMap;
   resolveSecretMaterial?: ResolveSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
 };
@@ -134,18 +173,18 @@ export type BoundInstallationStore = {
   getOrProvision: () => Effect.Effect<LocalInstallation, Error, never>;
 };
 
-export type BoundWorkspaceConfigStore = {
+export type BoundScopeConfigStore = {
   load: () => Effect.Effect<LoadedLocalExecutorConfig, Error, never>;
   writeProject: (
     config: LocalExecutorConfig,
   ) => Effect.Effect<void, Error, never>;
-  resolveRelativePath: WorkspaceConfigStoreShape["resolveRelativePath"];
+  resolveRelativePath: ScopeConfigStoreShape["resolveRelativePath"];
 };
 
-export type BoundWorkspaceStateStore = {
-  load: () => Effect.Effect<LocalWorkspaceState, Error, never>;
+export type BoundScopeStateStore = {
+  load: () => Effect.Effect<LocalScopeState, Error, never>;
   write: (
-    state: LocalWorkspaceState,
+    state: LocalScopeState,
   ) => Effect.Effect<void, Error, never>;
 };
 
@@ -181,8 +220,8 @@ export type RuntimeInstanceConfigService = {
 
 export type RuntimeStorageServices = {
   installation: BoundInstallationStore;
-  workspaceConfig: BoundWorkspaceConfigStore;
-  workspaceState: BoundWorkspaceStateStore;
+  scopeConfig: BoundScopeConfigStore;
+  scopeState: BoundScopeStateStore;
   sourceArtifacts: BoundSourceArtifactStore;
   executorState: ExecutorStateStoreShape;
   secretMaterial: RuntimeSecretMaterialServices;
@@ -190,7 +229,7 @@ export type RuntimeStorageServices = {
 };
 
 export type ExecutorRuntimeServices = {
-  workspace: ExecutorWorkspaceDescriptor;
+  scope: ExecutorScopeDescriptor;
   storage: RuntimeStorageServices;
   localToolRuntimeLoader?: BoundLocalToolRuntimeLoader;
   sourceTypeDeclarationsRefresher?: BoundSourceTypeDeclarationsRefresher;
@@ -219,17 +258,17 @@ const toInstallationStoreShape = (
   getOrProvision: input.getOrProvision,
 });
 
-const toWorkspaceConfigStoreShape = (
-  input: BoundWorkspaceConfigStore,
-): WorkspaceConfigStoreShape => ({
+const toScopeConfigStoreShape = (
+  input: BoundScopeConfigStore,
+): ScopeConfigStoreShape => ({
   load: input.load,
   writeProject: ({ config }) => input.writeProject(config),
   resolveRelativePath: input.resolveRelativePath,
 });
 
-const toWorkspaceStateStoreShape = (
-  input: BoundWorkspaceStateStore,
-): WorkspaceStateStoreShape => ({
+const toScopeStateStoreShape = (
+  input: BoundScopeStateStore,
+): ScopeStateStoreShape => ({
   load: input.load,
   write: ({ state }) => input.write(state),
 });
@@ -256,14 +295,14 @@ const makeInstanceConfigLayer = (input: RuntimeInstanceConfigService) =>
 
 export const createExecutorRuntimeLayer = (
   input: ExecutorRuntimeOptions & ExecutorRuntimeServices & {
-    localWorkspaceState: RuntimeLocalWorkspaceState;
+    localScopeState: RuntimeLocalScopeState;
     liveExecutionManager: ReturnType<typeof createLiveExecutionManager>;
   },
 ) => {
   const storageLayer = makeLocalStorageLayer({
     installationStore: toInstallationStoreShape(input.storage.installation),
-    workspaceConfigStore: toWorkspaceConfigStoreShape(input.storage.workspaceConfig),
-    workspaceStateStore: toWorkspaceStateStoreShape(input.storage.workspaceState),
+    scopeConfigStore: toScopeConfigStoreShape(input.storage.scopeConfig),
+    scopeStateStore: toScopeStateStoreShape(input.storage.scopeState),
     sourceArtifactStore: toSourceArtifactStoreShape(input.storage.sourceArtifacts),
   });
   const localToolRuntimeLayer = Layer.succeed(
@@ -283,7 +322,7 @@ export const createExecutorRuntimeLayer = (
 
   const baseLayer = Layer.mergeAll(
     Layer.succeed(ExecutorStateStore, input.storage.executorState),
-    RuntimeLocalWorkspaceLive(input.localWorkspaceState),
+    RuntimeLocalScopeLive(input.localScopeState),
     storageLayer,
     Layer.succeed(LiveExecutionManagerService, input.liveExecutionManager),
     sourceTypeDeclarationsRefresherLayer,
@@ -381,16 +420,18 @@ export const createExecutorRuntimeFromServices = (input: {
       .getOrProvision()
       .pipe(Effect.mapError(toRuntimeBootstrapError));
 
-    const loadedLocalConfig = yield* input.services.storage.workspaceConfig
+    const loadedLocalConfig = yield* input.services.storage.scopeConfig
       .load()
       .pipe(Effect.mapError(toRuntimeBootstrapError));
 
-    const runtimeWorkspace: ExecutorWorkspaceContext = {
-      ...input.services.workspace,
-      workspaceId: localInstallation.workspaceId,
-      accountId: localInstallation.accountId,
+    const runtimeWorkspace: ExecutorScopeContext = {
+      ...input.services.scope,
+      scopeId: localInstallation.scopeId,
+      actorScopeId: input.services.scope.actorScopeId ?? localInstallation.actorScopeId,
+      resolutionScopeIds:
+        input.services.scope.resolutionScopeIds ?? localInstallation.resolutionScopeIds,
     };
-    const effectiveLocalConfig = yield* synchronizeLocalWorkspaceState({
+    const effectiveLocalConfig = yield* synchronizeLocalScopeState({
       loadedConfig: loadedLocalConfig,
     })
       .pipe(
@@ -399,11 +440,11 @@ export const createExecutorRuntimeFromServices = (input: {
             installationStore: toInstallationStoreShape(
               input.services.storage.installation,
             ),
-            workspaceConfigStore: toWorkspaceConfigStoreShape(
-              input.services.storage.workspaceConfig,
+            scopeConfigStore: toScopeConfigStoreShape(
+              input.services.storage.scopeConfig,
             ),
-            workspaceStateStore: toWorkspaceStateStoreShape(
-              input.services.storage.workspaceState,
+            scopeStateStore: toScopeStateStoreShape(
+              input.services.storage.scopeState,
             ),
             sourceArtifactStore: toSourceArtifactStoreShape(
               input.services.storage.sourceArtifacts,
@@ -412,12 +453,9 @@ export const createExecutorRuntimeFromServices = (input: {
         ),
       )
       .pipe(Effect.mapError(toRuntimeBootstrapError));
-    const runtimeLocalWorkspaceState: RuntimeLocalWorkspaceState = {
-      workspace: runtimeWorkspace,
-      installation: {
-        workspaceId: localInstallation.workspaceId,
-        accountId: localInstallation.accountId,
-      },
+    const runtimeLocalScopeState: RuntimeLocalScopeState = {
+      scope: runtimeWorkspace,
+      installation: localInstallation,
       loadedConfig: {
         ...loadedLocalConfig,
         config: effectiveLocalConfig,
@@ -428,14 +466,14 @@ export const createExecutorRuntimeFromServices = (input: {
     const concreteRuntimeLayer = createExecutorRuntimeLayer({
       ...input,
       ...input.services,
-      localWorkspaceState: runtimeLocalWorkspaceState,
+      localScopeState: runtimeLocalScopeState,
       liveExecutionManager,
     });
     const managedRuntime = ManagedRuntime.make(concreteRuntimeLayer);
     yield* managedRuntime.runtimeEffect;
     yield* reconcileMissingSourceCatalogArtifacts({
-      workspaceId: localInstallation.workspaceId,
-      actorAccountId: localInstallation.accountId,
+      scopeId: localInstallation.scopeId,
+      actorScopeId: localInstallation.actorScopeId,
     }).pipe(
       Effect.provide(managedRuntime),
       Effect.catchAll(() => Effect.void),

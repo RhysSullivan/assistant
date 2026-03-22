@@ -16,12 +16,11 @@ import {
   ExecutionIdSchema,
   ExecutionInteractionIdSchema,
   ExecutionStepIdSchema,
-  type AccountId,
+  type ScopeId,
   type Execution,
   type ExecutionEnvelope,
   type ExecutionId,
   type ExecutionInteraction,
-  type WorkspaceId,
 } from "#schema";
 import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
@@ -29,16 +28,18 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { type ResolveExecutionEnvironment } from "./state";
+import {
+  type ResolveExecutionEnvironment,
+} from "./state";
 import {
   LiveExecutionManagerService,
   sanitizePersistedElicitationResponse,
   type LiveExecutionManager,
 } from "./live";
 import {
-  getRuntimeLocalWorkspaceOption,
-  provideOptionalRuntimeLocalWorkspace,
-} from "../workspace/runtime-context";
+  getRuntimeLocalScopeOption,
+  provideOptionalRuntimeLocalScope,
+} from "../scope/runtime-context";
 import {
   asOperationErrors,
   operationErrors,
@@ -48,8 +49,12 @@ import {
   ExecutorStateStore,
   type ExecutorStateStoreShape,
 } from "../executor-state-store";
-import { RuntimeExecutionResolverService } from "./workspace/environment";
-import { runtimeEffectError } from "../effect-errors";
+import {
+  RuntimeExecutionResolverService,
+} from "./scope/environment";
+import {
+  runtimeEffectError,
+} from "../effect-errors";
 
 const executionOps = {
   create: operationErrors("executions.create"),
@@ -246,7 +251,7 @@ const verifyStoredStepMatches = (input: {
 const fetchExecution = (
   store: ExecutorStateStoreShape,
   input: {
-    workspaceId: Execution["workspaceId"];
+    scopeId: Execution["scopeId"];
     executionId: Execution["id"];
     operation: OperationErrorsLike;
   },
@@ -254,13 +259,13 @@ const fetchExecution = (
   Effect.gen(function* () {
     const errors = asOperationErrors(input.operation);
     const existing = yield* errors.mapStorage(
-      store.executions.getByWorkspaceAndId(input.workspaceId, input.executionId),
+      store.executions.getByScopeAndId(input.scopeId, input.executionId),
     );
 
     if (Option.isNone(existing)) {
       return yield* errors.notFound(
           "Execution not found",
-          `workspaceId=${input.workspaceId} executionId=${input.executionId}`,
+          `scopeId=${input.scopeId} executionId=${input.executionId}`,
         );
     }
 
@@ -270,7 +275,7 @@ const fetchExecution = (
 const fetchExecutionEnvelope = (
   store: ExecutorStateStoreShape,
   input: {
-    workspaceId: Execution["workspaceId"];
+    scopeId: Execution["scopeId"];
     executionId: Execution["id"];
     operation: OperationErrorsLike;
   },
@@ -291,7 +296,7 @@ const fetchExecutionEnvelope = (
 const waitForExecutionEnvelopeToSettle = (
   store: ExecutorStateStoreShape,
   input: {
-    workspaceId: Execution["workspaceId"];
+    scopeId: Execution["scopeId"];
     executionId: Execution["id"];
     operation: OperationErrorsLike;
     previousPendingInteractionId: ExecutionInteraction["id"] | null;
@@ -658,8 +663,8 @@ const runExecutionAttemptWithDependencies = (
   interactionMode: InteractionMode,
 ) =>
   executionResolver({
-    workspaceId: execution.workspaceId,
-    accountId: execution.createdByAccountId,
+    scopeId: execution.scopeId,
+    actorScopeId: execution.createdByScopeId,
     executionId: execution.id,
     onElicitation: createHybridOnElicitation({
       executorState: store,
@@ -710,7 +715,7 @@ const forkExecutionAttemptWithDependencies = (
   interactionMode: InteractionMode,
 ) =>
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* getRuntimeLocalWorkspaceOption();
+    const runtimeLocalScope = yield* getRuntimeLocalScopeOption();
 
     yield* Effect.sync(() => {
       const effect = runExecutionAttemptWithDependencies(
@@ -722,7 +727,7 @@ const forkExecutionAttemptWithDependencies = (
       );
 
       Effect.runFork(
-        provideOptionalRuntimeLocalWorkspace(effect, runtimeLocalWorkspace),
+        provideOptionalRuntimeLocalScope(effect, runtimeLocalScope),
       );
     });
   });
@@ -808,9 +813,9 @@ const createExecutionWithDependencies = (
   executionResolver: ResolveExecutionEnvironment,
   liveExecutionManager: LiveExecutionManager,
   input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     payload: CreateExecutionPayload;
-    createdByAccountId: AccountId;
+    createdByScopeId: ScopeId;
   },
 ) =>
   Effect.gen(function* () {
@@ -818,8 +823,8 @@ const createExecutionWithDependencies = (
     const now = Date.now();
     const execution: Execution = {
       id: ExecutionIdSchema.make(`exec_${crypto.randomUUID()}`),
-      workspaceId: input.workspaceId,
-      createdByAccountId: input.createdByAccountId,
+      scopeId: input.scopeId,
+      createdByScopeId: input.createdByScopeId,
       status: "pending",
       code,
       resultJson: null,
@@ -863,16 +868,16 @@ const createExecutionWithDependencies = (
     yield* Deferred.await(nextState);
 
     return yield* fetchExecutionEnvelope(store, {
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       executionId: execution.id,
       operation: executionOps.create,
     });
   });
 
 export const createExecution = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   payload: CreateExecutionPayload;
-  createdByAccountId: AccountId;
+  createdByScopeId: ScopeId;
 }) =>
   Effect.gen(function* () {
     const store = yield* ExecutorStateStore;
@@ -888,12 +893,12 @@ export const createExecution = (input: {
   });
 
 export const getExecution = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   executionId: ExecutionId;
 }) =>
   Effect.flatMap(ExecutorStateStore, (store) =>
     fetchExecutionEnvelope(store, {
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       executionId: input.executionId,
       operation: executionOps.get,
     })
@@ -921,10 +926,10 @@ export const submitExecutionInteractionResponse = (input: {
   });
 
 export const resumeExecution = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   executionId: ExecutionId;
   payload: ResumeExecutionPayload;
-  resumedByAccountId: AccountId;
+  resumedByScopeId: ScopeId;
 }) =>
   Effect.gen(function* () {
     const store = yield* ExecutorStateStore;
@@ -932,7 +937,7 @@ export const resumeExecution = (input: {
     const liveExecutionManager = yield* LiveExecutionManagerService;
 
     const existing = yield* fetchExecutionEnvelope(store, {
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       executionId: input.executionId,
       operation: "executions.resume",
     });
@@ -1002,7 +1007,7 @@ export const resumeExecution = (input: {
     }
 
     return yield* waitForExecutionEnvelopeToSettle(store, {
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       executionId: input.executionId,
       operation: executionOps.resume,
       previousPendingInteractionId: existing.pendingInteraction?.id ?? null,

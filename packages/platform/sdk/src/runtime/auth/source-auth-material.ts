@@ -1,5 +1,5 @@
 import type {
-  AccountId,
+  ScopeId,
   CredentialSlot,
   Source,
   SourceAuth,
@@ -9,25 +9,32 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
-import { ExecutorStateStore, type ExecutorStateStoreShape } from "../executor-state-store";
+import {
+  ExecutorStateStore,
+  type ExecutorStateStoreShape,
+} from "../executor-state-store";
 import {
   authArtifactFromSourceAuth,
   resolveAuthArtifactMaterial,
   type ResolvedSourceAuthMaterial,
 } from "./auth-artifacts";
-import { resolveAuthArtifactMaterialWithLeases } from "./auth-leases";
+import {
+  resolveAuthArtifactMaterialWithLeases,
+} from "./auth-leases";
 import type {
   DeleteSecretMaterial,
   ResolveSecretMaterial,
   SecretMaterialResolveContext,
   StoreSecretMaterial,
-} from "../workspace/secret-material-providers";
+} from "../scope/secret-material-providers";
 import {
   SecretMaterialDeleterService,
   SecretMaterialResolverService,
   SecretMaterialStorerService,
-} from "../workspace/secret-material-providers";
-import { runtimeEffectError } from "../effect-errors";
+} from "../scope/secret-material-providers";
+import {
+  runtimeEffectError,
+} from "../effect-errors";
 
 const authForSlot = (input: {
   source: Source;
@@ -52,7 +59,7 @@ export type RuntimeSourceAuthMaterialShape = {
   resolve: (input: {
     source: Source;
     slot?: CredentialSlot;
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
     context?: SecretMaterialResolveContext;
   }) => Effect.Effect<ResolvedSourceAuthMaterial, Error, never>;
 };
@@ -64,7 +71,7 @@ export class RuntimeSourceAuthMaterialService extends Context.Tag(
 export const resolveSourceAuthMaterialWithDeps = (input: {
   source: Source;
   slot?: CredentialSlot;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   executorState?: ExecutorStateStoreShape;
   resolveSecretMaterial: ResolveSecretMaterial;
   storeSecretMaterial?: StoreSecretMaterial;
@@ -81,10 +88,10 @@ export const resolveSourceAuthMaterialWithDeps = (input: {
           : [slot] satisfies ReadonlyArray<CredentialSlot>;
 
       for (const candidateSlot of candidateSlots) {
-        const artifactOption = yield* input.executorState.authArtifacts.getByWorkspaceSourceAndActor({
-          workspaceId: input.source.workspaceId,
+        const artifactOption = yield* input.executorState.authArtifacts.getByScopeSourceAndActor({
+          scopeId: input.source.scopeId,
           sourceId: input.source.id,
-          actorAccountId: input.actorAccountId ?? null,
+          actorScopeId: input.actorScopeId ?? null,
           slot: candidateSlot,
         });
 
@@ -108,7 +115,7 @@ export const resolveSourceAuthMaterialWithDeps = (input: {
         slot,
       }),
       slot,
-      actorAccountId: input.actorAccountId ?? null,
+      actorScopeId: input.actorScopeId ?? null,
     });
 
     if (input.executorState !== undefined) {
@@ -140,7 +147,7 @@ export const resolveSourceAuthMaterialWithDeps = (input: {
 export const resolveSourceAuthMaterial = (input: {
   source: Source;
   slot?: CredentialSlot;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   context?: SecretMaterialResolveContext;
 }): Effect.Effect<ResolvedSourceAuthMaterial, Error, RuntimeSourceAuthMaterialService> =>
   Effect.flatMap(RuntimeSourceAuthMaterialService, (service) => service.resolve(input));

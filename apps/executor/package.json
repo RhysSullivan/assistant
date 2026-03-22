@@ -45,6 +45,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@executor/effect-test-utils": "workspace:*",
     "@executor/mcp-elicitation-demo": "workspace:*",
     "@executor/runtime-ses": "workspace:*",
     "@effect/vitest": "catalog:",

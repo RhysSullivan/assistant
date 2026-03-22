@@ -1,29 +1,67 @@
-import { randomUUID } from "node:crypto";
+import {
+  randomUUID,
+} from "node:crypto";
 
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { FileSystem } from "@effect/platform";
-import { NodeFileSystem } from "@effect/platform-node";
-import { describe, expect, it } from "@effect/vitest";
-import { assertTrue } from "@effect/vitest/utils";
+import {
+  createMcpExpressApp,
+} from "@modelcontextprotocol/sdk/server/express.js";
+import {
+  McpServer,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  Client,
+} from "@modelcontextprotocol/sdk/client/index.js";
+import {
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  StreamableHTTPServerTransport,
+} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {
+  tmpdir,
+} from "node:os";
+import {
+  join,
+} from "node:path";
+import {
+  FileSystem,
+} from "@effect/platform";
+import {
+  NodeFileSystem,
+} from "@effect/platform-node";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
+import {
+  assertTrue,
+} from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { z } from "zod/v4";
+import {
+  z,
+} from "zod/v4";
 
-import { makeToolInvokerFromTools } from "@executor/codemode-core";
-import { discoverMcpToolsFromConnector } from "@executor/source-mcp";
-import { makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
+import {
+  makeToolInvokerFromTools,
+} from "@executor/codemode-core";
+import {
+  discoverMcpToolsFromConnector,
+} from "@executor/source-mcp";
+import {
+  makeDenoSubprocessExecutor,
+} from "@executor/runtime-deno-subprocess";
 
 import {
   type ResolveExecutionEnvironment,
 } from "../index";
-import { createLocalExecutorRuntime as createExecutorRuntime } from "../../../../sdk-file/src/index";
-import { withExecutorApiClient } from "./test-http-client";
+import {
+  createLocalExecutorRuntime as createExecutorRuntime,
+} from "../../../../sdk-file/src/index";
+import {
+  withExecutorApiClient,
+} from "./test-http-client";
 
 type McpFormServer = {
   endpoint: string;
@@ -290,16 +328,16 @@ describe("execution-mcp-resume", () => {
     Effect.gen(function* () {
       const mcpServer = yield* makeFormElicitationServer;
       const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectory({
+      const scopeRoot = yield* fs.makeTempDirectory({
         directory: tmpdir(),
         prefix: "executor-execution-mcp-resume-",
       });
       const runtime = yield* Effect.acquireRelease(
         createExecutorRuntime({
           localDataDir: ":memory:",
-          workspaceRoot,
-          homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
-          homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
+          workspaceRoot: scopeRoot,
+          homeConfigPath: join(scopeRoot, ".executor-home.jsonc"),
+          homeStateDirectory: join(scopeRoot, ".executor-home-state"),
           executionResolver: makeMcpExecutionResolver(mcpServer.endpoint),
         }),
         (runtime) => Effect.promise(() => runtime.close()).pipe(Effect.orDie),
@@ -310,12 +348,12 @@ describe("execution-mcp-resume", () => {
       const created = yield* withExecutorApiClient(
         {
           runtime,
-          accountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
         },
         (client) =>
           client.executions.create({
             path: {
-              workspaceId: installation.workspaceId,
+              scopeId: installation.scopeId,
             },
             payload: {
               code: 'return await tools.source.form.gated_echo({ value: "from-control-plane" });',
@@ -344,12 +382,12 @@ describe("execution-mcp-resume", () => {
       const resumed = yield* withExecutorApiClient(
         {
           runtime,
-          accountId: installation.accountId,
+          actorScopeId: installation.actorScopeId,
         },
         (client) =>
           client.executions.resume({
             path: {
-              workspaceId: installation.workspaceId,
+              scopeId: installation.scopeId,
               executionId: created.execution.id,
             },
             payload: {

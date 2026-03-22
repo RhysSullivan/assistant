@@ -1,6 +1,12 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 
-import { sanitizePersistedElicitationResponse } from "./live";
+import {
+  sanitizePersistedElicitationResponse,
+} from "./live";
 
 describe("live-execution", () => {
   it("redacts secret refs from persisted interaction responses", () => {

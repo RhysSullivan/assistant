@@ -8,45 +8,50 @@ import {
   type ToolPath,
 } from "@executor/codemode-core";
 import {
-  type AccountId,
+  type ScopeId,
   ExecutionIdSchema,
   ExecutionInteractionIdSchema,
   SourceSchema,
   type Source,
-  type WorkspaceId,
 } from "#schema";
 import * as Effect from "effect/Effect";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
-import type { RuntimeLocalWorkspaceState } from "../workspace/runtime-context";
+import type {
+  RuntimeLocalScopeState,
+} from "../scope/runtime-context";
 import {
   type LocalStorageServices,
   type InstallationStoreShape,
   type SourceArtifactStoreShape,
-  type WorkspaceConfigStoreShape,
-  type WorkspaceStateStoreShape,
+  type ScopeConfigStoreShape,
+  type ScopeStateStoreShape,
   makeLocalStorageLayer,
-} from "../workspace/storage";
-import { provideOptionalRuntimeLocalWorkspace } from "../workspace/runtime-context";
-import { runtimeEffectError } from "../effect-errors";
+} from "../scope/storage";
+import {
+  provideOptionalRuntimeLocalScope,
+} from "../scope/runtime-context";
+import {
+  runtimeEffectError,
+} from "../effect-errors";
 
 /** Run an Effect as a Promise, preserving the original error (not FiberFailure). */
 const runEffect = async <A>(
   effect: Effect.Effect<A, unknown, LocalStorageServices>,
   storage: {
     installationStore: InstallationStoreShape;
-    workspaceConfigStore: WorkspaceConfigStoreShape;
-    workspaceStateStore: WorkspaceStateStoreShape;
+    scopeConfigStore: ScopeConfigStoreShape;
+    scopeStateStore: ScopeStateStoreShape;
     sourceArtifactStore: SourceArtifactStoreShape;
   },
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null = null,
+  runtimeLocalScope: RuntimeLocalScopeState | null = null,
 ): Promise<A> => {
   const baseLayer = makeLocalStorageLayer(storage);
   const exit = await Effect.runPromiseExit(
-    provideOptionalRuntimeLocalWorkspace(
+    provideOptionalRuntimeLocalScope(
       effect.pipe(Effect.provide(baseLayer)),
-      runtimeLocalWorkspace,
+      runtimeLocalScope,
     ),
   );
   if (Exit.isSuccess(exit)) return exit.value;
@@ -69,7 +74,9 @@ import {
   executorAddableSourceAdapters,
   sourceAdapterRequiresInteractiveConnect,
 } from "./source-adapters";
-import { decodeSourceCredentialSelectionContent } from "./source-credential-interactions";
+import {
+  decodeSourceCredentialSelectionContent,
+} from "./source-credential-interactions";
 
 const ExecutorSourcesAddInputSchema = Schema.standardSchemaV1(
   ExecutorAddSourceInputSchema,
@@ -112,7 +119,7 @@ export const EXECUTOR_SOURCES_ADD_HELP_LINES = [
 
 export const buildExecutorSourcesAddDescription = (): string =>
   [
-    "Add an MCP, OpenAPI, or GraphQL source to the current workspace.",
+    "Add an MCP, OpenAPI, or GraphQL source to the current scope.",
     ...EXECUTOR_SOURCES_ADD_HELP_LINES,
   ].join("\n");
 
@@ -130,29 +137,29 @@ const toSerializableValue = <A>(value: A): A =>
   JSON.parse(JSON.stringify(value)) as A;
 
 type ExecutorSourcesAddToolArgs =
-  | Omit<ExecutorMcpSourceInput, "workspaceId" | "actorAccountId" | "executionId" | "interactionId">
+  | Omit<ExecutorMcpSourceInput, "scopeId" | "actorScopeId" | "executionId" | "interactionId">
   | Omit<
       ExecutorCredentialManagedSourceInput,
-      "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+      "scopeId" | "actorScopeId" | "executionId" | "interactionId"
     >;
 
 type ExecutorGoogleDiscoveryToolArgs = Omit<
   Extract<ExecutorCredentialManagedSourceInput, { service: string; version: string }>,
-  "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
 >;
 
 type ExecutorOpenApiToolArgs = Omit<
   Extract<ExecutorCredentialManagedSourceInput, { specUrl: string }>,
-  "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
 >;
 
 type ExecutorGraphqlToolArgs = Omit<
   Extract<ExecutorCredentialManagedSourceInput, { kind: "graphql" }>,
-  "workspaceId" | "actorAccountId" | "executionId" | "interactionId"
+  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
 >;
 
 type ExecutorCredentialPromptArgs = {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
   kind: ExecutorCredentialManagedSourceInput["kind"];
   endpoint?: string;
@@ -166,7 +173,7 @@ type ExecutorCredentialPromptArgs = {
 
 const isExecutorMcpToolArgs = (
   args: ExecutorSourcesAddToolArgs,
-): args is Omit<ExecutorMcpSourceInput, "workspaceId" | "actorAccountId" | "executionId" | "interactionId"> =>
+): args is Omit<ExecutorMcpSourceInput, "scopeId" | "actorScopeId" | "executionId" | "interactionId"> =>
   args.kind === undefined || sourceAdapterRequiresInteractiveConnect(args.kind);
 
 const isExecutorCredentialManagedSourceInput = (
@@ -176,8 +183,8 @@ const isExecutorCredentialManagedSourceInput = (
 
 const prepareExecutorAddSourceInput = (input: {
   args: ExecutorSourcesAddToolArgs;
-  workspaceId: WorkspaceId;
-  accountId: AccountId;
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
   executionId: ReturnType<typeof toExecutionId>;
   interactionId: ReturnType<typeof ExecutionInteractionIdSchema.make>;
 }): ExecutorAddSourceInput => {
@@ -194,8 +201,8 @@ const prepareExecutorAddSourceInput = (input: {
       args: input.args.args ?? null,
       env: input.args.env ?? null,
       cwd: input.args.cwd ?? null,
-      workspaceId: input.workspaceId,
-      actorAccountId: input.accountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
       executionId: input.executionId,
       interactionId: input.interactionId,
     } satisfies ExecutorMcpSourceInput;
@@ -205,8 +212,8 @@ const prepareExecutorAddSourceInput = (input: {
     const args = input.args as ExecutorGoogleDiscoveryToolArgs;
     return {
       ...args,
-      workspaceId: input.workspaceId,
-      actorAccountId: input.accountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
       executionId: input.executionId,
       interactionId: input.interactionId,
     } satisfies Extract<ExecutorCredentialManagedSourceInput, { service: string; version: string }>;
@@ -216,8 +223,8 @@ const prepareExecutorAddSourceInput = (input: {
     const args = input.args as ExecutorOpenApiToolArgs;
     return {
       ...args,
-      workspaceId: input.workspaceId,
-      actorAccountId: input.accountId,
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
       executionId: input.executionId,
       interactionId: input.interactionId,
     } satisfies Extract<ExecutorCredentialManagedSourceInput, { specUrl: string }>;
@@ -226,8 +233,8 @@ const prepareExecutorAddSourceInput = (input: {
   const args = input.args as ExecutorGraphqlToolArgs;
   return {
     ...args,
-    workspaceId: input.workspaceId,
-    actorAccountId: input.accountId,
+    scopeId: input.scopeId,
+    actorScopeId: input.actorScopeId,
     executionId: input.executionId,
     interactionId: input.interactionId,
   } satisfies Extract<ExecutorCredentialManagedSourceInput, { kind: "graphql" }>;
@@ -235,13 +242,13 @@ const prepareExecutorAddSourceInput = (input: {
 
 const resolveLocalCredentialUrl = (input: {
   baseUrl: string;
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: Source["id"];
   executionId: string;
   interactionId: string;
 }): string =>
   new URL(
-    `/v1/workspaces/${encodeURIComponent(input.workspaceId)}/sources/${encodeURIComponent(input.sourceId)}/credentials?interactionId=${encodeURIComponent(`${input.executionId}:${input.interactionId}`)}`,
+    `/v1/workspaces/${encodeURIComponent(input.scopeId)}/sources/${encodeURIComponent(input.sourceId)}/credentials?interactionId=${encodeURIComponent(`${input.executionId}:${input.interactionId}`)}`,
     input.baseUrl,
   ).toString();
 
@@ -282,7 +289,7 @@ const promptForSourceCredentialSelection = (input: {
             : `Open the secure credential page to connect ${input.source.name}`,
         url: resolveLocalCredentialUrl({
           baseUrl: input.localServerBaseUrl,
-          workspaceId: input.args.workspaceId,
+          scopeId: input.args.scopeId,
           sourceId: input.args.sourceId,
           executionId: input.executionId,
           interactionId: input.interactionId,
@@ -312,14 +319,14 @@ const promptForSourceCredentialSelection = (input: {
   });
 
 export const createExecutorToolMap = (input: {
-  workspaceId: WorkspaceId;
-  accountId: AccountId;
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
   sourceAuthService: RuntimeSourceAuthService;
   installationStore: InstallationStoreShape;
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState | null;
+  runtimeLocalScope: RuntimeLocalScopeState | null;
 }): ToolMap => ({
   "executor.sources.add": toTool({
     tool: {
@@ -333,8 +340,8 @@ export const createExecutorToolMap = (input: {
         );
         const preparedArgs = prepareExecutorAddSourceInput({
           args,
-          workspaceId: input.workspaceId,
-          accountId: input.accountId,
+          scopeId: input.scopeId,
+          actorScopeId: input.actorScopeId,
           executionId,
           interactionId,
         });
@@ -356,11 +363,11 @@ export const createExecutorToolMap = (input: {
           ),
           {
             installationStore: input.installationStore,
-            workspaceConfigStore: input.workspaceConfigStore,
-            workspaceStateStore: input.workspaceStateStore,
+            scopeConfigStore: input.scopeConfigStore,
+            scopeStateStore: input.scopeStateStore,
             sourceArtifactStore: input.sourceArtifactStore,
           },
-          input.runtimeLocalWorkspace,
+          input.runtimeLocalScope,
         );
 
         if (result.kind === "connected") {
@@ -379,7 +386,7 @@ export const createExecutorToolMap = (input: {
               promptForSourceCredentialSelection({
                 args: {
                   ...pendingArgs,
-                  workspaceId: input.workspaceId,
+                  scopeId: input.scopeId,
                   sourceId: pendingResult.source.id,
                 },
                 credentialSlot: pendingResult.credentialSlot,
@@ -395,11 +402,11 @@ export const createExecutorToolMap = (input: {
               }),
               {
                 installationStore: input.installationStore,
-                workspaceConfigStore: input.workspaceConfigStore,
-                workspaceStateStore: input.workspaceStateStore,
+                scopeConfigStore: input.scopeConfigStore,
+                scopeStateStore: input.scopeStateStore,
                 sourceArtifactStore: input.sourceArtifactStore,
               },
-              input.runtimeLocalWorkspace,
+              input.runtimeLocalScope,
             );
 
             pendingArgs = pendingResult.credentialSlot === "import"
@@ -431,11 +438,11 @@ export const createExecutorToolMap = (input: {
               ),
               {
                 installationStore: input.installationStore,
-                workspaceConfigStore: input.workspaceConfigStore,
-                workspaceStateStore: input.workspaceStateStore,
+                scopeConfigStore: input.scopeConfigStore,
+                scopeStateStore: input.scopeStateStore,
                 sourceArtifactStore: input.sourceArtifactStore,
               },
-              input.runtimeLocalWorkspace,
+              input.runtimeLocalScope,
             );
 
             if (completed.kind === "connected") {
@@ -481,11 +488,11 @@ export const createExecutorToolMap = (input: {
           }),
           {
             installationStore: input.installationStore,
-            workspaceConfigStore: input.workspaceConfigStore,
-            workspaceStateStore: input.workspaceStateStore,
+            scopeConfigStore: input.scopeConfigStore,
+            scopeStateStore: input.scopeStateStore,
             sourceArtifactStore: input.sourceArtifactStore,
           },
-          input.runtimeLocalWorkspace,
+          input.runtimeLocalScope,
         );
 
         if (response.action !== "accept") {
@@ -494,17 +501,17 @@ export const createExecutorToolMap = (input: {
 
         const connected = await runEffect(
           input.sourceAuthService.getSourceById({
-            workspaceId: input.workspaceId,
+            scopeId: input.scopeId,
             sourceId: result.source.id,
-            actorAccountId: input.accountId,
+            actorScopeId: input.actorScopeId,
           }),
           {
             installationStore: input.installationStore,
-            workspaceConfigStore: input.workspaceConfigStore,
-            workspaceStateStore: input.workspaceStateStore,
+            scopeConfigStore: input.scopeConfigStore,
+            scopeStateStore: input.scopeStateStore,
             sourceArtifactStore: input.sourceArtifactStore,
           },
-          input.runtimeLocalWorkspace,
+          input.runtimeLocalScope,
         );
         return toSerializableValue(connected);
       },

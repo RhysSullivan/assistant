@@ -1,4 +1,6 @@
-import { format } from "prettier/standalone";
+import {
+  format,
+} from "prettier/standalone";
 import parserBabel from "prettier/plugins/babel";
 import parserEstree from "prettier/plugins/estree";
 import parserTypescript from "prettier/plugins/typescript";

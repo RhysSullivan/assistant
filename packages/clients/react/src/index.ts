@@ -32,7 +32,7 @@ import type {
   SourceInspection,
   SourceInspectionDiscoverResult,
   SourceInspectionToolDetail,
-  WorkspaceOauthClient,
+  ScopeOauthClient as WorkspaceOauthClient,
 } from "@executor/platform-sdk/schema";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -42,7 +42,7 @@ import * as Runtime from "effect/Runtime";
 import * as React from "react";
 
 const DEFAULT_EXECUTOR_API_BASE_URL = "http://127.0.0.1:8788";
-const PLACEHOLDER_WORKSPACE_ID = "ws_placeholder" as Source["workspaceId"];
+const PLACEHOLDER_WORKSPACE_ID = "ws_placeholder" as Source["scopeId"];
 const PLACEHOLDER_ACCOUNT_ID = "acc_placeholder";
 const PLACEHOLDER_SOURCE_ID = "src_placeholder" as Source["id"];
 
@@ -58,18 +58,18 @@ export type SourceRemoveResult = {
 
 type AtomKeyPart = string | number | boolean | null | undefined;
 
-type SourcesKeyParts = readonly [boolean, Source["workspaceId"], string];
-type SourceKeyParts = readonly [boolean, Source["workspaceId"], string, Source["id"]];
+type SourcesKeyParts = readonly [boolean, Source["scopeId"], string];
+type SourceKeyParts = readonly [boolean, Source["scopeId"], string, Source["id"]];
 type SourceToolDetailKeyParts = readonly [
   boolean,
-  Source["workspaceId"],
+  Source["scopeId"],
   string,
   Source["id"],
   string | null,
 ];
 type SourceDiscoveryKeyParts = readonly [
   boolean,
-  Source["workspaceId"],
+  Source["scopeId"],
   string,
   Source["id"],
   string,
@@ -77,13 +77,13 @@ type SourceDiscoveryKeyParts = readonly [
 ];
 type WorkspaceOauthClientsKeyParts = readonly [
   boolean,
-  Source["workspaceId"],
+  Source["scopeId"],
   string,
   string,
 ];
 
 type InvalidationTarget = {
-  workspaceId?: Source["workspaceId"];
+  workspaceId?: Source["scopeId"];
   accountId?: string;
   sourceId?: Source["id"];
 };
@@ -104,7 +104,7 @@ type ExecutorQueryContextValue = {
 };
 
 type MutationExecutionContext = {
-  workspaceId: Source["workspaceId"];
+  workspaceId: Source["scopeId"];
   accountId: string;
   registry: Registry.Registry;
   invalidateQueries: (target?: InvalidationTarget) => void;
@@ -149,20 +149,20 @@ const decodeAtomKey = <T extends ReadonlyArray<AtomKeyPart>>(key: string): T => 
 
 const encodeSourcesKey = (
   enabled: boolean,
-  workspaceId: Source["workspaceId"],
+  workspaceId: Source["scopeId"],
   accountId: string,
 ): string => encodeAtomKey([enabled, workspaceId, accountId] satisfies SourcesKeyParts);
 
 const encodeSourceKey = (
   enabled: boolean,
-  workspaceId: Source["workspaceId"],
+  workspaceId: Source["scopeId"],
   accountId: string,
   sourceId: Source["id"],
 ): string => encodeAtomKey([enabled, workspaceId, accountId, sourceId] satisfies SourceKeyParts);
 
 const encodeToolDetailKey = (
   enabled: boolean,
-  workspaceId: Source["workspaceId"],
+  workspaceId: Source["scopeId"],
   accountId: string,
   sourceId: Source["id"],
   toolPath: string | null,
@@ -171,7 +171,7 @@ const encodeToolDetailKey = (
 
 const encodeDiscoveryKey = (
   enabled: boolean,
-  workspaceId: Source["workspaceId"],
+  workspaceId: Source["scopeId"],
   accountId: string,
   sourceId: Source["id"],
   query: string,
@@ -181,7 +181,7 @@ const encodeDiscoveryKey = (
 
 const encodeWorkspaceOauthClientsKey = (
   enabled: boolean,
-  workspaceId: Source["workspaceId"],
+  workspaceId: Source["scopeId"],
   accountId: string,
   providerKey: string,
 ): string =>
@@ -430,7 +430,7 @@ export type Loadable<T> =
 
 type WorkspaceContext = {
   installation: LocalInstallation;
-  workspaceId: Source["workspaceId"];
+  workspaceId: Source["scopeId"];
   accountId: string;
 };
 
@@ -483,8 +483,8 @@ const useWorkspaceContext = (): Loadable<WorkspaceContext> => {
       status: "ready",
       data: {
         installation: installation.data,
-        workspaceId: installation.data.workspaceId,
-        accountId: installation.data.accountId,
+        workspaceId: installation.data.scopeId,
+        accountId: installation.data.actorScopeId,
       },
     } satisfies Loadable<WorkspaceContext>;
   }, [installation]);
@@ -559,7 +559,7 @@ const createActiveQueryCollections = (): ActiveQueryCollections => ({
 
 const targetMatches = (
   target: InvalidationTarget | undefined,
-  workspaceId: Source["workspaceId"],
+  workspaceId: Source["scopeId"],
   accountId: string,
   sourceId?: Source["id"],
 ): boolean => {
@@ -671,14 +671,14 @@ const removeSourceFromList = (
 ): ReadonlyArray<Source> => sources.filter((source) => source.id !== sourceId);
 
 const createOptimisticSource = (input: {
-  workspaceId: Source["workspaceId"];
+  workspaceId: Source["scopeId"];
   payload: CreateSourcePayload;
 }): Source => {
   const now = Date.now();
 
   return {
     id: `src_optimistic_${crypto.randomUUID()}` as Source["id"],
-    workspaceId: input.workspaceId,
+    scopeId: input.workspaceId,
     name: input.payload.name,
     kind: input.payload.kind,
     endpoint: input.payload.endpoint,
@@ -713,7 +713,7 @@ const applyUpdatePayloadToSource = (source: Source, payload: UpdateSourcePayload
 
 const useSourceMutation = <TInput, TOutput, TOptimistic = never>(
   execute: (input: {
-    workspaceId: Source["workspaceId"];
+    workspaceId: Source["scopeId"];
     accountId: string;
     payload: TInput;
   }) => Promise<TOutput>,

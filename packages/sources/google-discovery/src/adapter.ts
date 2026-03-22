@@ -38,7 +38,7 @@ import {
   OptionalNullableStringSchema,
   SourceCredentialRequiredError,
   StringMapSchema,
-  WorkspaceOauthClientIdSchema,
+  ScopeOauthClientIdSchema,
   createCatalogImportMetadata,
   EXECUTABLE_BINDING_VERSION,
   sourceCoreEffectError,
@@ -60,8 +60,8 @@ const GoogleDiscoveryConnectPayloadSchema = Schema.extend(
     scopes: Schema.optional(
       Schema.Array(Schema.Trim.pipe(Schema.nonEmptyString())),
     ),
-    workspaceOauthClientId: Schema.optional(
-      Schema.NullOr(WorkspaceOauthClientIdSchema),
+    scopeOauthClientId: Schema.optional(
+      Schema.NullOr(ScopeOauthClientIdSchema),
     ),
     oauthClient: ConnectOauthClientSchema,
     name: OptionalNullableStringSchema,

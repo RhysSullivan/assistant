@@ -28,9 +28,9 @@ import {
   type StoreSecretMaterial,
   type DeleteSecretMaterial,
   type UpdateSecretMaterial,
-} from "../../sdk/src/runtime/workspace/secret-material-providers";
-import { fromConfigSecretProviderId } from "../../sdk/src/runtime/workspace/config-secrets";
-import { getRuntimeLocalWorkspaceOption } from "../../sdk/src/runtime/workspace/runtime-context";
+} from "../../sdk/src/runtime/scope/secret-material-providers";
+import { fromConfigSecretProviderId } from "../../sdk/src/runtime/scope/config-secrets";
+import { getRuntimeLocalScopeOption } from "../../sdk/src/runtime/scope/runtime-context";
 import {
   ExecutorStateStore,
   type ExecutorStateStoreShape,
@@ -876,7 +876,7 @@ const readFileSecretValue = (input: {
     const fs = yield* FileSystem.FileSystem;
     const resolvedPath = resolveConfigRelativePath({
       path: input.provider.path,
-      workspaceRoot: input.workspaceRoot,
+      scopeRoot: input.workspaceRoot,
     });
     const raw = yield* fs.readFileString(resolvedPath, "utf8").pipe(
       Effect.mapError(toError),
@@ -1140,14 +1140,14 @@ const resolveRuntimeSecretMaterialConfig = (input: {
   workspaceRoot?: string | null;
 }) =>
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* getRuntimeLocalWorkspaceOption();
+    const runtimeLocalScope = yield* getRuntimeLocalScopeOption();
 
     return {
       localConfig: input.localConfig
-        ?? runtimeLocalWorkspace?.loadedConfig.config
+        ?? runtimeLocalScope?.loadedConfig.config
         ?? null,
       workspaceRoot: input.workspaceRoot
-        ?? runtimeLocalWorkspace?.workspace.workspaceRoot
+        ?? runtimeLocalScope?.scope.scopeRoot
         ?? null,
     };
   });

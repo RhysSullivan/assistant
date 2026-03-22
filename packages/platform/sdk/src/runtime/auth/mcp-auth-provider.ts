@@ -20,13 +20,15 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { ExecutorStateStoreShape } from "../executor-state-store";
+import type {
+  ExecutorStateStoreShape,
+} from "../executor-state-store";
 import {
   type DeleteSecretMaterial,
   type ResolveSecretMaterial,
   type SecretMaterialResolveContext,
   type StoreSecretMaterial,
-} from "../workspace/secret-material-providers";
+} from "../scope/secret-material-providers";
 
 const encodeMcpOAuthAuthArtifactConfig = Schema.encodeSync(
   McpOAuthAuthArtifactConfigJsonSchema,

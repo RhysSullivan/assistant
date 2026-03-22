@@ -1,8 +1,14 @@
 import * as Effect from "effect/Effect";
 
-import { type LoadedLocalExecutorConfig } from "../workspace-config";
-import { WorkspaceStateStore } from "./storage";
-import { type LocalWorkspaceState } from "../workspace-state";
+import {
+  type LoadedLocalExecutorConfig,
+} from "../scope-config";
+import {
+  ScopeStateStore,
+} from "./storage";
+import {
+  type LocalScopeState,
+} from "../scope-state";
 
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value == null) {
@@ -35,10 +41,10 @@ export const derivePolicyConfigKey = (
 
 const pruneLocalWorkspaceState = (input: {
   loadedConfig: LoadedLocalExecutorConfig;
-}): Effect.Effect<LocalWorkspaceState, Error, WorkspaceStateStore> =>
+}): Effect.Effect<LocalScopeState, Error, ScopeStateStore> =>
   Effect.gen(function* () {
-    const workspaceStateStore = yield* WorkspaceStateStore;
-    const currentState = yield* workspaceStateStore.load();
+    const scopeStateStore = yield* ScopeStateStore;
+    const currentState = yield* scopeStateStore.load();
 
     const configuredSourceIds = new Set(
       Object.keys(input.loadedConfig.config?.sources ?? {}),
@@ -47,7 +53,7 @@ const pruneLocalWorkspaceState = (input: {
       Object.keys(input.loadedConfig.config?.policies ?? {}),
     );
 
-    const nextState: LocalWorkspaceState = {
+    const nextState: LocalScopeState = {
       ...currentState,
       sources: Object.fromEntries(
         Object.entries(currentState.sources).filter(([sourceId]) =>
@@ -65,16 +71,16 @@ const pruneLocalWorkspaceState = (input: {
       return currentState;
     }
 
-    yield* workspaceStateStore.write({
+    yield* scopeStateStore.write({
       state: nextState,
     });
 
     return nextState;
   });
 
-export const synchronizeLocalWorkspaceState = (input: {
+export const synchronizeLocalScopeState = (input: {
   loadedConfig: LoadedLocalExecutorConfig;
-}): Effect.Effect<LoadedLocalExecutorConfig["config"], Error, WorkspaceStateStore> =>
+}): Effect.Effect<LoadedLocalExecutorConfig["config"], Error, ScopeStateStore> =>
   Effect.gen(function* () {
     yield* pruneLocalWorkspaceState({
       loadedConfig: input.loadedConfig,

@@ -1,5 +1,5 @@
 import type {
-  LocalWorkspacePolicy,
+  LocalScopePolicy,
   Source,
 } from "#schema";
 
@@ -22,13 +22,13 @@ export type InvocationDescriptor = {
 };
 
 export type InvocationPolicyContext = {
-  workspaceId: LocalWorkspacePolicy["workspaceId"];
+  scopeId: LocalScopePolicy["scopeId"];
 };
 
 export type InvocationAuthorizationDecision = {
   kind: "allow" | "deny" | "require_interaction";
   reason: string;
-  matchedPolicyId: LocalWorkspacePolicy["id"] | null;
+  matchedPolicyId: LocalScopePolicy["id"] | null;
 };
 
 const matchesGlob = (pattern: string, value: string): boolean => {
@@ -38,7 +38,7 @@ const matchesGlob = (pattern: string, value: string): boolean => {
   return new RegExp(`^${escaped}$`).test(value);
 };
 
-const policySpecificity = (policy: LocalWorkspacePolicy): number =>
+const policySpecificity = (policy: LocalScopePolicy): number =>
   policy.priority + Math.max(1, policy.resourcePattern.replace(/\*/g, "").length);
 
 const defaultDecisionForInvocation = (
@@ -60,7 +60,7 @@ const defaultDecisionForInvocation = (
 };
 
 const resolvePolicyDecision = (
-  policy: LocalWorkspacePolicy,
+  policy: LocalScopePolicy,
 ): InvocationAuthorizationDecision => {
   if (policy.effect === "deny") {
     return {
@@ -88,13 +88,13 @@ const resolvePolicyDecision = (
 export const evaluateInvocationPolicy = (input: {
   descriptor: InvocationDescriptor;
   args: unknown;
-  policies: ReadonlyArray<LocalWorkspacePolicy>;
+  policies: ReadonlyArray<LocalScopePolicy>;
   context: InvocationPolicyContext;
 }): InvocationAuthorizationDecision => {
   const matchingPolicies = input.policies
     .filter((policy) =>
       policy.enabled
-      && policy.workspaceId === input.context.workspaceId
+      && policy.scopeId === input.context.scopeId
       && matchesGlob(policy.resourcePattern, input.descriptor.toolPath))
     .sort((left, right) =>
       policySpecificity(right) - policySpecificity(left)

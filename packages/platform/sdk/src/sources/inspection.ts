@@ -8,7 +8,7 @@ import type {
   SourceInspectionToolDetail,
   SourceInspectionToolListItem,
   SourceInspectionToolSummary,
-  WorkspaceId,
+  ScopeId,
 } from "../schema";
 import {
   ControlPlaneNotFoundError,
@@ -16,8 +16,12 @@ import {
 } from "../errors";
 import * as Effect from "effect/Effect";
 
-import { LocalSourceArtifactMissingError } from "../runtime/workspace-errors";
-import { operationErrors } from "../runtime/policy/operation-errors";
+import {
+  LocalSourceArtifactMissingError,
+} from "../runtime/scope-errors";
+import {
+  operationErrors,
+} from "../runtime/policy/operation-errors";
 import {
   buildLoadedSourceCatalogToolContract,
   expandCatalogToolByPath,
@@ -25,7 +29,9 @@ import {
   loadSourceWithCatalog,
   type LoadedSourceCatalogTool,
 } from "../runtime/catalog/source/runtime";
-import { RuntimeSourceStoreService } from "../runtime/sources/source-store";
+import {
+  RuntimeSourceStoreService,
+} from "../runtime/sources/source-store";
 
 const sourceInspectOps = {
   bundle: operationErrors("sources.inspect.bundle"),
@@ -46,14 +52,14 @@ const canInspectSourceWithoutCatalog = (source: Source): boolean =>
   source.status === "auth_required";
 
 const loadSourceForMissingCatalog = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
   cause: LocalSourceArtifactMissingError;
 }) =>
   Effect.gen(function* () {
     const sourceStore = yield* RuntimeSourceStoreService;
     const source = yield* sourceStore.loadSourceById({
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
     });
 
@@ -65,11 +71,11 @@ const loadSourceForMissingCatalog = (input: {
   });
 
 const loadSourceCatalogOrEmpty = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
 }) =>
   loadSourceWithCatalog({
-    workspaceId: input.workspaceId,
+    scopeId: input.scopeId,
     sourceId: input.sourceId,
   }).pipe(
     Effect.map((catalogEntry) => ({
@@ -79,7 +85,7 @@ const loadSourceCatalogOrEmpty = (input: {
     Effect.catchTag("LocalSourceArtifactMissingError", (cause) =>
       Effect.gen(function* () {
         const source = yield* loadSourceForMissingCatalog({
-          workspaceId: input.workspaceId,
+          scopeId: input.scopeId,
           sourceId: input.sourceId,
           cause,
         });
@@ -273,14 +279,14 @@ export const inspectionToolDetailFromTool = (
   });
 
 const resolveSourceInspection = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
   includeSchemas: boolean;
   includeTypePreviews: boolean;
 }) =>
   Effect.gen(function* () {
     const loaded = yield* loadSourceCatalogOrEmpty({
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
     });
 
@@ -308,13 +314,13 @@ const resolveSourceInspection = (input: {
   });
 
 const resolveSourceInspectionTool = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
   toolPath: string;
 }) =>
   Effect.gen(function* () {
     const loaded = yield* loadSourceCatalogOrEmpty({
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
     });
 
@@ -425,7 +431,7 @@ const mapInspectionError = (
 };
 
 export const getSourceInspection = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
 }) =>
   Effect.gen(function* () {
@@ -456,13 +462,13 @@ export const getSourceInspection = (input: {
   );
 
 export const getSourceInspectionToolDetail = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
   toolPath: string;
 }) =>
   Effect.gen(function* () {
     const inspection = yield* resolveSourceInspectionTool({
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
       toolPath: input.toolPath,
     });
@@ -471,7 +477,7 @@ export const getSourceInspectionToolDetail = (input: {
     if (!tool) {
       return yield* sourceInspectOps.tool.notFound(
         "Tool not found",
-        `workspaceId=${input.workspaceId} sourceId=${input.sourceId} path=${input.toolPath}`,
+        `scopeId=${input.scopeId} sourceId=${input.sourceId} path=${input.toolPath}`,
       );
     }
 
@@ -487,13 +493,13 @@ export const getSourceInspectionToolDetail = (input: {
   );
 
 export const discoverSourceInspectionTools = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
   payload: SourceInspectionDiscoverPayload;
 }) =>
   Effect.gen(function* () {
     const inspection = yield* resolveSourceInspection({
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       sourceId: input.sourceId,
       includeSchemas: false,
       includeTypePreviews: false,

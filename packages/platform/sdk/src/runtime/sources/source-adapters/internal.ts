@@ -10,7 +10,9 @@ import {
   type Source,
   type SourceAdapter,
 } from "@executor/source-core";
-import { runtimeEffectError } from "../../effect-errors";
+import {
+  runtimeEffectError,
+} from "../../effect-errors";
 
 const InternalBindingConfigSchema = Schema.Struct({});
 

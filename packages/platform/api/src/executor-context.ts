@@ -1,5 +1,5 @@
 import type { Executor } from "@executor/platform-sdk";
-import type { WorkspaceId } from "@executor/platform-sdk/schema";
+import type { ScopeId as WorkspaceId } from "@executor/platform-sdk/schema";
 import {
   ControlPlaneBadRequestError,
   ControlPlaneForbiddenError,
@@ -23,13 +23,13 @@ export const resolveRequestedLocalWorkspace = (
   workspaceId: WorkspaceId,
 ) =>
   Effect.flatMap(ControlPlaneExecutor, (executor) =>
-    executor.workspaceId === workspaceId
+    executor.scopeId === workspaceId
       ? Effect.succeed(executor)
       : Effect.fail(
           new ControlPlaneForbiddenError({
             operation,
             message: "Requested workspace is not the active local workspace",
-            details: `requestedWorkspaceId=${workspaceId} activeWorkspaceId=${executor.workspaceId}`,
+            details: `requestedWorkspaceId=${workspaceId} activeWorkspaceId=${executor.scopeId}`,
           }),
         ),
   );

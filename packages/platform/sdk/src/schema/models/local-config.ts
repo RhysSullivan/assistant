@@ -1,6 +1,10 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 
-import { localConfigurableSourceAdapters } from "../../runtime/sources/source-adapters";
+import {
+  localConfigurableSourceAdapters,
+} from "../../runtime/sources/source-adapters";
 
 export const LocalExecutorRuntimeSchema = Schema.Literal(
   "quickjs",

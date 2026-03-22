@@ -4,10 +4,16 @@ import {
   type ServerResponse,
 } from "node:http";
 
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { discoverSource } from "./source-discovery";
+import {
+  discoverSource,
+} from "./source-discovery";
 
 type TestServer = {
   url: string;

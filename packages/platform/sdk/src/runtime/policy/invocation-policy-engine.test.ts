@@ -1,10 +1,16 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 
-import type { LocalWorkspacePolicy } from "#schema";
+import type {
+  LocalScopePolicy,
+} from "#schema";
 import {
   PolicyIdSchema,
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
 } from "#schema";
 
 import {
@@ -12,7 +18,7 @@ import {
   type InvocationDescriptor,
 } from "./invocation-policy-engine";
 
-const workspaceId = WorkspaceIdSchema.make("ws_policy_engine");
+const scopeId = ScopeIdSchema.make("ws_policy_engine");
 const sourceId = SourceIdSchema.make("src_policy_engine");
 
 const now = 1_700_000_000_000;
@@ -29,11 +35,11 @@ const baseDescriptor: InvocationDescriptor = {
 };
 
 const basePolicy = (
-  patch: Partial<LocalWorkspacePolicy> = {},
-): LocalWorkspacePolicy => ({
+  patch: Partial<LocalScopePolicy> = {},
+): LocalScopePolicy => ({
   id: PolicyIdSchema.make(`pol_${Math.random().toString(36).slice(2, 8)}`),
   key: "vercel-dns",
-  workspaceId,
+  scopeId,
   resourcePattern: "vercel.api.dns.createRecord",
   effect: "allow",
   approvalMode: "auto",
@@ -57,7 +63,7 @@ describe("invocation-policy-engine", () => {
       args: {},
       policies: [],
       context: {
-        workspaceId,
+        scopeId,
       },
     });
 
@@ -70,7 +76,7 @@ describe("invocation-policy-engine", () => {
       args: { domain: "testing.executor.sh" },
       policies: [],
       context: {
-        workspaceId,
+        scopeId,
       },
     });
 
@@ -85,7 +91,7 @@ describe("invocation-policy-engine", () => {
         id: PolicyIdSchema.make("pol_allow"),
       })],
       context: {
-        workspaceId,
+        scopeId,
       },
     });
 
@@ -113,7 +119,7 @@ describe("invocation-policy-engine", () => {
         }),
       ],
       context: {
-        workspaceId,
+        scopeId,
       },
     });
 
@@ -130,7 +136,7 @@ describe("invocation-policy-engine", () => {
         enabled: false,
       })],
       context: {
-        workspaceId,
+        scopeId,
       },
     });
 

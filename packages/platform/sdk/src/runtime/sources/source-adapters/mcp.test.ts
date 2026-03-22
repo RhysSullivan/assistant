@@ -1,10 +1,24 @@
-import { randomUUID } from "node:crypto";
+import {
+  randomUUID,
+} from "node:crypto";
 
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { describe, expect, it } from "@effect/vitest";
+import {
+  createMcpExpressApp,
+} from "@modelcontextprotocol/sdk/server/express.js";
+import type {
+  OAuthClientProvider,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  McpServer,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  StreamableHTTPServerTransport,
+} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import {
   SourceCatalogIdSchema,
   SourceCatalogRevisionIdSchema,
@@ -17,20 +31,39 @@ import type {
 } from "#schema";
 
 import * as Effect from "effect/Effect";
-import { z } from "zod/v4";
+import {
+  z,
+} from "zod/v4";
 
-import { projectCatalogForAgentSdk } from "@executor/ir/catalog";
-import type { CatalogSnapshotV1 } from "@executor/ir/model";
-import { createCatalogTypeProjector, projectedCatalogTypeRoots } from "../../catalog/catalog-typescript";
-import { invokeIrTool } from "../../execution/ir-execution";
+import {
+  projectCatalogForAgentSdk,
+} from "@executor/ir/catalog";
+import type {
+  CatalogSnapshotV1,
+} from "@executor/ir/model";
+import {
+  createCatalogTypeProjector,
+  projectedCatalogTypeRoots,
+} from "../../catalog/catalog-typescript";
+import {
+  invokeIrTool,
+} from "../../execution/ir-execution";
 import {
   expandCatalogToolByPath,
   type LoadedSourceCatalog,
 } from "../../catalog/source/runtime";
-import { snapshotFromSourceCatalogSyncResult } from "../catalog-sync-result";
-import { createSourceFromPayload } from "../source-definitions";
-import { mcpSourceAdapter } from "./mcp";
-import { runtimeEffectError } from "../../effect-errors";
+import {
+  snapshotFromSourceCatalogSyncResult,
+} from "../catalog-sync-result";
+import {
+  createSourceFromPayload,
+} from "../source-definitions";
+import {
+  mcpSourceAdapter,
+} from "./mcp";
+import {
+  runtimeEffectError,
+} from "../../effect-errors";
 
 type RealMcpServer = {
   endpoint: string;
@@ -47,7 +80,7 @@ const makeLoadedCatalog = (input: {
   );
   const sourceRecord = {
     id: input.source.id,
-    workspaceId: input.source.workspaceId,
+    scopeId: input.source.scopeId,
     catalogId,
     catalogRevisionId: revisionId,
     name: input.source.name,
@@ -535,9 +568,15 @@ const makeStatefulMcpServer = Effect.acquireRelease(
 );
 
 const STDIO_TEST_SERVER_SCRIPT = `
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod/v4";
+import {
+  McpServer,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  StdioServerTransport,
+} from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  z,
+} from "zod/v4";
 
 const server = new McpServer(
   { name: "mcp-stdio-test-server", version: "1.0.0" },
@@ -594,7 +633,7 @@ describe("mcp source adapter", () => {
     Effect.gen(function* () {
       const realServer = yield* makeRealMcpServer;
       const source = yield* createSourceFromPayload({
-        workspaceId: "ws_test" as any,
+        scopeId: "ws_test" as any,
         sourceId: SourceIdSchema.make(`src_${randomUUID()}`),
         payload: {
           name: "MCP Demo",
@@ -682,7 +721,7 @@ describe("mcp source adapter", () => {
     Effect.gen(function* () {
       const realServer = yield* makeRealMcpServer;
       const source = yield* createSourceFromPayload({
-        workspaceId: "ws_test" as any,
+        scopeId: "ws_test" as any,
         sourceId: SourceIdSchema.make(`src_${randomUUID()}`),
         payload: {
           name: "MCP Demo",
@@ -733,8 +772,8 @@ describe("mcp source adapter", () => {
       }
 
       const result = yield* invokeIrTool({
-        workspaceId: source.workspaceId,
-        accountId: "acct_test" as any,
+        scopeId: source.scopeId,
+        actorScopeId: "acct_test" as any,
         tool,
         auth: {
           placements: [],
@@ -769,7 +808,7 @@ describe("mcp source adapter", () => {
       const realServer = yield* makeAuthenticatedMcpServer("Bearer mcp-auth-token");
       const authProvider = makeStaticAuthProvider("mcp-auth-token");
       const source = yield* createSourceFromPayload({
-        workspaceId: "ws_test" as any,
+        scopeId: "ws_test" as any,
         sourceId: SourceIdSchema.make(`src_${randomUUID()}`),
         payload: {
           name: "Authenticated MCP Demo",
@@ -822,8 +861,8 @@ describe("mcp source adapter", () => {
       }
 
       const result = yield* invokeIrTool({
-        workspaceId: source.workspaceId,
-        accountId: "acct_test" as any,
+        scopeId: source.scopeId,
+        actorScopeId: "acct_test" as any,
         tool,
         auth: resolvedAuth,
         args: {
@@ -849,7 +888,7 @@ describe("mcp source adapter", () => {
     Effect.gen(function* () {
       const realServer = yield* makeStatefulMcpServer;
       const source = yield* createSourceFromPayload({
-        workspaceId: "ws_test" as any,
+        scopeId: "ws_test" as any,
         sourceId: SourceIdSchema.make(`src_${randomUUID()}`),
         payload: {
           name: "Stateful MCP Demo",
@@ -905,8 +944,8 @@ describe("mcp source adapter", () => {
       }
 
       const incrementResult = yield* invokeIrTool({
-        workspaceId: source.workspaceId,
-        accountId: "acct_test" as any,
+        scopeId: source.scopeId,
+        actorScopeId: "acct_test" as any,
         tool: incrementTool,
         auth: {
           placements: [],
@@ -924,8 +963,8 @@ describe("mcp source adapter", () => {
       });
 
       const readResult = yield* invokeIrTool({
-        workspaceId: source.workspaceId,
-        accountId: "acct_test" as any,
+        scopeId: source.scopeId,
+        actorScopeId: "acct_test" as any,
         tool: readTool,
         auth: {
           placements: [],
@@ -970,7 +1009,7 @@ describe("mcp source adapter", () => {
   it.scoped("supports stdio MCP sources", () =>
     Effect.gen(function* () {
       const source = yield* createSourceFromPayload({
-        workspaceId: "ws_test" as any,
+        scopeId: "ws_test" as any,
         sourceId: SourceIdSchema.make(`src_${randomUUID()}`),
         payload: {
           name: "Stdio MCP Demo",
@@ -1025,8 +1064,8 @@ describe("mcp source adapter", () => {
       }
 
       const result = yield* invokeIrTool({
-        workspaceId: source.workspaceId,
-        accountId: "acct_test" as any,
+        scopeId: source.scopeId,
+        actorScopeId: "acct_test" as any,
         tool,
         auth: {
           placements: [],

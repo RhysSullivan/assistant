@@ -3,11 +3,10 @@ import type {
   UpdateSourcePayload,
 } from "./contracts";
 import {
-  type AccountId,
+  type ScopeId,
   SourceIdSchema,
   type Source,
   type SourceId,
-  type WorkspaceId,
 } from "../schema";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
@@ -16,15 +15,25 @@ import {
   createSourceFromPayload,
   updateSourceFromPayload,
 } from "../runtime/sources/source-definitions";
-import { getSourceAdapterForSource } from "../runtime/sources/source-adapters";
-import { mapPersistenceError } from "../runtime/policy/operations-shared";
-import { operationErrors } from "../runtime/policy/operation-errors";
+import {
+  getSourceAdapterForSource,
+} from "../runtime/sources/source-adapters";
+import {
+  mapPersistenceError,
+} from "../runtime/policy/operations-shared";
+import {
+  operationErrors,
+} from "../runtime/policy/operation-errors";
 import {
   ExecutorStateStore,
   type ExecutorStateStoreShape,
 } from "../runtime/executor-state-store";
-import { RuntimeSourceCatalogSyncService } from "../runtime/catalog/source/sync";
-import { RuntimeSourceStoreService } from "../runtime/sources/source-store";
+import {
+  RuntimeSourceCatalogSyncService,
+} from "../runtime/catalog/source/sync";
+import {
+  RuntimeSourceStoreService,
+} from "../runtime/sources/source-store";
 
 const sourceOps = {
   list: operationErrors("sources.list"),
@@ -41,7 +50,7 @@ const syncArtifactsForSource = (input: {
   store: ExecutorStateStoreShape;
   sourceStore: Effect.Effect.Success<typeof RuntimeSourceStoreService>;
   source: Source;
-  actorAccountId: AccountId;
+  actorScopeId: ScopeId;
   operation: typeof sourceOps.create | typeof sourceOps.update;
 }) =>
   Effect.gen(function* () {
@@ -59,7 +68,7 @@ const syncArtifactsForSource = (input: {
     const synced = yield* Effect.either(
       catalogSyncService.sync({
         source: sourceForSync,
-        actorAccountId: input.actorAccountId,
+        actorScopeId: input.actorScopeId,
       }),
     );
 
@@ -82,7 +91,7 @@ const syncArtifactsForSource = (input: {
             yield* mapPersistenceError(
               input.operation.child("source_connected"),
               input.sourceStore.persistSource(connectedSource, {
-                actorAccountId: input.actorAccountId,
+                actorScopeId: input.actorScopeId,
               }),
             );
             return connectedSource;
@@ -114,7 +123,7 @@ const syncArtifactsForSource = (input: {
             yield* mapPersistenceError(
               input.operation.child("source_error"),
               input.sourceStore.persistSource(erroredSource, {
-                actorAccountId: input.actorAccountId,
+                actorScopeId: input.actorScopeId,
               }),
             );
           }
@@ -128,16 +137,16 @@ const syncArtifactsForSource = (input: {
   });
 
 export const listSources = (input: {
-  workspaceId: WorkspaceId;
-  accountId: AccountId;
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
 }) =>
   Effect.flatMap(ExecutorStateStore, () =>
     Effect.gen(function* () {
       const sourceStore = yield* RuntimeSourceStoreService;
 
       return yield* sourceStore
-        .loadSourcesInWorkspace(input.workspaceId, {
-          actorAccountId: input.accountId,
+        .loadSourcesInScope(input.scopeId, {
+          actorScopeId: input.actorScopeId,
         })
         .pipe(
           Effect.mapError((error) =>
@@ -151,8 +160,8 @@ export const listSources = (input: {
   );
 
 export const createSource = (input: {
-  workspaceId: WorkspaceId;
-  accountId: AccountId;
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
   payload: CreateSourcePayload;
 }) =>
   Effect.flatMap(ExecutorStateStore, (store) =>
@@ -161,7 +170,7 @@ export const createSource = (input: {
       const now = Date.now();
 
       const source = yield* createSourceFromPayload({
-        workspaceId: input.workspaceId,
+        scopeId: input.scopeId,
         sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
         payload: input.payload,
         now,
@@ -177,7 +186,7 @@ export const createSource = (input: {
       const persistedSource = yield* mapPersistenceError(
         sourceOps.create.child("persist"),
         sourceStore.persistSource(source, {
-          actorAccountId: input.accountId,
+          actorScopeId: input.actorScopeId,
         }),
       );
 
@@ -185,7 +194,7 @@ export const createSource = (input: {
         store,
         sourceStore,
         source: persistedSource,
-        actorAccountId: input.accountId,
+        actorScopeId: input.actorScopeId,
         operation: sourceOps.create,
       });
 
@@ -194,9 +203,9 @@ export const createSource = (input: {
   );
 
 export const getSource = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
-  accountId: AccountId;
+  actorScopeId: ScopeId;
 }) =>
   Effect.flatMap(ExecutorStateStore, () =>
     Effect.gen(function* () {
@@ -204,9 +213,9 @@ export const getSource = (input: {
 
       return yield* sourceStore
         .loadSourceById({
-          workspaceId: input.workspaceId,
+          scopeId: input.scopeId,
           sourceId: input.sourceId,
-          actorAccountId: input.accountId,
+          actorScopeId: input.actorScopeId,
         })
         .pipe(
           Effect.mapError((cause) =>
@@ -214,7 +223,7 @@ export const getSource = (input: {
             cause.message.startsWith("Source not found:")
               ? sourceOps.get.notFound(
                   "Source not found",
-                  `workspaceId=${input.workspaceId} sourceId=${input.sourceId}`,
+                  `scopeId=${input.scopeId} sourceId=${input.sourceId}`,
                 )
               : sourceOps.get.unknownStorage(
                   cause,
@@ -226,9 +235,9 @@ export const getSource = (input: {
   );
 
 export const updateSource = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
-  accountId: AccountId;
+  actorScopeId: ScopeId;
   payload: UpdateSourcePayload;
 }) =>
   Effect.flatMap(ExecutorStateStore, (store) =>
@@ -236,9 +245,9 @@ export const updateSource = (input: {
       const sourceStore = yield* RuntimeSourceStoreService;
       const existingSource = yield* sourceStore
         .loadSourceById({
-          workspaceId: input.workspaceId,
+          scopeId: input.scopeId,
           sourceId: input.sourceId,
-          actorAccountId: input.accountId,
+          actorScopeId: input.actorScopeId,
         })
         .pipe(
           Effect.mapError((cause) =>
@@ -246,7 +255,7 @@ export const updateSource = (input: {
             cause.message.startsWith("Source not found:")
               ? sourceOps.update.notFound(
                   "Source not found",
-                  `workspaceId=${input.workspaceId} sourceId=${input.sourceId}`,
+                  `scopeId=${input.scopeId} sourceId=${input.sourceId}`,
                 )
               : sourceOps.update.unknownStorage(
                   cause,
@@ -271,7 +280,7 @@ export const updateSource = (input: {
       const persistedSource = yield* mapPersistenceError(
         sourceOps.update.child("persist"),
         sourceStore.persistSource(updatedSource, {
-          actorAccountId: input.accountId,
+          actorScopeId: input.actorScopeId,
         }),
       );
 
@@ -279,7 +288,7 @@ export const updateSource = (input: {
         store,
         sourceStore,
         source: persistedSource,
-        actorAccountId: input.accountId,
+        actorScopeId: input.actorScopeId,
         operation: sourceOps.update,
       });
 
@@ -288,7 +297,7 @@ export const updateSource = (input: {
   );
 
 export const removeSource = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   sourceId: SourceId;
 }) =>
   Effect.flatMap(ExecutorStateStore, () =>
@@ -297,7 +306,7 @@ export const removeSource = (input: {
       const removed = yield* mapPersistenceError(
         sourceOps.remove.child("remove"),
         sourceStore.removeSourceById({
-          workspaceId: input.workspaceId,
+          scopeId: input.scopeId,
           sourceId: input.sourceId,
         }),
       );

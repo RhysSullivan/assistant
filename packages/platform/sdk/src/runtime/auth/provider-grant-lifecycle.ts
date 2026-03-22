@@ -1,7 +1,7 @@
 import type {
   AuthArtifact,
   ProviderAuthGrant,
-  WorkspaceId,
+  ScopeId,
 } from "#schema";
 import {
   decodeProviderGrantRefAuthArtifactConfig,
@@ -11,8 +11,10 @@ import * as Option from "effect/Option";
 
 import {
   type DeleteSecretMaterial,
-} from "../workspace/secret-material-providers";
-import type { ExecutorStateStoreShape } from "../executor-state-store";
+} from "../scope/secret-material-providers";
+import type {
+  ExecutorStateStoreShape,
+} from "../executor-state-store";
 
 const providerGrantRefFromArtifact = (
   artifact: Pick<AuthArtifact, "artifactKind" | "configJson">,
@@ -24,11 +26,11 @@ export const providerGrantIdFromArtifact = (
   providerGrantRefFromArtifact(artifact)?.grantId ?? null;
 
 export const listProviderGrantRefArtifacts = (executorState: ExecutorStateStoreShape, input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   grantId?: ProviderAuthGrant["id"] | null;
 }): Effect.Effect<readonly AuthArtifact[], Error, never> =>
   Effect.map(
-    executorState.authArtifacts.listByWorkspaceId(input.workspaceId),
+    executorState.authArtifacts.listByScopeId(input.scopeId),
     (artifacts) =>
       artifacts.filter((artifact) => {
         const grantId = providerGrantIdFromArtifact(artifact);
@@ -54,7 +56,7 @@ export const clearProviderGrantOrphanedAt = (executorState: ExecutorStateStoreSh
   });
 
 export const markProviderGrantOrphanedIfUnused = (executorState: ExecutorStateStoreShape, input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   grantId: ProviderAuthGrant["id"];
 }): Effect.Effect<boolean, Error, never> =>
   Effect.gen(function* () {
@@ -64,7 +66,7 @@ export const markProviderGrantOrphanedIfUnused = (executorState: ExecutorStateSt
     }
 
     const grantOption = yield* executorState.providerAuthGrants.getById(input.grantId);
-    if (Option.isNone(grantOption) || grantOption.value.workspaceId !== input.workspaceId) {
+    if (Option.isNone(grantOption) || grantOption.value.scopeId !== input.scopeId) {
       return false;
     }
 

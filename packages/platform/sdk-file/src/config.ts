@@ -16,8 +16,8 @@ import {
 } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { ExecutorWorkspaceDescriptor } from "@executor/platform-sdk";
-import type { LoadedLocalExecutorConfig } from "../../sdk/src/runtime/workspace-config";
+import type { ExecutorScopeDescriptor } from "@executor/platform-sdk";
+import type { LoadedLocalExecutorConfig } from "../../sdk/src/runtime/scope-config";
 import {
   LocalExecutorConfigDecodeError,
   LocalFileSystemError,
@@ -36,7 +36,7 @@ export const encodeLocalExecutorConfig = (config: LocalExecutorConfig): string =
 
 export const resolveConfigRelativePath = (input: {
   path: string;
-  workspaceRoot: string;
+  scopeRoot: string;
 }): string => {
   const trimmed = input.path.trim();
   if (trimmed.startsWith("~/")) {
@@ -48,10 +48,10 @@ export const resolveConfigRelativePath = (input: {
   if (isAbsolute(trimmed)) {
     return trimmed;
   }
-  return resolve(input.workspaceRoot, trimmed);
+  return resolve(input.scopeRoot, trimmed);
 };
 
-export type { LoadedLocalExecutorConfig } from "../../sdk/src/runtime/workspace-config";
+export type { LoadedLocalExecutorConfig } from "../../sdk/src/runtime/scope-config";
 
 const PROJECT_CONFIG_BASENAME = "executor.jsonc";
 const PROJECT_CONFIG_DIRECTORY = ".executor";

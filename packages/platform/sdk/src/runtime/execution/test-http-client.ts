@@ -3,7 +3,9 @@ import {
   HttpApiClient,
   HttpServer,
 } from "@effect/platform";
-import { NodeHttpServer } from "@effect/platform-node";
+import {
+  NodeHttpServer,
+} from "@effect/platform-node";
 import {
   ExecutorApi,
   createExecutorApiLayer,
@@ -93,7 +95,7 @@ type ExecutorApiClient = Effect.Effect.Success<
 export const withExecutorApiClient = <A, E>(
   input: {
     runtime: ExecutorRuntime;
-    accountId?: string;
+    actorScopeId?: string;
   },
   f: (client: ExecutorApiClient) => Effect.Effect<A, E, never>,
 ): Effect.Effect<A, E, never> =>

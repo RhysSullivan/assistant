@@ -1,7 +1,8 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 
-export const AccountIdSchema = Schema.String.pipe(Schema.brand("AccountId"));
-export const WorkspaceIdSchema = Schema.String.pipe(Schema.brand("WorkspaceId"));
+export const ScopeIdSchema = Schema.String.pipe(Schema.brand("ScopeId"));
 export const SourceIdSchema = Schema.String.pipe(Schema.brand("SourceId"));
 export const SourceCatalogIdSchema = Schema.String.pipe(Schema.brand("SourceCatalogId"));
 export const SourceCatalogRevisionIdSchema = Schema.String.pipe(
@@ -17,11 +18,11 @@ export const AuthLeaseIdSchema = Schema.String.pipe(
   Schema.brand("AuthLeaseId"),
 );
 export const CredentialIdSchema = AuthArtifactIdSchema;
-export const WorkspaceSourceOauthClientIdSchema = Schema.String.pipe(
-  Schema.brand("WorkspaceSourceOauthClientId"),
+export const ScopedSourceOauthClientIdSchema = Schema.String.pipe(
+  Schema.brand("ScopedSourceOauthClientId"),
 );
-export const WorkspaceOauthClientIdSchema = Schema.String.pipe(
-  Schema.brand("WorkspaceOauthClientId"),
+export const ScopeOauthClientIdSchema = Schema.String.pipe(
+  Schema.brand("ScopeOauthClientId"),
 );
 export const ProviderAuthGrantIdSchema = Schema.String.pipe(
   Schema.brand("ProviderAuthGrantId"),
@@ -38,8 +39,7 @@ export const ExecutionStepIdSchema = Schema.String.pipe(
   Schema.brand("ExecutionStepId"),
 );
 
-export type AccountId = typeof AccountIdSchema.Type;
-export type WorkspaceId = typeof WorkspaceIdSchema.Type;
+export type ScopeId = typeof ScopeIdSchema.Type;
 export type SourceId = typeof SourceIdSchema.Type;
 export type SourceCatalogId = typeof SourceCatalogIdSchema.Type;
 export type SourceCatalogRevisionId = typeof SourceCatalogRevisionIdSchema.Type;
@@ -47,8 +47,8 @@ export type SourceAuthSessionId = typeof SourceAuthSessionIdSchema.Type;
 export type AuthArtifactId = typeof AuthArtifactIdSchema.Type;
 export type AuthLeaseId = typeof AuthLeaseIdSchema.Type;
 export type CredentialId = typeof CredentialIdSchema.Type;
-export type WorkspaceSourceOauthClientId = typeof WorkspaceSourceOauthClientIdSchema.Type;
-export type WorkspaceOauthClientId = typeof WorkspaceOauthClientIdSchema.Type;
+export type ScopedSourceOauthClientId = typeof ScopedSourceOauthClientIdSchema.Type;
+export type ScopeOauthClientId = typeof ScopeOauthClientIdSchema.Type;
 export type ProviderAuthGrantId = typeof ProviderAuthGrantIdSchema.Type;
 export type SecretMaterialId = typeof SecretMaterialIdSchema.Type;
 export type PolicyId = typeof PolicyIdSchema.Type;

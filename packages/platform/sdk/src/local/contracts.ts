@@ -1,4 +1,6 @@
-import { SecretMaterialPurposeSchema } from "../schema";
+import {
+  SecretMaterialPurposeSchema,
+} from "../schema";
 import * as Schema from "effect/Schema";
 
 export const SecretProviderSchema = Schema.Struct({

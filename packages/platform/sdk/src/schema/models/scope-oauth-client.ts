@@ -1,14 +1,18 @@
-import { Schema } from "effect";
-
-import { TimestampMsSchema } from "../common";
 import {
-  WorkspaceIdSchema,
-  WorkspaceOauthClientIdSchema,
+  Schema,
+} from "effect";
+
+import {
+  TimestampMsSchema,
+} from "../common";
+import {
+  ScopeIdSchema,
+  ScopeOauthClientIdSchema,
 } from "../ids";
 
-export const WorkspaceOauthClientSchema = Schema.Struct({
-  id: WorkspaceOauthClientIdSchema,
-  workspaceId: WorkspaceIdSchema,
+export const ScopeOauthClientSchema = Schema.Struct({
+  id: ScopeOauthClientIdSchema,
+  scopeId: ScopeIdSchema,
   providerKey: Schema.String,
   label: Schema.NullOr(Schema.String),
   clientId: Schema.String,
@@ -19,4 +23,4 @@ export const WorkspaceOauthClientSchema = Schema.Struct({
   updatedAt: TimestampMsSchema,
 });
 
-export type WorkspaceOauthClient = typeof WorkspaceOauthClientSchema.Type;
+export type ScopeOauthClient = typeof ScopeOauthClientSchema.Type;

@@ -1,112 +1,120 @@
-import type { AccountId, WorkspaceId } from "#schema";
+import type {
+  ScopeId,
+} from "#schema";
 import * as Effect from "effect/Effect";
 
-import type { LoadedLocalExecutorConfig } from "../../workspace-config";
+import type {
+  LoadedLocalExecutorConfig,
+} from "../../scope-config";
 import {
   SourceTypeDeclarationsRefresherService,
   type SourceTypeDeclarationsRefresherShape,
 } from "../../catalog/source/type-declarations";
 import {
-  RuntimeLocalWorkspaceMismatchError,
-  RuntimeLocalWorkspaceUnavailableError,
-} from "../../workspace-errors";
+  RuntimeLocalScopeMismatchError,
+  RuntimeLocalScopeUnavailableError,
+} from "../../scope-errors";
 import {
-  requireRuntimeLocalWorkspace,
-  type RuntimeLocalWorkspaceState,
-} from "../../workspace/runtime-context";
+  requireRuntimeLocalScope,
+  type RuntimeLocalScopeState,
+} from "../../scope/runtime-context";
 import type {
   SourceArtifactStoreShape,
-  WorkspaceStorageServices,
-  WorkspaceConfigStoreShape,
-  WorkspaceStateStoreShape,
-} from "../../workspace/storage";
+  ScopeStorageServices,
+  ScopeConfigStoreShape,
+  ScopeStateStoreShape,
+} from "../../scope/storage";
 import {
   SourceArtifactStore,
-  WorkspaceConfigStore,
-  WorkspaceStateStore,
-} from "../../workspace/storage";
-import type { LocalWorkspaceState } from "../../workspace-state";
-import type { ExecutorStateStoreShape } from "../../executor-state-store";
+  ScopeConfigStore,
+  ScopeStateStore,
+} from "../../scope/storage";
+import type {
+  LocalScopeState,
+} from "../../scope-state";
+import type {
+  ExecutorStateStoreShape,
+} from "../../executor-state-store";
 
 export type RuntimeSourceStoreDeps = {
   executorState: ExecutorStateStoreShape;
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState;
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  runtimeLocalScope: RuntimeLocalScopeState;
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
   sourceTypeDeclarationsRefresher: SourceTypeDeclarationsRefresherShape;
 };
 
-export type ResolvedSourceStoreWorkspace = {
+export type ResolvedSourceStoreScope = {
   installation: {
-    workspaceId: WorkspaceId;
-    accountId: AccountId;
+    scopeId: ScopeId;
+    actorScopeId: ScopeId;
   };
-  workspaceConfigStore: WorkspaceConfigStoreShape;
-  workspaceStateStore: WorkspaceStateStoreShape;
+  scopeConfigStore: ScopeConfigStoreShape;
+  scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
   loadedConfig: LoadedLocalExecutorConfig;
-  workspaceState: LocalWorkspaceState;
+  scopeState: LocalScopeState;
 };
 
 export type RuntimeSourceStoreServices =
-  WorkspaceStorageServices | SourceTypeDeclarationsRefresherService;
+  ScopeStorageServices | SourceTypeDeclarationsRefresherService;
 
-export const resolveRuntimeLocalWorkspaceFromDeps = (
+export const resolveRuntimeLocalScopeFromDeps = (
   deps: RuntimeSourceStoreDeps,
-  workspaceId: WorkspaceId,
+  scopeId: ScopeId,
 ): Effect.Effect<
-  ResolvedSourceStoreWorkspace,
-  | RuntimeLocalWorkspaceUnavailableError
-  | RuntimeLocalWorkspaceMismatchError
+  ResolvedSourceStoreScope,
+  | RuntimeLocalScopeUnavailableError
+  | RuntimeLocalScopeMismatchError
   | Error,
   never
 > =>
   Effect.gen(function* () {
-    if (deps.runtimeLocalWorkspace.installation.workspaceId !== workspaceId) {
-      return yield* new RuntimeLocalWorkspaceMismatchError({
-          message: `Runtime local workspace mismatch: expected ${workspaceId}, got ${deps.runtimeLocalWorkspace.installation.workspaceId}`,
-          requestedWorkspaceId: workspaceId,
-          activeWorkspaceId: deps.runtimeLocalWorkspace.installation.workspaceId,
+    if (deps.runtimeLocalScope.installation.scopeId !== scopeId) {
+      return yield* new RuntimeLocalScopeMismatchError({
+          message: `Runtime local scope mismatch: expected ${scopeId}, got ${deps.runtimeLocalScope.installation.scopeId}`,
+          requestedScopeId: scopeId,
+          activeScopeId: deps.runtimeLocalScope.installation.scopeId,
         });
     }
 
-    const loadedConfig = yield* deps.workspaceConfigStore.load();
-    const workspaceState = yield* deps.workspaceStateStore.load();
+    const loadedConfig = yield* deps.scopeConfigStore.load();
+    const scopeState = yield* deps.scopeStateStore.load();
 
     return {
-      installation: deps.runtimeLocalWorkspace.installation,
-      workspaceConfigStore: deps.workspaceConfigStore,
-      workspaceStateStore: deps.workspaceStateStore,
+      installation: deps.runtimeLocalScope.installation,
+      scopeConfigStore: deps.scopeConfigStore,
+      scopeStateStore: deps.scopeStateStore,
       sourceArtifactStore: deps.sourceArtifactStore,
       loadedConfig,
-      workspaceState,
+      scopeState,
     };
   });
 
 export const loadRuntimeSourceStoreDeps = (
   executorState: ExecutorStateStoreShape,
-  workspaceId: WorkspaceId,
+  scopeId: ScopeId,
 ): Effect.Effect<
   RuntimeSourceStoreDeps,
-  | RuntimeLocalWorkspaceUnavailableError
-  | RuntimeLocalWorkspaceMismatchError
+  | RuntimeLocalScopeUnavailableError
+  | RuntimeLocalScopeMismatchError
   | Error,
   RuntimeSourceStoreServices
 > =>
   Effect.gen(function* () {
-    const runtimeLocalWorkspace = yield* requireRuntimeLocalWorkspace(workspaceId);
-    const workspaceConfigStore = yield* WorkspaceConfigStore;
-    const workspaceStateStore = yield* WorkspaceStateStore;
+    const runtimeLocalScope = yield* requireRuntimeLocalScope(scopeId);
+    const scopeConfigStore = yield* ScopeConfigStore;
+    const scopeStateStore = yield* ScopeStateStore;
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceTypeDeclarationsRefresher =
       yield* SourceTypeDeclarationsRefresherService;
 
     return {
       executorState,
-      runtimeLocalWorkspace,
-      workspaceConfigStore,
-      workspaceStateStore,
+      runtimeLocalScope,
+      scopeConfigStore,
+      scopeStateStore,
       sourceArtifactStore,
       sourceTypeDeclarationsRefresher,
     };

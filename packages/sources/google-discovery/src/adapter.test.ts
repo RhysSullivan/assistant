@@ -81,7 +81,7 @@ const withJsonServer = async <T>(handler: (input: {
 
 const makeGoogleDiscoverySource = (discoveryUrl: string): Source => ({
   id: "src_google_gmail",
-  workspaceId: "ws_test",
+  scopeId: "ws_test",
   name: "Gmail",
   kind: "google_discovery",
   endpoint: discoveryUrl,

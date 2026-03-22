@@ -3,11 +3,11 @@ import { FileSystem } from "@effect/platform";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { LocalWorkspaceState } from "../../sdk/src/runtime/workspace-state";
+import type { LocalScopeState } from "../../sdk/src/runtime/scope-state";
 import {
-  defaultLocalWorkspaceState,
-  LocalWorkspaceStateSchema,
-} from "../../sdk/src/runtime/workspace-state";
+  defaultLocalScopeState,
+  LocalScopeStateSchema,
+} from "../../sdk/src/runtime/scope-state";
 import type { ResolvedLocalWorkspaceContext } from "./config";
 import {
   LocalFileSystemError,
@@ -17,7 +17,7 @@ import {
 
 const WORKSPACE_STATE_BASENAME = "workspace-state.json";
 
-const decodeLocalWorkspaceState = Schema.decodeUnknownSync(LocalWorkspaceStateSchema);
+const decodeLocalWorkspaceState = Schema.decodeUnknownSync(LocalScopeStateSchema);
 
 const mapFileSystemError = (path: string, action: string) => (cause: unknown) =>
   new LocalFileSystemError({
@@ -34,7 +34,7 @@ export const localWorkspaceStatePath = (
 export const loadLocalWorkspaceState = (
   context: ResolvedLocalWorkspaceContext,
 ): Effect.Effect<
-  LocalWorkspaceState,
+  LocalScopeState,
   LocalFileSystemError | LocalWorkspaceStateDecodeError,
   FileSystem.FileSystem
 > =>
@@ -45,7 +45,7 @@ export const loadLocalWorkspaceState = (
       Effect.mapError(mapFileSystemError(path, "check workspace state path")),
     );
     if (!exists) {
-      return defaultLocalWorkspaceState();
+      return defaultLocalScopeState();
     }
 
     const content = yield* fs.readFileString(path, "utf8").pipe(
@@ -55,7 +55,7 @@ export const loadLocalWorkspaceState = (
       try: () => decodeLocalWorkspaceState(JSON.parse(content) as unknown),
       catch: (cause) =>
         new LocalWorkspaceStateDecodeError({
-          message: `Invalid local workspace state at ${path}: ${unknownLocalErrorDetails(cause)}`,
+          message: `Invalid local scope state at ${path}: ${unknownLocalErrorDetails(cause)}`,
           path,
           details: unknownLocalErrorDetails(cause),
         }),
@@ -64,7 +64,7 @@ export const loadLocalWorkspaceState = (
 
 export const writeLocalWorkspaceState = (input: {
   context: ResolvedLocalWorkspaceContext;
-  state: LocalWorkspaceState;
+  state: LocalScopeState;
 }): Effect.Effect<void, LocalFileSystemError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

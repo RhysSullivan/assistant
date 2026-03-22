@@ -1,13 +1,29 @@
-import { createServer } from "node:http";
+import {
+  createServer,
+} from "node:http";
 
-import { describe, expect, it } from "@effect/vitest";
-import { SourceIdSchema } from "#schema";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
+import {
+  SourceIdSchema,
+} from "#schema";
 import * as Effect from "effect/Effect";
-import { vi } from "vitest";
+import {
+  vi,
+} from "vitest";
 
-import { createSourceFromPayload } from "../source-definitions";
-import { graphqlSourceAdapter } from "./graphql";
-import { runtimeEffectError } from "../../effect-errors";
+import {
+  createSourceFromPayload,
+} from "../source-definitions";
+import {
+  graphqlSourceAdapter,
+} from "./graphql";
+import {
+  runtimeEffectError,
+} from "../../effect-errors";
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
@@ -92,7 +108,7 @@ describe("graphql source adapter", () => {
       );
 
       const source = yield* createSourceFromPayload({
-        workspaceId: "ws_test" as any,
+        scopeId: "ws_test" as any,
         sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
         payload: {
           name: "GraphQL Timeout",

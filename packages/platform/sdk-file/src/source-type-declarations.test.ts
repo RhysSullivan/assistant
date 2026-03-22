@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 
 import {
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
   type Source,
 } from "@executor/platform-sdk/schema";
 
@@ -21,7 +21,6 @@ import {
   ExecutableIdSchema,
   ResourceIdSchema,
   ResponseSetIdSchema,
-  ScopeIdSchema,
   ShapeSymbolIdSchema,
 } from "@executor/ir/ids";
 import type { CatalogV1, ProvenanceRef } from "@executor/ir/model";
@@ -397,7 +396,7 @@ const makeSource = (input: {
   status?: Source["status"];
 }): Source => ({
   id: SourceIdSchema.make(input.id),
-  workspaceId: WorkspaceIdSchema.make("ws_test"),
+  scopeId: ScopeIdSchema.make("ws_test"),
   name: input.id,
   kind: "graphql",
   endpoint: "https://api.linear.app/graphql",

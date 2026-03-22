@@ -484,7 +484,7 @@ const buildConnectPayload = (form: ConnectFormState): ConnectSourcePayload => {
       discoveryUrl: trimToNull(form.discoveryUrl),
       name: trimToNull(form.name),
       namespace: trimToNull(form.namespace),
-      workspaceOauthClientId:
+      scopeOauthClientId:
         form.authKind === "oauth2" &&
         form.workspaceOauthClientId.trim().length > 0
           ? form.workspaceOauthClientId.trim()
@@ -1114,7 +1114,7 @@ export function AddSourcePage() {
           selectedGoogleTemplateIds.includes(template.id),
       );
       const payload: ConnectSourceBatchPayload = {
-        workspaceOauthClientId:
+        scopeOauthClientId:
           workspaceOauthClientId as WorkspaceOauthClient["id"],
         sources: selectedTemplates.map((template) => ({
           service: template.service,

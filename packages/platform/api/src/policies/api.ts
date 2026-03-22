@@ -11,9 +11,9 @@ import {
   ControlPlaneUnauthorizedError,
 } from "@executor/platform-sdk/errors";
 import {
-  LocalWorkspacePolicySchema,
+  LocalScopePolicySchema as LocalWorkspacePolicySchema,
   PolicyIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema as WorkspaceIdSchema,
 } from "@executor/platform-sdk/schema";
 import * as Schema from "effect/Schema";
 

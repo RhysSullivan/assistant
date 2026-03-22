@@ -1,6 +1,10 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 
-import { SourceSchema } from "./source";
+import {
+  SourceSchema,
+} from "./source";
 
 export const SourceInspectionPipelineKindSchema = Schema.Literal("ir");
 

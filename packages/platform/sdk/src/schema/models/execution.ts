@@ -1,12 +1,15 @@
-import { Schema } from "effect";
-
-import { TimestampMsSchema } from "../common";
 import {
-  AccountIdSchema,
+  Schema,
+} from "effect";
+
+import {
+  TimestampMsSchema,
+} from "../common";
+import {
   ExecutionIdSchema,
   ExecutionInteractionIdSchema,
   ExecutionStepIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
 } from "../ids";
 
 export const ExecutionStatusSchema = Schema.Literal(
@@ -20,8 +23,8 @@ export const ExecutionStatusSchema = Schema.Literal(
 
 export const ExecutionSchema = Schema.Struct({
   id: ExecutionIdSchema,
-  workspaceId: WorkspaceIdSchema,
-  createdByAccountId: AccountIdSchema,
+  scopeId: ScopeIdSchema,
+  createdByScopeId: ScopeIdSchema,
   status: ExecutionStatusSchema,
   code: Schema.String,
   resultJson: Schema.NullOr(Schema.String),

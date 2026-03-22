@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@executor/effect-test-utils": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/node": "catalog:",
     "bun-types": "catalog:",

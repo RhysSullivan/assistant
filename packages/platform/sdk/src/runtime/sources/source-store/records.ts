@@ -1,25 +1,36 @@
 import type {
-  AccountId,
+  ScopeId,
   AuthArtifact,
   Source,
   SourceId,
-  WorkspaceId,
 } from "#schema";
-import { SourceIdSchema } from "#schema";
+import {
+  SourceIdSchema,
+} from "#schema";
 import * as Effect from "effect/Effect";
 
-import { sourceAuthFromAuthArtifact } from "../../auth/auth-artifacts";
-import { authArtifactSecretMaterialRefs } from "../../auth/auth-artifacts";
-import type { LoadedLocalExecutorConfig } from "../../workspace-config";
+import {
+  sourceAuthFromAuthArtifact,
+} from "../../auth/auth-artifacts";
+import {
+  authArtifactSecretMaterialRefs,
+} from "../../auth/auth-artifacts";
+import type {
+  LoadedLocalExecutorConfig,
+} from "../../scope-config";
 import {
   LocalConfiguredSourceNotFoundError,
-  RuntimeLocalWorkspaceMismatchError,
-  RuntimeLocalWorkspaceUnavailableError,
-} from "../../workspace-errors";
-import type { LocalWorkspaceState } from "../../workspace-state";
-import { getSourceAdapter } from "../source-adapters";
+  RuntimeLocalScopeMismatchError,
+  RuntimeLocalScopeUnavailableError,
+} from "../../scope-errors";
+import type {
+  LocalScopeState,
+} from "../../scope-state";
 import {
-  resolveRuntimeLocalWorkspaceFromDeps,
+  getSourceAdapter,
+} from "../source-adapters";
+import {
+  resolveRuntimeLocalScopeFromDeps,
   type RuntimeSourceStoreDeps,
 } from "./deps";
 import {
@@ -31,11 +42,11 @@ import {
 } from "./config";
 
 export const buildLocalSourceRecord = (input: {
-  workspaceId: WorkspaceId;
+  scopeId: ScopeId;
   loadedConfig: LoadedLocalExecutorConfig;
-  workspaceState: LocalWorkspaceState;
+  scopeState: LocalScopeState;
   sourceId: SourceId;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   authArtifacts: ReadonlyArray<AuthArtifact>;
 }): Effect.Effect<
   {
@@ -54,11 +65,11 @@ export const buildLocalSourceRecord = (input: {
         });
     }
 
-    const existingState = input.workspaceState.sources[input.sourceId];
+    const existingState = input.scopeState.sources[input.sourceId];
     const adapter = getSourceAdapter(sourceConfig.kind);
     const baseSource = (yield* adapter.validateSource({
       id: SourceIdSchema.make(input.sourceId),
-      workspaceId: input.workspaceId,
+      scopeId: input.scopeId,
       name: trimOrNull(sourceConfig.name) ?? input.sourceId,
       kind: sourceConfig.kind,
       endpoint: sourceConfig.connection.endpoint.trim(),
@@ -86,14 +97,14 @@ export const buildLocalSourceRecord = (input: {
       authArtifacts: input.authArtifacts.filter(
         (artifactItem) => artifactItem.sourceId === baseSource.id,
       ),
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
       slot: "runtime",
     });
     const importAuthArtifact = selectPreferredAuthArtifact({
       authArtifacts: input.authArtifacts.filter(
         (artifactItem) => artifactItem.sourceId === baseSource.id,
       ),
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
       slot: "import",
     });
 
@@ -119,36 +130,36 @@ export const buildLocalSourceRecord = (input: {
 
 export const loadSourcesInWorkspaceWithDeps = (
   deps: RuntimeSourceStoreDeps,
-  workspaceId: WorkspaceId,
+  scopeId: ScopeId,
   options: {
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
   } = {},
 ): Effect.Effect<
   readonly Source[],
-  | RuntimeLocalWorkspaceUnavailableError
-  | RuntimeLocalWorkspaceMismatchError
+  | RuntimeLocalScopeUnavailableError
+  | RuntimeLocalScopeMismatchError
   | LocalConfiguredSourceNotFoundError
   | Error,
   never
 > =>
   Effect.gen(function* () {
-    const localWorkspace = yield* resolveRuntimeLocalWorkspaceFromDeps(
+    const localScope = yield* resolveRuntimeLocalScopeFromDeps(
       deps,
-      workspaceId,
+      scopeId,
     );
-    const authArtifacts = yield* deps.executorState.authArtifacts.listByWorkspaceId(
-      workspaceId,
+    const authArtifacts = yield* deps.executorState.authArtifacts.listByScopeId(
+      scopeId,
     );
     const sources = yield* Effect.forEach(
-      Object.keys(localWorkspace.loadedConfig.config?.sources ?? {}),
+      Object.keys(localScope.loadedConfig.config?.sources ?? {}),
       (sourceId) =>
         Effect.map(
           buildLocalSourceRecord({
-            workspaceId,
-            loadedConfig: localWorkspace.loadedConfig,
-            workspaceState: localWorkspace.workspaceState,
+            scopeId,
+            loadedConfig: localScope.loadedConfig,
+            scopeState: localScope.scopeState,
             sourceId: SourceIdSchema.make(sourceId),
-            actorAccountId: options.actorAccountId,
+            actorScopeId: options.actorScopeId,
             authArtifacts,
           }),
           ({ source }) => source,
@@ -157,28 +168,28 @@ export const loadSourcesInWorkspaceWithDeps = (
     yield* Effect.annotateCurrentSpan("executor.source.count", sources.length);
     return sources;
   }).pipe(
-    Effect.withSpan("source.store.load_workspace", {
+    Effect.withSpan("source.store.load_scope", {
       attributes: {
-        "executor.workspace.id": workspaceId,
+        "executor.scope.id": scopeId,
       },
     }),
   );
 
-export const syncWorkspaceSourceTypeDeclarationsWithDeps = (
+export const syncScopeSourceTypeDeclarationsWithDeps = (
   deps: RuntimeSourceStoreDeps,
-  workspaceId: WorkspaceId,
+  scopeId: ScopeId,
   options: {
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
   } = {},
 ): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
-    const localWorkspace = yield* resolveRuntimeLocalWorkspaceFromDeps(
+    const localScope = yield* resolveRuntimeLocalScopeFromDeps(
       deps,
-      workspaceId,
+      scopeId,
     );
     const sources = yield* loadSourcesInWorkspaceWithDeps(
       deps,
-      workspaceId,
+      scopeId,
       options,
     );
     const entries = yield* Effect.forEach(sources, (source) =>
@@ -202,14 +213,14 @@ export const syncWorkspaceSourceTypeDeclarationsWithDeps = (
       ),
     });
   }).pipe(
-    Effect.withSpan("source.types.refresh_workspace.schedule", {
+    Effect.withSpan("source.types.refresh_scope.schedule", {
       attributes: {
-        "executor.workspace.id": workspaceId,
+        "executor.scope.id": scopeId,
       },
     }),
   );
 
-export const shouldRefreshWorkspaceDeclarationsAfterPersist = (source: Source): boolean =>
+export const shouldRefreshScopeDeclarationsAfterPersist = (source: Source): boolean =>
   source.enabled === false ||
   source.status === "auth_required" ||
   source.status === "error" ||
@@ -217,24 +228,24 @@ export const shouldRefreshWorkspaceDeclarationsAfterPersist = (source: Source): 
 
 export const listLinkedSecretSourcesInWorkspaceWithDeps = (
   deps: RuntimeSourceStoreDeps,
-  workspaceId: WorkspaceId,
+  scopeId: ScopeId,
   options: {
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
   } = {},
 ): Effect.Effect<
   Map<string, Array<{ sourceId: string; sourceName: string }>>,
-  | RuntimeLocalWorkspaceUnavailableError
-  | RuntimeLocalWorkspaceMismatchError
+  | RuntimeLocalScopeUnavailableError
+  | RuntimeLocalScopeMismatchError
   | LocalConfiguredSourceNotFoundError
   | Error,
   never
 > =>
   Effect.gen(function* () {
     const [sources, authArtifacts, materialIds] = yield* Effect.all([
-      loadSourcesInWorkspaceWithDeps(deps, workspaceId, {
-        actorAccountId: options.actorAccountId,
+      loadSourcesInWorkspaceWithDeps(deps, scopeId, {
+        actorScopeId: options.actorScopeId,
       }),
-      deps.executorState.authArtifacts.listByWorkspaceId(workspaceId),
+      deps.executorState.authArtifacts.listByScopeId(scopeId),
       deps.executorState.secretMaterials.listAll().pipe(
         Effect.map(
           (materials) => new Set(materials.map((material) => String(material.id))),
@@ -273,39 +284,39 @@ export const listLinkedSecretSourcesInWorkspaceWithDeps = (
 export const loadSourceByIdWithDeps = (
   deps: RuntimeSourceStoreDeps,
   input: {
-    workspaceId: WorkspaceId;
+    scopeId: ScopeId;
     sourceId: Source["id"];
-    actorAccountId?: AccountId | null;
+    actorScopeId?: ScopeId | null;
   },
 ): Effect.Effect<
   Source,
-  | RuntimeLocalWorkspaceUnavailableError
-  | RuntimeLocalWorkspaceMismatchError
+  | RuntimeLocalScopeUnavailableError
+  | RuntimeLocalScopeMismatchError
   | LocalConfiguredSourceNotFoundError
   | Error,
   never
 > =>
   Effect.gen(function* () {
-    const localWorkspace = yield* resolveRuntimeLocalWorkspaceFromDeps(
+    const localScope = yield* resolveRuntimeLocalScopeFromDeps(
       deps,
-      input.workspaceId,
+      input.scopeId,
     );
-    const authArtifacts = yield* deps.executorState.authArtifacts.listByWorkspaceId(
-      input.workspaceId,
+    const authArtifacts = yield* deps.executorState.authArtifacts.listByScopeId(
+      input.scopeId,
     );
-    if (!localWorkspace.loadedConfig.config?.sources?.[input.sourceId]) {
+    if (!localScope.loadedConfig.config?.sources?.[input.sourceId]) {
       return yield* new LocalConfiguredSourceNotFoundError({
-          message: `Source not found: workspaceId=${input.workspaceId} sourceId=${input.sourceId}`,
+          message: `Source not found: scopeId=${input.scopeId} sourceId=${input.sourceId}`,
           sourceId: input.sourceId,
         });
     }
 
     const localSource = yield* buildLocalSourceRecord({
-      workspaceId: input.workspaceId,
-      loadedConfig: localWorkspace.loadedConfig,
-      workspaceState: localWorkspace.workspaceState,
+      scopeId: input.scopeId,
+      loadedConfig: localScope.loadedConfig,
+      scopeState: localScope.scopeState,
       sourceId: input.sourceId,
-      actorAccountId: input.actorAccountId,
+      actorScopeId: input.actorScopeId,
       authArtifacts,
     });
 
@@ -313,7 +324,7 @@ export const loadSourceByIdWithDeps = (
   }).pipe(
     Effect.withSpan("source.store.load_by_id", {
       attributes: {
-        "executor.workspace.id": input.workspaceId,
+        "executor.scope.id": input.scopeId,
         "executor.source.id": input.sourceId,
       },
     }),

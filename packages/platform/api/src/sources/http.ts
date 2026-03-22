@@ -6,8 +6,8 @@ import {
 import type {
   ExecutionInteraction,
   Source,
-  WorkspaceId,
-  WorkspaceOauthClient,
+  ScopeId as WorkspaceId,
+  ScopeOauthClient as WorkspaceOauthClient,
 } from "@executor/platform-sdk/schema";
 import type {
   ExecutorMcpSourceInput,
@@ -18,7 +18,7 @@ import * as Effect from "effect/Effect";
 import {
   sourceAdapterRequiresInteractiveConnect,
 } from "@executor/platform-sdk/runtime";
-import { WorkspaceOauthClientIdSchema } from "@executor/platform-sdk/schema";
+import { ScopeOauthClientIdSchema as WorkspaceOauthClientIdSchema } from "@executor/platform-sdk/schema";
 
 import {
   ControlPlaneBadRequestError,
@@ -130,8 +130,8 @@ const toExecutorSourceInput = (
         version: payload.version,
         discoveryUrl: payload.discoveryUrl,
         scopes: payload.scopes,
-        workspaceOauthClientId: toWorkspaceOauthClientId(
-          payload.workspaceOauthClientId,
+        scopeOauthClientId: toWorkspaceOauthClientId(
+          payload.scopeOauthClientId,
         ),
         oauthClient: payload.oauthClient,
         name: payload.name,
@@ -1137,7 +1137,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           Effect.flatMap((executor) =>
             Effect.gen(function* () {
               const completed = yield* executor.effect.oauth.completeProviderCallback({
-                  workspaceId: path.workspaceId,
+                  scopeId: path.workspaceId,
                   state: urlParams.state,
                   code: urlParams.code,
                   error: urlParams.error,

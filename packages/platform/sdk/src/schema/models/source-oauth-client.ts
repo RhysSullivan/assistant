@@ -1,31 +1,35 @@
-import { Schema } from "effect";
+import {
+  Schema,
+} from "effect";
 export {
   SourceOauthClientInputSchema,
-  WorkspaceSourceOauthClientRedirectModeSchema,
+  ScopedSourceOauthClientRedirectModeSchema,
 } from "@executor/source-core";
 import {
   SourceOauthClientInputSchema,
-  WorkspaceSourceOauthClientRedirectModeSchema,
+  ScopedSourceOauthClientRedirectModeSchema,
 } from "@executor/source-core";
 
-import { TimestampMsSchema } from "../common";
+import {
+  TimestampMsSchema,
+} from "../common";
 import {
   SourceIdSchema,
-  WorkspaceIdSchema,
-  WorkspaceSourceOauthClientIdSchema,
+  ScopeIdSchema,
+  ScopedSourceOauthClientIdSchema,
 } from "../ids";
 
-export const WorkspaceSourceOauthClientMetadataSchema = Schema.Struct({
-  redirectMode: Schema.optional(WorkspaceSourceOauthClientRedirectModeSchema),
+export const ScopedSourceOauthClientMetadataSchema = Schema.Struct({
+  redirectMode: Schema.optional(ScopedSourceOauthClientRedirectModeSchema),
 });
 
-export const WorkspaceSourceOauthClientMetadataJsonSchema = Schema.parseJson(
-  WorkspaceSourceOauthClientMetadataSchema,
+export const ScopedSourceOauthClientMetadataJsonSchema = Schema.parseJson(
+  ScopedSourceOauthClientMetadataSchema,
 );
 
-export const WorkspaceSourceOauthClientSchema = Schema.Struct({
-  id: WorkspaceSourceOauthClientIdSchema,
-  workspaceId: WorkspaceIdSchema,
+export const ScopedSourceOauthClientSchema = Schema.Struct({
+  id: ScopedSourceOauthClientIdSchema,
+  scopeId: ScopeIdSchema,
   sourceId: SourceIdSchema,
   providerKey: Schema.String,
   clientId: Schema.String,
@@ -36,9 +40,9 @@ export const WorkspaceSourceOauthClientSchema = Schema.Struct({
   updatedAt: TimestampMsSchema,
 });
 
-export type WorkspaceSourceOauthClient = typeof WorkspaceSourceOauthClientSchema.Type;
-export type WorkspaceSourceOauthClientRedirectMode =
-  typeof WorkspaceSourceOauthClientRedirectModeSchema.Type;
-export type WorkspaceSourceOauthClientMetadata =
-  typeof WorkspaceSourceOauthClientMetadataSchema.Type;
+export type ScopedSourceOauthClient = typeof ScopedSourceOauthClientSchema.Type;
+export type ScopedSourceOauthClientRedirectMode =
+  typeof ScopedSourceOauthClientRedirectModeSchema.Type;
+export type ScopedSourceOauthClientMetadata =
+  typeof ScopedSourceOauthClientMetadataSchema.Type;
 export type SourceOauthClientInput = typeof SourceOauthClientInputSchema.Type;

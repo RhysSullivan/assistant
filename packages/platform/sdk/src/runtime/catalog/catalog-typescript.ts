@@ -1,7 +1,13 @@
-import { createHash } from "node:crypto";
+import {
+  createHash,
+} from "node:crypto";
 
-import type { ProjectedCatalog } from "@executor/ir/catalog";
-import type { ShapeSymbolId } from "@executor/ir/ids";
+import type {
+  ProjectedCatalog,
+} from "@executor/ir/catalog";
+import type {
+  ShapeSymbolId,
+} from "@executor/ir/ids";
 import type {
   CatalogV1,
   DocumentationBlock,

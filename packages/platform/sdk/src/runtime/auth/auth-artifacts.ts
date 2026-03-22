@@ -1,6 +1,8 @@
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import type {
+  OAuthClientProvider,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import {
-  type AccountId,
+  type ScopeId,
   AuthGrantSetJsonSchema,
   McpOAuthAuthArtifactConfigJsonSchema,
   McpOAuthAuthArtifactKind,
@@ -35,8 +37,10 @@ import * as Schema from "effect/Schema";
 import type {
   ResolveSecretMaterial,
   SecretMaterialResolveContext,
-} from "../workspace/secret-material-providers";
-import { runtimeEffectError } from "../effect-errors";
+} from "../scope/secret-material-providers";
+import {
+  runtimeEffectError,
+} from "../effect-errors";
 
 export type ResolvedSourceAuthMaterial = {
   placements: ReadonlyArray<RequestPlacement>;
@@ -154,7 +158,7 @@ export const authArtifactFromSourceAuth = (input: {
   source: Source;
   auth: SourceAuth;
   slot: CredentialSlot;
-  actorAccountId?: AccountId | null;
+  actorScopeId?: ScopeId | null;
   existingAuthArtifactId?: AuthArtifact["id"] | null;
 }): AuthArtifact | null => {
   if (input.auth.kind === "none") {
@@ -170,9 +174,9 @@ export const authArtifactFromSourceAuth = (input: {
   if (input.auth.kind === "bearer") {
     return {
       id,
-      workspaceId: input.source.workspaceId,
+      scopeId: input.source.scopeId,
       sourceId: input.source.id,
-      actorAccountId: input.actorAccountId ?? null,
+      actorScopeId: input.actorScopeId ?? null,
       slot: input.slot,
       artifactKind: StaticBearerAuthArtifactKind,
       configJson: encodeStaticBearerAuthArtifactConfig({
@@ -189,9 +193,9 @@ export const authArtifactFromSourceAuth = (input: {
   if (input.auth.kind === "oauth2_authorized_user") {
     return {
       id,
-      workspaceId: input.source.workspaceId,
+      scopeId: input.source.scopeId,
       sourceId: input.source.id,
-      actorAccountId: input.actorAccountId ?? null,
+      actorScopeId: input.actorScopeId ?? null,
       slot: input.slot,
       artifactKind: RefreshableOAuth2AuthorizedUserAuthArtifactKind,
       configJson: encodeRefreshableOAuth2AuthorizedUserAuthArtifactConfig({
@@ -212,9 +216,9 @@ export const authArtifactFromSourceAuth = (input: {
   if (input.auth.kind === "provider_grant_ref") {
     return {
       id,
-      workspaceId: input.source.workspaceId,
+      scopeId: input.source.scopeId,
       sourceId: input.source.id,
-      actorAccountId: input.actorAccountId ?? null,
+      actorScopeId: input.actorScopeId ?? null,
       slot: input.slot,
       artifactKind: ProviderGrantRefAuthArtifactKind,
       configJson: encodeProviderGrantRefAuthArtifactConfig({
@@ -233,9 +237,9 @@ export const authArtifactFromSourceAuth = (input: {
   if (input.auth.kind === "mcp_oauth") {
     return {
       id,
-      workspaceId: input.source.workspaceId,
+      scopeId: input.source.scopeId,
       sourceId: input.source.id,
-      actorAccountId: input.actorAccountId ?? null,
+      actorScopeId: input.actorScopeId ?? null,
       slot: input.slot,
       artifactKind: McpOAuthAuthArtifactKind,
       configJson: encodeMcpOAuthAuthArtifactConfig({
@@ -259,9 +263,9 @@ export const authArtifactFromSourceAuth = (input: {
 
   return {
     id,
-    workspaceId: input.source.workspaceId,
+    scopeId: input.source.scopeId,
     sourceId: input.source.id,
-    actorAccountId: input.actorAccountId ?? null,
+    actorScopeId: input.actorScopeId ?? null,
     slot: input.slot,
     artifactKind: StaticOAuth2AuthArtifactKind,
     configJson: encodeStaticOAuth2AuthArtifactConfig({

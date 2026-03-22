@@ -3,7 +3,7 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "@effect/platform";
-import type { WorkspaceId } from "@executor/platform-sdk/schema";
+import type { ScopeId as WorkspaceId } from "@executor/platform-sdk/schema";
 import * as Cause from "effect/Cause";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";

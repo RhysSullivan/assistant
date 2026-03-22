@@ -1,7 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import { SecretMaterialIdSchema } from "../schema";
+import {
+  SecretMaterialIdSchema,
+} from "../schema";
 import {
   type CreateSecretPayload,
   type CreateSecretResult,
@@ -16,15 +18,21 @@ import {
   ControlPlaneNotFoundError,
   ControlPlaneStorageError,
 } from "../errors";
-import { requireRuntimeLocalWorkspace } from "../runtime/workspace/runtime-context";
+import {
+  requireRuntimeLocalScope,
+} from "../runtime/scope/runtime-context";
 import {
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
   SecretMaterialStorerService,
   SecretMaterialUpdaterService,
-} from "../runtime/workspace/secret-material-providers";
-import { RuntimeSourceStoreService } from "../runtime/sources/source-store";
-import { ExecutorStateStore } from "../runtime/executor-state-store";
+} from "../runtime/scope/secret-material-providers";
+import {
+  RuntimeSourceStoreService,
+} from "../runtime/sources/source-store";
+import {
+  ExecutorStateStore,
+} from "../runtime/executor-state-store";
 
 const secretStorageError = (operation: string, message: string) =>
   new ControlPlaneStorageError({
@@ -40,9 +48,9 @@ export const listLocalSecrets = () =>
   Effect.gen(function* () {
     const store = yield* ExecutorStateStore;
     const sourceStore = yield* RuntimeSourceStoreService;
-    const runtimeLocalWorkspace = yield* requireRuntimeLocalWorkspace().pipe(
+    const runtimeLocalScope = yield* requireRuntimeLocalScope().pipe(
       Effect.mapError(() =>
-        secretStorageError("secrets.list", "Failed resolving local workspace."),
+        secretStorageError("secrets.list", "Failed resolving local scope."),
       ),
     );
     const secretMaterials = yield* store.secretMaterials
@@ -53,10 +61,10 @@ export const listLocalSecrets = () =>
         ),
       );
     const linkedSourcesMap = yield* sourceStore
-      .listLinkedSecretSourcesInWorkspace(
-        runtimeLocalWorkspace.installation.workspaceId,
+      .listLinkedSecretSourcesInScope(
+        runtimeLocalScope.installation.scopeId,
         {
-          actorAccountId: runtimeLocalWorkspace.installation.accountId,
+          actorScopeId: runtimeLocalScope.installation.actorScopeId,
         },
       )
       .pipe(

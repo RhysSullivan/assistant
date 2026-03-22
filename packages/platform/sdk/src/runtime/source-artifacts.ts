@@ -9,7 +9,9 @@ import {
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { decodeCatalogSnapshotV1 } from "@executor/ir/catalog";
+import {
+  decodeCatalogSnapshotV1,
+} from "@executor/ir/catalog";
 import {
   CatalogSnapshotV1Schema,
   type CatalogSnapshotV1,

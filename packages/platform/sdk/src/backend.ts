@@ -6,8 +6,8 @@ import {
   type BoundLocalToolRuntimeLoader,
   type BoundSourceArtifactStore,
   type BoundSourceTypeDeclarationsRefresher,
-  type BoundWorkspaceConfigStore,
-  type BoundWorkspaceStateStore,
+  type BoundScopeConfigStore,
+  type BoundScopeStateStore,
   type ExecutorRuntime,
   type ExecutorRuntimeOptions,
   type RuntimeInstanceConfigService,
@@ -15,13 +15,13 @@ import {
   type RuntimeSecretMaterialServices,
 } from "./runtime";
 import type {
-  ExecutorWorkspaceContext,
-  ExecutorWorkspaceDescriptor,
-} from "./workspace";
+  ExecutorScopeContext,
+  ExecutorScopeDescriptor,
+} from "./scope";
 export type {
-  ExecutorWorkspaceContext,
-  ExecutorWorkspaceDescriptor,
-} from "./workspace";
+  ExecutorScopeContext,
+  ExecutorScopeDescriptor,
+} from "./scope";
 
 export type ExecutorBackend = {
   createRuntime: (
@@ -30,8 +30,8 @@ export type ExecutorBackend = {
 };
 
 export type ExecutorInstallationBackend = BoundInstallationStore;
-export type ExecutorWorkspaceConfigBackend = BoundWorkspaceConfigStore;
-export type ExecutorWorkspaceStateBackend = BoundWorkspaceStateStore;
+export type ExecutorScopeConfigBackend = BoundScopeConfigStore;
+export type ExecutorScopeStateBackend = BoundScopeStateStore;
 export type ExecutorSourceArtifactBackend = BoundSourceArtifactStore;
 export type ExecutorStateBackend = import("./runtime").ExecutorStateStoreShape;
 export type ExecutorLocalToolBackend = BoundLocalToolRuntimeLoader;
@@ -42,8 +42,8 @@ export type ExecutorInstanceConfigBackend = RuntimeInstanceConfigService;
 
 export type ExecutorStorageBackend = {
   installation: ExecutorInstallationBackend;
-  workspaceConfig: ExecutorWorkspaceConfigBackend;
-  workspaceState: ExecutorWorkspaceStateBackend;
+  scopeConfig: ExecutorScopeConfigBackend;
+  scopeState: ExecutorScopeStateBackend;
   sourceArtifacts: ExecutorSourceArtifactBackend;
   executorState: ExecutorStateBackend;
   secretMaterial: ExecutorSecretMaterialBackend;
@@ -51,7 +51,7 @@ export type ExecutorStorageBackend = {
 };
 
 export type ExecutorBackendServices = {
-  workspace: ExecutorWorkspaceDescriptor;
+  scope: ExecutorScopeDescriptor;
   storage: ExecutorStorageBackend;
   instanceConfig: ExecutorInstanceConfigBackend;
   localTools?: ExecutorLocalToolBackend;
@@ -68,7 +68,7 @@ export const createExecutorBackend = (input: {
       createExecutorRuntimeFromServices({
         ...options,
         services: {
-          workspace: services.workspace,
+          scope: services.scope,
           storage: services.storage satisfies RuntimeStorageServices,
           localToolRuntimeLoader: services.localTools,
           sourceTypeDeclarationsRefresher: services.sourceTypeDeclarations,

@@ -1,14 +1,17 @@
-import { Schema } from "effect";
-
-import { TimestampMsSchema } from "../common";
 import {
-  AccountIdSchema,
+  Schema,
+} from "effect";
+
+import {
+  TimestampMsSchema,
+} from "../common";
+import {
+  ScopeIdSchema,
   ExecutionIdSchema,
   ExecutionInteractionIdSchema,
   SourceIdSchema,
   SourceAuthSessionIdSchema,
-  WorkspaceOauthClientIdSchema,
-  WorkspaceIdSchema,
+  ScopeOauthClientIdSchema,
 } from "../ids";
 import {
   CredentialSlotSchema,
@@ -109,7 +112,7 @@ export const ProviderOauthBatchSourceAuthSessionDataSchema = Schema.Struct({
   authorizationEndpoint: Schema.String,
   tokenEndpoint: Schema.String,
   redirectUri: Schema.String,
-  oauthClientId: WorkspaceOauthClientIdSchema,
+  oauthClientId: ScopeOauthClientIdSchema,
   clientAuthentication: OAuth2ClientAuthenticationMethodSchema,
   scopes: Schema.Array(Schema.String),
   headerName: Schema.String,
@@ -129,9 +132,9 @@ export const ProviderOauthBatchSourceAuthSessionDataJsonSchema = Schema.parseJso
 
 export const SourceAuthSessionSchema = Schema.Struct({
   id: SourceAuthSessionIdSchema,
-  workspaceId: WorkspaceIdSchema,
+  scopeId: ScopeIdSchema,
   sourceId: SourceIdSchema,
-  actorAccountId: Schema.NullOr(AccountIdSchema),
+  actorScopeId: Schema.NullOr(ScopeIdSchema),
   credentialSlot: CredentialSlotSchema,
   executionId: Schema.NullOr(ExecutionIdSchema),
   interactionId: Schema.NullOr(ExecutionInteractionIdSchema),

@@ -1,19 +1,25 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import {
   AuthArtifactIdSchema,
   SourceIdSchema,
-  WorkspaceIdSchema,
+  ScopeIdSchema,
   type Source,
 } from "#schema";
 
-import { resolveSourceAuthMaterialWithDeps } from "./source-auth-material";
+import {
+  resolveSourceAuthMaterialWithDeps,
+} from "./source-auth-material";
 
 const makeSource = (overrides: Partial<Source> = {}): Source => ({
   id: SourceIdSchema.make("src_tool_artifacts"),
-  workspaceId: WorkspaceIdSchema.make("ws_tool_artifacts"),
+  scopeId: ScopeIdSchema.make("ws_tool_artifacts"),
   name: "GitHub",
   kind: "openapi",
   endpoint: "https://api.github.com",
@@ -176,16 +182,16 @@ describe("source-auth-material", () => {
               },
               auth: { kind: "none" },
             }),
-            actorAccountId: null,
+            actorScopeId: null,
             executorState: {
               authArtifacts: {
-                getByWorkspaceSourceAndActor: () =>
+                getByScopeSourceAndActor: () =>
                   Effect.succeed(
                     Option.some({
                       id: AuthArtifactIdSchema.make("auth_artifact_mcp"),
-                      workspaceId: WorkspaceIdSchema.make("ws_tool_artifacts"),
+                      scopeId: ScopeIdSchema.make("ws_tool_artifacts"),
                       sourceId: SourceIdSchema.make("src_tool_artifacts"),
-                      actorAccountId: null,
+                      actorScopeId: null,
                       slot: "runtime",
                       artifactKind: "mcp_oauth",
                       configJson: JSON.stringify({

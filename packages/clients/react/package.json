@@ -24,6 +24,7 @@
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
+    "@executor/effect-test-utils": "workspace:*",
     "@executor/platform-sdk-file": "workspace:*",
     "@types/jsdom": "^21.1.7",
     "@types/node": "catalog:",

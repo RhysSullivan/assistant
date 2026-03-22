@@ -1,4 +1,8 @@
-import { describe, expect, it } from "@effect/vitest";
+import {
+  describe,
+  expect,
+  it,
+} from "@effect/vitest";
 import * as Either from "effect/Either";
 import * as Schema from "effect/Schema";
 

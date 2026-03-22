@@ -42,8 +42,8 @@ describe("local-installation", () => {
       const installation = runtime.localInstallation;
       const fs = yield* FileSystem.FileSystem;
 
-      expect(installation.accountId).toBe("acc_local_default");
-      expect(installation.workspaceId.startsWith("ws_local_")).toBe(true);
+      expect(installation.actorScopeId).toBe("acc_local_default");
+      expect(installation.scopeId.startsWith("ws_local_")).toBe(true);
       expect(yield* fs.exists(join(workspaceRoot, ".executor", "executor.jsonc"))).toBe(false);
     }).pipe(Effect.provide(NodeFileSystem.layer)),
     60_000,
@@ -63,8 +63,8 @@ describe("local-installation", () => {
         context,
       });
 
-      expect(second.accountId).toBe(first.accountId);
-      expect(second.workspaceId).toBe(first.workspaceId);
+      expect(second.actorScopeId).toBe(first.actorScopeId);
+      expect(second.scopeId).toBe(first.scopeId);
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 });

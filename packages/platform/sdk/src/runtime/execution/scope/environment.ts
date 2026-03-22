@@ -14,18 +14,30 @@ import {
   createCodeExecutorForRuntime,
   resolveConfiguredExecutionRuntime,
 } from "../runtime";
-import { createWorkspaceToolInvoker } from "./tool-invoker";
-import { RuntimeSourceAuthServiceTag } from "../../sources/source-auth-service";
-import { RuntimeSourceCatalogStoreService } from "../../catalog/source/runtime";
-import { RuntimeSourceAuthMaterialService } from "../../auth/source-auth-material";
-import { RuntimeSourceCatalogSyncService } from "../../catalog/source/sync";
-import { getRuntimeLocalWorkspaceOption } from "../../workspace/runtime-context";
+import {
+  createScopeToolInvoker,
+} from "./tool-invoker";
+import {
+  RuntimeSourceAuthServiceTag,
+} from "../../sources/source-auth-service";
+import {
+  RuntimeSourceCatalogStoreService,
+} from "../../catalog/source/runtime";
+import {
+  RuntimeSourceAuthMaterialService,
+} from "../../auth/source-auth-material";
+import {
+  RuntimeSourceCatalogSyncService,
+} from "../../catalog/source/sync";
+import {
+  getRuntimeLocalScopeOption,
+} from "../../scope/runtime-context";
 import {
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
   SecretMaterialStorerService,
   SecretMaterialUpdaterService,
-} from "../../workspace/secret-material-providers";
+} from "../../scope/secret-material-providers";
 import {
   LocalToolRuntimeLoaderService,
   type LocalToolRuntimeLoaderShape,
@@ -36,14 +48,20 @@ import {
   type InstallationStoreShape,
   SourceArtifactStore,
   type SourceArtifactStoreShape,
-  WorkspaceConfigStore,
-  type WorkspaceConfigStoreShape,
-  WorkspaceStateStore,
-  type WorkspaceStateStoreShape,
-} from "../../workspace/storage";
-import { ExecutorStateStore } from "../../executor-state-store";
-import { RuntimeSourceStoreService } from "../../sources/source-store";
-import type { CreateWorkspaceInternalToolMap } from "./tool-invoker";
+  ScopeConfigStore,
+  type ScopeConfigStoreShape,
+  ScopeStateStore,
+  type ScopeStateStoreShape,
+} from "../../scope/storage";
+import {
+  ExecutorStateStore,
+} from "../../executor-state-store";
+import {
+  RuntimeSourceStoreService,
+} from "../../sources/source-store";
+import type {
+  CreateScopeInternalToolMap,
+} from "./tool-invoker";
 export {
   createCodeExecutorForRuntime,
   resolveConfiguredExecutionRuntime,
@@ -56,7 +74,7 @@ const createEmptyLocalToolRuntime = (): LocalToolRuntime => ({
   toolPaths: new Set<string>(),
 });
 
-export const createWorkspaceExecutionEnvironmentResolver =
+export const createScopeExecutionEnvironmentResolver =
   (input: {
     executorStateStore: Effect.Effect.Success<typeof ExecutorStateStore>;
     sourceStore: Effect.Effect.Success<typeof RuntimeSourceStoreService>;
@@ -78,25 +96,25 @@ export const createWorkspaceExecutionEnvironmentResolver =
     storeSecretMaterial: Effect.Effect.Success<typeof SecretMaterialStorerService>;
     deleteSecretMaterial: Effect.Effect.Success<typeof SecretMaterialDeleterService>;
     updateSecretMaterial: Effect.Effect.Success<typeof SecretMaterialUpdaterService>;
-    workspaceConfigStore: WorkspaceConfigStoreShape;
-    workspaceStateStore: WorkspaceStateStoreShape;
+    scopeConfigStore: ScopeConfigStoreShape;
+    scopeStateStore: ScopeStateStoreShape;
     sourceArtifactStore: SourceArtifactStoreShape;
-    createInternalToolMap?: CreateWorkspaceInternalToolMap;
+    createInternalToolMap?: CreateScopeInternalToolMap;
   }): ResolveExecutionEnvironment =>
-  ({ workspaceId, accountId, onElicitation }) =>
+  ({ scopeId, actorScopeId, onElicitation }) =>
     Effect.gen(function* () {
-      const runtimeLocalWorkspace = yield* getRuntimeLocalWorkspaceOption();
+      const runtimeLocalScope = yield* getRuntimeLocalScopeOption();
       const loadedConfig =
-        runtimeLocalWorkspace === null
+        runtimeLocalScope === null
           ? null
-          : yield* input.workspaceConfigStore.load();
+          : yield* input.scopeConfigStore.load();
       const localToolRuntime =
-        runtimeLocalWorkspace === null
+        runtimeLocalScope === null
           ? createEmptyLocalToolRuntime()
           : yield* input.localToolRuntimeLoader.load();
-      const { catalog, toolInvoker } = createWorkspaceToolInvoker({
-        workspaceId,
-        accountId,
+      const { catalog, toolInvoker } = createScopeToolInvoker({
+        scopeId,
+        actorScopeId,
         executorStateStore: input.executorStateStore,
         sourceStore: input.sourceStore,
         sourceCatalogSyncService: input.sourceCatalogSyncService,
@@ -106,12 +124,12 @@ export const createWorkspaceExecutionEnvironmentResolver =
         storeSecretMaterial: input.storeSecretMaterial,
         deleteSecretMaterial: input.deleteSecretMaterial,
         updateSecretMaterial: input.updateSecretMaterial,
-        workspaceConfigStore: input.workspaceConfigStore,
-        workspaceStateStore: input.workspaceStateStore,
+        scopeConfigStore: input.scopeConfigStore,
+        scopeStateStore: input.scopeStateStore,
         sourceArtifactStore: input.sourceArtifactStore,
         sourceAuthMaterialService: input.sourceAuthMaterialService,
         sourceAuthService: input.sourceAuthService,
-        runtimeLocalWorkspace,
+        runtimeLocalScope,
         localToolRuntime,
         createInternalToolMap: input.createInternalToolMap,
         onElicitation,
@@ -132,13 +150,13 @@ export class RuntimeExecutionResolverService extends Context.Tag(
   "#runtime/RuntimeExecutionResolverService",
 )<
   RuntimeExecutionResolverService,
-  ReturnType<typeof createWorkspaceExecutionEnvironmentResolver>
+  ReturnType<typeof createScopeExecutionEnvironmentResolver>
 >() {}
 
 export const RuntimeExecutionResolverLive = (
   input: {
     executionResolver?: ResolveExecutionEnvironment;
-    createInternalToolMap?: CreateWorkspaceInternalToolMap;
+    createInternalToolMap?: CreateScopeInternalToolMap;
   } = {},
 ) =>
   input.executionResolver
@@ -160,11 +178,11 @@ export const RuntimeExecutionResolverLive = (
           const storeSecretMaterial = yield* SecretMaterialStorerService;
           const deleteSecretMaterial = yield* SecretMaterialDeleterService;
           const updateSecretMaterial = yield* SecretMaterialUpdaterService;
-          const workspaceConfigStore = yield* WorkspaceConfigStore;
-          const workspaceStateStore = yield* WorkspaceStateStore;
+          const scopeConfigStore = yield* ScopeConfigStore;
+          const scopeStateStore = yield* ScopeStateStore;
           const sourceArtifactStore = yield* SourceArtifactStore;
 
-          return createWorkspaceExecutionEnvironmentResolver({
+          return createScopeExecutionEnvironmentResolver({
             executorStateStore,
             sourceStore,
             sourceCatalogSyncService,
@@ -177,8 +195,8 @@ export const RuntimeExecutionResolverLive = (
             storeSecretMaterial,
             deleteSecretMaterial,
             updateSecretMaterial,
-            workspaceConfigStore,
-            workspaceStateStore,
+            scopeConfigStore,
+            scopeStateStore,
             sourceArtifactStore,
             createInternalToolMap: input.createInternalToolMap,
           });
