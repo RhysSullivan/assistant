@@ -16,6 +16,7 @@ import { RuntimeSourceCatalogStoreService } from "../../catalog/source/runtime";
 import type { RuntimeLocalWorkspaceState } from "../../local/runtime-context";
 import { type LocalToolRuntime } from "../../local/tools";
 import {
+  type InstallationStoreShape,
   makeWorkspaceStorageLayer,
   type SourceArtifactStoreShape,
   type WorkspaceConfigStoreShape,
@@ -47,6 +48,7 @@ export type WorkspaceInternalToolContext = {
     typeof RuntimeSourceCatalogSyncService
   >;
   sourceAuthService: RuntimeSourceAuthService;
+  installationStore: InstallationStoreShape;
   workspaceConfigStore: WorkspaceConfigStoreShape;
   workspaceStateStore: WorkspaceStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
@@ -68,6 +70,7 @@ export const createWorkspaceToolInvoker = (input: {
   sourceCatalogStore: Effect.Effect.Success<
     typeof RuntimeSourceCatalogStoreService
   >;
+  installationStore: InstallationStoreShape;
   workspaceConfigStore: WorkspaceConfigStoreShape;
   workspaceStateStore: WorkspaceStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
@@ -97,6 +100,10 @@ export const createWorkspaceToolInvoker = (input: {
     workspaceId: input.workspaceId,
     accountId: input.accountId,
     sourceAuthService: input.sourceAuthService,
+    installationStore: input.installationStore,
+    workspaceConfigStore: input.workspaceConfigStore,
+    workspaceStateStore: input.workspaceStateStore,
+    sourceArtifactStore: input.sourceArtifactStore,
     runtimeLocalWorkspace: input.runtimeLocalWorkspace,
   });
   const internalTools =
@@ -107,6 +114,7 @@ export const createWorkspaceToolInvoker = (input: {
       sourceStore: input.sourceStore,
       sourceCatalogSyncService: input.sourceCatalogSyncService,
       sourceAuthService: input.sourceAuthService,
+      installationStore: input.installationStore,
       workspaceConfigStore: input.workspaceConfigStore,
       workspaceStateStore: input.workspaceStateStore,
       sourceArtifactStore: input.sourceArtifactStore,

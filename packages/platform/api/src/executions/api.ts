@@ -2,11 +2,11 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
   CreateExecutionPayloadSchema,
   ResumeExecutionPayloadSchema,
-} from "@executor/platform-sdk/executions/contracts";
+} from "@executor/platform-sdk/contracts";
 export type {
   CreateExecutionPayload,
   ResumeExecutionPayload,
-} from "@executor/platform-sdk/executions/contracts";
+} from "@executor/platform-sdk/contracts";
 import {
   ExecutionIdSchema,
   ExecutionEnvelopeSchema,

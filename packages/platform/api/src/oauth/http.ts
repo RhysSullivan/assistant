@@ -9,13 +9,15 @@ import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { RuntimeSourceAuthServiceTag } from "@executor/platform-sdk/runtime";
 import { ControlPlaneApi } from "../api";
 import {
   ControlPlaneBadRequestError,
   ControlPlaneStorageError,
 } from "../errors";
-import { resolveRequestedLocalWorkspace } from "../local-context";
+import {
+  getControlPlaneExecutor,
+  resolveRequestedLocalWorkspace,
+} from "../local-context";
 import {
   SourceOAuthPopupResultSchema,
   type SourceOAuthPopupResult,
@@ -236,23 +238,20 @@ export const ControlPlaneOAuthLive = HttpApiBuilder.group(
     handlers
       .handle("startSourceAuth", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("oauth.start_source_auth", path.workspaceId).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
+          Effect.flatMap((executor) =>
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest;
-              const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
-              return yield* sourceAuthService.startSourceOAuthSession({
-                workspaceId: path.workspaceId,
-                actorAccountId: runtimeLocalWorkspace.installation.accountId,
-                baseUrl: resolveRequestOrigin(request),
-                displayName: payload.name,
-                provider: {
-                  kind: payload.provider,
-                  endpoint: payload.endpoint,
-                  transport: payload.transport,
-                  queryParams: payload.queryParams,
-                  headers: payload.headers,
-                },
-              });
+              return yield* executor.effect.oauth.startSourceAuth({
+                  baseUrl: resolveRequestOrigin(request),
+                  displayName: payload.name,
+                  provider: {
+                    kind: payload.provider,
+                    endpoint: payload.endpoint,
+                    transport: payload.transport,
+                    queryParams: payload.queryParams,
+                    headers: payload.headers,
+                  },
+                });
             }).pipe(
               Effect.catchAllCause((cause) =>
                 Effect.fail(
@@ -269,53 +268,54 @@ export const ControlPlaneOAuthLive = HttpApiBuilder.group(
         ),
       )
       .handle("sourceAuthCallback", ({ urlParams }) =>
-        Effect.gen(function* () {
-          const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
-          const completed = yield* Effect.either(
-            sourceAuthService.completeSourceOAuthSession({
-              state: urlParams.state,
-              code: urlParams.code,
-              error: urlParams.error,
-              errorDescription: urlParams.error_description,
-            }),
-          );
+        Effect.flatMap(getControlPlaneExecutor(), (executor) =>
+          Effect.gen(function* () {
+            const completed = yield* Effect.either(
+              executor.effect.oauth.completeSourceAuth({
+                  state: urlParams.state,
+                  code: urlParams.code,
+                  error: urlParams.error,
+                  errorDescription: urlParams.error_description,
+                }),
+            );
 
-          if (Either.isRight(completed)) {
+            if (Either.isRight(completed)) {
+              return htmlResponse(
+                sourceOAuthPopupResultDocument({
+                  title: "OAuth connected",
+                  message: "OAuth credentials are ready. Return to the source form to finish saving.",
+                  status: "connected",
+                  sessionId: completed.right.sessionId,
+                  payload: {
+                    type: "executor:oauth-result",
+                    ok: true,
+                    sessionId: completed.right.sessionId,
+                    auth: completed.right.auth,
+                  },
+                }),
+              );
+            }
+
+            const message = completed.left instanceof Error
+              ? completed.left.message
+              : "Failed completing OAuth";
+
             return htmlResponse(
               sourceOAuthPopupResultDocument({
-                title: "OAuth connected",
-                message: "OAuth credentials are ready. Return to the source form to finish saving.",
-                status: "connected",
-                sessionId: completed.right.sessionId,
+                title: "OAuth failed",
+                message,
+                status: "failed",
+                sessionId: "failed",
                 payload: {
                   type: "executor:oauth-result",
-                  ok: true,
-                  sessionId: completed.right.sessionId,
-                  auth: completed.right.auth,
+                  ok: false,
+                  sessionId: null,
+                  error: message,
                 },
               }),
+              500,
             );
-          }
-
-          const message = completed.left instanceof Error
-            ? completed.left.message
-            : "Failed completing OAuth";
-
-          return htmlResponse(
-            sourceOAuthPopupResultDocument({
-              title: "OAuth failed",
-              message,
-              status: "failed",
-              sessionId: "failed",
-              payload: {
-                type: "executor:oauth-result",
-                ok: false,
-                sessionId: null,
-                error: message,
-              },
-            }),
-            500,
-          );
-        }),
+          }),
+        ),
       ),
 );

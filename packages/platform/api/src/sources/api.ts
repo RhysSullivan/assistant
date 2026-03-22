@@ -12,7 +12,7 @@ import {
   DiscoverSourcePayloadSchema,
   UpdateSourcePayloadSchema,
   WorkspaceOauthClientQuerySchema,
-} from "@executor/platform-sdk/sources/contracts";
+} from "@executor/platform-sdk/contracts";
 import {
   ControlPlaneBadRequestError,
   ControlPlaneForbiddenError,
@@ -44,7 +44,7 @@ export type {
   CreateWorkspaceOauthClientPayload,
   DiscoverSourcePayload,
   UpdateSourcePayload,
-} from "@executor/platform-sdk/sources/contracts";
+} from "@executor/platform-sdk/contracts";
 
 export {
   ConnectSourceBatchPayloadSchema,

@@ -6,10 +6,9 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   createControlPlaneApiLayer,
 } from "@executor/platform-api";
-import {
-  createControlPlaneRuntime,
-  type ControlPlaneRuntime,
-} from "@executor/platform-sdk/runtime";
+import { createExecutorEffect } from "@executor/platform-sdk";
+import type { ControlPlaneRuntime } from "@executor/platform-sdk/runtime";
+import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "@executor/platform-sdk-file";
 import type {
   LocalInstallation,
   Source,
@@ -110,8 +109,15 @@ const startControlPlaneServer = async (): Promise<ApiServer> => {
   const scope = await Effect.runPromise(Scope.make());
 
   try {
+    const executor = await Effect.runPromise(
+      createExecutorEffect({
+        backend: {
+          createRuntime: () => Effect.succeed(runtime),
+        },
+      }),
+    );
     const serverLayer = HttpApiBuilder.serve().pipe(
-      Layer.provide(createControlPlaneApiLayer(runtime.runtimeLayer)),
+      Layer.provide(createControlPlaneApiLayer(executor)),
       Layer.provideMerge(NodeHttpServer.layerTest),
     );
     const context = await Effect.runPromise(Layer.buildWithScope(serverLayer, scope));

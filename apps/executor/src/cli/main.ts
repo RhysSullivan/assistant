@@ -13,13 +13,16 @@ import {
   createControlPlaneClient,
   type ControlPlaneClient,
 } from "@executor/platform-api";
-import { createExecutorAdminToolMap } from "@executor/platform-internal";
+import { createWorkspaceExecutorAdminToolMap } from "@executor/platform-internal";
 import {
   EXECUTOR_SOURCES_ADD_HELP_LINES,
   RuntimeExecutionResolverService,
-  createControlPlaneRuntime,
-  type ControlPlaneRuntime,
 } from "@executor/platform-sdk/runtime";
+import {
+  createExecutorEffect,
+  type Executor,
+} from "@executor/platform-sdk";
+import { createLocalExecutorBackend } from "@executor/platform-sdk-file";
 import {
   ExecutionIdSchema,
   type ExecutionEnvelope,
@@ -248,9 +251,9 @@ const formatCatalogUnavailableMessage = (cause: Cause.Cause<unknown>): string =>
     : `Current workspace catalog unavailable: ${message}`;
 };
 
-const closeRuntime = (runtime: ControlPlaneRuntime) =>
+const closeExecutor = (executor: Executor) =>
   Effect.tryPromise({
-    try: () => runtime.close(),
+    try: () => executor.close(),
     catch: toError,
   }).pipe(Effect.catchAll(() => Effect.void));
 
@@ -275,27 +278,29 @@ const buildRunWorkflowText = (
 
 const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
   Effect.acquireUseRelease(
-    createControlPlaneRuntime({
-      localDataDir: DEFAULT_LOCAL_DATA_DIR,
-      createInternalToolMap: createExecutorAdminToolMap,
+    createExecutorEffect({
+      backend: createLocalExecutorBackend({
+        localDataDir: DEFAULT_LOCAL_DATA_DIR,
+      }),
+      createInternalToolMap: createWorkspaceExecutorAdminToolMap,
     }).pipe(Effect.mapError(toError)),
-    (runtime) =>
+    (executor) =>
       Effect.gen(function* () {
         const environment = yield* Effect.gen(function* () {
           const resolveExecutionEnvironment = yield* RuntimeExecutionResolverService;
           return yield* resolveExecutionEnvironment({
-            workspaceId: runtime.localInstallation.workspaceId,
-            accountId: runtime.localInstallation.accountId,
+            workspaceId: executor.workspaceId,
+            accountId: executor.accountId,
             executionId: ExecutionIdSchema.make("exec_help"),
           });
         }).pipe(
-          Effect.provide(runtime.runtimeLayer),
+          Effect.provide(executor.runtime.runtimeLayer),
           Effect.mapError(toError),
         );
 
         return yield* buildRunWorkflowText(environment.catalog);
       }),
-    closeRuntime,
+    closeExecutor,
   ).pipe(
     Effect.catchAllCause((cause) =>
       Effect.succeed(

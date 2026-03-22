@@ -11,11 +11,21 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import {
+  createExecutorEffect,
   type ControlPlaneRuntime,
-} from "../index";
+} from "../../index";
 
 const createClientLayer = (runtime: ControlPlaneRuntime) => {
-  const apiLayer = createControlPlaneApiLayer(runtime.runtimeLayer);
+  const apiLayer = Layer.unwrapEffect(
+    Effect.map(
+      createExecutorEffect({
+        backend: {
+          createRuntime: () => Effect.succeed(runtime),
+        },
+      }),
+      createControlPlaneApiLayer,
+    ),
+  );
 
   return HttpApiBuilder.serve().pipe(
     Layer.provide(apiLayer),

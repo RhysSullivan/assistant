@@ -5,9 +5,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import {
-  createControlPlaneRuntime,
-} from "../index";
+import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "../../../../sdk-file/src/index";
 import { withControlPlaneClient } from "./test-http-client";
 
 const writeProjectConfig = (

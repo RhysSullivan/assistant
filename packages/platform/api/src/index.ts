@@ -22,6 +22,7 @@ export {
   type ControlPlaneApiRuntimeContext,
   type BuiltControlPlaneApiLayer,
   createControlPlaneApiLayer,
+  createExecutorApiLayer,
 } from "./http";
 
 export {

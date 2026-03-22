@@ -1,10 +1,5 @@
 import { HttpApiBuilder } from "@effect/platform";
 import * as Effect from "effect/Effect";
-import {
-  createExecution,
-  getExecution,
-  resumeExecution,
-} from "@executor/platform-sdk/runtime";
 
 import { ControlPlaneApi } from "../api";
 import { resolveRequestedLocalWorkspace } from "../local-context";
@@ -16,34 +11,18 @@ export const ControlPlaneExecutionsLive = HttpApiBuilder.group(
     handlers
       .handle("create", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("executions.create", path.workspaceId).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
-            createExecution({
-              workspaceId: path.workspaceId,
-              payload,
-              createdByAccountId: runtimeLocalWorkspace.installation.accountId,
-            })
-          ),
+          Effect.flatMap((executor) => executor.effect.executions.create(payload)),
         ),
       )
       .handle("get", ({ path }) =>
         resolveRequestedLocalWorkspace("executions.get", path.workspaceId).pipe(
-          Effect.zipRight(
-            getExecution({
-              workspaceId: path.workspaceId,
-              executionId: path.executionId,
-            }),
-          ),
+          Effect.flatMap((executor) => executor.effect.executions.get(path.executionId)),
         ),
       )
       .handle("resume", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("executions.resume", path.workspaceId).pipe(
-          Effect.flatMap((runtimeLocalWorkspace) =>
-            resumeExecution({
-              workspaceId: path.workspaceId,
-              executionId: path.executionId,
-              payload,
-              resumedByAccountId: runtimeLocalWorkspace.installation.accountId,
-            })
+          Effect.flatMap((executor) =>
+            executor.effect.executions.resume(path.executionId, payload)
           ),
         ),
       ),

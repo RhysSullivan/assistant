@@ -18,6 +18,7 @@
     "@executor/platform-api": "workspace:*",
     "@executor/platform-internal": "workspace:*",
     "@executor/platform-sdk": "workspace:*",
+    "@executor/platform-sdk-file": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.213.0",
     "@opentelemetry/resources": "^2.6.0",

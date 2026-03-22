@@ -26,6 +26,8 @@ import {
   type LocalToolRuntime,
 } from "../../local/tools";
 import {
+  InstallationStore,
+  type InstallationStoreShape,
   SourceArtifactStore,
   type SourceArtifactStoreShape,
   WorkspaceConfigStore,
@@ -65,6 +67,7 @@ export const createWorkspaceExecutionEnvironmentResolver =
       typeof RuntimeSourceCatalogStoreService
     >;
     localToolRuntimeLoader: LocalToolRuntimeLoaderShape;
+    installationStore: InstallationStoreShape;
     workspaceConfigStore: WorkspaceConfigStoreShape;
     workspaceStateStore: WorkspaceStateStoreShape;
     sourceArtifactStore: SourceArtifactStoreShape;
@@ -92,6 +95,7 @@ export const createWorkspaceExecutionEnvironmentResolver =
         sourceStore: input.sourceStore,
         sourceCatalogSyncService: input.sourceCatalogSyncService,
         sourceCatalogStore: input.sourceCatalogStore,
+        installationStore: input.installationStore,
         workspaceConfigStore: input.workspaceConfigStore,
         workspaceStateStore: input.workspaceStateStore,
         sourceArtifactStore: input.sourceArtifactStore,
@@ -141,6 +145,7 @@ export const RuntimeExecutionResolverLive = (
           const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
           const sourceCatalogStore = yield* RuntimeSourceCatalogStoreService;
           const localToolRuntimeLoader = yield* LocalToolRuntimeLoaderService;
+          const installationStore = yield* InstallationStore;
           const workspaceConfigStore = yield* WorkspaceConfigStore;
           const workspaceStateStore = yield* WorkspaceStateStore;
           const sourceArtifactStore = yield* SourceArtifactStore;
@@ -153,6 +158,7 @@ export const RuntimeExecutionResolverLive = (
             sourceAuthMaterialService,
             sourceCatalogStore,
             localToolRuntimeLoader,
+            installationStore,
             workspaceConfigStore,
             workspaceStateStore,
             sourceArtifactStore,
