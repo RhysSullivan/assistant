@@ -214,6 +214,25 @@ export type RuntimeSecretMaterialServices = {
   update: UpdateSecretMaterial;
 };
 
+export type RuntimeAuthStorageServices = {
+  artifacts: ExecutorStateStoreShape["authArtifacts"];
+  leases: ExecutorStateStoreShape["authLeases"];
+  sourceOauthClients: ExecutorStateStoreShape["sourceOauthClients"];
+  scopeOauthClients: ExecutorStateStoreShape["scopeOauthClients"];
+  providerGrants: ExecutorStateStoreShape["providerAuthGrants"];
+  sourceSessions: ExecutorStateStoreShape["sourceAuthSessions"];
+};
+
+export type RuntimeSecretsStorageServices =
+  & ExecutorStateStoreShape["secretMaterials"]
+  & RuntimeSecretMaterialServices;
+
+export type RuntimeExecutionStorageServices = {
+  runs: ExecutorStateStoreShape["executions"];
+  interactions: ExecutorStateStoreShape["executionInteractions"];
+  steps: ExecutorStateStoreShape["executionSteps"];
+};
+
 export type RuntimeInstanceConfigService = {
   resolve: () => Effect.Effect<InstanceConfig, Error, never>;
 };
@@ -223,8 +242,9 @@ export type RuntimeStorageServices = {
   scopeConfig: BoundScopeConfigStore;
   scopeState: BoundScopeStateStore;
   sourceArtifacts: BoundSourceArtifactStore;
-  executorState: ExecutorStateStoreShape;
-  secretMaterial: RuntimeSecretMaterialServices;
+  auth: RuntimeAuthStorageServices;
+  secrets: RuntimeSecretsStorageServices;
+  executions: RuntimeExecutionStorageServices;
   close?: () => Promise<void>;
 };
 
@@ -293,6 +313,21 @@ const makeSecretMaterialLayer = (input: RuntimeSecretMaterialServices) =>
 const makeInstanceConfigLayer = (input: RuntimeInstanceConfigService) =>
   Layer.succeed(LocalInstanceConfigService, input.resolve);
 
+const toExecutorStateStoreShape = (
+  input: RuntimeStorageServices,
+): ExecutorStateStoreShape => ({
+  authArtifacts: input.auth.artifacts,
+  authLeases: input.auth.leases,
+  sourceOauthClients: input.auth.sourceOauthClients,
+  scopeOauthClients: input.auth.scopeOauthClients,
+  providerAuthGrants: input.auth.providerGrants,
+  sourceAuthSessions: input.auth.sourceSessions,
+  secretMaterials: input.secrets,
+  executions: input.executions.runs,
+  executionInteractions: input.executions.interactions,
+  executionSteps: input.executions.steps,
+});
+
 export const createExecutorRuntimeLayer = (
   input: ExecutorRuntimeOptions & ExecutorRuntimeServices & {
     localScopeState: RuntimeLocalScopeState;
@@ -321,14 +356,14 @@ export const createExecutorRuntimeLayer = (
   );
 
   const baseLayer = Layer.mergeAll(
-    Layer.succeed(ExecutorStateStore, input.storage.executorState),
+    Layer.succeed(ExecutorStateStore, toExecutorStateStoreShape(input.storage)),
     RuntimeLocalScopeLive(input.localScopeState),
     storageLayer,
     Layer.succeed(LiveExecutionManagerService, input.liveExecutionManager),
     sourceTypeDeclarationsRefresherLayer,
   );
 
-  const secretMaterialLayer = makeSecretMaterialLayer(input.storage.secretMaterial).pipe(
+  const secretMaterialLayer = makeSecretMaterialLayer(input.storage.secrets).pipe(
     Layer.provide(baseLayer),
   );
   const instanceConfigLayer = makeInstanceConfigLayer(input.instanceConfig);

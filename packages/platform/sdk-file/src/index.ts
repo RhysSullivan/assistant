@@ -263,8 +263,20 @@ export const createLocalExecutorServicesEffect = (
           workspaceContext,
           fileSystem,
         ),
-        executorState: executorStateStorage.executorState,
-        secretMaterial: {
+        auth: {
+          artifacts: executorStateStorage.executorState.authArtifacts,
+          leases: executorStateStorage.executorState.authLeases,
+          sourceOauthClients:
+            executorStateStorage.executorState.sourceOauthClients,
+          scopeOauthClients:
+            executorStateStorage.executorState.scopeOauthClients,
+          providerGrants:
+            executorStateStorage.executorState.providerAuthGrants,
+          sourceSessions:
+            executorStateStorage.executorState.sourceAuthSessions,
+        },
+        secrets: {
+          ...executorStateStorage.executorState.secretMaterials,
           resolve: resolveSecretMaterial,
           store: createDefaultSecretMaterialStorer({
             executorState: executorStateStorage.executorState,
@@ -275,6 +287,12 @@ export const createLocalExecutorServicesEffect = (
           update: createDefaultSecretMaterialUpdater({
             executorState: executorStateStorage.executorState,
           }),
+        },
+        executions: {
+          runs: executorStateStorage.executorState.executions,
+          interactions:
+            executorStateStorage.executorState.executionInteractions,
+          steps: executorStateStorage.executorState.executionSteps,
         },
         close: executorStateStorage.close,
       },

@@ -81,6 +81,61 @@ const defaultLocalExecutorStateSnapshot = (): LocalExecutorStateSnapshot => ({
 const cloneValue = <T>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
 
+const asRecord = (
+  value: unknown,
+): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const migrateLegacyExecutorStateValue = (
+  value: unknown,
+): {
+  value: unknown;
+  migrated: boolean;
+} => {
+  if (Array.isArray(value)) {
+    let migrated = false;
+    const next = value.map((item) => {
+      const result = migrateLegacyExecutorStateValue(item);
+      migrated = migrated || result.migrated;
+      return result.value;
+    });
+    return { value: next, migrated };
+  }
+
+  const record = asRecord(value);
+  if (record === null) {
+    return { value, migrated: false };
+  }
+
+  let migrated = false;
+  const next: Record<string, unknown> = {};
+
+  for (const [key, entry] of Object.entries(record)) {
+    let nextKey = key;
+    if (key === "workspaceId") {
+      nextKey = "scopeId";
+      migrated = true;
+    } else if (key === "actorAccountId") {
+      nextKey = "actorScopeId";
+      migrated = true;
+    } else if (key === "createdByAccountId") {
+      nextKey = "createdByScopeId";
+      migrated = true;
+    } else if (key === "workspaceOauthClients") {
+      nextKey = "scopeOauthClients";
+      migrated = true;
+    }
+
+    const migratedEntry = migrateLegacyExecutorStateValue(entry);
+    migrated = migrated || migratedEntry.migrated;
+    next[nextKey] = migratedEntry.value;
+  }
+
+  return { value: next, migrated };
+};
+
 const mapFileSystemError = (path: string, action: string) => (cause: unknown) =>
   new LocalFileSystemError({
     message: `Failed to ${action} ${path}: ${unknownLocalErrorDetails(cause)}`,
@@ -149,9 +204,14 @@ const readStateFromDisk = (
       try: () => JSON.parse(content) as unknown,
       catch: mapFileSystemError(path, "parse executor state"),
     });
-    return yield* decodeLocalExecutorStateSnapshot(parsed).pipe(
+    const migrated = migrateLegacyExecutorStateValue(parsed);
+    const decoded = yield* decodeLocalExecutorStateSnapshot(migrated.value).pipe(
       Effect.mapError(mapFileSystemError(path, "decode executor state")),
     );
+    if (migrated.migrated) {
+      yield* writeStateToDisk(context, decoded);
+    }
+    return decoded;
   });
 
 const writeStateToDisk = (

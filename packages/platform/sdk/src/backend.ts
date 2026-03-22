@@ -11,9 +11,11 @@ import {
   type BoundScopeStateStore,
   type ExecutorRuntime,
   type ExecutorRuntimeOptions,
+  type RuntimeAuthStorageServices,
+  type RuntimeExecutionStorageServices,
   type RuntimeInstanceConfigService,
+  type RuntimeSecretsStorageServices,
   type RuntimeStorageServices,
-  type RuntimeSecretMaterialServices,
 } from "./runtime";
 import type {
   ExecutorScopeContext,
@@ -49,12 +51,24 @@ export type ExecutorInstallationBackend = PublicizeObject<BoundInstallationStore
 export type ExecutorScopeConfigBackend = PublicizeObject<BoundScopeConfigStore>;
 export type ExecutorScopeStateBackend = PublicizeObject<BoundScopeStateStore>;
 export type ExecutorSourceArtifactBackend = PublicizeObject<BoundSourceArtifactStore>;
-export type ExecutorStateBackend = PublicizeObject<import("./runtime").ExecutorStateStoreShape>;
 export type ExecutorLocalToolBackend = PublicizeObject<BoundLocalToolRuntimeLoader>;
 export type ExecutorSourceTypeDeclarationsBackend = PublicizeObject<
   BoundSourceTypeDeclarationsRefresher
 >;
-export type ExecutorSecretMaterialBackend = PublicizeObject<RuntimeSecretMaterialServices>;
+export type ExecutorAuthBackend = {
+  artifacts: PublicizeObject<RuntimeAuthStorageServices["artifacts"]>;
+  leases: PublicizeObject<RuntimeAuthStorageServices["leases"]>;
+  sourceOauthClients: PublicizeObject<RuntimeAuthStorageServices["sourceOauthClients"]>;
+  scopeOauthClients: PublicizeObject<RuntimeAuthStorageServices["scopeOauthClients"]>;
+  providerGrants: PublicizeObject<RuntimeAuthStorageServices["providerGrants"]>;
+  sourceSessions: PublicizeObject<RuntimeAuthStorageServices["sourceSessions"]>;
+};
+export type ExecutorSecretsBackend = PublicizeObject<RuntimeSecretsStorageServices>;
+export type ExecutorExecutionsBackend = {
+  runs: PublicizeObject<RuntimeExecutionStorageServices["runs"]>;
+  interactions: PublicizeObject<RuntimeExecutionStorageServices["interactions"]>;
+  steps: PublicizeObject<RuntimeExecutionStorageServices["steps"]>;
+};
 export type ExecutorInstanceConfigBackend = PublicizeObject<RuntimeInstanceConfigService>;
 
 export type ExecutorStorageBackend = {
@@ -62,8 +76,9 @@ export type ExecutorStorageBackend = {
   scopeConfig: ExecutorScopeConfigBackend;
   scopeState: ExecutorScopeStateBackend;
   sourceArtifacts: ExecutorSourceArtifactBackend;
-  executorState: ExecutorStateBackend;
-  secretMaterial: ExecutorSecretMaterialBackend;
+  auth: ExecutorAuthBackend;
+  secrets: ExecutorSecretsBackend;
+  executions: ExecutorExecutionsBackend;
   close?: () => Promise<void>;
 };
 
@@ -133,15 +148,6 @@ const toSourceArtifactBackend = (
   remove: (sourceId) => toEffect(input.remove(sourceId)),
 });
 
-const toSecretMaterialBackend = (
-  input: ExecutorSecretMaterialBackend,
-): RuntimeSecretMaterialServices => ({
-  resolve: (payload) => toEffect(input.resolve(payload)),
-  store: (payload) => toEffect(input.store(payload)),
-  delete: (payload) => toEffect(input.delete(payload)),
-  update: (payload) => toEffect(input.update(payload)),
-});
-
 const toInstanceConfigBackend = (
   input: ExecutorInstanceConfigBackend,
 ): RuntimeInstanceConfigService => ({
@@ -163,28 +169,28 @@ const toSourceTypeDeclarationsBackend = (
     toEffect(input.refreshSourceInBackground(payload)).pipe(Effect.orDie),
 });
 
-const toExecutorStateBackend = (
-  input: ExecutorStateBackend,
-): import("./runtime").ExecutorStateStoreShape => ({
-  authArtifacts: {
-    listByScopeId: (scopeId) => toEffect(input.authArtifacts.listByScopeId(scopeId)),
+const toAuthBackend = (
+  input: ExecutorAuthBackend,
+): RuntimeAuthStorageServices => ({
+  artifacts: {
+    listByScopeId: (scopeId) => toEffect(input.artifacts.listByScopeId(scopeId)),
     listByScopeAndSourceId: (payload) =>
-      toEffect(input.authArtifacts.listByScopeAndSourceId(payload)),
+      toEffect(input.artifacts.listByScopeAndSourceId(payload)),
     getByScopeSourceAndActor: (payload) =>
-      toOptionEffect(input.authArtifacts.getByScopeSourceAndActor(payload)),
-    upsert: (artifact) => toEffect(input.authArtifacts.upsert(artifact)),
+      toOptionEffect(input.artifacts.getByScopeSourceAndActor(payload)),
+    upsert: (artifact) => toEffect(input.artifacts.upsert(artifact)),
     removeByScopeSourceAndActor: (payload) =>
-      toEffect(input.authArtifacts.removeByScopeSourceAndActor(payload)),
+      toEffect(input.artifacts.removeByScopeSourceAndActor(payload)),
     removeByScopeAndSourceId: (payload) =>
-      toEffect(input.authArtifacts.removeByScopeAndSourceId(payload)),
+      toEffect(input.artifacts.removeByScopeAndSourceId(payload)),
   },
-  authLeases: {
-    listAll: () => toEffect(input.authLeases.listAll()),
+  leases: {
+    listAll: () => toEffect(input.leases.listAll()),
     getByAuthArtifactId: (authArtifactId) =>
-      toOptionEffect(input.authLeases.getByAuthArtifactId(authArtifactId)),
-    upsert: (lease) => toEffect(input.authLeases.upsert(lease)),
+      toOptionEffect(input.leases.getByAuthArtifactId(authArtifactId)),
+    upsert: (lease) => toEffect(input.leases.upsert(lease)),
     removeByAuthArtifactId: (authArtifactId) =>
-      toEffect(input.authLeases.removeByAuthArtifactId(authArtifactId)),
+      toEffect(input.leases.removeByAuthArtifactId(authArtifactId)),
   },
   sourceOauthClients: {
     getByScopeSourceAndProvider: (payload) =>
@@ -200,65 +206,76 @@ const toExecutorStateBackend = (
     upsert: (oauthClient) => toEffect(input.scopeOauthClients.upsert(oauthClient)),
     removeById: (id) => toEffect(input.scopeOauthClients.removeById(id)),
   },
-  providerAuthGrants: {
-    listByScopeId: (scopeId) =>
-      toEffect(input.providerAuthGrants.listByScopeId(scopeId)),
+  providerGrants: {
+    listByScopeId: (scopeId) => toEffect(input.providerGrants.listByScopeId(scopeId)),
     listByScopeActorAndProvider: (payload) =>
-      toEffect(input.providerAuthGrants.listByScopeActorAndProvider(payload)),
-    getById: (id) => toOptionEffect(input.providerAuthGrants.getById(id)),
-    upsert: (grant) => toEffect(input.providerAuthGrants.upsert(grant)),
-    removeById: (id) => toEffect(input.providerAuthGrants.removeById(id)),
+      toEffect(input.providerGrants.listByScopeActorAndProvider(payload)),
+    getById: (id) => toOptionEffect(input.providerGrants.getById(id)),
+    upsert: (grant) => toEffect(input.providerGrants.upsert(grant)),
+    removeById: (id) => toEffect(input.providerGrants.removeById(id)),
   },
-  sourceAuthSessions: {
-    listAll: () => toEffect(input.sourceAuthSessions.listAll()),
-    listByScopeId: (scopeId) => toEffect(input.sourceAuthSessions.listByScopeId(scopeId)),
-    getById: (id) => toOptionEffect(input.sourceAuthSessions.getById(id)),
-    getByState: (state) => toOptionEffect(input.sourceAuthSessions.getByState(state)),
+  sourceSessions: {
+    listAll: () => toEffect(input.sourceSessions.listAll()),
+    listByScopeId: (scopeId) => toEffect(input.sourceSessions.listByScopeId(scopeId)),
+    getById: (id) => toOptionEffect(input.sourceSessions.getById(id)),
+    getByState: (state) => toOptionEffect(input.sourceSessions.getByState(state)),
     getPendingByScopeSourceAndActor: (payload) =>
-      toOptionEffect(input.sourceAuthSessions.getPendingByScopeSourceAndActor(payload)),
-    insert: (session) => toEffect(input.sourceAuthSessions.insert(session)),
-    update: (id, patch) => toOptionEffect(input.sourceAuthSessions.update(id, patch)),
-    upsert: (session) => toEffect(input.sourceAuthSessions.upsert(session)),
+      toOptionEffect(input.sourceSessions.getPendingByScopeSourceAndActor(payload)),
+    insert: (session) => toEffect(input.sourceSessions.insert(session)),
+    update: (id, patch) => toOptionEffect(input.sourceSessions.update(id, patch)),
+    upsert: (session) => toEffect(input.sourceSessions.upsert(session)),
     removeByScopeAndSourceId: (scopeId, sourceId) =>
-      toEffect(input.sourceAuthSessions.removeByScopeAndSourceId(scopeId, sourceId)),
+      toEffect(input.sourceSessions.removeByScopeAndSourceId(scopeId, sourceId)),
   },
-  secretMaterials: {
-    getById: (id) => toOptionEffect(input.secretMaterials.getById(id)),
-    listAll: () => toEffect(input.secretMaterials.listAll()),
-    upsert: (material) => toEffect(input.secretMaterials.upsert(material)),
-    updateById: (id, patch) => toOptionEffect(input.secretMaterials.updateById(id, patch)),
-    removeById: (id) => toEffect(input.secretMaterials.removeById(id)),
-  },
-  executions: {
-    getById: (executionId) => toOptionEffect(input.executions.getById(executionId)),
+});
+
+const toSecretsBackend = (
+  input: ExecutorSecretsBackend,
+): RuntimeSecretsStorageServices => ({
+  getById: (id) => toOptionEffect(input.getById(id)),
+  listAll: () => toEffect(input.listAll()),
+  upsert: (material) => toEffect(input.upsert(material)),
+  updateById: (id, patch) => toOptionEffect(input.updateById(id, patch)),
+  removeById: (id) => toEffect(input.removeById(id)),
+  resolve: (payload) => toEffect(input.resolve(payload)),
+  store: (payload) => toEffect(input.store(payload)),
+  delete: (payload) => toEffect(input.delete(payload)),
+  update: (payload) => toEffect(input.update(payload)),
+});
+
+const toExecutionsBackend = (
+  input: ExecutorExecutionsBackend,
+): RuntimeExecutionStorageServices => ({
+  runs: {
+    getById: (executionId) => toOptionEffect(input.runs.getById(executionId)),
     getByScopeAndId: (scopeId, executionId) =>
-      toOptionEffect(input.executions.getByScopeAndId(scopeId, executionId)),
-    insert: (execution) => toEffect(input.executions.insert(execution)),
+      toOptionEffect(input.runs.getByScopeAndId(scopeId, executionId)),
+    insert: (execution) => toEffect(input.runs.insert(execution)),
     update: (executionId, patch) =>
-      toOptionEffect(input.executions.update(executionId, patch)),
+      toOptionEffect(input.runs.update(executionId, patch)),
   },
-  executionInteractions: {
+  interactions: {
     getById: (interactionId) =>
-      toOptionEffect(input.executionInteractions.getById(interactionId)),
+      toOptionEffect(input.interactions.getById(interactionId)),
     listByExecutionId: (executionId) =>
-      toEffect(input.executionInteractions.listByExecutionId(executionId)),
+      toEffect(input.interactions.listByExecutionId(executionId)),
     getPendingByExecutionId: (executionId) =>
-      toOptionEffect(input.executionInteractions.getPendingByExecutionId(executionId)),
-    insert: (interaction) => toEffect(input.executionInteractions.insert(interaction)),
+      toOptionEffect(input.interactions.getPendingByExecutionId(executionId)),
+    insert: (interaction) => toEffect(input.interactions.insert(interaction)),
     update: (interactionId, patch) =>
-      toOptionEffect(input.executionInteractions.update(interactionId, patch)),
+      toOptionEffect(input.interactions.update(interactionId, patch)),
   },
-  executionSteps: {
+  steps: {
     getByExecutionAndSequence: (executionId, sequence) =>
-      toOptionEffect(input.executionSteps.getByExecutionAndSequence(executionId, sequence)),
+      toOptionEffect(input.steps.getByExecutionAndSequence(executionId, sequence)),
     listByExecutionId: (executionId) =>
-      toEffect(input.executionSteps.listByExecutionId(executionId)),
-    insert: (step) => toEffect(input.executionSteps.insert(step)),
+      toEffect(input.steps.listByExecutionId(executionId)),
+    insert: (step) => toEffect(input.steps.insert(step)),
     deleteByExecutionId: (executionId) =>
-      toEffect(input.executionSteps.deleteByExecutionId(executionId)),
+      toEffect(input.steps.deleteByExecutionId(executionId)),
     updateByExecutionAndSequence: (executionId, sequence, patch) =>
       toOptionEffect(
-        input.executionSteps.updateByExecutionAndSequence(
+        input.steps.updateByExecutionAndSequence(
           executionId,
           sequence,
           patch,
@@ -283,8 +300,9 @@ export const createExecutorBackend = (input: {
             scopeConfig: toScopeConfigBackend(services.storage.scopeConfig),
             scopeState: toScopeStateBackend(services.storage.scopeState),
             sourceArtifacts: toSourceArtifactBackend(services.storage.sourceArtifacts),
-            executorState: toExecutorStateBackend(services.storage.executorState),
-            secretMaterial: toSecretMaterialBackend(services.storage.secretMaterial),
+            auth: toAuthBackend(services.storage.auth),
+            secrets: toSecretsBackend(services.storage.secrets),
+            executions: toExecutionsBackend(services.storage.executions),
             close: services.storage.close,
           } satisfies RuntimeStorageServices,
           localToolRuntimeLoader: services.localTools
