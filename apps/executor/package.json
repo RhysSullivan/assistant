@@ -1,6 +1,6 @@
 {
   "name": "executor",
-  "version": "1.2.4-beta.7",
+  "version": "1.2.4-beta.8",
   "description": "Local AI executor with a CLI, local API server, and web UI.",
   "keywords": [
     "executor",
