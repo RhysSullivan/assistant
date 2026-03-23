@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.4-beta.8
+
+### Patch Changes
+
+- 5617247: Prewarm the lean workspace source index at startup and reuse it across discovery requests so the first tool search no longer pays the full catalog hydration cost.
+
 ## 1.2.4-beta.7
 
 ### Patch Changes
