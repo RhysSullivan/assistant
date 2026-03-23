@@ -8,6 +8,7 @@ import type {
   StoredSourceRecord,
   StoredSourceCatalogRevisionRecord,
 } from "#schema";
+import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -132,6 +133,22 @@ const catalogNamespaceFromPath = (path: string): string => {
 };
 
 const descriptorPath = (descriptor: CatalogToolDescriptor): string => descriptor.path;
+
+export const loadedSourceCatalogToolIndexEntryFromLoadedTool = (
+  tool: LoadedSourceCatalogTool,
+): LoadedSourceCatalogToolIndexEntry => ({
+  path: tool.path,
+  searchNamespace: tool.searchNamespace,
+  searchText: tool.searchText,
+  source: tool.source,
+  sourceRecord: tool.sourceRecord,
+  capabilityId: tool.capabilityId,
+  executableId: tool.executableId,
+  capability: tool.capability,
+  executable: tool.executable,
+  descriptor: tool.descriptor,
+  projectedCatalog: tool.projectedCatalog,
+});
 
 const optionalJsonString = (value: unknown): string | null => {
   if (value === undefined || value === null) {
@@ -683,7 +700,6 @@ type RuntimeSourceCatalogStoreShape = {
   loadWorkspaceSourceCatalogToolIndex: (input: {
     scopeId: ScopeId;
     actorScopeId?: ScopeId | null;
-    includeSchemas: boolean;
   }) => Effect.Effect<readonly LoadedSourceCatalogToolIndexEntry[], Error, never>;
   loadWorkspaceSourceCatalogToolByPath: (input: {
     scopeId: ScopeId;
@@ -710,6 +726,23 @@ type SourceCatalogRuntimeServices =
   | RuntimeSourceStoreService
   | SourceArtifactStore;
 
+type WorkspaceSourceCatalogCacheKey = {
+  scopeId: ScopeId;
+  actorScopeId: ScopeId | null;
+  sourceFingerprint: string;
+};
+
+const normalizeActorScopeId = (
+  actorScopeId?: ScopeId | null,
+): ScopeId | null => actorScopeId ?? null;
+
+const workspaceSourceFingerprint = (sources: readonly Source[]): string =>
+  JSON.stringify(
+    [...sources].sort((left, right) =>
+      String(left.id).localeCompare(String(right.id))
+    ),
+  );
+
 const ensureRuntimeCatalogWorkspace = (
   deps: RuntimeSourceCatalogStoreDeps,
   scopeId: ScopeId,
@@ -731,19 +764,45 @@ const buildSnapshotFromArtifact = (input: {
   return decodeCatalogSnapshotV1(input.artifact.snapshot);
 };
 
-const loadWorkspaceSourceCatalogsWithDeps = (deps: RuntimeSourceCatalogStoreDeps, input: {
-  scopeId: ScopeId;
-  actorScopeId?: ScopeId | null;
-}): Effect.Effect<readonly LoadedSourceCatalog[], Error, never> =>
+const loadWorkspaceSourcesWithDeps = (
+  deps: RuntimeSourceCatalogStoreDeps,
+  input: {
+    scopeId: ScopeId;
+    actorScopeId?: ScopeId | null;
+  },
+): Effect.Effect<readonly Source[], Error, never> =>
   Effect.gen(function* () {
     yield* ensureRuntimeCatalogWorkspace(deps, input.scopeId);
-    const sources = yield* deps.sourceStore.loadSourcesInScope(
+
+    return yield* deps.sourceStore.loadSourcesInScope(
       input.scopeId,
       {
         actorScopeId: input.actorScopeId,
       },
     );
+  });
 
+const loadWorkspaceSourceCatalogCacheKeyWithDeps = (
+  deps: RuntimeSourceCatalogStoreDeps,
+  input: {
+    scopeId: ScopeId;
+    actorScopeId?: ScopeId | null;
+  },
+): Effect.Effect<WorkspaceSourceCatalogCacheKey, Error, never> =>
+  Effect.map(
+    loadWorkspaceSourcesWithDeps(deps, input),
+    (sources) => ({
+      scopeId: input.scopeId,
+      actorScopeId: normalizeActorScopeId(input.actorScopeId),
+      sourceFingerprint: workspaceSourceFingerprint(sources),
+    }),
+  );
+
+const loadLoadedSourceCatalogsFromSourcesWithDeps = (
+  deps: RuntimeSourceCatalogStoreDeps,
+  sources: readonly Source[],
+): Effect.Effect<readonly LoadedSourceCatalog[], Error, never> =>
+  Effect.gen(function* () {
     const localCatalogs = yield* Effect.forEach(sources, (source) =>
       Effect.gen(function* () {
         const artifact = yield* deps.sourceArtifactStore.read({
@@ -779,6 +838,15 @@ const loadWorkspaceSourceCatalogsWithDeps = (deps: RuntimeSourceCatalogStoreDeps
     );
 
     return localCatalogs.filter((catalogEntry): catalogEntry is LoadedSourceCatalog => catalogEntry !== null);
+  });
+
+const loadWorkspaceSourceCatalogsWithDeps = (deps: RuntimeSourceCatalogStoreDeps, input: {
+  scopeId: ScopeId;
+  actorScopeId?: ScopeId | null;
+}): Effect.Effect<readonly LoadedSourceCatalog[], Error, never> =>
+  Effect.gen(function* () {
+    const sources = yield* loadWorkspaceSourcesWithDeps(deps, input);
+    return yield* loadLoadedSourceCatalogsFromSourcesWithDeps(deps, sources);
   });
 
 const loadSourceWithCatalogWithDeps = (deps: RuntimeSourceCatalogStoreDeps, input: {
@@ -1107,7 +1175,6 @@ export const expandCatalogToolByPath = (input: {
 export const loadWorkspaceSourceCatalogToolIndex = (input: {
   scopeId: ScopeId;
   actorScopeId?: ScopeId | null;
-  includeSchemas: boolean;
 }): Effect.Effect<
   readonly LoadedSourceCatalogToolIndexEntry[],
   Error,
@@ -1120,21 +1187,10 @@ export const loadWorkspaceSourceCatalogToolIndex = (input: {
     });
     const tools = yield* expandCatalogTools({
       catalogs,
-      includeSchemas: input.includeSchemas,
+      includeSchemas: false,
+      includeTypePreviews: false,
     });
-    return tools.map((tool) => ({
-      path: tool.path,
-      searchNamespace: tool.searchNamespace,
-      searchText: tool.searchText,
-      source: tool.source,
-      sourceRecord: tool.sourceRecord,
-      capabilityId: tool.capabilityId,
-      executableId: tool.executableId,
-      capability: tool.capability,
-      executable: tool.executable,
-      descriptor: tool.descriptor,
-      projectedCatalog: tool.projectedCatalog,
-    }));
+    return tools.map(loadedSourceCatalogToolIndexEntryFromLoadedTool);
   });
 
 export const loadWorkspaceSourceCatalogToolByPath = (input: {
@@ -1187,23 +1243,85 @@ export const RuntimeSourceCatalogStoreLive = Layer.effect(
       sourceArtifactStore,
     };
 
+    const workspaceCatalogCache = yield* Cache.make<
+      WorkspaceSourceCatalogCacheKey,
+      readonly LoadedSourceCatalog[],
+      Error
+    >({
+      capacity: 32,
+      timeToLive: "10 minutes",
+      lookup: (key) =>
+        loadWorkspaceSourceCatalogsWithDeps(
+          deps,
+          {
+            scopeId: key.scopeId,
+            actorScopeId: key.actorScopeId,
+          },
+        ),
+    });
+
+    const leanWorkspaceToolIndexCache = yield* Cache.make<
+      WorkspaceSourceCatalogCacheKey,
+      readonly LoadedSourceCatalogToolIndexEntry[],
+      Error
+    >({
+      capacity: 32,
+      timeToLive: "10 minutes",
+      lookup: (key) =>
+        Effect.gen(function* () {
+          const catalogs = yield* workspaceCatalogCache.get(key);
+          const tools = yield* expandCatalogTools({
+            catalogs,
+            includeSchemas: false,
+            includeTypePreviews: false,
+          });
+
+          return tools.map(loadedSourceCatalogToolIndexEntryFromLoadedTool);
+        }),
+    });
+
+    const loadCachedWorkspaceCatalogs = (input: {
+      scopeId: ScopeId;
+      actorScopeId?: ScopeId | null;
+    }) =>
+      Effect.flatMap(
+        loadWorkspaceSourceCatalogCacheKeyWithDeps(deps, input),
+        (key) => workspaceCatalogCache.get(key),
+      );
+
+    const loadLeanWorkspaceToolIndex = (input: {
+      scopeId: ScopeId;
+      actorScopeId?: ScopeId | null;
+    }) =>
+      Effect.flatMap(
+        loadWorkspaceSourceCatalogCacheKeyWithDeps(deps, input),
+        (key) => leanWorkspaceToolIndexCache.get(key),
+      );
+
     return RuntimeSourceCatalogStoreService.of({
       loadWorkspaceSourceCatalogs: (input) =>
-        loadWorkspaceSourceCatalogsWithDeps(deps, input),
+        loadCachedWorkspaceCatalogs(input),
       loadSourceWithCatalog: (input) =>
         loadSourceWithCatalogWithDeps(deps, input),
       loadWorkspaceSourceCatalogToolIndex: (input) =>
-        loadWorkspaceSourceCatalogToolIndex(input).pipe(
-          Effect.provideService(RuntimeLocalScopeService, runtimeLocalScope),
-          Effect.provideService(RuntimeSourceStoreService, sourceStore),
-          Effect.provideService(SourceArtifactStore, sourceArtifactStore),
-        ),
+        loadLeanWorkspaceToolIndex({
+          scopeId: input.scopeId,
+          actorScopeId: input.actorScopeId,
+        }),
       loadWorkspaceSourceCatalogToolByPath: (input) =>
-        loadWorkspaceSourceCatalogToolByPath(input).pipe(
-          Effect.provideService(RuntimeLocalScopeService, runtimeLocalScope),
-          Effect.provideService(RuntimeSourceStoreService, sourceStore),
-          Effect.provideService(SourceArtifactStore, sourceArtifactStore),
-        ),
+        input.includeSchemas
+          ? loadWorkspaceSourceCatalogToolByPath(input).pipe(
+              Effect.provideService(RuntimeLocalScopeService, runtimeLocalScope),
+              Effect.provideService(RuntimeSourceStoreService, sourceStore),
+              Effect.provideService(SourceArtifactStore, sourceArtifactStore),
+            )
+          : Effect.map(
+              loadLeanWorkspaceToolIndex({
+                scopeId: input.scopeId,
+                actorScopeId: input.actorScopeId,
+              }),
+              (tools) => tools.find((tool) => tool.path === input.path) ?? null,
+            ),
     });
   }),
 );
