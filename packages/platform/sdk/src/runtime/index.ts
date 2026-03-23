@@ -17,6 +17,7 @@ import {
   RuntimeSourceAuthMaterialLive,
 } from "./auth/source-auth-material";
 import {
+  RuntimeSourceCatalogStoreService,
   RuntimeSourceCatalogStoreLive,
 } from "./catalog/source/runtime";
 import {
@@ -222,6 +223,18 @@ export type RuntimeAuthStorageServices = {
   providerGrants: ExecutorStateStoreShape["providerAuthGrants"];
   sourceSessions: ExecutorStateStoreShape["sourceAuthSessions"];
 };
+
+export const prewarmWorkspaceSourceCatalogToolIndex = (input: {
+  scopeId: LocalInstallation["scopeId"];
+  actorScopeId: LocalInstallation["actorScopeId"];
+}) =>
+  Effect.gen(function* () {
+    const sourceCatalogStore = yield* RuntimeSourceCatalogStoreService;
+    yield* sourceCatalogStore.loadWorkspaceSourceCatalogToolIndex({
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
+    });
+  });
 
 export type RuntimeSecretsStorageServices =
   & ExecutorStateStoreShape["secretMaterials"]
@@ -507,6 +520,13 @@ export const createExecutorRuntimeFromServices = (input: {
     const managedRuntime = ManagedRuntime.make(concreteRuntimeLayer);
     yield* managedRuntime.runtimeEffect;
     yield* reconcileMissingSourceCatalogArtifacts({
+      scopeId: localInstallation.scopeId,
+      actorScopeId: localInstallation.actorScopeId,
+    }).pipe(
+      Effect.provide(managedRuntime),
+      Effect.catchAll(() => Effect.void),
+    );
+    yield* prewarmWorkspaceSourceCatalogToolIndex({
       scopeId: localInstallation.scopeId,
       actorScopeId: localInstallation.actorScopeId,
     }).pipe(
