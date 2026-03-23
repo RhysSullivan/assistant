@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.4-beta.5
+
+### Patch Changes
+
+- 5e3cb3e: Add GitHub source support, migrate legacy executor state on load, and fix execute-path runtime regressions.
+
 ## 1.2.4-beta.4
 
 ### Patch Changes
