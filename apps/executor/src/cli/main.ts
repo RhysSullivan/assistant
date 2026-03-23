@@ -606,6 +606,26 @@ const renderStatus = (status: LocalServerStatus): string =>
     `workspaceId: ${status.installation?.workspaceId ?? "unavailable"}`,
   ].join("\n");
 
+const appendUrlPath = (baseUrl: string, pathname: string): string =>
+  new URL(pathname, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
+
+const renderUpSummary = (input: {
+  started: boolean;
+  status: LocalServerStatus;
+}): string =>
+  [
+    input.started ? "Executor is ready." : "Executor is already running.",
+    `API: ${input.status.baseUrl}`,
+    `MCP: ${appendUrlPath(input.status.baseUrl, "mcp")}`,
+    `OpenAPI: ${appendUrlPath(input.status.baseUrl, "v1/openapi.json")}`,
+    `Workspace: ${input.status.installation?.workspaceId ?? "unavailable"}`,
+    "",
+    "Try next:",
+    `  ${CLI_NAME} call 'return 1 + 1'`,
+    `  ${CLI_NAME} status`,
+    `  ${CLI_NAME} down`,
+  ].join("\n");
+
 const getDoctorReport = (baseUrl: string) =>
   getServerStatus(baseUrl).pipe(
     Effect.map((status) => {
@@ -696,7 +716,9 @@ const ensureServer = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
   Effect.gen(function* () {
     const reachable = yield* isServerReachable(baseUrl);
     if (reachable) {
-      return;
+      return {
+        started: false,
+      } as const;
     }
 
     const url = new URL(baseUrl);
@@ -704,6 +726,10 @@ const ensureServer = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
     yield* startServerInBackground(port);
 
     yield* waitForReachability(baseUrl, true);
+
+    return {
+      started: true,
+    } as const;
   });
 
 
@@ -1142,10 +1168,13 @@ const upCommand = Command.make(
   },
   ({ baseUrl }) =>
     ensureServer(baseUrl).pipe(
-      Effect.zipRight(getServerStatus(baseUrl)),
-      Effect.flatMap((status) => printText(renderStatus(status))),
+      Effect.flatMap(({ started }) =>
+        getServerStatus(baseUrl).pipe(
+          Effect.flatMap((status) => printText(renderUpSummary({ started, status }))),
+        )
+      ),
     ),
-).pipe(Command.withDescription("Ensure the local executor server is running"));
+).pipe(Command.withDescription("Start the local executor server if needed and show how to use it"));
 
 const downCommand = Command.make(
   "down",
