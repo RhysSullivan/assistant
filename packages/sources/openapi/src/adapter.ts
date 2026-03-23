@@ -52,6 +52,7 @@ import {
   type Source,
   type SourceAdapter,
 } from "@executor/source-core";
+import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -196,6 +197,58 @@ const fetchOpenApiDocumentWithHeaders = (input: {
       ),
     );
   }).pipe(Effect.provide(FetchHttpClient.layer));
+
+const hasCatalogSyncAuthMaterial = (input: {
+  headers: Readonly<Record<string, string>>;
+  queryParams: Readonly<Record<string, string>>;
+  cookies: Readonly<Record<string, string>>;
+}): boolean =>
+  Object.keys(input.headers).length > 0
+  || Object.keys(input.queryParams).length > 0
+  || Object.keys(input.cookies).length > 0;
+
+const fetchOpenApiDocumentForCatalogSync = (input: {
+  url: string;
+  defaultHeaders: Readonly<Record<string, string>>;
+  headers: Readonly<Record<string, string>>;
+  queryParams: Readonly<Record<string, string>>;
+  cookies: Readonly<Record<string, string>>;
+}): Effect.Effect<string, Error, never> =>
+  Effect.gen(function* () {
+    const authenticatedResult = yield* Effect.either(
+      fetchOpenApiDocumentWithHeaders({
+        url: input.url,
+        headers: {
+          ...input.defaultHeaders,
+          ...input.headers,
+        },
+        queryParams: input.queryParams,
+        cookies: input.cookies,
+      }),
+    );
+
+    if (Either.isRight(authenticatedResult)) {
+      return authenticatedResult.right;
+    }
+
+    if (
+      !isSourceCredentialRequiredError(authenticatedResult.left)
+      || !hasCatalogSyncAuthMaterial({
+        headers: input.headers,
+        queryParams: input.queryParams,
+        cookies: input.cookies,
+      })
+    ) {
+      return yield* Effect.fail(authenticatedResult.left);
+    }
+
+    // Some providers publish a public OpenAPI document but reject the same URL
+    // when an Authorization header or other auth material is attached.
+    return yield* fetchOpenApiDocumentWithHeaders({
+      url: input.url,
+      headers: input.defaultHeaders,
+    });
+  });
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -526,12 +579,10 @@ export const openApiSourceAdapter = {
       const bindingConfig = yield* openApiBindingConfigFromSource(source);
 
       const auth = yield* resolveAuthMaterialForSlot("import");
-      const openApiDocument = yield* fetchOpenApiDocumentWithHeaders({
+      const openApiDocument = yield* fetchOpenApiDocumentForCatalogSync({
         url: bindingConfig.specUrl,
-        headers: {
-          ...bindingConfig.defaultHeaders,
-          ...auth.headers,
-        },
+        defaultHeaders: bindingConfig.defaultHeaders ?? {},
+        headers: auth.headers,
         queryParams: auth.queryParams,
         cookies: auth.cookies,
       }).pipe(
