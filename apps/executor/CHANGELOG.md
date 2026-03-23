@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.4-beta.6
+
+### Patch Changes
+
+- 839dcb6: Make `executor up` output more helpful and less debug-oriented.
+
 ## 1.2.4-beta.5
 
 ### Patch Changes
