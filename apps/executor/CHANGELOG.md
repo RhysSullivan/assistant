@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.4-beta.7
+
+### Patch Changes
+
+- 1f82a22: Avoid generating source tool type previews when building namespace metadata, and cap MCP execute help examples to five tools per source.
+
 ## 1.2.4-beta.6
 
 ### Patch Changes
