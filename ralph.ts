@@ -10,11 +10,13 @@ We are migrating from an old, very messy model to a plugin system for OpenAPI, G
 
 Plugins can own storage; they can own API routes. They're meant to extend the product. If the product does not match what the plugins need, then we can extend the core, but the core should not be plugin-specific. What you need to do is work until this is fully migrated to this new model. Once it is fully migrated, output <STOP-TOKEN-124124> 3 times so you stop working.
 
+Feel free to autonomously test the app yourself via calling the API or running the local CLI
+
 You can take notes in agent-notes/
 `
 let output = ''
 
 do {
-  output = await  $`codex exec --yolo "${prompt}"`.then(result => String(result.stdout));
+  output = await $`codex exec --yolo "${prompt}"`.then(result => String(result.stdout));
 } while (// stop token has to show up more than 1 time
-    output.split("\n").filter(line => line.includes("<STOP-TOKEN-124124>")).length < 2);
+  output.split("\n").filter(line => line.includes("<STOP-TOKEN-124124>")).length < 2);
