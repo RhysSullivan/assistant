@@ -27,6 +27,7 @@ export const configureExecutorSourcePlugins = (
 };
 
 export const registeredSourcePlugins = () => registry.sourcePlugins;
+export const registeredSourceConnectors = () => registry.sourceConnectors;
 
 export const getSourcePlugin = (kind: string) => registry.getSourcePlugin(kind);
 export const getSourcePluginForSource = (

@@ -32,6 +32,9 @@
         "@executor/platform-internal": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
         "@executor/platform-sdk-file": "workspace:*",
+        "@executor/plugin-google-discovery-sdk": "workspace:*",
+        "@executor/plugin-graphql-sdk": "workspace:*",
+        "@executor/plugin-mcp-sdk": "workspace:*",
         "@executor/plugin-openapi-sdk": "workspace:*",
         "@executor/server": "workspace:*",
         "effect": "catalog:",
@@ -52,6 +55,9 @@
       "name": "@executor/web",
       "version": "0.0.0",
       "dependencies": {
+        "@executor/plugin-google-discovery-react": "workspace:*",
+        "@executor/plugin-graphql-react": "workspace:*",
+        "@executor/plugin-mcp-react": "workspace:*",
         "@executor/plugin-openapi-react": "workspace:*",
         "@executor/react": "workspace:*",
         "@executor/server": "workspace:*",
@@ -394,6 +400,15 @@
         "@executor/platform-internal": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
         "@executor/platform-sdk-file": "workspace:*",
+        "@executor/plugin-google-discovery-http": "workspace:*",
+        "@executor/plugin-google-discovery-sdk": "workspace:*",
+        "@executor/plugin-google-discovery-shared": "workspace:*",
+        "@executor/plugin-graphql-http": "workspace:*",
+        "@executor/plugin-graphql-sdk": "workspace:*",
+        "@executor/plugin-graphql-shared": "workspace:*",
+        "@executor/plugin-mcp-http": "workspace:*",
+        "@executor/plugin-mcp-sdk": "workspace:*",
+        "@executor/plugin-mcp-shared": "workspace:*",
         "@executor/plugin-openapi-http": "workspace:*",
         "@executor/plugin-openapi-sdk": "workspace:*",
         "@executor/plugin-openapi-shared": "workspace:*",
@@ -418,6 +433,191 @@
         "@executor/codemode-core": "workspace:*",
         "@executor/ir": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.26.0",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/google-discovery/http": {
+      "name": "@executor/plugin-google-discovery-http",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/platform-api": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/plugin-google-discovery-shared": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/google-discovery/react": {
+      "name": "@executor/plugin-google-discovery-react",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/plugin-google-discovery-http": "workspace:*",
+        "@executor/plugin-google-discovery-shared": "workspace:*",
+        "@executor/react": "workspace:*",
+        "@tanstack/react-router": "^1.132.7",
+        "react": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/react": "^19.2.10",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/google-discovery/sdk": {
+      "name": "@executor/plugin-google-discovery-sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/auth-oauth2": "workspace:*",
+        "@executor/codemode-core": "workspace:*",
+        "@executor/ir": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/plugin-google-discovery-shared": "workspace:*",
+        "@executor/source-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/google-discovery/shared": {
+      "name": "@executor/plugin-google-discovery-shared",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/source-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/graphql/http": {
+      "name": "@executor/plugin-graphql-http",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/platform-api": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/plugin-graphql-shared": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/graphql/react": {
+      "name": "@executor/plugin-graphql-react",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/plugin-graphql-http": "workspace:*",
+        "@executor/plugin-graphql-shared": "workspace:*",
+        "@executor/react": "workspace:*",
+        "@tanstack/react-router": "^1.132.7",
+        "react": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/react": "^19.2.10",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/graphql/sdk": {
+      "name": "@executor/plugin-graphql-sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/codemode-core": "workspace:*",
+        "@executor/ir": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/plugin-graphql-shared": "workspace:*",
+        "@executor/source-core": "workspace:*",
+        "effect": "catalog:",
+        "graphql": "^16.12.0",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/graphql/shared": {
+      "name": "@executor/plugin-graphql-shared",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/source-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/mcp/http": {
+      "name": "@executor/plugin-mcp-http",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/platform-api": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/plugin-mcp-shared": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/mcp/react": {
+      "name": "@executor/plugin-mcp-react",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/plugin-mcp-http": "workspace:*",
+        "@executor/plugin-mcp-shared": "workspace:*",
+        "@executor/react": "workspace:*",
+        "@tanstack/react-router": "^1.132.7",
+        "react": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/react": "^19.2.10",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/mcp/sdk": {
+      "name": "@executor/plugin-mcp-sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/auth-mcp-oauth": "workspace:*",
+        "@executor/codemode-core": "workspace:*",
+        "@executor/ir": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/plugin-mcp-shared": "workspace:*",
+        "@executor/source-core": "workspace:*",
+        "@modelcontextprotocol/sdk": "^1.26.0",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/mcp/shared": {
+      "name": "@executor/plugin-mcp-shared",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/source-core": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -716,6 +916,30 @@
     "@executor/platform-sdk": ["@executor/platform-sdk@workspace:packages/platform/sdk"],
 
     "@executor/platform-sdk-file": ["@executor/platform-sdk-file@workspace:packages/platform/sdk-file"],
+
+    "@executor/plugin-google-discovery-http": ["@executor/plugin-google-discovery-http@workspace:plugins/google-discovery/http"],
+
+    "@executor/plugin-google-discovery-react": ["@executor/plugin-google-discovery-react@workspace:plugins/google-discovery/react"],
+
+    "@executor/plugin-google-discovery-sdk": ["@executor/plugin-google-discovery-sdk@workspace:plugins/google-discovery/sdk"],
+
+    "@executor/plugin-google-discovery-shared": ["@executor/plugin-google-discovery-shared@workspace:plugins/google-discovery/shared"],
+
+    "@executor/plugin-graphql-http": ["@executor/plugin-graphql-http@workspace:plugins/graphql/http"],
+
+    "@executor/plugin-graphql-react": ["@executor/plugin-graphql-react@workspace:plugins/graphql/react"],
+
+    "@executor/plugin-graphql-sdk": ["@executor/plugin-graphql-sdk@workspace:plugins/graphql/sdk"],
+
+    "@executor/plugin-graphql-shared": ["@executor/plugin-graphql-shared@workspace:plugins/graphql/shared"],
+
+    "@executor/plugin-mcp-http": ["@executor/plugin-mcp-http@workspace:plugins/mcp/http"],
+
+    "@executor/plugin-mcp-react": ["@executor/plugin-mcp-react@workspace:plugins/mcp/react"],
+
+    "@executor/plugin-mcp-sdk": ["@executor/plugin-mcp-sdk@workspace:plugins/mcp/sdk"],
+
+    "@executor/plugin-mcp-shared": ["@executor/plugin-mcp-shared@workspace:plugins/mcp/shared"],
 
     "@executor/plugin-openapi-http": ["@executor/plugin-openapi-http@workspace:plugins/openapi/http"],
 
@@ -1372,6 +1596,8 @@
     "gopd": ["gopd@1.2.0", "", {}, "sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg=="],
 
     "graceful-fs": ["graceful-fs@4.2.11", "", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
+
+    "graphql": ["graphql@16.13.1", "", {}, "sha512-gGgrVCoDKlIZ8fIqXBBb0pPKqDgki0Z/FSKNiQzSGj2uEYHr1tq5wmBegGwJx6QB5S5cM0khSBpi/JFHMCvsmQ=="],
 
     "has-symbols": ["has-symbols@1.1.0", "", {}, "sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ=="],
 

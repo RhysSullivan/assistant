@@ -15,11 +15,20 @@ import {
 } from "@executor/platform-api/effect";
 import { runExecutorMcpStdioServer } from "@executor/executor-mcp";
 import {
+  googleDiscoverySdkPlugin,
+} from "@executor/plugin-google-discovery-sdk";
+import {
+  graphqlSdkPlugin,
+} from "@executor/plugin-graphql-sdk";
+import {
+  mcpSdkPlugin,
+} from "@executor/plugin-mcp-sdk";
+import {
   openApiSdkPlugin,
 } from "@executor/plugin-openapi-sdk";
 import { createWorkspaceExecutorAdminToolMap } from "@executor/platform-internal";
 import {
-  EXECUTOR_SOURCES_ADD_HELP_LINES,
+  getExecutorSourcesAddHelpLines,
   RuntimeExecutionResolverService,
 } from "@executor/platform-sdk/runtime";
 import {
@@ -40,6 +49,11 @@ import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
 
 import {
+  createFileGoogleDiscoveryOAuthSessionStorage,
+  createFileGoogleDiscoverySourceStorage,
+  createFileGraphqlSourceStorage,
+  createFileMcpOAuthSessionStorage,
+  createFileMcpSourceStorage,
   createFileOpenApiSourceStorage,
   createLocalExecutorServer,
   DEFAULT_SERVER_BASE_URL,
@@ -216,13 +230,13 @@ const buildWorkflowText = (namespaces: readonly string[] = []): string =>
     '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
     "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
     "3) Call selected tools.<path>(input).",
-    "4) Source plugins are not registered in this build.",
-    ...EXECUTOR_SOURCES_ADD_HELP_LINES,
+    "4) Use source plugins to inspect or add API sources.",
+    ...getExecutorSourcesAddHelpLines(),
     "5) If execution pauses for interaction, resume it with `executor resume --execution-id ...`.",
     "Do not use fetch; use tools.* only.",
   ].join("\n");
 
-const DEFAULT_RUN_WORKFLOW = buildWorkflowText();
+const getDefaultRunWorkflow = () => buildWorkflowText();
 
 const indentBlock = (value: string, prefix: string = "  "): string =>
   value
@@ -267,7 +281,7 @@ const buildRunWorkflowText = (
   catalog?: ToolCatalog,
 ): Effect.Effect<string, Error, never> => {
   if (!catalog) {
-    return Effect.succeed(DEFAULT_RUN_WORKFLOW);
+    return Effect.succeed(getDefaultRunWorkflow());
   }
 
   return catalog.listNamespaces({ limit: 200 }).pipe(
@@ -289,6 +303,27 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
         localDataDir: DEFAULT_LOCAL_DATA_DIR,
       }),
       plugins: [
+        graphqlSdkPlugin({
+          storage: createFileGraphqlSourceStorage({
+            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/graphql/sources`,
+          }),
+        }),
+        googleDiscoverySdkPlugin({
+          storage: createFileGoogleDiscoverySourceStorage({
+            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/google-discovery/sources`,
+          }),
+          oauthSessions: createFileGoogleDiscoveryOAuthSessionStorage({
+            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/google-discovery/oauth-sessions`,
+          }),
+        }),
+        mcpSdkPlugin({
+          storage: createFileMcpSourceStorage({
+            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/mcp/sources`,
+          }),
+          oauthSessions: createFileMcpOAuthSessionStorage({
+            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/mcp/oauth-sessions`,
+          }),
+        }),
         openApiSdkPlugin({
           storage: createFileOpenApiSourceStorage({
             rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/openapi/sources`,
@@ -318,7 +353,7 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
     Effect.catchAllCause((cause) =>
       Effect.succeed(
         [
-          DEFAULT_RUN_WORKFLOW,
+          getDefaultRunWorkflow(),
           "",
           formatCatalogUnavailableMessage(cause),
         ].join("\n"),

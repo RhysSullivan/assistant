@@ -129,6 +129,9 @@ export const createScopeToolInvoker = (input: {
   const executorTools = createExecutorToolMap({
     scopeId: input.scopeId,
     actorScopeId: input.actorScopeId,
+    executorStateStore: input.executorStateStore,
+    sourceStore: input.sourceStore,
+    sourceCatalogSyncService: input.sourceCatalogSyncService,
     installationStore: input.installationStore,
     scopeConfigStore: input.scopeConfigStore,
     scopeStateStore: input.scopeStateStore,
@@ -236,9 +239,13 @@ export const createScopeToolInvoker = (input: {
     catalog,
     toolInvoker: {
       invoke: ({ path, args, context }) => {
-        const effect: Effect.Effect<unknown, unknown, never> = authoredToolPaths.has(path)
-          ? authoredInvoker.invoke({ path, args, context }) as Effect.Effect<unknown, unknown, never>
-          : invokePersistedTool({ path, args, context });
+        const effect = authoredToolPaths.has(path)
+          ? authoredInvoker.invoke({ path, args, context })
+          : invokePersistedTool({ path, args, context }) as Effect.Effect<
+              unknown,
+              unknown,
+              never
+            >;
 
         return provideRuntimeLocalScope(effect, input.runtimeLocalScope);
       },

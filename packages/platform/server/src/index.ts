@@ -8,6 +8,12 @@ import { dirname, extname, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { FileSystem, HttpApiBuilder, HttpServer } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { googleDiscoveryHttpPlugin } from "@executor/plugin-google-discovery-http";
+import { googleDiscoverySdkPlugin } from "@executor/plugin-google-discovery-sdk";
+import { graphqlHttpPlugin } from "@executor/plugin-graphql-http";
+import { graphqlSdkPlugin } from "@executor/plugin-graphql-sdk";
+import { mcpHttpPlugin } from "@executor/plugin-mcp-http";
+import { mcpSdkPlugin } from "@executor/plugin-mcp-sdk";
 import { openApiHttpPlugin } from "@executor/plugin-openapi-http";
 import {
   openApiSdkPlugin,
@@ -48,8 +54,18 @@ import {
   tracingSearchUrl,
 } from "./tracing";
 import { platformServerEffectError } from "./effect-errors";
+import { createFileGoogleDiscoveryOAuthSessionStorage } from "./google-discovery-oauth-session-storage";
+import { createFileGoogleDiscoverySourceStorage } from "./google-discovery-source-storage";
+import { createFileGraphqlSourceStorage } from "./graphql-source-storage";
+import { createFileMcpOAuthSessionStorage } from "./mcp-oauth-session-storage";
+import { createFileMcpSourceStorage } from "./mcp-source-storage";
 import { createFileOpenApiSourceStorage } from "./openapi-source-storage";
 
+export { createFileGoogleDiscoveryOAuthSessionStorage } from "./google-discovery-oauth-session-storage";
+export { createFileGoogleDiscoverySourceStorage } from "./google-discovery-source-storage";
+export { createFileGraphqlSourceStorage } from "./graphql-source-storage";
+export { createFileMcpOAuthSessionStorage } from "./mcp-oauth-session-storage";
+export { createFileMcpSourceStorage } from "./mcp-source-storage";
 export { createFileOpenApiSourceStorage } from "./openapi-source-storage";
 
 export {
@@ -114,7 +130,12 @@ type ExecutorMcpHandler = ReturnType<typeof createExecutorMcpRequestHandler>;
 const EXECUTOR_NPM_DIST_TAGS_PATHNAME = "/v1/app/npm/dist-tags";
 const EXECUTOR_NPM_DIST_TAGS_URL =
   "https://registry.npmjs.org/-/package/executor/dist-tags";
-const executorHttpPlugins = [openApiHttpPlugin()] as const;
+const executorHttpPlugins = [
+  graphqlHttpPlugin(),
+  googleDiscoveryHttpPlugin(),
+  mcpHttpPlugin(),
+  openApiHttpPlugin(),
+] as const;
 
 const disposeExecutor = (executor: Executor) =>
   Effect.tryPromise({
@@ -134,6 +155,27 @@ const createExecutorRuntime = (
       localDataDir,
     }),
     plugins: [
+      graphqlSdkPlugin({
+        storage: createFileGraphqlSourceStorage({
+          rootDir: resolve(localDataDir, "plugins", "graphql", "sources"),
+        }),
+      }),
+      googleDiscoverySdkPlugin({
+        storage: createFileGoogleDiscoverySourceStorage({
+          rootDir: resolve(localDataDir, "plugins", "google-discovery", "sources"),
+        }),
+        oauthSessions: createFileGoogleDiscoveryOAuthSessionStorage({
+          rootDir: resolve(localDataDir, "plugins", "google-discovery", "oauth-sessions"),
+        }),
+      }),
+      mcpSdkPlugin({
+        storage: createFileMcpSourceStorage({
+          rootDir: resolve(localDataDir, "plugins", "mcp", "sources"),
+        }),
+        oauthSessions: createFileMcpOAuthSessionStorage({
+          rootDir: resolve(localDataDir, "plugins", "mcp", "oauth-sessions"),
+        }),
+      }),
       openApiSdkPlugin({
         storage: createFileOpenApiSourceStorage({
           rootDir: resolve(localDataDir, "plugins", "openapi", "sources"),

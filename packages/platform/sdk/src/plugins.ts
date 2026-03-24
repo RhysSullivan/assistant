@@ -11,6 +11,7 @@ import type {
   SourceSyncInput,
 } from "@executor/source-core";
 import * as Effect from "effect/Effect";
+import type * as Schema from "effect/Schema";
 
 export type ExecutorSdkPlugin<
   TKey extends string = string,
@@ -18,6 +19,7 @@ export type ExecutorSdkPlugin<
 > = {
   key: TKey;
   sources?: readonly SourcePluginRuntime[];
+  sourceConnectors?: readonly ExecutorSourceConnector<any>[];
   extendExecutor?: (input: {
     executor: ExecutorEffect & Record<string, unknown>;
     host: ExecutorSdkPluginHost;
@@ -31,14 +33,26 @@ export type ExecutorSdkPluginHost = {
         ExecutorSource,
         "id" | "scopeId" | "createdAt" | "updatedAt"
       >;
-    }) => Effect.Effect<ExecutorSource, Error, never>;
-    get: (sourceId: ExecutorSource["id"]) => Effect.Effect<ExecutorSource, Error, never>;
-    save: (source: ExecutorSource) => Effect.Effect<ExecutorSource, Error, never>;
+    }) => Effect.Effect<ExecutorSource, Error, any>;
+    get: (sourceId: ExecutorSource["id"]) => Effect.Effect<ExecutorSource, Error, any>;
+    save: (source: ExecutorSource) => Effect.Effect<ExecutorSource, Error, any>;
     refreshCatalog: (
       sourceId: ExecutorSource["id"],
-    ) => Effect.Effect<ExecutorSource, Error, never>;
-    remove: (sourceId: ExecutorSource["id"]) => Effect.Effect<boolean, Error, never>;
+    ) => Effect.Effect<ExecutorSource, Error, any>;
+    remove: (sourceId: ExecutorSource["id"]) => Effect.Effect<boolean, Error, any>;
   };
+};
+
+export type ExecutorSourceConnector<TInput = unknown> = {
+  kind: string;
+  displayName: string;
+  inputSchema: Schema.Schema<TInput, any, never>;
+  inputSignatureWidth?: number;
+  helpText?: readonly string[];
+  createSource: (input: {
+    args: TInput;
+    host: ExecutorSdkPluginHost;
+  }) => Effect.Effect<ExecutorSource, Error, any>;
 };
 
 export type ExecutorSdkPluginExtensions<
@@ -59,20 +73,24 @@ export type SourcePluginRuntime = {
   }) => Record<string, unknown>;
   getIrModel: (
     input: SourceSyncInput,
-  ) => Effect.Effect<SourceCatalogSyncResult, Error, never>;
+  ) => Effect.Effect<SourceCatalogSyncResult, Error, any>;
   invoke: (
     input: SourceInvokeInput,
-  ) => Effect.Effect<SourceInvokeResult, Error, never>;
+  ) => Effect.Effect<SourceInvokeResult, Error, any>;
 };
 
 export const registerExecutorSdkPlugins = (
   plugins: readonly ExecutorSdkPlugin[],
 ) => {
   const sourcePlugins = new Map<string, SourcePluginRuntime>();
+  const sourceConnectors = new Map<string, ExecutorSourceConnector<any>>();
 
   for (const plugin of plugins) {
     for (const source of plugin.sources ?? []) {
       sourcePlugins.set(source.kind, source);
+    }
+    for (const connector of plugin.sourceConnectors ?? []) {
+      sourceConnectors.set(connector.kind, connector);
     }
   }
 
@@ -91,6 +109,7 @@ export const registerExecutorSdkPlugins = (
   return {
     plugins,
     sourcePlugins: [...sourcePlugins.values()],
+    sourceConnectors: [...sourceConnectors.values()],
     getSourcePlugin,
     getSourcePluginForSource,
     sourcePluginCatalogKind: (kind: string): SourceCatalogKind =>

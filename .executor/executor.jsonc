@@ -1,8 +1,8 @@
 {
   "sources": {
     "vercel-api": {
-      "kind": "openapi",
-      "name": "Vercel API"
+      "name": "Vercel API",
+      "kind": "openapi"
     }
   }
 }

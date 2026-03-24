@@ -1,4 +1,13 @@
 import {
+  GoogleDiscoveryReactPlugin,
+} from "@executor/plugin-google-discovery-react";
+import {
+  GraphqlReactPlugin,
+} from "@executor/plugin-graphql-react";
+import {
+  McpReactPlugin,
+} from "@executor/plugin-mcp-react";
+import {
   OpenApiReactPlugin,
 } from "@executor/plugin-openapi-react";
 import type {
@@ -7,6 +16,9 @@ import type {
 } from "./types";
 
 const frontendPlugins = [
+  McpReactPlugin,
+  GraphqlReactPlugin,
+  GoogleDiscoveryReactPlugin,
   OpenApiReactPlugin,
 ] as const satisfies readonly ExecutorFrontendPlugin[];
 

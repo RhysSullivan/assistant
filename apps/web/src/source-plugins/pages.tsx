@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import { useSource } from "@executor/react";
 import { LoadableBlock } from "../components/loadable";
 import { SourcePluginsResetState } from "../components/source-plugins-reset-state";
 import {
   getDefaultSourceFrontendType,
   getSourceFrontendType,
+  registeredSourceFrontendTypes,
 } from "./index";
 
 export type SourcePluginRouteSearch = {
@@ -12,12 +14,73 @@ export type SourcePluginRouteSearch = {
   query?: string;
 };
 
-export function SourcePluginAddPage() {
-  const definition = getDefaultSourceFrontendType();
+const SourcePluginPicker = (props: {
+  selectedKind: string | null;
+  onSelect: (kind: string) => void;
+}) => {
+  if (registeredSourceFrontendTypes.length <= 1) {
+    return null;
+  }
+
+  return (
+    <div className="mb-8 flex flex-wrap gap-2">
+      {registeredSourceFrontendTypes.map((definition) => (
+        <button
+          key={definition.kind}
+          type="button"
+          onClick={() => props.onSelect(definition.kind)}
+          className={
+            props.selectedKind === definition.kind
+              ? "rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-foreground"
+              : "rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          }
+        >
+          {definition.displayName}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+const useSelectedSourceFrontendType = () => {
+  const defaultDefinition = getDefaultSourceFrontendType();
+  const [selectedKind, setSelectedKind] = useState<string | null>(
+    defaultDefinition?.kind ?? null,
+  );
+
+  useEffect(() => {
+    if (defaultDefinition === null) {
+      setSelectedKind(null);
+      return;
+    }
+
+    if (
+      selectedKind === null
+      || getSourceFrontendType(selectedKind) === null
+    ) {
+      setSelectedKind(defaultDefinition.kind);
+    }
+  }, [defaultDefinition, selectedKind]);
+
+  return {
+    selectedKind,
+    setSelectedKind,
+    definition:
+      (selectedKind ? getSourceFrontendType(selectedKind) : null)
+      ?? defaultDefinition,
+  };
+};
+
+const SourcePluginAddLayout = (props: {
+  compact?: boolean;
+}) => {
+  const { definition, selectedKind, setSelectedKind } =
+    useSelectedSourceFrontendType();
+
   if (definition === null) {
     return (
       <SourcePluginsResetState
-        title="Add Source is intentionally blank"
+        title="Source plugins are unavailable"
         message="No source plugins are registered in this build."
       />
     );
@@ -25,35 +88,31 @@ export function SourcePluginAddPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
-      <div className="mb-8">
-        <div className="inline-flex rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-          Source Plugin
+      {!props.compact && (
+        <div className="mb-8">
+          <div className="inline-flex rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+            Source Plugin
+          </div>
+          <h1 className="mt-5 font-display text-3xl tracking-tight text-foreground lg:text-4xl">
+            {definition.displayName}
+          </h1>
         </div>
-        <h1 className="mt-5 font-display text-3xl tracking-tight text-foreground lg:text-4xl">
-          {definition.displayName}
-        </h1>
-      </div>
-      {definition.renderAddPage()}
+      )}
+      <SourcePluginPicker
+        selectedKind={selectedKind}
+        onSelect={setSelectedKind}
+      />
+      {props.compact ? definition.renderAddPage() : definition.renderAddPage()}
     </div>
   );
+};
+
+export function SourcePluginAddPage() {
+  return <SourcePluginAddLayout />;
 }
 
 export function SourcePluginCreatePage() {
-  const definition = getDefaultSourceFrontendType();
-  if (definition === null) {
-    return (
-      <SourcePluginsResetState
-        title="New source creation is disabled"
-        message="No source plugins are registered in this build."
-      />
-    );
-  }
-
-  return (
-    <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
-      {definition.renderAddPage()}
-    </div>
-  );
+  return <SourcePluginAddLayout compact />;
 }
 
 export function SourcePluginEditPage(input: {

@@ -285,6 +285,31 @@ export const createExecutorEffect = <
             cause instanceof Error ? cause : new Error(String(cause)),
           ),
         );
+      const providePluginExtensionValue = (value: unknown): unknown => {
+        if (Effect.isEffect(value)) {
+          return providePluginHostEffect(value);
+        }
+
+        if (typeof value === "function") {
+          return (...args: Array<unknown>) =>
+            providePluginExtensionValue(value(...args));
+        }
+
+        if (Array.isArray(value)) {
+          return value.map(providePluginExtensionValue);
+        }
+
+        if (value !== null && typeof value === "object") {
+          return Object.fromEntries(
+            Object.entries(value).map(([key, nestedValue]) => [
+              key,
+              providePluginExtensionValue(nestedValue),
+            ]),
+          );
+        }
+
+        return value;
+      };
       const host: ExecutorSdkPluginHost = {
         sources: {
           create: ({ source }) =>
@@ -330,10 +355,12 @@ export const createExecutorEffect = <
       const extensions = Object.fromEntries(
         (options.plugins ?? []).map((plugin) => [
           plugin.key,
-          plugin.extendExecutor?.({
-            executor,
-            host,
-          }) ?? {},
+          providePluginExtensionValue(
+            plugin.extendExecutor?.({
+              executor,
+              host,
+            }) ?? {},
+          ),
         ]),
       );
 

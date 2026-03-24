@@ -4,6 +4,7 @@ import { LoadableBlock } from "../components/loadable";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { SourcePluginsResetState } from "../components/source-plugins-reset-state";
+import { registeredSourceFrontendTypes } from "../source-plugins";
 
 export function HomePage() {
   const sources = useSources();
@@ -16,13 +17,22 @@ export function HomePage() {
             Sources
           </div>
           <h1 className="mt-5 font-display text-3xl tracking-tight text-foreground lg:text-4xl">
-            OpenAPI is now mounted as a source plugin
+            Source plugins now own source-specific product behavior
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-            The product shell is still in transition, but the first plugin-backed
-            surface is wired in for OpenAPI so the frontend and backend boundaries
-            are visible in the app again.
+            Add, edit, inspect, and authorize sources through plugin-owned UI and
+            API surfaces. The core app stays generic while each plugin carries its
+            own transport, auth, and storage behavior.
           </p>
+          {registeredSourceFrontendTypes.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {registeredSourceFrontendTypes.map((definition) => (
+                <Badge key={definition.kind} variant="outline">
+                  {definition.displayName}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-8">
@@ -36,11 +46,11 @@ export function HomePage() {
               ) : items.length === 0 ? (
                 <SourcePluginsResetState
                   title="No sources connected yet"
-                  message="The OpenAPI source plugin is registered. Use the add flow to inspect the plugin-owned UI surface."
+                  message="Use the add flow to connect an OpenAPI, GraphQL, MCP, or Google Discovery source through its plugin-owned surface."
                   action={(
                     <Link to="/sources/add">
                       <Button size="sm" variant="outline">
-                        Open OpenAPI Plugin
+                        Add Source
                       </Button>
                     </Link>
                   )}

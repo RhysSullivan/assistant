@@ -9,9 +9,12 @@ import {
 import type { Source } from "@executor/platform-sdk/schema";
 import type {
   ExecutorSdkPlugin,
+  ExecutorSdkPluginHost,
+  ExecutorSourceConnector,
   SourcePluginRuntime,
 } from "@executor/platform-sdk/plugins";
 import {
+  OpenApiConnectionAuthSchema,
   deriveOpenApiNamespace,
   previewOpenApiDocument,
   type OpenApiConnectInput,
@@ -89,6 +92,16 @@ export type OpenApiSdkPluginOptions = {
   storage: OpenApiSourceStorage;
   secrets?: OpenApiSecrets;
 };
+
+const OpenApiExecutorAddInputSchema = Schema.Struct({
+  kind: Schema.Literal("openapi"),
+  name: Schema.String,
+  specUrl: Schema.String,
+  baseUrl: Schema.NullOr(Schema.String),
+  auth: OpenApiConnectionAuthSchema,
+});
+
+type OpenApiExecutorAddInput = typeof OpenApiExecutorAddInputSchema.Type;
 
 const createStoredSourceData = (
   input: OpenApiConnectInput,
@@ -248,6 +261,117 @@ const responseHeadersRecord = (response: Response): Record<string, string> => {
   });
   return headers;
 };
+
+const createOpenApiSourceSdk = (
+  options: OpenApiSdkPluginOptions,
+  host: ExecutorSdkPluginHost,
+) => ({
+  getSourceConfig: (sourceId: Source["id"]) =>
+    Effect.gen(function* () {
+      const source = yield* host.sources.get(sourceId);
+      if (source.kind !== "openapi") {
+        return yield* Effect.fail(
+          new Error(`Source ${sourceId} is not an OpenAPI source.`),
+        );
+      }
+
+      const stored = yield* options.storage.get({
+        scopeId: source.scopeId,
+        sourceId: source.id,
+      });
+      if (stored === null) {
+        return yield* Effect.fail(
+          new Error(`OpenAPI source storage missing for ${source.id}`),
+        );
+      }
+
+      return configFromStoredSourceData(source, stored);
+    }),
+  createSource: (input: OpenApiConnectInput) =>
+    Effect.gen(function* () {
+      const stored = createStoredSourceData(input);
+      const createdSource = yield* host.sources.create({
+        source: {
+          name: input.name.trim(),
+          kind: "openapi",
+          status: "connected",
+          enabled: true,
+          namespace: deriveOpenApiNamespace({
+            specUrl: input.specUrl,
+            title: input.name,
+          }),
+        },
+      });
+
+      yield* options.storage.put({
+        scopeId: createdSource.scopeId,
+        sourceId: createdSource.id,
+        value: stored,
+      });
+
+      return yield* host.sources.refreshCatalog(createdSource.id);
+    }),
+  updateSource: (input: OpenApiUpdateSourceInput) =>
+    Effect.gen(function* () {
+      const source = yield* host.sources.get(input.sourceId as Source["id"]);
+      if (source.kind !== "openapi") {
+        return yield* Effect.fail(
+          new Error(`Source ${input.sourceId} is not an OpenAPI source.`),
+        );
+      }
+
+      const nextStored = createStoredSourceData(input.config);
+      const savedSource = yield* host.sources.save({
+        ...source,
+        name: input.config.name.trim(),
+        namespace: deriveOpenApiNamespace({
+          specUrl: input.config.specUrl,
+          title: input.config.name,
+        }),
+      });
+
+      yield* options.storage.put({
+        scopeId: savedSource.scopeId,
+        sourceId: savedSource.id,
+        value: nextStored,
+      });
+
+      return yield* host.sources.refreshCatalog(savedSource.id);
+    }),
+  removeSource: (sourceId: Source["id"]) =>
+    Effect.gen(function* () {
+      const source = yield* host.sources.get(sourceId);
+      if (source.kind !== "openapi") {
+        return yield* Effect.fail(
+          new Error(`Source ${sourceId} is not an OpenAPI source.`),
+        );
+      }
+
+      if (options.storage.remove) {
+        yield* options.storage.remove({
+          scopeId: source.scopeId,
+          sourceId: source.id,
+        });
+      }
+
+      return yield* host.sources.remove(source.id);
+    }),
+});
+
+const openApiSourceConnector = (
+  options: OpenApiSdkPluginOptions,
+): ExecutorSourceConnector<OpenApiExecutorAddInput> => ({
+  kind: "openapi",
+  displayName: "OpenAPI",
+  inputSchema: OpenApiExecutorAddInputSchema,
+  inputSignatureWidth: 280,
+  helpText: [
+    "Provide the OpenAPI document URL and optional base URL override.",
+    "Use `auth.kind = \"bearer\"` with a stored secret ref when required.",
+  ],
+  createSource: ({ args, host }) =>
+    createOpenApiSourceSdk(options, host).createSource(args),
+});
 
 const decodeResponseBody = async (response: Response): Promise<unknown> => {
   if (response.status === 204) {
@@ -541,102 +665,29 @@ export const openApiSdkPlugin = (
 ): ExecutorSdkPlugin<"openapi", OpenApiSdk> => ({
   key: "openapi",
   sources: [createOpenApiSourceRuntime(options)],
-  extendExecutor: ({ host }) => ({
+  sourceConnectors: [openApiSourceConnector(options)],
+  extendExecutor: ({ host, executor }) => {
+    const sourceSdk = createOpenApiSourceSdk(options, host);
+    const provideRuntime = <A>(
+      effect: Effect.Effect<A, Error, any>,
+    ): Effect.Effect<A, Error, never> =>
+      effect.pipe(Effect.provide(executor.runtime.managedRuntime));
+
+    return {
     previewDocument: (input) =>
       Effect.tryPromise({
         try: () => previewOpenApiDocument(input),
         catch: (cause) =>
           cause instanceof Error ? cause : new Error(String(cause)),
       }),
-    getSourceConfig: (sourceId) =>
-      Effect.gen(function* () {
-        const source = yield* host.sources.get(sourceId);
-        if (source.kind !== "openapi") {
-          return yield* Effect.fail(
-            new Error(`Source ${sourceId} is not an OpenAPI source.`),
-          );
-        }
-
-        const stored = yield* options.storage.get({
-          scopeId: source.scopeId,
-          sourceId: source.id,
-        });
-        if (stored === null) {
-          return yield* Effect.fail(
-            new Error(`OpenAPI source storage missing for ${source.id}`),
-          );
-        }
-
-        return configFromStoredSourceData(source, stored);
-      }),
-    createSource: (input) =>
-      Effect.gen(function* () {
-        const stored = createStoredSourceData(input);
-        const createdSource = yield* host.sources.create({
-          source: {
-            name: input.name.trim(),
-            kind: "openapi",
-            status: "connected",
-            enabled: true,
-            namespace: deriveOpenApiNamespace({
-              specUrl: input.specUrl,
-              title: input.name,
-            }),
-          },
-        });
-
-        yield* options.storage.put({
-          scopeId: createdSource.scopeId,
-          sourceId: createdSource.id,
-          value: stored,
-        });
-
-        return yield* host.sources.refreshCatalog(createdSource.id);
-      }),
-    updateSource: (input) =>
-      Effect.gen(function* () {
-        const source = yield* host.sources.get(input.sourceId as Source["id"]);
-        if (source.kind !== "openapi") {
-          return yield* Effect.fail(
-            new Error(`Source ${input.sourceId} is not an OpenAPI source.`),
-          );
-        }
-
-        const nextStored = createStoredSourceData(input.config);
-        const savedSource = yield* host.sources.save({
-          ...source,
-          name: input.config.name.trim(),
-          namespace: deriveOpenApiNamespace({
-            specUrl: input.config.specUrl,
-            title: input.config.name,
-          }),
-        });
-
-        yield* options.storage.put({
-          scopeId: savedSource.scopeId,
-          sourceId: savedSource.id,
-          value: nextStored,
-        });
-
-        return yield* host.sources.refreshCatalog(savedSource.id);
-      }),
-    removeSource: (sourceId) =>
-      Effect.gen(function* () {
-        const source = yield* host.sources.get(sourceId);
-        if (source.kind !== "openapi") {
-          return yield* Effect.fail(
-            new Error(`Source ${sourceId} is not an OpenAPI source.`),
-          );
-        }
-
-        if (options.storage.remove) {
-          yield* options.storage.remove({
-            scopeId: source.scopeId,
-            sourceId: source.id,
-          });
-        }
-
-        return yield* host.sources.remove(source.id);
-      }),
-  }),
+      getSourceConfig: (sourceId) =>
+        provideRuntime(sourceSdk.getSourceConfig(sourceId)),
+      createSource: (input) =>
+        provideRuntime(sourceSdk.createSource(input)),
+      updateSource: (input) =>
+        provideRuntime(sourceSdk.updateSource(input)),
+      removeSource: (sourceId) =>
+        provideRuntime(sourceSdk.removeSource(sourceId)),
+    };
+  },
 });

@@ -56,7 +56,7 @@ export type RuntimeSourceCatalogSyncShape = {
   sync: (input: {
     source: Source;
     actorScopeId?: ScopeId | null;
-  }) => Effect.Effect<void, Error, never>;
+  }) => Effect.Effect<void, Error, any>;
 };
 
 export class RuntimeSourceCatalogSyncService extends Context.Tag(
@@ -83,7 +83,7 @@ const syncSourceCatalogWithDeps = (
     source: Source;
     actorScopeId?: ScopeId | null;
   },
-): Effect.Effect<void, Error, never> =>
+): Effect.Effect<void, Error, any> =>
   Effect.gen(function* () {
     yield* ensureRuntimeCatalogSyncWorkspace(deps, input.source.scopeId);
 

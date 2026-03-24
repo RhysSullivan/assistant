@@ -1,47 +1,267 @@
-import type { ToolMap } from "@executor/codemode-core";
-import { SourceSchema } from "#schema";
+import { toTool, type ToolMap } from "@executor/codemode-core";
+import {
+  type ScopeId,
+  SourceSchema,
+  type Source,
+} from "#schema";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
+import {
+  createManagedSourceRecord,
+  getSource,
+  refreshManagedSourceCatalog,
+  removeSource,
+  saveManagedSourceRecord,
+} from "../../sources/operations";
 import {
   deriveSchemaJson,
   deriveSchemaTypeSignature,
 } from "../catalog/schema-type-signature";
-import type {
-  InstallationStoreShape,
-  SourceArtifactStoreShape,
-  ScopeConfigStoreShape,
-  ScopeStateStoreShape,
+import {
+  RuntimeSourceCatalogSyncService,
+} from "../catalog/source/sync";
+import {
+  ExecutorStateStore,
+  type ExecutorStateStoreShape,
+} from "../executor-state-store";
+import {
+  provideOptionalRuntimeLocalScope,
+  type RuntimeLocalScopeState,
+} from "../scope/runtime-context";
+import {
+  type InstallationStoreShape,
+  makeLocalStorageLayer,
+  type SourceArtifactStoreShape,
+  type ScopeConfigStoreShape,
+  type ScopeStateStoreShape,
 } from "../scope/storage";
+import {
+  type RuntimeSourceStore,
+  RuntimeSourceStoreService,
+} from "./source-store";
+import {
+  registeredSourceConnectors,
+} from "./source-plugins";
+import type {
+  ExecutorSdkPluginHost,
+  ExecutorSourceConnector,
+} from "../../plugins";
 
-export const EXECUTOR_SOURCES_ADD_INPUT_HINT =
-  "Source plugins are not registered in this build.";
+const createExecutorSourcesAddSchema = (): Schema.Schema<any, any, never> => {
+  const connectors = registeredSourceConnectors();
+  if (connectors.length === 0) {
+    return Schema.Unknown;
+  }
+
+  if (connectors.length === 1) {
+    return connectors[0]!.inputSchema;
+  }
+
+  return Schema.Union(
+    ...(connectors.map((connector) => connector.inputSchema) as [
+      Schema.Schema<any, any, never>,
+      Schema.Schema<any, any, never>,
+      ...Array<Schema.Schema<any, any, never>>,
+    ])
+  );
+};
+
+export const getExecutorSourcesAddInputHint = (): string =>
+  deriveSchemaTypeSignature(createExecutorSourcesAddSchema(), 340);
 
 export const EXECUTOR_SOURCES_ADD_OUTPUT_SIGNATURE = deriveSchemaTypeSignature(
   SourceSchema,
   260,
 );
 
-export const EXECUTOR_SOURCES_ADD_INPUT_SCHEMA = {};
+export const getExecutorSourcesAddInputSchemaJson = (): Record<string, unknown> =>
+  deriveSchemaJson(createExecutorSourcesAddSchema()) ?? {};
 
 export const EXECUTOR_SOURCES_ADD_OUTPUT_SCHEMA = deriveSchemaJson(
   SourceSchema,
 ) ?? {};
 
-export const EXECUTOR_SOURCES_ADD_HELP_LINES = [
-  "Source plugins are not registered in this build.",
-] as const;
+export const getExecutorSourcesAddHelpLines = (): readonly string[] => {
+  const connectors = registeredSourceConnectors();
+  if (connectors.length === 0) {
+    return ["No source plugins are registered in this build."] as const;
+  }
 
-export const buildExecutorSourcesAddDescription = (): string =>
-  "Source plugins are not registered in this build.";
+  return [
+    "Source add input shapes:",
+    ...connectors.flatMap((connector) => [
+      `- ${connector.displayName}: ${deriveSchemaTypeSignature(
+        connector.inputSchema,
+        connector.inputSignatureWidth ?? 260,
+      )}`,
+      ...(connector.helpText ?? []).map((line) => `  ${line}`),
+    ]),
+  ];
+};
+
+export const buildExecutorSourcesAddDescription = (): string => {
+  const connectors = registeredSourceConnectors();
+  if (connectors.length === 0) {
+    return "No source plugins are registered in this build.";
+  }
+
+  return [
+    "Add a source using one of the registered source plugins.",
+    ...getExecutorSourcesAddHelpLines(),
+  ].join("\n");
+};
+
+const createSourceConnectorHost = (input: {
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
+}): ExecutorSdkPluginHost => ({
+  sources: {
+    create: ({ source }) =>
+      createManagedSourceRecord({
+        scopeId: input.scopeId,
+        actorScopeId: input.actorScopeId,
+        source,
+      }),
+    get: (sourceId) =>
+      getSource({
+        scopeId: input.scopeId,
+        sourceId,
+        actorScopeId: input.actorScopeId,
+      }),
+    save: (source) =>
+      saveManagedSourceRecord({
+        actorScopeId: input.actorScopeId,
+        source,
+      }),
+    refreshCatalog: (sourceId) =>
+      refreshManagedSourceCatalog({
+        scopeId: input.scopeId,
+        sourceId,
+        actorScopeId: input.actorScopeId,
+      }),
+    remove: (sourceId) =>
+      removeSource({
+        scopeId: input.scopeId,
+        sourceId,
+      }).pipe(Effect.map((result) => result.removed)),
+  },
+});
+
+const runExecutorSourceEffect = async <A>(
+  effect: Effect.Effect<A, unknown, any>,
+  input: {
+    executorStateStore: ExecutorStateStoreShape;
+    sourceStore: RuntimeSourceStore;
+    sourceCatalogSyncService: Effect.Effect.Success<
+      typeof RuntimeSourceCatalogSyncService
+    >;
+    installationStore: InstallationStoreShape;
+    scopeConfigStore: ScopeConfigStoreShape;
+    scopeStateStore: ScopeStateStoreShape;
+    sourceArtifactStore: SourceArtifactStoreShape;
+    runtimeLocalScope: RuntimeLocalScopeState | null;
+  },
+): Promise<A> => {
+  const servicesLayer = Layer.mergeAll(
+    makeLocalStorageLayer({
+      installationStore: input.installationStore,
+      scopeConfigStore: input.scopeConfigStore,
+      scopeStateStore: input.scopeStateStore,
+      sourceArtifactStore: input.sourceArtifactStore,
+    }),
+    Layer.succeed(ExecutorStateStore, input.executorStateStore),
+    Layer.succeed(RuntimeSourceStoreService, input.sourceStore),
+    Layer.succeed(
+      RuntimeSourceCatalogSyncService,
+      input.sourceCatalogSyncService,
+    ),
+  );
+
+  return Effect.runPromise(
+    provideOptionalRuntimeLocalScope(
+      effect.pipe(Effect.provide(servicesLayer)),
+      input.runtimeLocalScope,
+    ) as Effect.Effect<A, unknown, never>,
+  );
+};
+
+const resolveSourceConnector = (
+  connectors: readonly ExecutorSourceConnector[],
+  args: unknown,
+):
+  | {
+      connector: ExecutorSourceConnector;
+      parsedArgs: unknown;
+    }
+  | null => {
+  for (const connector of connectors) {
+    const parsed = Schema.decodeUnknownOption(connector.inputSchema)(args);
+    if (Option.isSome(parsed)) {
+      return {
+        connector,
+        parsedArgs: parsed.value,
+      };
+    }
+  }
+
+  return null;
+};
+
+const toSerializableValue = <A>(value: A): A =>
+  JSON.parse(JSON.stringify(value)) as A;
 
 export const createExecutorToolMap = (input: {
-  scopeId?: string;
-  actorScopeId?: string;
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
+  executorStateStore: ExecutorStateStoreShape;
+  sourceStore: RuntimeSourceStore;
+  sourceCatalogSyncService: Effect.Effect.Success<
+    typeof RuntimeSourceCatalogSyncService
+  >;
   installationStore: InstallationStoreShape;
   scopeConfigStore: ScopeConfigStoreShape;
   scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
-  runtimeLocalScope?: unknown;
+  runtimeLocalScope: RuntimeLocalScopeState | null;
 }): ToolMap => {
-  void input;
-  return {};
+  const connectors = registeredSourceConnectors();
+  if (connectors.length === 0) {
+    return {};
+  }
+
+  const host = createSourceConnectorHost({
+    scopeId: input.scopeId,
+    actorScopeId: input.actorScopeId,
+  });
+
+  return {
+    "executor.sources.add": toTool({
+      tool: {
+        description: buildExecutorSourcesAddDescription(),
+        inputSchema: Schema.standardSchemaV1(createExecutorSourcesAddSchema()),
+        outputSchema: Schema.standardSchemaV1(SourceSchema),
+        execute: async (args: unknown): Promise<Source> => {
+          const matched = resolveSourceConnector(connectors, args);
+          if (matched === null) {
+            throw new Error(
+              "executor.sources.add input did not match a registered source plugin.",
+            );
+          }
+
+          const createdSource = await runExecutorSourceEffect(
+            matched.connector.createSource({
+              args: matched.parsedArgs,
+              host,
+            }),
+            input,
+          );
+
+          return toSerializableValue(createdSource);
+        },
+      },
+    }),
+  };
 };
