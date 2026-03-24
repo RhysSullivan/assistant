@@ -553,14 +553,11 @@ function OpenApiSourceForm(props: {
       payload,
     });
 
-    const popup = window.open(
+    window.open(
       started.authorizationUrl,
       "executor-openapi-oauth",
       "width=560,height=760,noopener,noreferrer",
     );
-    if (!popup) {
-      throw new Error("Failed opening OpenAPI OAuth popup.");
-    }
 
     const result = await waitForOauthPopupResult(started.sessionId);
     if (!result.ok) {
