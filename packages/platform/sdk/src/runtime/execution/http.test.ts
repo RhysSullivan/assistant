@@ -132,4 +132,49 @@ describe("execution-http", () => {
     }),
     60_000,
   );
+
+  it.scoped("preserves two-item secret lists from the HTTP API", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makeRuntime;
+      const installation = runtime.localInstallation;
+
+      yield* withExecutorApiClient(
+        {
+          runtime,
+          actorScopeId: installation.actorScopeId,
+        },
+        (client) =>
+          Effect.all([
+            client.local.createSecret({
+              payload: {
+                name: "First",
+                value: "secret-1",
+              },
+            }),
+            client.local.createSecret({
+              payload: {
+                name: "Second",
+                value: "secret-2",
+              },
+            }),
+          ]),
+      );
+
+      const secrets = yield* withExecutorApiClient(
+        {
+          runtime,
+          actorScopeId: installation.actorScopeId,
+        },
+        (client) => client.local.listSecrets(),
+      );
+
+      expect(Array.isArray(secrets)).toBe(true);
+      expect(secrets).toHaveLength(2);
+      expect(secrets.map((secret) => secret.name).sort()).toEqual([
+        "First",
+        "Second",
+      ]);
+    }),
+    60_000,
+  );
 });
