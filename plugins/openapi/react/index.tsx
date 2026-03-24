@@ -342,6 +342,16 @@ function OpenApiSourceForm(props: {
   const [clientId, setClientId] = useState(
     props.initialValue.auth.kind === "oauth2" ? props.initialValue.auth.clientId : "",
   );
+  const [oauthAuthorizationEndpoint, setOauthAuthorizationEndpoint] = useState(
+    props.initialValue.auth.kind === "oauth2"
+      ? props.initialValue.auth.authorizationEndpoint
+      : "",
+  );
+  const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState(
+    props.initialValue.auth.kind === "oauth2"
+      ? props.initialValue.auth.tokenEndpoint
+      : "",
+  );
   const [clientSecretRef, setClientSecretRef] = useState(
     props.initialValue.auth.kind === "oauth2"
       ? props.initialValue.auth.clientSecretRef ?? ""
@@ -416,6 +426,11 @@ function OpenApiSourceForm(props: {
     setOauthStatus("idle");
   };
 
+  const applyOauthFlowEndpoints = (flow: OpenApiPreviewOAuthFlow | null) => {
+    setOauthAuthorizationEndpoint(flow?.authorizationUrl ?? "");
+    setOauthTokenEndpoint(flow?.tokenUrl ?? "");
+  };
+
   useEffect(() => {
     if (newClientSecretProviderId.length > 0) {
       return;
@@ -464,6 +479,7 @@ function OpenApiSourceForm(props: {
           setOauthScopesText(
             stringifyScopes(nextFlow?.scopes.map((scope) => scope.name) ?? []),
           );
+          applyOauthFlowEndpoints(nextFlow);
         }
         setSelectedOauthSchemeName(nextScheme?.name ?? "");
         const nextFlow = supportedAuthorizationCodeFlowForScheme(nextScheme ?? null);
@@ -473,6 +489,12 @@ function OpenApiSourceForm(props: {
           && oauthScopesText.trim().length === 0
         ) {
           setOauthScopesText(stringifyScopes(nextFlow.scopes.map((scope) => scope.name)));
+        }
+        if (oauthAuthorizationEndpoint.trim().length === 0) {
+          setOauthAuthorizationEndpoint(nextFlow?.authorizationUrl ?? "");
+        }
+        if (oauthTokenEndpoint.trim().length === 0) {
+          setOauthTokenEndpoint(nextFlow?.tokenUrl ?? "");
         }
       } else {
         setSelectedOauthSchemeName("");
@@ -505,12 +527,18 @@ function OpenApiSourceForm(props: {
     if (!clientId.trim()) {
       throw new Error("Client ID is required for OpenAPI OAuth.");
     }
+    if (!oauthAuthorizationEndpoint.trim()) {
+      throw new Error("Authorization URL is required for OpenAPI OAuth.");
+    }
+    if (!oauthTokenEndpoint.trim()) {
+      throw new Error("Token URL is required for OpenAPI OAuth.");
+    }
 
     const payload: OpenApiStartOAuthInput = {
       schemeName: selectedScheme.name,
       flow: "authorizationCode",
-      authorizationEndpoint: selectedFlow.authorizationUrl ?? "",
-      tokenEndpoint: selectedFlow.tokenUrl ?? "",
+      authorizationEndpoint: oauthAuthorizationEndpoint.trim(),
+      tokenEndpoint: oauthTokenEndpoint.trim(),
       scopes: parseScopes(oauthScopesText),
       clientId: clientId.trim(),
       clientSecretRef: clientSecretRef.trim() || null,
@@ -609,6 +637,24 @@ function OpenApiSourceForm(props: {
       stringifyScopes(selectedAuthorizationCodeFlow.scopes.map((scope) => scope.name)),
     );
   }, [authKind, oauthStatus, oauthScopesText, selectedAuthorizationCodeFlow]);
+
+  useEffect(() => {
+    if (authKind !== "oauth2") {
+      return;
+    }
+
+    if (oauthAuthorizationEndpoint.trim().length === 0) {
+      setOauthAuthorizationEndpoint(selectedAuthorizationCodeFlow?.authorizationUrl ?? "");
+    }
+    if (oauthTokenEndpoint.trim().length === 0) {
+      setOauthTokenEndpoint(selectedAuthorizationCodeFlow?.tokenUrl ?? "");
+    }
+  }, [
+    authKind,
+    oauthAuthorizationEndpoint,
+    oauthTokenEndpoint,
+    selectedAuthorizationCodeFlow,
+  ]);
 
   const handleSubmit = async () => {
     setError(null);
@@ -769,6 +815,9 @@ function OpenApiSourceForm(props: {
                         ) ?? [],
                       ),
                     );
+                    applyOauthFlowEndpoints(
+                      supportedAuthorizationCodeFlowForScheme(nextScheme),
+                    );
                     resetOauthState();
                   }}
                   className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
@@ -800,6 +849,34 @@ function OpenApiSourceForm(props: {
                       setClientId(event.target.value);
                       resetOauthState();
                     }}
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-1.5">
+                  <span className="text-[12px] font-medium text-foreground">Authorization URL</span>
+                  <input
+                    value={oauthAuthorizationEndpoint}
+                    onChange={(event) => {
+                      setOauthAuthorizationEndpoint(event.target.value);
+                      resetOauthState();
+                    }}
+                    placeholder="https://x.com/i/oauth2/authorize"
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  />
+                </label>
+
+                <label className="grid gap-1.5">
+                  <span className="text-[12px] font-medium text-foreground">Token URL</span>
+                  <input
+                    value={oauthTokenEndpoint}
+                    onChange={(event) => {
+                      setOauthTokenEndpoint(event.target.value);
+                      resetOauthState();
+                    }}
+                    placeholder="https://api.x.com/2/oauth2/token"
                     className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
                   />
                 </label>
@@ -924,8 +1001,8 @@ function OpenApiSourceForm(props: {
 
               {selectedAuthorizationCodeFlow ? (
                 <div className="rounded-lg border border-border/70 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
-                  <div>Authorization URL: {selectedAuthorizationCodeFlow.authorizationUrl}</div>
-                  <div>Token URL: {selectedAuthorizationCodeFlow.tokenUrl}</div>
+                  <div>Spec authorization URL: {selectedAuthorizationCodeFlow.authorizationUrl}</div>
+                  <div>Spec token URL: {selectedAuthorizationCodeFlow.tokenUrl}</div>
                 </div>
               ) : (
                 <div className="rounded-lg border border-amber-300/40 bg-amber-100/20 px-3 py-2 text-xs text-amber-800">
