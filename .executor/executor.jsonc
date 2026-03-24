@@ -1,14 +1,8 @@
 {
   "sources": {
-    "github": {
+    "vercel-api": {
       "kind": "openapi",
-      "connection": {
-        "endpoint": "https://raw.githubusercontent.com/github/rest-api-description/refs/heads/main/descriptions/ghes-3.9/%7Bprotocol%7D://%7Bhostname%7D/api/v3"
-      },
-      "binding": {
-        "specUrl": "https://raw.githubusercontent.com/github/rest-api-description/refs/heads/main/descriptions/ghes-3.9/ghes-3.9.yaml",
-        "defaultHeaders": null
-      }
+      "name": "Vercel API"
     }
   }
 }

@@ -9,7 +9,5 @@
     "lib": ["ES2022", "DOM"],
     "types": ["bun-types", "node"]
   },
-  "include": [
-    "index.ts"
-  ]
+  "include": ["*.ts"]
 }

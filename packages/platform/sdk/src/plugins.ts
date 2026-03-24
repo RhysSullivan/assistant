@@ -34,6 +34,9 @@ export type ExecutorSdkPluginHost = {
     }) => Effect.Effect<ExecutorSource, Error, never>;
     get: (sourceId: ExecutorSource["id"]) => Effect.Effect<ExecutorSource, Error, never>;
     save: (source: ExecutorSource) => Effect.Effect<ExecutorSource, Error, never>;
+    refreshCatalog: (
+      sourceId: ExecutorSource["id"],
+    ) => Effect.Effect<ExecutorSource, Error, never>;
     remove: (sourceId: ExecutorSource["id"]) => Effect.Effect<boolean, Error, never>;
   };
 };

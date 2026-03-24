@@ -6,16 +6,19 @@
     ".": "./index.ts"
   },
   "files": [
-    "index.ts"
+    "*.ts"
   ],
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@executor/ir": "workspace:*",
+    "@executor/codemode-core": "workspace:*",
     "@executor/platform-sdk": "workspace:*",
     "@executor/plugin-openapi-shared": "workspace:*",
     "@executor/source-core": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@types/node": "catalog:",

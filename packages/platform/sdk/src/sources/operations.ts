@@ -156,6 +156,42 @@ export const createManagedSource = (input: {
     }),
   );
 
+export const createManagedSourceRecord = (input: {
+  scopeId: ScopeId;
+  actorScopeId: ScopeId;
+  source: Omit<
+    Source,
+    "id" | "scopeId" | "createdAt" | "updatedAt"
+  >;
+}) =>
+  Effect.flatMap(ExecutorStateStore, () =>
+    Effect.gen(function* () {
+      const sourceStore = yield* RuntimeSourceStoreService;
+      const now = Date.now();
+
+      const source = yield* normalizeSourceForCreate({
+        scopeId: input.scopeId,
+        sourceId: SourceIdSchema.make(`src_${crypto.randomUUID()}`),
+        source: input.source,
+        now,
+      }).pipe(
+        Effect.mapError((cause) =>
+          sourceOps.create.badRequest(
+            "Invalid source definition",
+            cause instanceof Error ? cause.message : String(cause),
+          ),
+        ),
+      );
+
+      return yield* mapPersistenceError(
+        sourceOps.create.child("persist"),
+        sourceStore.persistSource(source, {
+          actorScopeId: input.actorScopeId,
+        }),
+      );
+    }),
+  );
+
 export const getSource = (input: {
   scopeId: ScopeId;
   sourceId: SourceId;
@@ -221,6 +257,84 @@ export const saveManagedSource = (input: {
       });
 
       return synchronizedSource;
+    }),
+  );
+
+export const saveManagedSourceRecord = (input: {
+  actorScopeId: ScopeId;
+  source: Source;
+}) =>
+  Effect.flatMap(ExecutorStateStore, () =>
+    Effect.gen(function* () {
+      const sourceStore = yield* RuntimeSourceStoreService;
+      const updatedSource = yield* normalizeSourceForSave({
+        source: input.source,
+        now: Date.now(),
+      }).pipe(
+        Effect.mapError((cause) =>
+          sourceOps.update.badRequest(
+            "Invalid source definition",
+            cause instanceof Error ? cause.message : String(cause),
+          ),
+        ),
+      );
+
+      return yield* mapPersistenceError(
+        sourceOps.update.child("persist"),
+        sourceStore.persistSource(updatedSource, {
+          actorScopeId: input.actorScopeId,
+        }),
+      );
+    }),
+  );
+
+export const refreshManagedSourceCatalog = (input: {
+  scopeId: ScopeId;
+  sourceId: SourceId;
+  actorScopeId: ScopeId;
+}) =>
+  Effect.flatMap(ExecutorStateStore, (store) =>
+    Effect.gen(function* () {
+      const sourceStore = yield* RuntimeSourceStoreService;
+      const source = yield* sourceStore.loadSourceById({
+        scopeId: input.scopeId,
+        sourceId: input.sourceId,
+        actorScopeId: input.actorScopeId,
+      }).pipe(
+        Effect.mapError((cause) =>
+          cause instanceof Error &&
+          cause.message.startsWith("Source not found:")
+            ? sourceOps.get.notFound(
+                "Source not found",
+                `scopeId=${input.scopeId} sourceId=${input.sourceId}`,
+              )
+            : sourceOps.get.unknownStorage(
+                cause,
+                "Failed projecting stored source",
+              ),
+        ),
+      );
+
+      yield* syncArtifactsForSource({
+        store,
+        sourceStore,
+        source,
+        actorScopeId: input.actorScopeId,
+        operation: sourceOps.update,
+      });
+
+      return yield* sourceStore.loadSourceById({
+        scopeId: input.scopeId,
+        sourceId: input.sourceId,
+        actorScopeId: input.actorScopeId,
+      }).pipe(
+        Effect.mapError((cause) =>
+          sourceOps.update.unknownStorage(
+            cause,
+            "Failed loading refreshed source",
+          ),
+        ),
+      );
     }),
   );
 

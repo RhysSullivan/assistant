@@ -48,11 +48,12 @@ import {
   getSourceInspectionToolDetail,
 } from "./sources/inspection";
 import {
-  createManagedSource,
+  createManagedSourceRecord,
   getSource,
+  refreshManagedSourceCatalog,
   listSources,
   removeSource,
-  saveManagedSource,
+  saveManagedSourceRecord,
 } from "./sources/operations";
 import type { ExecutorBackend } from "./backend";
 import {
@@ -288,7 +289,7 @@ export const createExecutorEffect = <
         sources: {
           create: ({ source }) =>
             providePluginHostEffect(
-              createManagedSource({
+              createManagedSourceRecord({
                 scopeId: executor.scopeId,
                 actorScopeId: executor.actorScopeId,
                 source,
@@ -304,9 +305,17 @@ export const createExecutorEffect = <
             ),
           save: (source) =>
             providePluginHostEffect(
-              saveManagedSource({
+              saveManagedSourceRecord({
                 actorScopeId: executor.actorScopeId,
                 source,
+              }),
+            ),
+          refreshCatalog: (sourceId) =>
+            providePluginHostEffect(
+              refreshManagedSourceCatalog({
+                scopeId: executor.scopeId,
+                sourceId,
+                actorScopeId: executor.actorScopeId,
               }),
             ),
           remove: (sourceId) =>

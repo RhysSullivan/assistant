@@ -105,7 +105,7 @@ export function SourcePluginDetailPage(input: {
         }
 
         return (
-          <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
+          <div className="h-full min-h-0">
             {definition.renderDetailPage({
               source: loadedSource,
               route: {

@@ -23,6 +23,13 @@ export const OpenApiConnectInputSchema = Schema.Struct({
   auth: OpenApiConnectionAuthSchema,
 });
 
+export const OpenApiSourceConfigPayloadSchema = OpenApiConnectInputSchema;
+
+export const OpenApiUpdateSourceInputSchema = Schema.Struct({
+  sourceId: Schema.String,
+  config: OpenApiSourceConfigPayloadSchema,
+});
+
 export const OpenApiSourceConfigSchema = Schema.Struct({
   specUrl: Schema.String,
   baseUrl: Schema.NullOr(Schema.String),
@@ -43,20 +50,35 @@ export const OpenApiPreviewRequestSchema = Schema.Struct({
   specUrl: Schema.String,
 });
 
+export const OpenApiPreviewSecuritySchemeSchema = Schema.Struct({
+  name: Schema.String,
+  kind: Schema.Literal("apiKey", "http", "oauth2", "openIdConnect", "unknown"),
+  placement: Schema.NullOr(Schema.String),
+  scheme: Schema.NullOr(Schema.String),
+});
+
 export const OpenApiPreviewResponseSchema = Schema.Struct({
   title: Schema.NullOr(Schema.String),
   version: Schema.NullOr(Schema.String),
   baseUrl: Schema.NullOr(Schema.String),
+  namespace: Schema.NullOr(Schema.String),
   operationCount: Schema.Number,
+  securitySchemes: Schema.Array(OpenApiPreviewSecuritySchemeSchema),
   warnings: Schema.Array(Schema.String),
 });
 
 export type OpenApiConnectionAuth = typeof OpenApiConnectionAuthSchema.Type;
 export type OpenApiConnectInput = typeof OpenApiConnectInputSchema.Type;
+export type OpenApiSourceConfigPayload =
+  typeof OpenApiSourceConfigPayloadSchema.Type;
 export type OpenApiSourceConfig = typeof OpenApiSourceConfigSchema.Type;
 export type OpenApiStoredSourceData = typeof OpenApiStoredSourceDataSchema.Type;
 export type OpenApiPreviewRequest = typeof OpenApiPreviewRequestSchema.Type;
+export type OpenApiPreviewSecurityScheme =
+  typeof OpenApiPreviewSecuritySchemeSchema.Type;
 export type OpenApiPreviewResponse = typeof OpenApiPreviewResponseSchema.Type;
+export type OpenApiUpdateSourceInput =
+  typeof OpenApiUpdateSourceInputSchema.Type;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -67,6 +89,45 @@ const asRecord = (value: unknown): JsonRecord | null =>
 
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const namespaceFromUrl = (value: string): string | null => {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.trim().toLowerCase();
+    if (!hostname) {
+      return null;
+    }
+
+    const parts = hostname.split(".").filter(Boolean);
+    if (parts.length === 0) {
+      return null;
+    }
+
+    const candidate = (parts.length >= 2 ? parts[parts.length - 2] : parts[0])?.trim();
+    return candidate && candidate.length > 0 ? candidate : null;
+  } catch {
+    return null;
+  }
+};
+
+const slugifyName = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug.length > 0 ? slug : null;
+};
+
+export const deriveOpenApiNamespace = (input: {
+  specUrl: string;
+  title?: string | null;
+}): string | null => slugifyName(input.title ?? null) ?? namespaceFromUrl(input.specUrl);
 
 const parseDocument = (text: string): unknown => {
   const trimmed = text.trim();
@@ -94,6 +155,35 @@ const deriveBaseUrl = (document: JsonRecord, specUrl: string): string | null => 
   } catch {
     return rawUrl;
   }
+};
+
+const previewSecuritySchemes = (document: JsonRecord): Array<OpenApiPreviewSecurityScheme> => {
+  const components = asRecord(document.components);
+  const securitySchemes = asRecord(components?.securitySchemes);
+  if (!securitySchemes) {
+    return [];
+  }
+
+  return Object.entries(securitySchemes)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, rawScheme]) => {
+      const scheme = asRecord(rawScheme);
+      const rawKind = asString(scheme?.type);
+      const kind =
+        rawKind === "apiKey" ||
+        rawKind === "http" ||
+        rawKind === "oauth2" ||
+        rawKind === "openIdConnect"
+          ? rawKind
+          : "unknown";
+
+      return {
+        name,
+        kind,
+        placement: asString(scheme?.in),
+        scheme: asString(scheme?.scheme),
+      } satisfies OpenApiPreviewSecurityScheme;
+    });
 };
 
 const countOperations = (document: JsonRecord): number => {
@@ -147,6 +237,7 @@ export const previewOpenApiDocument = async (
 
   const info = asRecord(document.info);
   const warnings: string[] = [];
+  const title = asString(info?.title);
 
   const openapiVersion = asString(document.openapi) ?? asString(document.swagger);
   if (openapiVersion === null) {
@@ -159,10 +250,15 @@ export const previewOpenApiDocument = async (
   }
 
   return {
-    title: asString(info?.title),
+    title,
     version: asString(info?.version),
     baseUrl,
+    namespace: deriveOpenApiNamespace({
+      specUrl: input.specUrl,
+      title,
+    }),
     operationCount: countOperations(document),
+    securitySchemes: previewSecuritySchemes(document),
     warnings,
   };
 };
