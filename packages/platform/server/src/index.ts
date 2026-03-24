@@ -59,6 +59,7 @@ import { createFileGoogleDiscoverySourceStorage } from "./google-discovery-sourc
 import { createFileGraphqlSourceStorage } from "./graphql-source-storage";
 import { createFileMcpOAuthSessionStorage } from "./mcp-oauth-session-storage";
 import { createFileMcpSourceStorage } from "./mcp-source-storage";
+import { createFileOpenApiOAuthSessionStorage } from "./openapi-oauth-session-storage";
 import { createFileOpenApiSourceStorage } from "./openapi-source-storage";
 
 export { createFileGoogleDiscoveryOAuthSessionStorage } from "./google-discovery-oauth-session-storage";
@@ -66,6 +67,7 @@ export { createFileGoogleDiscoverySourceStorage } from "./google-discovery-sourc
 export { createFileGraphqlSourceStorage } from "./graphql-source-storage";
 export { createFileMcpOAuthSessionStorage } from "./mcp-oauth-session-storage";
 export { createFileMcpSourceStorage } from "./mcp-source-storage";
+export { createFileOpenApiOAuthSessionStorage } from "./openapi-oauth-session-storage";
 export { createFileOpenApiSourceStorage } from "./openapi-source-storage";
 
 export {
@@ -179,6 +181,9 @@ const createExecutorRuntime = (
       openApiSdkPlugin({
         storage: createFileOpenApiSourceStorage({
           rootDir: resolve(localDataDir, "plugins", "openapi", "sources"),
+        }),
+        oauthSessions: createFileOpenApiOAuthSessionStorage({
+          rootDir: resolve(localDataDir, "plugins", "openapi", "oauth-sessions"),
         }),
       }),
     ] as const,
