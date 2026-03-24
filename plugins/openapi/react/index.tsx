@@ -1050,7 +1050,10 @@ function ToolTreeNodeView(props: {
             className="shrink-0 rounded p-0.5 text-muted-foreground/30 hover:text-muted-foreground"
             style={{ marginLeft: paddingLeft }}
           >
-            <IconChevron className={cn("size-2.5 transition-transform duration-150", open && "rotate-90")} />
+            <IconChevron
+              className={cn("shrink-0 transition-transform duration-150", open && "rotate-90")}
+              style={{ width: 8, height: 8 }}
+            />
           </button>
           <ToolListItem
             tool={node.tool as SourceInspection["tools"][number]}
@@ -1075,11 +1078,15 @@ function ToolTreeNodeView(props: {
         >
           <IconChevron
             className={cn(
-              "size-2.5 shrink-0 text-muted-foreground/30 transition-transform duration-150",
+              "shrink-0 text-muted-foreground/30 transition-transform duration-150",
               open && "rotate-90",
             )}
+            style={{ width: 8, height: 8 }}
           />
-          <IconFolder className={cn("size-3 shrink-0", open ? "text-primary/60" : "text-muted-foreground/30")} />
+          <IconFolder
+            className={cn("shrink-0", open ? "text-primary/60" : "text-muted-foreground/30")}
+            style={{ width: 12, height: 12 }}
+          />
           <span className="flex-1 truncate text-left font-mono">
             {highlightMatch(node.segment, search)}
           </span>
