@@ -150,29 +150,46 @@ export const openApiHttpApiExtension = {
   group: OpenApiHttpGroup,
 } satisfies ExecutorHttpApiExtension<typeof OpenApiHttpGroup>;
 
+const messageFromCause = (cause: unknown): string => {
+  if (cause instanceof Error && typeof cause.message === "string" && cause.message.length > 0) {
+    return cause.message;
+  }
+
+  const rendered = String(cause);
+  return rendered.length > 0 ? rendered : "Unknown error";
+};
+
+const detailsFromCause = (cause: unknown): string => {
+  if (cause instanceof Error && typeof cause.stack === "string" && cause.stack.length > 0) {
+    return cause.stack;
+  }
+
+  return messageFromCause(cause);
+};
+
 const toBadRequestError = (operation: string) => (cause: unknown) =>
   new ControlPlaneBadRequestError({
     operation,
-    message: cause instanceof Error ? cause.message : String(cause),
-    details: cause instanceof Error ? cause.stack ?? cause.message : String(cause),
+    message: messageFromCause(cause),
+    details: detailsFromCause(cause),
   });
 
 const toStorageError = (operation: string) => (cause: unknown) =>
   new ControlPlaneStorageError({
     operation,
-    message: cause instanceof Error ? cause.message : String(cause),
-    details: cause instanceof Error ? cause.stack ?? cause.message : String(cause),
+    message: messageFromCause(cause),
+    details: detailsFromCause(cause),
   });
 
 const toNotFoundError = (operation: string, cause: unknown) =>
   new ControlPlaneNotFoundError({
     operation,
-    message: cause instanceof Error ? cause.message : String(cause),
-    details: cause instanceof Error ? cause.stack ?? cause.message : String(cause),
+    message: messageFromCause(cause),
+    details: detailsFromCause(cause),
   });
 
 const mapPluginStorageError = (operation: string) => (cause: unknown) => {
-  const message = cause instanceof Error ? cause.message : String(cause);
+  const message = messageFromCause(cause);
   if (message.includes("not found") || message.includes("Not found")) {
     return toNotFoundError(operation, cause);
   }
