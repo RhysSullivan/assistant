@@ -214,7 +214,7 @@ const popupDocument = (payload: OpenApiOAuthPopupResult): string => {
       (() => {
         const payload = ${serialized};
         try {
-          window.localStorage.setItem("executor:openapi-oauth:" + (payload.ok ? payload.sessionId : "failed"), JSON.stringify(payload));
+          window.localStorage.setItem("executor:openapi-oauth:" + (payload.sessionId ?? "failed"), JSON.stringify(payload));
         } catch {}
         try {
           if (window.opener) {
@@ -312,7 +312,7 @@ export const openApiHttpPlugin = (): ExecutorHttpPlugin<
                 popupDocument({
                   type: "executor:oauth-result",
                   ok: false,
-                  sessionId: null,
+                  sessionId: urlParams.state ?? null,
                   error: error.message,
                 }),
               )

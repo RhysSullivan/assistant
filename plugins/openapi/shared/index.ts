@@ -141,7 +141,7 @@ export const OpenApiOAuthPopupResultSchema = Schema.Union(
   Schema.Struct({
     type: Schema.Literal("executor:oauth-result"),
     ok: Schema.Literal(false),
-    sessionId: Schema.Null,
+    sessionId: Schema.NullOr(Schema.String),
     error: Schema.String,
   }),
 );
