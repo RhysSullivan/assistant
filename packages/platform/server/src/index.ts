@@ -15,6 +15,7 @@ import { graphqlSdkPlugin } from "@executor/plugin-graphql-sdk";
 import { mcpHttpPlugin } from "@executor/plugin-mcp-http";
 import { mcpSdkPlugin } from "@executor/plugin-mcp-sdk";
 import { openApiHttpPlugin } from "@executor/plugin-openapi-http";
+import { createFileOpenApiOAuthSessionStorage } from "@executor/plugin-openapi-sdk/file-oauth-session-storage";
 import {
   openApiSdkPlugin,
 } from "@executor/plugin-openapi-sdk";
@@ -59,7 +60,6 @@ import { createFileGoogleDiscoverySourceStorage } from "./google-discovery-sourc
 import { createFileGraphqlSourceStorage } from "./graphql-source-storage";
 import { createFileMcpOAuthSessionStorage } from "./mcp-oauth-session-storage";
 import { createFileMcpSourceStorage } from "./mcp-source-storage";
-import { createFileOpenApiOAuthSessionStorage } from "./openapi-oauth-session-storage";
 import { createFileOpenApiSourceStorage } from "./openapi-source-storage";
 
 export { createFileGoogleDiscoveryOAuthSessionStorage } from "./google-discovery-oauth-session-storage";
@@ -67,7 +67,7 @@ export { createFileGoogleDiscoverySourceStorage } from "./google-discovery-sourc
 export { createFileGraphqlSourceStorage } from "./graphql-source-storage";
 export { createFileMcpOAuthSessionStorage } from "./mcp-oauth-session-storage";
 export { createFileMcpSourceStorage } from "./mcp-source-storage";
-export { createFileOpenApiOAuthSessionStorage } from "./openapi-oauth-session-storage";
+export { createFileOpenApiOAuthSessionStorage } from "@executor/plugin-openapi-sdk/file-oauth-session-storage";
 export { createFileOpenApiSourceStorage } from "./openapi-source-storage";
 
 export {

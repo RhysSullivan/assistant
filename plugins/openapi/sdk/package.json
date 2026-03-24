@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./file-oauth-session-storage": "./file-oauth-session-storage.ts"
   },
   "files": [
     "*.ts"
