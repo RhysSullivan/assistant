@@ -1,30 +1,25 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { Source } from "@executor/react";
-import { getGoogleProductIconUrl, getSourceFaviconUrl } from "../lib/source-favicon";
+import { getSourceFrontendIconUrl } from "../plugins";
 import { cn } from "../lib/utils";
 
 type SourceKind = Source["kind"] | string;
 
 export function SourceFavicon({
-  endpoint,
-  kind: _kind,
+  source,
   className,
   size = 16,
 }: {
-  endpoint?: string | null;
-  kind: SourceKind;
+  source: Source;
   className?: string;
   size?: number;
 }) {
-  const faviconUrl = useMemo(() => {
-    return getGoogleProductIconUrl(endpoint) ?? getSourceFaviconUrl(endpoint);
-  }, [endpoint]);
-
+  const faviconUrl = getSourceFrontendIconUrl(source);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const isFailed = Boolean(faviconUrl && failedUrl === faviconUrl);
 
   if (!faviconUrl || isFailed) {
-    return <DefaultSourceIcon kind={_kind} className={className} />;
+    return <DefaultSourceIcon kind={source.kind} className={className} />;
   }
 
   return (

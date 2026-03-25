@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { GOOGLE_DISCOVERY_SOURCE_KIND } from "@executor/plugin-google-discovery-shared";
 
 export const GOOGLE_DISCOVERY_HTTP_METHODS = [
   "get",
@@ -52,7 +53,7 @@ export const GoogleDiscoveryInvocationPayloadSchema = Schema.Struct({
 });
 
 export const GoogleDiscoveryToolProviderDataSchema = Schema.Struct({
-  kind: Schema.Literal("google_discovery"),
+  kind: Schema.Literal(GOOGLE_DISCOVERY_SOURCE_KIND),
   service: Schema.String,
   version: Schema.String,
   toolId: Schema.String,

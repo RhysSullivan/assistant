@@ -20,6 +20,8 @@ import {
   provideExecutorRuntime,
 } from "@executor/platform-sdk/runtime";
 import {
+  GOOGLE_DISCOVERY_EXECUTOR_KEY,
+  GOOGLE_DISCOVERY_SOURCE_KIND,
   GoogleDiscoveryConnectionAuthSchema,
   GoogleDiscoveryOAuthSessionSchema,
   defaultGoogleDiscoveryUrl,
@@ -115,7 +117,7 @@ export type GoogleDiscoverySdk = {
 };
 
 const GoogleDiscoveryExecutorAddInputSchema = Schema.Struct({
-  kind: Schema.Literal("google_discovery"),
+  kind: Schema.Literal(GOOGLE_DISCOVERY_SOURCE_KIND),
   name: Schema.String,
   service: Schema.String,
   version: Schema.String,
@@ -476,7 +478,7 @@ const createGoogleDiscoverySourceSdk = (
   getSourceConfig: (sourceId: Source["id"]) =>
     Effect.gen(function* () {
       const source = yield* host.sources.get(sourceId);
-      if (source.kind !== "google_discovery") {
+      if (source.kind !== GOOGLE_DISCOVERY_SOURCE_KIND) {
         return yield* Effect.fail(
           new Error(`Source ${sourceId} is not a Google Discovery source.`),
         );
@@ -500,7 +502,7 @@ const createGoogleDiscoverySourceSdk = (
       const createdSource = yield* host.sources.create({
         source: {
           name: input.name.trim(),
-          kind: "google_discovery",
+          kind: GOOGLE_DISCOVERY_SOURCE_KIND,
           status: "connected",
           enabled: true,
           namespace: deriveGoogleDiscoveryNamespace(input.service),
@@ -518,7 +520,7 @@ const createGoogleDiscoverySourceSdk = (
   updateSource: (input: GoogleDiscoveryUpdateSourceInput) =>
     Effect.gen(function* () {
       const source = yield* host.sources.get(input.sourceId as Source["id"]);
-      if (source.kind !== "google_discovery") {
+      if (source.kind !== GOOGLE_DISCOVERY_SOURCE_KIND) {
         return yield* Effect.fail(
           new Error(`Source ${input.sourceId} is not a Google Discovery source.`),
         );
@@ -542,7 +544,7 @@ const createGoogleDiscoverySourceSdk = (
   removeSource: (sourceId: Source["id"]) =>
     Effect.gen(function* () {
       const source = yield* host.sources.get(sourceId);
-      if (source.kind !== "google_discovery") {
+      if (source.kind !== GOOGLE_DISCOVERY_SOURCE_KIND) {
         return yield* Effect.fail(
           new Error(`Source ${sourceId} is not a Google Discovery source.`),
         );
@@ -577,7 +579,7 @@ const googleDiscoverySourceConnector = (
     oauthSessions: GoogleDiscoveryOAuthSessionStorage;
   },
 ): ExecutorSourceConnector<GoogleDiscoveryExecutorAddInput> => ({
-  kind: "google_discovery",
+  kind: GOOGLE_DISCOVERY_SOURCE_KIND,
   displayName: "Google Discovery",
   inputSchema: GoogleDiscoveryExecutorAddInputSchema,
   inputSignatureWidth: 320,
@@ -592,11 +594,11 @@ const googleDiscoverySourceConnector = (
 const createGoogleDiscoverySourceRuntime = (options: {
   storage: GoogleDiscoverySourceStorage;
 }): SourcePluginRuntime => ({
-  kind: "google_discovery",
+  kind: GOOGLE_DISCOVERY_SOURCE_KIND,
   displayName: "Google Discovery",
   catalogKind: "imported",
   catalogIdentity: ({ source }) => ({
-    kind: "google_discovery",
+    kind: GOOGLE_DISCOVERY_SOURCE_KIND,
     sourceId: source.id,
   }),
   getIrModel: ({ source }) =>
@@ -613,7 +615,7 @@ const createGoogleDiscoverySourceRuntime = (options: {
           importMetadata: {
             ...createCatalogImportMetadata({
               source,
-              pluginKey: "google_discovery",
+              pluginKey: GOOGLE_DISCOVERY_SOURCE_KIND,
             }),
             importerVersion: "ir.v1.google_discovery",
             sourceConfigHash: "missing",
@@ -647,7 +649,7 @@ const createGoogleDiscoverySourceRuntime = (options: {
           source,
           documents: [
             {
-              documentKind: "google_discovery",
+              documentKind: GOOGLE_DISCOVERY_SOURCE_KIND,
               documentKey: stored.discoveryUrl,
               contentText: document,
               fetchedAt: now,
@@ -658,7 +660,7 @@ const createGoogleDiscoverySourceRuntime = (options: {
         importMetadata: {
           ...createCatalogImportMetadata({
             source,
-            pluginKey: "google_discovery",
+            pluginKey: GOOGLE_DISCOVERY_SOURCE_KIND,
           }),
           importerVersion: "ir.v1.google_discovery",
         },
@@ -753,8 +755,8 @@ const createGoogleDiscoverySourceRuntime = (options: {
 export const googleDiscoverySdkPlugin = (options: {
   storage: GoogleDiscoverySourceStorage;
   oauthSessions: GoogleDiscoveryOAuthSessionStorage;
-}): ExecutorSdkPlugin<"googleDiscovery", GoogleDiscoverySdk> => ({
-  key: "googleDiscovery",
+}): ExecutorSdkPlugin<typeof GOOGLE_DISCOVERY_EXECUTOR_KEY, GoogleDiscoverySdk> => ({
+  key: GOOGLE_DISCOVERY_EXECUTOR_KEY,
   sources: [createGoogleDiscoverySourceRuntime(options)],
   sourceConnectors: [googleDiscoverySourceConnector(options)],
   extendExecutor: ({ host, executor }) => {

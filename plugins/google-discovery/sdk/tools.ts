@@ -18,6 +18,7 @@ import { sourceCoreEffectError } from "@executor/source-core";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import { GOOGLE_DISCOVERY_SOURCE_KIND } from "@executor/plugin-google-discovery-shared";
 
 import type {
   GoogleDiscoveryManifestMethod,
@@ -43,7 +44,7 @@ export const googleDiscoveryProviderDataFromDefinition = (
     definition: GoogleDiscoveryManifestMethod;
   },
 ): typeof GoogleDiscoveryToolProviderDataSchema.Type => ({
-    kind: "google_discovery",
+    kind: GOOGLE_DISCOVERY_SOURCE_KIND,
     service: input.service,
     version: input.version,
     toolId: input.definition.toolId,
@@ -467,7 +468,7 @@ export const createGoogleDiscoveryToolFromDefinition = (
         : {}),
     },
     sourceKey: input.sourceKey,
-    pluginKind: "google_discovery",
+    pluginKind: GOOGLE_DISCOVERY_SOURCE_KIND,
     pluginData: providerData,
   };
 

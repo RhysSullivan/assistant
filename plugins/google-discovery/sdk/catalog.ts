@@ -38,6 +38,7 @@ import {
   stableHash,
   toolPathSegments,
 } from "@executor/source-core";
+import { GOOGLE_DISCOVERY_SOURCE_KIND } from "@executor/plugin-google-discovery-shared";
 
 import type { GoogleDiscoveryToolProviderData } from "./types";
 
@@ -284,7 +285,7 @@ const createHttpCapabilityFromGoogleDiscovery = (input: {
     id: executableId,
     capabilityId,
     scopeId: input.serviceScopeId,
-    pluginKey: "google_discovery",
+    pluginKey: GOOGLE_DISCOVERY_SOURCE_KIND,
     bindingVersion: EXECUTABLE_BINDING_VERSION,
     binding: input.operation.providerData,
     projection: {
@@ -384,7 +385,7 @@ export const createGoogleDiscoveryCatalogSnapshot = (input: {
   createCatalogSnapshotV1FromFragments({
     import: createCatalogImportMetadata({
       source: input.source,
-      pluginKey: "google_discovery",
+      pluginKey: GOOGLE_DISCOVERY_SOURCE_KIND,
     }),
     fragments: [createGoogleDiscoveryCatalogFragment(input)],
   });

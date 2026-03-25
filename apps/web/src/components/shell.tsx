@@ -6,7 +6,7 @@ import { cn } from "../lib/utils";
 import { IconPlus, IconCopy, IconCheck } from "./icons";
 import { LoadableBlock } from "./loadable";
 import { SourceFavicon } from "./source-favicon";
-import { getSourceFrontendPaths } from "../source-plugins";
+import { getSourceFrontendPaths } from "../plugins";
 
 // ── Status dot color ─────────────────────────────────────────────────────
 
@@ -324,7 +324,7 @@ function SourceItem(props: {
     return (
       <div className="group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-sidebar-foreground/60">
         <div className="flex size-3 shrink-0 items-center justify-center text-muted-foreground/50">
-          <SourceFavicon kind={props.source.kind} className="size-3" />
+          <SourceFavicon source={props.source} className="size-3" />
         </div>
         <span className="flex-1 truncate">{props.source.name}</span>
         <span
@@ -352,7 +352,7 @@ function SourceItem(props: {
       )}
     >
       <div className="flex size-3 shrink-0 items-center justify-center text-muted-foreground/50">
-        <SourceFavicon kind={props.source.kind} className="size-3" />
+        <SourceFavicon source={props.source} className="size-3" />
       </div>
       <span className="flex-1 truncate">{props.source.name}</span>
       <span

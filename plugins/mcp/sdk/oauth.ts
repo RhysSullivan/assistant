@@ -8,7 +8,8 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import * as Effect from "effect/Effect";
-import { mcpOAuthEffectError } from "./effect-errors";
+
+import { mcpOAuthEffectError } from "./oauth-effect-errors";
 
 type JsonValue =
   | string
@@ -123,7 +124,7 @@ export const startMcpOAuthAuthorization = (input: {
     });
 
     if (result !== "REDIRECT" || !captured.authorizationUrl || !captured.codeVerifier) {
-      return yield* mcpOAuthEffectError("index", "OAuth flow did not produce an authorization redirect");
+      return yield* mcpOAuthEffectError("oauth", "OAuth flow did not produce an authorization redirect");
     }
 
     return {
@@ -196,7 +197,7 @@ export const exchangeMcpOAuthAuthorizationCode = (input: {
     });
 
     if (result !== "AUTHORIZED" || !captured.tokens) {
-      return yield* mcpOAuthEffectError("index", "OAuth redirect did not complete MCP OAuth setup");
+      return yield* mcpOAuthEffectError("oauth", "OAuth redirect did not complete MCP OAuth setup");
     }
 
     return {

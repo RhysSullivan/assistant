@@ -14,7 +14,7 @@ import type {
 import {
   exchangeMcpOAuthAuthorizationCode,
   startMcpOAuthAuthorization,
-} from "@executor/auth-mcp-oauth";
+} from "./oauth";
 import {
   contentHash,
   createCatalogImportMetadata,

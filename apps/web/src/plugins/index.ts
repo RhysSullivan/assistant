@@ -1,3 +1,4 @@
+import type { Source } from "@executor/react";
 import {
   GoogleDiscoveryReactPlugin,
 } from "@executor/plugin-google-discovery-react";
@@ -59,3 +60,6 @@ export const getSourceFrontendPaths = (kind: string) => {
   const definition = getSourceFrontendType(kind);
   return definition ? createSourcePluginPaths(definition.key) : null;
 };
+
+export const getSourceFrontendIconUrl = (source: Source) =>
+  getSourceFrontendTypeEntry(source.kind)?.definition.getIconUrl?.(source) ?? null;

@@ -8,7 +8,7 @@ import { SourcePluginsResetState } from "../components/source-plugins-reset-stat
 import {
   getSourceFrontendPaths,
   registeredSourceFrontendTypes,
-} from "../source-plugins";
+} from "../plugins";
 
 export function HomePage() {
   const sources = useSources();

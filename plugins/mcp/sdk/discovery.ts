@@ -6,11 +6,11 @@ import {
   type SourceDiscoveryProbeInput,
   type SourceDiscoveryResult,
 } from "@executor/source-core";
-import { startMcpOAuthAuthorization } from "@executor/auth-mcp-oauth";
 import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 
 import { createSdkMcpConnector } from "./connection";
+import { startMcpOAuthAuthorization } from "./oauth";
 import { discoverMcpToolsFromConnector } from "./tools";
 
 export const detectMcpSource = (

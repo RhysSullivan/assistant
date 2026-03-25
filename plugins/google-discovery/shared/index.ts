@@ -5,6 +5,14 @@ import {
   StringMapSchema,
 } from "@executor/platform-sdk/schema";
 
+export const GOOGLE_DISCOVERY_SOURCE_KIND = "google_discovery" as const;
+export const GOOGLE_DISCOVERY_PLUGIN_KEY = "google-discovery" as const;
+export const GOOGLE_DISCOVERY_EXECUTOR_KEY = "googleDiscovery" as const;
+export const GOOGLE_DISCOVERY_OAUTH_STORAGE_PREFIX =
+  "executor:google-discovery-oauth:" as const;
+export const GOOGLE_DISCOVERY_OAUTH_CALLBACK_PATH =
+  `/v1/plugins/${GOOGLE_DISCOVERY_PLUGIN_KEY}/oauth/callback` as const;
+
 export const GoogleDiscoveryOAuthClientAuthenticationSchema = Schema.Literal(
   "none",
   "client_secret_post",

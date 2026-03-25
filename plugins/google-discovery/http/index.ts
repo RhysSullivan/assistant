@@ -25,6 +25,9 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
+  GOOGLE_DISCOVERY_EXECUTOR_KEY,
+  GOOGLE_DISCOVERY_OAUTH_STORAGE_PREFIX,
+  GOOGLE_DISCOVERY_PLUGIN_KEY,
   GoogleDiscoveryConnectInputSchema,
   GoogleDiscoveryOAuthPopupResultSchema,
   GoogleDiscoverySourceConfigPayloadSchema,
@@ -39,7 +42,7 @@ import {
 } from "@executor/plugin-google-discovery-shared";
 
 type GoogleDiscoveryExecutorExtension = {
-  googleDiscovery: {
+  [GOOGLE_DISCOVERY_EXECUTOR_KEY]: {
     createSource: (
       input: GoogleDiscoveryConnectInput,
     ) => Effect.Effect<Source, Error>;
@@ -77,7 +80,7 @@ const callbackParamsSchema = Schema.Struct({
   error_description: Schema.optional(Schema.String),
 });
 
-export const GoogleDiscoveryHttpGroup = HttpApiGroup.make("googleDiscovery")
+export const GoogleDiscoveryHttpGroup = HttpApiGroup.make(GOOGLE_DISCOVERY_PLUGIN_KEY)
   .add(
     HttpApiEndpoint.post("createSource")`/workspaces/${workspaceIdParam}/plugins/google-discovery/sources`
       .setPayload(GoogleDiscoveryConnectInputSchema)
@@ -129,7 +132,7 @@ export const GoogleDiscoveryHttpGroup = HttpApiGroup.make("googleDiscovery")
   .prefix("/v1");
 
 export const googleDiscoveryHttpApiExtension = {
-  key: "googleDiscovery",
+  key: GOOGLE_DISCOVERY_PLUGIN_KEY,
   group: GoogleDiscoveryHttpGroup,
 } satisfies ExecutorHttpApiExtension<typeof GoogleDiscoveryHttpGroup>;
 
@@ -199,7 +202,7 @@ const popupDocument = (payload: GoogleDiscoveryOAuthPopupResult): string => {
       (() => {
         const payload = ${serialized};
         try {
-          window.localStorage.setItem("executor:google-discovery-oauth:" + (payload.ok ? payload.sessionId : "failed"), JSON.stringify(payload));
+          window.localStorage.setItem("${GOOGLE_DISCOVERY_OAUTH_STORAGE_PREFIX}" + (payload.ok ? payload.sessionId : "failed"), JSON.stringify(payload));
         } catch {}
         try {
           if (window.opener) {
@@ -218,17 +221,19 @@ export const googleDiscoveryHttpPlugin = (): ExecutorHttpPlugin<
   typeof GoogleDiscoveryHttpGroup,
   GoogleDiscoveryExecutorExtension
 > => ({
-  key: "googleDiscovery",
+  key: GOOGLE_DISCOVERY_PLUGIN_KEY,
   group: GoogleDiscoveryHttpGroup,
   build: ({ executor }) =>
-    HttpApiBuilder.group(GoogleDiscoveryHttpApi, "googleDiscovery", (handlers) =>
+    HttpApiBuilder.group(GoogleDiscoveryHttpApi, GOOGLE_DISCOVERY_PLUGIN_KEY, (handlers) =>
       handlers
         .handle("createSource", ({ path, payload }) =>
           resolveRequestedLocalWorkspace(
             "googleDiscovery.createSource",
             path.workspaceId,
           ).pipe(
-            Effect.flatMap(() => executor.googleDiscovery.createSource(payload)),
+            Effect.flatMap(() =>
+              executor[GOOGLE_DISCOVERY_EXECUTOR_KEY].createSource(payload)
+            ),
             Effect.mapError((cause) =>
               toStorageError("googleDiscovery.createSource", cause)
             ),
@@ -240,7 +245,9 @@ export const googleDiscoveryHttpPlugin = (): ExecutorHttpPlugin<
             path.workspaceId,
           ).pipe(
             Effect.flatMap(() =>
-              executor.googleDiscovery.getSourceConfig(path.sourceId)
+              executor[GOOGLE_DISCOVERY_EXECUTOR_KEY].getSourceConfig(
+                path.sourceId,
+              )
             ),
             Effect.mapError((cause) =>
               mapPluginStorageError("googleDiscovery.getSourceConfig", cause)
@@ -253,7 +260,7 @@ export const googleDiscoveryHttpPlugin = (): ExecutorHttpPlugin<
             path.workspaceId,
           ).pipe(
             Effect.flatMap(() =>
-              executor.googleDiscovery.updateSource({
+              executor[GOOGLE_DISCOVERY_EXECUTOR_KEY].updateSource({
                 sourceId: path.sourceId,
                 config: payload,
               })
@@ -269,7 +276,9 @@ export const googleDiscoveryHttpPlugin = (): ExecutorHttpPlugin<
             path.workspaceId,
           ).pipe(
             Effect.flatMap(() =>
-              executor.googleDiscovery.removeSource(path.sourceId)
+              executor[GOOGLE_DISCOVERY_EXECUTOR_KEY].removeSource(
+                path.sourceId,
+              )
             ),
             Effect.map((removed) => ({ removed })),
             Effect.mapError((cause) =>
@@ -282,14 +291,16 @@ export const googleDiscoveryHttpPlugin = (): ExecutorHttpPlugin<
             "googleDiscovery.startOAuth",
             path.workspaceId,
           ).pipe(
-            Effect.flatMap(() => executor.googleDiscovery.startOAuth(payload)),
+            Effect.flatMap(() =>
+              executor[GOOGLE_DISCOVERY_EXECUTOR_KEY].startOAuth(payload)
+            ),
             Effect.mapError((cause) =>
               toStorageError("googleDiscovery.startOAuth", cause)
             ),
           )
         )
         .handle("oauthCallback", ({ urlParams }) =>
-          executor.googleDiscovery.completeOAuth({
+          executor[GOOGLE_DISCOVERY_EXECUTOR_KEY].completeOAuth({
             state: urlParams.state,
             code: urlParams.code,
             error: urlParams.error,

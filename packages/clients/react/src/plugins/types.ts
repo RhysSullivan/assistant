@@ -59,6 +59,7 @@ export type FrontendSourceTypeDefinition = {
   kind: string;
   displayName: string;
   description?: string;
+  getIconUrl?: (source: Source) => string | null;
   renderAddPage: ComponentType;
   renderEditPage?: ComponentType<{ source: Source }>;
   renderDetailPage?: ComponentType<{ source: Source }>;

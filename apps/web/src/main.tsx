@@ -24,7 +24,7 @@ import { AppShell } from "./components/shell";
 import {
   registeredFrontendPluginRoutes,
   registeredSourceFrontendTypes,
-} from "./source-plugins";
+} from "./plugins";
 import {
   ExecutorPluginRoutePage,
   SourcePluginAddPage,
@@ -32,7 +32,7 @@ import {
   SourcePluginDetailPage,
   SourcePluginEditPage,
   SourcePluginsIndexPage,
-} from "./source-plugins/pages";
+} from "./plugins/pages";
 import { HomePage } from "./views/home";
 import { SecretsPage } from "./views/secrets";
 

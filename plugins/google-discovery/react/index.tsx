@@ -24,6 +24,10 @@ import {
   googleDiscoveryHttpApiExtension,
 } from "@executor/plugin-google-discovery-http";
 import {
+  GOOGLE_DISCOVERY_OAUTH_CALLBACK_PATH,
+  GOOGLE_DISCOVERY_OAUTH_STORAGE_PREFIX,
+  GOOGLE_DISCOVERY_PLUGIN_KEY,
+  GOOGLE_DISCOVERY_SOURCE_KIND,
   defaultGoogleDiscoveryUrl,
   type GoogleDiscoveryConnectInput,
   type GoogleDiscoveryConnectionAuth,
@@ -31,8 +35,46 @@ import {
   type GoogleDiscoveryStartOAuthInput,
 } from "@executor/plugin-google-discovery-shared";
 
-const OAUTH_STORAGE_PREFIX = "executor:google-discovery-oauth:";
 const OAUTH_TIMEOUT_MS = 2 * 60_000;
+
+const GOOGLE_DISCOVERY_SERVICE_ICONS: Record<string, string> = {
+  admin: "https://ssl.gstatic.com/images/branding/product/2x/admin_2020q4_48dp.png",
+  bigquery: "https://ssl.gstatic.com/bqui1/favicon.ico",
+  calendar: "https://ssl.gstatic.com/calendar/images/dynamiclogo_2020q4/calendar_31_2x.png",
+  chat: "https://ssl.gstatic.com/chat/favicon/favicon_v2.ico",
+  classroom: "https://ssl.gstatic.com/classroom/favicon.png",
+  cloudresourcemanager: "https://www.gstatic.com/devrel-devsite/prod/v0e0f589edd85502a40d78d7d0825db8ea5ef3b99b1571571945f0f3f764ff61b/cloud/images/favicons/onecloud/favicon.ico",
+  docs: "https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico",
+  drive: "https://ssl.gstatic.com/images/branding/product/2x/drive_2020q4_48dp.png",
+  forms: "https://ssl.gstatic.com/docs/forms/device_home/android_192.png",
+  gmail: "https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico",
+  keep: "https://ssl.gstatic.com/keep/icon_2020q4v2_128.png",
+  people: "https://ssl.gstatic.com/images/branding/product/2x/contacts_2022_48dp.png",
+  script: "https://ssl.gstatic.com/script/images/favicon.ico",
+  searchconsole: "https://ssl.gstatic.com/search-console/scfe/search_console-64.png",
+  sheets: "https://ssl.gstatic.com/docs/spreadsheets/favicon3.ico",
+  slides: "https://ssl.gstatic.com/docs/presentations/images/favicon5.ico",
+  tasks: "https://ssl.gstatic.com/tasks/images/favicon.ico",
+  youtube: "https://www.youtube.com/s/desktop/a94e1818/img/favicon_32x32.png",
+};
+
+const getGoogleDiscoveryServiceKey = (
+  source: Pick<Source, "namespace">,
+): string | null => {
+  const namespace = source.namespace?.trim();
+  if (!namespace || !namespace.startsWith("google.")) {
+    return null;
+  }
+
+  return namespace.slice("google.".length).replaceAll(".", "");
+};
+
+const getGoogleDiscoveryIconUrl = (
+  source: Pick<Source, "namespace">,
+): string | null => {
+  const serviceKey = getGoogleDiscoveryServiceKey(source);
+  return serviceKey ? GOOGLE_DISCOVERY_SERVICE_ICONS[serviceKey] ?? null : null;
+};
 
 const getGoogleDiscoveryHttpClient =
   defineExecutorPluginHttpApiClient<"GoogleDiscoveryReactHttpClient">()(
@@ -105,7 +147,7 @@ const waitForOauthPopupResult = async (
   sessionId: string,
 ): Promise<GoogleDiscoveryOAuthPopupResult> =>
   new Promise((resolve, reject) => {
-    const storageKey = `${OAUTH_STORAGE_PREFIX}${sessionId}`;
+    const storageKey = `${GOOGLE_DISCOVERY_OAUTH_STORAGE_PREFIX}${sessionId}`;
     const startedAt = Date.now();
 
     const cleanup = () => {
@@ -168,7 +210,7 @@ function GoogleDiscoverySourceForm(props: {
   const client = getGoogleDiscoveryHttpClient();
   const secrets = useSecrets();
   const startOAuth = useAtomSet(
-    client.mutation("googleDiscovery", "startOAuth"),
+    client.mutation(GOOGLE_DISCOVERY_PLUGIN_KEY, "startOAuth"),
     { mode: "promise" },
   );
   const submitMutation = useExecutorMutation<GoogleDiscoveryConnectInput, void>(props.onSubmit);
@@ -219,7 +261,7 @@ function GoogleDiscoverySourceForm(props: {
         : null,
       clientAuthentication: clientSecretRef ? "client_secret_post" : "none",
       redirectUrl: new URL(
-        "/v1/plugins/google-discovery/oauth/callback",
+        GOOGLE_DISCOVERY_OAUTH_CALLBACK_PATH,
         window.location.origin,
       ).toString(),
     };
@@ -492,7 +534,7 @@ function GoogleDiscoveryAddPage() {
   const installation = useLocalInstallation();
   const client = getGoogleDiscoveryHttpClient();
   const createSource = useAtomSet(
-    client.mutation("googleDiscovery", "createSource"),
+    client.mutation(GOOGLE_DISCOVERY_PLUGIN_KEY, "createSource"),
     { mode: "promise" },
   );
 
@@ -533,7 +575,7 @@ function GoogleDiscoveryEditPage(props: {
   const client = getGoogleDiscoveryHttpClient();
   const configResult = useAtomValue(
     installation.status === "ready"
-      ? client.query("googleDiscovery", "getSourceConfig", {
+      ? client.query(GOOGLE_DISCOVERY_PLUGIN_KEY, "getSourceConfig", {
           path: {
             workspaceId: installation.data.scopeId,
             sourceId: props.source.id,
@@ -548,7 +590,7 @@ function GoogleDiscoveryEditPage(props: {
         }) as never,
   );
   const updateSource = useAtomSet(
-    client.mutation("googleDiscovery", "updateSource"),
+    client.mutation(GOOGLE_DISCOVERY_PLUGIN_KEY, "updateSource"),
     { mode: "promise" },
   );
 
@@ -608,12 +650,12 @@ function GoogleDiscoveryDetailPage(props: {
   const installation = useLocalInstallation();
   const client = getGoogleDiscoveryHttpClient();
   const removeSource = useAtomSet(
-    client.mutation("googleDiscovery", "removeSource"),
+    client.mutation(GOOGLE_DISCOVERY_PLUGIN_KEY, "removeSource"),
     { mode: "promise" },
   );
   const configResult = useAtomValue(
     installation.status === "ready"
-      ? client.query("googleDiscovery", "getSourceConfig", {
+      ? client.query(GOOGLE_DISCOVERY_PLUGIN_KEY, "getSourceConfig", {
           path: {
             workspaceId: installation.data.scopeId,
             sourceId: props.source.id,
@@ -710,16 +752,17 @@ function GoogleDiscoveryDetailPage(props: {
 }
 
 const googleDiscoverySourceType = defineFrontendSourceType({
-  key: "google-discovery",
-  kind: "google_discovery",
+  key: GOOGLE_DISCOVERY_PLUGIN_KEY,
+  kind: GOOGLE_DISCOVERY_SOURCE_KIND,
   displayName: "Google Discovery",
   description: "Import Google APIs from discovery documents with plugin-owned OAuth.",
+  getIconUrl: getGoogleDiscoveryIconUrl,
   renderAddPage: GoogleDiscoveryAddPage,
   renderEditPage: GoogleDiscoveryEditPage,
   renderDetailPage: GoogleDiscoveryDetailPage,
 });
 
 export const GoogleDiscoveryReactPlugin = defineExecutorFrontendPlugin({
-  key: "google-discovery",
+  key: GOOGLE_DISCOVERY_PLUGIN_KEY,
   sourceTypes: [googleDiscoverySourceType],
 });
