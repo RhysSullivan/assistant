@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@effect/platform": "catalog:",
-    "@executor/auth-oauth2": "workspace:*",
     "@executor/codemode-core": "workspace:*",
     "@executor/ir": "workspace:*",
     "@executor/platform-sdk": "workspace:*",

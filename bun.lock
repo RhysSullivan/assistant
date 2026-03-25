@@ -135,17 +135,6 @@
         "bun-types": "catalog:",
       },
     },
-    "packages/auth/oauth2": {
-      "name": "@executor/auth-oauth2",
-      "version": "0.0.0",
-      "dependencies": {
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "bun-types": "catalog:",
-      },
-    },
     "packages/clients/react": {
       "name": "@executor/react",
       "version": "0.0.0",
@@ -351,8 +340,6 @@
       "dependencies": {
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
-        "@executor/auth-mcp-oauth": "workspace:*",
-        "@executor/auth-oauth2": "workspace:*",
         "@executor/codemode-core": "workspace:*",
         "@executor/ir": "workspace:*",
         "@executor/runtime-deno-subprocess": "workspace:*",
@@ -436,7 +423,6 @@
       "name": "@executor/source-core",
       "version": "0.0.0",
       "dependencies": {
-        "@executor/auth-oauth2": "workspace:*",
         "@executor/codemode-core": "workspace:*",
         "@executor/ir": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.26.0",
@@ -482,7 +468,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@effect/platform": "catalog:",
-        "@executor/auth-oauth2": "workspace:*",
         "@executor/codemode-core": "workspace:*",
         "@executor/ir": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
@@ -899,8 +884,6 @@
     "@executor/ai-sdk-adapter": ["@executor/ai-sdk-adapter@workspace:packages/hosts/ai-sdk"],
 
     "@executor/auth-mcp-oauth": ["@executor/auth-mcp-oauth@workspace:packages/auth/mcp-oauth"],
-
-    "@executor/auth-oauth2": ["@executor/auth-oauth2@workspace:packages/auth/oauth2"],
 
     "@executor/codemode-core": ["@executor/codemode-core@workspace:packages/kernel/core"],
 

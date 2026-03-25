@@ -2,12 +2,6 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
-  buildOAuth2AuthorizationUrl,
-  createPkceCodeVerifier,
-  exchangeOAuth2AuthorizationCode,
-  refreshOAuth2AccessToken,
-} from "@executor/auth-oauth2";
-import {
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
 } from "@executor/source-core";
@@ -58,6 +52,12 @@ import {
   type GoogleDiscoveryToolManifest,
   type GoogleDiscoveryToolProviderData,
 } from "./types";
+import {
+  buildOAuth2AuthorizationUrl,
+  createPkceCodeVerifier,
+  exchangeOAuth2AuthorizationCode,
+  refreshOAuth2AccessToken,
+} from "./oauth2";
 
 const decodeStoredSourceData = Schema.decodeUnknownSync(
   GoogleDiscoveryStoredSourceDataSchema,

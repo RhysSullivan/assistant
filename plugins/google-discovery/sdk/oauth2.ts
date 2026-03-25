@@ -42,7 +42,10 @@ export const buildOAuth2AuthorizationUrl = (input: {
   url.searchParams.set("scope", input.scopes.join(" "));
   url.searchParams.set("state", input.state);
   url.searchParams.set("code_challenge_method", "S256");
-  url.searchParams.set("code_challenge", createPkceCodeChallenge(input.codeVerifier));
+  url.searchParams.set(
+    "code_challenge",
+    createPkceCodeChallenge(input.codeVerifier),
+  );
 
   for (const [key, value] of Object.entries(input.extraParams ?? {})) {
     url.searchParams.set(key, value);
@@ -51,17 +54,23 @@ export const buildOAuth2AuthorizationUrl = (input: {
   return url.toString();
 };
 
-const parseOAuth2TokenResponse = async (response: Response): Promise<OAuth2TokenResponse> => {
+const parseOAuth2TokenResponse = async (
+  response: Response,
+): Promise<OAuth2TokenResponse> => {
   const rawText = await response.text();
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawText);
   } catch {
-    throw new Error(`OAuth token endpoint returned non-JSON response (${response.status})`);
+    throw new Error(
+      `OAuth token endpoint returned non-JSON response (${response.status})`,
+    );
   }
 
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`OAuth token endpoint returned invalid JSON payload (${response.status})`);
+    throw new Error(
+      `OAuth token endpoint returned invalid JSON payload (${response.status})`,
+    );
   }
 
   const record = parsed as Record<string, unknown>;
@@ -72,7 +81,8 @@ const parseOAuth2TokenResponse = async (response: Response): Promise<OAuth2Token
 
   if (!response.ok) {
     const description =
-      typeof record.error_description === "string" && record.error_description.length > 0
+      typeof record.error_description === "string"
+      && record.error_description.length > 0
         ? record.error_description
         : typeof record.error === "string" && record.error.length > 0
           ? record.error
@@ -86,8 +96,12 @@ const parseOAuth2TokenResponse = async (response: Response): Promise<OAuth2Token
 
   return {
     access_token: accessToken,
-    token_type: typeof record.token_type === "string" ? record.token_type : undefined,
-    refresh_token: typeof record.refresh_token === "string" ? record.refresh_token : undefined,
+    token_type:
+      typeof record.token_type === "string" ? record.token_type : undefined,
+    refresh_token:
+      typeof record.refresh_token === "string"
+        ? record.refresh_token
+        : undefined,
     expires_in: typeof record.expires_in === "number"
       ? record.expires_in
       : typeof record.expires_in === "string"
@@ -137,7 +151,10 @@ export const exchangeOAuth2AuthorizationCode = (input: {
       code: input.code,
     });
 
-    if (input.clientAuthentication === "client_secret_post" && input.clientSecret) {
+    if (
+      input.clientAuthentication === "client_secret_post"
+      && input.clientSecret
+    ) {
       body.set("client_secret", input.clientSecret);
     }
 
@@ -162,7 +179,10 @@ export const refreshOAuth2AccessToken = (input: {
       refresh_token: input.refreshToken,
     });
 
-    if (input.clientAuthentication === "client_secret_post" && input.clientSecret) {
+    if (
+      input.clientAuthentication === "client_secret_post"
+      && input.clientSecret
+    ) {
       body.set("client_secret", input.clientSecret);
     }
 
