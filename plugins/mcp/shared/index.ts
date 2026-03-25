@@ -5,6 +5,8 @@ import {
 } from "@executor/platform-sdk/schema";
 import {
   JsonObjectSchema,
+  SourceDiscoveryResultSchema,
+  SourceProbeAuthSchema,
   SourceTransportSchema,
   StringArraySchema,
   StringMapSchema,
@@ -70,6 +72,13 @@ export const McpStartOAuthInputSchema = Schema.Struct({
   redirectUrl: Schema.String,
 });
 
+export const McpDiscoverInputSchema = Schema.Struct({
+  endpoint: Schema.String,
+  probeAuth: Schema.optional(Schema.NullOr(SourceProbeAuthSchema)),
+});
+
+export const McpDiscoverResultSchema = Schema.NullOr(SourceDiscoveryResultSchema);
+
 export const McpStartOAuthResultSchema = Schema.Struct({
   sessionId: Schema.String,
   authorizationUrl: Schema.String,
@@ -123,6 +132,8 @@ export type McpUpdateSourceInput = typeof McpUpdateSourceInputSchema.Type;
 export type McpStoredSourceData = typeof McpStoredSourceDataSchema.Type;
 export type McpStartOAuthInput = typeof McpStartOAuthInputSchema.Type;
 export type McpStartOAuthResult = typeof McpStartOAuthResultSchema.Type;
+export type McpDiscoverInput = typeof McpDiscoverInputSchema.Type;
+export type McpDiscoverResult = typeof McpDiscoverResultSchema.Type;
 export type McpOAuthSession = typeof McpOAuthSessionSchema.Type;
 export type McpOAuthPopupResult = typeof McpOAuthPopupResultSchema.Type;
 

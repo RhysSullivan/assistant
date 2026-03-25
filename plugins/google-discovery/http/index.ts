@@ -25,6 +25,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
+  GoogleDiscoveryStartBatchOAuthInputSchema,
   GOOGLE_DISCOVERY_EXECUTOR_KEY,
   GOOGLE_DISCOVERY_OAUTH_STORAGE_PREFIX,
   GOOGLE_DISCOVERY_PLUGIN_KEY,
@@ -36,6 +37,7 @@ import {
   type GoogleDiscoveryConnectInput,
   type GoogleDiscoveryOAuthPopupResult,
   type GoogleDiscoverySourceConfigPayload,
+  type GoogleDiscoveryStartBatchOAuthInput,
   type GoogleDiscoveryStartOAuthInput,
   type GoogleDiscoveryStartOAuthResult,
   type GoogleDiscoveryUpdateSourceInput,
@@ -57,6 +59,9 @@ type GoogleDiscoveryExecutorExtension = {
     ) => Effect.Effect<boolean, Error>;
     startOAuth: (
       input: GoogleDiscoveryStartOAuthInput,
+    ) => Effect.Effect<GoogleDiscoveryStartOAuthResult, Error>;
+    startBatchOAuth: (
+      input: GoogleDiscoveryStartBatchOAuthInput,
     ) => Effect.Effect<GoogleDiscoveryStartOAuthResult, Error>;
     completeOAuth: (input: {
       state: string;
@@ -123,6 +128,14 @@ export const GoogleDiscoveryHttpGroup = HttpApiGroup.make(GOOGLE_DISCOVERY_PLUGI
       .addError(ControlPlaneStorageError),
   )
   .add(
+    HttpApiEndpoint.post("startBatchOAuth")`/workspaces/${workspaceIdParam}/plugins/google-discovery/oauth/start-batch`
+      .setPayload(GoogleDiscoveryStartBatchOAuthInputSchema)
+      .addSuccess(GoogleDiscoveryStartOAuthResultSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
     HttpApiEndpoint.get("oauthCallback")`/plugins/google-discovery/oauth/callback`
       .setUrlParams(callbackParamsSchema)
       .addSuccess(htmlSchema)
@@ -181,10 +194,13 @@ const popupDocument = (payload: GoogleDiscoveryOAuthPopupResult): string => {
     .replaceAll("<", "\\u003c")
     .replaceAll(">", "\\u003e")
     .replaceAll("&", "\\u0026");
-  const title = payload.ok ? "Google OAuth connected" : "Google OAuth failed";
+  const title = payload.ok ? "Connected" : "Connection failed";
   const message = payload.ok
-    ? "Google credentials are ready. Return to the source form to finish saving."
+    ? payload.mode === "batch"
+      ? `Connected ${payload.sources.length} Google API${payload.sources.length === 1 ? "" : "s"}. This window will close automatically.`
+      : "Google account connected. This window will close automatically."
     : payload.error;
+  const statusColor = payload.ok ? "#22c55e" : "#ef4444";
 
   return `<!doctype html>
 <html lang="en">
@@ -193,10 +209,17 @@ const popupDocument = (payload: GoogleDiscoveryOAuthPopupResult): string => {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(title)}</title>
   </head>
-  <body>
-    <main>
-      <h1>${escapeHtml(title)}</h1>
-      <p>${escapeHtml(message)}</p>
+  <body style="font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #fafafa;">
+    <main style="text-align: center; max-width: 360px; padding: 24px;">
+      <div style="width: 40px; height: 40px; border-radius: 50%; background: ${statusColor}; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          ${payload.ok
+            ? '<path d="M6 10l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+            : '<path d="M7 7l6 6M13 7l-6 6" stroke="white" stroke-width="2" stroke-linecap="round"/>'}
+        </svg>
+      </div>
+      <h1 style="margin: 0 0 8px; font-size: 18px; font-weight: 600; color: #111;">${escapeHtml(title)}</h1>
+      <p style="margin: 0; font-size: 14px; color: #666; line-height: 1.5;">${escapeHtml(message)}</p>
     </main>
     <script>
       (() => {
@@ -296,6 +319,19 @@ export const googleDiscoveryHttpPlugin = (): ExecutorHttpPlugin<
             ),
             Effect.mapError((cause) =>
               toStorageError("googleDiscovery.startOAuth", cause)
+            ),
+          )
+        )
+        .handle("startBatchOAuth", ({ path, payload }) =>
+          resolveRequestedLocalWorkspace(
+            "googleDiscovery.startBatchOAuth",
+            path.workspaceId,
+          ).pipe(
+            Effect.flatMap(() =>
+              executor[GOOGLE_DISCOVERY_EXECUTOR_KEY].startBatchOAuth(payload)
+            ),
+            Effect.mapError((cause) =>
+              toStorageError("googleDiscovery.startBatchOAuth", cause)
             ),
           )
         )

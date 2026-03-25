@@ -9,8 +9,10 @@ import {
   defineExecutorPluginHttpApiClient,
   useAtomValue,
   useAtomSet,
+  useCreateSecret,
   useExecutorMutation,
   usePrefetchToolDetail,
+  useSecrets,
   useSourceDiscovery,
   useSourceInspection,
   useSourceToolDetail,
@@ -62,6 +64,93 @@ const defaultOpenApiInput = (): OpenApiConnectInput => ({
   },
 });
 
+const DEFAULT_BEARER_HEADER_NAME = "Authorization";
+const DEFAULT_BEARER_PREFIX = "Bearer ";
+const CREATE_SECRET_VALUE = "__create_openapi_secret__";
+
+const presetString = (
+  search: Record<string, unknown>,
+  key: string,
+): string | null => {
+  const value = search[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+};
+
+const firstSearchString = (
+  search: Record<string, unknown>,
+  keys: ReadonlyArray<string>,
+): string | null => {
+  for (const key of keys) {
+    const value = presetString(search, key);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const looksLikeOpenApiSpecUrl = (value: string): boolean => {
+  const lower = value.trim().toLowerCase();
+  if (!/^https?:\/\//.test(lower)) {
+    return false;
+  }
+
+  return (
+    lower.endsWith(".json")
+    || lower.endsWith(".yaml")
+    || lower.endsWith(".yml")
+    || lower.includes("/openapi")
+    || lower.includes("openapi.")
+    || lower.includes("/swagger")
+    || lower.includes("swagger.")
+    || lower.includes("/api-docs")
+  );
+};
+
+const inferOpenApiUrls = (value: string): {
+  specUrl: string;
+  baseUrl: string | null;
+} => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {
+      specUrl: defaultOpenApiInput().specUrl,
+      baseUrl: defaultOpenApiInput().baseUrl,
+    };
+  }
+
+  if (looksLikeOpenApiSpecUrl(trimmed)) {
+    return {
+      specUrl: trimmed,
+      baseUrl: null,
+    };
+  }
+
+  const normalizedBaseUrl = trimmed.replace(/\/+$/, "");
+  return {
+    specUrl: `${normalizedBaseUrl}/openapi.json`,
+    baseUrl: normalizedBaseUrl,
+  };
+};
+
+const openApiInputFromSearch = (
+  search: Record<string, unknown>,
+): OpenApiConnectInput => {
+  const defaults = defaultOpenApiInput();
+  const genericUrl = firstSearchString(search, ["inputUrl", "pastedUrl", "url"]);
+  const inferred = genericUrl ? inferOpenApiUrls(genericUrl) : defaults;
+
+  return {
+    ...defaults,
+    name: presetString(search, "presetName") ?? defaults.name,
+    specUrl: presetString(search, "presetSpecUrl") ?? inferred.specUrl,
+    baseUrl: presetString(search, "presetBaseUrl") ?? inferred.baseUrl,
+  };
+};
+
 const getOpenApiHttpClient = defineExecutorPluginHttpApiClient<"OpenApiReactHttpClient">()(
   "OpenApiReactHttpClient",
   [openApiHttpApiExtension] as const,
@@ -72,13 +161,8 @@ const Section = (props: {
   title: string;
   children: ReactNode;
 }) => (
-  <section className="rounded-xl border border-border/70 bg-card/40 p-4">
-    <div className="mb-3 flex items-center gap-2">
-      <h2 className="text-sm font-semibold">{props.title}</h2>
-      <span className="inline-flex items-center rounded-full border border-transparent bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground">
-        Plugin
-      </span>
-    </div>
+  <section>
+    <h2 className="mb-3 text-sm font-semibold text-foreground">{props.title}</h2>
     {props.children}
   </section>
 );
@@ -174,9 +258,26 @@ const secretValue = (input: OpenApiConnectInput["auth"]): string =>
     ? JSON.stringify(input.tokenSecretRef)
     : "";
 
+const bearerHeaderNameValue = (input: OpenApiConnectInput["auth"]): string =>
+  input.kind === "bearer"
+    ? input.headerName?.trim() || DEFAULT_BEARER_HEADER_NAME
+    : DEFAULT_BEARER_HEADER_NAME;
+
+const bearerPrefixValue = (input: OpenApiConnectInput["auth"]): string =>
+  input.kind === "bearer"
+    ? input.prefix ?? DEFAULT_BEARER_PREFIX
+    : DEFAULT_BEARER_PREFIX;
+
+const trimToNull = (value: string): string | null => {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
 const authFromSecretValue = (
   authKind: OpenApiConnectInput["auth"]["kind"],
   value: string,
+  headerName: string,
+  prefix: string,
 ): OpenApiConnectInput["auth"] => {
   if (authKind === "none") {
     return {
@@ -191,23 +292,138 @@ const authFromSecretValue = (
   return {
     kind: "bearer",
     tokenSecretRef: JSON.parse(value) as OpenApiConnectInput["auth"] & { tokenSecretRef: never }["tokenSecretRef"],
+    headerName: trimToNull(headerName),
+    prefix: prefix === DEFAULT_BEARER_PREFIX ? null : prefix,
   };
 };
 
-const useAvailableSecrets = (
-  openApiHttpClient: ReturnType<typeof getOpenApiHttpClient>,
-) => {
-  const secretsResult = useAtomValue(
-    openApiHttpClient.query("local", "listSecrets", {
-      reactivityKeys: {
-        secrets: [],
-      },
-      timeToLive: "1 minute",
-    }),
-  );
+function SecretSelectOrCreateField(props: {
+  label: string;
+  value: string;
+  emptyLabel: string;
+  draftNamePlaceholder: string;
+  draftValuePlaceholder: string;
+  onChange: (value: string) => void;
+}) {
+  const secrets = useSecrets();
+  const createSecret = useCreateSecret();
+  const [draftName, setDraftName] = useState("");
+  const [draftValue, setDraftValue] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
-  return Result.isSuccess(secretsResult) ? secretsResult.value : [];
-};
+  const handleSelectChange = (nextValue: string) => {
+    if (nextValue === CREATE_SECRET_VALUE) {
+      setShowCreate(true);
+      props.onChange("");
+      return;
+    }
+
+    setShowCreate(false);
+    setCreateError(null);
+    props.onChange(nextValue);
+  };
+
+  const handleCreate = async () => {
+    const trimmedName = draftName.trim();
+    if (!trimmedName) {
+      setCreateError("Secret name is required.");
+      return;
+    }
+    if (!draftValue.trim()) {
+      setCreateError("Secret value is required.");
+      return;
+    }
+
+    try {
+      setCreateError(null);
+      const created = await createSecret.mutateAsync({
+        name: trimmedName,
+        value: draftValue,
+      });
+      props.onChange(JSON.stringify({
+        providerId: created.providerId,
+        handle: created.id,
+      }));
+      setDraftName("");
+      setDraftValue("");
+      setShowCreate(false);
+    } catch (cause) {
+      setCreateError(cause instanceof Error ? cause.message : "Failed creating secret.");
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      <span className="text-xs font-medium text-foreground">{props.label}</span>
+      <select
+        value={showCreate ? CREATE_SECRET_VALUE : props.value}
+        onChange={(event) => handleSelectChange(event.target.value)}
+        className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+      >
+        <option value="">{props.emptyLabel}</option>
+        {secrets.status === "ready" &&
+          secrets.data.map((secret) => (
+            <option
+              key={`${secret.providerId}:${secret.id}`}
+              value={JSON.stringify({
+                providerId: secret.providerId,
+                handle: secret.id,
+              })}
+            >
+              {secret.name ?? secret.id}
+            </option>
+          ))}
+        <option value={CREATE_SECRET_VALUE}>Create new secret</option>
+      </select>
+
+      {showCreate && (
+        <div className="space-y-3 border-l-2 border-border pl-4">
+          <input
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            placeholder={props.draftNamePlaceholder}
+            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+          />
+          <textarea
+            value={draftValue}
+            onChange={(event) => setDraftValue(event.target.value)}
+            rows={3}
+            placeholder={props.draftValuePlaceholder}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+          />
+          {createError && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+              {createError}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void handleCreate();
+              }}
+              disabled={createSecret.status === "pending"}
+              className="inline-flex h-8 items-center justify-center rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity disabled:pointer-events-none disabled:opacity-50"
+            >
+              {createSecret.status === "pending" ? "Creating..." : "Create Secret"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCreate(false);
+                setCreateError(null);
+              }}
+              className="inline-flex h-8 items-center justify-center rounded-lg border border-input bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function OpenApiSourceForm(props: {
   mode: "create" | "edit";
@@ -217,7 +433,6 @@ function OpenApiSourceForm(props: {
   onSubmit: (input: OpenApiConnectInput) => Promise<void>;
 }) {
   const openApiHttpClient = getOpenApiHttpClient();
-  const availableSecrets = useAvailableSecrets(openApiHttpClient);
   const previewDocument = useAtomSet(
     openApiHttpClient.mutation("openapi", "previewDocument"),
     { mode: "promise" },
@@ -231,6 +446,12 @@ function OpenApiSourceForm(props: {
   );
   const [tokenSecretRef, setTokenSecretRef] = useState(
     secretValue(props.initialValue.auth),
+  );
+  const [authHeaderName, setAuthHeaderName] = useState(
+    bearerHeaderNameValue(props.initialValue.auth),
+  );
+  const [authPrefix, setAuthPrefix] = useState(
+    bearerPrefixValue(props.initialValue.auth),
   );
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<OpenApiPreviewResponse | null>(null);
@@ -332,7 +553,12 @@ function OpenApiSourceForm(props: {
     }
 
     try {
-      const auth = authFromSecretValue(authKind, tokenSecretRef);
+      const auth = authFromSecretValue(
+        authKind,
+        tokenSecretRef,
+        authHeaderName,
+        authPrefix,
+      );
       await submitMutation.mutateAsync({
         name: trimmedName,
         specUrl: trimmedSpecUrl,
@@ -345,15 +571,11 @@ function OpenApiSourceForm(props: {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6 rounded-xl border border-border p-6">
       <Section title="Connection">
-        <p className="text-sm text-muted-foreground">
-          This plugin owns its typed HTTP client and source payload shape. The app shell only
-          mounts the registered page.
-        </p>
-        <div className="mt-4 grid gap-4">
-          <label className="grid gap-1.5">
-            <span className="text-[12px] font-medium text-foreground">Name</span>
+        <div className="grid gap-4">
+          <label className="grid gap-2">
+            <span className="text-xs font-medium text-foreground">Name</span>
             <input
               value={name}
               onChange={(event) => {
@@ -361,12 +583,12 @@ function OpenApiSourceForm(props: {
                 setName(event.target.value);
               }}
               placeholder="GitHub REST"
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
           </label>
 
-          <label className="grid gap-1.5">
-            <span className="text-[12px] font-medium text-foreground">Spec URL</span>
+          <label className="grid gap-2">
+            <span className="text-xs font-medium text-foreground">Spec URL</span>
             <input
               value={specUrl}
               onChange={(event) => setSpecUrl(event.target.value)}
@@ -374,12 +596,12 @@ function OpenApiSourceForm(props: {
                 void runPreview({ mode: "manual" });
               }}
               placeholder="https://example.com/openapi.json"
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
           </label>
 
-          <label className="grid gap-1.5">
-            <span className="text-[12px] font-medium text-foreground">Base URL</span>
+          <label className="grid gap-2">
+            <span className="text-xs font-medium text-foreground">Base URL</span>
             <input
               value={baseUrl}
               onChange={(event) => {
@@ -387,17 +609,17 @@ function OpenApiSourceForm(props: {
                 setBaseUrl(event.target.value);
               }}
               placeholder="https://api.example.com"
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
           </label>
 
-          <label className="grid gap-1.5">
-            <span className="text-[12px] font-medium text-foreground">Auth</span>
+          <label className="grid gap-2">
+            <span className="text-xs font-medium text-foreground">Auth</span>
             <select
               value={authKind}
               onChange={(event) =>
                 setAuthKind(event.target.value as OpenApiConnectInput["auth"]["kind"])}
-              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             >
               <option value="none">None</option>
               <option value="bearer">Bearer Secret</option>
@@ -405,52 +627,54 @@ function OpenApiSourceForm(props: {
           </label>
 
           {authKind === "bearer" && (
-            <label className="grid gap-1.5">
-              <span className="text-[12px] font-medium text-foreground">Secret</span>
-              <select
+            <div className="space-y-4 border-l-2 border-border pl-4">
+              <SecretSelectOrCreateField
+                label="Secret"
                 value={tokenSecretRef}
-                onChange={(event) => setTokenSecretRef(event.target.value)}
-                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-              >
-                <option value="">Select a secret</option>
-                {availableSecrets.map((secret) => (
-                  <option
-                    key={`${secret.providerId}:${secret.id}`}
-                    value={JSON.stringify({
-                      providerId: secret.providerId,
-                      handle: secret.id,
-                    })}
-                  >
-                    {secret.name || secret.id}
-                  </option>
-                ))}
-              </select>
-            </label>
+                emptyLabel="Select a secret"
+                draftNamePlaceholder="OpenAPI bearer token"
+                draftValuePlaceholder="Paste the token value"
+                onChange={setTokenSecretRef}
+              />
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-xs font-medium text-foreground">Header Name</span>
+                  <input
+                    value={authHeaderName}
+                    onChange={(event) => setAuthHeaderName(event.target.value)}
+                    placeholder={DEFAULT_BEARER_HEADER_NAME}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-xs font-medium text-foreground">Prefix</span>
+                  <input
+                    value={authPrefix}
+                    onChange={(event) => setAuthPrefix(event.target.value)}
+                    placeholder={DEFAULT_BEARER_PREFIX}
+                    className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  />
+                </label>
+              </div>
+            </div>
           )}
         </div>
       </Section>
 
       <Section title="Preview">
-        <p className="text-sm text-muted-foreground">
-          Preview introspects the document and can pull out defaults like title and base URL from
-          the OpenAPI spec.
-        </p>
-        <div className="mt-3 flex items-center gap-3">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => {
               void runPreview({ mode: "manual" });
             }}
             disabled={previewMutation.status === "pending" || submitMutation.status === "pending"}
-            className="inline-flex h-7 items-center justify-center rounded-md border border-input bg-transparent px-2.5 text-xs font-medium text-foreground disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
           >
-            {previewMutation.status === "pending" ? "Previewing..." : "Preview OpenAPI Document"}
+            {previewMutation.status === "pending" ? "Previewing..." : "Preview Spec"}
           </button>
-          {previewMutation.status === "pending" && (
-            <div className="text-xs text-muted-foreground">
-              Inferring from spec...
-            </div>
-          )}
           {preview && (
             <div className="text-xs text-muted-foreground">
               {preview.operationCount} operations
@@ -459,35 +683,31 @@ function OpenApiSourceForm(props: {
           )}
         </div>
         {preview && (
-          <div className="mt-4 rounded-lg border border-border/70 bg-background/60 p-4 text-sm">
-            <div className="grid gap-2">
-              <div>
-                <span className="font-medium text-foreground">Title:</span>{" "}
-                <span className="text-muted-foreground">{preview.title ?? "Unknown"}</span>
-              </div>
-              <div>
-                <span className="font-medium text-foreground">Version:</span>{" "}
-                <span className="text-muted-foreground">{preview.version ?? "Unknown"}</span>
-              </div>
-              <div>
-                <span className="font-medium text-foreground">Base URL:</span>{" "}
-                <span className="text-muted-foreground">{preview.baseUrl ?? "Not declared"}</span>
-              </div>
-              <div>
-                <span className="font-medium text-foreground">Namespace:</span>{" "}
-                <span className="text-muted-foreground">{preview.namespace ?? "Not inferred"}</span>
-              </div>
-              <div>
-                <span className="font-medium text-foreground">Auth:</span>{" "}
-                <span className="text-muted-foreground">
-                  {preview.securitySchemes.length > 0
-                    ? preview.securitySchemes
-                        .map((scheme) => `${scheme.name} (${previewSecuritySchemeLabel(scheme)})`)
-                        .join(", ")
-                    : "No declared auth schemes"}
-                </span>
-              </div>
-            </div>
+          <div className="mt-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
+              <dt className="font-medium text-foreground">Title</dt>
+              <dd className="text-muted-foreground">{preview.title ?? "—"}</dd>
+              <dt className="font-medium text-foreground">Version</dt>
+              <dd className="text-muted-foreground">{preview.version ?? "—"}</dd>
+              <dt className="font-medium text-foreground">Base URL</dt>
+              <dd className="font-mono text-muted-foreground">{preview.baseUrl ?? "—"}</dd>
+              {preview.namespace && (
+                <>
+                  <dt className="font-medium text-foreground">Namespace</dt>
+                  <dd className="text-muted-foreground">{preview.namespace}</dd>
+                </>
+              )}
+              {preview.securitySchemes.length > 0 && (
+                <>
+                  <dt className="font-medium text-foreground">Auth</dt>
+                  <dd className="text-muted-foreground">
+                    {preview.securitySchemes
+                      .map((scheme) => `${scheme.name} (${previewSecuritySchemeLabel(scheme)})`)
+                      .join(", ")}
+                  </dd>
+                </>
+              )}
+            </dl>
             {preview.warnings.length > 0 && (
               <div className="mt-3 rounded-md border border-amber-300/40 bg-amber-100/20 px-3 py-2 text-xs text-amber-800">
                 {preview.warnings.join(" ")}
@@ -497,38 +717,31 @@ function OpenApiSourceForm(props: {
         )}
       </Section>
 
-      <Section title={props.mode === "create" ? "Submit" : "Save"}>
-        {error && (
-          <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-[13px] text-destructive">
-            {error}
-          </div>
-        )}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              void handleSubmit();
-            }}
-            disabled={submitMutation.status === "pending"}
-            className="inline-flex h-7 items-center justify-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:pointer-events-none disabled:opacity-50"
-          >
-            {submitMutation.status === "pending" ? props.busyLabel : props.submitLabel}
-          </button>
-          <div className="text-xs text-muted-foreground">
-            {props.mode === "create"
-              ? "Creates a real source and immediately imports its tools."
-              : "Updates plugin-owned config and refreshes the imported model."}
-          </div>
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-sm text-destructive">
+          {error}
         </div>
-      </Section>
+      )}
+
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            void handleSubmit();
+          }}
+          disabled={submitMutation.status === "pending"}
+          className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+        >
+          {submitMutation.status === "pending" ? props.busyLabel : props.submitLabel}
+        </button>
+      </div>
     </div>
   );
 }
 
-function OpenApiAddSourcePage(props: {
-  initialValue: OpenApiConnectInput;
-}) {
+function OpenApiAddSourcePage() {
   const navigation = useSourcePluginNavigation();
+  const initialValue = openApiInputFromSearch(useSourcePluginSearch());
   const openApiHttpClient = getOpenApiHttpClient();
   const createSource = useAtomSet(
     openApiHttpClient.mutation("openapi", "createSource"),
@@ -539,7 +752,7 @@ function OpenApiAddSourcePage(props: {
   return (
     <OpenApiSourceForm
       mode="create"
-      initialValue={props.initialValue}
+      initialValue={initialValue}
       submitLabel="Create Source"
       busyLabel="Creating..."
       onSubmit={async (payload) => {
@@ -587,17 +800,17 @@ function OpenApiEditSourcePage(props: {
   if (!Result.isSuccess(configResult)) {
     if (Result.isFailure(configResult)) {
       return (
-        <Section title="OpenAPI Plugin Editor">
+        <Section title="Edit Source">
           <div className="rounded-lg border border-destructive/30 bg-destructive/8 p-4 text-sm text-destructive">
-            Failed loading plugin config.
+            Failed loading source configuration.
           </div>
         </Section>
       );
     }
 
     return (
-      <Section title="OpenAPI Plugin Editor">
-        <div className="text-sm text-muted-foreground">Loading plugin config...</div>
+      <Section title="Edit Source">
+        <div className="text-sm text-muted-foreground">Loading configuration...</div>
       </Section>
     );
   }
@@ -692,6 +905,7 @@ function OpenApiSourceDetailPage(props: {
     limit: 20,
   });
   const toolDetail = useSourceToolDetail(props.source.id, selectedToolPath);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const setRouteSearch = (next: {
     tab?: "model" | "discover";
@@ -781,23 +995,46 @@ function OpenApiSourceDetailPage(props: {
                   <IconPencil className="size-3" />
                   Edit
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const confirmed = window.confirm(`Delete OpenAPI source "${props.source.name}"?`);
-                    if (!confirmed) return;
-
-                    void removeMutation.mutateAsync(props.source.id).then(() => {
-                      startTransition(() => {
-                        void navigation.home();
-                      });
-                    });
-                  }}
-                  disabled={removeMutation.status === "pending"}
-                  className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-                >
-                  {removeMutation.status === "pending" ? "Deleting..." : "Delete"}
-                </button>
+                {confirmDelete ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-medium text-destructive">
+                      Confirm delete?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={removeMutation.status === "pending"}
+                      className="inline-flex items-center rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void removeMutation.mutateAsync(props.source.id).then(() => {
+                          startTransition(() => {
+                            void navigation.home();
+                          });
+                        }).finally(() => {
+                          setConfirmDelete(false);
+                        });
+                      }}
+                      disabled={removeMutation.status === "pending"}
+                      className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      {removeMutation.status === "pending" ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    disabled={removeMutation.status === "pending"}
+                    className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1425,9 +1662,7 @@ const openApiSourceType = defineFrontendSourceType({
   key: "openapi",
   kind: "openapi",
   displayName: "OpenAPI",
-  renderAddPage: () => (
-    <OpenApiAddSourcePage initialValue={defaultOpenApiInput()} />
-  ),
+  renderAddPage: OpenApiAddSourcePage,
   renderEditPage: OpenApiEditSourcePage,
   renderDetailPage: OpenApiSourceDetailPage,
 });

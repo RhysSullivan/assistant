@@ -79,13 +79,31 @@ export const GoogleDiscoveryStartOAuthInputSchema = Schema.Struct({
   redirectUrl: Schema.String,
 });
 
+export const GoogleDiscoveryBatchSourceInputSchema = Schema.Struct({
+  name: Schema.String,
+  service: Schema.String,
+  version: Schema.String,
+  discoveryUrl: Schema.NullOr(Schema.String),
+  defaultHeaders: Schema.NullOr(StringMapSchema),
+  scopes: Schema.Array(Schema.String),
+});
+
+export const GoogleDiscoveryStartBatchOAuthInputSchema = Schema.Struct({
+  sources: Schema.Array(GoogleDiscoveryBatchSourceInputSchema),
+  clientId: Schema.String,
+  clientSecretRef: Schema.NullOr(SecretRefSchema),
+  clientAuthentication: GoogleDiscoveryOAuthClientAuthenticationSchema,
+  redirectUrl: Schema.String,
+});
+
 export const GoogleDiscoveryStartOAuthResultSchema = Schema.Struct({
   sessionId: Schema.String,
   authorizationUrl: Schema.String,
   scopes: Schema.Array(Schema.String),
 });
 
-export const GoogleDiscoveryOAuthSessionSchema = Schema.Struct({
+const GoogleDiscoverySingleOAuthSessionSchema = Schema.Struct({
+  kind: Schema.Literal("single"),
   service: Schema.String,
   version: Schema.String,
   discoveryUrl: Schema.String,
@@ -97,6 +115,31 @@ export const GoogleDiscoveryOAuthSessionSchema = Schema.Struct({
   redirectUrl: Schema.String,
   codeVerifier: Schema.String,
 });
+
+const GoogleDiscoveryBatchOAuthSessionSourceSchema = Schema.Struct({
+  name: Schema.String,
+  service: Schema.String,
+  version: Schema.String,
+  discoveryUrl: Schema.String,
+  defaultHeaders: Schema.NullOr(StringMapSchema),
+  scopes: Schema.Array(Schema.String),
+});
+
+const GoogleDiscoveryBatchOAuthSessionSchema = Schema.Struct({
+  kind: Schema.Literal("batch"),
+  sources: Schema.Array(GoogleDiscoveryBatchOAuthSessionSourceSchema),
+  scopes: Schema.Array(Schema.String),
+  clientId: Schema.String,
+  clientSecretRef: Schema.NullOr(SecretRefSchema),
+  clientAuthentication: GoogleDiscoveryOAuthClientAuthenticationSchema,
+  redirectUrl: Schema.String,
+  codeVerifier: Schema.String,
+});
+
+export const GoogleDiscoveryOAuthSessionSchema = Schema.Union(
+  GoogleDiscoverySingleOAuthSessionSchema,
+  GoogleDiscoveryBatchOAuthSessionSchema,
+);
 
 const GoogleDiscoveryOAuthPopupSuccessAuthSchema = Schema.Struct({
   kind: Schema.Literal("oauth2"),
@@ -111,12 +154,25 @@ const GoogleDiscoveryOAuthPopupSuccessAuthSchema = Schema.Struct({
   expiresAt: Schema.NullOr(Schema.Number),
 });
 
+const GoogleDiscoveryBatchOAuthPopupSourceSchema = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+});
+
 export const GoogleDiscoveryOAuthPopupResultSchema = Schema.Union(
   Schema.Struct({
     type: Schema.Literal("executor:oauth-result"),
     ok: Schema.Literal(true),
     sessionId: Schema.String,
+    mode: Schema.Literal("single"),
     auth: GoogleDiscoveryOAuthPopupSuccessAuthSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("executor:oauth-result"),
+    ok: Schema.Literal(true),
+    sessionId: Schema.String,
+    mode: Schema.Literal("batch"),
+    sources: Schema.Array(GoogleDiscoveryBatchOAuthPopupSourceSchema),
   }),
   Schema.Struct({
     type: Schema.Literal("executor:oauth-result"),
@@ -140,6 +196,10 @@ export type GoogleDiscoveryStoredSourceData =
   typeof GoogleDiscoveryStoredSourceDataSchema.Type;
 export type GoogleDiscoveryStartOAuthInput =
   typeof GoogleDiscoveryStartOAuthInputSchema.Type;
+export type GoogleDiscoveryBatchSourceInput =
+  typeof GoogleDiscoveryBatchSourceInputSchema.Type;
+export type GoogleDiscoveryStartBatchOAuthInput =
+  typeof GoogleDiscoveryStartBatchOAuthInputSchema.Type;
 export type GoogleDiscoveryStartOAuthResult =
   typeof GoogleDiscoveryStartOAuthResultSchema.Type;
 export type GoogleDiscoveryOAuthSession =

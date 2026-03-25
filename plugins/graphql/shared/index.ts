@@ -16,6 +16,8 @@ export const GraphqlConnectionAuthSchema = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("bearer"),
     tokenSecretRef: SecretRefSchema,
+    headerName: Schema.NullOr(Schema.String),
+    prefix: Schema.NullOr(Schema.String),
   }),
 );
 

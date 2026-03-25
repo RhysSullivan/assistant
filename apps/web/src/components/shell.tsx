@@ -305,7 +305,7 @@ export function AppShell() {
       </aside>
 
       {/* Main content */}
-      <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
+      <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
         <Outlet />
       </main>
     </div>

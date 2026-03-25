@@ -2,116 +2,122 @@ import { Link } from "@tanstack/react-router";
 import { useSources } from "@executor/react";
 import { sourcePluginsIndexPath } from "@executor/react/plugins";
 import { LoadableBlock } from "../components/loadable";
+import { LocalMcpInstallCard } from "../components/local-mcp-install-card";
+import { SourceFavicon } from "../components/source-favicon";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { SourcePluginsResetState } from "../components/source-plugins-reset-state";
+import { IconSources, IconPlus } from "../components/icons";
 import {
   getSourceFrontendPaths,
-  registeredSourceFrontendTypes,
 } from "../plugins";
+
+const statusVariant = (status: string) =>
+  status === "connected"
+    ? "default" as const
+    : status === "error"
+      ? "destructive" as const
+      : "muted" as const;
 
 export function HomePage() {
   const sources = useSources();
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
-        <div className="rounded-3xl border border-border bg-card p-8">
-          <div className="inline-flex rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-            Sources
+        {/* Header */}
+        <div className="flex items-end justify-between mb-8">
+          <div>
+            <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
+              Sources
+            </h1>
+            <p className="mt-1.5 text-[14px] text-muted-foreground">
+              Connected tool providers in this workspace.
+            </p>
           </div>
-          <h1 className="mt-5 font-display text-3xl tracking-tight text-foreground lg:text-4xl">
-            Source plugins now own source-specific product behavior
-          </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Add, edit, inspect, and authorize sources through plugin-owned UI and
-            API surfaces. The core app stays generic while each plugin carries its
-            own transport, auth, and storage behavior.
-          </p>
-          {registeredSourceFrontendTypes.length > 0 && (
-            <div className="mt-5 flex flex-wrap gap-2">
-              {registeredSourceFrontendTypes.map((definition) => (
-                <Badge key={definition.key} variant="outline">
-                  {definition.displayName}
-                </Badge>
-              ))}
-            </div>
-          )}
+          <Link to={sourcePluginsIndexPath}>
+            <Button size="sm">
+              <IconPlus className="size-3.5" />
+              Add source
+            </Button>
+          </Link>
         </div>
 
-        <div className="mt-8">
-          <LoadableBlock loadable={sources} loading="Loading sources...">
-            {(items) =>
-              !Array.isArray(items) ? (
-                <SourcePluginsResetState
-                  title="Unexpected sources payload"
-                  message="The sources list returned data in an unexpected shape."
-                />
-              ) : items.length === 0 ? (
-                <SourcePluginsResetState
-                  title="No sources connected yet"
-                  message="Use the add flow to connect an OpenAPI, GraphQL, MCP, or Google Discovery source through its plugin-owned surface."
-                  action={(
-                    <Link to={sourcePluginsIndexPath}>
-                      <Button size="sm" variant="outline">
-                        Add Source
-                      </Button>
-                    </Link>
-                  )}
-                />
-              ) : (
-                <div className="grid gap-3">
-                  {items.map((source) => {
-                    const paths = getSourceFrontendPaths(source.kind);
-                    const card = (
-                      <div className="rounded-2xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/25 hover:bg-card/90">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-semibold text-foreground">
+        <LocalMcpInstallCard className="mb-8" />
+
+        {/* Source list */}
+        <LoadableBlock loadable={sources} loading="Loading sources...">
+          {(items) =>
+            !Array.isArray(items) ? (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-4 text-sm text-destructive">
+                Sources returned an unexpected payload.
+              </div>
+            ) : items.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
+                <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-4">
+                  <IconSources className="size-5" />
+                </div>
+                <p className="text-[14px] font-medium text-foreground/70 mb-1">
+                  No sources yet
+                </p>
+                <p className="text-[13px] text-muted-foreground/60 mb-5">
+                  Add a source to get started.
+                </p>
+                <Link to={sourcePluginsIndexPath}>
+                  <Button size="sm">
+                    <IconPlus className="size-3.5" />
+                    Add source
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {items.map((source) => {
+                  const paths = getSourceFrontendPaths(source.kind);
+                  const card = (
+                    <div className="flex h-full flex-col rounded-2xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/25 hover:bg-card/90">
+                      <div className="flex items-start gap-3">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                          <SourceFavicon source={source} className="size-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="truncate text-sm font-semibold text-foreground">
                               {source.name}
                             </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              {source.kind}
-                            </div>
+                            <Badge variant={statusVariant(source.status)} className="shrink-0">
+                              {source.status}
+                            </Badge>
                           </div>
-                          <Badge
-                            variant={
-                              source.status === "connected"
-                                ? "default"
-                                : source.status === "error"
-                                  ? "destructive"
-                                  : "muted"
-                            }
-                          >
-                            {source.status}
-                          </Badge>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {source.kind}
+                          </div>
                         </div>
                       </div>
-                    );
+                    </div>
+                  );
 
-                    if (!paths) {
-                      return (
-                        <div key={source.id}>
-                          {card}
-                        </div>
-                      );
-                    }
-
+                  if (!paths) {
                     return (
-                      <Link
-                        key={source.id}
-                        to={paths.detail(source.id)}
-                        search={{ tab: "model" }}
-                      >
+                      <div key={source.id}>
                         {card}
-                      </Link>
+                      </div>
                     );
-                  })}
-                </div>
-              )
-            }
-          </LoadableBlock>
-        </div>
+                  }
+
+                  return (
+                    <Link
+                      key={source.id}
+                      to={paths.detail(source.id)}
+                      search={{ tab: "model" }}
+                    >
+                      {card}
+                    </Link>
+                  );
+                })}
+              </div>
+            )
+          }
+        </LoadableBlock>
       </div>
     </div>
   );

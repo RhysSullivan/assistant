@@ -17,6 +17,16 @@ import * as Effect from "effect/Effect";
 import {
   RuntimeSourceCatalogStoreService,
 } from "../../catalog/source/runtime";
+import {
+  SecretMaterialDeleterService,
+  SecretMaterialResolverService,
+  SecretMaterialStorerService,
+  SecretMaterialUpdaterService,
+  type DeleteSecretMaterial,
+  type ResolveSecretMaterial,
+  type StoreSecretMaterial,
+  type UpdateSecretMaterial,
+} from "../../scope/secret-material-providers";
 import type {
   RuntimeLocalScopeState,
 } from "../../scope/runtime-context";
@@ -59,6 +69,7 @@ import {
 import {
   runtimeEffectError,
 } from "../../effect-errors";
+import * as Layer from "effect/Layer";
 
 export const createScopeToolInvoker = (input: {
   scopeId: Source["scopeId"];
@@ -77,6 +88,12 @@ export const createScopeToolInvoker = (input: {
   sourceArtifactStore: SourceArtifactStoreShape;
   runtimeLocalScope: RuntimeLocalScopeState | null;
   localToolRuntime: LocalToolRuntime;
+  secretMaterialServices: {
+    resolve: ResolveSecretMaterial;
+    store: StoreSecretMaterial;
+    delete: DeleteSecretMaterial;
+    update: UpdateSecretMaterial;
+  };
   onElicitation?: Parameters<
     typeof makeToolInvokerFromTools
   >[0]["onElicitation"];
@@ -89,8 +106,17 @@ export const createScopeToolInvoker = (input: {
     scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
   });
+  const secretMaterialLayer = Layer.mergeAll(
+    Layer.succeed(SecretMaterialResolverService, input.secretMaterialServices.resolve),
+    Layer.succeed(SecretMaterialStorerService, input.secretMaterialServices.store),
+    Layer.succeed(SecretMaterialDeleterService, input.secretMaterialServices.delete),
+    Layer.succeed(SecretMaterialUpdaterService, input.secretMaterialServices.update),
+  );
   const provideWorkspaceStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provide(scopeStorageLayer));
+  const provideSecretMaterialServices = <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) => effect.pipe(Effect.provide(secretMaterialLayer));
 
   const executorTools = createExecutorToolMap({
     scopeId: input.scopeId,
@@ -146,7 +172,8 @@ export const createScopeToolInvoker = (input: {
     context?: Record<string, unknown>;
   }) =>
     provideRuntimeLocalScope(
-      provideWorkspaceStorage(
+      provideSecretMaterialServices(
+        provideWorkspaceStorage(
         Effect.gen(function* () {
           const catalogTool = yield* loadWorkspaceCatalogToolByPath({
             scopeId: input.scopeId,
@@ -179,6 +206,7 @@ export const createScopeToolInvoker = (input: {
             context: invocation.context,
           });
         }),
+        ),
       ),
       input.runtimeLocalScope,
     );

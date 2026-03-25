@@ -22,16 +22,19 @@ import {
 import {
   GOOGLE_DISCOVERY_EXECUTOR_KEY,
   GOOGLE_DISCOVERY_SOURCE_KIND,
+  GoogleDiscoveryBatchSourceInputSchema,
   GoogleDiscoveryConnectionAuthSchema,
   GoogleDiscoveryOAuthSessionSchema,
   defaultGoogleDiscoveryUrl,
   deriveGoogleDiscoveryNamespace,
   GoogleDiscoveryStoredSourceDataSchema,
+  type GoogleDiscoveryBatchSourceInput,
   type GoogleDiscoveryConnectInput,
   type GoogleDiscoveryConnectionAuth,
   type GoogleDiscoveryOAuthPopupResult,
   type GoogleDiscoveryOAuthSession,
   type GoogleDiscoverySourceConfigPayload,
+  type GoogleDiscoveryStartBatchOAuthInput,
   type GoogleDiscoveryStartOAuthInput,
   type GoogleDiscoveryStartOAuthResult,
   type GoogleDiscoveryStoredSourceData,
@@ -63,6 +66,9 @@ import {
 
 const decodeStoredSourceData = Schema.decodeUnknownSync(
   GoogleDiscoveryStoredSourceDataSchema,
+);
+const decodeBatchSourceInput = Schema.decodeUnknownSync(
+  GoogleDiscoveryBatchSourceInputSchema,
 );
 const decodeSession = Schema.decodeUnknownSync(GoogleDiscoveryOAuthSessionSchema);
 const decodeProviderData = Schema.decodeUnknownSync(GoogleDiscoveryToolProviderDataSchema);
@@ -108,6 +114,9 @@ export type GoogleDiscoverySdk = {
   startOAuth: (
     input: GoogleDiscoveryStartOAuthInput,
   ) => Effect.Effect<GoogleDiscoveryStartOAuthResult, Error>;
+  startBatchOAuth: (
+    input: GoogleDiscoveryStartBatchOAuthInput,
+  ) => Effect.Effect<GoogleDiscoveryStartOAuthResult, Error>;
   completeOAuth: (input: {
     state: string;
     code?: string;
@@ -129,6 +138,10 @@ const GoogleDiscoveryExecutorAddInputSchema = Schema.Struct({
 
 type GoogleDiscoveryExecutorAddInput =
   typeof GoogleDiscoveryExecutorAddInputSchema.Type;
+type GoogleDiscoveryOAuthAuth = Extract<
+  GoogleDiscoveryConnectionAuth,
+  { kind: "oauth2" }
+>;
 
 const GOOGLE_AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -468,6 +481,70 @@ const sourceConfigFromStored = (
   auth: stored.auth,
 });
 
+const normalizeBatchSourceInput = (
+  input: GoogleDiscoveryBatchSourceInput,
+): GoogleDiscoveryBatchSourceInput =>
+  decodeBatchSourceInput({
+    name: input.name.trim(),
+    service: input.service.trim(),
+    version: input.version.trim(),
+    discoveryUrl:
+      input.discoveryUrl?.trim()
+      || defaultGoogleDiscoveryUrl(input.service, input.version),
+    defaultHeaders: input.defaultHeaders,
+    scopes: [...new Set(input.scopes.map((scope) => scope.trim()).filter(Boolean))],
+  });
+
+const createOAuthSourceData = (input: {
+  service: string;
+  version: string;
+  discoveryUrl: string;
+  defaultHeaders: Record<string, string> | null;
+  scopes: ReadonlyArray<string>;
+  clientId: string;
+  clientSecretRef: GoogleDiscoveryOAuthAuth["clientSecretRef"];
+  clientAuthentication: GoogleDiscoveryOAuthAuth["clientAuthentication"];
+  accessTokenRef: GoogleDiscoveryOAuthAuth["accessTokenRef"];
+  refreshTokenRef: GoogleDiscoveryOAuthAuth["refreshTokenRef"];
+  expiresAt: number | null;
+}): GoogleDiscoveryStoredSourceData =>
+  decodeStoredSourceData({
+    service: input.service,
+    version: input.version,
+    discoveryUrl: input.discoveryUrl,
+    defaultHeaders: input.defaultHeaders,
+    scopes: [...input.scopes],
+    auth: {
+      kind: "oauth2",
+      clientId: input.clientId,
+      clientSecretRef: input.clientSecretRef,
+      clientAuthentication: input.clientAuthentication,
+      authorizationEndpoint: GOOGLE_AUTHORIZATION_ENDPOINT,
+      tokenEndpoint: GOOGLE_TOKEN_ENDPOINT,
+      scopes: [...input.scopes],
+      accessTokenRef: input.accessTokenRef,
+      refreshTokenRef: input.refreshTokenRef,
+      expiresAt: input.expiresAt,
+    },
+  });
+
+const resolveScopesForBatchSource = (input: {
+  source: GoogleDiscoveryBatchSourceInput;
+}): Effect.Effect<ReadonlyArray<string>, Error> =>
+  input.source.scopes.length > 0
+    ? Effect.succeed([...input.source.scopes])
+    : fetchGoogleDiscoveryDocumentWithHeaders({
+        url: input.source.discoveryUrl ?? defaultGoogleDiscoveryUrl(input.source.service, input.source.version),
+        headers: input.source.defaultHeaders ?? {},
+      }).pipe(
+        Effect.flatMap((document) =>
+          inferScopesFromDiscoveryDocument({
+            service: input.source.service,
+            document,
+          })
+        ),
+      );
+
 const createGoogleDiscoverySourceSdk = (
   options: {
     storage: GoogleDiscoverySourceStorage;
@@ -801,6 +878,7 @@ export const googleDiscoverySdkPlugin = (options: {
             yield* options.oauthSessions.put({
               sessionId,
               value: decodeSession({
+                kind: "single",
                 service: input.service.trim(),
                 version: input.version.trim(),
                 discoveryUrl,
@@ -830,6 +908,65 @@ export const googleDiscoverySdkPlugin = (options: {
                 },
               }),
               scopes: [...scopes],
+            };
+          }),
+        ),
+      startBatchOAuth: (input) =>
+        provideRuntime(
+          Effect.gen(function* () {
+            const normalizedSources = input.sources.map((source) =>
+              normalizeBatchSourceInput(source)
+            );
+            if (normalizedSources.length === 0) {
+              return yield* Effect.fail(
+                new Error("Select at least one Google API to connect."),
+              );
+            }
+
+            const inferredScopes = yield* Effect.forEach(
+              normalizedSources,
+              (source) =>
+                resolveScopesForBatchSource({
+                  source,
+                }),
+            );
+            const scopes = [...new Set(inferredScopes.flat())];
+            const sessionId = `gdisc_oauth_${crypto.randomUUID()}`;
+            const codeVerifier = createPkceCodeVerifier();
+
+            yield* options.oauthSessions.put({
+              sessionId,
+              value: decodeSession({
+                kind: "batch",
+                sources: normalizedSources.map((source, index) => ({
+                  ...source,
+                  scopes: inferredScopes[index] ?? [],
+                })),
+                scopes,
+                clientId: input.clientId.trim(),
+                clientSecretRef: input.clientSecretRef,
+                clientAuthentication: input.clientAuthentication,
+                redirectUrl: input.redirectUrl,
+                codeVerifier,
+              }),
+            });
+
+            return {
+              sessionId,
+              authorizationUrl: buildOAuth2AuthorizationUrl({
+                authorizationEndpoint: GOOGLE_AUTHORIZATION_ENDPOINT,
+                clientId: input.clientId.trim(),
+                redirectUri: input.redirectUrl,
+                scopes,
+                state: sessionId,
+                codeVerifier,
+                extraParams: {
+                  access_type: "offline",
+                  prompt: "consent",
+                  include_granted_scopes: "true",
+                },
+              }),
+              scopes,
             };
           }),
         ),
@@ -870,18 +1007,94 @@ export const googleDiscoverySdkPlugin = (options: {
               codeVerifier: session.codeVerifier,
               code: input.code,
             });
-            const accessTokenRef = yield* storeSecretMaterial({
-              purpose: "oauth_access_token",
-              value: tokenResponse.access_token,
-              name: `${session.service} Google Access Token`,
-            });
-            const refreshTokenRef = tokenResponse.refresh_token
-              ? yield* storeSecretMaterial({
-                  purpose: "oauth_refresh_token",
-                  value: tokenResponse.refresh_token,
-                  name: `${session.service} Google Refresh Token`,
-                })
-              : null;
+            const expiresAt =
+              typeof tokenResponse.expires_in === "number"
+                ? Date.now() + tokenResponse.expires_in * 1000
+                : null;
+
+            if (session.kind === "single") {
+              const accessTokenRef = yield* storeSecretMaterial({
+                purpose: "oauth_access_token",
+                value: tokenResponse.access_token,
+                name: `${session.service} Google Access Token`,
+              });
+              const refreshTokenRef = tokenResponse.refresh_token
+                ? yield* storeSecretMaterial({
+                    purpose: "oauth_refresh_token",
+                    value: tokenResponse.refresh_token,
+                    name: `${session.service} Google Refresh Token`,
+                  })
+                : null;
+
+              if (options.oauthSessions.remove) {
+                yield* options.oauthSessions.remove(input.state);
+              }
+
+              return {
+                type: "executor:oauth-result",
+                ok: true as const,
+                sessionId: input.state,
+                mode: "single" as const,
+                auth: {
+                  kind: "oauth2" as const,
+                  clientId: session.clientId,
+                  clientSecretRef: session.clientSecretRef,
+                  clientAuthentication: session.clientAuthentication,
+                  authorizationEndpoint: GOOGLE_AUTHORIZATION_ENDPOINT,
+                  tokenEndpoint: GOOGLE_TOKEN_ENDPOINT,
+                  scopes: [...session.scopes],
+                  accessTokenRef,
+                  refreshTokenRef,
+                  expiresAt,
+                },
+              };
+            }
+
+            const createdSources = [];
+            for (const source of session.sources) {
+              const createdSource = yield* host.sources.create({
+                source: {
+                  name: source.name.trim(),
+                  kind: GOOGLE_DISCOVERY_SOURCE_KIND,
+                  status: "connected",
+                  enabled: true,
+                  namespace: deriveGoogleDiscoveryNamespace(source.service),
+                },
+              });
+              const accessTokenRef = yield* storeSecretMaterial({
+                purpose: "oauth_access_token",
+                value: tokenResponse.access_token,
+                name: `${source.service} Google Access Token`,
+              });
+              const refreshTokenRef = tokenResponse.refresh_token
+                ? yield* storeSecretMaterial({
+                    purpose: "oauth_refresh_token",
+                    value: tokenResponse.refresh_token,
+                    name: `${source.service} Google Refresh Token`,
+                  })
+                : null;
+
+              yield* options.storage.put({
+                scopeId: createdSource.scopeId,
+                sourceId: createdSource.id,
+                value: createOAuthSourceData({
+                  service: source.service,
+                  version: source.version,
+                  discoveryUrl: source.discoveryUrl,
+                  defaultHeaders: source.defaultHeaders,
+                  scopes: source.scopes.length > 0 ? source.scopes : session.scopes,
+                  clientId: session.clientId,
+                  clientSecretRef: session.clientSecretRef,
+                  clientAuthentication: session.clientAuthentication,
+                  accessTokenRef,
+                  refreshTokenRef,
+                  expiresAt,
+                }),
+              });
+
+              const refreshedSource = yield* host.sources.refreshCatalog(createdSource.id);
+              createdSources.push(refreshedSource);
+            }
 
             if (options.oauthSessions.remove) {
               yield* options.oauthSessions.remove(input.state);
@@ -891,21 +1104,11 @@ export const googleDiscoverySdkPlugin = (options: {
               type: "executor:oauth-result",
               ok: true as const,
               sessionId: input.state,
-              auth: {
-                kind: "oauth2" as const,
-                clientId: session.clientId,
-                clientSecretRef: session.clientSecretRef,
-                clientAuthentication: session.clientAuthentication,
-                authorizationEndpoint: GOOGLE_AUTHORIZATION_ENDPOINT,
-                tokenEndpoint: GOOGLE_TOKEN_ENDPOINT,
-                scopes: [...session.scopes],
-                accessTokenRef,
-                refreshTokenRef,
-                expiresAt:
-                  typeof tokenResponse.expires_in === "number"
-                    ? Date.now() + tokenResponse.expires_in * 1000
-                    : null,
-              },
+              mode: "batch" as const,
+              sources: createdSources.map((source) => ({
+                id: source.id,
+                name: source.name,
+              })),
             };
           }),
         ),

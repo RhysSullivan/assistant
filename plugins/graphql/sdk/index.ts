@@ -90,6 +90,37 @@ const GraphqlExecutorAddInputSchema = Schema.Struct({
 
 type GraphqlExecutorAddInput = typeof GraphqlExecutorAddInputSchema.Type;
 
+const normalizeGraphqlAuth = (
+  auth: Record<string, unknown>,
+): GraphqlStoredSourceData["auth"] =>
+  auth.kind === "bearer"
+    ? {
+        kind: "bearer",
+        tokenSecretRef: auth.tokenSecretRef as Extract<
+          GraphqlStoredSourceData["auth"],
+          { kind: "bearer" }
+        >["tokenSecretRef"],
+        headerName:
+          typeof auth.headerName === "string" || auth.headerName === null
+            ? auth.headerName
+            : null,
+        prefix:
+          typeof auth.prefix === "string" || auth.prefix === null
+            ? auth.prefix
+            : null,
+      }
+    : {
+        kind: "none",
+      };
+
+const normalizeStoredSourceData = (
+  stored: GraphqlStoredSourceData,
+): GraphqlStoredSourceData =>
+  decodeStoredSourceData({
+    ...stored,
+    auth: normalizeGraphqlAuth(stored.auth as Record<string, unknown>),
+  });
+
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -142,6 +173,17 @@ const resolveBearerToken = (
         }).pipe(Effect.map((token) => token.trim()))
       );
 
+const resolveBearerHeaderName = (
+  auth: Extract<GraphqlStoredSourceData["auth"], { kind: "bearer" }>,
+): string => {
+  const trimmed = auth.headerName?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "Authorization";
+};
+
+const resolveBearerPrefix = (
+  auth: Extract<GraphqlStoredSourceData["auth"], { kind: "bearer" }>,
+): string => auth.prefix ?? "Bearer ";
+
 const resolveGraphqlHeaders = (
   stored: GraphqlStoredSourceData,
 ): Effect.Effect<Record<string, string>, Error, any> =>
@@ -149,9 +191,10 @@ const resolveGraphqlHeaders = (
     const bearerToken = yield* resolveBearerToken(stored.auth);
     return {
       ...(stored.defaultHeaders ?? {}),
-      ...(bearerToken
+      ...(bearerToken && stored.auth.kind === "bearer"
         ? {
-            authorization: `Bearer ${bearerToken}`,
+            [resolveBearerHeaderName(stored.auth)]:
+              `${resolveBearerPrefix(stored.auth)}${bearerToken}`,
           }
         : {}),
     };
@@ -241,7 +284,14 @@ const storedSourceDataFromInput = (
   decodeStoredSourceData({
     endpoint: input.endpoint.trim(),
     defaultHeaders: input.defaultHeaders,
-    auth: input.auth,
+    auth:
+      input.auth.kind === "bearer"
+        ? {
+            ...input.auth,
+            headerName: input.auth.headerName ?? null,
+            prefix: input.auth.prefix ?? null,
+          }
+        : input.auth,
   });
 
 const sourceConfigFromStored = (
@@ -279,7 +329,10 @@ const createGraphqlSourceSdk = (
         );
       }
 
-      return sourceConfigFromStored(source, stored);
+      return sourceConfigFromStored(
+        source,
+        normalizeStoredSourceData(stored),
+      );
     }),
   createSource: (input: GraphqlConnectInput) =>
     Effect.gen(function* () {
@@ -404,9 +457,10 @@ const createGraphqlSourceRuntime = (
         });
       }
 
-      const headers = yield* resolveGraphqlHeaders(stored);
+      const normalizedStored = normalizeStoredSourceData(stored);
+      const headers = yield* resolveGraphqlHeaders(normalizedStored);
       const graphqlDocument = yield* fetchGraphqlIntrospectionDocumentWithHeaders({
-        endpoint: stored.endpoint,
+        endpoint: normalizedStored.endpoint,
         headers,
       });
       const manifest = yield* extractGraphqlManifest(source.name, graphqlDocument);
@@ -427,7 +481,7 @@ const createGraphqlSourceRuntime = (
           documents: [
             {
               documentKind: "graphql_introspection",
-              documentKey: stored.endpoint,
+              documentKey: normalizedStored.endpoint,
               contentText: graphqlDocument,
               fetchedAt: now,
             },
@@ -456,17 +510,18 @@ const createGraphqlSourceRuntime = (
         );
       }
 
+      const normalizedStored = normalizeStoredSourceData(stored);
       const providerData = decodeProviderData(
         input.executable.binding,
       ) as GraphqlToolProviderData;
       const args = asRecord(input.args);
       const headers = {
         "content-type": "application/json",
-        ...(yield* resolveGraphqlHeaders(stored)),
+        ...(yield* resolveGraphqlHeaders(normalizedStored)),
         ...asStringRecord(args.headers),
       };
       const endpoint = applyHttpQueryPlacementsToUrl({
-        url: stored.endpoint,
+        url: normalizedStored.endpoint,
       }).toString();
 
       const isRawRequest =
@@ -511,7 +566,7 @@ const createGraphqlSourceRuntime = (
                   ...(operationName ? { operationName } : {}),
                 },
                 bodyValues: {},
-                label: `GraphQL invocation ${stored.endpoint}`,
+                label: `GraphQL invocation ${normalizedStored.endpoint}`,
               }),
             ),
           }),

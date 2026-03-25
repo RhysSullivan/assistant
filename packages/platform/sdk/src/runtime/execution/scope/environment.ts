@@ -47,6 +47,16 @@ import {
 import {
   RuntimeSourceStoreService,
 } from "../../sources/source-store";
+import {
+  SecretMaterialDeleterService,
+  SecretMaterialResolverService,
+  SecretMaterialStorerService,
+  SecretMaterialUpdaterService,
+  type DeleteSecretMaterial,
+  type ResolveSecretMaterial,
+  type StoreSecretMaterial,
+  type UpdateSecretMaterial,
+} from "../../scope/secret-material-providers";
 export {
   createCodeExecutorForRuntime,
   resolveConfiguredExecutionRuntime,
@@ -74,6 +84,12 @@ export const createScopeExecutionEnvironmentResolver =
     scopeConfigStore: ScopeConfigStoreShape;
     scopeStateStore: ScopeStateStoreShape;
     sourceArtifactStore: SourceArtifactStoreShape;
+    secretMaterialServices: {
+      resolve: ResolveSecretMaterial;
+      store: StoreSecretMaterial;
+      delete: DeleteSecretMaterial;
+      update: UpdateSecretMaterial;
+    };
   }): ResolveExecutionEnvironment =>
   ({ scopeId, actorScopeId, onElicitation }) =>
     Effect.gen(function* () {
@@ -99,6 +115,7 @@ export const createScopeExecutionEnvironmentResolver =
         sourceArtifactStore: input.sourceArtifactStore,
         runtimeLocalScope,
         localToolRuntime,
+        secretMaterialServices: input.secretMaterialServices,
         onElicitation,
       });
 
@@ -140,6 +157,10 @@ export const RuntimeExecutionResolverLive = (
           const scopeConfigStore = yield* ScopeConfigStore;
           const scopeStateStore = yield* ScopeStateStore;
           const sourceArtifactStore = yield* SourceArtifactStore;
+          const resolveSecretMaterial = yield* SecretMaterialResolverService;
+          const storeSecretMaterial = yield* SecretMaterialStorerService;
+          const deleteSecretMaterial = yield* SecretMaterialDeleterService;
+          const updateSecretMaterial = yield* SecretMaterialUpdaterService;
 
           return createScopeExecutionEnvironmentResolver({
             executorStateStore,
@@ -151,6 +172,12 @@ export const RuntimeExecutionResolverLive = (
             scopeConfigStore,
             scopeStateStore,
             sourceArtifactStore,
+            secretMaterialServices: {
+              resolve: resolveSecretMaterial,
+              store: storeSecretMaterial,
+              delete: deleteSecretMaterial,
+              update: updateSecretMaterial,
+            },
           });
         }),
       );

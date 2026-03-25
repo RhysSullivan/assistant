@@ -26,11 +26,15 @@ import * as Schema from "effect/Schema";
 
 import {
   McpConnectInputSchema,
+  McpDiscoverInputSchema,
+  McpDiscoverResultSchema,
   McpOAuthPopupResultSchema,
   McpSourceConfigPayloadSchema,
   McpStartOAuthInputSchema,
   McpStartOAuthResultSchema,
   type McpConnectInput,
+  type McpDiscoverInput,
+  type McpDiscoverResult,
   type McpOAuthPopupResult,
   type McpSourceConfigPayload,
   type McpStartOAuthInput,
@@ -46,6 +50,9 @@ type McpExecutorExtension = {
     getSourceConfig: (
       sourceId: Source["id"],
     ) => Effect.Effect<McpSourceConfigPayload, Error>;
+    discoverSource: (
+      input: McpDiscoverInput,
+    ) => Effect.Effect<McpDiscoverResult, Error>;
     updateSource: (
       input: McpUpdateSourceInput,
     ) => Effect.Effect<Source, Error>;
@@ -82,6 +89,14 @@ export const McpHttpGroup = HttpApiGroup.make("mcp")
     HttpApiEndpoint.post("createSource")`/workspaces/${workspaceIdParam}/plugins/mcp/sources`
       .setPayload(McpConnectInputSchema)
       .addSuccess(SourceSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("discoverSource")`/workspaces/${workspaceIdParam}/plugins/mcp/discover`
+      .setPayload(McpDiscoverInputSchema)
+      .addSuccess(McpDiscoverResultSchema)
       .addError(ControlPlaneBadRequestError)
       .addError(ControlPlaneForbiddenError)
       .addError(ControlPlaneStorageError),
@@ -171,10 +186,11 @@ const popupDocument = (payload: McpOAuthPopupResult): string => {
     .replaceAll("<", "\\u003c")
     .replaceAll(">", "\\u003e")
     .replaceAll("&", "\\u0026");
-  const title = payload.ok ? "MCP OAuth connected" : "MCP OAuth failed";
+  const title = payload.ok ? "Connected" : "Connection failed";
   const message = payload.ok
-    ? "MCP credentials are ready. Return to the source form to finish saving."
+    ? "Authentication complete. This window will close automatically."
     : payload.error;
+  const statusColor = payload.ok ? "#22c55e" : "#ef4444";
 
   return `<!doctype html>
 <html lang="en">
@@ -183,10 +199,17 @@ const popupDocument = (payload: McpOAuthPopupResult): string => {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(title)}</title>
   </head>
-  <body>
-    <main>
-      <h1>${escapeHtml(title)}</h1>
-      <p>${escapeHtml(message)}</p>
+  <body style="font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #fafafa;">
+    <main style="text-align: center; max-width: 360px; padding: 24px;">
+      <div style="width: 40px; height: 40px; border-radius: 50%; background: ${statusColor}; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          ${payload.ok
+            ? '<path d="M6 10l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+            : '<path d="M7 7l6 6M13 7l-6 6" stroke="white" stroke-width="2" stroke-linecap="round"/>'}
+        </svg>
+      </div>
+      <h1 style="margin: 0 0 8px; font-size: 18px; font-weight: 600; color: #111;">${escapeHtml(title)}</h1>
+      <p style="margin: 0; font-size: 14px; color: #666; line-height: 1.5;">${escapeHtml(message)}</p>
     </main>
     <script>
       (() => {
@@ -223,6 +246,15 @@ export const mcpHttpPlugin = (): ExecutorHttpPlugin<
           ).pipe(
             Effect.flatMap(() => executor.mcp.createSource(payload)),
             Effect.mapError((cause) => toStorageError("mcp.createSource", cause)),
+          )
+        )
+        .handle("discoverSource", ({ path, payload }) =>
+          resolveRequestedLocalWorkspace(
+            "mcp.discoverSource",
+            path.workspaceId,
+          ).pipe(
+            Effect.flatMap(() => executor.mcp.discoverSource(payload)),
+            Effect.mapError((cause) => toStorageError("mcp.discoverSource", cause)),
           )
         )
         .handle("getSourceConfig", ({ path }) =>

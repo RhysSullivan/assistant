@@ -19,6 +19,9 @@ import {
   contentHash,
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
+  normalizeSourceDiscoveryUrl,
+  probeHeadersFromAuth,
+  type SourceDiscoveryResult,
 } from "@executor/source-core";
 import type { Source } from "@executor/platform-sdk/schema";
 import type {
@@ -41,6 +44,8 @@ import {
   deriveMcpNamespace,
   resolveMcpEndpoint,
   type McpConnectInput,
+  type McpDiscoverInput,
+  type McpDiscoverResult,
   type McpConnectionAuth,
   type McpOAuthPopupResult,
   type McpOAuthSession,
@@ -57,6 +62,9 @@ import {
   createMcpCatalogFragment,
   type McpCatalogOperationInput,
 } from "./catalog";
+import {
+  detectMcpSource,
+} from "./discovery";
 import {
   createPooledMcpConnector,
 } from "./connection-pool";
@@ -124,6 +132,9 @@ export type McpSdk = {
   getSourceConfig: (
     sourceId: Source["id"],
   ) => Effect.Effect<McpSourceConfigPayload, Error>;
+  discoverSource: (
+    input: McpDiscoverInput,
+  ) => Effect.Effect<McpDiscoverResult, Error>;
   createSource: (
     input: McpConnectInput,
   ) => Effect.Effect<Source, Error>;
@@ -327,6 +338,15 @@ const createMcpSourceSdk = (
       }
 
       return sourceConfigFromStored(source, stored);
+    }),
+  discoverSource: (input: McpDiscoverInput) =>
+    Effect.gen(function* () {
+      const normalizedUrl = normalizeSourceDiscoveryUrl(input.endpoint);
+      const discovered = yield* detectMcpSource({
+        normalizedUrl,
+        headers: probeHeadersFromAuth(input.probeAuth ?? null),
+      });
+      return discovered satisfies SourceDiscoveryResult | null;
     }),
   createSource: (input: McpConnectInput) =>
     Effect.gen(function* () {
@@ -908,6 +928,8 @@ export const mcpSdkPlugin = (
     return {
       getSourceConfig: (sourceId) =>
         provideRuntime(sourceSdk.getSourceConfig(sourceId)),
+      discoverSource: (input) =>
+        provideRuntime(sourceSdk.discoverSource(input)),
       createSource: (input) =>
         provideRuntime(sourceSdk.createSource(input)),
       updateSource: (input) =>

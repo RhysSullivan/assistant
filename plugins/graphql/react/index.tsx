@@ -11,6 +11,7 @@ import {
   Result,
   useAtomSet,
   useAtomValue,
+  useCreateSecret,
   useExecutorMutation,
   useLocalInstallation,
   usePrefetchToolDetail,
@@ -77,6 +78,53 @@ const defaultGraphqlInput = (): GraphqlConnectInput => ({
   },
 });
 
+const DEFAULT_BEARER_HEADER_NAME = "Authorization";
+const DEFAULT_BEARER_PREFIX = "Bearer ";
+const CREATE_SECRET_VALUE = "__create_graphql_secret__";
+
+const presetString = (
+  search: Record<string, unknown>,
+  key: string,
+): string | null => {
+  const value = search[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+};
+
+const firstSearchString = (
+  search: Record<string, unknown>,
+  keys: ReadonlyArray<string>,
+): string | null => {
+  for (const key of keys) {
+    const value = presetString(search, key);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const graphqlInputFromSearch = (
+  search: Record<string, unknown>,
+): GraphqlConnectInput => {
+  const defaults = defaultGraphqlInput();
+
+  return {
+    ...defaults,
+    name: presetString(search, "presetName") ?? defaults.name,
+    endpoint:
+      firstSearchString(search, [
+        "presetEndpoint",
+        "endpoint",
+        "inputUrl",
+        "pastedUrl",
+        "url",
+      ]) ?? defaults.endpoint,
+  };
+};
+
 const parseStringMap = (value: string): Record<string, string> | null => {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -108,9 +156,26 @@ const secretValue = (input: GraphqlConnectionAuth): string =>
     ? JSON.stringify(input.tokenSecretRef)
     : "";
 
+const bearerHeaderNameValue = (input: GraphqlConnectionAuth): string =>
+  input.kind === "bearer"
+    ? input.headerName?.trim() || DEFAULT_BEARER_HEADER_NAME
+    : DEFAULT_BEARER_HEADER_NAME;
+
+const bearerPrefixValue = (input: GraphqlConnectionAuth): string =>
+  input.kind === "bearer"
+    ? input.prefix ?? DEFAULT_BEARER_PREFIX
+    : DEFAULT_BEARER_PREFIX;
+
+const trimToNull = (value: string): string | null => {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
 const authFromSecretValue = (
   authKind: GraphqlConnectionAuth["kind"],
   value: string,
+  headerName: string,
+  prefix: string,
 ): GraphqlConnectionAuth => {
   if (authKind === "none") {
     return {
@@ -125,8 +190,138 @@ const authFromSecretValue = (
   return {
     kind: "bearer",
     tokenSecretRef: JSON.parse(value) as GraphqlConnectionAuth & { tokenSecretRef: never }["tokenSecretRef"],
+    headerName: trimToNull(headerName),
+    prefix: prefix === DEFAULT_BEARER_PREFIX ? null : prefix,
   };
 };
+
+function SecretSelectOrCreateField(props: {
+  label: string;
+  value: string;
+  emptyLabel: string;
+  draftNamePlaceholder: string;
+  draftValuePlaceholder: string;
+  onChange: (value: string) => void;
+}) {
+  const secrets = useSecrets();
+  const createSecret = useCreateSecret();
+  const [draftName, setDraftName] = useState("");
+  const [draftValue, setDraftValue] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const handleSelectChange = (nextValue: string) => {
+    if (nextValue === CREATE_SECRET_VALUE) {
+      setShowCreate(true);
+      props.onChange("");
+      return;
+    }
+
+    setShowCreate(false);
+    setCreateError(null);
+    props.onChange(nextValue);
+  };
+
+  const handleCreate = async () => {
+    const trimmedName = draftName.trim();
+    if (!trimmedName) {
+      setCreateError("Secret name is required.");
+      return;
+    }
+    if (!draftValue.trim()) {
+      setCreateError("Secret value is required.");
+      return;
+    }
+
+    try {
+      setCreateError(null);
+      const created = await createSecret.mutateAsync({
+        name: trimmedName,
+        value: draftValue,
+      });
+      props.onChange(JSON.stringify({
+        providerId: created.providerId,
+        handle: created.id,
+      }));
+      setDraftName("");
+      setDraftValue("");
+      setShowCreate(false);
+    } catch (cause) {
+      setCreateError(cause instanceof Error ? cause.message : "Failed creating secret.");
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      <span className="text-xs font-medium text-foreground">{props.label}</span>
+      <select
+        value={showCreate ? CREATE_SECRET_VALUE : props.value}
+        onChange={(event) => handleSelectChange(event.target.value)}
+        className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+      >
+        <option value="">{props.emptyLabel}</option>
+        {secrets.status === "ready" &&
+          secrets.data.map((secret) => (
+            <option
+              key={`${secret.providerId}:${secret.id}`}
+              value={JSON.stringify({
+                providerId: secret.providerId,
+                handle: secret.id,
+              })}
+            >
+              {secret.name ?? secret.id}
+            </option>
+          ))}
+        <option value={CREATE_SECRET_VALUE}>Create new secret</option>
+      </select>
+
+      {showCreate && (
+        <div className="space-y-3 rounded-lg border border-border/70 bg-background/50 p-3">
+          <input
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            placeholder={props.draftNamePlaceholder}
+            className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+          />
+          <textarea
+            value={draftValue}
+            onChange={(event) => setDraftValue(event.target.value)}
+            rows={3}
+            placeholder={props.draftValuePlaceholder}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+          />
+          {createError && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+              {createError}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void handleCreate();
+              }}
+              disabled={createSecret.status === "pending"}
+              className="inline-flex h-8 items-center justify-center rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity disabled:pointer-events-none disabled:opacity-50"
+            >
+              {createSecret.status === "pending" ? "Creating..." : "Create Secret"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCreate(false);
+                setCreateError(null);
+              }}
+              className="inline-flex h-8 items-center justify-center rounded-lg border border-input bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const graphqlToolRoutePath = (toolPath: string): string =>
   `tool/${encodeURIComponent(toolPath)}`;
@@ -189,7 +384,6 @@ function GraphqlSourceForm(props: {
   mode: "create" | "edit";
   onSubmit: (input: GraphqlConnectInput) => Promise<void>;
 }) {
-  const secrets = useSecrets();
   const submitMutation = useExecutorMutation<GraphqlConnectInput, void>(props.onSubmit);
   const [name, setName] = useState(props.initialValue.name);
   const [endpoint, setEndpoint] = useState(props.initialValue.endpoint);
@@ -200,94 +394,102 @@ function GraphqlSourceForm(props: {
     props.initialValue.auth.kind,
   );
   const [secretRef, setSecretRef] = useState(secretValue(props.initialValue.auth));
+  const [authHeaderName, setAuthHeaderName] = useState(
+    bearerHeaderNameValue(props.initialValue.auth),
+  );
+  const [authPrefix, setAuthPrefix] = useState(
+    bearerPrefixValue(props.initialValue.auth),
+  );
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <div className="space-y-4 rounded-2xl border border-border bg-card p-5">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">
-          {props.mode === "create" ? "Connect GraphQL Source" : "Edit GraphQL Source"}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          GraphQL is now mounted as a plugin. The source record stays generic; endpoint and auth
-          live entirely in plugin storage.
-        </p>
-      </div>
+    <div className="space-y-6 rounded-xl border border-border p-6">
+      <div className="grid gap-4">
+        <label className="grid gap-2">
+          <span className="text-xs font-medium text-foreground">Name</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+          />
+        </label>
 
-      <label className="grid gap-1.5">
-        <span className="text-xs font-medium text-foreground">Name</span>
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-        />
-      </label>
+        <label className="grid gap-2">
+          <span className="text-xs font-medium text-foreground">Endpoint</span>
+          <input
+            value={endpoint}
+            onChange={(event) => setEndpoint(event.target.value)}
+            className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+          />
+        </label>
 
-      <label className="grid gap-1.5">
-        <span className="text-xs font-medium text-foreground">Endpoint</span>
-        <input
-          value={endpoint}
-          onChange={(event) => setEndpoint(event.target.value)}
-          className="h-10 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-        />
-      </label>
+        <label className="grid gap-2">
+          <span className="text-xs font-medium text-foreground">Default Headers</span>
+          <textarea
+            value={headersText}
+            onChange={(event) => setHeadersText(event.target.value)}
+            rows={3}
+            placeholder='{"x-api-version":"2026-03-23"}'
+            className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+          />
+        </label>
 
-      <label className="grid gap-1.5">
-        <span className="text-xs font-medium text-foreground">Default Headers</span>
-        <textarea
-          value={headersText}
-          onChange={(event) => setHeadersText(event.target.value)}
-          rows={5}
-          placeholder='{"x-api-version":"2026-03-23"}'
-          className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-        />
-      </label>
-
-      <label className="grid gap-1.5">
-        <span className="text-xs font-medium text-foreground">Auth</span>
-        <select
-          value={authKind}
-          onChange={(event) =>
-            setAuthKind(event.target.value as GraphqlConnectionAuth["kind"])}
-          className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-        >
-          <option value="none">None</option>
-          <option value="bearer">Bearer Secret</option>
-        </select>
-      </label>
-
-      {authKind === "bearer" && (
-        <label className="grid gap-1.5">
-          <span className="text-xs font-medium text-foreground">Secret</span>
+        <label className="grid gap-2">
+          <span className="text-xs font-medium text-foreground">Auth</span>
           <select
-            value={secretRef}
-            onChange={(event) => setSecretRef(event.target.value)}
-            className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+            value={authKind}
+            onChange={(event) =>
+              setAuthKind(event.target.value as GraphqlConnectionAuth["kind"])}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           >
-            <option value="">Select a secret</option>
-            {secrets.status === "ready" &&
-              secrets.data.map((secret) => (
-                <option
-                  key={`${secret.providerId}:${secret.id}`}
-                  value={JSON.stringify({
-                    providerId: secret.providerId,
-                    handle: secret.id,
-                  })}
-                >
-                  {secret.name ?? secret.id}
-                </option>
-              ))}
+            <option value="none">None</option>
+            <option value="bearer">Bearer Secret</option>
           </select>
         </label>
-      )}
+
+        {authKind === "bearer" && (
+          <div className="space-y-4 border-l-2 border-border pl-4">
+            <SecretSelectOrCreateField
+              label="Secret"
+              value={secretRef}
+              emptyLabel="Select a secret"
+              draftNamePlaceholder="GraphQL bearer token"
+              draftValuePlaceholder="Paste the token value"
+              onChange={setSecretRef}
+            />
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-2">
+                <span className="text-xs font-medium text-foreground">Header Name</span>
+                <input
+                  value={authHeaderName}
+                  onChange={(event) => setAuthHeaderName(event.target.value)}
+                  placeholder={DEFAULT_BEARER_HEADER_NAME}
+                  className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                />
+              </label>
+
+              <label className="grid gap-2">
+                <span className="text-xs font-medium text-foreground">Prefix</span>
+                <input
+                  value={authPrefix}
+                  onChange={(event) => setAuthPrefix(event.target.value)}
+                  placeholder={DEFAULT_BEARER_PREFIX}
+                  className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                />
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-sm text-destructive">
           {error}
         </div>
       )}
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-end">
         <button
           type="button"
           onClick={() => {
@@ -298,7 +500,12 @@ function GraphqlSourceForm(props: {
                   name: name.trim(),
                   endpoint: endpoint.trim(),
                   defaultHeaders: parseStringMap(headersText),
-                  auth: authFromSecretValue(authKind, secretRef),
+                  auth: authFromSecretValue(
+                    authKind,
+                    secretRef,
+                    authHeaderName,
+                    authPrefix,
+                  ),
                 });
               } catch (cause) {
                 setError(cause instanceof Error ? cause.message : "Failed saving GraphQL source.");
@@ -306,17 +513,12 @@ function GraphqlSourceForm(props: {
             })();
           }}
           disabled={submitMutation.status === "pending"}
-          className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity disabled:pointer-events-none disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
         >
           {submitMutation.status === "pending"
             ? props.mode === "create" ? "Creating..." : "Saving..."
             : props.mode === "create" ? "Create Source" : "Save Changes"}
         </button>
-        <div className="text-xs text-muted-foreground">
-          {props.mode === "create"
-            ? "The plugin will introspect the endpoint immediately after creation."
-            : "Saving refreshes the imported schema and tool catalog."}
-        </div>
       </div>
     </div>
   );
@@ -324,6 +526,7 @@ function GraphqlSourceForm(props: {
 
 function GraphqlAddPage() {
   const navigation = useSourcePluginNavigation();
+  const initialValue = graphqlInputFromSearch(useSourcePluginSearch());
   const installation = useLocalInstallation();
   const client = getGraphqlHttpClient();
   const createSource = useAtomSet(
@@ -337,7 +540,7 @@ function GraphqlAddPage() {
 
   return (
     <GraphqlSourceForm
-      initialValue={defaultGraphqlInput()}
+      initialValue={initialValue}
       mode="create"
       onSubmit={async (input) => {
         const source = await createSource({
@@ -394,13 +597,13 @@ function GraphqlEditPage(props: {
   if (Result.isFailure(configResult)) {
     return (
       <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
-        Failed loading GraphQL config.
+        Failed loading source configuration.
       </div>
     );
   }
 
   if (!Result.isSuccess(configResult)) {
-    return <div className="text-sm text-muted-foreground">Loading GraphQL config...</div>;
+    return <div className="text-sm text-muted-foreground">Loading configuration...</div>;
   }
 
   return (
@@ -479,6 +682,8 @@ function GraphqlDetailExplorer(props: {
     props.source.id,
     tab === "model" ? selectedToolPath : null,
   );
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   if (installation.status !== "ready") {
     return <div className="text-sm text-muted-foreground">Loading workspace...</div>;
@@ -545,6 +750,35 @@ function GraphqlDetailExplorer(props: {
     return navigation.detail(props.source.id, searchState);
   };
 
+  const handleDelete = async () => {
+    if (isDeleting) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await removeSource({
+        path: {
+          workspaceId: installation.data.scopeId,
+          sourceId: props.source.id,
+        },
+        reactivityKeys: {
+          sources: [installation.data.scopeId],
+          source: [installation.data.scopeId, props.source.id],
+          sourceInspection: [installation.data.scopeId, props.source.id],
+          sourceInspectionTool: [installation.data.scopeId, props.source.id],
+          sourceDiscovery: [installation.data.scopeId, props.source.id],
+        },
+      });
+      startTransition(() => {
+        void navigation.home();
+      });
+    } finally {
+      setIsDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
   return (
     <LoadableBlock loadable={inspection} loading="Loading source...">
       {(loadedInspection) => {
@@ -594,36 +828,40 @@ function GraphqlDetailExplorer(props: {
                   <IconPencil className="size-3" />
                   Edit
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const confirmed = window.confirm(`Delete GraphQL source "${props.source.name}"?`);
-                    if (!confirmed) {
-                      return;
-                    }
-
-                    void removeSource({
-                      path: {
-                        workspaceId: installation.data.scopeId,
-                        sourceId: props.source.id,
-                      },
-                      reactivityKeys: {
-                        sources: [installation.data.scopeId],
-                        source: [installation.data.scopeId, props.source.id],
-                        sourceInspection: [installation.data.scopeId, props.source.id],
-                        sourceInspectionTool: [installation.data.scopeId, props.source.id],
-                        sourceDiscovery: [installation.data.scopeId, props.source.id],
-                      },
-                    }).then(() => {
-                      startTransition(() => {
-                        void navigation.home();
-                      });
-                    });
-                  }}
-                  className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10"
-                >
-                  Delete
-                </button>
+                {confirmDelete ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-medium text-destructive">
+                      Confirm delete?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={isDeleting}
+                      className="inline-flex items-center rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleDelete().catch(() => {});
+                      }}
+                      disabled={isDeleting}
+                      className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      {isDeleting ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    disabled={isDeleting}
+                    className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
 

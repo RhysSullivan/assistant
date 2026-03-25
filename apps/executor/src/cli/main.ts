@@ -57,7 +57,6 @@ import {
   createLocalExecutorServer,
   DEFAULT_SERVER_BASE_URL,
   DEFAULT_SERVER_HOST,
-  DEFAULT_LOCAL_DATA_DIR,
   DEFAULT_SERVER_LOG_FILE,
   DEFAULT_SERVER_PID_FILE,
   DEFAULT_SERVER_PORT,
@@ -66,6 +65,7 @@ import {
   runLocalExecutorServer,
 } from "@executor/server";
 import {
+  resolveCliLocalDataDir,
   resolveRuntimeWebAssetsDir,
   resolveSelfCommand,
 } from "./runtime-paths";
@@ -178,6 +178,7 @@ const getBootstrapClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
 const decodeExecutionId = Schema.decodeUnknown(ExecutionIdSchema);
 const require = createRequire(import.meta.url);
 const CLI_NAME = "executor";
+const CLI_LOCAL_DATA_DIR = resolveCliLocalDataDir();
 const CLI_VERSION = (() => {
   const candidatePaths = [
     "../package.json",
@@ -299,33 +300,33 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
   Effect.acquireUseRelease(
     createExecutorEffect({
       backend: createLocalExecutorBackend({
-        localDataDir: DEFAULT_LOCAL_DATA_DIR,
+        localDataDir: CLI_LOCAL_DATA_DIR,
       }),
       plugins: [
         graphqlSdkPlugin({
           storage: createFileGraphqlSourceStorage({
-            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/graphql/sources`,
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/graphql/sources`,
           }),
         }),
         googleDiscoverySdkPlugin({
           storage: createFileGoogleDiscoverySourceStorage({
-            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/google-discovery/sources`,
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/google-discovery/sources`,
           }),
           oauthSessions: createFileGoogleDiscoveryOAuthSessionStorage({
-            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/google-discovery/oauth-sessions`,
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/google-discovery/oauth-sessions`,
           }),
         }),
         mcpSdkPlugin({
           storage: createFileMcpSourceStorage({
-            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/mcp/sources`,
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/mcp/sources`,
           }),
           oauthSessions: createFileMcpOAuthSessionStorage({
-            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/mcp/oauth-sessions`,
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/mcp/oauth-sessions`,
           }),
         }),
         openApiSdkPlugin({
           storage: createFileOpenApiSourceStorage({
-            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/openapi/sources`,
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/openapi/sources`,
           }),
         }),
       ] as const,
@@ -476,7 +477,7 @@ const getDefaultServerOptions = (port: number = DEFAULT_SERVER_PORT) => {
   return {
     host: DEFAULT_SERVER_HOST,
     port,
-    localDataDir: DEFAULT_LOCAL_DATA_DIR,
+    localDataDir: CLI_LOCAL_DATA_DIR,
     pidFile: DEFAULT_SERVER_PID_FILE,
     ui: assetsDir ? { assetsDir } : undefined,
   };
@@ -638,7 +639,7 @@ const getServerStatus = (
       pid,
       pidRunning,
       logFile,
-      localDataDir: DEFAULT_LOCAL_DATA_DIR,
+      localDataDir: CLI_LOCAL_DATA_DIR,
       webAssetsDir: resolveRuntimeWebAssetsDir(),
       installation,
     } satisfies LocalServerStatus;

@@ -1,14 +1,29 @@
 {
   "sources": {
-    "vercel-api": {
-      "name": "Vercel API",
-      "kind": "openapi"
-    },
-    "axiom": {
+    "axiom-mcp": {
+      "name": "Axiom MCP",
+      "namespace": "axiom.mcp",
       "kind": "mcp"
     },
-    "linear": {
-      "kind": "graphql"
+    "google-calendar": {
+      "name": "Google Calendar",
+      "namespace": "google.calendar",
+      "kind": "google_discovery"
+    },
+    "google-drive": {
+      "name": "Google Drive",
+      "namespace": "google.drive",
+      "kind": "google_discovery"
+    },
+    "google-gmail": {
+      "name": "Gmail",
+      "namespace": "google.gmail",
+      "kind": "google_discovery"
+    },
+    "chrome-devtools-mcp": {
+      "kind": "mcp",
+      "name": "Chrome DevTools MCP",
+      "namespace": "chrome.devtools.mcp"
     }
   }
 }

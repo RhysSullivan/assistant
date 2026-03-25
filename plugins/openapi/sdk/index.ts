@@ -102,12 +102,49 @@ const OpenApiExecutorAddInputSchema = Schema.Struct({
 
 type OpenApiExecutorAddInput = typeof OpenApiExecutorAddInputSchema.Type;
 
+const normalizeOpenApiAuth = (
+  auth: Record<string, unknown>,
+): OpenApiStoredSourceData["auth"] =>
+  auth.kind === "bearer"
+    ? {
+        kind: "bearer",
+        tokenSecretRef: auth.tokenSecretRef as Extract<
+          OpenApiStoredSourceData["auth"],
+          { kind: "bearer" }
+        >["tokenSecretRef"],
+        headerName:
+          typeof auth.headerName === "string" || auth.headerName === null
+            ? auth.headerName
+            : null,
+        prefix:
+          typeof auth.prefix === "string" || auth.prefix === null
+            ? auth.prefix
+            : null,
+      }
+    : {
+        kind: "none",
+      };
+
+const normalizeStoredSourceData = (
+  stored: OpenApiStoredSourceData,
+): OpenApiStoredSourceData => ({
+  ...stored,
+  auth: normalizeOpenApiAuth(stored.auth as Record<string, unknown>),
+});
+
 const createStoredSourceData = (
   input: OpenApiConnectInput,
 ): OpenApiStoredSourceData => ({
   specUrl: input.specUrl.trim(),
   baseUrl: input.baseUrl?.trim() || null,
-  auth: input.auth,
+  auth:
+    input.auth.kind === "bearer"
+      ? {
+          ...input.auth,
+          headerName: input.auth.headerName ?? null,
+          prefix: input.auth.prefix ?? null,
+        }
+      : input.auth,
   defaultHeaders: null,
   etag: null,
   lastSyncAt: null,
@@ -284,7 +321,10 @@ const createOpenApiSourceSdk = (
         );
       }
 
-      return configFromStoredSourceData(source, stored);
+      return configFromStoredSourceData(
+        source,
+        normalizeStoredSourceData(stored),
+      );
     }),
   createSource: (input: OpenApiConnectInput) =>
     Effect.gen(function* () {
@@ -424,6 +464,17 @@ const resolveBearerToken = (
   );
 };
 
+const resolveBearerHeaderName = (
+  auth: Extract<OpenApiStoredSourceData["auth"], { kind: "bearer" }>,
+): string => {
+  const trimmed = auth.headerName?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "Authorization";
+};
+
+const resolveBearerPrefix = (
+  auth: Extract<OpenApiStoredSourceData["auth"], { kind: "bearer" }>,
+): string => auth.prefix ?? "Bearer ";
+
 const openApiDocumentHeaders = (input: {
   stored: OpenApiStoredSourceData;
   bearerToken: string | null;
@@ -434,8 +485,15 @@ const openApiDocumentHeaders = (input: {
   for (const [key, value] of Object.entries(input.stored.defaultHeaders ?? {})) {
     headers.set(key, value);
   }
-  if (input.bearerToken && input.bearerToken.length > 0) {
-    headers.set("authorization", `Bearer ${input.bearerToken}`);
+  if (
+    input.bearerToken &&
+    input.bearerToken.length > 0 &&
+    input.stored.auth.kind === "bearer"
+  ) {
+    headers.set(
+      resolveBearerHeaderName(input.stored.auth),
+      `${resolveBearerPrefix(input.stored.auth)}${input.bearerToken}`,
+    );
   }
   if (input.etag) {
     headers.set("if-none-match", input.etag);
@@ -542,17 +600,18 @@ const createOpenApiSourceRuntime = (
         });
       }
 
-      const bearerToken = yield* resolveBearerToken(stored);
+      const normalizedStored = normalizeStoredSourceData(stored);
+      const bearerToken = yield* resolveBearerToken(normalizedStored);
       const fetched = yield* fetchOpenApiDocument({
-        stored,
+        stored: normalizedStored,
         bearerToken,
       });
       const manifest = yield* extractOpenApiManifest(source.name, fetched.text, {
-        documentUrl: stored.specUrl,
+        documentUrl: normalizedStored.specUrl,
         loadDocument: async (url) => {
           const response = await fetch(url, {
             headers: openApiDocumentHeaders({
-              stored,
+              stored: normalizedStored,
               bearerToken,
             }),
           });
@@ -571,7 +630,7 @@ const createOpenApiSourceRuntime = (
         scopeId: source.scopeId,
         sourceId: source.id,
         value: {
-          ...stored,
+          ...normalizedStored,
           etag: fetched.etag,
           lastSyncAt: now,
         },
@@ -583,7 +642,7 @@ const createOpenApiSourceRuntime = (
           documents: [
             {
               documentKind: "openapi",
-              documentKey: stored.specUrl,
+              documentKey: normalizedStored.specUrl,
               contentText: fetched.text,
               fetchedAt: now,
             },
@@ -596,7 +655,7 @@ const createOpenApiSourceRuntime = (
             pluginKey: "openapi",
           }),
           importerVersion: "ir.v1.openapi",
-          sourceConfigHash: stableSourceHash(stored),
+          sourceConfigHash: stableSourceHash(normalizedStored),
         },
         sourceHash: manifest.sourceHash,
       });
@@ -613,6 +672,7 @@ const createOpenApiSourceRuntime = (
         );
       }
 
+      const normalizedStored = normalizeStoredSourceData(stored);
       const providerData = decodeProviderData(
         input.executable.binding,
       ) as OpenApiToolProviderData;
@@ -623,7 +683,7 @@ const createOpenApiSourceRuntime = (
         providerData.invocation,
       );
       const headers: Record<string, string> = {
-        ...(stored.defaultHeaders ?? {}),
+        ...(normalizedStored.defaultHeaders ?? {}),
       };
       const queryEntries: Array<{
         name: string;
@@ -678,14 +738,19 @@ const createOpenApiSourceRuntime = (
         }
       }
 
-      const bearerToken = yield* resolveBearerToken(stored);
-      if (bearerToken && bearerToken.length > 0) {
-        headers.authorization = `Bearer ${bearerToken}`;
+      const bearerToken = yield* resolveBearerToken(normalizedStored);
+      if (
+        bearerToken &&
+        bearerToken.length > 0 &&
+        normalizedStored.auth.kind === "bearer"
+      ) {
+        headers[resolveBearerHeaderName(normalizedStored.auth)] =
+          `${resolveBearerPrefix(normalizedStored.auth)}${bearerToken}`;
       }
 
       const requestUrl = resolveRequestUrl(
         resolveOpenApiBaseUrl({
-          stored,
+          stored: normalizedStored,
           providerData,
         }),
         resolvedPath,

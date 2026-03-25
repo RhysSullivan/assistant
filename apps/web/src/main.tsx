@@ -144,15 +144,19 @@ const sourcePluginRoutes = registeredSourceFrontendTypes.flatMap((definition) =>
   const paths = createSourcePluginPaths(definition.key);
 
   const AddRouteComponent = () => {
+    const search = addRoute.useSearch();
     const navigate = useNavigate();
+    const navigateFromRoute = useNavigate({ from: addRoute.fullPath });
     const navigation = createSourcePluginNavigation(definition, {
       navigateTo: (to, search) =>
         search === undefined ? navigate({ to }) : navigate({ to, search }),
+      updateSearch: (nextSearch) => navigateFromRoute({ search: nextSearch }),
     });
 
     return (
       <SourcePluginAddPage
         definitionKey={definition.key}
+        search={search}
         navigation={navigation}
       />
     );
