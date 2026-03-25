@@ -3,8 +3,9 @@ import * as Schema from "effect/Schema";
 import YAML from "yaml";
 
 import {
+  SecretRefSchema,
   StringMapSchema,
-} from "@executor/source-core";
+} from "@executor/platform-sdk/schema";
 
 export const OpenApiConnectionAuthSchema = Schema.Union(
   Schema.Struct({
@@ -12,7 +13,7 @@ export const OpenApiConnectionAuthSchema = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("bearer"),
-    tokenSecretRef: Schema.String,
+    tokenSecretRef: SecretRefSchema,
   }),
 );
 

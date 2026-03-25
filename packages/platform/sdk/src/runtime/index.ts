@@ -99,7 +99,6 @@ export * from "./execution/live";
 export * from "./catalog/schema-type-signature";
 export * from "./catalog/source/runtime";
 export * from "./catalog/source/sync";
-export * from "./sources/source-credential-interactions";
 export * from "./sources/source-store";
 export * from "./executor-state-store";
 export * from "./execution/scope/environment";

@@ -9,7 +9,7 @@ MCP shows up in executor in two different ways.
 
 This is the source side of MCP.
 
-When a user connects an MCP endpoint, executor treats it as an adapter with MCP-specific connection, discovery, and invocation behavior. The control plane persists the binding and credential state, while MCP-specific execution behavior lives behind the adapter and codemode layers.
+When a user connects an MCP endpoint, executor treats it as an adapter with MCP-specific connection, discovery, invocation, and OAuth behavior. The control plane persists the binding and secret material state, while MCP-specific auth and execution behavior lives behind the adapter and codemode layers.
 
 This is why MCP is modeled as its own adapter instead of being flattened into a generic HTTP execution model.
 
@@ -39,7 +39,7 @@ Keeping that distinction clear avoids collapsing very different responsibilities
 
 Broadly:
 
-- control plane owns workspace state, bindings, credentials, and execution lifecycle
+- control plane owns workspace state, bindings, secret material, and execution lifecycle
 - `packages/hosts/mcp` owns the local MCP server surface
 - `packages/platform/server` mounts the `/mcp` handler
 

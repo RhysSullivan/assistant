@@ -12,6 +12,7 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@executor/platform-sdk": "workspace:*",
     "@executor/source-core": "workspace:*",
     "effect": "catalog:",
     "yaml": "^2.8.1"

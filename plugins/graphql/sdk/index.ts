@@ -9,7 +9,6 @@ import * as Schema from "effect/Schema";
 import {
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
-  SourceCredentialRequiredError,
 } from "@executor/source-core";
 import type { Source } from "@executor/platform-sdk/schema";
 import type {
@@ -200,8 +199,7 @@ const fetchGraphqlIntrospectionDocumentWithHeaders = (input: {
 
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
-          throw new SourceCredentialRequiredError(
-            "import",
+          throw new Error(
             `GraphQL introspection requires credentials (status ${response.status})`,
           );
         }

@@ -14,6 +14,9 @@ import type {
   SourcePluginRuntime,
 } from "@executor/platform-sdk/plugins";
 import {
+  SecretMaterialResolverService,
+} from "@executor/platform-sdk/runtime";
+import {
   OpenApiConnectionAuthSchema,
   deriveOpenApiNamespace,
   previewOpenApiDocument,
@@ -64,12 +67,6 @@ export type OpenApiSourceStorage = {
   }) => Effect.Effect<void, Error, never>;
 };
 
-export type OpenApiSecrets = {
-  resolve: (input: {
-    ref: string;
-  }) => Effect.Effect<string, Error, never>;
-};
-
 export type OpenApiSdk = {
   previewDocument: (
     input: OpenApiPreviewRequest,
@@ -93,7 +90,6 @@ export type OpenApiSdk = {
 
 export type OpenApiSdkPluginOptions = {
   storage: OpenApiSourceStorage;
-  secrets?: OpenApiSecrets;
 };
 
 const OpenApiExecutorAddInputSchema = Schema.Struct({
@@ -414,22 +410,18 @@ const decodeResponseBody = async (response: Response): Promise<unknown> => {
 };
 
 const resolveBearerToken = (
-  options: OpenApiSdkPluginOptions,
   stored: OpenApiStoredSourceData,
-): Effect.Effect<string | null, Error, never> => {
-  if (stored.auth.kind === "none") {
+): Effect.Effect<string | null, Error, any> => {
+  const { auth } = stored;
+  if (auth.kind === "none") {
     return Effect.succeed(null);
   }
 
-  if (!options.secrets) {
-    return Effect.fail(
-      new Error("OpenAPI bearer auth is configured, but no secret resolver is available."),
-    );
-  }
-
-  return options.secrets.resolve({
-    ref: stored.auth.tokenSecretRef,
-  }).pipe(Effect.map((token) => token.trim()));
+  return Effect.flatMap(SecretMaterialResolverService, (resolveSecretMaterial) =>
+    resolveSecretMaterial({
+      ref: auth.tokenSecretRef,
+    }).pipe(Effect.map((token) => token.trim()))
+  );
 };
 
 const openApiDocumentHeaders = (input: {
@@ -550,7 +542,7 @@ const createOpenApiSourceRuntime = (
         });
       }
 
-      const bearerToken = yield* resolveBearerToken(options, stored);
+      const bearerToken = yield* resolveBearerToken(stored);
       const fetched = yield* fetchOpenApiDocument({
         stored,
         bearerToken,
@@ -686,7 +678,7 @@ const createOpenApiSourceRuntime = (
         }
       }
 
-      const bearerToken = yield* resolveBearerToken(options, stored);
+      const bearerToken = yield* resolveBearerToken(stored);
       if (bearerToken && bearerToken.length > 0) {
         headers.authorization = `Bearer ${bearerToken}`;
       }

@@ -10,7 +10,6 @@ import {
 import {
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
-  SourceCredentialRequiredError,
 } from "@executor/source-core";
 import type { Source } from "@executor/platform-sdk/schema";
 import type {
@@ -294,8 +293,7 @@ const fetchGoogleDiscoveryDocumentWithHeaders = (input: {
         signal: AbortSignal.timeout(15_000),
       });
       if (response.status === 401 || response.status === 403) {
-        throw new SourceCredentialRequiredError(
-          "import",
+        throw new Error(
           `Google Discovery fetch requires credentials (status ${response.status})`,
         );
       }

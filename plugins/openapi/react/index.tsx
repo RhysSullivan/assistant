@@ -38,7 +38,7 @@ import {
   type SourceToolExplorerSearch,
   useSourcePluginNavigation,
   useSourcePluginSearch,
-} from "@executor/react/source-plugins";
+} from "@executor/react/plugins";
 import {
   openApiHttpApiExtension,
 } from "@executor/plugin-openapi-http";
@@ -169,6 +169,31 @@ const inputFromConfig = (
   auth: config.auth,
 });
 
+const secretValue = (input: OpenApiConnectInput["auth"]): string =>
+  input.kind === "bearer"
+    ? JSON.stringify(input.tokenSecretRef)
+    : "";
+
+const authFromSecretValue = (
+  authKind: OpenApiConnectInput["auth"]["kind"],
+  value: string,
+): OpenApiConnectInput["auth"] => {
+  if (authKind === "none") {
+    return {
+      kind: "none",
+    };
+  }
+
+  if (!value) {
+    throw new Error("Select a secret for bearer auth.");
+  }
+
+  return {
+    kind: "bearer",
+    tokenSecretRef: JSON.parse(value) as OpenApiConnectInput["auth"] & { tokenSecretRef: never }["tokenSecretRef"],
+  };
+};
+
 const useAvailableSecrets = (
   openApiHttpClient: ReturnType<typeof getOpenApiHttpClient>,
 ) => {
@@ -205,9 +230,7 @@ function OpenApiSourceForm(props: {
     props.initialValue.auth.kind,
   );
   const [tokenSecretRef, setTokenSecretRef] = useState(
-    props.initialValue.auth.kind === "bearer"
-      ? props.initialValue.auth.tokenSecretRef
-      : "",
+    secretValue(props.initialValue.auth),
   );
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<OpenApiPreviewResponse | null>(null);
@@ -309,19 +332,12 @@ function OpenApiSourceForm(props: {
     }
 
     try {
+      const auth = authFromSecretValue(authKind, tokenSecretRef);
       await submitMutation.mutateAsync({
         name: trimmedName,
         specUrl: trimmedSpecUrl,
         baseUrl: trimmedBaseUrl || null,
-        auth:
-          authKind === "bearer"
-            ? {
-                kind: "bearer",
-                tokenSecretRef: tokenSecretRef.trim(),
-              }
-            : {
-                kind: "none",
-              },
+        auth,
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed saving source.");
@@ -398,7 +414,13 @@ function OpenApiSourceForm(props: {
               >
                 <option value="">Select a secret</option>
                 {availableSecrets.map((secret) => (
-                  <option key={secret.id} value={secret.id}>
+                  <option
+                    key={`${secret.providerId}:${secret.id}`}
+                    value={JSON.stringify({
+                      providerId: secret.providerId,
+                      handle: secret.id,
+                    })}
+                  >
                     {secret.name || secret.id}
                   </option>
                 ))}

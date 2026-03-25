@@ -683,6 +683,7 @@
       "name": "@executor/plugin-openapi-shared",
       "version": "0.0.0",
       "dependencies": {
+        "@executor/platform-sdk": "workspace:*",
         "@executor/source-core": "workspace:*",
         "effect": "catalog:",
         "yaml": "^2.8.1",

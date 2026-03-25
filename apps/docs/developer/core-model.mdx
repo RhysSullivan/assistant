@@ -57,17 +57,17 @@ They answer:
 
 The operation layer exists because raw upstream documents are not a good direct query surface for search, policy, and invocation lookup.
 
-### Credential
+### Secret material
 
-Credentials are private auth bindings.
+Secret material is private auth state.
 
-They answer:
+It answers:
 
-- who can authenticate for this binding?
-- for which slot?
-- using what auth kind and secret refs?
+- which private values exist for this workspace actor?
+- which source bindings refer to them?
+- which plugin-owned auth configs use those secret refs?
 
-Credentials are actor-scoped by default because two users in the same workspace may connect different identities to the same source.
+Secret material is actor-scoped by default because two users in the same workspace may connect different identities to the same source.
 
 ## Why the split matters
 
@@ -114,6 +114,11 @@ Adapters are more specific:
 - future `snippet_bundle`
 
 The important distinction is that execution now belongs to adapters. The shared catalog stays broad and stable, while connect/auth/invoke behavior is described through adapter strategies instead of one top-level runtime family enum.
+
+The same is true for auth behavior:
+
+- core owns secret storage and private state plumbing
+- plugins own auth schemas, request shaping, OAuth flows, and refresh logic
 
 ## Why this is the right shape
 

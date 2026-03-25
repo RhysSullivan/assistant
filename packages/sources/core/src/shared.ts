@@ -1,4 +1,3 @@
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
 export const parseJsonValue = <T>(input: {
@@ -14,22 +13,3 @@ export const parseJsonValue = <T>(input: {
             ? new Error(`Invalid ${input.label}: ${cause.message}`)
             : new Error(`Invalid ${input.label}: ${String(cause)}`),
       });
-
-export class SourceCredentialRequiredError extends Data.TaggedError(
-  "SourceCredentialRequiredError",
-)<{
-  readonly slot: "runtime" | "import";
-  readonly message: string;
-}> {
-  constructor(
-    slot: "runtime" | "import",
-    message: string,
-  ) {
-    super({ slot, message });
-  }
-}
-
-export const isSourceCredentialRequiredError = (
-  error: unknown,
-): error is SourceCredentialRequiredError =>
-  error instanceof SourceCredentialRequiredError;
