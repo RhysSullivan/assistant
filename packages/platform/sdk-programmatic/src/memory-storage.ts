@@ -103,23 +103,29 @@ export const createMemoryBackend = (
           getOrProvision: () => clone(installation),
         },
         workspace: {
-          config: {
-            load: () => ({
-              config: null,
-              homeConfig: null,
-              projectConfig: null,
-            }),
-            writeProject: () => {},
-            resolveRelativePath: ({ path }: { path: string; scopeRoot: string }) => path,
-          },
-          state: {
-            load: () => ({
+          config: (() => {
+            let projectConfig: any = null;
+            return {
+              load: () => ({
+                config: projectConfig,
+                homeConfig: null,
+                projectConfig,
+              }),
+              writeProject: (config: any) => { projectConfig = clone(config); },
+              resolveRelativePath: ({ path }: { path: string; scopeRoot: string }) => path,
+            };
+          })(),
+          state: (() => {
+            let stateData: any = {
               version: 1 as const,
               sources: {} as Record<string, any>,
               policies: {} as Record<string, any>,
-            }),
-            write: () => {},
-          },
+            };
+            return {
+              load: () => clone(stateData),
+              write: (data: any) => { stateData = clone(data); },
+            };
+          })(),
           sourceArtifacts: {
             // build is called by the source catalog sync — for in-memory use
             // it produces a minimal artifact structure
