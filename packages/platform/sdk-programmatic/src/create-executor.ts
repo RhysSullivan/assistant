@@ -199,7 +199,17 @@ export const createExecutor = async (
     ? () => buildToolMap(options.tools!)
     : undefined;
 
-  const inner = await createInnerExecutor({ backend, createInternalToolMap });
+  // Pass custom CodeExecutor if runtime is an object (not a string builtin name)
+  const customCodeExecutor =
+    options.runtime && typeof options.runtime !== "string"
+      ? options.runtime
+      : undefined;
+
+  const inner = await createInnerExecutor({
+    backend,
+    createInternalToolMap,
+    customCodeExecutor,
+  });
 
   const execute = createExecuteFunction(inner, options);
 

@@ -3,6 +3,8 @@ import {
   expect,
   it,
 } from "@effect/vitest";
+import type { CodeExecutor } from "@executor/codemode-core";
+import * as Effect from "effect/Effect";
 
 import { createExecutor } from "./create-executor";
 import type { ExecutorSDK } from "./types";
@@ -141,6 +143,76 @@ describe("createExecutor", () => {
     }
   });
 
+  it("accepts a custom CodeExecutor as runtime", async () => {
+    const executeCalls: string[] = [];
+
+    const runCode = async (
+      code: string,
+      toolInvoker: any,
+    ): Promise<{ result: unknown; error?: string; logs: string[] }> => {
+      const logs: string[] = [];
+      const mockConsole = {
+        log: (...args: unknown[]) => logs.push(args.map(String).join(" ")),
+      };
+      // Build a minimal tools proxy
+      const tools = new Proxy({} as any, {
+        get(_, ns: string) {
+          return new Proxy({} as any, {
+            get(_, method: string) {
+              return (args: unknown) =>
+                Effect.runPromise(
+                  toolInvoker.invoke({ path: `${ns}.${method}`, args }),
+                );
+            },
+          });
+        },
+      });
+      const fn = new Function(
+        "tools",
+        "console",
+        `"use strict"; return (async () => { ${code} })();`,
+      );
+      try {
+        const result = await fn(tools, mockConsole);
+        return { result, logs };
+      } catch (err: any) {
+        return { result: undefined, error: err.message, logs };
+      }
+    };
+
+    const customRuntime: CodeExecutor = {
+      execute(code, toolInvoker) {
+        executeCalls.push(code);
+        return Effect.tryPromise({
+          try: () => runCode(code, toolInvoker),
+          catch: (err) =>
+            err instanceof Error ? err : new Error(String(err)),
+        });
+      },
+    };
+
+    const executor = await createExecutor({
+      storage: "memory",
+      onToolApproval: "allow-all",
+      runtime: customRuntime,
+      tools: {
+        "echo.back": {
+          execute: async ({ msg }: { msg: string }) => ({ echo: msg }),
+        },
+      },
+    });
+
+    try {
+      const result = await executor.execute(
+        `const r = await tools.echo.back({ msg: "hi" }); return r;`,
+      );
+      expect(result.result).toEqual({ echo: "hi" });
+      expect(executeCalls.length).toBe(1);
+    } finally {
+      await executor.close();
+    }
+  });
+
   it("sources.list() returns empty array on fresh executor", async () => {
     const executor = await createExecutor({
       storage: "memory",
@@ -150,6 +222,61 @@ describe("createExecutor", () => {
     try {
       const sources = await executor.sources.list();
       expect(Array.isArray(sources)).toBe(true);
+    } finally {
+      await executor.close();
+    }
+  });
+
+  it("memory storage persists policies across calls", async () => {
+    const executor = await createExecutor({
+      storage: "memory",
+      onToolApproval: "allow-all",
+    });
+
+    try {
+      // Create a policy
+      await executor.policies.create({
+        resourcePattern: "source.*",
+        effect: "allow",
+        approvalMode: "auto",
+      });
+
+      // List should return the created policy
+      const policies = await executor.policies.list();
+      expect(policies.length).toBeGreaterThanOrEqual(1);
+      expect(policies.some((p: any) => p.resourcePattern === "source.*")).toBe(
+        true,
+      );
+    } finally {
+      await executor.close();
+    }
+  });
+
+  it("multiple execute() calls share the same runtime state", async () => {
+    const callLog: string[] = [];
+    const executor = await createExecutor({
+      storage: "memory",
+      onToolApproval: "allow-all",
+      tools: {
+        "log.append": {
+          execute: async ({ msg }: { msg: string }) => {
+            callLog.push(msg);
+            return { count: callLog.length };
+          },
+        },
+      },
+    });
+
+    try {
+      const r1 = await executor.execute(
+        `return await tools.log.append({ msg: "first" });`,
+      );
+      const r2 = await executor.execute(
+        `return await tools.log.append({ msg: "second" });`,
+      );
+      expect(r1.result).toEqual({ count: 1 });
+      expect(r2.result).toEqual({ count: 2 });
+      expect(callLog).toEqual(["first", "second"]);
     } finally {
       await executor.close();
     }
