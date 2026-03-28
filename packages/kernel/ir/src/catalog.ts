@@ -538,14 +538,29 @@ const projectResultShapeFromResponses = (
   catalog: CatalogV1,
   capability: Capability,
   responseSet: ResponseSet,
-): ShapeSymbolId | undefined =>
-  contentShapeIdFromResponseEntries(
+): ShapeSymbolId | undefined => {
+  const successEntries = responseVariantEntries(catalog, responseSet)
+    .filter(({ variant }) => isSuccessStatusMatch(variant.match));
+  const contentShapeId = contentShapeIdFromResponseEntries(
     catalog,
     capability,
     `responseSet:${responseSet.id}`,
     `${capability.surface.title ?? capability.id} result`,
-    responseVariantEntries(catalog, responseSet).filter(({ variant }) => isSuccessStatusMatch(variant.match)),
+    successEntries,
   );
+
+  if (contentShapeId) {
+    return contentShapeId;
+  }
+
+  return successEntries.length > 0
+    ? constNullShape(
+        catalog,
+        capability,
+        `responseSet:${responseSet.id}:success:null`,
+      )
+    : undefined;
+};
 
 const projectErrorShapeFromResponses = (
   catalog: CatalogV1,
@@ -622,6 +637,15 @@ const nullableShape = (
     baseShapeId: ShapeSymbolId;
   },
 ): ShapeSymbolId => {
+  const baseShape = catalog.symbols[input.baseShapeId];
+  if (
+    baseShape?.kind === "shape"
+    && baseShape.node.type === "const"
+    && baseShape.node.value === null
+  ) {
+    return input.baseShapeId;
+  }
+
   const nullShapeId = constNullShape(catalog, capability, `${input.label}:null`);
   if (input.baseShapeId === nullShapeId) {
     return nullShapeId;

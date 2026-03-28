@@ -48,14 +48,65 @@ const vercelFixturePath = fileURLToPath(
   new URL("../fixtures/vercel-openapi.json", import.meta.url),
 );
 
-const makeSource = (): Source => ({
-  id: "source_vercel_api",
+const noContentSuccessOpenApiFixture = JSON.stringify({
+  openapi: "3.1.0",
+  info: {
+    title: "GitHub REST API",
+    version: "1.0.0",
+  },
+  servers: [
+    {
+      url: "https://api.github.com",
+    },
+  ],
+  paths: {
+    "/user/starred/{owner}/{repo}": {
+      get: {
+        operationId: "checkRepoIsStarredByAuthenticatedUser",
+        summary: "Check if a repository is starred by the authenticated user",
+        parameters: [
+          {
+            name: "owner",
+            in: "path",
+            required: true,
+            schema: {
+              type: "string",
+            },
+          },
+          {
+            name: "repo",
+            in: "path",
+            required: true,
+            schema: {
+              type: "string",
+            },
+          },
+        ],
+        responses: {
+          "204": {
+            description: "Response if this repository is starred by you",
+          },
+          "404": {
+            description: "Not Found if this repository is not starred by you",
+          },
+        },
+      },
+    },
+  },
+});
+
+const makeSource = (input: {
+  id?: string;
+  name?: string;
+  namespace?: string;
+} = {}): Source => ({
+  id: input.id ?? "source_vercel_api",
   scopeId: "scope_test",
-  name: "Vercel API",
+  name: input.name ?? "Vercel API",
   kind: "openapi",
   status: "connected",
   enabled: true,
-  namespace: "vercel-api",
+  namespace: input.namespace ?? "vercel-api",
   createdAt: 0,
   updatedAt: 0,
 });
@@ -166,5 +217,77 @@ describe("openapi type contracts", () => {
       expect(declaration).not.toContain("firstName: unknown;");
       expect(declaration).not.toContain("email: unknown;");
       expect(declaration).not.toContain("country: unknown;");
+    }).pipe(Effect.provide(NodeFileSystem.layer)));
+
+  it.effect("renders null success data for bodyless OpenAPI responses", () =>
+    Effect.gen(function* () {
+      const source = makeSource({
+        id: "source_github_v3_rest_api",
+        name: "GitHub REST API",
+        namespace: "github-v3-rest-api",
+      });
+      const manifest = yield* extractOpenApiManifest(
+        source.name,
+        noContentSuccessOpenApiFixture,
+      );
+      const operations = compileOpenApiToolDefinitions(manifest).map(
+        openApiCatalogOperationFromDefinition,
+      );
+      const fragment = createOpenApiCatalogFragment({
+        source,
+        documents: [
+          {
+            documentKind: "openapi",
+            documentKey: "https://example.com/github-rest-openapi.json",
+            fetchedAt: 0,
+            contentText: noContentSuccessOpenApiFixture,
+          },
+        ],
+        operations,
+      });
+      const snapshot = snapshotFromSourceCatalogSyncResult(
+        createSourceCatalogSyncResult({
+          fragment,
+          importMetadata: createCatalogImportMetadata({
+            source,
+            pluginKey: "openapi",
+          }),
+          sourceHash: manifest.sourceHash,
+        }),
+      );
+      const projected = projectCatalogForAgentSdk({
+        catalog: snapshot.catalog,
+      });
+      const revision = makeRevision();
+      const loadedCatalog: LoadedSourceCatalog = {
+        source,
+        sourceRecord: makeSourceRecord(source, revision),
+        revision,
+        snapshot,
+        catalog: snapshot.catalog,
+        projected,
+        typeProjector: createCatalogTypeProjector({
+          catalog: projected.catalog,
+          roots: projectedCatalogTypeRoots(projected),
+        }),
+        importMetadata: snapshot.import,
+      };
+
+      const tools = yield* expandCatalogTools({
+        catalogs: [loadedCatalog],
+        includeSchemas: true,
+        includeTypePreviews: true,
+      });
+      const tool = tools.find((candidate) =>
+        candidate.path.endsWith(".checkRepoIsStarredByAuthenticatedUser")
+      );
+
+      expect(tool).toBeDefined();
+
+      const contract = yield* buildLoadedSourceCatalogToolContract(tool!);
+
+      expect(contract.output.typeDeclaration).toContain("data: null;");
+      expect(contract.output.typeDeclaration).not.toContain("data: unknown");
+      expect(contract.output.typePreview).toContain("data: null");
     }).pipe(Effect.provide(NodeFileSystem.layer)));
 });
