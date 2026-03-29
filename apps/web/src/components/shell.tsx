@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useMatchRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useSources, type Source } from "@executor/react";
-import { sourcePluginsIndexPath } from "@executor/react/plugins";
+import { Button, sourcePluginsIndexPath } from "@executor/react/plugins";
 import { cn } from "../lib/utils";
 import { IconPlus, IconCopy, IconCheck, IconClose, IconMenu } from "./icons";
 import { LoadableBlock } from "./loadable";
@@ -199,10 +199,11 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
           </p>
         </div>
       </div>
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={handleCopy}
-        className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/50 px-2.5 py-1.5 text-left transition-colors hover:bg-background/80"
+        className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border-border/60 bg-background/50 px-2.5 py-1.5 text-left hover:bg-background/80"
       >
         <code className="truncate font-mono text-[10px] text-sidebar-foreground">
           {command}
@@ -214,7 +215,7 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
             <IconCopy className="size-3" />
           )}
         </span>
-      </button>
+      </Button>
     </div>
   );
 }
@@ -285,14 +286,16 @@ export function AppShell() {
                   v3
                 </span>
               </Link>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 aria-label="Close navigation"
                 onClick={() => setMobileSidebarOpen(false)}
-                className="inline-flex size-8 items-center justify-center rounded-md text-sidebar-foreground transition-colors hover:bg-sidebar-active hover:text-foreground"
+                className="size-8 text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
               >
                 <IconClose className="size-3.5" />
-              </button>
+              </Button>
             </div>
             <SidebarContent
               isHome={!!isHome}
@@ -314,14 +317,16 @@ export function AppShell() {
       {/* Main content */}
       <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 md:hidden">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="icon"
             aria-label="Open navigation"
             onClick={() => setMobileSidebarOpen(true)}
-            className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent/50"
+            className="size-8 bg-card hover:bg-accent/50"
           >
             <IconMenu className="size-4" />
-          </button>
+          </Button>
           <Link to="/" className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">
               executor

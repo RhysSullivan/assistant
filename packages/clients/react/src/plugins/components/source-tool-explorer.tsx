@@ -7,7 +7,7 @@ import {
   useSourceInspection,
   useSourceToolDetail,
 } from "../../hooks/sources";
-import { Badge } from "./badge";
+import { Badge } from "./ui/badge";
 import { LoadableBlock } from "./loadable";
 import {
   SourceToolModelWorkbench,

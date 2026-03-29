@@ -11,9 +11,17 @@ import {
   useSource,
 } from "@executor/react";
 import {
+  Alert,
   Badge,
+  Button,
+  Card,
   IconPencil,
+  Input,
+  Label,
+  Select,
+  Separator,
   SourceToolExplorer,
+  Textarea,
   parseSourceToolExplorerSearch,
   type SourceToolExplorerSearch,
   useSourcePluginNavigation,
@@ -565,80 +573,74 @@ function GoogleDiscoverySourceForm(props: {
   };
 
   return (
-    <div className="space-y-6 rounded-xl border border-border p-6">
+    <Card className="space-y-6 p-6">
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-2 sm:col-span-2">
-          <span className="text-xs font-medium text-foreground">Name</span>
-          <input
+        <div className="grid gap-2 sm:col-span-2">
+          <Label>Name</Label>
+          <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           />
-        </label>
-        <label className="grid gap-2">
-          <span className="text-xs font-medium text-foreground">Service</span>
-          <input
+        </div>
+        <div className="grid gap-2">
+          <Label>Service</Label>
+          <Input
             value={service}
             onChange={(event) => setService(event.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           />
-        </label>
-        <label className="grid gap-2">
-          <span className="text-xs font-medium text-foreground">Version</span>
-          <input
+        </div>
+        <div className="grid gap-2">
+          <Label>Version</Label>
+          <Input
             value={version}
             onChange={(event) => setVersion(event.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           />
-        </label>
-        <label className="grid gap-2 sm:col-span-2">
-          <span className="text-xs font-medium text-foreground">Discovery URL</span>
-          <input
+        </div>
+        <div className="grid gap-2 sm:col-span-2">
+          <Label>Discovery URL</Label>
+          <Input
             value={discoveryUrl}
             onChange={(event) => setDiscoveryUrl(event.target.value)}
             placeholder={defaultGoogleDiscoveryUrl(service || "sheets", version || "v4")}
-            className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+            className="font-mono text-xs"
           />
-        </label>
+        </div>
       </div>
 
-      <label className="grid gap-2">
-        <span className="text-xs font-medium text-foreground">Default Headers</span>
-        <textarea
+      <div className="grid gap-2">
+        <Label>Default Headers</Label>
+        <Textarea
           value={headersText}
           onChange={(event) => setHeadersText(event.target.value)}
           rows={3}
-          className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
         />
-      </label>
+      </div>
 
-      <label className="grid gap-2">
-        <span className="text-xs font-medium text-foreground">Scopes</span>
-        <textarea
+      <div className="grid gap-2">
+        <Label>Scopes</Label>
+        <Textarea
           value={scopesText}
           onChange={(event) => setScopesText(event.target.value)}
           rows={3}
           placeholder="Leave blank to infer from the discovery document."
-          className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
         />
-      </label>
+      </div>
 
-      <label className="grid gap-2">
-        <span className="text-xs font-medium text-foreground">Auth</span>
-        <select
+      <div className="grid gap-2">
+        <Label>Auth</Label>
+        <Select
           value={authKind}
           onChange={(event) =>
             setAuthKind(event.target.value as GoogleDiscoveryConnectionAuth["kind"])}
-          className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
         >
           <option value="none">None</option>
           <option value="bearer">Bearer Secret</option>
           <option value="oauth2">Google OAuth</option>
-        </select>
-      </label>
+        </Select>
+      </div>
 
       {authKind === "bearer" && (
-        <div className="border-l-2 border-border pl-4">
+        <div className="rounded-lg border border-border bg-muted/20 p-4">
           <SecretReferenceField
             label="Secret"
             value={bearerSecretRef}
@@ -651,15 +653,14 @@ function GoogleDiscoverySourceForm(props: {
       )}
 
       {authKind === "oauth2" && (
-        <div className="space-y-4 border-l-2 border-border pl-4">
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Client ID</span>
-            <input
+        <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
+          <div className="grid gap-2">
+            <Label>Client ID</Label>
+            <Input
               value={clientId}
               onChange={(event) => setClientId(event.target.value)}
-              className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
-          </label>
+          </div>
           <SecretReferenceField
             label="Client Secret"
             value={clientSecretRef}
@@ -669,7 +670,8 @@ function GoogleDiscoverySourceForm(props: {
             onChange={setClientSecretRef}
           />
           <div className="flex items-center gap-3">
-            <button
+            <Button
+              variant="outline"
               type="button"
               onClick={() => {
                 void (async () => {
@@ -685,14 +687,13 @@ function GoogleDiscoverySourceForm(props: {
                 })();
               }}
               disabled={oauthStatus === "pending"}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
             >
               {oauthStatus === "pending"
                 ? "Connecting..."
                 : oauthStatus === "connected"
                   ? "Reconnect"
                   : "Connect with Google"}
-            </button>
+            </Button>
             {oauthStatus === "connected" && (
               <span className="text-xs text-primary">Connected</span>
             )}
@@ -701,13 +702,13 @@ function GoogleDiscoverySourceForm(props: {
       )}
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-sm text-destructive">
+        <Alert variant="destructive">
           {error}
-        </div>
+        </Alert>
       )}
 
       <div className="flex items-center justify-end">
-        <button
+        <Button
           type="button"
           onClick={() => {
             void (async () => {
@@ -746,14 +747,13 @@ function GoogleDiscoverySourceForm(props: {
             })();
           }}
           disabled={submitMutation.status === "pending"}
-          className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
         >
           {submitMutation.status === "pending"
             ? props.mode === "create" ? "Creating..." : "Saving..."
             : props.mode === "create" ? "Create Source" : "Save Changes"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -857,7 +857,7 @@ function GoogleDiscoveryBatchConnectPanel(props: {
   };
 
   return (
-    <div className="space-y-6 rounded-xl border border-border p-6">
+    <Card className="space-y-6 p-6">
       <div>
         <h2 className="text-base font-semibold text-foreground">
           Connect multiple Google APIs
@@ -874,14 +874,17 @@ function GoogleDiscoveryBatchConnectPanel(props: {
             : `${selectedTemplates.length} Google API${selectedTemplates.length === 1 ? "" : "s"} selected.`}
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             type="button"
             onClick={() => setSelectedTemplateIds([])}
-            className="inline-flex h-8 items-center justify-center rounded-lg border border-input bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
           >
             Clear
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             type="button"
             onClick={() =>
               setSelectedTemplateIds(
@@ -890,12 +893,11 @@ function GoogleDiscoveryBatchConnectPanel(props: {
                   : GOOGLE_DISCOVERY_BATCH_TEMPLATES.map((template) => template.id),
               )
             }
-            className="inline-flex h-8 items-center justify-center rounded-lg border border-input bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
           >
             {selectedTemplateIds.length === GOOGLE_DISCOVERY_BATCH_TEMPLATES.length
               ? "Deselect all"
               : "Select all"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -905,14 +907,15 @@ function GoogleDiscoveryBatchConnectPanel(props: {
           const iconUrl = getGoogleDiscoveryIconUrlForService(template.service);
 
           return (
-            <button
+            <Button
               key={template.id}
+              variant="ghost"
               type="button"
               onClick={() => toggleTemplate(template.id)}
               className={
                 selected
-                  ? "rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-left transition-colors"
-                  : "rounded-lg border border-border px-4 py-3 text-left transition-colors hover:bg-accent/40"
+                  ? "h-auto rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-left"
+                  : "h-auto rounded-lg border border-border px-4 py-3 text-left hover:bg-accent/40"
               }
             >
               <div className="flex items-start gap-3">
@@ -954,21 +957,20 @@ function GoogleDiscoveryBatchConnectPanel(props: {
                   </div>
                 </div>
               </div>
-            </button>
+            </Button>
           );
         })}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="grid gap-2 md:col-span-2">
-          <span className="text-xs font-medium text-foreground">Client ID</span>
-          <input
+        <div className="grid gap-2 md:col-span-2">
+          <Label>Client ID</Label>
+          <Input
             value={clientId}
             onChange={(event) => setClientId(event.target.value)}
             placeholder="1234567890-abcdef.apps.googleusercontent.com"
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           />
-        </label>
+        </div>
         <div className="md:col-span-2">
           <SecretReferenceField
             label="Client Secret"
@@ -982,13 +984,13 @@ function GoogleDiscoveryBatchConnectPanel(props: {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+        <Alert variant="destructive">
           {error}
-        </div>
+        </Alert>
       )}
 
       <div className="flex items-center justify-end gap-3">
-        <button
+        <Button
           type="button"
           onClick={() => {
             void handleConnect();
@@ -998,16 +1000,15 @@ function GoogleDiscoveryBatchConnectPanel(props: {
             || selectedTemplates.length === 0
             || clientId.trim().length === 0
           }
-          className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
         >
           {status === "connecting"
             ? "Connecting..."
             : selectedTemplates.length > 0
               ? `Connect ${selectedTemplates.length} Google API${selectedTemplates.length === 1 ? "" : "s"}`
               : "Connect Google APIs"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -1043,11 +1044,11 @@ export function GoogleDiscoveryAddPage() {
       />
 
       <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-border" />
+        <Separator className="flex-1" />
         <div className="text-xs font-medium text-muted-foreground">
           or add a single API
         </div>
-        <div className="h-px flex-1 bg-border" />
+        <Separator className="flex-1" />
       </div>
 
       <GoogleDiscoverySourceForm
@@ -1108,9 +1109,9 @@ export function GoogleDiscoveryEditPage(props: {
 
   if (Result.isFailure(configResult)) {
     return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+      <Alert variant="destructive">
         Failed loading source configuration.
-      </div>
+      </Alert>
     );
   }
 
@@ -1238,48 +1239,48 @@ export function GoogleDiscoveryDetailPage(props: {
       summary={summary}
       actions={(
         <>
-          <button
+          <Button
+            variant="outline"
             type="button"
             onClick={() =>
               void navigation.edit(props.source.id)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
           >
             <IconPencil className="size-3.5" />
             Edit
-          </button>
+          </Button>
           {confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-destructive">
                 Confirm delete?
               </span>
-              <button
+              <Button
+                variant="outline"
                 type="button"
                 onClick={() => setConfirmDelete(false)}
                 disabled={isDeleting}
-                className="inline-flex h-9 items-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="destructive-outline"
                 type="button"
                 onClick={() => {
                   void handleDelete().catch(() => {});
                 }}
                 disabled={isDeleting}
-                className="inline-flex h-9 items-center rounded-lg border border-destructive/25 bg-destructive/5 px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
               >
                 {isDeleting ? "Deleting..." : "Delete"}
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
+            <Button
+              variant="destructive-outline"
               type="button"
               onClick={() => setConfirmDelete(true)}
               disabled={isDeleting}
-              className="inline-flex h-9 items-center rounded-lg border border-destructive/25 bg-destructive/5 px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             >
               Delete
-            </button>
+            </Button>
           )}
         </>
       )}

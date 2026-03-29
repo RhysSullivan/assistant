@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button } from "@executor/react/plugins";
 import { CodeBlock } from "./code-block";
 import { cn } from "../lib/utils";
 
@@ -44,19 +45,16 @@ export function LocalMcpInstallCard(props: {
           { key: "stdio" as const, label: "Standard I/O" },
           { key: "http" as const, label: "Remote HTTP" },
         ].map((option) => (
-          <button
+          <Button
             key={option.key}
             type="button"
+            variant={mode === option.key ? "default" : "ghost"}
+            size="sm"
             onClick={() => setMode(option.key)}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-              mode === option.key
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-            )}
+            className="rounded-md px-3 py-1.5"
           >
             {option.label}
-          </button>
+          </Button>
         ))}
       </div>
       <CodeBlock code={command} lang="bash" className="rounded-xl border border-border bg-background/70" />

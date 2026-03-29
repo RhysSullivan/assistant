@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -35,6 +36,11 @@ const workspaceExecutorPackages = Object.keys(webPackage.dependencies ?? {}).fil
 
 export default defineConfig({
   root: "src",
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "./src"),
+    },
+  },
   plugins: [
     tailwindcss(),
     react(),

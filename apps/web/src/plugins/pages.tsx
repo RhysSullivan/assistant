@@ -1,6 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
+  Alert,
+  Button,
+  Card,
+  Input,
   ExecutorPluginRouteProvider,
   createSourcePluginPaths,
   type ExecutorPluginNavigation,
@@ -61,7 +65,7 @@ const SourceQuickEntry = () => {
   };
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-6">
+    <Card className="rounded-2xl">
       <h2 className="font-display text-lg font-semibold tracking-tight text-foreground">
         Quick add
       </h2>
@@ -71,27 +75,24 @@ const SourceQuickEntry = () => {
 
       <form onSubmit={handleSubmit} className="mt-4">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <input
+          <Input
             value={value}
             onChange={(event) => setValue(event.target.value)}
             placeholder="https://api.github.com/graphql or npx -y chrome-devtools-mcp@latest"
-            className="h-10 flex-1 rounded-lg border border-input bg-background px-3.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/45 focus:border-ring focus:ring-1 focus:ring-ring/25"
+            className="h-10 flex-1 px-3.5 text-sm"
           />
-          <button
-            type="submit"
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-          >
+          <Button type="submit" className="h-10">
             Add source
-          </button>
+          </Button>
         </div>
 
         {error && (
-          <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-sm text-destructive">
+          <Alert variant="destructive" className="mt-3">
             {error}
-          </div>
+          </Alert>
         )}
       </form>
-    </div>
+    </Card>
   );
 };
 

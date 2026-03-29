@@ -14,10 +14,17 @@ import {
   useSource,
 } from "@executor/react";
 import {
+  Alert,
   Badge,
+  Button,
+  Card,
   IconPencil,
+  Input,
+  Label,
+  Select,
   SourceToolDetailPanel,
   SourceToolExplorer,
+  Textarea,
   parseSourceToolExplorerSearch,
   useSourcePluginRouteParams,
   type SourceToolExplorerSearch,
@@ -207,52 +214,49 @@ function GraphqlSourceForm(props: {
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <div className="space-y-6 rounded-xl border border-border p-6">
+    <Card className="space-y-6 p-6">
       <div className="grid gap-4">
-        <label className="grid gap-2">
-          <span className="text-xs font-medium text-foreground">Name</span>
-          <input
+        <div className="grid gap-2">
+          <Label>Name</Label>
+          <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           />
-        </label>
+        </div>
 
-        <label className="grid gap-2">
-          <span className="text-xs font-medium text-foreground">Endpoint</span>
-          <input
+        <div className="grid gap-2">
+          <Label>Endpoint</Label>
+          <Input
             value={endpoint}
             onChange={(event) => setEndpoint(event.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+            className="font-mono text-xs"
           />
-        </label>
+        </div>
 
-        <label className="grid gap-2">
-          <span className="text-xs font-medium text-foreground">Default Headers</span>
-          <textarea
+        <div className="grid gap-2">
+          <Label>Default Headers</Label>
+          <Textarea
             value={headersText}
             onChange={(event) => setHeadersText(event.target.value)}
             rows={3}
             placeholder='{"x-api-version":"2026-03-23"}'
-            className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           />
-        </label>
+        </div>
 
-        <label className="grid gap-2">
-          <span className="text-xs font-medium text-foreground">Auth</span>
-          <select
+        <div className="grid gap-2">
+          <Label>Auth</Label>
+          <Select
             value={authKind}
             onChange={(event) =>
               setAuthKind(event.target.value as GraphqlConnectionAuth["kind"])}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           >
             <option value="none">None</option>
             <option value="bearer">Bearer Secret</option>
-          </select>
-        </label>
+          </Select>
+        </div>
 
         {authKind === "bearer" && (
-          <div className="space-y-4 border-l-2 border-border pl-4">
+          <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
             <SecretReferenceField
               label="Secret"
               value={secretRef}
@@ -263,38 +267,38 @@ function GraphqlSourceForm(props: {
             />
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-2">
-                <span className="text-xs font-medium text-foreground">Header Name</span>
-                <input
+              <div className="grid gap-2">
+                <Label>Header Name</Label>
+                <Input
                   value={authHeaderName}
                   onChange={(event) => setAuthHeaderName(event.target.value)}
                   placeholder={DEFAULT_BEARER_HEADER_NAME}
-                  className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  className="font-mono text-xs"
                 />
-              </label>
+              </div>
 
-              <label className="grid gap-2">
-                <span className="text-xs font-medium text-foreground">Prefix</span>
-                <input
+              <div className="grid gap-2">
+                <Label>Prefix</Label>
+                <Input
                   value={authPrefix}
                   onChange={(event) => setAuthPrefix(event.target.value)}
                   placeholder={DEFAULT_BEARER_PREFIX}
-                  className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  className="font-mono text-xs"
                 />
-              </label>
+              </div>
             </div>
           </div>
         )}
       </div>
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-sm text-destructive">
+        <Alert variant="destructive">
           {error}
-        </div>
+        </Alert>
       )}
 
       <div className="flex items-center justify-end">
-        <button
+        <Button
           type="button"
           onClick={() => {
             void (async () => {
@@ -317,14 +321,13 @@ function GraphqlSourceForm(props: {
             })();
           }}
           disabled={submitMutation.status === "pending"}
-          className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
         >
           {submitMutation.status === "pending"
             ? props.mode === "create" ? "Creating..." : "Saving..."
             : props.mode === "create" ? "Create Source" : "Save Changes"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -400,9 +403,9 @@ export function GraphqlEditPage(props: {
 
   if (Result.isFailure(configResult)) {
     return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+      <Alert variant="destructive">
         Failed loading source configuration.
-      </div>
+      </Alert>
     );
   }
 
@@ -556,47 +559,47 @@ function GraphqlDetailExplorer(props: {
       ) : undefined}
       actions={(
         <>
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => void navigation.edit(props.source.id)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
           >
             <IconPencil className="size-3" />
             Edit
-          </button>
+          </Button>
           {confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-medium text-destructive">
                 Confirm delete?
               </span>
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setConfirmDelete(false)}
                 disabled={isDeleting}
-                className="inline-flex items-center rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="destructive-outline"
+                size="sm"
                 onClick={() => {
                   void handleDelete().catch(() => {});
                 }}
                 disabled={isDeleting}
-                className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
               >
                 {isDeleting ? "Deleting..." : "Delete"}
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="destructive-outline"
+              size="sm"
               onClick={() => setConfirmDelete(true)}
               disabled={isDeleting}
-              className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             >
               Delete
-            </button>
+            </Button>
           )}
         </>
       )}

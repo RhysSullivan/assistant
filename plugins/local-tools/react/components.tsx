@@ -7,6 +7,9 @@ import {
   useSources,
 } from "@executor/react";
 import {
+  Alert,
+  Button,
+  Card,
   SourceToolExplorer,
   parseSourceToolExplorerSearch,
   useSourcePluginNavigation,
@@ -116,7 +119,7 @@ export function LocalToolsAddPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-10">
-      <div className="rounded-2xl border border-border bg-card p-6">
+      <Card className="p-6">
         <h1 className="font-display text-2xl tracking-tight text-foreground">
           Local Tools
         </h1>
@@ -125,7 +128,7 @@ export function LocalToolsAddPage() {
           {" "}into a first-class source with inspection and discovery.
         </p>
 
-        <div className="mt-6 rounded-xl border border-border/70 bg-background/60 p-4 text-sm text-muted-foreground">
+        <Card className="mt-6 bg-background/60 p-4 text-sm text-muted-foreground">
           <p>
             The source is provisioned automatically when the executor session starts and finds
             local tool files in <code className="rounded bg-muted px-1 py-0.5 font-mono">.executor/tools</code>.
@@ -135,11 +138,12 @@ export function LocalToolsAddPage() {
             {" "}<code className="rounded bg-muted px-1 py-0.5 font-mono">.executor/tools/demo.ts</code>
             {" "}still appears as <code className="rounded bg-muted px-1 py-0.5 font-mono">tools.demo(...)</code>.
           </p>
-        </div>
+        </Card>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
           {localToolsSource ? (
-            <button
+            <Button
+              size="lg"
               type="button"
               onClick={() => {
                 startTransition(() => {
@@ -148,19 +152,18 @@ export function LocalToolsAddPage() {
                   });
                 });
               }}
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
             >
               Open Local Tools Source
-            </button>
+            </Button>
           ) : (
-            <div className="rounded-lg border border-amber-500/25 bg-amber-500/8 px-4 py-2.5 text-sm text-amber-700">
+            <Alert variant="warning">
               No local tools source is active yet. Create a tool in
               {" "}<code className="rounded bg-muted px-1 py-0.5 font-mono">.executor/tools</code>
               {" "}and restart the executor session.
-            </div>
+            </Alert>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

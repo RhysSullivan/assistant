@@ -290,53 +290,33 @@ export function SecretReferenceField(props: SecretReferenceFieldProps) {
     <div className="grid gap-2">
       <span className="text-xs font-medium text-foreground">{props.label}</span>
 
-      <button
-        type="button"
-        onClick={() => {
-          setShowCreate(false);
-          setShowFinder((current) => !current);
+      <input
+        value={showFinder ? finderQuery : (selectedSecret ? (selectedSecret.name ?? selectedSecret.id) : "")}
+        onChange={(event) => {
+          setFinderQuery(event.target.value);
+          if (!showFinder) {
+            setShowFinder(true);
+            setShowCreate(false);
+          }
         }}
-        className="flex min-h-9 w-full items-center justify-between gap-3 rounded-lg border border-input bg-background px-3 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-accent/30 focus:border-ring focus:ring-1 focus:ring-ring/25"
-      >
-        <div className="min-w-0">
-          <div className="truncate">
-            {selectedSecret
-              ? (selectedSecret.name ?? selectedSecret.id)
-              : props.emptyLabel}
-          </div>
-          {selectedSecret && (
-            <div className="truncate text-[11px] text-muted-foreground">
-              {selectedSecret.storeName} · {selectedSecret.storeKind}
-            </div>
-          )}
-        </div>
-        <div className="shrink-0 text-[11px] font-medium text-muted-foreground">
-          {showFinder ? "Close" : "Choose"}
-        </div>
-      </button>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            setShowFinder(false);
-            setShowCreate((current) => !current);
-          }}
-          className={buttonClassName}
-        >
-          {showCreate ? "Hide create" : "Create new secret"}
-        </button>
-      </div>
+        onFocus={() => {
+          if (!showFinder) {
+            setShowFinder(true);
+            setShowCreate(false);
+          }
+        }}
+        onBlur={(event) => {
+          // Don't close if clicking inside the results
+          if (event.relatedTarget?.closest("[data-secret-results]")) return;
+          setShowFinder(false);
+          setFinderQuery("");
+        }}
+        placeholder={selectedSecret ? (selectedSecret.name ?? selectedSecret.id) : props.emptyLabel}
+        className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+      />
 
       {showFinder && (
-        <div className="space-y-3 border-l-2 border-border pl-4">
-          <input
-            value={finderQuery}
-            onChange={(event) => setFinderQuery(event.target.value)}
-            placeholder="Search all secrets"
-            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-            autoFocus
-          />
+        <div className="space-y-3" data-secret-results>
 
           {finderError && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
@@ -345,6 +325,17 @@ export function SecretReferenceField(props: SecretReferenceFieldProps) {
           )}
 
           <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+            <button
+              type="button"
+              onClick={() => {
+                setShowFinder(false);
+                setShowCreate(true);
+              }}
+              className="flex w-full items-start justify-between gap-3 rounded-lg border border-input bg-background px-3 py-2 text-left transition-colors hover:bg-accent/40"
+            >
+              <span className="text-sm text-foreground">Create new secret</span>
+            </button>
+
             {finderStatus === "pending" && (
               <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
                 Loading secrets...

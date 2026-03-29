@@ -19,8 +19,15 @@ import {
 } from "@executor/react";
 
 import { LoadableBlock } from "../components/loadable";
-import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
+import { Badge } from "@executor/react/plugins";
+import {
+  Alert,
+  Button,
+  Card,
+  Input,
+  Label,
+  Select,
+} from "@executor/react/plugins";
 import {
   IconPencil,
   IconPlus,
@@ -194,7 +201,7 @@ export function SecretsPage() {
                   }}
                 />
               ) : (
-                <div className="overflow-hidden rounded-xl border border-border bg-card/80">
+                <Card className="overflow-hidden p-0">
                   {items.map((secret, index) => (
                     <div
                       key={secret.id}
@@ -212,7 +219,7 @@ export function SecretsPage() {
                       />
                     </div>
                   ))}
-                </div>
+                </Card>
               )
             }
           </LoadableBlock>
@@ -283,29 +290,29 @@ function CreateSecretStoreForm(props: {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2">
-            <FieldLabel label="Store type">
-              <select
+            <div className="grid gap-2">
+              <Label>Store type</Label>
+              <Select
                 value={kind}
                 onChange={(event) => setKind(event.target.value)}
-                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
               >
                 {props.pluginOptions.map((plugin) => (
                   <option key={plugin.kind} value={plugin.kind}>
                     {plugin.displayName}
                   </option>
                 ))}
-              </select>
-            </FieldLabel>
+              </Select>
+            </div>
             {!StoreCreateForm && (
-              <FieldLabel label="Name">
-                <input
+              <div className="grid gap-2">
+                <Label>Name</Label>
+                <Input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   placeholder="Secret store"
-                  className="h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
                   autoFocus
                 />
-              </FieldLabel>
+              </div>
             )}
           </div>
 
@@ -582,50 +589,51 @@ function CreateSecretForm(props: {
     >
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="grid gap-4 sm:grid-cols-2">
-        <FieldLabel label="Store">
-          <select
+        <div className="grid gap-2">
+          <Label>Store</Label>
+          <Select
             value={storeId}
             onChange={(event) => setStoreId(event.target.value)}
-            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           >
             {props.storeOptions.map((store) => (
               <option key={store.id} value={store.id}>
                 {store.name}
               </option>
             ))}
-          </select>
-        </FieldLabel>
+          </Select>
+        </div>
         {canImportSecrets && canCreateSecrets && (
-          <FieldLabel label="Mode">
-            <select
+          <div className="grid gap-2">
+            <Label>Mode</Label>
+            <Select
               value={mode}
               onChange={(event) => setMode(event.target.value as "create" | "import")}
-              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             >
               <option value="import">Import from store</option>
               <option value="create">Create new secret</option>
-            </select>
-          </FieldLabel>
+            </Select>
+          </div>
         )}
-        <FieldLabel label="Name">
-          <input
+        <div className="grid gap-2">
+          <Label>Name</Label>
+          <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder={mode === "import" ? "Optional override name" : "GitHub PAT"}
-            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
             autoFocus
           />
-        </FieldLabel>
+        </div>
         {mode === "create" && (
-          <FieldLabel label="Value">
-            <input
+          <div className="grid gap-2">
+            <Label>Value</Label>
+            <Input
               type="password"
               value={value}
               onChange={(event) => setValue(event.target.value)}
               placeholder="ghp_..."
-              className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="font-mono text-[12px]"
             />
-          </FieldLabel>
+          </div>
         )}
       </div>
       {mode === "import" && canImportSecrets && (
@@ -644,11 +652,11 @@ function CreateSecretForm(props: {
                 Back
               </Button>
             )}
-            <input
+            <Input
               value={browserQuery}
               onChange={(event) => setBrowserQuery(event.target.value)}
               placeholder="Search this store"
-              className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="min-w-0 flex-1"
             />
           </div>
           {browserStack.length > 0 && (
@@ -673,12 +681,12 @@ function CreateSecretForm(props: {
               </div>
             ) : (
               browserEntries.map((entry, index) => (
-                <button
+                <Button
                   key={entry.key}
-                  type="button"
+                  variant="ghost"
                   onClick={() => handleBrowserEntryClick(entry)}
                   className={cn(
-                    "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/50",
+                    "flex h-auto w-full items-center justify-between gap-3 rounded-none px-4 py-3 text-left",
                     index > 0 && "border-t border-border",
                     selectedImportKey === entry.key && "bg-accent/60",
                   )}
@@ -696,7 +704,7 @@ function CreateSecretForm(props: {
                   <Badge variant="outline">
                     {entry.kind === "group" ? "Open" : "Secret"}
                   </Badge>
-                </button>
+                </Button>
               ))
             )}
           </div>
@@ -742,7 +750,7 @@ function SecretStoreCard(props: {
   };
 
   return (
-    <div className="rounded-xl border border-border bg-card/80 p-4">
+    <Card className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -764,40 +772,41 @@ function SecretStoreCard(props: {
         {props.canManage ? (
           confirmDelete ? (
             <div className="flex items-center gap-1">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setConfirmDelete(false)}
                 disabled={isDeleting}
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="destructive-outline"
+                size="sm"
                 onClick={() => {
                   void handleDelete();
                 }}
                 disabled={isDeleting}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/8 disabled:opacity-50"
               >
                 {isDeleting
                   ? <IconSpinner className="size-3" />
                   : <IconTrash className="size-3" />}
                 Delete
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setConfirmDelete(true)}
               disabled={isDeleting}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive disabled:opacity-50"
+              className="text-muted-foreground hover:bg-destructive/8 hover:text-destructive"
             >
               {isDeleting
                 ? <IconSpinner className="size-3" />
                 : <IconTrash className="size-3" />}
               Remove
-            </button>
+            </Button>
           )
         ) : (
           <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/45">
@@ -805,7 +814,7 @@ function SecretStoreCard(props: {
           </span>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -868,11 +877,11 @@ function SecretRow(props: {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={props.onEdit}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors",
               props.isEditing
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -880,43 +889,44 @@ function SecretRow(props: {
           >
             <IconPencil className="size-3" />
             Edit
-          </button>
+          </Button>
           {confirmDelete ? (
             <>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setConfirmDelete(false)}
                 disabled={isDeleting}
-                className="rounded-md px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="destructive-outline"
+                size="sm"
                 onClick={() => {
                   void handleDelete();
                 }}
                 disabled={isDeleting}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/8 disabled:opacity-50"
               >
                 {isDeleting
                   ? <IconSpinner className="size-3" />
                   : <IconTrash className="size-3" />}
                 Delete
-              </button>
+              </Button>
             </>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setConfirmDelete(true)}
               disabled={isDeleting}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive disabled:opacity-50"
+              className="text-muted-foreground hover:bg-destructive/8 hover:text-destructive"
             >
               {isDeleting
                 ? <IconSpinner className="size-3" />
                 : <IconTrash className="size-3" />}
               Delete
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -968,33 +978,35 @@ function EditSecretForm(props: {
     <div className="mt-3 border-t border-border/50 pt-3">
       {error && <ErrorBanner className="mb-3">{error}</ErrorBanner>}
       <div className="grid gap-3 sm:grid-cols-2">
-        <FieldLabel label="Name">
-          <input
+        <div className="grid gap-2">
+          <Label>Name</Label>
+          <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Secret name"
-            className="h-8 w-full rounded-lg border border-input bg-background px-3 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+            className="h-8 text-[12px]"
             autoFocus
           />
-        </FieldLabel>
-        <FieldLabel label="New value">
-          <input
+        </div>
+        <div className="grid gap-2">
+          <Label>New value</Label>
+          <Input
             type="password"
             value={value}
             onChange={(event) => setValue(event.target.value)}
             placeholder="Leave empty to keep existing"
-            className="h-8 w-full rounded-lg border border-input bg-background px-3 font-mono text-[11px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25"
+            className="h-8 font-mono text-[11px]"
           />
-        </FieldLabel>
+        </div>
       </div>
       <div className="mt-3 flex items-center justify-end gap-2">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={props.onClose}
-          className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           Cancel
-        </button>
+        </Button>
         <Button
           size="sm"
           onClick={handleSubmit}
@@ -1015,19 +1027,19 @@ function FormCard(props: {
   children: ReactNode;
 }) {
   return (
-    <div className={cn("rounded-xl border border-primary/20 bg-card/80", props.className)}>
+    <Card className={cn("border-primary/20 p-0", props.className)}>
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <h3 className="text-sm font-semibold text-foreground">{props.title}</h3>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={props.onClose}
-          className="text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
           Cancel
-        </button>
+        </Button>
       </div>
       <div className="space-y-4 p-5">{props.children}</div>
-    </div>
+    </Card>
   );
 }
 
@@ -1036,14 +1048,9 @@ function ErrorBanner(props: {
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-[13px] text-destructive",
-        props.className,
-      )}
-    >
+    <Alert variant="destructive" className={cn("text-[13px]", props.className)}>
       {props.children}
-    </div>
+    </Alert>
   );
 }
 
@@ -1066,20 +1073,6 @@ function SectionEmptyState(props: {
         </div>
       )}
     </div>
-  );
-}
-
-function FieldLabel(props: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className="text-[11px] font-medium text-muted-foreground">
-        {props.label}
-      </span>
-      {props.children}
-    </label>
   );
 }
 

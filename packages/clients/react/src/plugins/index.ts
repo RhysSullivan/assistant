@@ -64,10 +64,6 @@ export {
 } from "./lib/cn";
 
 export {
-  Badge,
-  MethodBadge,
-} from "./components/badge";
-export {
   CodeBlock,
 } from "./components/code-block";
 export {
@@ -106,3 +102,16 @@ export {
   type SourceToolDetailPanelProps,
   type SourceToolDiscoveryResult,
 } from "./components/source-tool-workbench";
+
+// ── UI primitives (shadcn/ui) ────────────────────────────────────────────
+export { Alert, alertVariants, AlertTitle, AlertDescription, AlertAction } from "./components/ui/alert";
+export { Badge, badgeVariants, MethodBadge, type BadgeProps } from "./components/ui/badge";
+export { Button, buttonVariants, type ButtonProps } from "./components/ui/button";
+export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent } from "./components/ui/card";
+export { Input } from "./components/ui/input";
+export { Label } from "./components/ui/label";
+export { Select } from "./components/ui/select";
+export { Separator } from "./components/ui/separator";
+export { Textarea } from "./components/ui/textarea";
+export { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
+export { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandShortcut, CommandSeparator } from "./components/ui/command";

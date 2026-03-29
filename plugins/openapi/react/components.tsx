@@ -13,8 +13,14 @@ import {
   useWorkspaceRequestContext,
 } from "@executor/react";
 import {
+  Alert,
+  Button,
+  Card,
   DocumentPanel,
   IconPencil,
+  Input,
+  Label,
+  Select,
   SourceToolDetailPanel,
   SourceToolExplorer,
   parseSourceToolExplorerSearch,
@@ -381,63 +387,61 @@ function OpenApiSourceForm(props: {
   };
 
   return (
-    <div className="space-y-6 rounded-xl border border-border p-6">
+    <Card className="space-y-6 p-6">
       <Section title="Connection">
         <div className="grid gap-4">
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Name</span>
-            <input
+          <div className="grid gap-2">
+            <Label>Name</Label>
+            <Input
               value={name}
               onChange={(event) => {
                 setNameEdited(true);
                 setName(event.target.value);
               }}
               placeholder="GitHub REST"
-              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
-          </label>
+          </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Spec URL</span>
-            <input
+          <div className="grid gap-2">
+            <Label>Spec URL</Label>
+            <Input
               value={specUrl}
               onChange={(event) => setSpecUrl(event.target.value)}
               onBlur={() => {
                 void runPreview({ mode: "manual" });
               }}
               placeholder="https://example.com/openapi.json"
-              className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="font-mono text-xs"
             />
-          </label>
+          </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Base URL</span>
-            <input
+          <div className="grid gap-2">
+            <Label>Base URL</Label>
+            <Input
               value={baseUrl}
               onChange={(event) => {
                 setBaseUrlEdited(true);
                 setBaseUrl(event.target.value);
               }}
               placeholder="https://api.example.com"
-              className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="font-mono text-xs"
             />
-          </label>
+          </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Auth</span>
-            <select
+          <div className="grid gap-2">
+            <Label>Auth</Label>
+            <Select
               value={authKind}
               onChange={(event) =>
                 setAuthKind(event.target.value as OpenApiConnectInput["auth"]["kind"])}
-              className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             >
               <option value="none">None</option>
               <option value="bearer">Bearer Secret</option>
-            </select>
-          </label>
+            </Select>
+          </div>
 
           {authKind === "bearer" && (
-            <div className="space-y-4 border-l-2 border-border pl-4">
+            <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
               <SecretReferenceField
                 label="Secret"
                 value={tokenSecretRef}
@@ -448,25 +452,25 @@ function OpenApiSourceForm(props: {
               />
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="grid gap-2">
-                  <span className="text-xs font-medium text-foreground">Header Name</span>
-                  <input
+                <div className="grid gap-2">
+                  <Label>Header Name</Label>
+                  <Input
                     value={authHeaderName}
                     onChange={(event) => setAuthHeaderName(event.target.value)}
                     placeholder={DEFAULT_BEARER_HEADER_NAME}
-                    className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                    className="font-mono text-xs"
                   />
-                </label>
+                </div>
 
-                <label className="grid gap-2">
-                  <span className="text-xs font-medium text-foreground">Prefix</span>
-                  <input
+                <div className="grid gap-2">
+                  <Label>Prefix</Label>
+                  <Input
                     value={authPrefix}
                     onChange={(event) => setAuthPrefix(event.target.value)}
                     placeholder={DEFAULT_BEARER_PREFIX}
-                    className="h-9 w-full rounded-lg border border-input bg-background px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                    className="font-mono text-xs"
                   />
-                </label>
+                </div>
               </div>
             </div>
           )}
@@ -475,16 +479,16 @@ function OpenApiSourceForm(props: {
 
       <Section title="Preview">
         <div className="flex items-center gap-3">
-          <button
+          <Button
+            variant="outline"
             type="button"
             onClick={() => {
               void runPreview({ mode: "manual" });
             }}
             disabled={previewMutation.status === "pending" || submitMutation.status === "pending"}
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
           >
             {previewMutation.status === "pending" ? "Previewing..." : "Preview Spec"}
-          </button>
+          </Button>
           {preview && (
             <div className="text-xs text-muted-foreground">
               {preview.operationCount} operations
@@ -519,33 +523,32 @@ function OpenApiSourceForm(props: {
               )}
             </dl>
             {preview.warnings.length > 0 && (
-              <div className="mt-3 rounded-md border border-amber-300/40 bg-amber-100/20 px-3 py-2 text-xs text-amber-800">
+              <Alert variant="warning" className="mt-3 text-xs">
                 {preview.warnings.join(" ")}
-              </div>
+              </Alert>
             )}
           </div>
         )}
       </Section>
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-sm text-destructive">
+        <Alert variant="destructive">
           {error}
-        </div>
+        </Alert>
       )}
 
       <div className="flex items-center justify-end">
-        <button
+        <Button
           type="button"
           onClick={() => {
             void handleSubmit();
           }}
           disabled={submitMutation.status === "pending"}
-          className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
         >
           {submitMutation.status === "pending" ? props.busyLabel : props.submitLabel}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -641,9 +644,9 @@ function OpenApiEditSourcePageReady(props: {
     if (Result.isFailure(configResult)) {
       return (
         <Section title="Edit Source">
-          <div className="rounded-lg border border-destructive/30 bg-destructive/8 p-4 text-sm text-destructive">
+          <Alert variant="destructive">
             Failed loading source configuration.
-          </div>
+          </Alert>
         </Section>
       );
     }
@@ -778,38 +781,43 @@ function OpenApiSourceDetailPageReady(props: {
         })}
       actions={(
         <>
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             type="button"
             onClick={() => {
               void refreshMutation.mutateAsync(props.source.id);
             }}
             disabled={refreshMutation.status === "pending"}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           >
             {refreshMutation.status === "pending" ? "Refreshing..." : "Refresh"}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             type="button"
             onClick={() => void navigation.edit(props.source.id)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
           >
             <IconPencil className="size-3" />
             Edit
-          </button>
+          </Button>
           {confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-medium text-destructive">
                 Confirm delete?
               </span>
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 type="button"
                 onClick={() => setConfirmDelete(false)}
                 disabled={removeMutation.status === "pending"}
-                className="inline-flex items-center rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="destructive-outline"
+                size="sm"
                 type="button"
                 onClick={() => {
                   void removeMutation.mutateAsync(props.source.id).then(() => {
@@ -821,20 +829,20 @@ function OpenApiSourceDetailPageReady(props: {
                   });
                 }}
                 disabled={removeMutation.status === "pending"}
-                className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
               >
                 {removeMutation.status === "pending" ? "Deleting..." : "Delete"}
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
+            <Button
+              variant="destructive-outline"
+              size="sm"
               type="button"
               onClick={() => setConfirmDelete(true)}
               disabled={removeMutation.status === "pending"}
-              className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             >
               Delete
-            </button>
+            </Button>
           )}
         </>
       )}

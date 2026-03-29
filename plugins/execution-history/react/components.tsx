@@ -7,7 +7,10 @@ import {
   useExecutions,
 } from "@executor/react";
 import {
+  Alert,
   Badge,
+  Button,
+  Card,
   DocumentPanel,
   EmptyState,
   LoadableBlock,
@@ -81,12 +84,12 @@ const MetadataItem = (props: {
   label: string;
   value: string;
 }) => (
-  <div className="rounded-lg border border-border bg-card/60 px-3 py-2">
+  <Card className="bg-card/60 px-3 py-2">
     <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
       {props.label}
     </div>
     <div className="mt-1 text-sm text-foreground">{props.value}</div>
-  </div>
+  </Card>
 );
 
 const ExecutionCard = (props: {
@@ -96,10 +99,11 @@ const ExecutionCard = (props: {
   const { execution } = props;
 
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
       onClick={props.onOpen}
-      className="w-full rounded-2xl border border-border bg-card px-5 py-4 text-left transition-colors hover:border-primary/25 hover:bg-card/90"
+      className="h-auto w-full rounded-2xl border border-border bg-card px-5 py-4 text-left transition-colors hover:border-primary/25 hover:bg-card/90"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -122,11 +126,11 @@ const ExecutionCard = (props: {
       </div>
 
       {execution.errorText && (
-        <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        <Alert variant="destructive" className="mt-3 text-xs">
           {execution.errorText}
-        </div>
+        </Alert>
       )}
-    </button>
+    </Button>
   );
 };
 
@@ -275,15 +279,16 @@ export function ExecutionHistoryDetailPage() {
       <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10 lg:py-14">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <button
+            <Button
+              variant="ghost"
               type="button"
               onClick={() => {
                 void navigation.route();
               }}
-              className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+              className="mb-3 h-auto p-0 text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
             >
               Back to history
-            </button>
+            </Button>
             <div className="flex items-center gap-3">
               <h1 className="font-display text-2xl tracking-tight text-foreground lg:text-3xl">
                 {executionId}

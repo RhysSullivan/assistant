@@ -10,12 +10,20 @@ import {
   useSource,
 } from "@executor/react";
 import {
+  Alert,
   Badge,
+  Button,
+  Card,
+  cn,
   IconCheck,
   IconPencil,
   IconSearch,
   IconSpinner,
+  Input,
+  Label,
+  Select,
   SourceToolExplorer,
+  Textarea,
   parseSourceToolExplorerSearch,
   type SourceToolExplorerSearch,
   useSourcePluginNavigation,
@@ -584,7 +592,7 @@ function McpSourceForm(props: {
   return (
     <div className="space-y-8">
       {props.mode === "create" && (
-        <div className="rounded-xl border border-border p-6">
+        <Card className="p-6">
           <div className="text-sm font-medium text-foreground">Presets</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {mcpQuickPresets.map((preset) => {
@@ -595,152 +603,145 @@ function McpSourceForm(props: {
                   : !isStdio && endpoint.trim() === (preset.input.endpoint ?? "");
 
               return (
-                <button
+                <Button
                   key={preset.id}
                   type="button"
+                  variant="outline"
                   onClick={() => applyPreset(preset)}
-                  className={
-                    selected
-                      ? "rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-left"
-                      : "rounded-lg border border-border px-4 py-3 text-left transition-colors hover:bg-accent/40"
-                  }
+                  className={cn(
+                    "h-auto flex-col items-start px-4 py-3 text-left",
+                    selected && "border-primary/30 bg-primary/5",
+                  )}
                 >
                   <div className="flex items-center gap-2">
                     {selected ? <IconCheck className="size-3.5 text-primary" /> : null}
                     <div className="text-sm font-medium text-foreground">{preset.name}</div>
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">{preset.summary}</div>
-                </button>
+                </Button>
               );
             })}
           </div>
-        </div>
+        </Card>
       )}
 
       {props.mode === "create" && (
-        <div className="rounded-xl border border-border p-6">
+        <Card className="p-6">
           <div>
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm font-medium text-foreground">Discover</div>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={() => setShowProbeAuth((current) => !current)}
                 className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
                 {showProbeAuth ? "Hide auth" : "Need auth?"}
-              </button>
+              </Button>
             </div>
 
             <div className="mt-2 flex flex-col gap-3 sm:flex-row">
-              <input
+              <Input
                 value={discoveryEndpoint}
                 onChange={(event) => setDiscoveryEndpoint(event.target.value)}
                 placeholder="https://mcp.example.com/mcp"
-                className="h-9 flex-1 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                className="flex-1 font-mono text-xs"
               />
-              <button
-                type="button"
+              <Button
+                variant="outline"
                 onClick={() => {
                   void handleDiscover();
                 }}
                 disabled={discoverMutation.status === "pending"}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
               >
                 {discoverMutation.status === "pending"
                   ? <IconSpinner className="size-3.5" />
                   : <IconSearch className="size-3.5" />}
                 {discoverMutation.status === "pending" ? "Discovering..." : "Discover"}
-              </button>
+              </Button>
             </div>
 
             {showProbeAuth && (
-              <div className="mt-3 space-y-3 border-l-2 border-border pl-4">
-                <label className="grid gap-2">
-                  <span className="text-xs font-medium text-foreground">Discovery auth</span>
-                  <select
+              <div className="mt-3 space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+                <div className="grid gap-2">
+                  <Label>Discovery auth</Label>
+                  <Select
                     value={probeAuth.kind}
                     onChange={(event) =>
                       setProbeAuth((current) => ({
                         ...current,
                         kind: event.target.value as ProbeAuthState["kind"],
                       }))}
-                    className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
                   >
                     <option value="none">None</option>
                     <option value="bearer">Bearer</option>
                     <option value="basic">Basic</option>
                     <option value="headers">Custom headers</option>
-                  </select>
-                </label>
+                  </Select>
+                </div>
 
                 {probeAuth.kind === "bearer" && (
                   <div className="grid gap-4 md:grid-cols-2">
-                    <label className="grid gap-2">
-                      <span className="text-xs font-medium text-foreground">Header name</span>
-                      <input
+                    <div className="grid gap-2">
+                      <Label>Header name</Label>
+                      <Input
                         value={probeAuth.headerName}
                         onChange={(event) =>
                           setProbeAuth((current) => ({ ...current, headerName: event.target.value }))}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
                       />
-                    </label>
-                    <label className="grid gap-2">
-                      <span className="text-xs font-medium text-foreground">Prefix</span>
-                      <input
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Prefix</Label>
+                      <Input
                         value={probeAuth.prefix}
                         onChange={(event) =>
                           setProbeAuth((current) => ({ ...current, prefix: event.target.value }))}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
                       />
-                    </label>
-                    <label className="grid gap-2 md:col-span-2">
-                      <span className="text-xs font-medium text-foreground">Token</span>
-                      <input
+                    </div>
+                    <div className="grid gap-2 md:col-span-2">
+                      <Label>Token</Label>
+                      <Input
                         value={probeAuth.token}
                         onChange={(event) =>
                           setProbeAuth((current) => ({ ...current, token: event.target.value }))}
-                        className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                        className="font-mono text-xs"
                       />
-                    </label>
+                    </div>
                   </div>
                 )}
 
                 {probeAuth.kind === "basic" && (
                   <div className="grid gap-4 md:grid-cols-2">
-                    <label className="grid gap-2">
-                      <span className="text-xs font-medium text-foreground">Username</span>
-                      <input
+                    <div className="grid gap-2">
+                      <Label>Username</Label>
+                      <Input
                         value={probeAuth.username}
                         onChange={(event) =>
                           setProbeAuth((current) => ({ ...current, username: event.target.value }))}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
                       />
-                    </label>
-                    <label className="grid gap-2">
-                      <span className="text-xs font-medium text-foreground">Password</span>
-                      <input
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Password</Label>
+                      <Input
                         value={probeAuth.password}
                         onChange={(event) =>
                           setProbeAuth((current) => ({ ...current, password: event.target.value }))}
-                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
                         type="password"
                       />
-                    </label>
+                    </div>
                   </div>
                 )}
 
                 {probeAuth.kind === "headers" && (
-                  <label className="grid gap-2">
-                    <span className="text-xs font-medium text-foreground">Headers JSON</span>
-                    <textarea
+                  <div className="grid gap-2">
+                    <Label>Headers JSON</Label>
+                    <Textarea
                       value={probeAuth.headersText}
                       onChange={(event) =>
                         setProbeAuth((current) => ({ ...current, headersText: event.target.value }))}
                       rows={3}
                       placeholder='{"x-api-key":"..."}'
-                      className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
                     />
-                  </label>
+                  </div>
                 )}
               </div>
             )}
@@ -751,22 +752,21 @@ function McpSourceForm(props: {
               </div>
             )}
           </div>
-        </div>
+        </Card>
       )}
 
-      <div className="space-y-6 rounded-xl border border-border p-6">
-      <label className="grid gap-2">
-        <span className="text-xs font-medium text-foreground">Name</span>
-        <input
+      <Card className="space-y-6 p-6">
+      <div className="grid gap-2">
+        <Label>Name</Label>
+        <Input
           value={name}
           onChange={(event) => setName(event.target.value)}
-          className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
         />
-      </label>
+      </div>
 
-      <label className="grid gap-2">
-        <span className="text-xs font-medium text-foreground">Transport</span>
-        <select
+      <div className="grid gap-2">
+        <Label>Transport</Label>
+        <Select
           value={transportFields.transport}
           onChange={(event) => {
             const nextTransport = event.target.value as McpTransportValue;
@@ -779,34 +779,33 @@ function McpSourceForm(props: {
               setOauthStatus("idle");
             }
           }}
-          className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
         >
           <option value="">Auto (remote)</option>
           <option value="auto">Auto</option>
           <option value="streamable-http">Streamable HTTP</option>
           <option value="sse">SSE</option>
           <option value="stdio">stdio</option>
-        </select>
-      </label>
+        </Select>
+      </div>
 
       {isStdio ? (
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2 md:col-span-2">
-            <span className="text-xs font-medium text-foreground">Command</span>
-            <input
+          <div className="grid gap-2 md:col-span-2">
+            <Label>Command</Label>
+            <Input
               value={transportFields.command}
               onChange={(event) =>
                 setTransportFields({
                   ...transportFields,
                   command: event.target.value,
                 })}
-              className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="font-mono text-xs"
             />
-          </label>
+          </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Args</span>
-            <textarea
+          <div className="grid gap-2">
+            <Label>Args</Label>
+            <Textarea
               value={transportFields.argsText}
               onChange={(event) =>
                 setTransportFields({
@@ -815,13 +814,12 @@ function McpSourceForm(props: {
                 })}
               rows={3}
               placeholder='["server.js","--port","8787"]'
-              className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
-          </label>
+          </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Environment</span>
-            <textarea
+          <div className="grid gap-2">
+            <Label>Environment</Label>
+            <Textarea
               value={transportFields.envText}
               onChange={(event) =>
                 setTransportFields({
@@ -830,37 +828,36 @@ function McpSourceForm(props: {
                 })}
               rows={3}
               placeholder='{"NODE_ENV":"production"}'
-              className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
-          </label>
+          </div>
 
-          <label className="grid gap-2 md:col-span-2">
-            <span className="text-xs font-medium text-foreground">Working Directory</span>
-            <input
+          <div className="grid gap-2 md:col-span-2">
+            <Label>Working Directory</Label>
+            <Input
               value={transportFields.cwd}
               onChange={(event) =>
                 setTransportFields({
                   ...transportFields,
                   cwd: event.target.value,
                 })}
-              className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="font-mono text-xs"
             />
-          </label>
+          </div>
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2 md:col-span-2">
-            <span className="text-xs font-medium text-foreground">Endpoint</span>
-            <input
+          <div className="grid gap-2 md:col-span-2">
+            <Label>Endpoint</Label>
+            <Input
               value={endpoint}
               onChange={(event) => setEndpoint(event.target.value)}
-              className="h-9 rounded-lg border border-input bg-background px-3 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+              className="font-mono text-xs"
             />
-          </label>
+          </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Query Params</span>
-            <textarea
+          <div className="grid gap-2">
+            <Label>Query Params</Label>
+            <Textarea
               value={transportFields.queryParamsText}
               onChange={(event) =>
                 setTransportFields({
@@ -869,13 +866,12 @@ function McpSourceForm(props: {
                 })}
               rows={3}
               placeholder='{"transport":"streamable-http"}'
-              className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
-          </label>
+          </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs font-medium text-foreground">Headers</span>
-            <textarea
+          <div className="grid gap-2">
+            <Label>Headers</Label>
+            <Textarea
               value={transportFields.headersText}
               onChange={(event) =>
                 setTransportFields({
@@ -884,16 +880,15 @@ function McpSourceForm(props: {
                 })}
               rows={3}
               placeholder='{"x-api-key":"..."}'
-              className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             />
-          </label>
+          </div>
         </div>
       )}
 
       {!isStdio && (
-        <label className="grid gap-2">
-          <span className="text-xs font-medium text-foreground">Auth</span>
-          <select
+        <div className="grid gap-2">
+          <Label>Auth</Label>
+          <Select
             value={authKind}
             onChange={(event) => {
               const nextKind = event.target.value as McpConnectionAuth["kind"];
@@ -903,16 +898,15 @@ function McpSourceForm(props: {
                 setOauthStatus("idle");
               }
             }}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
           >
             <option value="none">None</option>
             <option value="oauth2">OAuth 2.0</option>
-          </select>
-        </label>
+          </Select>
+        </div>
       )}
 
       {!isStdio && authKind === "oauth2" && (
-        <div className="border-l-2 border-border pl-4">
+        <div className="rounded-lg border border-border bg-muted/20 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-foreground">OAuth</div>
@@ -920,8 +914,8 @@ function McpSourceForm(props: {
                 Authenticate with the MCP server's built-in OAuth flow.
               </div>
             </div>
-            <button
-              type="button"
+            <Button
+              variant="outline"
               onClick={() => {
                 setError(null);
                 setOauthStatus("pending");
@@ -933,10 +927,9 @@ function McpSourceForm(props: {
                     );
                   });
               }}
-              className="inline-flex h-9 items-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
             >
               {oauthStatus === "connected" ? "Reconnect OAuth" : "Connect OAuth"}
-            </button>
+            </Button>
           </div>
           {oauthStatus === "connected" && (
             <div className="mt-3 text-xs text-primary">
@@ -947,14 +940,13 @@ function McpSourceForm(props: {
       )}
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+        <Alert variant="destructive">
           {error}
-        </div>
+        </Alert>
       )}
 
       <div className="flex items-center justify-end gap-3">
-        <button
-          type="button"
+        <Button
           onClick={() => {
             setError(null);
             void submitMutation
@@ -964,7 +956,6 @@ function McpSourceForm(props: {
               );
           }}
           disabled={submitMutation.status === "pending"}
-          className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
         >
           {submitMutation.status === "pending"
             ? props.mode === "create"
@@ -973,9 +964,9 @@ function McpSourceForm(props: {
             : props.mode === "create"
               ? "Create Source"
               : "Save Changes"}
-        </button>
+        </Button>
       </div>
-      </div>
+      </Card>
     </div>
   );
 }
@@ -1052,9 +1043,9 @@ export function McpEditPage(props: {
 
   if (Result.isFailure(configResult)) {
     return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+      <Alert variant="destructive">
         Failed loading source configuration.
-      </div>
+      </Alert>
     );
   }
 
@@ -1185,48 +1176,44 @@ export function McpDetailPage(props: {
       summary={summary}
       actions={(
         <>
-          <button
-            type="button"
+          <Button
+            variant="outline"
             onClick={() =>
               void navigation.edit(props.source.id)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
           >
             <IconPencil className="size-3.5" />
             Edit
-          </button>
+          </Button>
           {confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-destructive">
                 Confirm delete?
               </span>
-              <button
-                type="button"
+              <Button
+                variant="outline"
                 onClick={() => setConfirmDelete(false)}
                 disabled={isDeleting}
-                className="inline-flex h-9 items-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="destructive-outline"
                 onClick={() => {
                   void handleDelete().catch(() => {});
                 }}
                 disabled={isDeleting}
-                className="inline-flex h-9 items-center rounded-lg border border-destructive/25 bg-destructive/5 px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
               >
                 {isDeleting ? "Deleting..." : "Delete"}
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="destructive-outline"
               onClick={() => setConfirmDelete(true)}
               disabled={isDeleting}
-              className="inline-flex h-9 items-center rounded-lg border border-destructive/25 bg-destructive/5 px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             >
               Delete
-            </button>
+            </Button>
           )}
         </>
       )}

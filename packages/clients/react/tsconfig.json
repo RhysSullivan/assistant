@@ -8,7 +8,11 @@
     "noEmit": true,
     "lib": ["ES2022", "DOM"],
     "jsx": "react-jsx",
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/plugins/*"]
+    }
   },
   "include": [
     "src/**/*.ts",

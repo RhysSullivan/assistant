@@ -4,8 +4,7 @@ import { sourcePluginsIndexPath } from "@executor/react/plugins";
 import { LoadableBlock } from "../components/loadable";
 import { LocalMcpInstallCard } from "../components/local-mcp-install-card";
 import { SourceFavicon } from "../components/source-favicon";
-import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
+import { Alert, Badge, Button, Card } from "@executor/react/plugins";
 import { IconSources, IconPlus } from "../components/icons";
 import {
   getSourceFrontendPaths,
@@ -48,9 +47,9 @@ export function HomePage() {
         <LoadableBlock loadable={sources} loading="Loading sources...">
           {(items) =>
             !Array.isArray(items) ? (
-              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-5 py-4 text-sm text-destructive">
+              <Alert variant="destructive" className="px-5 py-4">
                 Sources returned an unexpected payload.
-              </div>
+              </Alert>
             ) : items.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
                 <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-4">
@@ -74,7 +73,7 @@ export function HomePage() {
                 {items.map((source) => {
                   const paths = getSourceFrontendPaths(source.kind);
                   const card = (
-                    <div className="flex h-full flex-col rounded-2xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/25 hover:bg-card/90">
+                    <Card className="flex h-full flex-col rounded-2xl px-5 py-4 transition-colors hover:border-primary/25 hover:bg-card/90">
                       <div className="flex items-start gap-3">
                         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                           <SourceFavicon source={source} className="size-4" />
@@ -93,7 +92,7 @@ export function HomePage() {
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </Card>
                   );
 
                   if (!paths) {

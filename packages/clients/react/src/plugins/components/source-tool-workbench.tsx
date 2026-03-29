@@ -8,7 +8,7 @@ import type {
   SourceInspection,
   SourceInspectionToolDetail,
 } from "@executor/platform-sdk/schema";
-import { MethodBadge } from "./badge";
+import { MethodBadge } from "./ui/badge";
 import { CodeBlock } from "./code-block";
 import { DocumentPanel } from "./document-panel";
 import { EmptyState, LoadableBlock } from "./loadable";
@@ -22,6 +22,8 @@ import {
   IconSearch,
   IconTool,
 } from "./icons";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { cn } from "../lib/cn";
 
 type ToolTreeNode = {
@@ -173,16 +175,18 @@ const CopyButton = (props: {
   copiedField: string | null;
   onCopy: (text: string, field: string) => void | Promise<void>;
 }) => (
-  <button
+  <Button
     type="button"
+    variant="ghost"
+    size="icon"
     onClick={() => {
       void props.onCopy(props.text, props.field);
     }}
-    className="shrink-0 rounded p-1 text-muted-foreground/30 transition-colors hover:text-muted-foreground"
+    className="size-6 shrink-0 text-muted-foreground/30 hover:text-muted-foreground"
     title={`Copy ${props.field}`}
   >
     {props.copiedField === props.field ? <IconCheck /> : <IconCopy />}
-  </button>
+  </Button>
 );
 
 const SourceToolTree = (props: {
@@ -295,17 +299,19 @@ const SourceToolTreeNodeView = (props: {
     <div>
       {node.tool ? (
         <div className="flex items-center">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={() => setOpen((value) => !value)}
-            className="shrink-0 rounded p-0.5 text-muted-foreground/30 hover:text-muted-foreground"
+            className="shrink-0 size-auto rounded p-0.5 text-muted-foreground/30 hover:text-muted-foreground"
             style={{ marginLeft: paddingLeft }}
           >
             <IconChevron
               className={cn("shrink-0 transition-transform duration-150", open && "rotate-90")}
               style={{ width: 8, height: 8 }}
             />
-          </button>
+          </Button>
           <SourceToolListItem
             tool={node.tool as SourceInspection["tools"][number]}
             active={node.tool?.path === selectedToolPath}
@@ -318,11 +324,12 @@ const SourceToolTreeNodeView = (props: {
           />
         </div>
       ) : (
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={() => setOpen((value) => !value)}
           className={cn(
-            "group flex w-full items-center gap-1.5 rounded-md py-1 pr-2.5 text-[12px] transition-colors hover:bg-accent/40",
+            "group flex h-auto w-full items-center gap-1.5 rounded-md py-1 pr-2.5 text-[12px] hover:bg-accent/40",
             open ? "text-foreground/80" : "text-muted-foreground/60",
           )}
           style={{ paddingLeft }}
@@ -344,7 +351,7 @@ const SourceToolTreeNodeView = (props: {
           <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/25">
             {leafCount}
           </span>
-        </button>
+        </Button>
       )}
 
       {open && hasChildren && (
@@ -397,15 +404,16 @@ const SourceToolListItem = (props: {
     : props.tool.path;
 
   return (
-    <button
+    <Button
       ref={ref}
       type="button"
+      variant="ghost"
       onMouseEnter={() => {
         props.prefetch(props.sourceId, props.tool.path);
       }}
       onClick={props.onSelect}
       className={cn(
-        "group flex w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-left transition-colors",
+        "group flex h-auto w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-left",
         props.active
           ? "border-l-2 border-l-primary bg-primary/10 text-foreground"
           : "text-foreground/70 hover:bg-accent/50 hover:text-foreground",
@@ -418,7 +426,7 @@ const SourceToolListItem = (props: {
         {highlightMatch(label, props.search)}
       </span>
       {props.tool.method && <MethodBadge method={props.tool.method} />}
-    </button>
+    </Button>
   );
 };
 
@@ -599,21 +607,23 @@ export const SourceToolModelWorkbench = (
         <div className="shrink-0 border-b border-border px-3 py-2">
           <div className="flex h-8 items-center gap-2 rounded-md border border-input bg-background px-2.5">
             <IconSearch className="size-3.5 shrink-0 text-muted-foreground/40" />
-            <input
+            <Input
               ref={searchRef}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={`Filter ${props.bundle.toolCount} tools...`}
-              className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground/40"
+              className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] shadow-none ring-0 focus:border-0 focus:ring-0"
             />
             {search.length > 0 ? (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => setSearch("")}
-                className="shrink-0 rounded p-0.5 text-muted-foreground/40 hover:text-foreground"
+                className="size-5 shrink-0 text-muted-foreground/40 hover:text-foreground"
               >
                 <IconClose />
-              </button>
+              </Button>
             ) : (
               <kbd className="shrink-0 rounded border border-border bg-muted px-1 py-px text-[10px] leading-none text-muted-foreground/50">
                 /
@@ -622,7 +632,7 @@ export const SourceToolModelWorkbench = (
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto max-w-[300px]">
+        <div className="flex-1 overflow-y-auto">
           {filteredTools.length === 0 ? (
             <div className="p-4 text-center text-[13px] text-muted-foreground/50">
               {terms.length > 0 ? "No tools match your filter" : "No tools available"}
@@ -687,19 +697,16 @@ export const SourceToolDiscoveryPanel = <
         >
           <div className="relative flex-1">
             <IconSearch className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/40" />
-            <input
+            <Input
               value={draftQuery}
               onChange={(event) => setDraftQuery(event.target.value)}
               placeholder="Search tools..."
-              className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/30"
+              className="pl-9 pr-3 text-sm"
             />
           </div>
-          <button
-            type="submit"
-            className="inline-flex h-9 items-center rounded-md border border-input bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
-          >
+          <Button type="submit" variant="outline">
             Search
-          </button>
+          </Button>
         </form>
       </div>
 
@@ -719,11 +726,12 @@ export const SourceToolDiscoveryPanel = <
             ) : (
               <div className="max-w-3xl space-y-2">
                 {result.results.map((item, index) => (
-                  <button
+                  <Button
                     key={item.path}
                     type="button"
+                    variant="outline"
                     onClick={() => props.onOpenTool(item.path)}
-                    className="group w-full rounded-lg border border-border bg-card/60 p-3.5 text-left transition-all hover:border-primary/30 hover:shadow-sm"
+                    className="group h-auto w-full rounded-lg bg-card/60 p-3.5 text-left hover:border-primary/30 hover:shadow-sm"
                   >
                     <div className="mb-1.5 flex items-center justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-2.5">
@@ -743,7 +751,7 @@ export const SourceToolDiscoveryPanel = <
                         {item.description}
                       </p>
                     )}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )

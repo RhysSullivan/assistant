@@ -1,8 +1,7 @@
 import type { Source } from "@executor/react";
 
+import { Badge, Button } from "@executor/react/plugins";
 import { cn } from "../lib/utils";
-import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
 import { IconSpinner, IconTool } from "./icons";
 
 export function SourceRecoveryState(props: {

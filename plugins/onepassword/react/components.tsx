@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getExecutorApiBaseUrl,
@@ -9,32 +9,19 @@ import type {
   SecretStoreCreateFormProps,
 } from "@executor/react/plugins";
 import {
+  Alert,
+  Button,
+  Input,
+  Label,
+  Select,
+} from "@executor/react/plugins";
+import {
   type OnePasswordDiscoverVaultsInput,
   type OnePasswordDiscoverVaultsResult,
   type OnePasswordStoreAuth,
   type OnePasswordVault,
 } from "@executor/plugin-onepassword-shared";
 
-const fieldClassName =
-  "h-9 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-ring focus:ring-1 focus:ring-ring/25";
-
-const buttonClassName =
-  "inline-flex h-9 items-center justify-center rounded-lg border border-input bg-card px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50";
-
-const primaryButtonClassName =
-  "inline-flex h-9 items-center justify-center rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
-
-function FieldLabel(props: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <label className="grid gap-2">
-      <span className="text-[12px] font-medium text-foreground">{props.label}</span>
-      {props.children}
-    </label>
-  );
-}
 
 export function OnePasswordSecretStoreCreateForm(
   props: SecretStoreCreateFormProps,
@@ -189,66 +176,66 @@ export function OnePasswordSecretStoreCreateForm(
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-2.5 text-[13px] text-destructive">
+        <Alert variant="destructive">
           {error}
-        </div>
+        </Alert>
       )}
 
-      <FieldLabel label="Name">
-        <input
+      <div className="grid gap-2">
+        <Label>Name</Label>
+        <Input
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Team 1Password"
-          className={fieldClassName}
           autoFocus
         />
-      </FieldLabel>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <FieldLabel label="Auth method">
-          <select
+        <div className="grid gap-2">
+          <Label>Auth method</Label>
+          <Select
             value={authKind}
             onChange={(event) =>
               setAuthKind(event.target.value as "desktop-app" | "service-account")}
-            className={fieldClassName}
           >
             <option value="desktop-app">Desktop app</option>
             <option value="service-account">Service account</option>
-          </select>
-        </FieldLabel>
+          </Select>
+        </div>
         <div className="flex items-end">
-          <button
+          <Button
+            variant="outline"
             type="button"
             onClick={() => {
               void handleDiscoverVaults();
             }}
             disabled={discoverVaultsMutation.status === "pending"}
-            className={buttonClassName}
           >
             {discoverVaultsMutation.status === "pending" ? "Loading..." : "Load vaults"}
-          </button>
+          </Button>
         </div>
       </div>
 
       {authKind === "desktop-app" ? (
-        <FieldLabel label="Account name or UUID">
-          <input
+        <div className="grid gap-2">
+          <Label>Account name or UUID</Label>
+          <Input
             value={accountName}
             onChange={(event) => setAccountName(event.target.value)}
             placeholder="my.1password.com"
-            className={fieldClassName}
           />
           <div className="text-[11px] text-muted-foreground">
             Use the account shown in the 1Password desktop app sidebar or the
             account UUID from <code>op account list --format json</code>.
           </div>
-        </FieldLabel>
+        </div>
       ) : (
-        <FieldLabel label="Service Account Token Secret">
-          <select
+        <div className="grid gap-2">
+          <Label>Service Account Token Secret</Label>
+          <Select
             value={tokenSecretId}
             onChange={(event) => setTokenSecretId(event.target.value)}
-            className={fieldClassName}
           >
             <option value="">
               {props.secrets.status === "ready"
@@ -261,60 +248,60 @@ export function OnePasswordSecretStoreCreateForm(
                   {secret.name ?? secret.id}
                 </option>
               ))}
-          </select>
+          </Select>
           <div className="text-[11px] text-muted-foreground">
             Use this for remote or headless automation. Desktop app auth is better for
             local Executor use.
           </div>
-        </FieldLabel>
+        </div>
       )}
 
       {discoveredVaults.length > 0 && (
-        <FieldLabel label="Discovered vaults">
-          <select
+        <div className="grid gap-2">
+          <Label>Discovered vaults</Label>
+          <Select
             value={vaultId}
             onChange={(event) => setVaultId(event.target.value)}
-            className={fieldClassName}
           >
             {discoveredVaults.map((vault) => (
               <option key={vault.id} value={vault.id}>
                 {vault.name}
               </option>
             ))}
-          </select>
+          </Select>
           <div className="text-[11px] text-muted-foreground">
             Pick from the vaults visible to this account, or override the id below.
           </div>
-        </FieldLabel>
+        </div>
       )}
 
-      <FieldLabel label="Vault ID">
-        <input
+      <div className="grid gap-2">
+        <Label>Vault ID</Label>
+        <Input
           value={vaultId}
           onChange={(event) => setVaultId(event.target.value)}
           placeholder="vlt_..."
-          className={`${fieldClassName} font-mono text-[12px]`}
+          className="font-mono text-[12px]"
         />
-      </FieldLabel>
+      </div>
 
       <div className="flex justify-end gap-2">
-        <button
+        <Button
+          variant="outline"
           type="button"
           onClick={props.onCancel}
-          className={buttonClassName}
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={() => {
             void handleSubmit();
           }}
           disabled={props.isSubmitting}
-          className={primaryButtonClassName}
         >
           {props.isSubmitting ? "Creating..." : "Create store"}
-        </button>
+        </Button>
       </div>
     </div>
   );

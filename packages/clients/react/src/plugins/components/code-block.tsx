@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { codeToHtml, resolveLang } from "../lib/shiki";
 import { cn } from "../lib/cn";
+import { Button } from "./ui/button";
 import { IconCheck, IconCopy } from "./icons";
 
 const highlightCache = new Map<string, string>();
@@ -80,14 +81,16 @@ export function CodeBlock(props: {
 
   return (
     <div className={cn("group relative overflow-auto", className)}>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="icon"
         onClick={handleCopy}
-        className="absolute right-2 top-2 z-10 rounded-md border border-border bg-card/90 p-1.5 text-muted-foreground/40 opacity-0 backdrop-blur-sm transition-all hover:text-foreground group-hover:opacity-100"
+        className="absolute right-2 top-2 z-10 bg-card/90 p-1.5 text-muted-foreground/40 opacity-0 backdrop-blur-sm hover:text-foreground group-hover:opacity-100"
         title="Copy to clipboard"
       >
         {copied ? <IconCheck className="size-3" /> : <IconCopy className="size-3" />}
-      </button>
+      </Button>
 
       {html ? (
         <div

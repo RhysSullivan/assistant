@@ -1,7 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-@source "../../node_modules/streamdown/dist/*.js";
+@source "../../../packages/clients/react/src/**/*.{ts,tsx}";
+@source "../../../plugins/*/react/**/*.{ts,tsx}";
+@source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -9,6 +12,7 @@
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
   --font-display: "Instrument Serif", Georgia, serif;
+  --font-heading: var(--font-sans);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -33,6 +37,25 @@
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 /*
@@ -44,6 +67,8 @@
 /* ——— Light theme (default) ——— */
 :root {
   color-scheme: light dark;
+  --radius: 0.625rem;
+
   --background: oklch(0.985 0.002 260);
   --foreground: oklch(0.145 0.005 260);
   --card: oklch(0.99 0.001 260);
@@ -67,6 +92,17 @@
   --sidebar-foreground: oklch(0.32 0.008 260);
   --sidebar-border: oklch(0.90 0.005 260);
   --sidebar-active: oklch(0.935 0.006 260);
+  --sidebar-primary: oklch(0.55 0.17 175);
+  --sidebar-primary-foreground: oklch(0.98 0.005 175);
+  --sidebar-accent: oklch(0.94 0.006 260);
+  --sidebar-accent-foreground: oklch(0.145 0.005 260);
+  --sidebar-ring: oklch(0.55 0.17 175);
+
+  --chart-1: oklch(0.55 0.17 175);
+  --chart-2: oklch(0.52 0.16 230);
+  --chart-3: oklch(0.58 0.16 85);
+  --chart-4: oklch(0.55 0.22 25);
+  --chart-5: oklch(0.50 0.01 250);
 
   /* Method colors */
   --method-get: oklch(0.55 0.18 155);
@@ -104,6 +140,17 @@
     --sidebar-foreground: oklch(0.72 0.008 250);
     --sidebar-border: oklch(0.20 0.006 260);
     --sidebar-active: oklch(0.18 0.008 260);
+    --sidebar-primary: oklch(0.72 0.15 175);
+    --sidebar-primary-foreground: oklch(0.12 0.01 175);
+    --sidebar-accent: oklch(0.195 0.008 260);
+    --sidebar-accent-foreground: oklch(0.90 0.008 250);
+    --sidebar-ring: oklch(0.72 0.15 175);
+
+    --chart-1: oklch(0.72 0.15 175);
+    --chart-2: oklch(0.72 0.14 230);
+    --chart-3: oklch(0.78 0.14 85);
+    --chart-4: oklch(0.70 0.18 25);
+    --chart-5: oklch(0.56 0.01 250);
 
     /* Method colors */
     --method-get: oklch(0.75 0.16 155);
@@ -118,7 +165,7 @@
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border outline-ring/50;
   }
 
   html,
