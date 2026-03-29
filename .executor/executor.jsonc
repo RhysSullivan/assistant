@@ -1,39 +1,19 @@
 {
   "sources": {
-    "vercel": {
+    "vercel-api": {
       "name": "Vercel API",
-      "connection": {
-        "endpoint": "https://api.vercel.com/"
-      },
       "kind": "openapi",
-      "binding": {
-        "specUrl": "https://openapi.vercel.sh/",
-        "defaultHeaders": null
-      }
-    },
-    "deepwiki": {
-      "name": "DeepWiki MCP",
-      "connection": {
-        "endpoint": "https://mcp.deepwiki.com/mcp"
-      },
-      "kind": "mcp",
-      "binding": {
-        "transport": "auto",
-        "queryParams": null,
-        "headers": null,
-        "command": null,
-        "args": null,
-        "env": null,
-        "cwd": null
-      }
-    },
-    "linear": {
-      "kind": "graphql",
-      "name": "Linear GraphQL",
-      "connection": {
-        "endpoint": "https://api.linear.app/graphql"
-      },
-      "binding": {
+      "config": {
+        "specUrl": "https://openapi.vercel.sh",
+        "baseUrl": "https://api.vercel.com/",
+        "auth": {
+          "kind": "bearer",
+          "tokenSecretRef": {
+            "secretId": "sec_dcd33fd0-3206-4763-b9ab-cfb2a59e697d"
+          },
+          "headerName": "Authorization",
+          "prefix": null
+        },
         "defaultHeaders": null
       }
     }
