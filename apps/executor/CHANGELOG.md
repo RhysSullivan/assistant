@@ -1,5 +1,11 @@
 # executor
 
+## 1.3.0-beta.3
+
+### Patch Changes
+
+- Improve MCP source setup by auto-detecting OAuth requirements, showing a loading state during discovery, and allowing creation without signing in.
+
 ## 1.3.0-beta.2
 
 ### Patch Changes
