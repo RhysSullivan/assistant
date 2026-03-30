@@ -63,17 +63,17 @@ const formatJsonDocument = (value: string | null): string | null => {
 const statusDotColor = (status: ExecutionStatus): string => {
   switch (status) {
     case "completed":
-      return "bg-emerald-400";
+      return "bg-primary";
     case "failed":
-      return "bg-red-400";
+      return "bg-destructive";
     case "running":
       return "bg-blue-400 animate-pulse";
     case "waiting_for_interaction":
       return "bg-amber-400 animate-pulse";
     case "pending":
-      return "bg-zinc-500";
+      return "bg-muted";
     case "cancelled":
-      return "bg-zinc-500";
+      return "bg-muted";
   }
 };
 
@@ -96,15 +96,15 @@ const formatDurationMs = (execution: Execution): string | null => {
 const statusColor = (status: ExecutionStatus): string => {
   switch (status) {
     case "completed":
-      return "text-emerald-400";
+      return "text-primary";
     case "failed":
-      return "text-red-400";
+      return "text-destructive";
     case "running":
       return "text-blue-400";
     case "waiting_for_interaction":
       return "text-amber-400";
     default:
-      return "text-zinc-400";
+      return "text-muted-foreground";
   }
 };
 
@@ -245,13 +245,13 @@ const PropertiesTab = (props: { envelope: ExecutionEnvelope }) => {
               title="Request"
               body={formatJsonDocument(pendingInteraction.payloadJson)}
               lang="json"
-              empty="No request payload."
+              empty="No interaction request recorded."
             />
             <DocumentPanel
               title="Response"
               body={formatJsonDocument(pendingInteraction.responseJson)}
               lang="json"
-              empty="No response yet."
+              empty="No interaction response recorded."
             />
           </div>
         </div>
@@ -292,9 +292,12 @@ const LogsTab = (props: { logsJson: string | null }) => {
         {parsed.map((line, i) => {
           const isError = typeof line === "string" && /\[error]/i.test(line);
           const isWarn = typeof line === "string" && /\[warn]/i.test(line);
+          const lineKey = typeof line === "string"
+            ? `line-${i}-${line.slice(0, 50).replace(/\s+/g, "-")}`
+            : `line-${i}-${JSON.stringify(line).slice(0, 50)}`;
           return (
             <div
-              key={i}
+              key={lineKey}
               className={cn(
                 "whitespace-pre-wrap break-all",
                 isError && "text-red-400",
