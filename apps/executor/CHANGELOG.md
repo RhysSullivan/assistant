@@ -1,5 +1,11 @@
 # executor
 
+## 1.3.0-beta.1
+
+### Patch Changes
+
+- Fix the beta distribution packaging flow so the prerelease publish passes again.
+
 ## 1.3.0-beta.0
 
 ### Minor Changes
