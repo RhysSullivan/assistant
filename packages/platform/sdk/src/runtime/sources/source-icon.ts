@@ -12,6 +12,13 @@ const COMMON_COMPOUND_SUFFIXES = new Set([
   "org.uk",
 ]);
 
+const RAW_HOSTS = new Set([
+  "cdn.jsdelivr.net",
+  "raw.github.com",
+  "raw.githubusercontent.com",
+  "unpkg.com",
+]);
+
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value == null) {
     return null;
@@ -63,13 +70,23 @@ export const resolveSourceIconUrl = (input: {
     return configuredIconUrl;
   }
 
-  if (input.kind !== "mcp" || !isRecord(input.config)) {
+  if (!isRecord(input.config)) {
     return null;
   }
 
-  const endpoint = typeof input.config.endpoint === "string"
-    ? trimOrNull(input.config.endpoint)
-    : null;
+  const endpoint =
+    input.kind === "mcp" || input.kind === "graphql"
+      ? (typeof input.config.endpoint === "string"
+          ? trimOrNull(input.config.endpoint)
+          : null)
+      : input.kind === "openapi"
+        ? (typeof input.config.baseUrl === "string"
+            ? trimOrNull(input.config.baseUrl)
+            : null)
+          ?? (typeof input.config.specUrl === "string"
+              ? trimOrNull(input.config.specUrl)
+              : null)
+        : null;
   if (!endpoint) {
     return null;
   }
@@ -77,6 +94,10 @@ export const resolveSourceIconUrl = (input: {
   try {
     const url = new URL(endpoint);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    if (RAW_HOSTS.has(url.hostname)) {
       return null;
     }
 
