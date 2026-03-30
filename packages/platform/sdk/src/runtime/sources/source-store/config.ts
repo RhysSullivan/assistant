@@ -1,5 +1,5 @@
 import type {
-  LocalConfigSource,
+  ExecutorScopeConfigSource,
   Source,
   SourceId,
 } from "#schema";
@@ -23,7 +23,7 @@ export const trimOrNull = (value: string | null | undefined): string | null => {
 export const cloneJson = <T>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
 
-export const deriveLocalSourceId = (
+export const deriveScopeConfigSourceId = (
   source: Pick<Source, "namespace" | "name">,
   used: ReadonlySet<string>,
 ): SourceId => {
@@ -38,9 +38,9 @@ export const deriveLocalSourceId = (
   return SourceIdSchema.make(candidate);
 };
 
-export const configSourceBaseFromLocalSource = (input: {
+export const scopeConfigSourceBaseFromSource = (input: {
   source: Source;
-}): Omit<LocalConfigSource, "kind" | "config" | "connection" | "binding"> => ({
+}): Omit<ExecutorScopeConfigSource, "kind" | "config"> => ({
   ...(trimOrNull(input.source.name) !== trimOrNull(input.source.id)
     ? { name: input.source.name }
     : {}),
@@ -50,29 +50,19 @@ export const configSourceBaseFromLocalSource = (input: {
   ...(input.source.enabled === false ? { enabled: false } : {}),
 });
 
-export const configSourceFromLocalSource = (input: {
+export const scopeConfigSourceFromSource = (input: {
   source: Source;
-  existingConfig?: LocalConfigSource | null;
-}): LocalConfigSource => {
+  existingConfig?: ExecutorScopeConfigSource | null;
+}): ExecutorScopeConfigSource => {
   return {
-    ...configSourceBaseFromLocalSource({
+    ...scopeConfigSourceBaseFromSource({
       source: input.source,
     }),
-    kind: input.source.kind as LocalConfigSource["kind"],
+    kind: input.source.kind as ExecutorScopeConfigSource["kind"],
     ...(input.existingConfig?.config !== undefined
       ? {
           config: cloneJson(input.existingConfig.config),
         }
       : {}),
-    ...(input.existingConfig?.connection !== undefined
-      ? {
-          connection: cloneJson(input.existingConfig.connection),
-        }
-      : {}),
-    ...(input.existingConfig?.binding !== undefined
-      ? {
-          binding: cloneJson(input.existingConfig.binding),
-        }
-      : {}),
-  } as LocalConfigSource;
+  } as ExecutorScopeConfigSource;
 };

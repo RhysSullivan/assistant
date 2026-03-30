@@ -1,36 +1,29 @@
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { FileSystem } from "@effect/platform";
-import {
-  type ParseError as JsoncParseError,
-  parse as parseJsoncDocument,
-  printParseErrorCode,
-} from "jsonc-parser/lib/esm/main.js";
 
 import {
-  LocalExecutorConfigSchema,
-  type LocalExecutorConfig,
-  type LocalConfigPolicy,
-  type LocalConfigSource,
+  type ExecutorScopeConfig,
+  type ExecutorScopeConfigPolicy,
+  type ExecutorScopeConfigSource,
 } from "@executor/platform-sdk/schema";
-import type { LoadedLocalExecutorConfig } from "@executor/platform-sdk/runtime";
+import type { LoadedExecutorScopeConfig } from "@executor/platform-sdk/runtime";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 import {
-  LocalExecutorConfigDecodeError,
+  decodeExecutorScopeConfig,
+  encodeExecutorScopeConfig,
+  parseExecutorScopeConfig,
+} from "./config-codec";
+import {
+  ExecutorScopeConfigDecodeError,
   LocalFileSystemError,
   unknownLocalErrorDetails,
 } from "./errors";
 
-const decodeLocalExecutorConfig = Schema.decodeUnknownSync(LocalExecutorConfigSchema);
-
-export type FileLoadedExecutorConfig = LoadedLocalExecutorConfig & {
+export type FileLoadedExecutorConfig = LoadedExecutorScopeConfig & {
   homeConfigPath: string;
   projectConfigPath: string;
 };
-
-export const encodeLocalExecutorConfig = (config: LocalExecutorConfig): string =>
-  `${JSON.stringify(config, null, 2)}\n`;
 
 export const resolveConfigRelativePath = (input: {
   path: string;
@@ -49,7 +42,8 @@ export const resolveConfigRelativePath = (input: {
   return resolve(input.scopeRoot, trimmed);
 };
 
-export type { LoadedLocalExecutorConfig } from "@executor/platform-sdk/runtime";
+export type { LoadedExecutorScopeConfig } from "@executor/platform-sdk/runtime";
+export { encodeExecutorScopeConfig } from "./config-codec";
 
 const PROJECT_CONFIG_BASENAME = "executor.jsonc";
 const PROJECT_CONFIG_DIRECTORY = ".executor";
@@ -173,59 +167,10 @@ export const resolveDefaultHomeStateDirectory = (input: {
 } = {}): string =>
   defaultExecutorStateDirectory(input);
 
-const formatJsoncParseErrors = (content: string, errors: readonly JsoncParseError[]): string => {
-  const lines = content.split("\n");
-
-  return errors
-    .map((error) => {
-      const beforeOffset = content.slice(0, error.offset).split("\n");
-      const line = beforeOffset.length;
-      const column = beforeOffset[beforeOffset.length - 1]?.length ?? 0;
-      const lineText = lines[line - 1];
-      const location = `line ${line}, column ${column + 1}`;
-      const detail = printParseErrorCode(error.error);
-
-      if (!lineText) {
-        return `${detail} at ${location}`;
-      }
-
-      return `${detail} at ${location}\n${lineText}`;
-    })
-    .join("\n");
-};
-
-const parseJsonc = (input: { path: string; content: string }): LocalExecutorConfig => {
-  const errors: JsoncParseError[] = [];
-
-  try {
-    const parsed = parseJsoncDocument(input.content, errors, {
-      allowTrailingComma: true,
-    });
-    if (errors.length > 0) {
-      throw new LocalExecutorConfigDecodeError({
-        message: `Invalid executor config at ${input.path}: ${formatJsoncParseErrors(input.content, errors)}`,
-        path: input.path,
-        details: formatJsoncParseErrors(input.content, errors),
-      });
-    }
-
-    return decodeLocalExecutorConfig(parsed);
-  } catch (cause) {
-    if (cause instanceof LocalExecutorConfigDecodeError) {
-      throw cause;
-    }
-    throw new LocalExecutorConfigDecodeError({
-      message: `Invalid executor config at ${input.path}: ${unknownLocalErrorDetails(cause)}`,
-      path: input.path,
-      details: unknownLocalErrorDetails(cause),
-    });
-  }
-};
-
 const mergeSourceMaps = (
-  base: Record<string, LocalConfigSource> | undefined,
-  extra: Record<string, LocalConfigSource> | undefined,
-): Record<string, LocalConfigSource> | undefined => {
+  base: Record<string, ExecutorScopeConfigSource> | undefined,
+  extra: Record<string, ExecutorScopeConfigSource> | undefined,
+): Record<string, ExecutorScopeConfigSource> | undefined => {
   if (!base && !extra) {
     return undefined;
   }
@@ -236,9 +181,9 @@ const mergeSourceMaps = (
 };
 
 const mergePolicyMaps = (
-  base: Record<string, LocalConfigPolicy> | undefined,
-  extra: Record<string, LocalConfigPolicy> | undefined,
-): Record<string, LocalConfigPolicy> | undefined => {
+  base: Record<string, ExecutorScopeConfigPolicy> | undefined,
+  extra: Record<string, ExecutorScopeConfigPolicy> | undefined,
+): Record<string, ExecutorScopeConfigPolicy> | undefined => {
   if (!base && !extra) {
     return undefined;
   }
@@ -248,15 +193,15 @@ const mergePolicyMaps = (
   };
 };
 
-export const mergeLocalExecutorConfigs = (
-  base: LocalExecutorConfig | null,
-  extra: LocalExecutorConfig | null,
-): LocalExecutorConfig | null => {
+export const mergeExecutorScopeConfigs = (
+  base: ExecutorScopeConfig | null,
+  extra: ExecutorScopeConfig | null,
+): ExecutorScopeConfig | null => {
   if (!base && !extra) {
     return null;
   }
 
-  return decodeLocalExecutorConfig({
+  return decodeExecutorScopeConfig({
     runtime: extra?.runtime ?? base?.runtime,
     workspace: {
       ...base?.workspace,
@@ -370,11 +315,11 @@ export const resolveLocalWorkspaceContext = (input: {
     };
   });
 
-export const readOptionalLocalExecutorConfig = (
+export const readOptionalExecutorScopeConfig = (
   path: string,
 ): Effect.Effect<
-  LocalExecutorConfig | null,
-  LocalFileSystemError | LocalExecutorConfigDecodeError,
+  ExecutorScopeConfig | null,
+  LocalFileSystemError | ExecutorScopeConfigDecodeError,
   FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
@@ -390,11 +335,11 @@ export const readOptionalLocalExecutorConfig = (
       Effect.mapError(mapFileSystemError(path, "read config")),
     );
     return yield* Effect.try({
-      try: () => parseJsonc({ path, content }),
+      try: () => parseExecutorScopeConfig({ path, content }),
       catch: (cause) =>
-        cause instanceof LocalExecutorConfigDecodeError
+        cause instanceof ExecutorScopeConfigDecodeError
           ? cause
-          : new LocalExecutorConfigDecodeError({
+          : new ExecutorScopeConfigDecodeError({
               message: `Invalid executor config at ${path}: ${unknownLocalErrorDetails(cause)}`,
               path,
               details: unknownLocalErrorDetails(cause),
@@ -402,21 +347,21 @@ export const readOptionalLocalExecutorConfig = (
     });
   });
 
-export const loadLocalExecutorConfig = (
+export const loadExecutorScopeConfig = (
   context: ResolvedLocalWorkspaceContext,
 ): Effect.Effect<
   FileLoadedExecutorConfig,
-  LocalFileSystemError | LocalExecutorConfigDecodeError,
+  LocalFileSystemError | ExecutorScopeConfigDecodeError,
   FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const [homeConfig, projectConfig] = yield* Effect.all([
-      readOptionalLocalExecutorConfig(context.homeConfigPath),
-      readOptionalLocalExecutorConfig(context.projectConfigPath),
+      readOptionalExecutorScopeConfig(context.homeConfigPath),
+      readOptionalExecutorScopeConfig(context.projectConfigPath),
     ]);
 
     return {
-      config: mergeLocalExecutorConfigs(homeConfig, projectConfig),
+      config: mergeExecutorScopeConfigs(homeConfig, projectConfig),
       homeConfig,
       projectConfig,
       homeConfigPath: context.homeConfigPath,
@@ -424,9 +369,9 @@ export const loadLocalExecutorConfig = (
     };
   });
 
-export const writeProjectLocalExecutorConfig = (input: {
+export const writeProjectExecutorScopeConfig = (input: {
   context: ResolvedLocalWorkspaceContext;
-  config: LocalExecutorConfig;
+  config: ExecutorScopeConfig;
 }): Effect.Effect<void, LocalFileSystemError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -435,7 +380,7 @@ export const writeProjectLocalExecutorConfig = (input: {
     );
     yield* fs.writeFileString(
       input.context.projectConfigPath,
-      encodeLocalExecutorConfig(input.config),
+      encodeExecutorScopeConfig(input.config),
     ).pipe(
       Effect.mapError(mapFileSystemError(input.context.projectConfigPath, "write config")),
     );

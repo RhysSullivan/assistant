@@ -5,7 +5,7 @@ export {
   createLocalExecutorRepositoriesEffect,
   deriveLocalInstallation,
   getOrProvisionLocalInstallation,
-  loadLocalExecutorConfig,
+  loadExecutorScopeConfig,
   loadLocalExecutorStateSnapshot,
   loadLocalInstallation,
   loadLocalWorkspaceState,
@@ -20,9 +20,9 @@ export {
   writeLocalExecutorStateSnapshot,
   writeLocalSourceArtifact,
   writeLocalWorkspaceState,
-  writeProjectLocalExecutorConfig,
+  writeProjectExecutorScopeConfig,
 } from "./index";
 export type {
-  LoadedLocalExecutorConfig,
+  LoadedExecutorScopeConfig,
   ResolvedLocalWorkspaceContext,
 } from "./index";

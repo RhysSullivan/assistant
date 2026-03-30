@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 
 import {
-  type LoadedLocalExecutorConfig,
+  type LoadedExecutorScopeConfig,
 } from "../scope-config";
 import {
   ScopeStateStore,
@@ -40,7 +40,7 @@ export const derivePolicyConfigKey = (
 };
 
 const pruneLocalWorkspaceState = (input: {
-  loadedConfig: LoadedLocalExecutorConfig;
+  loadedConfig: LoadedExecutorScopeConfig;
 }): Effect.Effect<LocalScopeState, Error, ScopeStateStore> =>
   Effect.gen(function* () {
     const scopeStateStore = yield* ScopeStateStore;
@@ -79,8 +79,8 @@ const pruneLocalWorkspaceState = (input: {
   });
 
 export const synchronizeLocalScopeState = (input: {
-  loadedConfig: LoadedLocalExecutorConfig;
-}): Effect.Effect<LoadedLocalExecutorConfig["config"], Error, ScopeStateStore> =>
+  loadedConfig: LoadedExecutorScopeConfig;
+}): Effect.Effect<LoadedExecutorScopeConfig["config"], Error, ScopeStateStore> =>
   Effect.gen(function* () {
     yield* pruneLocalWorkspaceState({
       loadedConfig: input.loadedConfig,

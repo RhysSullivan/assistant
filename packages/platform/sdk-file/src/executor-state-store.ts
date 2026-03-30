@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 
@@ -7,65 +7,31 @@ import {
   type Execution,
   type ExecutionInteraction,
   type ExecutionStep,
-  ExecutionInteractionSchema,
-  ExecutionSchema,
-  ExecutionStepSchema,
-  SecretMaterialSchema,
   type SecretMaterial,
-  SecretStoreSchema,
   type SecretStore,
 } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 
 import type { ResolvedLocalWorkspaceContext } from "./config";
-import { deriveLocalInstallation } from "./installation";
+import {
+  decodeLocalExecutorStateSnapshot,
+  defaultLocalExecutorStateSnapshot,
+  encodeLocalExecutorStateSnapshot,
+  localExecutorStatePath,
+  LOCAL_EXECUTOR_STATE_VERSION,
+  type LocalExecutorStateSnapshot,
+  type SecretMaterialStoredDataRecord,
+} from "./executor-state-codec";
 import {
   LocalFileSystemError,
   unknownLocalErrorDetails,
 } from "./errors";
 
-const LOCAL_EXECUTOR_STATE_VERSION = 2 as const;
-const LOCAL_EXECUTOR_STATE_BASENAME = "executor-state.json";
-
-const SecretMaterialStoredDataRecordSchema = Schema.Struct({
-  secretId: Schema.String,
-  data: Schema.Unknown,
-});
-
-type SecretMaterialStoredDataRecord = typeof SecretMaterialStoredDataRecordSchema.Type;
-
-const LocalExecutorStateSnapshotSchema = Schema.Struct({
-  version: Schema.Literal(LOCAL_EXECUTOR_STATE_VERSION),
-  secretStores: Schema.Array(SecretStoreSchema),
-  secretMaterials: Schema.Array(SecretMaterialSchema),
-  secretMaterialStoredData: Schema.Array(SecretMaterialStoredDataRecordSchema),
-  executions: Schema.Array(ExecutionSchema),
-  executionInteractions: Schema.Array(ExecutionInteractionSchema),
-  executionSteps: Schema.Array(ExecutionStepSchema),
-});
-
-export type LocalExecutorStateSnapshot = typeof LocalExecutorStateSnapshotSchema.Type;
-
 export type LocalExecutorStatePersistence = {
   executorState: LocalExecutorStateStore;
   close: () => Promise<void>;
 };
-
-const decodeLocalExecutorStateSnapshot = Schema.decodeUnknown(
-  LocalExecutorStateSnapshotSchema,
-);
-
-const defaultLocalExecutorStateSnapshot = (): LocalExecutorStateSnapshot => ({
-  version: LOCAL_EXECUTOR_STATE_VERSION,
-  secretStores: [],
-  secretMaterials: [],
-  secretMaterialStoredData: [],
-  executions: [],
-  executionInteractions: [],
-  executionSteps: [],
-});
 
 const cloneValue = <T>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
@@ -82,16 +48,6 @@ const sortByUpdatedAtAndIdDesc = <T extends { updatedAt: number; id: string }>(
 ): T[] =>
   [...values].sort((left, right) =>
     right.updatedAt - left.updatedAt || right.id.localeCompare(left.id),
-  );
-
-const localExecutorStatePath = (
-  context: ResolvedLocalWorkspaceContext,
-): string =>
-  join(
-    context.homeStateDirectory,
-    "workspaces",
-    deriveLocalInstallation(context).scopeId,
-    LOCAL_EXECUTOR_STATE_BASENAME,
   );
 
 const bindFileSystem = <A, E>(
@@ -125,10 +81,10 @@ const readStateFromDisk = (
       try: () => JSON.parse(content) as unknown,
       catch: mapFileSystemError(path, "parse executor state"),
     });
-    const decoded = yield* decodeLocalExecutorStateSnapshot(parsed).pipe(
-      Effect.mapError(mapFileSystemError(path, "decode executor state")),
-    );
-    return decoded;
+    return yield* Effect.try({
+      try: () => decodeLocalExecutorStateSnapshot(parsed),
+      catch: mapFileSystemError(path, "decode executor state"),
+    });
   });
 
 const writeStateToDisk = (
@@ -143,7 +99,7 @@ const writeStateToDisk = (
     yield* fs.makeDirectory(dirname(path), { recursive: true }).pipe(
       Effect.mapError(mapFileSystemError(dirname(path), "create executor state directory")),
     );
-    yield* fs.writeFileString(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
+    yield* fs.writeFileString(tempPath, encodeLocalExecutorStateSnapshot(state), {
       mode: 0o600,
     }).pipe(
       Effect.mapError(mapFileSystemError(tempPath, "write executor state")),

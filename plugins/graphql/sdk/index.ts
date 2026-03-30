@@ -12,7 +12,7 @@ import {
   createSourceCatalogSyncResult,
 } from "@executor/source-core";
 import type {
-  LocalExecutorConfig,
+  ExecutorScopeConfig,
   Source,
 } from "@executor/platform-sdk/schema";
 import {
@@ -23,8 +23,8 @@ import {
 } from "@executor/platform-sdk/plugins";
 import {
   SecretMaterialResolverService,
-  createPluginLocalConfigEntrySchema,
-  pluginLocalConfigSourceFromConfig,
+  createPluginScopeConfigEntrySchema,
+  pluginScopeConfigSourceFromConfig,
   provideExecutorRuntime,
   runtimeEffectError,
 } from "@executor/platform-sdk/runtime";
@@ -151,7 +151,7 @@ const asStringRecord = (value: unknown): Record<string, string> =>
   );
 
 const decodeGraphqlCurrentLocalConfigOption = Schema.decodeUnknownOption(
-  createPluginLocalConfigEntrySchema({
+  createPluginScopeConfigEntrySchema({
     kind: "graphql",
     config: GraphqlStoredSourceDataSchema,
   }),
@@ -336,7 +336,7 @@ const graphqlConnectInputFromAddInput = (
 
 const graphqlStoredSourceDataFromLocalConfig = (input: {
   config: unknown;
-  loadedConfig: LocalExecutorConfig | null;
+  loadedConfig: ExecutorScopeConfig | null;
 }): GraphqlStoredSourceData => {
   const current = decodeGraphqlCurrentLocalConfigOption(input.config);
   if (Option.isSome(current)) {
@@ -397,9 +397,9 @@ export const graphqlSdkPlugin = (options: {
       toConfig: ({ source, stored }) =>
         sourceConfigFromStored(source, normalizeStoredSourceData(stored)),
     },
-    localConfig: {
+    scopeConfig: {
       toConfigSource: ({ source, stored }) =>
-        pluginLocalConfigSourceFromConfig({
+        pluginScopeConfigSourceFromConfig({
           source,
           config: normalizeStoredSourceData(stored),
         }),

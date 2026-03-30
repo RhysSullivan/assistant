@@ -31,8 +31,8 @@ import {
   defineExecutorSourcePlugin,
 } from "@executor/platform-sdk/plugins";
 import {
-  createPluginLocalConfigEntrySchema,
-  pluginLocalConfigSourceFromConfig,
+  createPluginScopeConfigEntrySchema,
+  pluginScopeConfigSourceFromConfig,
   SecretMaterialDeleterService,
   SecretMaterialResolverService,
   SecretMaterialStorerService,
@@ -250,7 +250,7 @@ const normalizeStringArray = (
 };
 
 const decodeMcpCurrentLocalConfigOption = Schema.decodeUnknownOption(
-  createPluginLocalConfigEntrySchema({
+  createPluginScopeConfigEntrySchema({
     kind: "mcp",
     config: McpStoredSourceDataSchema,
   }),
@@ -720,9 +720,9 @@ export const mcpSdkPlugin = (
           }
         }),
     },
-    localConfig: {
+    scopeConfig: {
       toConfigSource: ({ source, stored }) =>
-        pluginLocalConfigSourceFromConfig({
+        pluginScopeConfigSourceFromConfig({
           source,
           config: stored,
         }),

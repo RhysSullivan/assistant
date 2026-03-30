@@ -8,8 +8,8 @@ import type {
 import type { ExecutorEffect } from "./executor-effect";
 import type { ExecutorScopeContext } from "./scope";
 import {
-  type LocalConfigSource,
-  type LocalExecutorConfig,
+  type ExecutorScopeConfigSource,
+  type ExecutorScopeConfig,
   type Source as ExecutorSource,
   type SecretMaterial,
   type SecretMaterialPurpose,
@@ -300,15 +300,15 @@ export type ExecutorSourcePluginDefinition<
       stored: TStored | null;
     }) => Effect.Effect<void, Error, any>;
   };
-  localConfig?: {
+  scopeConfig?: {
     toConfigSource: (input: {
       source: ExecutorSource;
       stored: TStored;
-    }) => LocalConfigSource;
+    }) => ExecutorScopeConfigSource;
     recoverStored: (input: {
       source: ExecutorSource;
-      config: LocalConfigSource;
-      loadedConfig: LocalExecutorConfig | null;
+      config: ExecutorScopeConfigSource;
+      loadedConfig: ExecutorScopeConfig | null;
     }) => Effect.Effect<TStored, Error, any> | TStored;
   };
   catalog: {
@@ -588,7 +588,7 @@ const fromMaybeEffect = <A>(
     ? value
     : Effect.succeed(value);
 
-const persistSourceLocalConfig = <
+const persistSourceScopeConfig = <
   TAddInput,
   TConnectInput,
   TSourceConfig,
@@ -610,15 +610,15 @@ const persistSourceLocalConfig = <
     stored: TStored;
   },
 ): Effect.Effect<void, Error, ScopeConfigStore> =>
-  definition.localConfig
+  definition.scopeConfig
     ? Effect.gen(function* () {
-        const localConfig = definition.localConfig!;
+        const scopeConfig = definition.scopeConfig!;
         const scopeConfigStore = yield* ScopeConfigStore;
         const loadedConfig = yield* scopeConfigStore.load();
         const projectConfig = cloneJson(loadedConfig.projectConfig ?? {});
         const sources = {
           ...projectConfig.sources,
-          [input.source.id]: localConfig.toConfigSource({
+          [input.source.id]: scopeConfig.toConfigSource({
             source: input.source,
             stored: input.stored,
           }),
@@ -653,12 +653,12 @@ const loadStoredOrRecover = <
   source: ExecutorSource,
 ): Effect.Effect<TStored | null, Error, ScopeConfigStore> =>
   Effect.gen(function* () {
-    const localConfig = definition.localConfig;
+    const scopeConfig = definition.scopeConfig;
     const stored = yield* definition.storage.get({
       scopeId: source.scopeId,
       sourceId: source.id,
     });
-    if (stored !== null || localConfig === undefined) {
+    if (stored !== null || scopeConfig === undefined) {
       return stored;
     }
 
@@ -677,7 +677,7 @@ const loadStoredOrRecover = <
     }
 
     const recovered = yield* fromMaybeEffect(
-      localConfig.recoverStored({
+      scopeConfig.recoverStored({
         source,
         config,
         loadedConfig: loadedConfig.config,
@@ -748,7 +748,7 @@ const createExecutorSourcePluginApi = <
         sourceId: source.id,
         value: created.stored,
       });
-      yield* persistSourceLocalConfig(definition, {
+      yield* persistSourceScopeConfig(definition, {
         source,
         stored: created.stored,
       });
@@ -772,7 +772,7 @@ const createExecutorSourcePluginApi = <
         sourceId: saved.id,
         value: updated.stored,
       });
-      yield* persistSourceLocalConfig(definition, {
+      yield* persistSourceScopeConfig(definition, {
         source: saved,
         stored: updated.stored,
       });

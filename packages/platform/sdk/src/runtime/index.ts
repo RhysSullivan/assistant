@@ -32,10 +32,10 @@ import {
   RuntimeExecutionResolverLive,
 } from "./execution/scope/environment";
 import type {
-  LoadedLocalExecutorConfig,
+  LoadedExecutorScopeConfig,
 } from "./scope-config";
 import type {
-  LocalExecutorConfig,
+  ExecutorScopeConfig,
 } from "#schema";
 import type {
   InstanceConfig,
@@ -113,7 +113,7 @@ export * from "./source-artifacts";
 export * from "./scope-config";
 export * from "./scope-state";
 export * from "./sources/source-store/config";
-export * from "./sources/source-store/plugin-local-config";
+export * from "./sources/source-store/plugin-scope-config";
 export {
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
@@ -184,9 +184,9 @@ export type BoundInstallationStore = {
 };
 
 export type BoundScopeConfigStore = {
-  load: () => Effect.Effect<LoadedLocalExecutorConfig, Error, never>;
+  load: () => Effect.Effect<LoadedExecutorScopeConfig, Error, never>;
   writeProject: (
-    config: LocalExecutorConfig,
+    config: ExecutorScopeConfig,
   ) => Effect.Effect<void, Error, never>;
   resolveRelativePath: ScopeConfigStoreShape["resolveRelativePath"];
 };

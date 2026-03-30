@@ -1,12 +1,12 @@
 import type {
   LocalInstallation,
-  LocalExecutorConfig,
+  ExecutorScopeConfig,
 } from "#schema";
 import * as Context from "effect/Context";
 import * as Layer from "effect/Layer";
 
 import type {
-  LoadedLocalExecutorConfig,
+  LoadedExecutorScopeConfig,
 } from "../scope-config";
 import type {
   LocalSourceArtifact,
@@ -31,9 +31,9 @@ export class InstallationStore extends Context.Tag(
 )<InstallationStore, InstallationStoreShape>() {}
 
 export type ScopeConfigStoreShape = {
-  load: () => import("effect/Effect").Effect<LoadedLocalExecutorConfig, Error, never>;
+  load: () => import("effect/Effect").Effect<LoadedExecutorScopeConfig, Error, never>;
   writeProject: (input: {
-    config: LocalExecutorConfig;
+    config: ExecutorScopeConfig;
   }) => import("effect/Effect").Effect<void, Error, never>;
   resolveRelativePath: (input: { path: string; scopeRoot: string }) => string;
 };

@@ -6,10 +6,10 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 
-import type { LocalExecutorConfig } from "@executor/platform-sdk/schema";
+import type { ExecutorScopeConfig } from "@executor/platform-sdk/schema";
 
 import {
-  readOptionalLocalExecutorConfig,
+  readOptionalExecutorScopeConfig,
   resolveLocalWorkspaceContext,
 } from "./config";
 import {
@@ -186,8 +186,8 @@ const copyRecursive = (
   });
 
 const sanitizeSourceConfig = (
-  sourceConfig: NonNullable<LocalExecutorConfig["sources"]>[string],
-): NonNullable<LocalExecutorConfig["sources"]>[string] => sourceConfig;
+  sourceConfig: NonNullable<ExecutorScopeConfig["sources"]>[string],
+): NonNullable<ExecutorScopeConfig["sources"]>[string] => sourceConfig;
 
 const main = Effect.gen(function* () {
   const args = yield* Effect.try({
@@ -218,7 +218,7 @@ const main = Effect.gen(function* () {
     ),
   );
 
-  const projectConfig = yield* readOptionalLocalExecutorConfig(
+  const projectConfig = yield* readOptionalExecutorScopeConfig(
     context.projectConfigPath,
   ).pipe(
     Effect.mapError((cause) =>
@@ -293,7 +293,7 @@ const main = Effect.gen(function* () {
     sources: {
       [args.sourceId]: sanitizeSourceConfig(sourceConfig),
     },
-  } satisfies LocalExecutorConfig;
+  } satisfies ExecutorScopeConfig;
 
   const fixtureState = {
     version: 1 as const,

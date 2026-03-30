@@ -12,8 +12,8 @@ export class LocalFileSystemError extends Data.TaggedError(
   readonly details: string;
 }> {}
 
-export class LocalExecutorConfigDecodeError extends Data.TaggedError(
-  "LocalExecutorConfigDecodeError",
+export class ExecutorScopeConfigDecodeError extends Data.TaggedError(
+  "ExecutorScopeConfigDecodeError",
 )<{
   readonly message: string;
   readonly path: string;

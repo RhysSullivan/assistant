@@ -19,7 +19,7 @@ import type {
   ExecutorSdkPluginExtensions,
 } from "@executor/platform-sdk/plugins";
 import type {
-  LocalExecutorConfig,
+  ExecutorScopeConfig,
   LocalInstallation,
 } from "@executor/platform-sdk/schema";
 import {
@@ -30,14 +30,18 @@ import {
 } from "@executor/platform-sdk/runtime";
 import * as Effect from "effect/Effect";
 import {
-  type LoadedLocalExecutorConfig,
+  type LoadedExecutorScopeConfig,
   type ResolvedLocalWorkspaceContext,
-  loadLocalExecutorConfig,
+  loadExecutorScopeConfig,
   resolveConfigRelativePath,
   resolveLocalWorkspaceContext,
-  writeProjectLocalExecutorConfig,
+  writeProjectExecutorScopeConfig,
 } from "./config";
+import {
+  runStartupConfigMigrations,
+} from "./config-migrations";
 import { createLocalExecutorStatePersistence } from "./executor-state-store";
+import { runStartupExecutorStateMigrations } from "./executor-state-migrations";
 import {
   createDefaultSecretMaterialDeleter,
   createLocalInstanceConfigResolver,
@@ -114,18 +118,18 @@ const createBoundWorkspaceConfigStore = (
   context: ResolvedLocalWorkspaceContext,
   fileSystem: FileSystem.FileSystem,
 ): {
-  load: () => Effect.Effect<LoadedLocalExecutorConfig, Error, never>;
-  writeProject: (config: LocalExecutorConfig) => Effect.Effect<void, Error, never>;
+  load: () => Effect.Effect<LoadedExecutorScopeConfig, Error, never>;
+  writeProject: (config: ExecutorScopeConfig) => Effect.Effect<void, Error, never>;
   resolveRelativePath: typeof resolveConfigRelativePath;
 } => ({
   load: () =>
-    bindFileSystem(fileSystem, loadLocalExecutorConfig(context)).pipe(
+    bindFileSystem(fileSystem, loadExecutorScopeConfig(context)).pipe(
       Effect.mapError(toError),
     ),
   writeProject: (config) =>
     bindFileSystem(
       fileSystem,
-      writeProjectLocalExecutorConfig({ context, config }),
+      writeProjectExecutorScopeConfig({ context, config }),
     ).pipe(Effect.mapError(toError)),
   resolveRelativePath: resolveConfigRelativePath,
 });
@@ -236,6 +240,14 @@ export const createLocalExecutorRepositoriesEffect = (
         homeConfigPath: options.homeConfigPath,
         homeStateDirectory: options.homeStateDirectory,
       }),
+    ).pipe(Effect.mapError(toError));
+    yield* bindFileSystem(
+      fileSystem,
+      runStartupConfigMigrations(workspaceContext),
+    ).pipe(Effect.mapError(toError));
+    yield* bindFileSystem(
+      fileSystem,
+      runStartupExecutorStateMigrations(workspaceContext),
     ).pipe(Effect.mapError(toError));
 
     const executorStateStorage = createLocalExecutorStatePersistence(
@@ -384,11 +396,19 @@ export {
   writeLocalExecutorStateSnapshot,
 } from "./executor-state-store";
 export {
-  loadLocalExecutorConfig,
+  migrateLegacyLocalExecutorState,
+  runStartupExecutorStateMigrations,
+} from "./executor-state-migrations";
+export {
+  loadExecutorScopeConfig,
   resolveConfigRelativePath,
   resolveLocalWorkspaceContext,
-  writeProjectLocalExecutorConfig,
+  writeProjectExecutorScopeConfig,
 } from "./config";
+export {
+  migrateLegacyExecutorScopeConfigs,
+  runStartupConfigMigrations,
+} from "./config-migrations";
 export {
   loadLocalWorkspaceState,
   writeLocalWorkspaceState,
@@ -406,6 +426,6 @@ export {
   syncWorkspaceSourceTypeDeclarationsNode,
 } from "./source-type-declarations";
 export type {
-  LoadedLocalExecutorConfig,
+  LoadedExecutorScopeConfig,
   ResolvedLocalWorkspaceContext,
 } from "./config";

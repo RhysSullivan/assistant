@@ -8,7 +8,7 @@ import type {
 } from "./contracts";
 import {
   PolicyIdSchema,
-  type LocalExecutorConfig,
+  type ExecutorScopeConfig,
   type LocalScopePolicy,
   type PolicyId,
   type ScopeId,
@@ -64,7 +64,7 @@ const toLocalScopePolicy = (input: {
   scopeId: ScopeId;
   scopeStableKey: string;
   key: string;
-  policyConfig: NonNullable<LocalExecutorConfig["policies"]>[string];
+  policyConfig: NonNullable<ExecutorScopeConfig["policies"]>[string];
   state: LocalScopeState["policies"][string] | undefined;
 }): LocalScopePolicy => ({
   id:
@@ -119,7 +119,7 @@ const writeLocalPolicyFiles = (input: {
   operation: OperationErrors;
   scopeConfigStore: ScopeConfigStoreShape;
   scopeStateStore: ScopeStateStoreShape;
-  projectConfig: LocalExecutorConfig;
+  projectConfig: ExecutorScopeConfig;
   scopeState: LocalScopeState;
 }) =>
   Effect.all(

@@ -4,7 +4,7 @@ import type {
 import * as Effect from "effect/Effect";
 
 import type {
-  LoadedLocalExecutorConfig,
+  LoadedExecutorScopeConfig,
 } from "../../scope-config";
 import {
   SourceTypeDeclarationsRefresherService,
@@ -53,7 +53,7 @@ export type ResolvedSourceStoreScope = {
   scopeConfigStore: ScopeConfigStoreShape;
   scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
-  loadedConfig: LoadedLocalExecutorConfig;
+  loadedConfig: LoadedExecutorScopeConfig;
   scopeState: LocalScopeState;
 };
 

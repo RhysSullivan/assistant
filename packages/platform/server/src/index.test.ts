@@ -34,10 +34,10 @@ import {
   getOrProvisionLocalInstallation,
   resolveLocalWorkspaceContext,
   writeLocalSourceArtifact,
-  writeProjectLocalExecutorConfig,
+  writeProjectExecutorScopeConfig,
 } from "@executor/platform-sdk-file/effect";
 import {
-  type LocalConfigSource,
+  type ExecutorScopeConfigSource,
   SourceCatalogIdSchema,
   SourceCatalogRevisionIdSchema,
   SourceIdSchema,
@@ -136,7 +136,7 @@ const writeConfiguredLocalMcpSource = (input: {
     });
     const installation = yield* getOrProvisionLocalInstallation({ context });
 
-    yield* writeProjectLocalExecutorConfig({
+    yield* writeProjectExecutorScopeConfig({
       context,
       config: {
         sources: {
@@ -274,7 +274,7 @@ const writeConfiguredLocalMcpSource = (input: {
 
 const writeConfiguredWorkspaceSources = (input: {
   workspaceRoot: string;
-  sources: Record<string, LocalConfigSource>;
+  sources: Record<string, ExecutorScopeConfigSource>;
 }) =>
   Effect.gen(function* () {
     const context = yield* resolveLocalWorkspaceContext({
@@ -282,7 +282,7 @@ const writeConfiguredWorkspaceSources = (input: {
     });
     const installation = yield* getOrProvisionLocalInstallation({ context });
 
-    yield* writeProjectLocalExecutorConfig({
+    yield* writeProjectExecutorScopeConfig({
       context,
       config: {
         sources: input.sources,

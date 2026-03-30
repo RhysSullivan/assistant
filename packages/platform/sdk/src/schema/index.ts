@@ -9,7 +9,7 @@ export * from "./models/secret-material";
 export * from "./models/secret-store";
 export * from "./models/policy";
 export * from "./models/local-installation";
-export * from "./models/local-config";
+export * from "./models/scope-config";
 export * from "./models/execution";
 export * from "./models/source-inspection";
 export * from "./models/code-migration";

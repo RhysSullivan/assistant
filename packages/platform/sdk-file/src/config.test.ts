@@ -6,8 +6,8 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
-  loadLocalExecutorConfig,
-  mergeLocalExecutorConfigs,
+  loadExecutorScopeConfig,
+  mergeExecutorScopeConfigs,
   resolveDefaultHomeConfigCandidates,
   resolveDefaultHomeStateDirectory,
   resolveLocalWorkspaceContext,
@@ -53,7 +53,7 @@ describe("local-config", () => {
       );
 
       const context = yield* resolveLocalWorkspaceContext({ workspaceRoot });
-      const loaded = yield* loadLocalExecutorConfig(context);
+      const loaded = yield* loadExecutorScopeConfig(context);
 
       expect(loaded.config?.sources?.github?.kind).toBe("openapi");
       expect(loaded.config?.runtime).toBe("ses");
@@ -83,7 +83,7 @@ describe("local-config", () => {
       );
 
       const context = yield* resolveLocalWorkspaceContext({ workspaceRoot });
-      const failure = yield* Effect.flip(loadLocalExecutorConfig(context));
+      const failure = yield* Effect.flip(loadExecutorScopeConfig(context));
 
       expect(failure.message).toContain("Invalid executor config");
       expect(failure.message).toContain("line 5, column 7");
@@ -129,7 +129,7 @@ describe("local-config", () => {
   });
 
   it("lets project config override the merged runtime", () => {
-    const merged = mergeLocalExecutorConfigs(
+    const merged = mergeExecutorScopeConfigs(
       {
         runtime: "quickjs",
         sources: {},

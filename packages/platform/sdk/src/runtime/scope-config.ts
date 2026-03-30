@@ -1,11 +1,11 @@
 import type {
-  LocalExecutorConfig,
+  ExecutorScopeConfig,
 } from "#schema";
 
 export type LoadedExecutorConfig = {
-  config: LocalExecutorConfig | null;
-  homeConfig: LocalExecutorConfig | null;
-  projectConfig: LocalExecutorConfig | null;
+  config: ExecutorScopeConfig | null;
+  homeConfig: ExecutorScopeConfig | null;
+  projectConfig: ExecutorScopeConfig | null;
 };
 
-export type LoadedLocalExecutorConfig = LoadedExecutorConfig;
+export type LoadedExecutorScopeConfig = LoadedExecutorConfig;

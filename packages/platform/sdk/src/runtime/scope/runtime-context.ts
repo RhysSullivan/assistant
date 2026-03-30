@@ -10,7 +10,7 @@ import type {
   ExecutorScopeContext,
 } from "../../scope";
 import type {
-  LoadedLocalExecutorConfig,
+  LoadedExecutorScopeConfig,
 } from "../scope-config";
 import {
   RuntimeLocalScopeMismatchError,
@@ -24,7 +24,7 @@ export type RuntimeLocalScopeState = {
     actorScopeId: ScopeId;
     resolutionScopeIds: ReadonlyArray<ScopeId>;
   };
-  loadedConfig: LoadedLocalExecutorConfig;
+  loadedConfig: LoadedExecutorScopeConfig;
 };
 
 export class RuntimeLocalScopeService extends Context.Tag(

@@ -7,7 +7,7 @@ import {
   createSourceCatalogSyncResult,
 } from "@executor/source-core";
 import type {
-  LocalExecutorConfig,
+  ExecutorScopeConfig,
   Source,
 } from "@executor/platform-sdk/schema";
 import {
@@ -17,8 +17,8 @@ import {
   defineExecutorSourcePlugin,
 } from "@executor/platform-sdk/plugins";
 import {
-  createPluginLocalConfigEntrySchema,
-  pluginLocalConfigSourceFromConfig,
+  createPluginScopeConfigEntrySchema,
+  pluginScopeConfigSourceFromConfig,
   SecretMaterialDeleterService,
   SecretMaterialResolverService,
   SecretMaterialStorerService,
@@ -97,7 +97,7 @@ const decodeBatchSourceInput = Schema.decodeUnknownSync(
 const decodeSession = Schema.decodeUnknownSync(GoogleDiscoveryOAuthSessionSchema);
 const decodeProviderData = Schema.decodeUnknownSync(GoogleDiscoveryToolProviderDataSchema);
 const decodeGoogleDiscoveryCurrentLocalConfigOption = Schema.decodeUnknownOption(
-  createPluginLocalConfigEntrySchema({
+  createPluginScopeConfigEntrySchema({
     kind: GOOGLE_DISCOVERY_SOURCE_KIND,
     config: GoogleDiscoveryStoredSourceDataSchema,
   }),
@@ -563,7 +563,7 @@ const googleDiscoveryConnectInputFromAddInput = (
 
 const googleDiscoveryStoredSourceDataFromLocalConfig = (input: {
   config: unknown;
-  loadedConfig: LocalExecutorConfig | null;
+  loadedConfig: ExecutorScopeConfig | null;
 }): GoogleDiscoveryStoredSourceData => {
   const current = decodeGoogleDiscoveryCurrentLocalConfigOption(input.config);
   if (Option.isSome(current)) {
@@ -629,9 +629,9 @@ export const googleDiscoverySdkPlugin = (options: {
           }
         }),
     },
-    localConfig: {
+    scopeConfig: {
       toConfigSource: ({ source, stored }) =>
-        pluginLocalConfigSourceFromConfig({
+        pluginScopeConfigSourceFromConfig({
           source,
           config: stored,
         }),

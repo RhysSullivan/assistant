@@ -1,14 +1,14 @@
 import type {
-  LocalConfigSource,
+  ExecutorScopeConfigSource,
   Source,
 } from "#schema";
 import * as Schema from "effect/Schema";
 import {
   cloneJson,
-  configSourceBaseFromLocalSource,
+  scopeConfigSourceBaseFromSource,
 } from "./config";
 
-export const createPluginLocalConfigEntrySchema = <
+export const createPluginScopeConfigEntrySchema = <
   TKind extends string,
   TConfig,
 >(
@@ -23,17 +23,15 @@ export const createPluginLocalConfigEntrySchema = <
     namespace: Schema.optional(Schema.String),
     enabled: Schema.optional(Schema.Boolean),
     config: input.config,
-    connection: Schema.optional(Schema.Unknown),
-    binding: Schema.optional(Schema.Unknown),
   });
 
-export const pluginLocalConfigSourceFromConfig = <TConfig>(input: {
+export const pluginScopeConfigSourceFromConfig = <TConfig>(input: {
   source: Source;
   config: TConfig;
-}): LocalConfigSource => ({
-  ...configSourceBaseFromLocalSource({
+}): ExecutorScopeConfigSource => ({
+  ...scopeConfigSourceBaseFromSource({
     source: input.source,
   }),
-  kind: input.source.kind as LocalConfigSource["kind"],
+  kind: input.source.kind as ExecutorScopeConfigSource["kind"],
   config: cloneJson(input.config),
 });

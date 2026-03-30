@@ -6,9 +6,9 @@ import * as Effect from "effect/Effect";
 
 import type { LocalScopeState } from "../../scope-state";
 import {
-  configSourceFromLocalSource,
+  scopeConfigSourceFromSource,
   cloneJson,
-  deriveLocalSourceId,
+  deriveScopeConfigSourceId,
 } from "./config";
 import {
   type RuntimeSourceStoreDeps,
@@ -84,7 +84,7 @@ export const persistSourceWithDeps = (
         localScope.loadedConfig.config?.sources?.[source.id] ||
         localScope.scopeState.sources[source.id]
           ? source.id
-          : deriveLocalSourceId(
+          : deriveScopeConfigSourceId(
               source,
               new Set(Object.keys(localScope.loadedConfig.config?.sources ?? {})),
             ),
@@ -94,7 +94,7 @@ export const persistSourceWithDeps = (
     const sources = {
       ...projectConfig.sources,
     };
-    sources[nextSource.id] = configSourceFromLocalSource({
+    sources[nextSource.id] = scopeConfigSourceFromSource({
       source: nextSource,
       existingConfig: localScope.loadedConfig.config?.sources?.[nextSource.id] ?? null,
     });

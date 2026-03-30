@@ -11,18 +11,18 @@ import {
   makeSesExecutor,
 } from "@executor/runtime-ses";
 import type {
-  LocalExecutorConfig,
-  LocalExecutorRuntime,
+  ExecutorScopeConfig,
+  ExecutorRuntimeConfig,
 } from "#schema";
 
-const DEFAULT_EXECUTION_RUNTIME: LocalExecutorRuntime = "quickjs";
+const DEFAULT_EXECUTION_RUNTIME: ExecutorRuntimeConfig = "quickjs";
 
 export const resolveConfiguredExecutionRuntime = (
-  config: LocalExecutorConfig | null | undefined,
-): LocalExecutorRuntime => config?.runtime ?? DEFAULT_EXECUTION_RUNTIME;
+  config: ExecutorScopeConfig | null | undefined,
+): ExecutorRuntimeConfig => config?.runtime ?? DEFAULT_EXECUTION_RUNTIME;
 
 export const createCodeExecutorForRuntime = (
-  runtime: LocalExecutorRuntime,
+  runtime: ExecutorRuntimeConfig,
 ): CodeExecutor => {
   switch (runtime) {
     case "deno":

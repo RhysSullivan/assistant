@@ -8,7 +8,7 @@ import {
   createSourceCatalogSyncResult,
 } from "@executor/source-core";
 import type {
-  LocalExecutorConfig,
+  ExecutorScopeConfig,
   Source,
 } from "@executor/platform-sdk/schema";
 import {
@@ -18,9 +18,9 @@ import {
   defineExecutorSourcePlugin,
 } from "@executor/platform-sdk/plugins";
 import {
-  createPluginLocalConfigEntrySchema,
+  createPluginScopeConfigEntrySchema,
   provideExecutorRuntime,
-  pluginLocalConfigSourceFromConfig,
+  pluginScopeConfigSourceFromConfig,
   runtimeEffectError,
   SecretMaterialResolverService,
 } from "@executor/platform-sdk/runtime";
@@ -157,7 +157,7 @@ const OpenApiLocalSourceConfigSchema = Schema.Struct({
 });
 
 const decodeOpenApiCurrentLocalConfigOption = Schema.decodeUnknownOption(
-  createPluginLocalConfigEntrySchema({
+  createPluginScopeConfigEntrySchema({
     kind: "openapi",
     config: OpenApiLocalSourceConfigSchema,
   }),
@@ -193,7 +193,7 @@ const configFromStoredSourceData = (
 
 const openApiStoredSourceDataFromLocalConfig = (input: {
   config: unknown;
-  loadedConfig: LocalExecutorConfig | null;
+  loadedConfig: ExecutorScopeConfig | null;
 }): OpenApiStoredSourceData => {
   const current = decodeOpenApiCurrentLocalConfigOption(input.config);
   if (Option.isSome(current)) {
@@ -539,9 +539,9 @@ export const openApiSdkPlugin = (
       toConfig: ({ source, stored }) =>
         configFromStoredSourceData(source, normalizeStoredSourceData(stored)),
     },
-    localConfig: {
+    scopeConfig: {
       toConfigSource: ({ source, stored }) =>
-        pluginLocalConfigSourceFromConfig({
+        pluginScopeConfigSourceFromConfig({
           source,
           config: {
             specUrl: stored.specUrl,

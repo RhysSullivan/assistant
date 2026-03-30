@@ -6,7 +6,7 @@ import type {
 import { SourceIdSchema } from "#schema";
 import * as Effect from "effect/Effect";
 
-import type { LoadedLocalExecutorConfig } from "../../scope-config";
+import type { LoadedExecutorScopeConfig } from "../../scope-config";
 import {
   LocalConfiguredSourceNotFoundError,
   RuntimeLocalScopeMismatchError,
@@ -21,7 +21,7 @@ import { trimOrNull } from "./config";
 
 export const buildLocalSourceRecord = (input: {
   scopeId: ScopeId;
-  loadedConfig: LoadedLocalExecutorConfig;
+  loadedConfig: LoadedExecutorScopeConfig;
   scopeState: LocalScopeState;
   sourceId: SourceId;
 }): Effect.Effect<
