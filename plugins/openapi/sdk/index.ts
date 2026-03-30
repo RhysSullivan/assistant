@@ -536,7 +536,7 @@ export const openApiSdkPlugin = (
             specUrl: config.specUrl,
             title: config.name,
           }),
-          ...(config.iconUrl?.trim() ? { iconUrl: config.iconUrl.trim() } : {}),
+          iconUrl: config.iconUrl?.trim() || undefined,
         },
         stored: createStoredSourceData(config),
       }),

@@ -36,6 +36,7 @@ import {
 } from "@executor/plugin-graphql-http";
 import {
   getFaviconUrlForRemoteUrl,
+  getSourceFaviconUrl,
   type GraphqlConnectInput,
   type GraphqlConnectionAuth,
 } from "@executor/plugin-graphql-shared";
@@ -214,7 +215,7 @@ function GraphqlSourceForm(props: {
     bearerPrefixValue(props.initialValue.auth),
   );
   const [error, setError] = useState<string | null>(null);
-  const resolvedIconUrl = iconUrl.trim() || getFaviconUrlForRemoteUrl(endpoint);
+  const resolvedIconUrl = iconUrl.trim() || getFaviconUrlForRemoteUrl(endpoint) || getSourceFaviconUrl(name);
 
   return (
     <div className="space-y-6 rounded-lg border border-border bg-card p-6 text-sm ring-1 ring-foreground/[0.04]">

@@ -32,6 +32,7 @@ import {
 } from "@executor/plugin-mcp-http";
 import {
   getFaviconUrlForRemoteUrl,
+  getSourceFaviconUrl,
   type McpConnectInput,
   type McpConnectionAuth,
   type McpDiscoverResult,
@@ -322,7 +323,8 @@ function McpSourceForm(props: {
 
   const isStdio = transportFields.transport === "stdio";
   const resolvedIconUrl = iconUrl.trim()
-    || (!isStdio ? getFaviconUrlForRemoteUrl(endpoint) : null);
+    || (!isStdio ? getFaviconUrlForRemoteUrl(endpoint) : null)
+    || getSourceFaviconUrl(name);
   const remoteQueryParamsText =
     transportFields.transport === "stdio"
       ? ""

@@ -394,7 +394,7 @@ export const graphqlSdkPlugin = (options: {
             endpoint: config.endpoint,
             title: config.name,
           }),
-          ...(config.iconUrl?.trim() ? { iconUrl: config.iconUrl.trim() } : {}),
+          iconUrl: config.iconUrl?.trim() || undefined,
         },
         stored: storedSourceDataFromInput(config),
       }),

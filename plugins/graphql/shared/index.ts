@@ -9,7 +9,7 @@ import {
   namespaceFromSourceName,
 } from "@executor/source-core";
 
-export { getFaviconUrlForRemoteUrl } from "@executor/source-core";
+export { getFaviconUrlForRemoteUrl, getSourceFaviconUrl } from "@executor/source-core";
 
 
 export const GraphqlConnectionAuthSchema = Schema.Union(

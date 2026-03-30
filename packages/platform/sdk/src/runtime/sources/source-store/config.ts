@@ -61,9 +61,6 @@ export const scopeConfigSourceFromSource = (input: {
     ...scopeConfigSourceBaseFromSource({
       source: input.source,
     }),
-    ...(input.existingConfig?.iconUrl?.trim()
-      ? { iconUrl: input.existingConfig.iconUrl.trim() }
-      : {}),
     kind: input.source.kind as ExecutorScopeConfigSource["kind"],
     ...(input.existingConfig?.config !== undefined
       ? {

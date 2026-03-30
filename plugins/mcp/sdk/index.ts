@@ -705,7 +705,7 @@ export const mcpSdkPlugin = (
               endpoint: stored.endpoint,
               command: stored.command,
             }),
-            ...(config.iconUrl?.trim() ? { iconUrl: config.iconUrl.trim() } : {}),
+            iconUrl: config.iconUrl?.trim() || undefined,
           },
           stored,
         };

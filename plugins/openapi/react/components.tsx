@@ -32,6 +32,7 @@ import {
 } from "@executor/plugin-openapi-http";
 import {
   getFaviconUrlForRemoteUrl,
+  getSourceFaviconUrl,
 } from "@executor/plugin-openapi-shared";
 import type {
   OpenApiConnectInput,
@@ -288,7 +289,7 @@ function OpenApiSourceForm(props: {
     })
   );
   const submitMutation = useExecutorMutation<OpenApiConnectInput, void>(props.onSubmit);
-  const resolvedIconUrl = iconUrl.trim() || getFaviconUrlForRemoteUrl(baseUrl || specUrl);
+  const resolvedIconUrl = iconUrl.trim() || getFaviconUrlForRemoteUrl(baseUrl || specUrl) || getSourceFaviconUrl(name);
 
   const runPreview = useEffectEvent(async (input: {
     mode: "auto" | "manual";
