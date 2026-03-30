@@ -23,6 +23,7 @@ export const GraphqlConnectionAuthSchema = Schema.Union(
 
 export const GraphqlConnectInputSchema = Schema.Struct({
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   endpoint: Schema.String,
   defaultHeaders: Schema.NullOr(StringMapSchema),
   auth: GraphqlConnectionAuthSchema,

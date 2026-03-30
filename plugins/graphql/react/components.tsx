@@ -51,6 +51,7 @@ type GraphqlToolRouteParams = {
 
 const defaultGraphqlInput = (): GraphqlConnectInput => ({
   name: "My GraphQL Source",
+  iconUrl: undefined,
   endpoint: "https://example.com/graphql",
   defaultHeaders: null,
   auth: {
@@ -60,6 +61,63 @@ const defaultGraphqlInput = (): GraphqlConnectInput => ({
 
 const DEFAULT_BEARER_HEADER_NAME = "Authorization";
 const DEFAULT_BEARER_PREFIX = "Bearer ";
+
+const COMMON_COMPOUND_SUFFIXES = new Set([
+  "ac.uk",
+  "co.in",
+  "co.jp",
+  "co.nz",
+  "co.uk",
+  "com.au",
+  "com.br",
+  "com.mx",
+  "net.au",
+  "org.au",
+  "org.uk",
+]);
+
+const isIpv4Address = (value: string): boolean =>
+  /^\d{1,3}(?:\.\d{1,3}){3}$/.test(value);
+
+const toRegistrableDomain = (hostname: string): string | null => {
+  const normalized = hostname.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized === "localhost" || isIpv4Address(normalized)) {
+    return normalized;
+  }
+
+  const parts = normalized.split(".").filter((part) => part.length > 0);
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const suffix = parts.slice(-2).join(".");
+  if (parts.length >= 3 && COMMON_COMPOUND_SUFFIXES.has(suffix)) {
+    return parts.slice(-3).join(".");
+  }
+
+  return parts.slice(-2).join(".");
+};
+
+const getPreviewFaviconUrl = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const domain = toRegistrableDomain(url.hostname);
+    return domain
+      ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
+      : null;
+  } catch {
+    return null;
+  }
+};
 
 const presetString = (
   search: Record<string, unknown>,
@@ -196,6 +254,7 @@ function GraphqlSourceForm(props: {
 }) {
   const submitMutation = useExecutorMutation<GraphqlConnectInput, void>(props.onSubmit);
   const [name, setName] = useState(props.initialValue.name);
+  const [iconUrl, setIconUrl] = useState(props.initialValue.iconUrl ?? "");
   const [endpoint, setEndpoint] = useState(props.initialValue.endpoint);
   const [headersText, setHeadersText] = useState(
     stringifyStringMap(props.initialValue.defaultHeaders),
@@ -211,6 +270,7 @@ function GraphqlSourceForm(props: {
     bearerPrefixValue(props.initialValue.auth),
   );
   const [error, setError] = useState<string | null>(null);
+  const resolvedIconUrl = iconUrl.trim() || getPreviewFaviconUrl(endpoint);
 
   return (
     <div className="space-y-6 rounded-lg border border-border bg-card p-6 text-sm ring-1 ring-foreground/[0.04]">
@@ -221,6 +281,22 @@ function GraphqlSourceForm(props: {
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
+        </div>
+
+        <div className="grid gap-2">
+          <Label>Icon URL</Label>
+          <Input
+            value={iconUrl}
+            onChange={(event) => setIconUrl(event.target.value)}
+            placeholder="https://cdn.example.com/icon.png"
+            className="font-mono text-xs"
+          />
+          {resolvedIconUrl && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <img src={resolvedIconUrl} alt="" className="size-4 rounded-sm object-contain" />
+              <span>{iconUrl.trim() ? "Using override" : "Auto preview"}</span>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-2">
@@ -305,6 +381,7 @@ function GraphqlSourceForm(props: {
               try {
                 await submitMutation.mutateAsync({
                   name: name.trim(),
+                  ...(iconUrl.trim() ? { iconUrl: iconUrl.trim() } : {}),
                   endpoint: endpoint.trim(),
                   defaultHeaders: parseStringMap(headersText),
                   auth: authFromSecretValue(

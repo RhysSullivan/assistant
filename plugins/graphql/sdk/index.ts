@@ -97,6 +97,7 @@ export type GraphqlSdk = {
 const GraphqlExecutorAddInputSchema = Schema.Struct({
   kind: Schema.Literal("graphql"),
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   endpoint: Schema.String,
   defaultHeaders: Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.String })),
   auth: GraphqlConnectionAuthSchema,
@@ -318,8 +319,10 @@ const storedSourceDataFromInput = (
 const sourceConfigFromStored = (
   source: Source,
   stored: GraphqlStoredSourceData,
+  configSource: { iconUrl?: string } | null,
 ): GraphqlSourceConfigPayload => ({
   name: source.name,
+  ...(configSource?.iconUrl ? { iconUrl: configSource.iconUrl } : {}),
   endpoint: stored.endpoint,
   defaultHeaders: stored.defaultHeaders,
   auth: stored.auth,
@@ -329,6 +332,7 @@ const graphqlConnectInputFromAddInput = (
   input: GraphqlExecutorAddInput,
 ): GraphqlConnectInput => ({
   name: input.name,
+  ...(input.iconUrl ? { iconUrl: input.iconUrl } : {}),
   endpoint: input.endpoint,
   defaultHeaders: input.defaultHeaders,
   auth: input.auth,
@@ -394,14 +398,20 @@ export const graphqlSdkPlugin = (options: {
         },
         stored: storedSourceDataFromInput(config),
       }),
-      toConfig: ({ source, stored }) =>
-        sourceConfigFromStored(source, normalizeStoredSourceData(stored)),
+      toConfig: ({ source, stored, configSource }) =>
+        sourceConfigFromStored(source, normalizeStoredSourceData(stored), configSource),
     },
     scopeConfig: {
-      toConfigSource: ({ source, stored }) =>
+      toConfigSource: ({ source, stored, configInput }) =>
         pluginScopeConfigSourceFromConfig({
           source,
           config: normalizeStoredSourceData(stored),
+          iconUrl:
+            configInput && typeof configInput === "object" && "iconUrl" in configInput
+              ? (typeof configInput.iconUrl === "string"
+                  ? configInput.iconUrl.trim() || null
+                  : null)
+              : null,
         }),
       recoverStored: ({ config, loadedConfig }) =>
         graphqlStoredSourceDataFromLocalConfig({
