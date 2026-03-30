@@ -112,6 +112,7 @@ export type OpenApiSdkPluginOptions = {
 const OpenApiExecutorAddInputSchema = Schema.Struct({
   kind: Schema.Literal("openapi"),
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   specUrl: Schema.String,
   baseUrl: Schema.NullOr(Schema.String),
   auth: OpenApiConnectionAuthSchema,
@@ -184,8 +185,10 @@ const createStoredSourceData = (
 const configFromStoredSourceData = (
   source: Source,
   stored: OpenApiStoredSourceData,
+  configSource: { iconUrl?: string } | null,
 ): OpenApiSourceConfigPayload => ({
   name: source.name,
+  ...(configSource?.iconUrl ? { iconUrl: configSource.iconUrl } : {}),
   specUrl: stored.specUrl,
   baseUrl: stored.baseUrl,
   auth: stored.auth,
@@ -348,6 +351,7 @@ const openApiConnectInputFromAddInput = (
   input: OpenApiExecutorAddInput,
 ): OpenApiConnectInput => ({
   name: input.name,
+  ...(input.iconUrl ? { iconUrl: input.iconUrl } : {}),
   specUrl: input.specUrl,
   baseUrl: input.baseUrl,
   auth: input.auth,
@@ -536,11 +540,11 @@ export const openApiSdkPlugin = (
         },
         stored: createStoredSourceData(config),
       }),
-      toConfig: ({ source, stored }) =>
-        configFromStoredSourceData(source, normalizeStoredSourceData(stored)),
+      toConfig: ({ source, stored, configSource }) =>
+        configFromStoredSourceData(source, normalizeStoredSourceData(stored), configSource),
     },
     scopeConfig: {
-      toConfigSource: ({ source, stored }) =>
+      toConfigSource: ({ source, stored, configInput }) =>
         pluginScopeConfigSourceFromConfig({
           source,
           config: {
@@ -549,6 +553,12 @@ export const openApiSdkPlugin = (
             auth: stored.auth,
             defaultHeaders: stored.defaultHeaders,
           },
+          iconUrl:
+            configInput && typeof configInput === "object" && "iconUrl" in configInput
+              ? (typeof configInput.iconUrl === "string"
+                  ? configInput.iconUrl.trim() || null
+                  : null)
+              : null,
         }),
       recoverStored: ({ config, loadedConfig }) =>
         openApiStoredSourceDataFromLocalConfig({

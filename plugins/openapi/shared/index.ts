@@ -21,6 +21,7 @@ export const OpenApiConnectionAuthSchema = Schema.Union(
 
 export const OpenApiConnectInputSchema = Schema.Struct({
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   specUrl: Schema.String,
   baseUrl: Schema.NullOr(Schema.String),
   auth: OpenApiConnectionAuthSchema,

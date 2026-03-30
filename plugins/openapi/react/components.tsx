@@ -43,6 +43,7 @@ type RouteToolSearch = SourceToolExplorerSearch;
 
 const defaultOpenApiInput = (): OpenApiConnectInput => ({
   name: "My OpenAPI Source",
+  iconUrl: undefined,
   specUrl: "https://example.com/openapi.json",
   baseUrl: null,
   auth: {
@@ -52,6 +53,63 @@ const defaultOpenApiInput = (): OpenApiConnectInput => ({
 
 const DEFAULT_BEARER_HEADER_NAME = "Authorization";
 const DEFAULT_BEARER_PREFIX = "Bearer ";
+
+const COMMON_COMPOUND_SUFFIXES = new Set([
+  "ac.uk",
+  "co.in",
+  "co.jp",
+  "co.nz",
+  "co.uk",
+  "com.au",
+  "com.br",
+  "com.mx",
+  "net.au",
+  "org.au",
+  "org.uk",
+]);
+
+const isIpv4Address = (value: string): boolean =>
+  /^\d{1,3}(?:\.\d{1,3}){3}$/.test(value);
+
+const toRegistrableDomain = (hostname: string): string | null => {
+  const normalized = hostname.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized === "localhost" || isIpv4Address(normalized)) {
+    return normalized;
+  }
+
+  const parts = normalized.split(".").filter((part) => part.length > 0);
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const suffix = parts.slice(-2).join(".");
+  if (parts.length >= 3 && COMMON_COMPOUND_SUFFIXES.has(suffix)) {
+    return parts.slice(-3).join(".");
+  }
+
+  return parts.slice(-2).join(".");
+};
+
+const getPreviewFaviconUrl = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const domain = toRegistrableDomain(url.hostname);
+    return domain
+      ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
+      : null;
+  } catch {
+    return null;
+  }
+};
 
 const presetString = (
   search: Record<string, unknown>,
@@ -190,6 +248,7 @@ const inputFromConfig = (
   config: OpenApiSourceConfigPayload,
 ): OpenApiConnectInput => ({
   name: config.name,
+  iconUrl: config.iconUrl,
   specUrl: config.specUrl,
   baseUrl: config.baseUrl,
   auth: config.auth,
@@ -253,6 +312,7 @@ function OpenApiSourceForm(props: {
     { mode: "promise" },
   );
   const [name, setName] = useState(props.initialValue.name);
+  const [iconUrl, setIconUrl] = useState(props.initialValue.iconUrl ?? "");
   const [specUrl, setSpecUrl] = useState(props.initialValue.specUrl);
   const [baseUrl, setBaseUrl] = useState(props.initialValue.baseUrl ?? "");
   const [authKind, setAuthKind] = useState<OpenApiConnectInput["auth"]["kind"]>(
@@ -282,6 +342,7 @@ function OpenApiSourceForm(props: {
     })
   );
   const submitMutation = useExecutorMutation<OpenApiConnectInput, void>(props.onSubmit);
+  const resolvedIconUrl = iconUrl.trim() || getPreviewFaviconUrl(baseUrl || specUrl);
 
   const runPreview = async (input: {
     mode: "auto" | "manual";
@@ -375,6 +436,7 @@ function OpenApiSourceForm(props: {
       );
       await submitMutation.mutateAsync({
         name: trimmedName,
+        ...(iconUrl.trim() ? { iconUrl: iconUrl.trim() } : {}),
         specUrl: trimmedSpecUrl,
         baseUrl: trimmedBaseUrl || null,
         auth,
@@ -398,6 +460,22 @@ function OpenApiSourceForm(props: {
               }}
               placeholder="GitHub REST"
             />
+          </div>
+
+          <div className="grid gap-2">
+            <Label>Icon URL</Label>
+            <Input
+              value={iconUrl}
+              onChange={(event) => setIconUrl(event.target.value)}
+              placeholder="https://cdn.example.com/icon.png"
+              className="font-mono text-xs"
+            />
+            {resolvedIconUrl && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <img src={resolvedIconUrl} alt="" className="size-4 rounded-sm object-contain" />
+                <span>{iconUrl.trim() ? "Using override" : "Auto preview"}</span>
+              </div>
+            )}
           </div>
 
           <div className="grid gap-2">
