@@ -74,7 +74,6 @@ const toPromiseExecutor = <
     installation: executor.installation,
     scopeId: executor.scopeId,
     actorScopeId: executor.actorScopeId,
-    resolutionScopeIds: executor.resolutionScopeIds,
     close: () => executor.close(),
     local: {
       installation: () => run(executor.local.installation()),
@@ -148,7 +147,6 @@ const toPromiseExecutor = <
     "scope",
     "scopeId",
     "actorScopeId",
-    "resolutionScopeIds",
     "close",
     "local",
     "secretStores",

@@ -22,7 +22,6 @@ export type RuntimeLocalScopeState = {
   installation: {
     scopeId: ScopeId;
     actorScopeId: ScopeId;
-    resolutionScopeIds: ReadonlyArray<ScopeId>;
   };
   loadedConfig: LoadedExecutorScopeConfig;
 };

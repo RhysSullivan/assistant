@@ -77,7 +77,6 @@ const installations = sqliteTable("installations", {
   key: text("key").primaryKey(),
   scopeId: text("scope_id").notNull(),
   actorScopeId: text("actor_scope_id").notNull(),
-  resolutionScopeIdsJson: text("resolution_scope_ids_json").notNull(),
 });
 
 const scopeConfigs = sqliteTable("scope_configs", {
@@ -186,7 +185,6 @@ const createInstallation = (
   return {
     scopeId,
     actorScopeId,
-    resolutionScopeIds: [scopeId, actorScopeId],
   };
 };
 
@@ -202,8 +200,7 @@ const openSqliteStore = (databasePath: string) => {
       CREATE TABLE IF NOT EXISTS installations (
         key TEXT PRIMARY KEY NOT NULL,
         scope_id TEXT NOT NULL,
-        actor_scope_id TEXT NOT NULL,
-        resolution_scope_ids_json TEXT NOT NULL
+        actor_scope_id TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS scope_configs (
@@ -559,9 +556,6 @@ export const createSqliteExecutorBackend = (
           ? {
               scopeId: row.scopeId as LocalInstallation["scopeId"],
               actorScopeId: row.actorScopeId as LocalInstallation["actorScopeId"],
-              resolutionScopeIds: parseJson<LocalInstallation["resolutionScopeIds"]>(
-                row.resolutionScopeIdsJson,
-              ),
             }
           : createInstallation(options);
       })();
@@ -583,13 +577,11 @@ export const createSqliteExecutorBackend = (
               key: "active",
               scopeId: installation.scopeId,
               actorScopeId: installation.actorScopeId,
-              resolutionScopeIdsJson: JSON.stringify(installation.resolutionScopeIds),
             }).onConflictDoUpdate({
               target: installations.key,
               set: {
                 scopeId: installation.scopeId,
                 actorScopeId: installation.actorScopeId,
-                resolutionScopeIdsJson: JSON.stringify(installation.resolutionScopeIds),
               },
             }).run();
             return installation;

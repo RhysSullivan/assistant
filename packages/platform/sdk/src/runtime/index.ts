@@ -476,8 +476,6 @@ export const createExecutorRuntimeFromServices = (input: {
       ...input.services.scope,
       scopeId: localInstallation.scopeId,
       actorScopeId: input.services.scope.actorScopeId ?? localInstallation.actorScopeId,
-      resolutionScopeIds:
-        input.services.scope.resolutionScopeIds ?? localInstallation.resolutionScopeIds,
     };
     const effectiveLocalConfig = yield* synchronizeLocalScopeState({
       loadedConfig: loadedLocalConfig,

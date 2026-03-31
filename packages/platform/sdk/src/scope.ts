@@ -4,12 +4,10 @@ import type {
 
 export type ExecutorScopeDescriptor = {
   actorScopeId?: ScopeId | null;
-  resolutionScopeIds?: ReadonlyArray<ScopeId>;
   metadata?: Readonly<Record<string, unknown>>;
 };
 
 export type ExecutorScopeContext = ExecutorScopeDescriptor & {
   scopeId: ScopeId;
   actorScopeId: ScopeId | null;
-  resolutionScopeIds: ReadonlyArray<ScopeId>;
 };

@@ -7,7 +7,6 @@ import {
 export const LocalInstallationSchema = Schema.Struct({
   scopeId: ScopeIdSchema,
   actorScopeId: ScopeIdSchema,
-  resolutionScopeIds: Schema.Array(ScopeIdSchema),
 });
 
 export const LocalInstallationInsertSchema = LocalInstallationSchema;

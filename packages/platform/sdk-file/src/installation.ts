@@ -26,10 +26,6 @@ export const deriveLocalInstallation = (
 ): LocalInstallation => ({
   actorScopeId: LOCAL_ACCOUNT_ID,
   scopeId: deriveWorkspaceId(context),
-  resolutionScopeIds: [
-    deriveWorkspaceId(context),
-    LOCAL_ACCOUNT_ID,
-  ],
 });
 
 export const loadLocalInstallation = (
