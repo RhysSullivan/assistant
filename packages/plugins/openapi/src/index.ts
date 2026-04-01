@@ -1,7 +1,16 @@
 export { parse } from "./parse";
 export { extract } from "./extract";
-export { invoke } from "./invoke";
-export { openApiPlugin, type OpenApiSpecConfig, type OpenApiPluginExtension } from "./plugin";
+export { invoke, makeOpenApiInvoker } from "./invoke";
+export {
+  openApiPlugin,
+  type OpenApiSpecConfig,
+  type OpenApiPluginExtension,
+} from "./plugin";
+export {
+  makeInMemoryOperationStore,
+  type OpenApiOperationStore,
+} from "./operation-store";
+export { DocResolver, resolveBaseUrl, preferredContent } from "./openapi-utils";
 
 export {
   OpenApiParseError,
@@ -18,6 +27,7 @@ export {
   ExtractionResult,
   InvocationConfig,
   InvocationResult,
+  OperationBinding,
   OperationParameter,
   OperationRequestBody,
   ServerInfo,

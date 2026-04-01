@@ -105,6 +105,19 @@ export class ExtractionResult extends Schema.Class<ExtractionResult>(
 }) {}
 
 // ---------------------------------------------------------------------------
+// Operation binding — minimal invocation data (no schemas/metadata)
+// ---------------------------------------------------------------------------
+
+export class OperationBinding extends Schema.Class<OperationBinding>(
+  "OperationBinding",
+)({
+  method: HttpMethod,
+  pathTemplate: Schema.String,
+  parameters: Schema.Array(OperationParameter),
+  requestBody: Schema.optionalWith(OperationRequestBody, { as: "Option" }),
+}) {}
+
+// ---------------------------------------------------------------------------
 // Invocation
 // ---------------------------------------------------------------------------
 

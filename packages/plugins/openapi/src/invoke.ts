@@ -1,13 +1,21 @@
-import { Effect, Match, Option } from "effect";
+import { Effect, Layer, Match, Option } from "effect";
 import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
 
+import {
+  type ToolId,
+  type ToolInvoker,
+  ToolInvocationResult,
+  ToolInvocationError,
+} from "@executor/sdk";
+
 import { OpenApiInvocationError } from "./errors";
+import type { OpenApiOperationStore } from "./operation-store";
 import {
   type AuthConfig,
-  type ExtractedOperation,
+  type OperationBinding,
   InvocationConfig,
   InvocationResult,
   type OperationParameter,
@@ -157,9 +165,9 @@ const isJsonContentType = (ct: string | null | undefined): boolean => {
 // Public API
 // ---------------------------------------------------------------------------
 
-/** Invoke an extracted OpenAPI operation. Requires HttpClient in the context. */
+/** Invoke an OpenAPI operation binding. Requires HttpClient in the context. */
 export const invoke = Effect.fn("OpenApi.invoke")(function* (
-  operation: ExtractedOperation,
+  operation: OperationBinding,
   args: Record<string, unknown>,
   config: InvocationConfig,
 ) {
@@ -250,4 +258,62 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     data: ok ? responseBody : null,
     error: ok ? null : responseBody,
   });
+});
+
+// ---------------------------------------------------------------------------
+// ToolInvoker — bridges operation store + HTTP client into SDK invoker
+// ---------------------------------------------------------------------------
+
+export const makeOpenApiInvoker = (
+  operationStore: OpenApiOperationStore,
+  httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
+): ToolInvoker => ({
+  invoke: (toolId: ToolId, args: unknown, _options) =>
+    Effect.gen(function* () {
+      const entry = yield* operationStore.get(toolId);
+      if (!entry) {
+        return yield* new ToolInvocationError({
+          toolId,
+          message: `No operation found for tool "${toolId}"`,
+          cause: undefined,
+        });
+      }
+
+      const { binding, config } = entry;
+      const baseUrl = config.baseUrl;
+
+      const clientWithBaseUrl = baseUrl
+        ? Layer.effect(
+            HttpClient.HttpClient,
+            Effect.map(
+              HttpClient.HttpClient,
+              HttpClient.mapRequest(
+                HttpClientRequest.prependUrl(baseUrl),
+              ),
+            ),
+          ).pipe(Layer.provide(httpClientLayer))
+        : httpClientLayer;
+
+      const result = yield* invoke(
+        binding,
+        (args ?? {}) as Record<string, unknown>,
+        config,
+      ).pipe(Effect.provide(clientWithBaseUrl));
+
+      return new ToolInvocationResult({
+        data: result.data,
+        error: result.error,
+        status: result.status,
+      });
+    }).pipe(
+      Effect.mapError((err) =>
+        err._tag === "ToolInvocationError"
+          ? err
+          : new ToolInvocationError({
+              toolId,
+              message: `OpenAPI invocation failed: ${err.message}`,
+              cause: err,
+            }),
+      ),
+    ),
 });

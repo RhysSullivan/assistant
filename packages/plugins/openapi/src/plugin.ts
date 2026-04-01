@@ -1,78 +1,57 @@
-import { Effect, Layer, Option } from "effect";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-} from "@effect/platform";
+import { Effect, Option } from "effect";
+import { FetchHttpClient, HttpClient } from "@effect/platform";
+import type { Layer } from "effect";
 
 import {
   definePlugin,
   type ExecutorPlugin,
   type PluginContext,
   ToolId,
-  ToolInvocationResult,
-  ToolInvocationError,
   type ToolRegistration,
 } from "@executor/sdk";
 
 import { parse } from "./parse";
 import { extract } from "./extract";
-import { invoke } from "./invoke";
+import { makeOpenApiInvoker } from "./invoke";
+import { resolveBaseUrl } from "./openapi-utils";
+import {
+  makeInMemoryOperationStore,
+  type OpenApiOperationStore,
+} from "./operation-store";
 import {
   type AuthConfig,
   type ExtractedOperation,
   InvocationConfig,
   NoAuth,
-  type ServerInfo,
+  OperationBinding,
 } from "./types";
 
 // ---------------------------------------------------------------------------
-// Plugin config — what you pass when adding a spec
+// Plugin config
 // ---------------------------------------------------------------------------
 
 export interface OpenApiSpecConfig {
-  /** Raw spec text (JSON or YAML) or a URL to fetch */
   readonly spec: string;
-  /** Override the base URL (defaults to first server in spec) */
   readonly baseUrl?: string;
-  /** Namespace prefix for tool IDs (e.g. "stripe" → "stripe.listCustomers") */
   readonly namespace?: string;
-  /** Auth configuration */
   readonly auth?: AuthConfig;
 }
 
 // ---------------------------------------------------------------------------
-// Plugin extension — the public API on executor.openapi
+// Plugin extension
 // ---------------------------------------------------------------------------
 
 export interface OpenApiPluginExtension {
-  /** Add an OpenAPI spec and register its operations as tools */
   readonly addSpec: (
     config: OpenApiSpecConfig,
   ) => Effect.Effect<{ readonly toolCount: number }, Error>;
 
-  /** Remove all tools from a previously added spec by namespace */
   readonly removeSpec: (namespace: string) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const resolveBaseUrl = (
-  servers: readonly ServerInfo[],
-): string => {
-  const server = servers[0];
-  if (!server) return "";
-
-  let url = server.url;
-  if (Option.isSome(server.variables)) {
-    for (const [name, value] of Object.entries(server.variables.value)) {
-      url = url.replaceAll(`{${name}}`, value);
-    }
-  }
-  return url;
-};
 
 const operationDescription = (op: ExtractedOperation): string =>
   Option.getOrElse(op.description, () =>
@@ -81,130 +60,107 @@ const operationDescription = (op: ExtractedOperation): string =>
     ),
   );
 
-const operationToRegistration = (
+const toRegistration = (
   op: ExtractedOperation,
   namespace: string,
-  invocationConfig: InvocationConfig,
-  clientLayer: Layer.Layer<HttpClient.HttpClient>,
-): ToolRegistration => {
-  const id = ToolId.make(`${namespace}.${op.operationId}`);
+): ToolRegistration => ({
+  id: ToolId.make(`${namespace}.${op.operationId}`),
+  pluginKey: "openapi",
+  name: op.operationId as string,
+  description: operationDescription(op),
+  tags: [...op.tags, "openapi", namespace],
+  inputSchema: Option.getOrUndefined(op.inputSchema),
+  outputSchema: Option.getOrUndefined(op.outputSchema),
+});
 
-  return {
-    id,
-    name: op.operationId as string,
-    description: operationDescription(op),
-    tags: [...op.tags, "openapi", namespace],
-    inputSchema: Option.getOrUndefined(op.inputSchema),
-    outputSchema: Option.getOrUndefined(op.outputSchema),
-    invoke: (args) =>
-      invoke(op, (args ?? {}) as Record<string, unknown>, invocationConfig).pipe(
-        Effect.map(
-          (result) =>
-            new ToolInvocationResult({
-              data: result.data,
-              error: result.error,
-              status: result.status,
-            }),
-        ),
-        Effect.mapError(
-          (err) =>
-            new ToolInvocationError({
-              toolId: id,
-              message: `OpenAPI invocation failed: ${err.message}`,
-              cause: err,
-            }),
-        ),
-        Effect.provide(clientLayer),
-      ),
-  };
-};
+const toBinding = (op: ExtractedOperation): OperationBinding =>
+  new OperationBinding({
+    method: op.method,
+    pathTemplate: op.pathTemplate,
+    parameters: [...op.parameters],
+    requestBody: op.requestBody,
+  });
 
 // ---------------------------------------------------------------------------
 // Plugin factory
 // ---------------------------------------------------------------------------
 
 export const openApiPlugin = (options?: {
-  /** Provide a custom HttpClient layer. Defaults to FetchHttpClient. */
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
+  readonly operationStore?: OpenApiOperationStore;
 }): ExecutorPlugin<"openapi", OpenApiPluginExtension> => {
-  const httpClientLayer =
-    options?.httpClientLayer ?? FetchHttpClient.layer;
-  const registeredTools = new Map<string, readonly ToolId[]>();
+  const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
+  const operationStore = options?.operationStore ?? makeInMemoryOperationStore();
 
   return definePlugin({
     key: "openapi",
     init: (ctx: PluginContext) =>
-      Effect.succeed({
-        extension: {
-          addSpec: (config: OpenApiSpecConfig) =>
-            Effect.gen(function* () {
-              const doc = yield* parse(config.spec);
-              const result = yield* extract(doc);
+      Effect.gen(function* () {
+        yield* ctx.tools.registerInvoker(
+          "openapi",
+          makeOpenApiInvoker(operationStore, httpClientLayer),
+        );
 
-              const namespace =
-                config.namespace ??
-                Option.getOrElse(result.title, () => "api")
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, "_");
+        return {
+          extension: {
+            addSpec: (config: OpenApiSpecConfig) =>
+              Effect.gen(function* () {
+                const doc = yield* parse(config.spec);
+                const result = yield* extract(doc);
 
-              // Register shared component schemas first
-              const components = doc.components;
-              if (components?.schemas) {
-                yield* ctx.tools.registerDefinitions(components.schemas);
-              }
+                const namespace =
+                  config.namespace ??
+                  Option.getOrElse(result.title, () => "api")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, "_");
 
-              const baseUrl = config.baseUrl ?? resolveBaseUrl(result.servers);
+                if (doc.components?.schemas) {
+                  yield* ctx.tools.registerDefinitions(doc.components.schemas);
+                }
 
-              const auth = config.auth ?? new NoAuth();
-              const invocationConfig = new InvocationConfig({ baseUrl, auth });
+                const baseUrl = config.baseUrl ?? resolveBaseUrl(result.servers);
+                const invocationConfig = new InvocationConfig({
+                  baseUrl,
+                  auth: config.auth ?? new NoAuth(),
+                });
 
-              // Build a client layer with the base URL prepended to every request
-              const clientWithBaseUrl = baseUrl
-                ? Layer.effect(
-                    HttpClient.HttpClient,
-                    Effect.map(
-                      HttpClient.HttpClient,
-                      HttpClient.mapRequest(
-                        HttpClientRequest.prependUrl(baseUrl),
-                      ),
+                const registrations = result.operations.map((op) =>
+                  toRegistration(op, namespace),
+                );
+
+                yield* Effect.forEach(
+                  result.operations,
+                  (op) =>
+                    operationStore.put(
+                      ToolId.make(`${namespace}.${op.operationId}`),
+                      namespace,
+                      toBinding(op),
+                      invocationConfig,
                     ),
-                  ).pipe(Layer.provide(httpClientLayer))
-                : httpClientLayer;
+                  { discard: true },
+                );
 
-              const registrations = result.operations.map((op) =>
-                operationToRegistration(
-                  op,
-                  namespace,
-                  invocationConfig,
-                  clientWithBaseUrl,
-                ),
-              );
+                yield* ctx.tools.register(registrations);
+                return { toolCount: registrations.length };
+              }),
 
-              yield* ctx.tools.register(registrations);
+            removeSpec: (namespace: string) =>
+              Effect.gen(function* () {
+                const toolIds = yield* operationStore.removeByNamespace(namespace);
+                if (toolIds.length > 0) {
+                  yield* ctx.tools.unregister(toolIds);
+                }
+              }),
+          },
 
-              const toolIds = registrations.map((r) => r.id);
-              registeredTools.set(namespace, toolIds);
-
-              return { toolCount: registrations.length };
-            }),
-
-          removeSpec: (namespace: string) =>
+          close: () =>
             Effect.gen(function* () {
-              const toolIds = registeredTools.get(namespace);
-              if (toolIds) {
-                yield* ctx.tools.unregister(toolIds);
-                registeredTools.delete(namespace);
+              const allTools = yield* ctx.tools.list({ tags: ["openapi"] });
+              if (allTools.length > 0) {
+                yield* ctx.tools.unregister(allTools.map((t) => t.id));
               }
             }),
-        },
-
-        close: () =>
-          Effect.gen(function* () {
-            for (const toolIds of registeredTools.values()) {
-              yield* ctx.tools.unregister(toolIds);
-            }
-            registeredTools.clear();
-          }),
+        };
       }),
   });
 };

@@ -1,12 +1,13 @@
 import { Effect } from "effect";
 
 import { ToolId } from "../ids";
-import { ToolNotFoundError } from "../errors";
-import type { ToolRegistration, InvokeOptions } from "../tools";
+import { ToolNotFoundError, ToolInvocationError } from "../errors";
+import type { ToolRegistration, ToolInvoker, InvokeOptions } from "../tools";
 import { reattachDefs } from "../schema-refs";
 
 export const makeInMemoryToolRegistry = () => {
   const tools = new Map<string, ToolRegistration>();
+  const invokers = new Map<string, ToolInvoker>();
   const sharedDefs = new Map<string, unknown>();
 
   return {
@@ -64,12 +65,25 @@ export const makeInMemoryToolRegistry = () => {
         }
       }),
 
+    registerInvoker: (pluginKey: string, invoker: ToolInvoker) =>
+      Effect.sync(() => {
+        invokers.set(pluginKey, invoker);
+      }),
+
     invoke: (toolId: ToolId, args: unknown, options?: InvokeOptions) =>
       Effect.gen(function* () {
         const tool = yield* Effect.fromNullable(tools.get(toolId)).pipe(
           Effect.mapError(() => new ToolNotFoundError({ toolId })),
         );
-        return yield* tool.invoke(args, options);
+        const invoker = invokers.get(tool.pluginKey);
+        if (!invoker) {
+          return yield* new ToolInvocationError({
+            toolId,
+            message: `No invoker registered for plugin "${tool.pluginKey}"`,
+            cause: undefined,
+          });
+        }
+        return yield* invoker.invoke(toolId, args, options);
       }),
 
     register: (newTools: readonly ToolRegistration[]) =>

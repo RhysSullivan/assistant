@@ -82,6 +82,15 @@ export class ToolRegistry extends Context.Tag("@executor/sdk/ToolRegistry")<
       defs: Record<string, unknown>,
     ) => Effect.Effect<void>;
 
+    /**
+     * Register a plugin invoker. Must be called before registering tools
+     * with the corresponding pluginKey.
+     */
+    readonly registerInvoker: (
+      pluginKey: string,
+      invoker: ToolInvoker,
+    ) => Effect.Effect<void>;
+
     /** Register tools (used by plugins to push tools into the registry) */
     readonly register: (
       tools: readonly ToolRegistration[],
@@ -95,26 +104,31 @@ export class ToolRegistry extends Context.Tag("@executor/sdk/ToolRegistry")<
 >() {}
 
 // ---------------------------------------------------------------------------
-// ToolRegistration — what a plugin provides when registering a tool
+// ToolInvoker — plugin-provided invocation handler
 // ---------------------------------------------------------------------------
 
-export interface ToolRegistration {
-  readonly id: ToolId;
-  readonly name: string;
-  readonly description?: string;
-  readonly tags?: readonly string[];
-  readonly mayElicit?: boolean;
-  readonly inputSchema?: unknown;
-  readonly outputSchema?: unknown;
-  /**
-   * The tool's invoke function. Receives args and an optional elicitation
-   * handler that it can call to request user input mid-invocation.
-   */
+export interface ToolInvoker {
   readonly invoke: (
+    toolId: ToolId,
     args: unknown,
     options?: InvokeOptions,
   ) => Effect.Effect<
     ToolInvocationResult,
     ToolInvocationError | ElicitationDeclinedError
   >;
+}
+
+// ---------------------------------------------------------------------------
+// ToolRegistration — pure data, no closures
+// ---------------------------------------------------------------------------
+
+export interface ToolRegistration {
+  readonly id: ToolId;
+  readonly pluginKey: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly tags?: readonly string[];
+  readonly mayElicit?: boolean;
+  readonly inputSchema?: unknown;
+  readonly outputSchema?: unknown;
 }

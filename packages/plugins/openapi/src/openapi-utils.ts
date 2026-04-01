@@ -4,6 +4,7 @@
 // Wraps the openapi-types V3/V3_1 union mess and provides clean ref resolution.
 // ---------------------------------------------------------------------------
 
+import { Option } from "effect";
 import type { OpenAPIV3, OpenAPIV3_1 } from "openapi-types";
 import type { ParsedDocument } from "./parse";
 
@@ -48,6 +49,25 @@ export class DocResolver {
 
 const isRef = (value: unknown): value is { $ref: string } =>
   typeof value === "object" && value !== null && "$ref" in value;
+
+// ---------------------------------------------------------------------------
+// Server URL resolution
+// ---------------------------------------------------------------------------
+
+export const resolveBaseUrl = (
+  servers: readonly { url: string; variables: import("effect/Option").Option<Record<string, string>> }[],
+): string => {
+  const server = servers[0];
+  if (!server) return "";
+
+  let url = server.url;
+  if (Option.isSome(server.variables)) {
+    for (const [name, value] of Object.entries(server.variables.value)) {
+      url = url.replaceAll(`{${name}}`, value);
+    }
+  }
+  return url;
+};
 
 // ---------------------------------------------------------------------------
 // Content negotiation

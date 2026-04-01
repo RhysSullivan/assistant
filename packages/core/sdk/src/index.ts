@@ -17,6 +17,7 @@ export {
   ToolInvocationResult,
   ToolRegistry,
   type ToolRegistration,
+  type ToolInvoker,
   type InvokeOptions,
 } from "./tools";
 
