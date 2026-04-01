@@ -35,6 +35,15 @@ export class ToolInvocationResult extends Schema.Class<ToolInvocationResult>(
 }) {}
 
 // ---------------------------------------------------------------------------
+// ToolListFilter — filter for listing tools
+// ---------------------------------------------------------------------------
+
+export class ToolListFilter extends Schema.Class<ToolListFilter>("ToolListFilter")({
+  tags: Schema.optional(Schema.Array(Schema.String)),
+  query: Schema.optional(Schema.String),
+}) {}
+
+// ---------------------------------------------------------------------------
 // Invocation options
 // ---------------------------------------------------------------------------
 
@@ -50,10 +59,7 @@ export interface InvokeOptions {
 export class ToolRegistry extends Context.Tag("@executor/sdk/ToolRegistry")<
   ToolRegistry,
   {
-    readonly list: (filter?: {
-      readonly tags?: readonly string[];
-      readonly query?: string;
-    }) => Effect.Effect<readonly ToolMetadata[]>;
+    readonly list: (filter?: ToolListFilter) => Effect.Effect<readonly ToolMetadata[]>;
 
     readonly schema: (
       toolId: ToolId,
@@ -122,13 +128,15 @@ export interface ToolInvoker {
 // ToolRegistration — pure data, no closures
 // ---------------------------------------------------------------------------
 
-export interface ToolRegistration {
-  readonly id: ToolId;
-  readonly pluginKey: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly tags?: readonly string[];
-  readonly mayElicit?: boolean;
-  readonly inputSchema?: unknown;
-  readonly outputSchema?: unknown;
-}
+export class ToolRegistration extends Schema.Class<ToolRegistration>(
+  "ToolRegistration",
+)({
+  id: ToolId,
+  pluginKey: Schema.String,
+  name: Schema.String,
+  description: Schema.optional(Schema.String),
+  tags: Schema.optional(Schema.Array(Schema.String)),
+  mayElicit: Schema.optional(Schema.Boolean),
+  inputSchema: Schema.optional(Schema.Unknown),
+  outputSchema: Schema.optional(Schema.Unknown),
+}) {}

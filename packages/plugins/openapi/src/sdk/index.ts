@@ -10,6 +10,7 @@ export {
   makeInMemoryOperationStore,
   type OpenApiOperationStore,
 } from "./operation-store";
+export { makeKvOperationStore } from "./kv-operation-store";
 export {
   previewSpec,
   SecurityScheme,

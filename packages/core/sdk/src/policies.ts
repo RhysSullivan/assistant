@@ -19,14 +19,16 @@ export class Policy extends Schema.Class<Policy>("Policy")({
   createdAt: Schema.DateFromNumber,
 }) {}
 
+export class PolicyCheckInput extends Schema.Class<PolicyCheckInput>("PolicyCheckInput")({
+  scopeId: ScopeId,
+  toolId: ToolId,
+}) {}
+
 export class PolicyEngine extends Context.Tag("@executor/sdk/PolicyEngine")<
   PolicyEngine,
   {
     readonly list: (scopeId: ScopeId) => Effect.Effect<readonly Policy[]>;
-    readonly check: (input: {
-      readonly scopeId: ScopeId;
-      readonly toolId: ToolId;
-    }) => Effect.Effect<void, PolicyDeniedError>;
+    readonly check: (input: PolicyCheckInput) => Effect.Effect<void, PolicyDeniedError>;
     readonly add: (
       policy: Omit<Policy, "id" | "createdAt">,
     ) => Effect.Effect<Policy>;

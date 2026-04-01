@@ -39,6 +39,19 @@ export class SecretRef extends Schema.Class<SecretRef>("SecretRef")({
 }) {}
 
 // ---------------------------------------------------------------------------
+// SetSecretInput — SecretRef fields minus createdAt, plus value
+// ---------------------------------------------------------------------------
+
+export class SetSecretInput extends Schema.Class<SetSecretInput>("SetSecretInput")({
+  id: SecretId,
+  scopeId: ScopeId,
+  name: Schema.String,
+  value: Schema.String,
+  provider: Schema.optional(Schema.String),
+  purpose: Schema.optional(Schema.String),
+}) {}
+
+// ---------------------------------------------------------------------------
 // SecretStore — manages refs + delegates resolution to providers
 // ---------------------------------------------------------------------------
 
@@ -74,15 +87,7 @@ export class SecretStore extends Context.Tag("@executor/sdk/SecretStore")<
      * Store a secret value. Creates a ref and writes the value to the
      * preferred writable provider.
      */
-    readonly set: (input: {
-      readonly scopeId: ScopeId;
-      readonly id: SecretId;
-      readonly name: string;
-      readonly value: string;
-      readonly purpose?: string;
-      /** Pin to a specific provider. Otherwise uses the first writable one. */
-      readonly provider?: string;
-    }) => Effect.Effect<SecretRef, SecretResolutionError>;
+    readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, SecretResolutionError>;
 
 
     /** Remove a secret ref and its value from the provider */

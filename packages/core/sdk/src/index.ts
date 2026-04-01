@@ -16,7 +16,8 @@ export {
   ToolSchema,
   ToolInvocationResult,
   ToolRegistry,
-  type ToolRegistration,
+  ToolRegistration,
+  ToolListFilter,
   type ToolInvoker,
   type InvokeOptions,
 } from "./tools";
@@ -34,10 +35,10 @@ export {
 } from "./elicitation";
 
 // Secrets
-export { SecretRef, SecretStore, type SecretProvider } from "./secrets";
+export { SecretRef, SetSecretInput, SecretStore, type SecretProvider } from "./secrets";
 
 // Policies
-export { Policy, PolicyAction, PolicyEngine } from "./policies";
+export { Policy, PolicyAction, PolicyCheckInput, PolicyEngine } from "./policies";
 
 // Scope
 export { Scope } from "./scope";
@@ -78,3 +79,4 @@ export { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
 
 // Testing
 export { makeTestConfig } from "./testing";
+export { type Kv, type ScopedKv, scopeKv } from "./plugin-kv";

@@ -1,36 +1,27 @@
-import { Effect, Option } from "effect";
-
-import { ScopeId, SecretId } from "../ids";
-import { SecretNotFoundError, SecretResolutionError } from "../errors";
-import type { SecretRef, SecretProvider, SetSecretInput } from "../secrets";
-
 // ---------------------------------------------------------------------------
-// In-memory secret provider
+// KV-backed SecretStore — stores refs only, never secret values
 // ---------------------------------------------------------------------------
 
-export const makeInMemorySecretProvider = (): SecretProvider => {
-  const values = new Map<string, string>();
-  return {
-    key: "memory",
-    writable: true,
-    get: (key) => Effect.sync(() => values.get(key) ?? null),
-    set: (key, value) => Effect.sync(() => { values.set(key, value); }),
-    delete: (key) => Effect.sync(() => values.delete(key)),
-    list: () => Effect.sync(() => [...values.keys()]),
-  };
-};
+import { Effect, Option, Schema } from "effect";
+
+import { SecretRef, SecretId, ScopeId } from "@executor/sdk";
+import { SecretNotFoundError, SecretResolutionError } from "@executor/sdk";
+import type { SecretProvider, ScopedKv, SetSecretInput } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
-// In-memory secret store
+// Serialization — leverage SecretRef Schema.Class directly
 // ---------------------------------------------------------------------------
 
-export const makeInMemorySecretStore = () => {
-  const refs = new Map<string, SecretRef>();
+const RefJson = Schema.parseJson(SecretRef);
+const encodeRef = Schema.encodeSync(RefJson);
+const decodeRef = Schema.decodeUnknownSync(RefJson);
+
+// ---------------------------------------------------------------------------
+// Factory — no default provider, host must add them
+// ---------------------------------------------------------------------------
+
+export const makeKvSecretStore = (refsKv: ScopedKv) => {
   const providers: SecretProvider[] = [];
-
-  // Add a default in-memory provider
-  const defaultProvider = makeInMemorySecretProvider();
-  providers.push(defaultProvider);
 
   const findWritableProvider = (key?: string): SecretProvider | undefined =>
     key ? providers.find((p) => p.key === key) : providers.find((p) => p.writable);
@@ -43,7 +34,6 @@ export const makeInMemorySecretStore = () => {
       const provider = providers.find((p) => p.key === providerKey);
       return provider ? provider.get(secretId) : Effect.succeed(null);
     }
-    // Try all providers in order
     return Effect.gen(function* () {
       for (const provider of providers) {
         const value = yield* provider.get(secretId);
@@ -55,20 +45,26 @@ export const makeInMemorySecretStore = () => {
 
   return {
     list: (scopeId: ScopeId) =>
-      Effect.sync(() =>
-        [...refs.values()].filter((r) => r.scopeId === scopeId),
-      ),
+      Effect.gen(function* () {
+        const entries = yield* refsKv.list();
+        return entries
+          .map((e) => decodeRef(e.value))
+          .filter((r) => r.scopeId === scopeId);
+      }),
 
     get: (secretId: SecretId) =>
-      Effect.fromNullable(refs.get(secretId)).pipe(
-        Effect.mapError(() => new SecretNotFoundError({ secretId })),
-      ),
+      Effect.gen(function* () {
+        const raw = yield* refsKv.get(secretId);
+        if (!raw) return yield* new SecretNotFoundError({ secretId });
+        return decodeRef(raw);
+      }),
 
     resolve: (secretId: SecretId, _scopeId: ScopeId) =>
       Effect.gen(function* () {
-        const ref = refs.get(secretId);
-        const providerKey = ref ? Option.getOrUndefined(ref.provider) : undefined;
-
+        const raw = yield* refsKv.get(secretId);
+        const providerKey = raw
+          ? Option.getOrUndefined(decodeRef(raw).provider)
+          : undefined;
         const value = yield* resolveFromProviders(secretId, providerKey);
         if (value === null) {
           return yield* new SecretResolutionError({
@@ -97,37 +93,36 @@ export const makeInMemorySecretStore = () => {
 
         yield* provider.set(input.id, input.value);
 
-        const ref: SecretRef = {
+        const ref = new SecretRef({
           id: input.id,
           scopeId: input.scopeId,
           name: input.name,
           provider: Option.fromNullable(input.provider),
           purpose: input.purpose,
           createdAt: new Date(),
-        };
-        refs.set(input.id, ref);
+        });
+
+        yield* refsKv.set(input.id, encodeRef(ref));
         return ref;
       }),
 
     remove: (secretId: SecretId) =>
       Effect.gen(function* () {
-        const ref = refs.get(secretId);
-        if (!ref) return yield* new SecretNotFoundError({ secretId });
+        const raw = yield* refsKv.get(secretId);
+        if (!raw) return yield* new SecretNotFoundError({ secretId });
+        const ref = decodeRef(raw);
 
         const providerKey = Option.getOrUndefined(ref.provider);
         const provider = findWritableProvider(providerKey);
-        if (provider?.delete) {
-          yield* provider.delete(secretId);
-        }
+        if (provider?.delete) yield* provider.delete(secretId);
 
-        refs.delete(secretId);
+        yield* refsKv.delete(secretId);
         return true;
       }),
 
     addProvider: (provider: SecretProvider) =>
       Effect.sync(() => { providers.push(provider); }),
 
-    providers: () =>
-      Effect.sync(() => providers.map((p) => p.key)),
+    providers: () => Effect.sync(() => providers.map((p) => p.key)),
   };
 };

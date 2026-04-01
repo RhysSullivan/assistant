@@ -33,4 +33,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Finder (MacOS) folder config
 .DS_Store
 personal-notes/
-*.har
+*.har.executor-data
+executor.har
+.executor-data/

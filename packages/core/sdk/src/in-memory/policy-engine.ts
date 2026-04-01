@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
-import { ScopeId, ToolId, PolicyId } from "../ids";
-import type { Policy } from "../policies";
+import { ScopeId, PolicyId } from "../ids";
+import type { Policy, PolicyCheckInput } from "../policies";
 
 export const makeInMemoryPolicyEngine = () => {
   const policies = new Map<string, Policy>();
@@ -12,7 +12,7 @@ export const makeInMemoryPolicyEngine = () => {
       Effect.succeed(
         [...policies.values()].filter((p) => p.scopeId === scopeId),
       ),
-    check: (_input: { readonly scopeId: ScopeId; readonly toolId: ToolId }) =>
+    check: (_input: PolicyCheckInput) =>
       Effect.void,
     add: (policy: Omit<Policy, "id" | "createdAt">) =>
       Effect.sync(() => {

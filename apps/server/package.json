@@ -8,10 +8,12 @@
   },
   "dependencies": {
     "@effect/platform": "catalog:",
-
+    "@effect/sql": "catalog:",
+    "@effect/sql-sqlite-bun": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
     "@executor/sdk": "workspace:*",
+    "@executor/storage-file": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 
 import { ToolId } from "../ids";
 import { ToolNotFoundError, ToolInvocationError } from "../errors";
-import type { ToolRegistration, ToolInvoker, InvokeOptions } from "../tools";
+import type { ToolRegistration, ToolInvoker, ToolListFilter, InvokeOptions } from "../tools";
 import { reattachDefs } from "../schema-refs";
 
 export const makeInMemoryToolRegistry = () => {
@@ -11,10 +11,7 @@ export const makeInMemoryToolRegistry = () => {
   const sharedDefs = new Map<string, unknown>();
 
   return {
-    list: (filter?: {
-      readonly tags?: readonly string[];
-      readonly query?: string;
-    }) =>
+    list: (filter?: ToolListFilter) =>
       Effect.sync(() => {
         let result = [...tools.values()];
         if (filter?.tags?.length) {

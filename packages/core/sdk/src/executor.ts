@@ -1,12 +1,13 @@
 import { Context, Effect } from "effect";
 
 import type { ToolId, SecretId, PolicyId } from "./ids";
-import type { SecretProvider, SecretRef, SecretStore } from "./secrets";
+import type { SecretProvider, SecretRef, SecretStore, SetSecretInput } from "./secrets";
 import type {
   ToolMetadata,
   ToolSchema,
   ToolInvocationResult,
   ToolRegistry,
+  ToolListFilter,
   InvokeOptions,
 } from "./tools";
 import type { Policy, PolicyEngine } from "./policies";
@@ -35,10 +36,7 @@ export type Executor<
   readonly scope: Scope;
 
   readonly tools: {
-    readonly list: (filter?: {
-      readonly tags?: readonly string[];
-      readonly query?: string;
-    }) => Effect.Effect<readonly ToolMetadata[]>;
+    readonly list: (filter?: ToolListFilter) => Effect.Effect<readonly ToolMetadata[]>;
     readonly schema: (
       toolId: string,
     ) => Effect.Effect<ToolSchema, ToolNotFoundError>;
@@ -76,13 +74,7 @@ export type Executor<
       secretId: SecretId,
     ) => Effect.Effect<"resolved" | "missing">;
     /** Store a secret value (creates ref + writes to provider) */
-    readonly set: (input: {
-      readonly id: SecretId;
-      readonly name: string;
-      readonly value: string;
-      readonly purpose?: string;
-      readonly provider?: string;
-    }) => Effect.Effect<SecretRef, SecretResolutionError>;
+    readonly set: (input: Omit<SetSecretInput, "scopeId">) => Effect.Effect<SecretRef, SecretResolutionError>;
     readonly remove: (
       secretId: SecretId,
     ) => Effect.Effect<boolean, SecretNotFoundError>;
@@ -144,10 +136,7 @@ export const createExecutor = <
       scope,
 
       tools: {
-        list: (filter?: {
-          readonly tags?: readonly string[];
-          readonly query?: string;
-        }) => tools.list(filter),
+        list: (filter?: ToolListFilter) => tools.list(filter),
         schema: (toolId: string) => tools.schema(toolId as ToolId),
         definitions: () => tools.definitions(),
         invoke: (toolId: string, args: unknown, options?: InvokeOptions) => {
@@ -171,13 +160,8 @@ export const createExecutor = <
         list: () => secrets.list(scope.id),
         resolve: (secretId: SecretId) => secrets.resolve(secretId, scope.id),
         status: (secretId: SecretId) => secrets.status(secretId, scope.id),
-        set: (input: {
-          readonly id: SecretId;
-          readonly name: string;
-          readonly value: string;
-          readonly purpose?: string;
-          readonly provider?: string;
-        }) => secrets.set({ ...input, scopeId: scope.id }),
+        set: (input: Omit<SetSecretInput, "scopeId">) =>
+          secrets.set({ ...input, scopeId: scope.id }),
         remove: (secretId: SecretId) =>
           secrets.remove(secretId),
         addProvider: (provider: SecretProvider) => secrets.addProvider(provider),
