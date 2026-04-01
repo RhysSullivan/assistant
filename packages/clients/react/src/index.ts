@@ -28,10 +28,16 @@ export {
   invokeTool,
   setSecret,
   removeSecret,
+  removeSource,
+  refreshSource,
 } from "./atoms";
 
 // Provider
 export { ExecutorProvider } from "./provider";
+
+// Re-export commonly needed SDK types
+export { ScopeId, ToolId } from "@executor/sdk";
+export type { ScopeId as ScopeIdType, ToolId as ToolIdType } from "@executor/sdk";
 
 // Plugin contracts
 export type { SourcePlugin } from "./source-plugin";

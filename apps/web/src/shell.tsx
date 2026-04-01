@@ -29,6 +29,7 @@ function NavItem(props: { to: string; label: string; active: boolean }) {
 
 function SourceList() {
   const tools = useAtomValue(toolsAtom());
+  const { pathname } = useLocation();
 
   const sources = useMemo(() => {
     if (tools._tag !== "Success") return [];
@@ -53,16 +54,26 @@ function SourceList() {
 
   return (
     <div className="flex flex-col gap-px">
-      {sources.map((s) => (
-        <Link
-          key={s.namespace}
-          to="/sources"
-          className="group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground transition-colors"
-        >
-          <span className="flex-1 truncate">{s.namespace}</span>
-          <span className="text-[10px] tabular-nums text-muted-foreground/50">{s.toolCount}</span>
-        </Link>
-      ))}
+      {sources.map((s) => {
+        const detailPath = `/sources/${s.namespace}`;
+        const active = pathname === detailPath || pathname.startsWith(`${detailPath}/`);
+        return (
+          <Link
+            key={s.namespace}
+            to="/sources/$namespace"
+            params={{ namespace: s.namespace }}
+            className={[
+              "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+              active
+                ? "bg-sidebar-active text-foreground font-medium"
+                : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
+            ].join(" ")}
+          >
+            <span className="flex-1 truncate">{s.namespace}</span>
+            <span className="text-[10px] tabular-nums text-muted-foreground/50">{s.toolCount}</span>
+          </Link>
+        );
+      })}
     </div>
   );
 }

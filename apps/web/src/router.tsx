@@ -7,6 +7,7 @@ import {
 import { ExecutorProvider } from "@executor/react";
 import { ToolsPage } from "./pages/tools";
 import { SourcesPage } from "./pages/sources";
+import { SourceDetailPage } from "./pages/source-detail";
 import { SecretsPage } from "./pages/secrets";
 import { Shell } from "./shell";
 
@@ -46,6 +47,15 @@ const sourcesRoute = createRoute({
   component: SourcesPage,
 });
 
+const sourceDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sources/$namespace",
+  component: () => {
+    const { namespace } = sourceDetailRoute.useParams();
+    return <SourceDetailPage namespace={namespace} />;
+  },
+});
+
 const secretsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/secrets",
@@ -60,6 +70,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   toolsRoute,
   sourcesRoute,
+  sourceDetailRoute,
   secretsRoute,
 ]);
 

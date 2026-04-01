@@ -117,6 +117,15 @@ export const openApiPlugin = (options?: {
           }),
         );
 
+        yield* ctx.tools.addSourceProvider({
+          key: "openapi",
+          remove: (namespace: string) =>
+            Effect.gen(function* () {
+              yield* operationStore.removeByNamespace(namespace);
+            }),
+          // TODO: refresh requires storing original config per namespace
+        });
+
         return {
           extension: {
             previewSpec: (specText: string) => previewSpec(specText),

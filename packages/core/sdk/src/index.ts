@@ -18,6 +18,7 @@ export {
   ToolRegistry,
   ToolRegistration,
   ToolListFilter,
+  type SourceProvider,
   type ToolInvoker,
   type InvokeOptions,
 } from "./tools";

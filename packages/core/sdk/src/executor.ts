@@ -53,6 +53,8 @@ export type Executor<
       | PolicyDeniedError
       | ElicitationDeclinedError
     >;
+    readonly removeSource: (namespace: string) => Effect.Effect<void>;
+    readonly refreshSource: (namespace: string) => Effect.Effect<void>;
   };
 
   readonly policies: {
@@ -146,6 +148,8 @@ export const createExecutor = <
             return yield* tools.invoke(tid, args, options);
           });
         },
+        removeSource: (namespace: string) => tools.removeSource(namespace),
+        refreshSource: (namespace: string) => tools.refreshSource(namespace),
       },
 
       policies: {

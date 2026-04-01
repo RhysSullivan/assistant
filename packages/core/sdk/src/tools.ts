@@ -13,6 +13,7 @@ import type {
 
 export class ToolMetadata extends Schema.Class<ToolMetadata>("ToolMetadata")({
   id: ToolId,
+  pluginKey: Schema.String,
   name: Schema.String,
   description: Schema.optional(Schema.String),
   tags: Schema.Array(Schema.String),
@@ -106,8 +107,41 @@ export class ToolRegistry extends Context.Tag("@executor/sdk/ToolRegistry")<
     readonly unregister: (
       toolIds: readonly ToolId[],
     ) => Effect.Effect<void>;
+
+    /**
+     * Remove all tools belonging to a source (identified by namespace tag).
+     * Delegates cleanup to the registered SourceProvider.
+     */
+    readonly removeSource: (
+      namespace: string,
+    ) => Effect.Effect<void>;
+
+    /**
+     * Refresh a source — delegates to the registered SourceProvider.
+     */
+    readonly refreshSource: (
+      namespace: string,
+    ) => Effect.Effect<void>;
+
+    /** Register a source provider (called by plugins during init) */
+    readonly addSourceProvider: (
+      provider: SourceProvider,
+    ) => Effect.Effect<void>;
   }
 >() {}
+
+// ---------------------------------------------------------------------------
+// SourceProvider — plugin-provided source lifecycle handler
+// ---------------------------------------------------------------------------
+
+export interface SourceProvider {
+  /** Plugin key this provider handles (e.g. "openapi", "mcp") */
+  readonly key: string;
+  /** Clean up plugin-internal state when a source is removed */
+  readonly remove: (namespace: string) => Effect.Effect<void>;
+  /** Re-fetch / re-register tools for a source */
+  readonly refresh?: (namespace: string) => Effect.Effect<void>;
+}
 
 // ---------------------------------------------------------------------------
 // ToolInvoker — plugin-provided invocation handler

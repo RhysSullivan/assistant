@@ -15,6 +15,7 @@ import {
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 const toolIdParam = HttpApiSchema.param("toolId", ToolId);
+const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 
 // ---------------------------------------------------------------------------
 // Response schemas
@@ -22,6 +23,7 @@ const toolIdParam = HttpApiSchema.param("toolId", ToolId);
 
 const ToolMetadataResponse = Schema.Struct({
   id: ToolId,
+  pluginKey: Schema.String,
   name: Schema.String,
   description: Schema.optional(Schema.String),
   tags: Schema.Array(Schema.String),
@@ -65,6 +67,22 @@ const ElicitationDeclined = ElicitationDeclinedError.annotations(
 // Group
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Source responses
+// ---------------------------------------------------------------------------
+
+const SourceRemoveResponse = Schema.Struct({
+  removed: Schema.Boolean,
+});
+
+const SourceRefreshResponse = Schema.Struct({
+  refreshed: Schema.Boolean,
+});
+
+// ---------------------------------------------------------------------------
+// Group
+// ---------------------------------------------------------------------------
+
 export class ToolsApi extends HttpApiGroup.make("tools")
   .add(
     HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/tools`
@@ -83,5 +101,13 @@ export class ToolsApi extends HttpApiGroup.make("tools")
       .addError(ToolInvocation)
       .addError(PolicyDenied)
       .addError(ElicitationDeclined),
+  )
+  .add(
+    HttpApiEndpoint.del("removeSource")`/scopes/${scopeIdParam}/sources/${namespaceParam}`
+      .addSuccess(SourceRemoveResponse),
+  )
+  .add(
+    HttpApiEndpoint.post("refreshSource")`/scopes/${scopeIdParam}/sources/${namespaceParam}/refresh`
+      .addSuccess(SourceRefreshResponse),
   )
   .prefix("/v1") {}

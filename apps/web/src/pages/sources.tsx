@@ -1,4 +1,5 @@
 import { useState, Suspense, useMemo } from "react";
+import { Link } from "@tanstack/react-router";
 import { Result, useAtomValue, useAtomRefresh, toolsAtom } from "@executor/react";
 import type { SourcePlugin } from "@executor/react";
 import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
@@ -97,9 +98,11 @@ export function SourcesPage() {
           ) : (
             <div className="mt-4 grid gap-2">
               {sources.map((s) => (
-                <div
+                <Link
                   key={s.namespace}
-                  className="flex items-center justify-between rounded-lg border border-border bg-card p-4 transition-colors hover:bg-accent/50"
+                  to="/sources/$namespace"
+                  params={{ namespace: s.namespace }}
+                  className="flex items-center justify-between rounded-lg border border-border bg-card p-4 transition-colors hover:bg-accent/50 hover:border-primary/25"
                 >
                   <div>
                     <p className="text-sm font-medium text-card-foreground">{s.namespace}</p>
@@ -110,7 +113,7 @@ export function SourcesPage() {
                   <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
                     openapi
                   </span>
-                </div>
+                </Link>
               ))}
             </div>
           ),

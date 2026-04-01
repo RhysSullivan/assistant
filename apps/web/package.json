@@ -5,13 +5,17 @@
   "type": "module",
   "dependencies": {
     "@executor/plugin-openapi": "workspace:*",
-    "@executor/ui": "workspace:*",
-    "tailwindcss": "^4.1.10",
     "@executor/react": "workspace:*",
     "@executor/server": "workspace:*",
+    "@executor/ui": "workspace:*",
+    "@shikijs/langs": "^4.0.2",
+    "@shikijs/themes": "^4.0.2",
     "@tanstack/react-router": "^1.168.10",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "shiki": "^4.0.2",
+    "streamdown": "^2.5.0",
+    "tailwindcss": "^4.1.10"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",

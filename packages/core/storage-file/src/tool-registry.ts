@@ -6,7 +6,7 @@ import { Effect, Schema } from "effect";
 
 import type { ToolId, ScopedKv } from "@executor/sdk";
 import { ToolNotFoundError, ToolInvocationError, ToolRegistration } from "@executor/sdk";
-import type { ToolInvoker, ToolListFilter, InvokeOptions } from "@executor/sdk";
+import type { ToolInvoker, SourceProvider, ToolListFilter, InvokeOptions } from "@executor/sdk";
 import { reattachDefs } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,7 @@ export const makeKvToolRegistry = (
   defsKv: ScopedKv,
 ) => {
   const invokers = new Map<string, ToolInvoker>();
+  const sourceProviders = new Map<string, SourceProvider>();
 
   const getTool = (id: string): Effect.Effect<ToolRegistration | null> =>
     Effect.gen(function* () {
@@ -64,6 +65,7 @@ export const makeKvToolRegistry = (
         }
         return tools.map((t) => ({
           id: t.id,
+          pluginKey: t.pluginKey,
           name: t.name,
           description: t.description,
           tags: t.tags ? [...t.tags] : [],
@@ -125,6 +127,47 @@ export const makeKvToolRegistry = (
         for (const id of toolIds) {
           yield* toolsKv.delete(id);
         }
+      }),
+
+    removeSource: (namespace: string) =>
+      Effect.gen(function* () {
+        const allTools = yield* getAllTools();
+        const matching = allTools.filter((t) => t.tags?.includes(namespace));
+        if (matching.length === 0) return;
+
+        const pluginKey = matching[0]!.pluginKey;
+
+        for (const t of matching) {
+          yield* toolsKv.delete(t.id);
+        }
+
+        const provider = sourceProviders.get(pluginKey);
+        if (provider) {
+          yield* provider.remove(namespace);
+        }
+      }),
+
+    refreshSource: (namespace: string) =>
+      Effect.gen(function* () {
+        const allTools = yield* getAllTools();
+        let pluginKey: string | null = null;
+        for (const t of allTools) {
+          if (t.tags?.includes(namespace)) {
+            pluginKey = t.pluginKey;
+            break;
+          }
+        }
+        if (!pluginKey) return;
+
+        const provider = sourceProviders.get(pluginKey);
+        if (provider?.refresh) {
+          yield* provider.refresh(namespace);
+        }
+      }),
+
+    addSourceProvider: (provider: SourceProvider) =>
+      Effect.sync(() => {
+        sourceProviders.set(provider.key, provider);
       }),
   };
 };
