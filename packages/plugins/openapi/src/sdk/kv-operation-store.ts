@@ -1,12 +1,11 @@
 // ---------------------------------------------------------------------------
-// Adapt ScopedPluginKv → OpenApiOperationStore
+// KV-backed OpenApiOperationStore
 //
-// Works with any PluginKv backend (SQLite, in-memory, etc.)
-// Uses Effect Schema for serialization/deserialization.
+// Uses two separate KV namespaces — one for bindings, one for source meta.
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import type { ToolId, ScopedKv } from "@executor/sdk";
+import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
 
 import type { OpenApiOperationStore, SourceMeta } from "./operation-store";
 import { OperationBinding, InvocationConfig } from "./types";
@@ -24,36 +23,35 @@ class StoredEntry extends Schema.Class<StoredEntry>("StoredEntry")({
 const encodeEntry = Schema.encodeSync(Schema.parseJson(StoredEntry));
 const decodeEntry = Schema.decodeUnknownSync(Schema.parseJson(StoredEntry));
 
-const SOURCE_META_PREFIX = "__source_meta__:";
-
 // ---------------------------------------------------------------------------
-// Factory
+// Implementation — separate KV for bindings vs source meta
 // ---------------------------------------------------------------------------
 
-export const makeKvOperationStore = (kv: ScopedKv): OpenApiOperationStore => ({
+const makeStore = (
+  bindings: ScopedKv,
+  meta: ScopedKv,
+): OpenApiOperationStore => ({
   get: (toolId) =>
     Effect.gen(function* () {
-      const raw = yield* kv.get(toolId);
+      const raw = yield* bindings.get(toolId);
       if (!raw) return null;
       const entry = decodeEntry(raw);
       return { binding: entry.binding, config: entry.config };
     }),
 
   put: (toolId, namespace, binding, config) =>
-    Effect.gen(function* () {
-      const raw = encodeEntry(new StoredEntry({ namespace, binding, config }));
-      yield* kv.set(toolId, raw);
-    }),
+    bindings.set(
+      toolId,
+      encodeEntry(new StoredEntry({ namespace, binding, config })),
+    ),
 
-  remove: (toolId) =>
-    kv.delete(toolId).pipe(Effect.asVoid),
+  remove: (toolId) => bindings.delete(toolId).pipe(Effect.asVoid),
 
   listByNamespace: (namespace) =>
     Effect.gen(function* () {
-      const entries = yield* kv.list();
+      const entries = yield* bindings.list();
       const ids: ToolId[] = [];
       for (const e of entries) {
-        if (e.key.startsWith(SOURCE_META_PREFIX)) continue;
         const entry = decodeEntry(e.value);
         if (entry.namespace === namespace) ids.push(e.key as ToolId);
       }
@@ -62,34 +60,42 @@ export const makeKvOperationStore = (kv: ScopedKv): OpenApiOperationStore => ({
 
   removeByNamespace: (namespace) =>
     Effect.gen(function* () {
-      const entries = yield* kv.list();
+      const entries = yield* bindings.list();
       const ids: ToolId[] = [];
       for (const e of entries) {
-        if (e.key.startsWith(SOURCE_META_PREFIX)) continue;
         const entry = decodeEntry(e.value);
         if (entry.namespace === namespace) {
           ids.push(e.key as ToolId);
-          yield* kv.delete(e.key);
+          yield* bindings.delete(e.key);
         }
       }
       return ids;
     }),
 
-  putSourceMeta: (meta) =>
-    kv.set(`${SOURCE_META_PREFIX}${meta.namespace}`, JSON.stringify(meta)),
+  putSourceMeta: (m) => meta.set(m.namespace, JSON.stringify(m)),
 
   removeSourceMeta: (namespace) =>
-    kv.delete(`${SOURCE_META_PREFIX}${namespace}`).pipe(Effect.asVoid),
+    meta.delete(namespace).pipe(Effect.asVoid),
 
   listSourceMeta: () =>
     Effect.gen(function* () {
-      const entries = yield* kv.list();
-      const metas: SourceMeta[] = [];
-      for (const e of entries) {
-        if (e.key.startsWith(SOURCE_META_PREFIX)) {
-          metas.push(JSON.parse(e.value) as SourceMeta);
-        }
-      }
-      return metas;
+      const entries = yield* meta.list();
+      return entries.map((e) => JSON.parse(e.value) as SourceMeta);
     }),
 });
+
+// ---------------------------------------------------------------------------
+// Factory from global Kv
+// ---------------------------------------------------------------------------
+
+export const makeKvOperationStore = (
+  kv: Kv,
+  namespace: string,
+): OpenApiOperationStore =>
+  makeStore(
+    scopeKv(kv, `${namespace}.bindings`),
+    scopeKv(kv, `${namespace}.sources`),
+  );
+
+export const makeInMemoryOperationStore = (): OpenApiOperationStore =>
+  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

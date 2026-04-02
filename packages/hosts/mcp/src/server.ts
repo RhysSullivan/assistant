@@ -27,7 +27,12 @@ export type ExecutorMcpServerConfig = ExecutionEngineConfig;
 
 const supportsManagedElicitation = (server: McpServer): boolean => {
   const capabilities = server.server.getClientCapabilities();
-  return capabilities !== undefined && Boolean(capabilities.elicitation);
+  if (capabilities === undefined || !capabilities.elicitation) return false;
+  const elicitation = capabilities.elicitation as Record<string, unknown>;
+  // The MCP SDK requires `elicitation.form` for form-based elicitation.
+  // An empty `elicitation: {}` is auto-upgraded to `{ form: {} }` by the SDK's
+  // schema preprocess, but we guard explicitly in case that doesn't apply.
+  return Boolean(elicitation.form);
 };
 
 const elicitationRequestToSchema: (
@@ -49,7 +54,13 @@ const elicitationRequestToSchema: (
     })),
     Match.tag("FormElicitation", (req) => ({
       message: req.message,
-      requestedSchema: req.requestedSchema,
+      // The MCP SDK validates requestedSchema as a JSON Schema with
+      // `type: "object"` and `properties`. For approval-only elicitations
+      // where no fields are needed, provide a minimal valid schema.
+      requestedSchema:
+        Object.keys(req.requestedSchema).length === 0
+          ? { type: "object" as const, properties: {} }
+          : req.requestedSchema,
     })),
     Match.exhaustive,
   );
@@ -68,7 +79,11 @@ const makeMcpElicitationHandler = (server: McpServer): ElicitationHandler =>
           action: response.action,
           content: response.content,
         };
-      } catch {
+      } catch (err) {
+        console.error(
+          "[executor] elicitInput failed — falling back to cancel.",
+          err instanceof Error ? err.message : err,
+        );
         return { action: "cancel" };
       }
     });

@@ -16,6 +16,14 @@ export const makeExecutorToolInvoker = (
         path as ToolId,
         args,
         options.invokeOptions,
+      ).pipe(
+        Effect.catchTag("ElicitationDeclinedError", (err) =>
+          Effect.fail(
+            new Error(
+              `Tool "${err.toolId}" requires approval but the request was ${err.action === "cancel" ? "cancelled" : "declined"} by the user.`,
+            ),
+          ),
+        ),
       );
       if (result.error !== null && result.error !== undefined) {
         return yield* Effect.fail(result.error);

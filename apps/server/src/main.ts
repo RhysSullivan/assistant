@@ -8,11 +8,13 @@ import { Layer } from "effect";
 
 import { addGroup } from "@executor/api";
 import { OpenApiGroup } from "@executor/plugin-openapi/api";
+import { McpGroup } from "@executor/plugin-mcp/api";
 import { OnePasswordGroup } from "@executor/plugin-onepassword/api";
 import { ToolsHandlers } from "./handlers/tools";
 import { SourcesHandlers } from "./handlers/sources";
 import { SecretsHandlers } from "./handlers/secrets";
 import { OpenApiHandlersLive } from "./handlers/openapi";
+import { McpSourceHandlersLive } from "./handlers/mcp-source";
 import { OnePasswordHandlersLive } from "./handlers/onepassword";
 import { ExecutorServiceLayer, getExecutor } from "./services/executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
@@ -21,7 +23,7 @@ import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 // Composed API — core + plugin groups
 // ---------------------------------------------------------------------------
 
-const ExecutorApiWithPlugins = addGroup(OpenApiGroup).add(OnePasswordGroup);
+const ExecutorApiWithPlugins = addGroup(OpenApiGroup).add(McpGroup).add(OnePasswordGroup);
 
 // ---------------------------------------------------------------------------
 // API Layer
@@ -33,6 +35,7 @@ const ApiLive = HttpApiBuilder.api(ExecutorApiWithPlugins).pipe(
     SourcesHandlers,
     SecretsHandlers,
     OpenApiHandlersLive,
+    McpSourceHandlersLive,
     OnePasswordHandlersLive,
   ]),
   Layer.provide(ExecutorServiceLayer),

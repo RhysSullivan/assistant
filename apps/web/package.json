@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@executor/plugin-onepassword": "workspace:*",
+    "@executor/plugin-mcp": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@executor/react": "workspace:*",

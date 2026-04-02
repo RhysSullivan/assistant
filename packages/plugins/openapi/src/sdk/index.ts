@@ -7,11 +7,13 @@ export {
   type OpenApiPluginExtension,
 } from "./plugin";
 export {
-  makeInMemoryOperationStore,
   type OpenApiOperationStore,
   type SourceMeta,
 } from "./operation-store";
-export { makeKvOperationStore } from "./kv-operation-store";
+export {
+  makeKvOperationStore,
+  makeInMemoryOperationStore,
+} from "./kv-operation-store";
 export {
   previewSpec,
   SecurityScheme,

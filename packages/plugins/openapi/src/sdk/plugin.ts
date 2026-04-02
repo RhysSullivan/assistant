@@ -16,10 +16,8 @@ import { extract } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
 import { makeOpenApiInvoker } from "./invoke";
 import { resolveBaseUrl } from "./openapi-utils";
-import {
-  makeInMemoryOperationStore,
-  type OpenApiOperationStore,
-} from "./operation-store";
+import type { OpenApiOperationStore } from "./operation-store";
+import { makeInMemoryOperationStore } from "./kv-operation-store";
 import { previewSpec, type SpecPreview } from "./preview";
 import {
   InvocationConfig,

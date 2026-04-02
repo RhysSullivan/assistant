@@ -22,6 +22,7 @@
         "@executor/host-mcp": "workspace:*",
         "@executor/plugin-file-secrets": "workspace:*",
         "@executor/plugin-keychain": "workspace:*",
+        "@executor/plugin-mcp": "workspace:*",
         "@executor/plugin-onepassword": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
         "@executor/sdk": "workspace:*",
@@ -39,6 +40,7 @@
       "name": "@executor/web",
       "version": "0.0.0",
       "dependencies": {
+        "@executor/plugin-mcp": "workspace:*",
         "@executor/plugin-onepassword": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
         "@executor/react": "workspace:*",
@@ -225,6 +227,45 @@
         "bun-types": "catalog:",
         "vitest": "catalog:",
       },
+    },
+    "packages/plugins/mcp": {
+      "name": "@executor/plugin-mcp",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@effect/platform-node": "catalog:",
+        "@executor/sdk": "workspace:*",
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect-atom/atom-react": "^0.5.0",
+        "@effect/vitest": "catalog:",
+        "@executor/api": "workspace:*",
+        "@executor/react": "workspace:*",
+        "@executor/ui": "workspace:*",
+        "@types/node": "catalog:",
+        "@types/react": "^19.1.0",
+        "bun-types": "catalog:",
+        "react": "^19.1.0",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "@effect-atom/atom-react": "^0.5.0",
+        "@executor/api": "workspace:*",
+        "@executor/react": "workspace:*",
+        "@executor/ui": "workspace:*",
+        "@tanstack/react-router": "^1.168.10",
+        "react": "^19.1.0",
+      },
+      "optionalPeers": [
+        "@effect-atom/atom-react",
+        "@executor/api",
+        "@executor/react",
+        "@executor/ui",
+        "@tanstack/react-router",
+        "react",
+      ],
     },
     "packages/plugins/onepassword": {
       "name": "@executor/plugin-onepassword",
@@ -515,6 +556,8 @@
     "@executor/plugin-file-secrets": ["@executor/plugin-file-secrets@workspace:packages/plugins/file-secrets"],
 
     "@executor/plugin-keychain": ["@executor/plugin-keychain@workspace:packages/plugins/keychain"],
+
+    "@executor/plugin-mcp": ["@executor/plugin-mcp@workspace:packages/plugins/mcp"],
 
     "@executor/plugin-onepassword": ["@executor/plugin-onepassword@workspace:packages/plugins/onepassword"],
 

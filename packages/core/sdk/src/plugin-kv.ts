@@ -6,7 +6,7 @@
 // live in @executor/storage-file or are provided by the host.
 // ---------------------------------------------------------------------------
 
-import type { Effect } from "effect";
+import { Effect } from "effect";
 
 /**
  * Global KV — requires a namespace on every call.
@@ -42,3 +42,25 @@ export const scopeKv = (kv: Kv, namespace: string): ScopedKv => ({
   list: () => kv.list(namespace),
   deleteAll: () => kv.deleteAll(namespace),
 });
+
+/**
+ * In-memory ScopedKv — useful for tests and plugins that don't need persistence.
+ */
+export const makeInMemoryScopedKv = (): ScopedKv => {
+  const store = new Map<string, string>();
+  return {
+    get: (key) => Effect.succeed(store.get(key) ?? null),
+    set: (key, value) => Effect.sync(() => { store.set(key, value); }),
+    delete: (key) => Effect.sync(() => store.delete(key)),
+    list: () =>
+      Effect.sync(() =>
+        [...store.entries()].map(([key, value]) => ({ key, value })),
+      ),
+    deleteAll: () =>
+      Effect.sync(() => {
+        const n = store.size;
+        store.clear();
+        return n;
+      }),
+  };
+};
