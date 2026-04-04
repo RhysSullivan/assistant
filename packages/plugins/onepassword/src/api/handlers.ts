@@ -52,10 +52,14 @@ export const OnePasswordHandlers = HttpApiBuilder.group(
           return yield* ext.status();
         }).pipe(Effect.orDie),
       )
-      .handle("listVaults", ({ payload }) =>
+      .handle("listVaults", ({ urlParams }) =>
         Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
-          const vaults = yield* ext.listVaults(payload.auth);
+          const auth =
+            urlParams.authKind === "desktop-app"
+              ? { kind: "desktop-app" as const, accountName: urlParams.account }
+              : { kind: "service-account" as const, tokenSecretId: urlParams.account };
+          const vaults = yield* ext.listVaults(auth);
           return { vaults: [...vaults] };
         }).pipe(Effect.orDie),
       ),

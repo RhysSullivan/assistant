@@ -24,6 +24,21 @@ export const onepasswordStatusAtom = (scopeId: ScopeId = DEFAULT_SCOPE) =>
   });
 
 // ---------------------------------------------------------------------------
+// Query atoms — vaults
+// ---------------------------------------------------------------------------
+
+export const onepasswordVaultsAtom = (
+  authKind: "desktop-app" | "service-account",
+  account: string,
+  scopeId: ScopeId = DEFAULT_SCOPE,
+) =>
+  OnePasswordClient.query("onepassword", "listVaults", {
+    path: { scopeId },
+    urlParams: { authKind, account },
+    timeToLive: "30 seconds",
+  });
+
+// ---------------------------------------------------------------------------
 // Mutation atoms
 // ---------------------------------------------------------------------------
 
@@ -35,9 +50,4 @@ export const configureOnePassword = OnePasswordClient.mutation(
 export const removeOnePasswordConfig = OnePasswordClient.mutation(
   "onepassword",
   "removeConfig",
-);
-
-export const listOnePasswordVaults = OnePasswordClient.mutation(
-  "onepassword",
-  "listVaults",
 );

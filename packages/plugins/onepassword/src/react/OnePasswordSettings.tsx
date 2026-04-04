@@ -24,9 +24,9 @@ import {
 
 import {
   onepasswordConfigAtom,
+  onepasswordVaultsAtom,
   configureOnePassword,
   removeOnePasswordConfig,
-  listOnePasswordVaults,
 } from "./atoms";
 import type { OnePasswordConfig } from "../sdk/types";
 
@@ -35,76 +35,60 @@ import type { OnePasswordConfig } from "../sdk/types";
 // ---------------------------------------------------------------------------
 
 function VaultPicker(props: {
-  authKind: string;
+  authKind: "desktop-app" | "service-account";
   accountName: string;
   vaultId: string;
   onVaultSelect: (id: string, name: string) => void;
 }) {
-  const [vaults, setVaults] = useState<ReadonlyArray<{ id: string; name: string }>>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const doListVaults = useAtomSet(listOnePasswordVaults, { mode: "promise" });
+  const account = props.accountName.trim();
+  const vaultsResult = useAtomValue(
+    onepasswordVaultsAtom(props.authKind, account),
+  );
 
-  const discover = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const auth =
-        props.authKind === "desktop-app"
-          ? { kind: "desktop-app" as const, accountName: props.accountName }
-          : { kind: "service-account" as const, tokenSecretId: props.accountName };
-      const result = await doListVaults({
-        path: { scopeId: "default" as ScopeId },
-        payload: { auth },
-      });
-      setVaults((result as { vaults: ReadonlyArray<{ id: string; name: string }> }).vaults);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to list vaults");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { vaults, isLoading, error } = Result.match(
+    vaultsResult as Result.Result<{ vaults: ReadonlyArray<{ id: string; name: string }> }, Error>,
+    {
+      onInitial: () => ({ vaults: [] as { id: string; name: string }[], isLoading: true, error: null }),
+      onFailure: ({ error }) => ({
+        vaults: [] as { id: string; name: string }[],
+        isLoading: false,
+        error: error instanceof Error ? error.message : "Failed to list vaults",
+      }),
+      onSuccess: ({ value }) => {
+        const v = value.vaults;
+        if (v.length > 0 && !props.vaultId) {
+          queueMicrotask(() => props.onVaultSelect(v[0].id, v[0].name));
+        }
+        return { vaults: [...v], isLoading: false, error: null };
+      },
+    },
+  );
+
+  if (!account) {
+    return <p className="text-[11px] text-muted-foreground/50 py-1">Enter account details to load vaults.</p>;
+  }
 
   return (
     <div className="grid gap-2">
-      {vaults.length > 0 ? (
-        <Select
-          value={props.vaultId}
-          onValueChange={(id) => {
-            const v = vaults.find((vault) => vault.id === id);
-            if (v) props.onVaultSelect(v.id, v.name);
-          }}
-        >
-          <SelectTrigger className="h-9 text-[13px]">
-            <SelectValue placeholder="Select a vault" />
-          </SelectTrigger>
-          <SelectContent>
-            {vaults.map((v) => (
-              <SelectItem key={v.id} value={v.id}>
-                {v.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={discover}
-          disabled={loading || !props.accountName.trim()}
-          className="w-full justify-center text-[12px]"
-        >
-          {loading ? (
-            <>
-              <span className="size-3 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mr-1.5" />
-              Connecting to 1Password…
-            </>
-          ) : (
-            "Discover vaults"
-          )}
-        </Button>
-      )}
+      <Select
+        disabled={isLoading || vaults.length === 0}
+        value={props.vaultId}
+        onValueChange={(id) => {
+          const v = vaults.find((vault) => vault.id === id);
+          if (v) props.onVaultSelect(v.id, v.name);
+        }}
+      >
+        <SelectTrigger className="h-9 text-[13px]">
+          <SelectValue placeholder={isLoading ? "Loading…" : "Select a vault"} />
+        </SelectTrigger>
+        <SelectContent>
+          {vaults.map((v) => (
+            <SelectItem key={v.id} value={v.id}>
+              {v.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       {error && (
         <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
           <p className="text-[11px] text-destructive leading-relaxed whitespace-pre-line">{error}</p>
@@ -124,7 +108,9 @@ function ConfigDialog(props: {
   initial?: { authKind: string; accountName: string; vaultId: string; name: string };
 }) {
   const isEdit = !!props.initial;
-  const [authKind, setAuthKind] = useState(props.initial?.authKind ?? "desktop-app");
+  const [authKind, setAuthKind] = useState<"desktop-app" | "service-account">(
+    (props.initial?.authKind as "desktop-app" | "service-account") ?? "desktop-app",
+  );
   const [accountName, setAccountName] = useState(props.initial?.accountName ?? "my.1password.com");
   const [vaultId, setVaultId] = useState(props.initial?.vaultId ?? "");
   const [vaultName, setVaultName] = useState(props.initial?.name ?? "");
@@ -186,7 +172,7 @@ function ConfigDialog(props: {
             <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Auth method
             </Label>
-            <Select value={authKind} onValueChange={setAuthKind}>
+            <Select value={authKind} onValueChange={(v) => setAuthKind(v as "desktop-app" | "service-account")}>
               <SelectTrigger className="h-9 text-[13px]">
                 <SelectValue />
               </SelectTrigger>

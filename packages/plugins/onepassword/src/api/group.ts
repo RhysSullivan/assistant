@@ -17,8 +17,9 @@ const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 
 const ConfigurePayload = OnePasswordConfig;
 
-const ListVaultsPayload = Schema.Struct({
-  auth: OnePasswordAuth,
+const ListVaultsParams = Schema.Struct({
+  authKind: Schema.Literal("desktop-app", "service-account"),
+  account: Schema.String,
 });
 
 // ---------------------------------------------------------------------------
@@ -64,8 +65,8 @@ export class OnePasswordGroup extends HttpApiGroup.make("onepassword")
       .addError(OpError),
   )
   .add(
-    HttpApiEndpoint.post("listVaults")`/scopes/${scopeIdParam}/onepassword/vaults`
-      .setPayload(ListVaultsPayload)
+    HttpApiEndpoint.get("listVaults")`/scopes/${scopeIdParam}/onepassword/vaults`
+      .setUrlParams(ListVaultsParams)
       .addSuccess(ListVaultsResponse)
       .addError(OpError),
   )
