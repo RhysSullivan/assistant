@@ -19,6 +19,7 @@
     "@effect/cli": "catalog:",
     "@effect/platform": "catalog:",
     "@effect/platform-bun": "catalog:",
+    "@executor/execution": "workspace:*",
     "@executor/server": "workspace:*",
     "effect": "catalog:"
   },

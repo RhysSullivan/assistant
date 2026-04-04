@@ -1,9 +1,19 @@
-import { Command, Options } from "@effect/cli";
+import { Command, Options, Args } from "@effect/cli";
 import { BunRuntime } from "@effect/platform-bun";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
 
-import { createServerHandlers, runMcpStdioServer, getExecutor } from "@executor/server";
+import {
+  createServerHandlers,
+  runMcpStdioServer,
+  getExecutor,
+} from "@executor/server";
+import {
+  createExecutionEngine,
+  formatExecuteResult,
+  formatPausedExecution,
+} from "@executor/execution";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -14,9 +24,15 @@ const { version: CLI_VERSION } = await import("../package.json");
 const DEFAULT_PORT = 8788;
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
-const embeddedWebUI: Record<string, string> | null = await import("embedded-web-ui.gen.ts")
-  .then((m) => m.default as Record<string, string>)
-  .catch(() => null);
+const embeddedWebUI: Record<string, string> | null =
+  await import("embedded-web-ui.gen.ts")
+    .then((m) => m.default as Record<string, string>)
+    .catch(() => null);
+
+// Boot executor + execution engine eagerly so `call` description is dynamic
+const executor = await getExecutor();
+const engine = createExecutionEngine({ executor });
+const callDescription = `\n<call description start>\n${await engine.getDescription()}\n<call description end>`;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,14 +141,85 @@ const runForegroundSession = (input: { kind: "web" | "mcp"; port: number }) =>
 // ---------------------------------------------------------------------------
 
 const runStdioMcpSession = () =>
+  Effect.promise(() => runMcpStdioServer({ executor }));
+
+// ---------------------------------------------------------------------------
+// Code resolution — positional arg > --file > stdin
+// ---------------------------------------------------------------------------
+
+const readCode = (input: {
+  code: Option.Option<string>;
+  file: Option.Option<string>;
+  stdin: boolean;
+}): Effect.Effect<string, Error> =>
   Effect.gen(function* () {
-    const executor = yield* Effect.promise(() => getExecutor());
-    yield* Effect.promise(() => runMcpStdioServer({ executor }));
+    const code = Option.getOrUndefined(input.code);
+    if (code && code.trim().length > 0) return code;
+
+    const file = Option.getOrUndefined(input.file);
+    if (file && file.trim().length > 0) {
+      const contents = yield* Effect.tryPromise({
+        try: () => Bun.file(file).text(),
+        catch: (e) => new Error(`Failed to read file: ${e}`),
+      });
+      if (contents.trim().length > 0) return contents;
+    }
+
+    if (input.stdin || !process.stdin.isTTY) {
+      const chunks: string[] = [];
+      process.stdin.setEncoding("utf8");
+      const contents = yield* Effect.tryPromise({
+        try: async () => {
+          for await (const chunk of process.stdin) chunks.push(chunk as string);
+          return chunks.join("");
+        },
+        catch: (e) => new Error(`Failed to read stdin: ${e}`),
+      });
+      if (contents.trim().length > 0) return contents;
+    }
+
+    return yield* Effect.fail(
+      new Error(
+        "No code provided. Pass code as an argument, --file, or pipe to stdin.",
+      ),
+    );
   });
 
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
+
+const callCommand = Command.make(
+  "call",
+  {
+    code: Args.text({ name: "code" }).pipe(Args.optional),
+    file: Options.text("file").pipe(Options.optional),
+    stdin: Options.boolean("stdin").pipe(Options.withDefault(false)),
+  },
+  ({ code, file, stdin }) =>
+    Effect.gen(function* () {
+      const resolvedCode = yield* readCode({ code, file, stdin }).pipe(
+        Effect.mapError((e) => e),
+      );
+
+      const outcome = yield* Effect.promise(() =>
+        engine.executeWithPause(resolvedCode),
+      );
+
+      if (outcome.status === "completed") {
+        const formatted = formatExecuteResult(outcome.result);
+        if (formatted.isError) {
+          console.error(formatted.text);
+          process.exitCode = 1;
+        } else {
+          console.log(formatted.text);
+        }
+      } else {
+        const formatted = formatPausedExecution(outcome.execution);
+        console.log(formatted.text);
+      }
+    }),
+).pipe(Command.withDescription(callDescription));
 
 const webCommand = Command.make(
   "web",
@@ -162,7 +249,7 @@ const mcpCommand = Command.make(
 // ---------------------------------------------------------------------------
 
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([webCommand, mcpCommand] as const),
+  Command.withSubcommands([callCommand, webCommand, mcpCommand] as const),
   Command.withDescription("Executor local CLI"),
 );
 
