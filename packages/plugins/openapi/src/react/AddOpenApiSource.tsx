@@ -17,7 +17,6 @@ import { Label } from "@executor/ui/components/label";
 import { Textarea } from "@executor/ui/components/textarea";
 import { Badge } from "@executor/ui/components/badge";
 import { RadioGroup, RadioGroupItem } from "@executor/ui/components/radio-group";
-import { Separator } from "@executor/ui/components/separator";
 import { Spinner } from "@executor/ui/components/spinner";
 import { previewOpenApiSpec, addOpenApiSpec } from "./atoms";
 import type { SpecPreview, HeaderPreset } from "../sdk/preview";
@@ -195,75 +194,6 @@ function HeaderValuePreview(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Header secret row — pick existing or create inline
-// ---------------------------------------------------------------------------
-
-function HeaderSecretRow(props: {
-  headerName: string;
-  prefix?: string;
-  selectedSecretId: string | null;
-  onSelect: (secretId: string) => void;
-  existingSecrets: readonly SecretPickerSecret[];
-}) {
-  const [creating, setCreating] = useState(false);
-  const { headerName, prefix, selectedSecretId, onSelect, existingSecrets } = props;
-  const suggestedId = headerName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-
-  if (creating) {
-    return (
-      <InlineCreateSecret
-        headerName={headerName}
-        suggestedId={suggestedId}
-        onCreated={(id) => {
-          onSelect(id);
-          setCreating(false);
-        }}
-        onCancel={() => setCreating(false)}
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-foreground">{headerName}</span>
-          {prefix && (
-            <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0">
-              {prefix.trim()}…
-            </Badge>
-          )}
-        </div>
-        {selectedSecretId && (
-          <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/20 bg-emerald-500/10">
-            ✓ {selectedSecretId}
-          </Badge>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5">
-        <div className="flex-1 min-w-0">
-          <SecretPicker
-            value={selectedSecretId}
-            onSelect={onSelect}
-            secrets={existingSecrets}
-          />
-        </div>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={() => setCreating(true)}>
-          + New
-        </Button>
-      </div>
-      {selectedSecretId && (
-        <HeaderValuePreview
-          headerName={headerName}
-          secretId={selectedSecretId}
-          prefix={prefix}
-        />
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Header presets
 // ---------------------------------------------------------------------------
 
@@ -408,6 +338,29 @@ function prefixForHeader(preset: HeaderPreset, headerName: string): string | und
   return undefined;
 }
 
+function matchPresetKey(name: string, prefix?: string): string {
+  if (name === "Authorization" && prefix === "Bearer ") return "bearer";
+  if (name === "Authorization" && prefix === "Basic ") return "basic";
+  if (name === "X-API-Key") return "api-key";
+  if (name === "X-Auth-Token") return "auth-token";
+  if (name === "X-Access-Token") return "access-token";
+  if (name === "Cookie") return "cookie";
+  return "custom";
+}
+
+function presetEntriesFromHeaderPreset(preset: HeaderPreset) {
+  return preset.secretHeaders.map((headerName) => {
+    const prefix = prefixForHeader(preset, headerName);
+    return {
+      name: headerName,
+      secretId: null as string | null,
+      prefix,
+      presetKey: matchPresetKey(headerName, prefix),
+      fromPreset: true,
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Main component — single progressive form
 // ---------------------------------------------------------------------------
@@ -428,8 +381,7 @@ export default function AddOpenApiSource(props: {
 
   // Auth
   const [presetIndex, setPresetIndex] = useState(0);
-  const [headers, setHeaders] = useState<Record<string, HeaderValue>>({});
-  const [customHeaders, setCustomHeaders] = useState<Array<{ name: string; secretId: string | null; prefix?: string; presetKey?: string }>>([]);
+  const [customHeaders, setCustomHeaders] = useState<Array<{ name: string; secretId: string | null; prefix?: string; presetKey?: string; fromPreset?: boolean }>>([]);
 
   // Submit
   const [adding, setAdding] = useState(false);
@@ -464,17 +416,8 @@ export default function AddOpenApiSource(props: {
   const presets = preview?.headerPresets ?? [];
   const hasAuth = presets.length > 0;
   const servers = (preview?.servers ?? []) as Array<{ url?: string }>;
-  const selectedPreset = presetIndex >= 0 ? presets[presetIndex] ?? null : null;
 
-  const allSecretsFilled =
-    !selectedPreset ||
-    selectedPreset.secretHeaders.length === 0 ||
-    selectedPreset.secretHeaders.every(
-      (h) => headers[h] && typeof headers[h] !== "string",
-    );
-
-  // Merge preset headers + custom headers into final map
-  const allHeaders: Record<string, HeaderValue> = { ...headers };
+  const allHeaders: Record<string, HeaderValue> = {};
   for (const ch of customHeaders) {
     if (ch.name.trim() && ch.secretId) {
       allHeaders[ch.name.trim()] = { secretId: ch.secretId, ...(ch.prefix ? { prefix: ch.prefix } : {}) };
@@ -489,7 +432,6 @@ export default function AddOpenApiSource(props: {
   const canAdd =
     preview !== null &&
     baseUrl.trim().length > 0 &&
-    (!hasAuth || presetIndex === -1 || allSecretsFilled) &&
     (customHeaders.length === 0 || customHeadersValid);
 
   // ---- Handlers ----
@@ -508,9 +450,13 @@ export default function AddOpenApiSource(props: {
       const firstUrl = (result.servers as Array<{ url?: string }>)?.[0]?.url;
       if (firstUrl) setBaseUrl(firstUrl);
 
-      setPresetIndex(result.headerPresets.length > 0 ? 0 : -1);
-      setHeaders({});
-      setCustomHeaders([]);
+      const newPresetIndex = result.headerPresets.length > 0 ? 0 : -1;
+      setPresetIndex(newPresetIndex);
+      setCustomHeaders(
+        newPresetIndex >= 0
+          ? presetEntriesFromHeaderPreset(result.headerPresets[newPresetIndex])
+          : [],
+      );
     } catch (e) {
       setAnalyzeError(e instanceof Error ? e.message : "Failed to parse spec");
     } finally {
@@ -520,16 +466,11 @@ export default function AddOpenApiSource(props: {
 
   const selectPreset = (index: number) => {
     setPresetIndex(index);
-    setHeaders({});
-  };
-
-  const setSecretForHeader = (headerName: string, secretId: string) => {
-    if (!selectedPreset) return;
-    const prefix = prefixForHeader(selectedPreset, headerName);
-    setHeaders({
-      ...headers,
-      [headerName]: { secretId, ...(prefix ? { prefix } : {}) },
-    });
+    const preset = index >= 0 ? presets[index] : null;
+    setCustomHeaders((ch) => [
+      ...(preset ? presetEntriesFromHeaderPreset(preset) : []),
+      ...ch.filter((h) => !h.fromPreset),
+    ]);
   };
 
   const addCustomHeader = () => {
@@ -579,7 +520,6 @@ export default function AddOpenApiSource(props: {
             if (preview) {
               setPreview(null);
               setBaseUrl("");
-              setHeaders({});
               setCustomHeaders([]);
             }
           }}
@@ -695,57 +635,31 @@ export default function AddOpenApiSource(props: {
           <section className="space-y-2.5">
             <Label>Authentication</Label>
 
-            {/* Spec-detected auth strategies */}
-            {hasAuth && (
+            {/* Strategy picker — only when spec declares multiple strategies */}
+            {hasAuth && presets.length > 1 && (
               <RadioGroup
                 value={String(presetIndex)}
                 onValueChange={(v) => selectPreset(Number(v))}
                 className="gap-1.5"
               >
-                {presets.map((preset, i) => {
-                  const isSelected = presetIndex === i;
-                  return (
-                    <div key={i}>
-                      <label
-                        className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                          isSelected
-                            ? "border-primary/50 bg-primary/[0.03]"
-                            : "border-border hover:bg-accent/50"
-                        }`}
-                      >
-                        <RadioGroupItem value={String(i)} />
-                        <span className="text-xs font-medium text-foreground">{preset.label}</span>
-                        {preset.secretHeaders.length > 0 && (
-                          <span className="ml-auto text-[10px] text-muted-foreground">
-                            {preset.secretHeaders.length} secret{preset.secretHeaders.length > 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </label>
-
-                      {isSelected && preset.secretHeaders.length > 0 && (
-                        <div className="mt-1.5 ml-6 space-y-2.5 pb-1">
-                          {preset.secretHeaders.map((headerName) => {
-                            const currentValue = headers[headerName];
-                            const currentSecretId =
-                              currentValue && typeof currentValue === "object" && "secretId" in currentValue
-                                ? currentValue.secretId
-                                : null;
-                            return (
-                              <HeaderSecretRow
-                                key={headerName}
-                                headerName={headerName}
-                                prefix={prefixForHeader(preset, headerName)}
-                                selectedSecretId={currentSecretId}
-                                onSelect={(sid) => setSecretForHeader(headerName, sid)}
-                                existingSecrets={secretList}
-                              />
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {presets.map((preset, i) => (
+                  <label
+                    key={i}
+                    className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                      presetIndex === i
+                        ? "border-primary/50 bg-primary/[0.03]"
+                        : "border-border hover:bg-accent/50"
+                    }`}
+                  >
+                    <RadioGroupItem value={String(i)} />
+                    <span className="text-xs font-medium text-foreground">{preset.label}</span>
+                    {preset.secretHeaders.length > 0 && (
+                      <span className="ml-auto text-[10px] text-muted-foreground">
+                        {preset.secretHeaders.length} header{preset.secretHeaders.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </label>
+                ))}
 
                 <label
                   className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
@@ -761,16 +675,9 @@ export default function AddOpenApiSource(props: {
               </RadioGroup>
             )}
 
-            {/* Custom headers — always available */}
+            {/* All headers — preset-derived and user-added */}
             {customHeaders.length > 0 && (
               <div className="space-y-2">
-                {hasAuth && (
-                  <div className="flex items-center gap-3 pt-1">
-                    <Separator className="flex-1" />
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Custom headers</span>
-                    <Separator className="flex-1" />
-                  </div>
-                )}
                 {customHeaders.map((ch, i) => (
                   <CustomHeaderRow
                     key={i}
