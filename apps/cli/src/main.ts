@@ -41,7 +41,7 @@ const DEFAULT_BASE_URL = `http://localhost:${DEFAULT_PORT}`;
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
 const embeddedWebUI: Record<string, string> | null =
-  await import("embedded-web-ui.gen.ts")
+  await import("./embedded-web-ui.gen")
     .then((m) => m.default as Record<string, string>)
     .catch(() => null);
 

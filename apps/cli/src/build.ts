@@ -124,14 +124,17 @@ const createEmbeddedWebUISource = async () => {
 const buildBinaries = async (targets: Target[]) => {
   const meta = await readMetadata();
   const binaries: Record<string, string> = {};
+  const embeddedWebUIPath = join(cliRoot, "src/embedded-web-ui.gen.ts");
 
   await rm(distDir, { recursive: true, force: true });
 
   console.log("Generating embedded web UI bundle...");
   const embeddedWebUI = await createEmbeddedWebUISource();
+  await writeFile(embeddedWebUIPath, `${embeddedWebUI}\n`);
   const quickJsWasmPath = resolveQuickJsWasmPath();
 
-  for (const target of targets) {
+  try {
+    for (const target of targets) {
     const name = targetPackageName(target);
     const outDir = join(distDir, name);
     const binDir = join(outDir, "bin");
@@ -140,11 +143,8 @@ const buildBinaries = async (targets: Target[]) => {
     console.log(`Building ${name}...`);
 
     await Bun.build({
-      entrypoints: [join(cliRoot, "src/main.ts"), "embedded-web-ui.gen.ts"],
+      entrypoints: [join(cliRoot, "src/main.ts"), embeddedWebUIPath],
       minify: true,
-      files: {
-        "embedded-web-ui.gen.ts": embeddedWebUI,
-      },
       compile: {
         target: bunTarget(target) as any,
         outfile: join(binDir, binaryName(target)),
@@ -181,7 +181,10 @@ const buildBinaries = async (targets: Target[]) => {
     binaries[name] = meta.version;
   }
 
-  return binaries;
+    return binaries;
+  } finally {
+    await rm(embeddedWebUIPath, { force: true });
+  }
 };
 
 // ---------------------------------------------------------------------------
