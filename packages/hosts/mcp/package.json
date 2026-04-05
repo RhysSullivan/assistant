@@ -1,26 +1,23 @@
 {
-  "name": "@executor/executor-mcp",
+  "name": "@executor/host-mcp",
   "private": true,
   "type": "module",
+  "version": "1.4.0-beta.0",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/platform-sdk": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@executor/sdk": "workspace:*",
+    "@executor/execution": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "effect": "catalog:",
-    "zod": "catalog:"
+    "zod": "^4.3.0"
   },
   "devDependencies": {
-    "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "bun-types": "catalog:",
-    "vitest": "catalog:"
-  },
-  "version": "0.0.0"
+    "bun-types": "catalog:"
+  }
 }

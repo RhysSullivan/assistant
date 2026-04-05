@@ -1,99 +1,196 @@
 import { readFileSync } from "node:fs";
-import path from "node:path";
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import devServer from "@hono/vite-dev-server";
 
-type ExecutorPackageMetadata = {
-  version: string;
-  homepage?: string;
-  repository?: string | { url?: string };
+type HotBackend = {
+  readonly api: {
+    readonly handler: (request: Request) => Promise<Response>;
+    readonly dispose: () => Promise<void>;
+  };
+  readonly mcp: {
+    readonly handleRequest: (request: Request) => Promise<Response>;
+    readonly close: () => Promise<void>;
+  };
+  readonly dispose: () => Promise<void>;
 };
 
-const executorPackage = JSON.parse(
-  readFileSync(new URL("../executor/package.json", import.meta.url), "utf8"),
-) as ExecutorPackageMetadata;
+const DEV_BACKEND_MODULE_ID = `/@fs/${resolve(
+  process.cwd(),
+  "../server/src/dev-backend.ts",
+).replace(/\\/g, "/")}`;
+
+// Build a Web Request from a Node IncomingMessage
+const toWebRequest = async (
+  req: import("http").IncomingMessage,
+): Promise<Request> => {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const v of value) headers.append(key, v);
+    } else {
+      headers.set(key, value);
+    }
+  }
+
+  const host = req.headers.host ?? "localhost";
+  const url = `http://${host}${req.url}`;
+
+  return new Request(url, {
+    method: req.method,
+    headers,
+    body:
+      req.method !== "GET" && req.method !== "HEAD"
+        ? (await new Promise<Buffer>((resolve) => {
+            const chunks: Buffer[] = [];
+            req.on("data", (c: Buffer) => chunks.push(c));
+            req.on("end", () => resolve(Buffer.concat(chunks)));
+          }) as unknown as BodyInit)
+        : undefined,
+    duplex: "half" as const,
+  });
+};
+
+// Pipe a Web Response back to a Node ServerResponse, streaming if needed
+const sendWebResponse = async (
+  webRes: Response,
+  nodeRes: import("http").ServerResponse,
+) => {
+  nodeRes.statusCode = webRes.status;
+  webRes.headers.forEach((value, key) => nodeRes.setHeader(key, value));
+
+  if (!webRes.body) {
+    nodeRes.end();
+    return;
+  }
+
+  const reader = webRes.body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      nodeRes.write(value);
+    }
+  } finally {
+    nodeRes.end();
+  }
+};
+
+const rootPackage = JSON.parse(
+  readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+) as { version: string; homepage?: string; repository?: string | { url?: string } };
+
+const cliPackage = JSON.parse(
+  readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"),
+) as { version?: string };
 
 const repositoryUrl =
-  typeof executorPackage.repository === "string"
-    ? executorPackage.repository
-    : executorPackage.repository?.url;
+  typeof rootPackage.repository === "string"
+    ? rootPackage.repository
+    : rootPackage.repository?.url;
 
-const githubUrl = (executorPackage.homepage ?? repositoryUrl ?? "https://github.com/RhysSullivan/executor")
+const EXECUTOR_VERSION = cliPackage.version ?? rootPackage.version;
+const EXECUTOR_GITHUB_URL = (rootPackage.homepage ?? repositoryUrl ?? "https://github.com/RhysSullivan/executor")
   .replace(/^git\+/, "")
   .replace(/\.git$/, "");
 
-const webPackage = JSON.parse(
-  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
-) as {
-  dependencies?: Record<string, string>;
-};
-
-const workspaceExecutorPackages = Object.keys(webPackage.dependencies ?? {}).filter(
-  (name) => name.startsWith("@executor/"),
-);
-
-const pluginsWorkspaceRoot = path.resolve(import.meta.dirname, "../../plugins") + path.sep;
-
-const reloadOnPluginChange = () => ({
-  name: "executor-reload-on-plugin-change",
-  handleHotUpdate({ file, server }: { file: string; server: { hot: { send: (payload: { type: "full-reload" }) => void } } }) {
-    if (!file.startsWith(pluginsWorkspaceRoot)) {
-      return;
-    }
-
-    server.hot.send({ type: "full-reload" });
-    return [];
-  },
-});
-
 export default defineConfig({
-  root: "src",
-  resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "./src"),
-    },
+  define: {
+    "import.meta.env.VITE_APP_VERSION": JSON.stringify(EXECUTOR_VERSION),
+    "import.meta.env.VITE_GITHUB_URL": JSON.stringify(EXECUTOR_GITHUB_URL),
   },
   plugins: [
-    reloadOnPluginChange(),
-    tailwindcss(),
     react(),
-    devServer({
-      entry: "src/dev.ts",
-      exclude: [
-        // Only let /v1 and /mcp requests reach the API handler
-        /^\/(?!(v1|mcp)(\/|$))/,
-        /^\/(src|node_modules|@vite|@id|@react-refresh)/,
-        /\.(css|ts|tsx|js|jsx|svg|png|jpg|gif|ico|woff2?|json|map)(\?.*)?$/,
-      ],
-      injectClientScript: false,
-    }),
-  ],
-  define: {
-    "import.meta.env.VITE_APP_VERSION": JSON.stringify(executorPackage.version),
-    "import.meta.env.VITE_GITHUB_URL": JSON.stringify(githubUrl),
-  },
-  build: {
-    outDir: "../dist",
-    emptyOutDir: true,
-  },
-  optimizeDeps: {
-    exclude: workspaceExecutorPackages,
-  },
-  server: {
-    port: 8788,
-    allowedHosts: [
-      "rhyss-laptop.tail5665af.ts.net",
-      ".tail5665af.ts.net",
-    ],
-    watch: {
-      ignored: [
-        "!**/node_modules/@executor/**",
-      ],
-      // WSL2 inotify doesn't reliably detect changes through symlinked workspace packages
-      usePolling: true,
-      interval: 500,
+    tailwindcss(),
+    {
+      name: "executor-api",
+      configureServer(server) {
+        let backendPromise: Promise<HotBackend> | null = null;
+        let reloadPromise: Promise<void> | null = null;
+
+        const loadBackend = () =>
+          server
+            .ssrLoadModule(DEV_BACKEND_MODULE_ID)
+            .then((mod) => mod.createHotBackend() as Promise<HotBackend>);
+
+        const getBackend = () => {
+          if (!backendPromise) {
+            backendPromise = loadBackend();
+          }
+          return backendPromise;
+        };
+
+        const shouldReloadBackend = (file: string) =>
+          /\.(ts|tsx)$/.test(file) &&
+          !file.includes("/apps/web/") &&
+          (
+            file.includes("/apps/server/") ||
+            file.includes("/packages/core/") ||
+            file.includes("/packages/plugins/") ||
+            file.includes("/packages/hosts/")
+          );
+
+        server.httpServer?.once("close", () => {
+          const pending = backendPromise;
+          backendPromise = null;
+          void pending?.then((backend) => backend.dispose()).catch(() => undefined);
+        });
+
+        server.watcher.on("change", (file) => {
+          if (!shouldReloadBackend(file) || reloadPromise) {
+            return;
+          }
+
+          reloadPromise = (async () => {
+            server.config.logger.info(`[executor-api] hot reloading backend: ${file}`);
+
+            const previous = await getBackend().catch(() => null);
+
+            server.moduleGraph.invalidateAll();
+            backendPromise = loadBackend();
+
+            await backendPromise;
+            await previous?.dispose().catch(() => undefined);
+
+            server.ws.send({
+              type: "custom",
+              event: "executor:backend-updated",
+              data: { file },
+            });
+          })()
+            .catch((error) => {
+              server.config.logger.error(
+                `[executor-api] backend reload failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            })
+            .finally(() => {
+              reloadPromise = null;
+            });
+        });
+
+        server.middlewares.use(async (req, res, next) => {
+          const url = req.url ?? "/";
+
+          const isApi =
+            url.startsWith("/v1/") ||
+            url.startsWith("/docs") ||
+            url === "/openapi.json";
+          const isMcp = url.startsWith("/mcp");
+
+          if (!isApi && !isMcp) return next();
+
+          const backend = await getBackend();
+          const request = await toWebRequest(req);
+
+          const response = isMcp
+            ? await backend.mcp.handleRequest(request)
+            : await backend.api.handler(request);
+
+          await sendWebResponse(response, res);
+        });
+      },
     },
-  },
+  ],
 });

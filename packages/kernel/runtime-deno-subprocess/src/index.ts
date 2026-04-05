@@ -4,9 +4,16 @@ import { fileURLToPath } from "node:url";
 import type {
   CodeExecutor,
   ExecuteResult,
-  ToolInvoker,
+  SandboxToolInvoker,
 } from "@executor/codemode-core";
+import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
+import * as Runtime from "effect/Runtime";
+import * as Schema from "effect/Schema";
 
 import {
   type DenoPermissions,
@@ -16,120 +23,99 @@ import {
 export type { DenoPermissions };
 
 export type DenoSubprocessExecutorOptions = {
-  /** Path to the deno binary. Falls back to DENO_BIN env, ~/.deno/bin/deno, then "deno". */
   denoExecutable?: string;
-  /** Maximum execution time in milliseconds. Defaults to 5 minutes. */
   timeoutMs?: number;
-  /** Deno permission flags. Defaults to denying everything (full sandbox). */
   permissions?: DenoPermissions;
 };
 
 const IPC_PREFIX = "@@executor-ipc@@";
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
-// --------------------------------------------------------------------------
-// IPC message types (host <-> worker)
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
 
-type HostStartMessage = {
-  type: "start";
-  code: string;
-};
+class DenoSpawnError extends Data.TaggedError("DenoSpawnError")<{
+  readonly executable: string;
+  readonly reason: unknown;
+}> {
+  override get message() {
+    const code =
+      typeof this.reason === "object" &&
+      this.reason !== null &&
+      "code" in this.reason
+        ? String((this.reason as { code?: unknown }).code)
+        : null;
 
-type HostToolResultMessage = {
-  type: "tool_result";
-  requestId: string;
-  ok: boolean;
-  value?: unknown;
-  error?: string;
-};
+    return code === "ENOENT"
+      ? `Failed to spawn Deno subprocess: Deno executable "${this.executable}" was not found. Install Deno or set DENO_BIN.`
+      : `Failed to spawn Deno subprocess: ${this.reason instanceof Error ? this.reason.message : String(this.reason)}`;
+  }
+}
 
-type HostToWorkerMessage = HostStartMessage | HostToolResultMessage;
+// ---------------------------------------------------------------------------
+// IPC schemas
+// ---------------------------------------------------------------------------
 
-type WorkerToolCallMessage = {
-  type: "tool_call";
-  requestId: string;
-  toolPath: string;
-  args: unknown;
-};
+const WorkerToolCallMessage = Schema.Struct({
+  type: Schema.Literal("tool_call"),
+  requestId: Schema.String,
+  toolPath: Schema.String,
+  args: Schema.Unknown,
+});
 
-type WorkerCompletedMessage = {
-  type: "completed";
-  result: unknown;
-  logs?: string[];
-};
+const WorkerCompletedMessage = Schema.Struct({
+  type: Schema.Literal("completed"),
+  result: Schema.Unknown,
+  logs: Schema.optional(Schema.Array(Schema.String)),
+});
 
-type WorkerFailedMessage = {
-  type: "failed";
-  error: string;
-  logs?: string[];
-};
+const WorkerFailedMessage = Schema.Struct({
+  type: Schema.Literal("failed"),
+  error: Schema.String,
+  logs: Schema.optional(Schema.Array(Schema.String)),
+});
 
-type WorkerToHostMessage =
-  | WorkerToolCallMessage
-  | WorkerCompletedMessage
-  | WorkerFailedMessage;
+const WorkerMessage = Schema.Union(
+  WorkerToolCallMessage,
+  WorkerCompletedMessage,
+  WorkerFailedMessage,
+);
 
-// --------------------------------------------------------------------------
+type WorkerToHostMessage = typeof WorkerMessage.Type;
+
+// ---------------------------------------------------------------------------
 // Deno binary resolution
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 
 const defaultDenoExecutable = (): string => {
   const configured = process.env.DENO_BIN?.trim();
-  if (configured) {
-    return configured;
-  }
+  if (configured) return configured;
 
   const home = process.env.HOME?.trim();
   if (home) {
     const installedPath = `${home}/.deno/bin/deno`;
-    const installedResult = spawnSync(installedPath, ["--version"], {
+    const result = spawnSync(installedPath, ["--version"], {
       stdio: "ignore",
       timeout: 5000,
     });
-    if (installedResult.error === undefined && installedResult.status === 0) {
-      return installedPath;
-    }
+    if (result.error === undefined && result.status === 0) return installedPath;
   }
 
   return "deno";
 };
 
-const formatDenoSpawnError = (
-  cause: unknown,
-  executable: string,
-): string => {
-  const code = typeof cause === "object" && cause !== null && "code" in cause
-    ? String((cause as { code?: unknown }).code)
-    : null;
-
-  if (code === "ENOENT") {
-    return `Failed to spawn Deno subprocess: Deno executable "${executable}" was not found. Install Deno or set DENO_BIN.`;
-  }
-
-  return `Failed to spawn Deno subprocess: ${cause instanceof Error ? cause.message : String(cause)}`;
-};
-
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Worker script resolution
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 
 const resolveWorkerScriptPath = (): string => {
   const moduleUrl = String(import.meta.url);
-
-  if (moduleUrl.startsWith("/")) {
-    return moduleUrl;
-  }
+  if (moduleUrl.startsWith("/")) return moduleUrl;
 
   try {
-    const workerUrl = new URL(
-      "./deno-subprocess-worker.mjs",
-      moduleUrl,
-    );
-    if (workerUrl.protocol === "file:") {
-      return fileURLToPath(workerUrl);
-    }
-
+    const workerUrl = new URL("./deno-subprocess-worker.mjs", moduleUrl);
+    if (workerUrl.protocol === "file:") return fileURLToPath(workerUrl);
     return workerUrl.pathname.length > 0
       ? workerUrl.pathname
       : workerUrl.toString();
@@ -139,18 +125,32 @@ const resolveWorkerScriptPath = (): string => {
 };
 
 let cachedWorkerScriptPath: string | undefined;
+const workerScriptPath = (): string =>
+  (cachedWorkerScriptPath ??= resolveWorkerScriptPath());
 
-const workerScriptPath = (): string => {
-  if (!cachedWorkerScriptPath) {
-    cachedWorkerScriptPath = resolveWorkerScriptPath();
-  }
-
-  return cachedWorkerScriptPath;
-};
-
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Helpers
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+type HostToWorkerMessage =
+  | { type: "start"; code: string }
+  | {
+      type: "tool_result";
+      requestId: string;
+      ok: boolean;
+      value?: unknown;
+      error?: string;
+    };
+
+const causeMessage = (cause: Cause.Cause<unknown>): string => {
+  const squashed = Cause.squash(cause);
+  if (squashed instanceof Error) {
+    return squashed.cause instanceof Error
+      ? squashed.cause.message
+      : squashed.message;
+  }
+  return String(squashed);
+};
 
 const writeMessage = (
   stdin: NodeJS.WritableStream,
@@ -159,194 +159,178 @@ const writeMessage = (
   stdin.write(`${JSON.stringify(message)}\n`);
 };
 
-const isWorkerMessage = (value: unknown): value is WorkerToHostMessage =>
-  typeof value === "object"
-  && value !== null
-  && "type" in value
-  && typeof (value as Record<string, unknown>).type === "string";
-
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Core execution
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 
 const executeInDeno = (
   code: string,
-  toolInvoker: ToolInvoker,
+  toolInvoker: SandboxToolInvoker,
   options: DenoSubprocessExecutorOptions,
-): Effect.Effect<ExecuteResult, never> =>
-  Effect.gen(function* () {
-    const denoExecutable =
-      options.denoExecutable ?? defaultDenoExecutable();
-    const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+): Effect.Effect<ExecuteResult, never> => {
+  const denoExecutable = options.denoExecutable ?? defaultDenoExecutable();
+  const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
-    const result = yield* Effect.async<ExecuteResult>((resume) => {
-      let settled = false;
-      let stderrBuffer = "";
-      let worker: ReturnType<typeof spawnDenoWorkerProcess> | null =
-        null;
+  return Effect.gen(function* () {
+    const rt = yield* Effect.runtime<never>();
+    const runSync = Runtime.runSync(rt);
 
-      const finish = (executeResult: ExecuteResult) => {
-        if (settled) {
-          return;
-        }
+    // Queue bridges Node callbacks → Effect fibers
+    const messages = yield* Queue.unbounded<WorkerToHostMessage>();
 
-        settled = true;
-        clearTimeout(timeout);
-        worker?.dispose();
-        resume(Effect.succeed(executeResult));
-      };
+    // Terminal result — resolved once by completed/failed/error/exit
+    const result = yield* Deferred.make<ExecuteResult>();
 
-      const fail = (
-        error: string,
-        logs?: string[],
-      ) => {
-        finish({
-          result: null,
-          error,
-          logs,
-        });
-      };
+    const completeWith = (value: ExecuteResult): Effect.Effect<boolean> =>
+      Deferred.complete(result, Effect.succeed(value));
 
-      const timeout = setTimeout(() => {
-        fail(
-          `Deno subprocess execution timed out after ${timeoutMs}ms`,
-        );
-      }, timeoutMs);
+    // -----------------------------------------------------------------------
+    // Spawn subprocess — callbacks only do simple synchronous pushes
+    // -----------------------------------------------------------------------
 
-      const handleStdoutLine = (rawLine: string) => {
-        const line = rawLine.trim();
-        if (line.length === 0 || !line.startsWith(IPC_PREFIX)) {
-          return;
-        }
-
-        const payload = line.slice(IPC_PREFIX.length);
-        let message: WorkerToHostMessage;
-        try {
-          const parsed: unknown = JSON.parse(payload);
-          if (!isWorkerMessage(parsed)) {
-            fail(`Invalid worker message: ${payload}`);
-            return;
-          }
-          message = parsed;
-        } catch (cause) {
-          fail(
-            `Failed to decode worker message: ${payload}\n${String(cause)}`,
-          );
-          return;
-        }
-
-        if (message.type === "tool_call") {
-          if (!worker) {
-            fail(
-              "Deno subprocess unavailable while handling worker tool_call",
-            );
-            return;
-          }
-
-          const currentWorker = worker;
-
-          Effect.runPromise(
-            Effect.match(
-              Effect.tryPromise({
-                try: () =>
-                  Effect.runPromise(
-                    toolInvoker.invoke({
-                      path: message.toolPath,
-                      args: message.args,
-                    }),
-                  ),
-                catch: (cause) =>
-                  cause instanceof Error
-                    ? cause
-                    : new Error(String(cause)),
-              }),
-              {
-                onSuccess: (value) => {
-                  writeMessage(currentWorker.stdin, {
-                    type: "tool_result",
-                    requestId: message.requestId,
-                    ok: true,
-                    value,
-                  });
-                },
-                onFailure: (error) => {
-                  writeMessage(currentWorker.stdin, {
-                    type: "tool_result",
-                    requestId: message.requestId,
-                    ok: false,
-                    error: error.message,
-                  });
-                },
-              },
-            ),
-          ).catch((cause) => {
-            fail(
-              `Failed handling worker tool_call: ${String(cause)}`,
-            );
-          });
-
-          return;
-        }
-
-        if (message.type === "completed") {
-          finish({
-            result: message.result,
-            logs: message.logs,
-          });
-          return;
-        }
-
-        // message.type === "failed"
-        fail(message.error, message.logs);
-      };
-
-      try {
-        worker = spawnDenoWorkerProcess(
+    const worker = yield* Effect.try({
+      try: () =>
+        spawnDenoWorkerProcess(
           {
             executable: denoExecutable,
             scriptPath: workerScriptPath(),
             permissions: options.permissions,
           },
           {
-            onStdoutLine: handleStdoutLine,
-            onStderr: (chunk) => {
-              stderrBuffer += chunk;
+            onStdoutLine: (rawLine) => {
+              const line = rawLine.trim();
+              if (!line.startsWith(IPC_PREFIX)) return;
+
+              const decoded = Schema.decodeUnknownOption(WorkerMessage)(
+                JSON.parse(line.slice(IPC_PREFIX.length)),
+              );
+              if (decoded._tag === "Some") {
+                runSync(Queue.offer(messages, decoded.value));
+              }
             },
+            onStderr: () => {},
             onError: (cause) => {
-              fail(formatDenoSpawnError(cause, denoExecutable));
+              runSync(
+                completeWith({
+                  result: null,
+                  error: new DenoSpawnError({
+                    executable: denoExecutable,
+                    reason: cause,
+                  }).message,
+                }),
+              );
             },
             onExit: (exitCode, signal) => {
-              if (settled) {
-                return;
-              }
-
-              fail(
-                `Deno subprocess exited before returning terminal message (code=${String(exitCode)} signal=${String(signal)} stderr=${stderrBuffer})`,
+              runSync(
+                completeWith({
+                  result: null,
+                  error: `Deno subprocess exited unexpectedly (code=${String(exitCode)} signal=${String(signal)})`,
+                }),
               );
             },
           },
-        );
-      } catch (cause) {
-        fail(formatDenoSpawnError(cause, denoExecutable));
-        return;
-      }
-
-      writeMessage(worker.stdin, {
-        type: "start",
-        code,
-      });
+        ),
+      catch: (cause) =>
+        new DenoSpawnError({ executable: denoExecutable, reason: cause }),
     });
 
-    return result;
-  });
+    // Send code to the subprocess
+    writeMessage(worker.stdin, { type: "start", code });
 
-// --------------------------------------------------------------------------
+    // Set up timeout — kills process and completes the deferred
+    const timer = setTimeout(() => {
+      worker.dispose();
+      runSync(
+        completeWith({
+          result: null,
+          error: `Deno subprocess execution timed out after ${timeoutMs}ms`,
+        }),
+      );
+    }, timeoutMs);
+
+    // -----------------------------------------------------------------------
+    // Message processing fiber — tool calls happen here, inside Effect
+    // -----------------------------------------------------------------------
+
+    const processFiber = yield* Effect.fork(
+      Effect.gen(function* () {
+        while (true) {
+          const msg = yield* Queue.take(messages);
+
+          switch (msg.type) {
+            case "tool_call": {
+              const toolResult = yield* toolInvoker
+                .invoke({ path: msg.toolPath, args: msg.args })
+                .pipe(
+                  Effect.map(
+                    (value): HostToWorkerMessage => ({
+                      type: "tool_result",
+                      requestId: msg.requestId,
+                      ok: true,
+                      value,
+                    }),
+                  ),
+                  Effect.catchAllCause((cause) =>
+                    Effect.succeed<HostToWorkerMessage>({
+                      type: "tool_result",
+                      requestId: msg.requestId,
+                      ok: false,
+                      error: causeMessage(cause),
+                    }),
+                  ),
+                );
+
+              writeMessage(worker.stdin, toolResult);
+              break;
+            }
+
+            case "completed": {
+              yield* completeWith({
+                result: msg.result,
+                logs: msg.logs as string[] | undefined,
+              });
+              return;
+            }
+
+            case "failed": {
+              yield* completeWith({
+                result: null,
+                error: msg.error,
+                logs: msg.logs as string[] | undefined,
+              });
+              return;
+            }
+          }
+        }
+      }),
+    );
+
+    // -----------------------------------------------------------------------
+    // Await result with timeout, then clean up
+    // -----------------------------------------------------------------------
+
+    const output = yield* Deferred.await(result).pipe(
+      Effect.ensuring(
+        Effect.gen(function* () {
+          clearTimeout(timer);
+          yield* Fiber.interrupt(processFiber);
+          worker.dispose();
+        }),
+      ),
+    );
+
+    return output;
+  }).pipe(
+    Effect.catchTag("DenoSpawnError", (e) =>
+      Effect.succeed<ExecuteResult>({ result: null, error: e.message }),
+    ),
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Public API
-// --------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 
-/**
- * Check whether the configured (or default) Deno binary is available on the system.
- */
 export const isDenoAvailable = (
   executable: string = defaultDenoExecutable(),
 ): boolean => {
@@ -354,20 +338,12 @@ export const isDenoAvailable = (
     stdio: "ignore",
     timeout: 5000,
   });
-
   return result.error === undefined && result.status === 0;
 };
 
-/**
- * Create a `CodeExecutor` that runs code in a sandboxed Deno subprocess.
- *
- * The subprocess is spawned with `--deny-net --deny-read --deny-write --deny-env --deny-run --deny-ffi`
- * by default, providing strong process-level isolation. Tool calls are proxied back to the host
- * via stdin/stdout IPC and resolved through the provided `ToolInvoker`.
- */
 export const makeDenoSubprocessExecutor = (
   options: DenoSubprocessExecutorOptions = {},
 ): CodeExecutor => ({
-  execute: (code: string, toolInvoker: ToolInvoker) =>
+  execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     executeInDeno(code, toolInvoker, options),
 });

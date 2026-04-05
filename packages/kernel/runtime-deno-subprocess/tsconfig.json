@@ -7,7 +7,14 @@
     "skipLibCheck": true,
     "noEmit": true,
     "lib": ["ES2022"],
-    "types": ["bun-types", "node"]
+    "types": ["bun-types", "node"],
+    "noUnusedLocals": true,
+    "noImplicitOverride": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
   },
   "include": [
     "src/**/*.ts"

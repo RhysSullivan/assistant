@@ -1,0 +1,51 @@
+{
+  "name": "@executor/plugin-graphql",
+  "private": true,
+  "type": "module",
+  "version": "1.4.0-beta.0",
+  "exports": {
+    ".": "./src/sdk/index.ts",
+    "./api": "./src/api/index.ts",
+    "./react": "./src/react/index.ts",
+    "./presets": "./src/sdk/presets.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@executor/sdk": "workspace:*",
+    "effect": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0",
+    "@effect-atom/atom-react": "^0.5.0",
+    "@tanstack/react-router": "^1.168.10",
+    "@executor/api": "workspace:*",
+    "@executor/react": "workspace:*",
+    "@executor/ui": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "@effect-atom/atom-react": { "optional": true },
+    "@tanstack/react-router": { "optional": true },
+    "@executor/api": { "optional": true },
+    "@executor/react": { "optional": true },
+    "@executor/ui": { "optional": true }
+  },
+  "devDependencies": {
+    "react": "^19.1.0",
+    "@effect-atom/atom-react": "^0.5.0",
+    "@executor/api": "workspace:*",
+    "@executor/react": "workspace:*",
+    "@executor/ui": "workspace:*",
+    "@types/react": "^19.1.0",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
+  }
+}

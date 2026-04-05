@@ -1,3 +1,0 @@
-# @executor/docs
-
-## null

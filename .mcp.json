@@ -1,19 +1,11 @@
 {
   "mcpServers": {
-    "executor-stdio": {
+    "executor": {
       "command": "bun",
       "args": [
         "run",
-        "executor",
-        "mcp",
-        "--stdio"
-      ]
-    },
-    "executor-stdio-prod": {
-      "command": "executor",
-      "args": [
-        "mcp",
-        "--stdio"
+        "/Users/rhyssullivan/src/v4-executor/apps/cli/src/main.ts",
+        "mcp"
       ]
     }
   }

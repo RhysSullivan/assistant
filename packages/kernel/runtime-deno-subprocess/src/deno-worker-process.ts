@@ -38,7 +38,6 @@ const normalizeError = (cause: unknown): Error =>
 
 const buildPermissionArgs = (permissions?: DenoPermissions): string[] => {
   if (!permissions) {
-    // Default: deny everything dangerous for maximum sandboxing
     return [
       "--deny-net",
       "--deny-read",

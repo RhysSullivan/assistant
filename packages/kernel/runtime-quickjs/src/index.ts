@@ -1,8 +1,9 @@
 import type {
   CodeExecutor,
   ExecuteResult,
-  ToolInvoker,
+  SandboxToolInvoker,
 } from "@executor/codemode-core";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import {
   getQuickJS,
@@ -11,6 +12,7 @@ import {
   type QuickJSDeferredPromise,
   type QuickJSHandle,
   type QuickJSRuntime,
+  type QuickJSWASMModule,
 } from "quickjs-emscripten";
 
 export type QuickJsExecutorOptions = {
@@ -18,6 +20,20 @@ export type QuickJsExecutorOptions = {
   memoryLimitBytes?: number;
   maxStackSizeBytes?: number;
 };
+
+// Allow pre-loading a QuickJS module (e.g. with custom WASM bytes for compiled binaries)
+let preloadedModule: QuickJSWASMModule | null = null;
+
+export const setQuickJSModule = (mod: QuickJSWASMModule) => {
+  preloadedModule = mod;
+};
+
+const resolveQuickJS = (): Promise<QuickJSWASMModule> =>
+  preloadedModule ? Promise.resolve(preloadedModule) : getQuickJS();
+
+class QuickJsExecutionError extends Data.TaggedError("QuickJsExecutionError")<{
+  readonly message: string;
+}> {}
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const EXECUTION_FILENAME = "executor-quickjs-runtime.js";
@@ -178,7 +194,7 @@ const createLogBridge = (
 
 const createToolBridge = (
   context: QuickJSContext,
-  toolInvoker: ToolInvoker,
+  toolInvoker: SandboxToolInvoker,
   pendingDeferreds: Set<QuickJSDeferredPromise>,
 ): QuickJSHandle =>
   context.newFunction("__executor_invokeTool", (pathHandle, argsHandle) => {
@@ -288,13 +304,13 @@ const drainAsync = async (
 const evaluateInQuickJs = async (
   options: QuickJsExecutorOptions,
   code: string,
-  toolInvoker: ToolInvoker,
+  toolInvoker: SandboxToolInvoker,
 ): Promise<ExecuteResult> => {
   const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const deadlineMs = Date.now() + timeoutMs;
   const logs: string[] = [];
   const pendingDeferreds = new Set<QuickJSDeferredPromise>();
-  const QuickJS = await getQuickJS();
+  const QuickJS = await resolveQuickJS();
   const runtime = QuickJS.newRuntime();
 
   try {
@@ -399,16 +415,16 @@ const evaluateInQuickJs = async (
 const runInQuickJs = (
   options: QuickJsExecutorOptions,
   code: string,
-  toolInvoker: ToolInvoker,
-): Effect.Effect<ExecuteResult, Error> =>
+  toolInvoker: SandboxToolInvoker,
+): Effect.Effect<ExecuteResult, QuickJsExecutionError> =>
   Effect.tryPromise({
     try: () => evaluateInQuickJs(options, code, toolInvoker),
-    catch: toError,
+    catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),
   });
 
 export const makeQuickJsExecutor = (
   options: QuickJsExecutorOptions = {},
 ): CodeExecutor => ({
-  execute: (code: string, toolInvoker: ToolInvoker) =>
+  execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     runInQuickJs(options, code, toolInvoker),
 });

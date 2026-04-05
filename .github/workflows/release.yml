@@ -1,5 +1,5 @@
 name: Release
-run-name: "prepare release"
+run-name: prepare release
 
 on:
   push:
@@ -28,6 +28,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.22
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -57,9 +59,9 @@ jobs:
             before="$(git rev-list --max-count=1 HEAD^ 2>/dev/null || true)"
           fi
 
-          version="$(node -e "console.log(JSON.parse(require('fs').readFileSync('apps/executor/package.json', 'utf8')).version)")"
-          if [ -n "$before" ] && git cat-file -e "$before:apps/executor/package.json" 2>/dev/null; then
-            previous_version="$(git show "$before:apps/executor/package.json" | node -e "let data = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', (chunk) => { data += chunk; }); process.stdin.on('end', () => { console.log(JSON.parse(data).version ?? ''); });")"
+          version="$(node -e "console.log(JSON.parse(require('fs').readFileSync('apps/cli/package.json', 'utf8')).version)")"
+          if [ -n "$before" ] && git cat-file -e "$before:apps/cli/package.json" 2>/dev/null; then
+            previous_version="$(git show "$before:apps/cli/package.json" | node -e "let data = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', (chunk) => { data += chunk; }); process.stdin.on('end', () => { console.log(JSON.parse(data).version ?? ''); });")"
           else
             previous_version=""
           fi

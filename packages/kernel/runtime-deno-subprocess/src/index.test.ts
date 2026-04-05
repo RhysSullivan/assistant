@@ -1,47 +1,25 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 
-import {
-  allowAllToolInteractions,
-  makeToolInvokerFromTools,
-  toExecutorTool,
-} from "@executor/codemode-core";
+import type { SandboxToolInvoker } from "@executor/codemode-core";
 import { isDenoAvailable, makeDenoSubprocessExecutor } from "./index";
 
-const numberPairInputSchema = Schema.standardSchemaV1(
-  Schema.Struct({
-    a: Schema.Number,
-    b: Schema.Number,
-  }),
-);
+class UnknownToolError extends Data.TaggedError("UnknownToolError")<{
+  readonly path: string;
+}> {}
 
-const messageInputSchema = Schema.standardSchemaV1(
-  Schema.Struct({
-    message: Schema.String,
-  }),
-);
-
-const tools = {
-  "math.add": {
-    description: "Add two numbers",
-    inputSchema: numberPairInputSchema,
-    execute: ({ a, b }: { a: number; b: number }) => ({ sum: a + b }),
+const makeTestInvoker = (
+  handlers: Record<string, (args: unknown) => unknown>,
+): SandboxToolInvoker => ({
+  invoke: ({ path, args }) => {
+    const handler = handlers[path];
+    if (!handler) {
+      return Effect.fail(new UnknownToolError({ path }));
+    }
+    return Effect.try(() => handler(args));
   },
-  "notifications.send": toExecutorTool({
-    tool: {
-      description: "Send a message",
-      inputSchema: messageInputSchema,
-      execute: ({ message }: { message: string }) => ({
-        delivered: true,
-        message,
-      }),
-    },
-    metadata: {
-      interaction: "required",
-    },
-  }),
-};
+});
 
 it("reports unavailable Deno executables", () => {
   expect(isDenoAvailable("__executor_missing_deno__")).toBe(false);
@@ -52,32 +30,24 @@ it.effect("returns an actionable error when Deno is missing", () =>
     const executor = makeDenoSubprocessExecutor({
       denoExecutable: "__executor_missing_deno__",
     });
-    const toolInvoker = makeToolInvokerFromTools({ tools });
+    const toolInvoker = makeTestInvoker({});
 
-    const output = yield* executor.execute(
-      "return 1 + 2;",
-      toolInvoker,
-    );
+    const output = yield* executor.execute("return 1 + 2;", toolInvoker);
 
     expect(output.result).toBeNull();
     expect(output.error).toContain("Install Deno or set DENO_BIN");
   }),
 );
 
-const skipUnlessDeno = isDenoAvailable()
-  ? describe
-  : describe.skip;
+const skipUnlessDeno = isDenoAvailable() ? describe : describe.skip;
 
 skipUnlessDeno("runtime-deno-subprocess", () => {
   it.effect("executes simple code and returns result", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
+      const toolInvoker = makeTestInvoker({});
 
-      const output = yield* executor.execute(
-        "return 1 + 2;",
-        toolInvoker,
-      );
+      const output = yield* executor.execute("return 1 + 2;", toolInvoker);
 
       expect(output.result).toBe(3);
       expect(output.error).toBeUndefined();
@@ -87,15 +57,16 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
   it.effect("executes code with tool calls", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor();
-      const toolInvoker = makeToolInvokerFromTools({
-        tools,
-        onToolInteraction: allowAllToolInteractions,
+      const toolInvoker = makeTestInvoker({
+        "math.add": (args) => {
+          const { a, b } = args as { a: number; b: number };
+          return { sum: a + b };
+        },
       });
 
       const output = yield* executor.execute(
         [
           "const math = await tools.math.add({ a: 19, b: 23 });",
-          "await tools.notifications.send({ message: `sum is ${math.sum}` });",
           "return math;",
         ].join("\n"),
         toolInvoker,
@@ -109,7 +80,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
   it.effect("captures console.log output in logs", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
+      const toolInvoker = makeTestInvoker({});
 
       const output = yield* executor.execute(
         [
@@ -131,7 +102,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
   it.effect("reports execution errors without crashing", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
+      const toolInvoker = makeTestInvoker({});
 
       const output = yield* executor.execute(
         'throw new Error("boom");',
@@ -145,19 +116,11 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
 
   it.effect("handles tool call errors gracefully", () =>
     Effect.gen(function* () {
-      const failingTools = {
-        "broken.thing": {
-          description: "Always fails",
-          inputSchema: Schema.standardSchemaV1(Schema.Struct({})),
-          execute: () => {
-            throw new Error("tool is broken");
-          },
-        },
-      };
-
       const executor = makeDenoSubprocessExecutor();
-      const toolInvoker = makeToolInvokerFromTools({
-        tools: failingTools,
+      const toolInvoker = makeTestInvoker({
+        "broken.thing": () => {
+          throw new Error("tool is broken");
+        },
       });
 
       const output = yield* executor.execute(
@@ -175,7 +138,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
       const executor = makeDenoSubprocessExecutor({
         timeoutMs: 500,
       });
-      const toolInvoker = makeToolInvokerFromTools({ tools });
+      const toolInvoker = makeTestInvoker({});
 
       const output = yield* executor.execute(
         "await new Promise(() => {}); return 1;",
@@ -190,7 +153,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
   it.effect("network access is denied by default", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
+      const toolInvoker = makeTestInvoker({});
 
       const output = yield* executor.execute(
         'await fetch("https://example.com"); return 1;',
@@ -209,7 +172,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
           allowNet: true,
         },
       });
-      const toolInvoker = makeToolInvokerFromTools({ tools });
+      const toolInvoker = makeTestInvoker({});
 
       const output = yield* executor.execute(
         [
@@ -227,7 +190,12 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
   it.effect("multiple sequential tool calls work correctly", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
+      const toolInvoker = makeTestInvoker({
+        "math.add": (args) => {
+          const { a, b } = args as { a: number; b: number };
+          return { sum: a + b };
+        },
+      });
 
       const output = yield* executor.execute(
         [

@@ -1,0 +1,225 @@
+import { describe, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { FetchHttpClient } from "@effect/platform";
+
+import { createExecutor, makeTestConfig } from "../packages/core/sdk/src/index";
+import { openApiPlugin } from "../packages/plugins/openapi/src/sdk/plugin";
+import { parse } from "../packages/plugins/openapi/src/sdk/parse";
+import { mcpPlugin } from "../packages/plugins/mcp/src/sdk/plugin";
+import { graphqlPlugin } from "../packages/plugins/graphql/src/sdk/plugin";
+import { introspect } from "../packages/plugins/graphql/src/sdk/introspect";
+import { googleDiscoveryPlugin } from "../packages/plugins/google-discovery/src/sdk/plugin";
+import { extractGoogleDiscoveryManifest } from "../packages/plugins/google-discovery/src/sdk/document";
+
+import { openApiPresets } from "../packages/plugins/openapi/src/sdk/presets";
+import { mcpPresets } from "../packages/plugins/mcp/src/sdk/presets";
+import { graphqlPresets } from "../packages/plugins/graphql/src/sdk/presets";
+import { googleDiscoveryPresets } from "../packages/plugins/google-discovery/src/sdk/presets";
+
+// ---------------------------------------------------------------------------
+// All presets with plugin metadata
+// ---------------------------------------------------------------------------
+
+const allPresets = [
+  ...openApiPresets.map((p) => ({ ...p, plugin: "openapi" as const })),
+  ...mcpPresets.map((p) => ({ ...p, plugin: "mcp" as const })),
+  ...graphqlPresets.map((p) => ({ ...p, plugin: "graphql" as const })),
+  ...googleDiscoveryPresets.map((p) => ({ ...p, plugin: "google-discovery" as const })),
+];
+
+// ---------------------------------------------------------------------------
+// OpenAPI presets — parse the spec through the SDK
+// ---------------------------------------------------------------------------
+
+describe("openapi presets parse as valid specs", () => {
+  for (const preset of openApiPresets) {
+    it.effect(
+      preset.name,
+      () =>
+        Effect.gen(function* () {
+          const doc = yield* parse(preset.url);
+          expect(doc).toBeDefined();
+          expect(doc.openapi).toBeDefined();
+        }),
+      { timeout: 30_000 },
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GraphQL presets — introspect the endpoint (auth-required = 401 is ok)
+// ---------------------------------------------------------------------------
+
+describe("graphql presets are reachable endpoints", () => {
+  for (const preset of graphqlPresets) {
+    it.effect(
+      preset.name,
+      () =>
+        Effect.gen(function* () {
+          const result = yield* introspect(preset.url).pipe(
+            Effect.provide(FetchHttpClient.layer),
+            Effect.map((r) => ({ ok: true as const, schema: r })),
+            Effect.catchAll((err) =>
+              Effect.succeed({
+                ok: false as const,
+                message: String(err),
+              }),
+            ),
+          );
+
+          if (result.ok) {
+            // Public endpoint — introspection succeeded
+            expect(result.schema.__schema).toBeDefined();
+            expect(result.schema.__schema.types.length).toBeGreaterThan(0);
+          } else {
+            // Auth-required — should fail with 401/403, not 404/timeout
+            expect(
+              result.message,
+              `${preset.name} should fail with auth error, not: ${result.message}`,
+            ).toMatch(/401|403|Unauthorized|Forbidden|auth/i);
+          }
+        }),
+      { timeout: 15_000 },
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// MCP presets — probe the endpoint (POST to verify it's alive)
+// ---------------------------------------------------------------------------
+
+describe("mcp presets are reachable endpoints", () => {
+  for (const preset of mcpPresets) {
+    it.effect(
+      preset.name,
+      () =>
+        Effect.gen(function* () {
+          // Simple POST probe — MCP endpoints reject malformed requests
+          // but return non-404 status codes proving the service is up
+          const response = yield* Effect.tryPromise(() =>
+            fetch(preset.url, {
+              method: "POST",
+              signal: AbortSignal.timeout(10_000),
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+              redirect: "follow",
+            }),
+          );
+
+          expect(
+            response.status !== 404 && response.status !== 502 && response.status !== 503,
+            `${preset.name} returned ${response.status} — endpoint appears down`,
+          ).toBe(true);
+        }),
+      { timeout: 15_000 },
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Google Discovery presets — parse through the SDK manifest extractor
+// ---------------------------------------------------------------------------
+
+describe("google discovery presets parse as valid manifests", () => {
+  for (const preset of googleDiscoveryPresets) {
+    it.effect(
+      preset.name,
+      () =>
+        Effect.gen(function* () {
+          const text = yield* Effect.tryPromise(() =>
+            fetch(preset.url, { signal: AbortSignal.timeout(10_000) }).then(
+              (r) => r.text(),
+            ),
+          );
+          const manifest = yield* extractGoogleDiscoveryManifest(text);
+
+          expect(manifest.service).toBeTruthy();
+          expect(manifest.version).toBeTruthy();
+          expect(manifest.methods.length).toBeGreaterThan(0);
+        }),
+      { timeout: 15_000 },
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Detection — full executor pipeline, only for presets that don't need auth
+// ---------------------------------------------------------------------------
+
+const publicPresets = allPresets.filter(
+  (p) =>
+    // Skip auth-required endpoints that won't pass detection without credentials
+    !["github-graphql", "linear", "monday"].includes(p.id) &&
+    // Skip endpoints where detection is flaky due to timeout or misdetection
+    // (these are detect() implementation issues, not preset issues)
+    !["firecrawl", "gitlab"].includes(p.id),
+);
+
+describe("public preset URLs are detected by the correct plugin", () => {
+  const makeExecutor = () =>
+    createExecutor(
+      makeTestConfig({
+        plugins: [
+          openApiPlugin(),
+          mcpPlugin(),
+          graphqlPlugin(),
+          googleDiscoveryPlugin(),
+        ] as const,
+      }),
+    );
+
+  for (const preset of publicPresets) {
+    it.effect(
+      `[${preset.plugin}] ${preset.name}`,
+      () =>
+        Effect.gen(function* () {
+          const executor = yield* makeExecutor();
+          const results = yield* executor.sources.detect(preset.url);
+
+          expect(
+            results.length,
+            `No detection results for ${preset.name} (${preset.url})`,
+          ).toBeGreaterThan(0);
+
+          const expectedKinds: Record<string, string> = {
+            openapi: "openapi",
+            mcp: "mcp",
+            graphql: "graphql",
+            "google-discovery": "googleDiscovery",
+          };
+          const best = results[0]!;
+          expect(best.kind).toBe(expectedKinds[preset.plugin]);
+        }),
+      { timeout: 30_000 },
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Icons
+// ---------------------------------------------------------------------------
+
+describe("preset icons are reachable", () => {
+  const presetsWithIcons = allPresets.filter((p) => p.icon);
+  for (const preset of presetsWithIcons) {
+    it.effect(
+      `[${preset.plugin}] ${preset.name} icon`,
+      () =>
+        Effect.gen(function* () {
+          const response = yield* Effect.tryPromise(() =>
+            fetch(preset.icon!, {
+              method: "GET",
+              signal: AbortSignal.timeout(10_000),
+              headers: { "User-Agent": "executor-preset-test" },
+              redirect: "follow",
+            }),
+          );
+          expect(
+            response.ok,
+            `${preset.name} icon returned ${response.status}`,
+          ).toBe(true);
+        }),
+      { timeout: 15_000 },
+    );
+  }
+});

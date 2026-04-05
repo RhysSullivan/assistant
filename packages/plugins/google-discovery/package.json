@@ -1,0 +1,48 @@
+{
+  "name": "@executor/plugin-google-discovery",
+  "private": true,
+  "type": "module",
+  "version": "1.4.0-beta.0",
+  "exports": {
+    ".": "./src/sdk/index.ts",
+    "./api": "./src/api/index.ts",
+    "./react": "./src/react/index.ts",
+    "./presets": "./src/sdk/presets.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@executor/api": "workspace:*",
+    "@executor/sdk": "workspace:*",
+    "effect": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0",
+    "@effect-atom/atom-react": "^0.5.0",
+    "@tanstack/react-router": "^1.168.10",
+    "@executor/react": "workspace:*",
+    "@executor/ui": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "@effect-atom/atom-react": { "optional": true },
+    "@tanstack/react-router": { "optional": true },
+    "@executor/react": { "optional": true },
+    "@executor/ui": { "optional": true }
+  },
+  "devDependencies": {
+    "@effect-atom/atom-react": "^0.5.0",
+    "@effect/vitest": "catalog:",
+    "@executor/react": "workspace:*",
+    "@executor/ui": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/react": "^19.1.0",
+    "bun-types": "catalog:",
+    "react": "^19.1.0",
+    "vitest": "catalog:"
+  }
+}

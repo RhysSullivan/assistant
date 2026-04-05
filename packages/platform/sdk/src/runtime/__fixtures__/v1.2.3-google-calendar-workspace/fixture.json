@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "kind": "release-workspace",
-  "id": "v1.2.3-google-calendar",
-  "releaseVersion": "v1.2.3",
-  "sourceId": "google-calendar",
-  "artifactExpectation": "cache-miss",
-  "description": "Google Calendar workspace captured from the v1.2.3 release line."
-}

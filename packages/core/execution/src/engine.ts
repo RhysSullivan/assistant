@@ -1,0 +1,256 @@
+import { Effect } from "effect";
+
+import type {
+  Executor,
+  InvokeOptions,
+  ElicitationResponse,
+  ElicitationHandler,
+  ElicitationContext,
+} from "@executor/sdk";
+import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+
+import { makeExecutorToolInvoker, discoverTools, describeTool } from "./tool-invoker";
+import { buildExecuteDescription } from "./description";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type ExecutionEngineConfig = {
+  readonly executor: Executor;
+  readonly codeExecutor?: CodeExecutor;
+};
+
+export type ExecutionResult =
+  | { readonly status: "completed"; readonly result: ExecuteResult }
+  | { readonly status: "paused"; readonly execution: PausedExecution };
+
+export type PausedExecution = {
+  readonly id: string;
+  readonly elicitationContext: ElicitationContext;
+  readonly resolve: (response: typeof ElicitationResponse.Type) => void;
+  readonly completion: Promise<ExecuteResult>;
+};
+
+export type ResumeResponse = {
+  readonly action: "accept" | "decline" | "cancel";
+  readonly content?: Record<string, unknown>;
+};
+
+// ---------------------------------------------------------------------------
+// Result formatting
+// ---------------------------------------------------------------------------
+
+const MAX_PREVIEW_CHARS = 30_000;
+
+const truncate = (value: string, max: number): string =>
+  value.length > max
+    ? `${value.slice(0, max)}\n... [truncated ${value.length - max} chars]`
+    : value;
+
+export const formatExecuteResult = (result: ExecuteResult): {
+  text: string;
+  structured: Record<string, unknown>;
+  isError: boolean;
+} => {
+  const resultText =
+    result.result != null
+      ? typeof result.result === "string"
+        ? result.result
+        : JSON.stringify(result.result, null, 2)
+      : null;
+
+  const logText =
+    result.logs && result.logs.length > 0 ? result.logs.join("\n") : null;
+
+  if (result.error) {
+    const parts = [`Error: ${result.error}`, ...(logText ? [`\nLogs:\n${logText}`] : [])];
+    return {
+      text: truncate(parts.join("\n"), MAX_PREVIEW_CHARS),
+      structured: { status: "error", error: result.error, logs: result.logs ?? [] },
+      isError: true,
+    };
+  }
+
+  const parts = [
+    ...(resultText ? [truncate(resultText, MAX_PREVIEW_CHARS)] : ["(no result)"]),
+    ...(logText ? [`\nLogs:\n${logText}`] : []),
+  ];
+  return {
+    text: parts.join("\n"),
+    structured: { status: "completed", result: result.result ?? null, logs: result.logs ?? [] },
+    isError: false,
+  };
+};
+
+export const formatPausedExecution = (paused: PausedExecution): {
+  text: string;
+  structured: Record<string, unknown>;
+} => {
+  const req = paused.elicitationContext.request;
+  const lines: string[] = [`Execution paused: ${(req as any).message}`];
+
+  if (req._tag === "UrlElicitation") {
+    lines.push(`\nOpen this URL in a browser:\n${(req as any).url}`);
+    lines.push("\nAfter the browser flow, resume with the executionId below:");
+  } else {
+    lines.push("\nResume with the executionId below and a response matching the requested schema:");
+    const schema = (req as any).requestedSchema;
+    if (schema && Object.keys(schema).length > 0) {
+      lines.push(`\nRequested schema:\n${JSON.stringify(schema, null, 2)}`);
+    }
+  }
+
+  lines.push(`\nexecutionId: ${paused.id}`);
+
+  return {
+    text: lines.join("\n"),
+    structured: {
+      status: "waiting_for_interaction",
+      executionId: paused.id,
+      interaction: {
+        kind: req._tag === "UrlElicitation" ? "url" : "form",
+        message: (req as any).message,
+        ...(req._tag === "UrlElicitation" ? { url: (req as any).url } : {}),
+        ...(req._tag === "FormElicitation" ? { requestedSchema: (req as any).requestedSchema } : {}),
+      },
+    },
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Full invoker (base + discover + describe)
+// ---------------------------------------------------------------------------
+
+const makeFullInvoker = (
+  executor: Executor,
+  invokeOptions: InvokeOptions,
+): SandboxToolInvoker => {
+  const base = makeExecutorToolInvoker(executor, { invokeOptions });
+  return {
+    invoke: ({ path, args }) => {
+      if (path === "discover") {
+        const input = (args ?? {}) as { query?: string; limit?: number };
+        return discoverTools(executor, input.query ?? "", input.limit);
+      }
+      if (path === "describe.tool") {
+        const input = (args ?? {}) as { path?: string };
+        if (!input.path) return Effect.fail(new Error("describe.tool requires a path"));
+        return describeTool(executor, input.path);
+      }
+      return base.invoke({ path, args });
+    },
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Execution Engine
+// ---------------------------------------------------------------------------
+
+export type ExecutionEngine = {
+  /**
+   * Execute code with elicitation handled inline by the provided handler.
+   * Use this when the host supports elicitation (e.g. MCP with elicitation capability).
+   */
+  readonly execute: (
+    code: string,
+    options: { readonly onElicitation: ElicitationHandler },
+  ) => Promise<ExecuteResult>;
+
+  /**
+   * Execute code, intercepting the first elicitation as a pause point.
+   * Use this when the host doesn't support inline elicitation.
+   * Returns either a completed result or a paused execution that can be resumed.
+   */
+  readonly executeWithPause: (code: string) => Promise<ExecutionResult>;
+
+  /**
+   * Resume a paused execution.
+   */
+  readonly resume: (executionId: string, response: ResumeResponse) => Promise<ExecuteResult | null>;
+
+  /**
+   * Get the dynamic tool description (workflow + namespaces).
+   */
+  readonly getDescription: () => Promise<string>;
+};
+
+const runEffect = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
+  Effect.runPromise(effect as Effect.Effect<A, never>);
+
+export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionEngine => {
+  const { executor } = config;
+  const codeExecutor = config.codeExecutor ?? makeQuickJsExecutor();
+  const pausedExecutions = new Map<string, PausedExecution>();
+  let nextId = 0;
+
+  return {
+    execute: async (code, options) => {
+      const invoker = makeFullInvoker(executor, {
+        onElicitation: options.onElicitation,
+      });
+      return runEffect(codeExecutor.execute(code, invoker));
+    },
+
+    executeWithPause: async (code) => {
+      let pausedResolve: PausedExecution | null = null;
+
+      const elicitationHandler: ElicitationHandler = (ctx: ElicitationContext) =>
+        Effect.async<typeof ElicitationResponse.Type>((resume) => {
+          const id = `exec_${++nextId}`;
+          const paused: PausedExecution = {
+            id,
+            elicitationContext: ctx,
+            resolve: (response) => resume(Effect.succeed(response)),
+            completion: undefined as unknown as Promise<ExecuteResult>,
+          };
+          pausedResolve = paused;
+          pausedExecutions.set(id, paused);
+        });
+
+      const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
+      const completionPromise = runEffect(codeExecutor.execute(code, invoker));
+
+      if (pausedResolve) {
+        (pausedResolve as { completion: Promise<ExecuteResult> }).completion = completionPromise;
+      }
+
+      // Race: either the execution completes, or it pauses for elicitation.
+      // Poll briefly to detect pauses that fire asynchronously.
+      const result = await Promise.race([
+        completionPromise.then((r) => ({ kind: "completed" as const, result: r })),
+        new Promise<{ kind: "poll" }>((resolve) => {
+          const check = (attempt: number) => {
+            if (pausedResolve) {
+              resolve({ kind: "poll" });
+            } else if (attempt < 100) {
+              setTimeout(() => check(attempt + 1), 50);
+            }
+          };
+          // Start after a tick to let sync elicitations fire first
+          setTimeout(() => check(0), 0);
+        }),
+      ]);
+
+      if (result.kind === "completed") {
+        return { status: "completed", result: result.result };
+      }
+
+      // Execution paused — attach the completion promise and return
+      (pausedResolve as unknown as { completion: Promise<ExecuteResult> }).completion = completionPromise;
+      return { status: "paused", execution: pausedResolve! };
+    },
+
+    resume: async (executionId, response) => {
+      const paused = pausedExecutions.get(executionId);
+      if (!paused) return null;
+
+      pausedExecutions.delete(executionId);
+      paused.resolve({ action: response.action, content: response.content });
+      return paused.completion;
+    },
+
+    getDescription: () => runEffect(buildExecuteDescription(executor)),
+  };
+};
