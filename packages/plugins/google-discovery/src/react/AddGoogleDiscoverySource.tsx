@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomSet, useAtomValue, useAtomRefresh, Result } from "@effect-atom/atom-react";
 
 import {
   useScope,
   SecretPicker,
   secretsAtom,
+  setSecret,
   type SecretPickerSecret,
 } from "@executor/react";
+import { SecretId } from "@executor/sdk";
 import { Badge } from "@executor/ui/components/badge";
 import { Button } from "@executor/ui/components/button";
 import {
@@ -23,6 +25,159 @@ import {
   probeGoogleDiscovery,
   startGoogleDiscoveryOAuth,
 } from "./atoms";
+
+// ---------------------------------------------------------------------------
+// Inline secret creation
+// ---------------------------------------------------------------------------
+
+function InlineCreateSecret(props: {
+  headerName: string;
+  suggestedId: string;
+  onCreated: (secretId: string) => void;
+  onCancel: () => void;
+}) {
+  const [secretId, setSecretIdValue] = useState(props.suggestedId);
+  const [secretName, setSecretName] = useState(props.headerName);
+  const [secretValue, setSecretValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const scopeId = useScope();
+  const doSet = useAtomSet(setSecret, { mode: "promise" });
+  const refreshSecrets = useAtomRefresh(secretsAtom(scopeId));
+
+  const handleSave = async () => {
+    if (!secretId.trim() || !secretValue.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await doSet({
+        path: { scopeId },
+        payload: {
+          id: SecretId.make(secretId.trim()),
+          name: secretName.trim() || secretId.trim(),
+          value: secretValue.trim(),
+          purpose: `Google OAuth: ${props.headerName}`,
+        },
+      });
+      refreshSecrets();
+      props.onCreated(secretId.trim());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save secret");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-2.5">
+      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">ID</Label>
+          <Input
+            value={secretId}
+            onChange={(e) => setSecretIdValue((e.target as HTMLInputElement).value)}
+            placeholder="google-client-secret"
+            className="h-8 text-xs font-mono"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Label</Label>
+          <Input
+            value={secretName}
+            onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
+            placeholder="Client Secret"
+            className="h-8 text-xs"
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
+        <Input
+          type="password"
+          value={secretValue}
+          onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
+          placeholder="paste your client secret…"
+          className="h-8 text-xs font-mono"
+        />
+      </div>
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+      <div className="flex gap-1.5 pt-0.5">
+        <Button variant="outline" size="xs" onClick={props.onCancel}>
+          Cancel
+        </Button>
+        <Button
+          size="xs"
+          onClick={handleSave}
+          disabled={!secretId.trim() || !secretValue.trim() || saving}
+        >
+          {saving ? "Saving…" : "Create & use"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Client secret field with inline creation
+// ---------------------------------------------------------------------------
+
+function ClientSecretField(props: {
+  clientSecretSecretId: string | null;
+  onSelect: (secretId: string | null) => void;
+  secretList: readonly SecretPickerSecret[];
+}) {
+  const [creating, setCreating] = useState(false);
+  const { clientSecretSecretId, onSelect, secretList } = props;
+
+  if (creating) {
+    return (
+      <div className="space-y-2">
+        <Label>OAuth Client Secret</Label>
+        <InlineCreateSecret
+          headerName="Client Secret"
+          suggestedId="google-oauth-client-secret"
+          onCreated={(id) => {
+            onSelect(id);
+            setCreating(false);
+          }}
+          onCancel={() => setCreating(false)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label>OAuth Client Secret</Label>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-0">
+          <SecretPicker
+            value={clientSecretSecretId}
+            onSelect={onSelect}
+            secrets={secretList}
+            placeholder="Optional for confidential clients"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          onClick={() => setCreating(true)}
+        >
+          + New
+        </Button>
+        {clientSecretSecretId && (
+          <Button
+            variant="outline"
+            onClick={() => onSelect(null)}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type GoogleDiscoveryTemplate = {
   id: string;
@@ -576,27 +731,11 @@ export default function AddGoogleDiscoverySource(props: {
                 placeholder="1234567890-abc.apps.googleusercontent.com"
               />
             </div>
-            <div className="space-y-2">
-              <Label>OAuth Client Secret</Label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <SecretPicker
-                    value={clientSecretSecretId}
-                    onSelect={setClientSecretSecretId}
-                    secrets={secretList}
-                    placeholder="Optional for confidential clients"
-                  />
-                </div>
-                {clientSecretSecretId && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setClientSecretSecretId(null)}
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
-            </div>
+            <ClientSecretField
+              clientSecretSecretId={clientSecretSecretId}
+              onSelect={setClientSecretSecretId}
+              secretList={secretList}
+            />
             <Collapsible
               open={showScopes}
               onOpenChange={setShowScopes}

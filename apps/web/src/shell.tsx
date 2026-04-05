@@ -283,9 +283,6 @@ function SidebarContent(props: {
             <span className="font-display text-base tracking-tight text-foreground">
               executor
             </span>
-            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              v4
-            </span>
           </Link>
         </div>
       )}
@@ -413,9 +410,6 @@ export function Shell() {
                 <span className="font-display text-base tracking-tight text-foreground">
                   executor
                 </span>
-                <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                  v4
-                </span>
               </Link>
               <button
                 type="button"
@@ -457,9 +451,6 @@ export function Shell() {
           <Link to="/" className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">
               executor
-            </span>
-            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              v4
             </span>
           </Link>
           <div className="w-8 shrink-0" />

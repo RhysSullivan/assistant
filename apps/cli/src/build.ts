@@ -82,10 +82,14 @@ const isCurrentPlatform = (t: Target) =>
 
 const buildWeb = async () => {
   const webDist = join(webRoot, "dist");
-  if (existsSync(webDist)) return webDist;
+  await rm(webDist, { recursive: true, force: true });
 
   console.log("Building web app...");
-  const proc = Bun.spawn(["bun", "run", "build"], { cwd: webRoot, stdio: ["ignore", "inherit", "inherit"] });
+  const proc = Bun.spawn(["bun", "run", "build"], {
+    cwd: webRoot,
+    stdio: ["ignore", "inherit", "inherit"],
+    env: { ...process.env, NODE_ENV: "production" },
+  });
   if ((await proc.exited) !== 0) throw new Error("Web build failed");
   return webDist;
 };
