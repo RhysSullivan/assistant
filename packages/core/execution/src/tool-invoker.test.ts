@@ -10,7 +10,7 @@ import {
   tool,
 } from "@executor/sdk";
 import { createExecutionEngine } from "./engine";
-import { describeTool, discoverTools } from "./tool-invoker";
+import { describeTool, searchTools } from "./tool-invoker";
 
 const EmptyInput = Schema.Struct({});
 const RepoInput = Schema.Struct({
@@ -95,16 +95,16 @@ describe("tool discovery", () => {
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
 
-      const githubMatches = yield* discoverTools(executor, "github issues", 5);
+      const githubMatches = yield* searchTools(executor, "github issues", 5);
       expect(githubMatches.map((match) => match.path)).toEqual([
         "github.listRepositoryIssues",
       ]);
       expect(githubMatches[0]?.score ?? 0).toBeGreaterThan(0);
 
-      const repoMatches = yield* discoverTools(executor, "repo details", 5);
+      const repoMatches = yield* searchTools(executor, "repo details", 5);
       expect(repoMatches[0]?.path).toBe("github.getRepositoryDetails");
 
-      const crmMatches = yield* discoverTools(executor, "crm create contact", 5);
+      const crmMatches = yield* searchTools(executor, "crm create contact", 5);
       expect(crmMatches[0]?.path).toBe("crm.createContact");
       expect(crmMatches[0]?.score ?? 0).toBeGreaterThan(crmMatches[1]?.score ?? 0);
     }),
@@ -113,7 +113,7 @@ describe("tool discovery", () => {
   it.effect("returns no matches for empty queries instead of listing arbitrary tools", () =>
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
-      const matches = yield* discoverTools(executor, "", 5);
+      const matches = yield* searchTools(executor, "", 5);
       expect(matches).toEqual([]);
     }),
   );
@@ -122,14 +122,14 @@ describe("tool discovery", () => {
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
 
-      const githubOnly = yield* discoverTools(executor, "list", 5, {
+      const githubOnly = yield* searchTools(executor, "list", 5, {
         namespace: "github",
       });
       expect(githubOnly.map((match) => match.path)).toEqual([
         "github.listRepositoryIssues",
       ]);
 
-      const crmOnly = yield* discoverTools(executor, "list", 5, {
+      const crmOnly = yield* searchTools(executor, "list", 5, {
         namespace: "crm",
       });
       expect(crmOnly.map((match) => match.path)).toEqual([
@@ -138,7 +138,7 @@ describe("tool discovery", () => {
 
       const sandboxResult = yield* Effect.promise(() =>
         createExecutionEngine({ executor }).execute(
-          'return await tools.discover({ namespace: "crm", query: "create contact", limit: 5 });',
+          'return await tools.search({ namespace: "crm", query: "create contact", limit: 5 });',
           { onElicitation: acceptAll },
         ),
       );
@@ -169,7 +169,7 @@ describe("tool discovery", () => {
 
       const searched = yield* Effect.promise(() =>
         createExecutionEngine({ executor }).execute(
-          'return await tools.executor.tools.search({ query: "list contacts", namespace: "crm", limit: 5 });',
+          'return await tools.search({ query: "list contacts", namespace: "crm", limit: 5 });',
           { onElicitation: acceptAll },
         ),
       );
@@ -219,7 +219,7 @@ describe("tool discovery", () => {
         engine.execute(
           [
             "try {",
-            "  await tools.discover(\"github issues\");",
+            "  await tools.search(\"github issues\");",
             "  return \"unexpected\";",
             "} catch (error) {",
             "  return error instanceof Error ? error.message : String(error);",
@@ -230,12 +230,12 @@ describe("tool discovery", () => {
       );
       expect(invalid.error).toBeUndefined();
       expect(String(invalid.result)).toContain(
-        "tools.discover expects an object: { query?: string; namespace?: string; limit?: number }",
+        "tools.search expects an object: { query?: string; namespace?: string; limit?: number }",
       );
 
       const emptyQuery = yield* Effect.promise(() =>
         engine.execute(
-          "return await tools.discover({ query: \"\", limit: 5 });",
+          "return await tools.search({ query: \"\", limit: 5 });",
           { onElicitation: acceptAll },
         ),
       );
@@ -260,15 +260,15 @@ describe("tool discovery", () => {
         "tools.describe.tool no longer accepts includeSchemas",
       );
 
-      const invalidExecutorSearch = yield* Effect.promise(() =>
+      const invalidSearch = yield* Effect.promise(() =>
         engine.execute(
-          'try { return await tools.executor.tools.search("crm"); } catch (error) { return error instanceof Error ? error.message : String(error); }',
+          'try { return await tools.search("crm"); } catch (error) { return error instanceof Error ? error.message : String(error); }',
           { onElicitation: acceptAll },
         ),
       );
-      expect(invalidExecutorSearch.error).toBeUndefined();
-      expect(String(invalidExecutorSearch.result)).toContain(
-        "tools.executor.tools.search expects an object",
+      expect(invalidSearch.error).toBeUndefined();
+      expect(String(invalidSearch.result)).toContain(
+        "tools.search expects an object",
       );
     }),
   );

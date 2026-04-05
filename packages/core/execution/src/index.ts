@@ -13,8 +13,7 @@ export { buildExecuteDescription } from "./description";
 export { ExecutionToolError } from "./errors";
 export {
   makeExecutorToolInvoker,
-  discoverTools,
-  searchExecutorTools,
+  searchTools,
   listExecutorSources,
   describeTool,
 } from "./tool-invoker";
