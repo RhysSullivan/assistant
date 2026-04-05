@@ -2,7 +2,7 @@
   "mode": "pre",
   "tag": "beta",
   "initialVersions": {
-    "@executor/cli": "1.4.0-beta.0",
+    "executor": "1.4.0-beta.0",
     "@executor/server": "1.4.0-beta.0",
     "@executor/web": "1.4.0-beta.0",
     "@executor/react": "1.4.0-beta.0",
