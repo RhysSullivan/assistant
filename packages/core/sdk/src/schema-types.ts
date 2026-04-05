@@ -1,11 +1,11 @@
-import { collectRefs } from "./schema-refs";
-
 type JsonSchemaRecord = Record<string, unknown>;
 
 export type TypeScriptRenderOptions = {
   maxLength?: number;
   maxDepth?: number;
   maxProperties?: number;
+  maxRefDepth?: number;
+  maxCompositeMembers?: number;
 };
 
 export type TypeScriptSchemaPreview = {
@@ -39,6 +39,20 @@ const refNameFromPointer = (ref: string): string | undefined =>
 
 const refFallbackLabel = (ref: string): string =>
   refNameFromPointer(ref) ?? ref.split("/").at(-1) ?? ref;
+
+const summarizeLargeComposite = (
+  schema: JsonSchemaRecord,
+  maxCompositeMembers: number,
+): { kind: "oneOf" | "anyOf"; count: number } | null => {
+  for (const kind of ["oneOf", "anyOf"] as const) {
+    const items = schema[kind];
+    if (Array.isArray(items) && items.length > maxCompositeMembers) {
+      return { kind, count: items.length };
+    }
+  }
+
+  return null;
+};
 
 const primitiveTypeName = (value: string): string => {
   switch (value) {
@@ -114,11 +128,17 @@ export const schemaToTypeScriptPreviewWithDefs = (
   const maxLength = options.maxLength ?? 400;
   const maxDepth = options.maxDepth ?? 6;
   const maxProperties = options.maxProperties ?? 12;
+  const maxRefDepth = options.maxRefDepth ?? 3;
+  const maxCompositeMembers = options.maxCompositeMembers ?? 8;
 
-  const render = (currentInput: unknown, depthRemaining: number): string => {
-    const current = asRecord(currentInput);
+  const render = (input: {
+    currentInput: unknown;
+    depthRemaining: number;
+    refDepthRemaining: number;
+  }): string => {
+    const current = asRecord(input.currentInput);
 
-    if (depthRemaining <= 0) {
+    if (input.depthRemaining <= 0) {
       if (typeof current.title === "string" && current.title.length > 0) {
         return current.title;
       }
@@ -135,7 +155,10 @@ export const schemaToTypeScriptPreviewWithDefs = (
     }
 
     if (typeof current.$ref === "string") {
-      return refFallbackLabel(current.$ref);
+      const refLabel = refFallbackLabel(current.$ref);
+      return input.refDepthRemaining > 0
+        ? refLabel
+        : `unknown /* ${refLabel} omitted */`;
     }
 
     if ("const" in current) {
@@ -150,22 +173,60 @@ export const schemaToTypeScriptPreviewWithDefs = (
       );
     }
 
+    const largeComposite = summarizeLargeComposite(current, maxCompositeMembers);
+    if (largeComposite) {
+      return `unknown /* ${largeComposite.count}-way ${largeComposite.kind} omitted */`;
+    }
+
+    const renderNested = (value: unknown): string =>
+      render({
+        currentInput: value,
+        depthRemaining: input.depthRemaining - 1,
+        refDepthRemaining: input.refDepthRemaining,
+      });
+
     const composite =
-      renderComposite({ key: "oneOf", schema: current, render, depthRemaining })
-      ?? renderComposite({ key: "anyOf", schema: current, render, depthRemaining })
-      ?? renderComposite({ key: "allOf", schema: current, render, depthRemaining });
+      renderComposite({
+        key: "oneOf",
+        schema: current,
+        render: (value) => renderNested(value),
+        depthRemaining: input.depthRemaining,
+      })
+      ?? renderComposite({
+        key: "anyOf",
+        schema: current,
+        render: (value) => renderNested(value),
+        depthRemaining: input.depthRemaining,
+      })
+      ?? renderComposite({
+        key: "allOf",
+        schema: current,
+        render: (value) => renderNested(value),
+        depthRemaining: input.depthRemaining,
+      });
     if (composite) {
       return truncate(composite, maxLength);
     }
 
     if (current.nullable === true) {
       const { nullable: _nullable, ...rest } = current;
-      return truncate(`${render(rest, depthRemaining)} | null`, maxLength);
+      return truncate(
+        `${render({
+          currentInput: rest,
+          depthRemaining: input.depthRemaining,
+          refDepthRemaining: input.refDepthRemaining,
+        })} | null`,
+        maxLength,
+      );
     }
 
     if (current.type === "array") {
       const itemLabel = current.items
-        ? render(current.items, depthRemaining - 1)
+        ? render({
+          currentInput: current.items,
+          depthRemaining: input.depthRemaining - 1,
+          refDepthRemaining: input.refDepthRemaining,
+        })
         : "unknown";
       return truncate(`${itemLabel}[]`, maxLength);
     }
@@ -178,7 +239,11 @@ export const schemaToTypeScriptPreviewWithDefs = (
       const additionalProperties = current.additionalProperties;
       const additionalPropertiesLabel =
         additionalProperties && typeof additionalProperties === "object"
-          ? render(additionalProperties, depthRemaining - 1)
+          ? render({
+            currentInput: additionalProperties,
+            depthRemaining: input.depthRemaining - 1,
+            refDepthRemaining: input.refDepthRemaining,
+          })
           : additionalProperties === true
             ? "unknown"
             : null;
@@ -193,7 +258,11 @@ export const schemaToTypeScriptPreviewWithDefs = (
 
       const visibleKeys = propertyKeys.slice(0, maxProperties);
       const parts = visibleKeys.map((key) =>
-        `${formatPropertyKey(key)}${required.has(key) ? "" : "?"}: ${render(properties[key], depthRemaining - 1)}`
+        `${formatPropertyKey(key)}${required.has(key) ? "" : "?"}: ${render({
+          currentInput: properties[key],
+          depthRemaining: input.depthRemaining - 1,
+          refDepthRemaining: input.refDepthRemaining,
+        })}`
       );
 
       if (visibleKeys.length < propertyKeys.length) {
@@ -224,22 +293,80 @@ export const schemaToTypeScriptPreviewWithDefs = (
     return "unknown";
   };
 
-  const referenced = collectRefs(schema, defs);
+  const referencedDepths = new Map<string, number>();
+
+  const collectPreviewRefs = (
+    currentInput: unknown,
+    refDepth: number,
+  ): void => {
+    const current = asRecord(currentInput);
+
+    if (summarizeLargeComposite(current, maxCompositeMembers)) {
+      return;
+    }
+
+    if (typeof current.$ref === "string") {
+      const name = refNameFromPointer(current.$ref);
+      if (!name) {
+        return;
+      }
+
+      const existingDepth = referencedDepths.get(name);
+      if (existingDepth !== undefined && existingDepth <= refDepth) {
+        return;
+      }
+
+      referencedDepths.set(name, refDepth);
+
+      if (refDepth >= maxRefDepth) {
+        return;
+      }
+
+      const target = defs.get(name);
+      if (target !== undefined) {
+        collectPreviewRefs(target, refDepth + 1);
+      }
+      return;
+    }
+
+    for (const value of Object.values(current)) {
+      if (value && typeof value === "object") {
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            collectPreviewRefs(item, refDepth);
+          }
+        } else {
+          collectPreviewRefs(value, refDepth);
+        }
+      }
+    }
+  };
+
+  collectPreviewRefs(schema, 1);
+
   const definitions = Object.fromEntries(
-    [...referenced]
-      .sort((left, right) => left.localeCompare(right))
-      .flatMap((name) => {
+    [...referencedDepths.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .flatMap(([name, refDepth]) => {
         const target = defs.get(name);
         if (target === undefined) {
           return [];
         }
 
-        return [[name, render(target, maxDepth)]] as const;
+        return [[name, render({
+          currentInput: target,
+          depthRemaining: maxDepth,
+          refDepthRemaining: Math.max(0, maxRefDepth - refDepth),
+        })]] as const;
       }),
   );
 
   return {
-    type: render(schema, maxDepth),
+    type: render({
+      currentInput: schema,
+      depthRemaining: maxDepth,
+      refDepthRemaining: maxRefDepth,
+    }),
     definitions,
   };
 };
