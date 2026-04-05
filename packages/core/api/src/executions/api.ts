@@ -35,8 +35,7 @@ const ResumeResponse = Schema.Struct({
   isError: Schema.Boolean,
 });
 
-const ExecutionNotFoundError = Schema.Struct({
-  _tag: Schema.Literal("ExecutionNotFoundError"),
+const ExecutionNotFoundError = Schema.TaggedStruct("ExecutionNotFoundError", {
   executionId: Schema.String,
 }).annotations(HttpApiSchema.annotations({ status: 404 }));
 

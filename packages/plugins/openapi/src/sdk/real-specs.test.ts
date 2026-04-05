@@ -150,13 +150,14 @@ describe("Real specs: Cloudflare API", () => {
         expect(tools.length).toBeGreaterThan(0);
 
         const schema = yield* executor.tools.schema(tools[0]!.id);
-        const output = schema.outputSchema as Record<string, unknown>;
 
-        expect(output["$ref"]).toBeTypeOf("string");
-        expect((output["$ref"] as string).startsWith("#/$defs/")).toBe(true);
+        // outputTypeScript should reference a named type from definitions
+        expect(schema.outputTypeScript).toBeDefined();
+        expect(schema.outputTypeScript!.length).toBeGreaterThan(0);
 
-        expect(output["$defs"]).toBeDefined();
-        const defs = output["$defs"] as Record<string, unknown>;
+        // typeScriptDefinitions should carry the relevant subset
+        expect(schema.typeScriptDefinitions).toBeDefined();
+        const defs = schema.typeScriptDefinitions!;
         expect(Object.keys(defs).length).toBeGreaterThan(0);
         expect(Object.keys(defs).length).toBeLessThan(100);
       }),
