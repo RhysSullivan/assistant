@@ -203,7 +203,7 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
   await chmod(join(binDir, "executor"), 0o755);
 
   // Postinstall downloads the matching release asset from GitHub Releases
-  await writeFile(join(wrapperDir, "postinstall.mjs"), POSTINSTALL_SCRIPT);
+  await writeFile(join(wrapperDir, "postinstall.cjs"), POSTINSTALL_SCRIPT);
 
   // Package.json
   await writeFile(
@@ -220,7 +220,7 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
         license: meta.license,
         bin: { executor: "bin/executor" },
         scripts: {
-          postinstall: "node ./postinstall.mjs",
+          postinstall: "node ./postinstall.cjs",
         },
         engines: {
           node: ">=20",
@@ -339,7 +339,36 @@ if (process.env.EXECUTOR_BIN_PATH) run(process.env.EXECUTOR_BIN_PATH);
 
 const scriptDir = path.dirname(fs.realpathSync(__filename));
 const cached = path.join(scriptDir, process.platform === "win32" ? ".executor.exe" : ".executor");
-if (!fs.existsSync(cached)) {
+
+const installIfNeeded = () => {
+  if (fs.existsSync(cached)) {
+    return true;
+  }
+
+  const installer = path.resolve(scriptDir, "..", "postinstall.cjs");
+  if (!fs.existsSync(installer)) {
+    return false;
+  }
+
+  console.error("executor binary is missing; downloading release asset...");
+  const result = childProcess.spawnSync(process.execPath, [installer], {
+    stdio: "inherit",
+    env: process.env,
+  });
+
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+
+  if (typeof result.status === "number" && result.status !== 0) {
+    process.exit(result.status);
+  }
+
+  return fs.existsSync(cached);
+};
+
+if (!installIfNeeded()) {
   console.error("executor binary is missing. Reinstall the package or run 'npm rebuild executor'.");
   process.exit(1);
 }

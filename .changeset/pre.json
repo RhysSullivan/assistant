@@ -26,6 +26,7 @@
     "@executor/ui": "1.4.0-beta.0"
   },
   "changesets": [
+    "funny-buses-count",
     "ripe-yaks-sniff"
   ]
 }
