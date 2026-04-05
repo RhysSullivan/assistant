@@ -359,20 +359,22 @@ export default function OnePasswordSettings() {
         )}
       </div>
 
-      <ConfigDialog
-        open={configOpen}
-        onOpenChange={setConfigOpen}
-        initial={
-          config
-            ? {
-                authKind: config.auth.kind,
-                accountName: config.auth.kind === "desktop-app" ? config.auth.accountName : config.auth.tokenSecretId,
-                vaultId: config.vaultId,
-                name: config.name,
-              }
-            : undefined
-        }
-      />
+      {configOpen && (
+        <ConfigDialog
+          open={configOpen}
+          onOpenChange={setConfigOpen}
+          initial={
+            config
+              ? {
+                  authKind: config.auth.kind,
+                  accountName: config.auth.kind === "desktop-app" ? config.auth.accountName : config.auth.tokenSecretId,
+                  vaultId: config.vaultId,
+                  name: config.name,
+                }
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }
