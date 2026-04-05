@@ -18,6 +18,9 @@ export interface Kv {
   readonly delete: (namespace: string, key: string) => Effect.Effect<boolean>;
   readonly list: (namespace: string) => Effect.Effect<readonly { key: string; value: string }[]>;
   readonly deleteAll: (namespace: string) => Effect.Effect<number>;
+  readonly withTransaction?: <A, E>(
+    effect: Effect.Effect<A, E, never>,
+  ) => Effect.Effect<A, E, never>;
 }
 
 /**
@@ -30,6 +33,9 @@ export interface ScopedKv {
   readonly delete: (key: string) => Effect.Effect<boolean>;
   readonly list: () => Effect.Effect<readonly { key: string; value: string }[]>;
   readonly deleteAll: () => Effect.Effect<number>;
+  readonly withTransaction?: <A, E>(
+    effect: Effect.Effect<A, E, never>,
+  ) => Effect.Effect<A, E, never>;
 }
 
 /**
@@ -41,6 +47,7 @@ export const scopeKv = (kv: Kv, namespace: string): ScopedKv => ({
   delete: (key) => kv.delete(namespace, key),
   list: () => kv.list(namespace),
   deleteAll: () => kv.deleteAll(namespace),
+  withTransaction: kv.withTransaction,
 });
 
 /**
@@ -62,5 +69,6 @@ export const makeInMemoryScopedKv = (): ScopedKv => {
         store.clear();
         return n;
       }),
+    withTransaction: (effect) => effect,
   };
 };

@@ -20,17 +20,19 @@ export interface StoredSource {
   readonly config: SourceConfig;
 }
 
+export interface StoredOperation {
+  readonly toolId: ToolId;
+  readonly namespace: string;
+  readonly binding: OperationBinding;
+  readonly config: InvocationConfig;
+}
+
 export interface OpenApiOperationStore {
   readonly get: (
     toolId: ToolId,
   ) => Effect.Effect<{ binding: OperationBinding; config: InvocationConfig } | null>;
 
-  readonly put: (
-    toolId: ToolId,
-    namespace: string,
-    binding: OperationBinding,
-    config: InvocationConfig,
-  ) => Effect.Effect<void>;
+  readonly put: (entries: readonly StoredOperation[]) => Effect.Effect<void>;
 
   readonly remove: (toolId: ToolId) => Effect.Effect<void>;
 

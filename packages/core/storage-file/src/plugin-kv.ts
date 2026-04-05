@@ -2,7 +2,7 @@
 // Kv implementations — SQLite and in-memory
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import type * as SqlClient from "@effect/sql/SqlClient";
 import type { Kv } from "@executor/sdk";
 
@@ -58,6 +58,27 @@ export const makeSqliteKv = (sql: SqlClient.SqlClient): Kv => ({
       yield* sql`DELETE FROM kv WHERE namespace = ${namespace}`;
       return before[0]?.c ?? 0;
     })),
+
+  withTransaction: <A, E>(effect: Effect.Effect<A, E, never>) =>
+    absorbSql(
+      Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          yield* sql`BEGIN`;
+          const exit = yield* restore(effect).pipe(Effect.exit);
+
+          if (Exit.isSuccess(exit)) {
+            yield* sql`COMMIT`;
+          } else {
+            yield* sql`ROLLBACK`;
+          }
+
+          return yield* Exit.matchEffect(exit, {
+            onFailure: Effect.failCause,
+            onSuccess: Effect.succeed,
+          });
+        }),
+      ),
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -95,5 +116,7 @@ export const makeInMemoryKv = (): Kv => {
         store.delete(namespace);
         return count;
       }),
+
+    withTransaction: (effect) => effect,
   };
 };

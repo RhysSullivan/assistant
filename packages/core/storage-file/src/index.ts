@@ -99,4 +99,5 @@ export const makeScopedKv = (kv: Kv, folder: string): Kv => ({
   delete: (namespace, key) => kv.delete(`${folder}::${namespace}`, key),
   list: (namespace) => kv.list(`${folder}::${namespace}`),
   deleteAll: (namespace) => kv.deleteAll(`${folder}::${namespace}`),
+  withTransaction: kv.withTransaction,
 });

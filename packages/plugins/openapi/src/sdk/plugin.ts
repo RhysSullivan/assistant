@@ -271,16 +271,13 @@ export const openApiPlugin = (options?: {
               toRegistration(def, namespace),
             );
 
-            yield* Effect.forEach(
-              definitions,
-              (def) =>
-                operationStore.put(
-                  ToolId.make(`${namespace}.${def.toolPath}`),
-                  namespace,
-                  toBinding(def),
-                  invocationConfig,
-                ),
-              { discard: true },
+            yield* operationStore.put(
+              definitions.map((def) => ({
+                toolId: ToolId.make(`${namespace}.${def.toolPath}`),
+                namespace,
+                binding: toBinding(def),
+                config: invocationConfig,
+              })),
             );
 
             yield* ctx.tools.register(registrations);

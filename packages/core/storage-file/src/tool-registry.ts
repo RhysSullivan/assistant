@@ -30,6 +30,11 @@ export const makeKvToolRegistry = (
   toolsKv: ScopedKv,
   defsKv: ScopedKv,
 ) => {
+  const withKvTransaction = <A, E>(
+    kv: ScopedKv,
+    effect: Effect.Effect<A, E, never>,
+  ): Effect.Effect<A, E, never> => kv.withTransaction?.(effect) ?? effect;
+
   const runtimeTools = new Map<string, ToolRegistration>();
   const runtimeHandlers = new Map<string, RuntimeToolHandler>();
   const runtimeDefs = new Map<string, unknown>();
@@ -104,11 +109,14 @@ export const makeKvToolRegistry = (
       }),
 
     registerDefinitions: (newDefs: Record<string, unknown>) =>
-      Effect.gen(function* () {
-        for (const [name, schema] of Object.entries(newDefs)) {
-          yield* defsKv.set(name, JSON.stringify(schema));
-        }
-      }),
+      withKvTransaction(
+        defsKv,
+        Effect.gen(function* () {
+          for (const [name, schema] of Object.entries(newDefs)) {
+            yield* defsKv.set(name, JSON.stringify(schema));
+          }
+        }),
+      ),
 
     registerRuntimeDefinitions: (newDefs: Record<string, unknown>) =>
       Effect.sync(() => {
@@ -160,11 +168,14 @@ export const makeKvToolRegistry = (
       }),
 
     register: (newTools: readonly ToolRegistration[]) =>
-      Effect.gen(function* () {
-        for (const t of newTools) {
-          yield* toolsKv.set(t.id, encodeTool(t));
-        }
-      }),
+      withKvTransaction(
+        toolsKv,
+        Effect.gen(function* () {
+          for (const t of newTools) {
+            yield* toolsKv.set(t.id, encodeTool(t));
+          }
+        }),
+      ),
 
     registerRuntime: (newTools: readonly ToolRegistration[]) =>
       Effect.sync(() => {

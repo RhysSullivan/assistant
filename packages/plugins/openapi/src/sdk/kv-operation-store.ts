@@ -7,7 +7,7 @@
 import { Effect, Schema } from "effect";
 import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
 
-import type { OpenApiOperationStore, StoredSource } from "./operation-store";
+import type { OpenApiOperationStore, StoredOperation, StoredSource } from "./operation-store";
 import { OperationBinding, InvocationConfig, HeaderValue } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,13 @@ const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(StoredSourceSchem
 const makeStore = (
   bindings: ScopedKv,
   sources: ScopedKv,
-): OpenApiOperationStore => ({
+): OpenApiOperationStore => {
+  const withKvTransaction = <A, E>(
+    kv: ScopedKv,
+    effect: Effect.Effect<A, E, never>,
+  ): Effect.Effect<A, E, never> => kv.withTransaction?.(effect) ?? effect;
+
+  return ({
   get: (toolId) =>
     Effect.gen(function* () {
       const raw = yield* bindings.get(toolId);
@@ -54,10 +60,18 @@ const makeStore = (
       return { binding: entry.binding, config: entry.config };
     }),
 
-  put: (toolId, namespace, binding, config) =>
-    bindings.set(
-      toolId,
-      encodeEntry(new StoredEntry({ namespace, binding, config })),
+  put: (entries: readonly StoredOperation[]) =>
+    withKvTransaction(
+      bindings,
+      Effect.forEach(
+        entries,
+        ({ toolId, namespace, binding, config }) =>
+          bindings.set(
+            toolId,
+            encodeEntry(new StoredEntry({ namespace, binding, config })),
+          ),
+        { discard: true },
+      ),
     ),
 
   remove: (toolId) => bindings.delete(toolId).pipe(Effect.asVoid),
@@ -98,7 +112,8 @@ const makeStore = (
       const entries = yield* sources.list();
       return entries.map((e) => decodeSource(e.value) as StoredSource);
     }),
-});
+  });
+};
 
 // ---------------------------------------------------------------------------
 // Factory from global Kv

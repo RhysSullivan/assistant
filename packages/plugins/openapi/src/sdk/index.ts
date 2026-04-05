@@ -8,6 +8,7 @@ export {
 } from "./plugin";
 export {
   type OpenApiOperationStore,
+  type StoredOperation,
   type StoredSource,
   type SourceConfig,
 } from "./operation-store";
