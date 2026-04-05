@@ -29,19 +29,13 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: ToolsPage,
+  component: SourcesPage,
 });
 
 const toolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tools",
   component: ToolsPage,
-});
-
-const sourcesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sources",
-  component: SourcesPage,
 });
 
 const sourceDetailRoute = createRoute({
@@ -66,7 +60,6 @@ const secretsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   toolsRoute,
-  sourcesRoute,
   sourceDetailRoute,
   secretsRoute,
 ]);

@@ -272,7 +272,7 @@ function SidebarContent(props: {
   latestVersion: string | null;
   channel: UpdateChannel;
 }) {
-  const isHome = props.pathname === "/" || props.pathname === "/tools";
+  const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
 
   return (
@@ -294,7 +294,7 @@ function SidebarContent(props: {
         <ScopeLabel />
         <NavItem
           to="/"
-          label="Dashboard"
+          label="Sources"
           active={isHome}
           onNavigate={props.onNavigate}
         />
@@ -305,26 +305,9 @@ function SidebarContent(props: {
           onNavigate={props.onNavigate}
         />
 
-        {/* Sources section */}
+        {/* Sources list */}
         <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
-          <div className="flex items-center justify-between gap-2">
-            <span>Sources</span>
-            <Link
-              to="/sources"
-              onClick={props.onNavigate}
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium normal-case tracking-normal text-primary transition-colors hover:bg-sidebar-active hover:text-foreground"
-            >
-              <svg viewBox="0 0 16 16" fill="none" className="size-3">
-                <path
-                  d="M8 3v10M3 8h10"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                />
-              </svg>
-              Add
-            </Link>
-          </div>
+          <span>Configured</span>
         </div>
 
         <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
