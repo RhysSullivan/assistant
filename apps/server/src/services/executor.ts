@@ -93,12 +93,12 @@ const ExecutorLayer = Layer.effect(
 
     yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
 
-    const cwd = process.cwd();
+    const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
     const kv = makeSqliteKv(sql);
     const config = makeKvConfig(kv, { cwd });
     const scopedKv = makeScopedKv(kv, cwd);
 
-    const configPath = join(process.cwd(), "executor.jsonc");
+    const configPath = join(cwd, "executor.jsonc");
     const fsLayer = NodeFileSystem.layer;
 
     return yield* createExecutor({
@@ -131,7 +131,7 @@ const ExecutorLayer = Layer.effect(
             fsLayer,
           ),
         }),
-        // keychainPlugin(),
+        keychainPlugin(),
         fileSecretsPlugin(),
         onepasswordPlugin({
           kv: scopeKv(scopedKv, "onepassword"),

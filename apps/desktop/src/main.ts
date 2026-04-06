@@ -63,16 +63,31 @@ let serverProcess: ChildProcess | null = null;
 let currentScope: string | null = null;
 let currentPort = DEFAULT_PORT;
 
-const findServerScript = (): string => {
-  // In development, use the CLI source directly
-  const cliMain = resolve(__dirname, "../../cli/src/main.ts");
-  if (existsSync(cliMain)) return cliMain;
+const isDev = !app.isPackaged;
 
-  // Fallback: look for compiled CLI
-  const cliBin = resolve(__dirname, "../../cli/bin/executor.ts");
-  if (existsSync(cliBin)) return cliBin;
+const binaryName = process.platform === "win32" ? "executor.exe" : "executor";
 
-  throw new Error("Could not find executor CLI entry point");
+/**
+ * Returns { command, args, cwd } for spawning the server.
+ * - In dev mode: uses `bun run` with the CLI source
+ * - In production: uses the bundled sidecar binary
+ */
+const resolveServerCommand = (): { command: string; args: string[] } => {
+  if (isDev) {
+    const cliMain = resolve(__dirname, "../../cli/src/main.ts");
+    if (existsSync(cliMain)) {
+      return { command: "bun", args: ["run", cliMain] };
+    }
+    throw new Error("Could not find executor CLI entry point for dev mode");
+  }
+
+  // Production: sidecar binary bundled via extraResources
+  const sidecar = join(process.resourcesPath, binaryName);
+  if (existsSync(sidecar)) {
+    return { command: sidecar, args: [] };
+  }
+
+  throw new Error(`Sidecar binary not found at ${sidecar}`);
 };
 
 const isServerReady = async (port: number): Promise<boolean> => {
@@ -117,13 +132,17 @@ const startServer = async (
   currentScope = scopePath;
   currentPort = port;
 
-  const script = findServerScript();
-  const args = ["run", script, "web", "--port", String(port)];
+  const server = resolveServerCommand();
+  const args = [...server.args, "web", "--port", String(port)];
 
-  serverProcess = spawn("bun", args, {
-    cwd: scopePath,
+  // In dev mode, run from repo root so bun can resolve workspace deps.
+  // In production, the sidecar is self-contained.
+  const cwd = isDev ? resolve(__dirname, "../../..") : scopePath;
+
+  serverProcess = spawn(server.command, args, {
+    cwd,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env },
+    env: { ...process.env, EXECUTOR_SCOPE_DIR: scopePath },
   });
 
   serverProcess.stdout?.on("data", (data: Buffer) => {

@@ -1,8 +1,5 @@
 ---
 import Layout from '../layouts/Layout.astro'
-
-const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
-<span class="text-ink-faint">  482 tools · policies active · auth shared</span>`
 ---
 
 <Layout>
@@ -11,11 +8,11 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
     <div class="max-w-[1200px] mx-auto px-6 sm:px-10 h-14 flex items-center justify-between border-b border-rule">
       <a href="/" class="font-display text-xl italic text-ink tracking-tight hover:text-teal transition-colors">executor</a>
       <div class="flex items-center gap-8">
-        <a href="#how-it-works" class="hidden sm:block text-[13px] text-ink-muted hover:text-ink transition-colors">How it works</a>
         <a href="#roadmap" class="hidden sm:block text-[13px] text-ink-muted hover:text-ink transition-colors">Roadmap</a>
+        <a href="/setup" class="hidden sm:block text-[13px] text-ink-muted hover:text-ink transition-colors">Setup</a>
         <a href="https://github.com/RhysSullivan/executor" class="hidden sm:block text-[13px] text-ink-muted hover:text-ink transition-colors">GitHub</a>
-        <a href="https://github.com/RhysSullivan/executor" class="text-[13px] font-medium text-surface bg-teal hover:bg-teal-dim px-4 py-1.5 rounded-md transition-colors">
-          Get started
+        <a href="/setup" class="text-[13px] font-medium text-surface bg-teal hover:bg-teal-dim px-4 py-1.5 rounded-md transition-colors">
+          Download
         </a>
       </div>
     </div>
@@ -38,12 +35,9 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
         </p>
 
         <div class="rise-d3 flex flex-wrap items-center justify-center gap-4">
-          <a href="https://github.com/RhysSullivan/executor" class="inline-flex items-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim px-5 py-2.5 rounded-md transition-colors">
+          <a href="/setup" class="inline-flex items-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim px-5 py-2.5 rounded-md transition-colors">
             Get started
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-          </a>
-          <a href="#how-it-works" class="inline-flex items-center gap-2 text-[14px] text-ink-muted hover:text-ink border border-rule hover:border-ink-faint px-5 py-2.5 rounded-md transition-colors">
-            How it works
           </a>
         </div>
       </div>
@@ -686,75 +680,6 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
     </div>
   </section>
 
-  <!-- ─── HOW IT WORKS: compact ─── -->
-  <section id="how-it-works" class="py-32 sm:py-40 relative">
-    <div class="max-w-[1200px] mx-auto px-6 sm:px-10">
-      <div class="reveal mb-20">
-        <span class="text-[11px] font-mono uppercase tracking-[0.2em] text-ink-faint mb-4 block">How it works</span>
-        <h2 class="font-display text-[clamp(2rem,4.5vw,3.5rem)] leading-[1.05] tracking-tight">
-          Four steps to<br /><span class="italic text-teal">every integration</span>
-        </h2>
-      </div>
-
-      <!-- Horizontal steps on desktop -->
-      <div class="reveal grid md:grid-cols-4 gap-px bg-rule rounded-xl overflow-hidden mb-16">
-        <div class="bg-surface p-6 sm:p-8">
-          <span class="font-display text-4xl text-teal/20 leading-none block mb-4">1</span>
-          <h3 class="text-[14px] font-medium mb-2">Add sources</h3>
-          <p class="text-[13px] text-ink-muted">Point at any API. If it has a schema, Executor indexes it.</p>
-        </div>
-        <div class="bg-surface p-6 sm:p-8">
-          <span class="font-display text-4xl text-teal/20 leading-none block mb-4">2</span>
-          <h3 class="text-[14px] font-medium mb-2">Tools are indexed</h3>
-          <p class="text-[13px] text-ink-muted">Every endpoint becomes a typed, discoverable tool in your catalog.</p>
-        </div>
-        <div class="bg-surface p-6 sm:p-8">
-          <span class="font-display text-4xl text-teal/20 leading-none block mb-4">3</span>
-          <h3 class="text-[14px] font-medium mb-2">Set policies</h3>
-          <p class="text-[13px] text-ink-muted">Define what's auto-approved and what needs human sign-off.</p>
-        </div>
-        <div class="bg-surface p-6 sm:p-8">
-          <span class="font-display text-4xl text-teal/20 leading-none block mb-4">4</span>
-          <h3 class="text-[14px] font-medium mb-2">Connect agents</h3>
-          <p class="text-[13px] text-ink-muted">Expose your catalog over MCP. Any agent gets your tools and auth.</p>
-        </div>
-      </div>
-
-      <!-- Single code block showing the MCP bridge -->
-      <div class="reveal max-w-lg mx-auto">
-        <div class="bg-surface-raised border border-rule rounded-lg overflow-hidden">
-          <div class="px-4 py-2.5 border-b border-rule">
-            <span class="text-[11px] font-mono text-ink-faint">terminal</span>
-          </div>
-          <div class="p-5 font-mono text-[13px] leading-[1.8]">
-            <pre set:html={mcpCode} />
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── SOURCES: visual strip ─── -->
-  <section class="py-20 relative">
-    <div class="absolute inset-0 border-t border-b border-rule"></div>
-
-    <div class="relative max-w-[1200px] mx-auto px-6 sm:px-10">
-      <div class="flex flex-wrap items-center justify-between gap-6">
-        <span class="text-[13px] text-ink-muted">If you can represent it in JSON schema, it's an integration</span>
-        <div class="flex items-center gap-4 sm:gap-8">
-          <span class="font-mono text-[13px] text-teal/70">OpenAPI</span>
-          <span class="text-ink-faint">&middot;</span>
-          <span class="font-mono text-[13px] text-teal/70">GraphQL</span>
-          <span class="text-ink-faint">&middot;</span>
-          <span class="font-mono text-[13px] text-teal/70">MCP</span>
-          <span class="text-ink-faint">&middot;</span>
-          <span class="font-mono text-[13px] text-teal/70">Google Discovery</span>
-          <span class="text-ink-faint">&middot;</span>
-          <span class="font-mono text-[13px] text-ink-muted italic">yours</span>
-        </div>
-      </div>
-    </div>
-  </section>
 
   <!-- ─── ROADMAP ─── -->
   <section id="roadmap" class="py-32 sm:py-40 relative">
@@ -792,6 +717,10 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
                 <svg class="w-4 h-4 text-teal mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                 <span class="text-ink-muted">Local web UI</span>
               </li>
+              <li class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-teal mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                <span class="text-ink-muted">Desktop app</span>
+              </li>
             </ul>
           </div>
         </div>
@@ -803,7 +732,6 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
             <span class="font-mono text-[11px] text-ink-muted uppercase tracking-[0.15em]">Soon</span>
           </div>
           <ul class="space-y-3 text-[14px]">
-            <li class="text-ink-muted">Desktop app</li>
             <li class="text-ink-muted">Team management &amp; SaaS</li>
             <li class="text-ink-muted">Advanced approval workflows</li>
             <li class="text-ink-muted">Org-wide source catalog</li>
@@ -838,9 +766,12 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
         </h2>
 
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
-          <a href="https://github.com/RhysSullivan/executor" class="inline-flex items-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim px-6 py-3 rounded-md transition-colors">
+          <a href="/setup" class="inline-flex items-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim px-6 py-3 rounded-md transition-colors">
             Get started
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+          </a>
+          <a href="https://github.com/RhysSullivan/executor" class="inline-flex items-center gap-2 text-[14px] text-ink-muted hover:text-ink border border-rule hover:border-ink-faint px-6 py-3 rounded-md transition-colors">
+            View on GitHub
           </a>
         </div>
 
