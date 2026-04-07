@@ -3,8 +3,11 @@
 // ---------------------------------------------------------------------------
 
 import { resolve } from "node:path";
-import * as schema from "@executor/storage-postgres";
+import * as sharedSchema from "@executor/storage-postgres/schema";
+import * as cloudSchema from "./schema";
 import type { DrizzleDb } from "@executor/storage-postgres";
+
+const schema = { ...sharedSchema, ...cloudSchema };
 
 export type { DrizzleDb };
 

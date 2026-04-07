@@ -21,7 +21,6 @@ import {
 
 import { makePgConfig } from "./index";
 import { makePgKv } from "./pg-kv";
-import { makeUserStore } from "./user-store";
 import * as schema from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -355,57 +354,3 @@ describe("Executor with Postgres storage", () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// User Store (not part of Executor, tested directly)
-// ---------------------------------------------------------------------------
-
-describe("UserStore", () => {
-  it("upsert and get user", async () => {
-    const store = makeUserStore(db);
-    const user = await store.upsertUser({
-      id: "user-1",
-      email: "test@example.com",
-      name: "Test User",
-    });
-    expect(user.id).toBe("user-1");
-
-    const fetched = await store.getUser("user-1");
-    expect(fetched!.name).toBe("Test User");
-
-    await store.upsertUser({ id: "user-1", email: "test@example.com", name: "Updated" });
-    expect((await store.getUser("user-1"))!.name).toBe("Updated");
-  });
-
-  it("create team and manage members", async () => {
-    const store = makeUserStore(db);
-    await store.upsertUser({ id: "u1", email: "a@example.com", name: "A" });
-    await store.upsertUser({ id: "u2", email: "b@example.com", name: "B" });
-
-    const team = await store.createTeam("My Team");
-    await store.addMember(team.id, "u1", "owner");
-    await store.addMember(team.id, "u2", "member");
-
-    expect(await store.listMembers(team.id)).toHaveLength(2);
-
-    const teams = await store.getTeamsForUser("u1");
-    expect(teams[0]!.teamName).toBe("My Team");
-
-    await store.removeMember(team.id, "u2");
-    expect(await store.listMembers(team.id)).toHaveLength(1);
-  });
-
-  it("invitations workflow", async () => {
-    const store = makeUserStore(db);
-    await store.upsertUser({ id: "u1", email: "owner@example.com" });
-    const team = await store.createTeam("Team");
-    await store.addMember(team.id, "u1", "owner");
-
-    const invitation = await store.createInvitation(team.id, "new@example.com", "u1");
-    expect(invitation.status).toBe("pending");
-    expect(await store.getPendingInvitations("new@example.com")).toHaveLength(1);
-
-    await store.acceptInvitation(invitation.id);
-    expect(await store.getPendingInvitations("new@example.com")).toHaveLength(0);
-  });
-
-});

@@ -29,11 +29,8 @@ export { makePgKv } from "./pg-kv";
 export { makePgToolRegistry } from "./tool-registry";
 export { makePgSecretStore } from "./secret-store";
 export { makePgPolicyEngine } from "./policy-engine";
-export { makeUserStore } from "./user-store";
-export type { User, Team, TeamMember, Invitation } from "./user-store";
 export { encrypt, decrypt } from "./crypto";
 export type { DrizzleDb } from "./types";
-export * from "./schema";
 
 // ---------------------------------------------------------------------------
 // Convenience: build a full ExecutorConfig from a Drizzle DB instance

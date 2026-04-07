@@ -5,7 +5,7 @@
 import { eq, and } from "drizzle-orm";
 
 import { users, teams, teamMembers, invitations } from "./schema";
-import type { DrizzleDb } from "./types";
+import type { DrizzleDb } from "@executor/storage-postgres";
 
 export type User = typeof users.$inferSelect;
 export type Team = typeof teams.$inferSelect;

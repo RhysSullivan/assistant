@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { makeUserStore } from "@executor/storage-postgres";
+import { makeUserStore } from "../services/user-store";
 import type { DrizzleDb } from "../services/db";
 
 // ---------------------------------------------------------------------------
