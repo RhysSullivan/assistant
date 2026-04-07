@@ -12,17 +12,16 @@ import { Effect, Layer } from "effect";
 
 import { addGroup, CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api";
 import { createExecutionEngine } from "@executor/execution";
-import { makeUserStore } from "@executor/storage-postgres";
 import { OpenApiGroup, OpenApiExtensionService, OpenApiHandlers } from "@executor/plugin-openapi/api";
 import { McpGroup, McpExtensionService, McpHandlers } from "@executor/plugin-mcp/api";
 import { GoogleDiscoveryGroup, GoogleDiscoveryExtensionService, GoogleDiscoveryHandlers } from "@executor/plugin-google-discovery/api";
 import { GraphqlGroup, GraphqlExtensionService, GraphqlHandlers } from "@executor/plugin-graphql/api";
 
 import { createTeamExecutor } from "./services/executor";
-import { authenticateRequest } from "./auth/workos";
 import { CloudAuthApi } from "./auth/api";
 import { CloudAuthHandlers } from "./auth/handlers";
 import { AuthContext, UserStoreService } from "./auth/context";
+import { WorkOSAuth } from "./auth/workos";
 import type { DrizzleDb } from "./services/db";
 
 // ---------------------------------------------------------------------------
@@ -65,10 +64,15 @@ const parseCookie = (cookieHeader: string | null, name: string): string | null =
 // ---------------------------------------------------------------------------
 
 export const createCloudApiHandler = (db: DrizzleDb, encryptionKey: string) => {
-  const userStore = makeUserStore(db);
-
   return async (request: Request): Promise<Response> => {
-    const auth = await authenticateRequest(request);
+    // Authenticate via WorkOS sealed session
+    const auth = await Effect.runPromise(
+      Effect.gen(function* () {
+        const workos = yield* WorkOSAuth;
+        return yield* workos.authenticateRequest(request);
+      }).pipe(Effect.provide(WorkOSAuth.Default)),
+    );
+
     if (!auth) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -78,7 +82,14 @@ export const createCloudApiHandler = (db: DrizzleDb, encryptionKey: string) => {
       return Response.json({ error: "No team selected" }, { status: 401 });
     }
 
-    const team = await userStore.getTeam(teamId);
+    // Resolve team name
+    const userStore = UserStoreService.layer(db);
+    const team = await Effect.runPromise(
+      Effect.gen(function* () {
+        const users = yield* UserStoreService;
+        return yield* users.use((s) => s.getTeam(teamId));
+      }).pipe(Effect.provide(userStore)),
+    );
     const teamName = team?.name ?? "Unknown Team";
 
     const executor = await Effect.runPromise(
@@ -108,7 +119,8 @@ export const createCloudApiHandler = (db: DrizzleDb, encryptionKey: string) => {
           name: `${auth.firstName ?? ""} ${auth.lastName ?? ""}`.trim() || null,
           avatarUrl: auth.avatarUrl,
         })),
-        Layer.provideMerge(Layer.succeed(UserStoreService, userStore)),
+        Layer.provideMerge(UserStoreService.layer(db)),
+        Layer.provideMerge(WorkOSAuth.Default),
         Layer.provideMerge(HttpServer.layerContext),
       ),
       { middleware: HttpMiddleware.logger },

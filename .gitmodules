@@ -1,0 +1,9 @@
+[submodule ".reference/effect-atom"]
+	path = .reference/effect-atom
+	url = https://github.com/tim-smart/effect-atom.git
+[submodule ".reference/tanstack-router"]
+	path = .reference/tanstack-router
+	url = https://github.com/TanStack/router.git
+[submodule ".reference/effect"]
+	path = .reference/effect
+	url = https://github.com/Effect-TS/effect.git

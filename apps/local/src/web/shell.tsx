@@ -450,7 +450,6 @@ export function Shell() {
           <div className="w-8 shrink-0" />
         </div>
 
-        {/* Outlet — pages control their own padding/scroll */}
         <Outlet />
       </main>
     </div>

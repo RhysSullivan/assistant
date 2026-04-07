@@ -1,168 +1,10 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAtomRefresh, useAtomValue, Result } from "@effect-atom/atom-react";
 import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
-import { useScope, useScopeInfo } from "@executor/react/api/scope-context";
+import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { useAuth } from "./auth";
-
-// ── Env ─────────────────────────────────────────────────────────────────
-
-type AppMetaEnv = {
-  readonly VITE_APP_VERSION: string;
-  readonly VITE_GITHUB_URL: string;
-};
-
-const { VITE_APP_VERSION, VITE_GITHUB_URL } = (import.meta as ImportMeta & {
-  readonly env: AppMetaEnv;
-}).env;
-
-// ── Version helpers ─────────────────────────────────────────────────────
-
-type UpdateChannel = "latest" | "beta";
-
-const EXECUTOR_DIST_TAGS_PATH = "/v1/app/npm/dist-tags";
-
-type ParsedVersion = {
-  readonly major: number;
-  readonly minor: number;
-  readonly patch: number;
-  readonly prerelease: ReadonlyArray<string | number> | null;
-};
-
-const semverPattern =
-  /^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?<prerelease>[0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
-
-const resolveUpdateChannel = (version: string): UpdateChannel =>
-  version.includes("-beta.") ? "beta" : "latest";
-
-const parseVersion = (version: string): ParsedVersion | null => {
-  const match = version.trim().match(semverPattern);
-  if (!match?.groups) return null;
-  return {
-    major: Number(match.groups.major),
-    minor: Number(match.groups.minor),
-    patch: Number(match.groups.patch),
-    prerelease: match.groups.prerelease
-      ? match.groups.prerelease.split(".").map((id) =>
-          /^\d+$/.test(id) ? Number(id) : id,
-        )
-      : null,
-  };
-};
-
-const comparePrereleaseIdentifiers = (
-  left: ReadonlyArray<string | number> | null,
-  right: ReadonlyArray<string | number> | null,
-): number => {
-  if (left === null && right === null) return 0;
-  if (left === null) return 1;
-  if (right === null) return -1;
-  const max = Math.max(left.length, right.length);
-  for (let i = 0; i < max; i++) {
-    const l = left[i];
-    const r = right[i];
-    if (l === undefined) return -1;
-    if (r === undefined) return 1;
-    if (l === r) continue;
-    if (typeof l === "number" && typeof r === "number") return l < r ? -1 : 1;
-    if (typeof l === "number") return -1;
-    if (typeof r === "number") return 1;
-    return l < r ? -1 : 1;
-  }
-  return 0;
-};
-
-const compareVersions = (left: string, right: string): number | null => {
-  const lv = parseVersion(left);
-  const rv = parseVersion(right);
-  if (!lv || !rv) return null;
-  if (lv.major !== rv.major) return lv.major < rv.major ? -1 : 1;
-  if (lv.minor !== rv.minor) return lv.minor < rv.minor ? -1 : 1;
-  if (lv.patch !== rv.patch) return lv.patch < rv.patch ? -1 : 1;
-  return comparePrereleaseIdentifiers(lv.prerelease, rv.prerelease);
-};
-
-// ── useLatestVersion ────────────────────────────────────────────────────
-
-function useLatestVersion(currentVersion: string) {
-  const channel = resolveUpdateChannel(currentVersion);
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(EXECUTOR_DIST_TAGS_PATH)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load dist tags: ${res.status}`);
-        return res.json() as Promise<Partial<Record<UpdateChannel, string>>>;
-      })
-      .then((data) => {
-        if (!cancelled) setLatestVersion(data[channel] ?? null);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [channel]);
-
-  const updateAvailable =
-    latestVersion !== null && compareVersions(currentVersion, latestVersion) === -1;
-
-  return { latestVersion, updateAvailable, channel };
-}
-
-// ── UpdateCard ──────────────────────────────────────────────────────────
-
-function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
-  const command = `npm i -g executor@${props.channel}`;
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(command).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [command]);
-
-  return (
-    <div className="mx-2 mb-2 rounded-xl border border-primary/25 bg-primary/[0.06] p-3">
-      <div className="flex items-center gap-2">
-        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15">
-          <svg viewBox="0 0 16 16" fill="none" className="size-3 text-primary">
-            <path d="M8 3v7M5 7l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M3 12h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </div>
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-foreground">Update available</p>
-          <p className="text-[10px] text-muted-foreground">
-            v{props.latestVersion}
-          </p>
-        </div>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        onClick={handleCopy}
-        className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border-border/60 bg-background/50 px-2.5 py-1.5 text-left hover:bg-background/80"
-      >
-        <code className="truncate font-mono text-[10px] text-sidebar-foreground">
-          {command}
-        </code>
-        <span className="shrink-0 text-muted-foreground transition-colors group-hover:text-foreground">
-          {copied ? (
-            <svg viewBox="0 0 16 16" fill="none" className="size-3 text-primary">
-              <path d="M3 8.5l3.5 3.5L13 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 16 16" fill="none" className="size-3">
-              <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M3 11V3.5A.5.5 0 013.5 3H11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-            </svg>
-          )}
-        </span>
-      </Button>
-    </div>
-  );
-}
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
@@ -233,30 +75,6 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   });
 }
 
-// ── ScopeLabel ───────────────────────────────────────────────────────────
-
-function ScopeLabel() {
-  const { name } = useScopeInfo();
-  // Show just the last folder name, with full path as tooltip
-  const parts = name.replace(/\/+$/, "").split("/");
-  const folder = parts[parts.length - 1] || name;
-
-  return (
-    <div className="mb-1.5 flex items-center gap-1.5 rounded-md px-2.5 py-1.5" title={name}>
-      <svg viewBox="0 0 16 16" fill="none" className="size-3.5 shrink-0 text-muted-foreground/50">
-        <path
-          d="M2 4.5C2 3.67 2.67 3 3.5 3h3.09a1 1 0 0 1 .7.29l1.42 1.42a1 1 0 0 0 .7.29H12.5c.83 0 1.5.67 1.5 1.5v5.5c0 .83-.67 1.5-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5z"
-          stroke="currentColor"
-          strokeWidth="1.2"
-        />
-      </svg>
-      <span className="truncate text-[12px] font-medium text-foreground/80">
-        {folder}
-      </span>
-    </div>
-  );
-}
-
 // ── UserFooter ──────────────────────────────────────────────────────────
 
 function UserFooter() {
@@ -291,15 +109,17 @@ function UserFooter() {
             </p>
           )}
         </div>
-        <a
-          href="/auth/logout"
-          className="shrink-0 rounded-md p-1 text-muted-foreground/50 transition-colors hover:bg-sidebar-active hover:text-foreground"
-          title="Sign out"
-        >
-          <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-            <path d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6M10.5 11.5L14 8l-3.5-3.5M14 8H6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </a>
+        <form action="/auth/logout" method="post">
+          <button
+            type="submit"
+            className="shrink-0 rounded-md p-1 text-muted-foreground/50 transition-colors hover:bg-sidebar-active hover:text-foreground"
+            title="Sign out"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
+              <path d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6M10.5 11.5L14 8l-3.5-3.5M14 8H6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -311,9 +131,6 @@ function SidebarContent(props: {
   pathname: string;
   onNavigate?: () => void;
   showBrand?: boolean;
-  updateAvailable: boolean;
-  latestVersion: string | null;
-  channel: UpdateChannel;
 }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
@@ -331,7 +148,6 @@ function SidebarContent(props: {
       )}
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
-        <ScopeLabel />
         <NavItem
           to="/"
           label="Sources"
@@ -345,7 +161,6 @@ function SidebarContent(props: {
           onNavigate={props.onNavigate}
         />
 
-        {/* Sources list */}
         <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
           <span>Configured</span>
         </div>
@@ -353,7 +168,6 @@ function SidebarContent(props: {
         <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
       </nav>
 
-      {/* User */}
       <UserFooter />
     </>
   );
@@ -367,7 +181,6 @@ export function Shell() {
   const scopeId = useScope();
   const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const refreshTools = useAtomRefresh(toolsAtom(scopeId));
-  const { latestVersion, updateAvailable, channel } = useLatestVersion(VITE_APP_VERSION);
   const lastPathname = useRef(pathname);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   if (lastPathname.current !== pathname) {
@@ -385,33 +198,11 @@ export function Shell() {
     };
   }, [mobileSidebarOpen]);
 
-  useEffect(() => {
-    if (!import.meta.hot) {
-      return;
-    }
-
-    const refreshBackendData = () => {
-      refreshSources();
-      refreshTools();
-    };
-
-    import.meta.hot.on("executor:backend-updated", refreshBackendData);
-
-    return () => {
-      import.meta.hot?.off("executor:backend-updated", refreshBackendData);
-    };
-  }, [refreshSources, refreshTools]);
-
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar */}
       <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
-        <SidebarContent
-          pathname={pathname}
-          updateAvailable={updateAvailable}
-          latestVersion={latestVersion}
-          channel={channel}
-        />
+        <SidebarContent pathname={pathname} />
       </aside>
 
       {/* Mobile sidebar overlay */}
@@ -445,9 +236,6 @@ export function Shell() {
               pathname={pathname}
               onNavigate={() => setMobileSidebarOpen(false)}
               showBrand={false}
-              updateAvailable={updateAvailable}
-              latestVersion={latestVersion}
-              channel={channel}
             />
           </div>
         </div>
@@ -475,7 +263,6 @@ export function Shell() {
           <div className="w-8 shrink-0" />
         </div>
 
-        {/* Outlet — pages control their own padding/scroll */}
         <Outlet />
       </main>
     </div>

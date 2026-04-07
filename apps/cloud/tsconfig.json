@@ -7,7 +7,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -19,5 +19,5 @@
       }
     ]
   },
-  "include": ["src"]
+  "include": ["src", "vite.config.ts"]
 }

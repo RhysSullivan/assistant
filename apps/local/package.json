@@ -28,26 +28,27 @@
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@shikijs/langs": "^4.0.2",
     "@shikijs/themes": "^4.0.2",
-    "@tanstack/react-router": "^1.168.10",
+    "@tanstack/react-router": "catalog:",
+    "@tanstack/react-start": "catalog:",
     "effect": "catalog:",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "shiki": "^4.0.2",
     "streamdown": "^2.5.0",
-    "tailwindcss": "^4.1.10"
+    "tailwindcss": "catalog:"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.10",
+    "@tailwindcss/vite": "catalog:",
     "@types/node": "catalog:",
-    "@types/react": "^19.1.0",
-    "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^4.5.2",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
     "bun-types": "catalog:",
-    "typescript": "^5.9.3",
-    "vite": "^6.3.5"
+    "typescript": "catalog:",
+    "vite": "catalog:"
   },
   "scripts": {
-    "dev": "bunx --bun vite",
+    "dev": "bunx --bun vite dev",
     "build": "vite build",
     "typecheck": "tsc --noEmit"
   }

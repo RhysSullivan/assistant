@@ -22,9 +22,9 @@
     "effect": "catalog:"
   },
   "peerDependencies": {
-    "react": "^19.1.0",
+    "react": "catalog:",
     "@effect-atom/atom-react": "^0.5.0",
-    "@tanstack/react-router": "^1.168.10",
+    "@tanstack/react-router": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/react": "workspace:*"
   },
@@ -46,11 +46,11 @@
     }
   },
   "devDependencies": {
-    "react": "^19.1.0",
+    "react": "catalog:",
     "@effect-atom/atom-react": "^0.5.0",
     "@executor/api": "workspace:*",
     "@executor/react": "workspace:*",
-    "@types/react": "^19.1.0",
+    "@types/react": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "bun-types": "catalog:",

@@ -42,7 +42,18 @@
     "@types/node": "^24.3.1",
     "bun-types": "^1.2.22",
     "drizzle-orm": "^0.44.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "vite": "^8.0.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/react-router": "^1.168.10",
+    "@tanstack/react-start": "^1.167.16",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.9.3",
+    "tailwindcss": "^4.2.2"
   },
   "scripts": {
     "dev": "turbo run dev --filter='!@executor/desktop'",

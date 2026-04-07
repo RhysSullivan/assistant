@@ -15,7 +15,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "bun-types": "catalog:",
-    "typescript": "^5.9.3"
+    "typescript": "catalog:"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

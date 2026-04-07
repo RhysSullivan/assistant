@@ -21,9 +21,9 @@
     "effect": "catalog:"
   },
   "peerDependencies": {
-    "react": "^19.1.0",
+    "react": "catalog:",
     "@effect-atom/atom-react": "^0.5.0",
-    "@tanstack/react-router": "^1.168.10",
+    "@tanstack/react-router": "catalog:",
     "@executor/react": "workspace:*"
   },
   "peerDependenciesMeta": {
@@ -45,9 +45,9 @@
     "@effect/vitest": "catalog:",
     "@executor/react": "workspace:*",
     "@types/node": "catalog:",
-    "@types/react": "^19.1.0",
+    "@types/react": "catalog:",
     "bun-types": "catalog:",
-    "react": "^19.1.0",
+    "react": "catalog:",
     "vitest": "catalog:"
   }
 }

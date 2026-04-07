@@ -24,7 +24,7 @@
     "@types/node": "catalog:",
     "electron": "35.7.5",
     "electron-builder": "^26.0.12",
-    "typescript": "^5.9.3"
+    "typescript": "catalog:"
   },
   "build": {
     "appId": "com.executor.desktop",

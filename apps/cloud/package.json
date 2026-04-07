@@ -15,30 +15,30 @@
     "@executor/react": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@executor/storage-postgres": "workspace:*",
-    "@tanstack/react-router": "^1.168.10",
+    "@tanstack/react-router": "catalog:",
+    "@tanstack/react-start": "catalog:",
     "@workos-inc/node": "^7.0.0",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "pg": "^8.16.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.4.3",
+    "@tailwindcss/vite": "catalog:",
     "@types/pg": "^8.15.4",
-    "@tailwindcss/vite": "^4.1.10",
-    "@types/react": "^19.1.0",
-    "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^4.5.2",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
     "portless": "^0.3.0",
-    "typescript": "^5.9.3",
-    "vite": "^6.3.5"
+    "typescript": "catalog:",
+    "vite": "catalog:"
   },
   "scripts": {
-    "dev": "op run --env-file=.env -- portless executor-cloud bun --hot ./src/main.ts",
-    "dev:web": "vite",
-    "start": "bun ./src/main.ts",
-    "build:web": "vite build",
+    "dev": "portless executor-cloud op run --env-file=.env -- vite dev",
+    "build": "vite build",
+    "start": "bun ./server.ts",
     "typecheck": "tsc --noEmit"
   }
 }

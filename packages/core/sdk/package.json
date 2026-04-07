@@ -16,6 +16,6 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "vitest": "catalog:",
-    "typescript": "latest"
+    "typescript": "catalog:"
   }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Button } from "@executor/ui/components/button";
-import { CodeBlock } from "@executor/ui/components/code-block";
-import { useScopeInfo } from "@executor/react";
+import { Button } from "./button";
+import { CodeBlock } from "./code-block";
+import { useScopeInfo } from "../api/scope-context";
 
 type TransportMode = "stdio" | "http";
 

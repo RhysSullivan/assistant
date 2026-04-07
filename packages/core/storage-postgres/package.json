@@ -19,7 +19,7 @@
     "@electric-sql/pglite": "^0.4.3",
     "@types/pg": "^8.15.4",
     "drizzle-kit": "^0.31.0",
-    "typescript": "^5.9.3",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "scripts": {

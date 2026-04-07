@@ -1,119 +1,108 @@
 // ---------------------------------------------------------------------------
-// WorkOS AuthKit integration — sealed sessions, no server-side session store
+// WorkOS AuthKit — Effect-native sealed session management
 // ---------------------------------------------------------------------------
 
+import { Context, Effect, Layer } from "effect";
 import { WorkOS } from "@workos-inc/node";
+import { WorkOSError } from "./context";
 
 const COOKIE_NAME = "wos-session";
 
-let workos: WorkOS | null = null;
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
 
-export const getWorkOS = (): WorkOS => {
-  if (!workos) {
-    workos = new WorkOS(process.env.WORKOS_API_KEY!);
-  }
-  return workos;
-};
 
-const getCookiePassword = (): string => {
-  const password = process.env.WORKOS_COOKIE_PASSWORD;
-  if (!password || password.length < 32) {
-    throw new Error("WORKOS_COOKIE_PASSWORD must be at least 32 characters");
-  }
-  return password;
-};
+const make = Effect.gen(function* () {
+  const apiKey = process.env.WORKOS_API_KEY!;
+  const clientId = process.env.WORKOS_CLIENT_ID!;
+  const cookiePassword = process.env.WORKOS_COOKIE_PASSWORD!;
 
-export const getAuthorizationUrl = (redirectUri: string): string => {
-  const wos = getWorkOS();
-  return wos.userManagement.getAuthorizationUrl({
-    provider: "authkit",
-    redirectUri,
-    clientId: process.env.WORKOS_CLIENT_ID!,
-  });
-};
-
-export const authenticateWithCode = async (code: string) => {
-  const wos = getWorkOS();
-  return wos.userManagement.authenticateWithCode({
-    code,
-    clientId: process.env.WORKOS_CLIENT_ID!,
-    session: {
-      sealSession: true,
-      cookiePassword: getCookiePassword(),
-    },
-  });
-};
-
-/**
- * Authenticate a request using the sealed session cookie.
- * Returns user info or null if not authenticated.
- */
-/**
- * Authenticate a request using the sealed session cookie.
- * Automatically refreshes expired tokens and returns a new cookie if needed.
- */
-export const authenticateRequest = async (request: Request) => {
-  const cookieHeader = request.headers.get("cookie");
-  const sessionData = parseCookie(cookieHeader, COOKIE_NAME);
-  if (!sessionData) return null;
-
-  const wos = getWorkOS();
-  const session = wos.userManagement.loadSealedSession({
-    sessionData,
-    cookiePassword: getCookiePassword(),
-  });
-
-  const result = await session.authenticate();
-
-  if (result.authenticated) {
-    return {
-      userId: result.user.id,
-      email: result.user.email,
-      firstName: result.user.firstName,
-      lastName: result.user.lastName,
-      avatarUrl: result.user.profilePictureUrl,
-      sessionId: result.sessionId,
-      refreshedCookie: undefined as string | undefined,
-    };
+  if (!cookiePassword || cookiePassword.length < 32) {
+    return yield* Effect.die(new Error("WORKOS_COOKIE_PASSWORD must be at least 32 characters"));
   }
 
-  // Token expired — try refreshing
-  if (result.reason === "no_session_cookie_provided") return null;
+  const workos = new WorkOS(apiKey, { clientId });
 
-  try {
-    const refreshed = await session.refresh();
-    if (!refreshed.authenticated || !refreshed.sealedSession) return null;
+  const use = <A>(fn: (wos: WorkOS) => Promise<A>) =>
+    Effect.tryPromise({
+      try: () => fn(workos),
+      catch: (cause) => new WorkOSError({ cause }),
+    }).pipe(Effect.withSpan("workos"));
 
-    return {
-      userId: refreshed.user.id,
-      email: refreshed.user.email,
-      firstName: refreshed.user.firstName,
-      lastName: refreshed.user.lastName,
-      avatarUrl: refreshed.user.profilePictureUrl,
-      sessionId: refreshed.sessionId,
-      refreshedCookie: makeSessionCookie(refreshed.sealedSession),
-    };
-  } catch {
-    return null;
-  }
-};
+  return {
+    getAuthorizationUrl: (redirectUri: string) =>
+      workos.userManagement.getAuthorizationUrl({
+        provider: "authkit",
+        redirectUri,
+        clientId,
+      }),
 
-/**
- * Get logout URL for the current session.
- */
-export const getLogoutUrl = async (request: Request) => {
-  const cookieHeader = request.headers.get("cookie");
-  const sessionData = parseCookie(cookieHeader, COOKIE_NAME);
-  if (!sessionData) return null;
+    authenticateWithCode: (code: string) =>
+      use((wos) =>
+        wos.userManagement.authenticateWithCode({
+          code,
+          clientId,
+          session: { sealSession: true, cookiePassword },
+        }),
+      ),
 
-  const wos = getWorkOS();
-  const session = wos.userManagement.loadSealedSession({
-    sessionData,
-    cookiePassword: getCookiePassword(),
-  });
+    authenticateRequest: (request: Request) =>
+      Effect.gen(function* () {
+        const sessionData = parseCookie(request.headers.get("cookie"), COOKIE_NAME);
+        if (!sessionData) return null;
 
-  return session.getLogoutUrl();
-};
+        const session = workos.userManagement.loadSealedSession({
+          sessionData,
+          cookiePassword,
+        });
+
+        const result = yield* use((wos) => session.authenticate());
+
+        if (result.authenticated) {
+          return {
+            userId: result.user.id,
+            email: result.user.email,
+            firstName: result.user.firstName,
+            lastName: result.user.lastName,
+            avatarUrl: result.user.profilePictureUrl,
+            sessionId: result.sessionId,
+            refreshedCookie: undefined as string | undefined,
+          };
+        }
+
+        if (result.reason === "no_session_cookie_provided") return null;
+
+        // Try refreshing
+        const refreshed = yield* use((wos) => session.refresh()).pipe(
+          Effect.orElseSucceed(() => ({ authenticated: false as const })),
+        );
+
+        if (!refreshed.authenticated || !("sealedSession" in refreshed) || !refreshed.sealedSession) return null;
+
+        return {
+          userId: refreshed.user.id,
+          email: refreshed.user.email,
+          firstName: refreshed.user.firstName,
+          lastName: refreshed.user.lastName,
+          avatarUrl: refreshed.user.profilePictureUrl,
+          sessionId: refreshed.sessionId,
+          refreshedCookie: makeSessionCookie(refreshed.sealedSession),
+        };
+      }),
+  };
+});
+
+type WorkOSAuthService = Effect.Effect.Success<typeof make>;
+
+export class WorkOSAuth extends Context.Tag("@executor/cloud/WorkOSAuth")<
+  WorkOSAuth,
+  WorkOSAuthService
+>() {
+  static Default = Layer.effect(this, make).pipe(
+    Layer.annotateSpans({ module: "WorkOSAuth" }),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Cookie helpers
@@ -125,7 +114,7 @@ export const makeSessionCookie = (sealedSession: string): string => {
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",
-    "Max-Age=604800", // 7 days
+    "Max-Age=604800",
   ];
   if (process.env.NODE_ENV === "production") parts.push("Secure");
   return parts.join("; ");

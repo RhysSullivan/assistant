@@ -2,11 +2,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@source "../components/**/*.{ts,tsx}";
-@source "../../../../apps/web/src/**/*.{ts,tsx}";
-@source "../../../clients/react/src/**/*.{ts,tsx}";
-@source "../../../plugins/openapi/src/react/**/*.{ts,tsx}";
-@source "../../../plugins/onepassword/src/react/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+@source "../../../../apps/local/src/**/*.{ts,tsx}";
+@source "../../../../apps/cloud/src/**/*.{ts,tsx}";
+@source "../../../plugins/*/src/react/**/*.{ts,tsx}";
 
 @theme inline {
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
