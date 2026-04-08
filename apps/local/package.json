@@ -40,11 +40,12 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "bun-types": "catalog:",
+    "portless": "^0.10.1",
     "typescript": "catalog:",
     "vite": "catalog:"
   },
   "scripts": {
-    "dev": "bunx --bun vite dev",
+    "dev": "portless run --name executor-local vite dev",
     "build": "vite build",
     "typecheck": "tsc --noEmit"
   }

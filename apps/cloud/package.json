@@ -31,12 +31,12 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
-    "portless": "^0.3.0",
+    "portless": "^0.10.1",
     "typescript": "catalog:",
     "vite": "catalog:"
   },
   "scripts": {
-    "dev": "portless executor-cloud op run --env-file=.env -- vite dev",
+    "dev": "op run --env-file=.env -- portless run --name executor-cloud vite dev",
     "build": "vite build",
     "start": "bun ./server.ts",
     "typecheck": "tsc --noEmit"
