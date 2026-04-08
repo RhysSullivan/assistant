@@ -10,11 +10,11 @@ import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { addGroup } from "@executor/api";
 import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
-import { OpenApiGroup, OpenApiHandlers, OpenApiExtensionService } from "@executor/plugin-openapi/api";
-import { McpGroup, McpHandlers, McpExtensionService } from "@executor/plugin-mcp/api";
-import { GoogleDiscoveryGroup, GoogleDiscoveryHandlers, GoogleDiscoveryExtensionService } from "@executor/plugin-google-discovery/api";
-import { OnePasswordGroup, OnePasswordHandlers, OnePasswordExtensionService } from "@executor/plugin-onepassword/api";
-import { GraphqlGroup, GraphqlHandlers, GraphqlExtensionService } from "@executor/plugin-graphql/api";
+import { OpenApiGroup, OpenApiHandlers, OpenApiExtensionService } from "@executor-js/plugin-openapi/api";
+import { McpGroup, McpHandlers, McpExtensionService } from "@executor-js/plugin-mcp/api";
+import { GoogleDiscoveryGroup, GoogleDiscoveryHandlers, GoogleDiscoveryExtensionService } from "@executor-js/plugin-google-discovery/api";
+import { OnePasswordGroup, OnePasswordHandlers, OnePasswordExtensionService } from "@executor-js/plugin-onepassword/api";
+import { GraphqlGroup, GraphqlHandlers, GraphqlExtensionService } from "@executor-js/plugin-graphql/api";
 import { getExecutor } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 

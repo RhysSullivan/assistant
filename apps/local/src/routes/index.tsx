@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SourcesPage } from "@executor/react/pages/sources";
-import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
-import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
-import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
+import { openApiSourcePlugin } from "@executor-js/plugin-openapi/react";
+import { mcpSourcePlugin } from "@executor-js/plugin-mcp/react";
+import { googleDiscoverySourcePlugin } from "@executor-js/plugin-google-discovery/react";
+import { graphqlSourcePlugin } from "@executor-js/plugin-graphql/react";
 
 const sourcePlugins = [
   openApiSourcePlugin,

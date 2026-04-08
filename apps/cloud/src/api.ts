@@ -27,22 +27,22 @@ import {
   OpenApiGroup,
   OpenApiExtensionService,
   OpenApiHandlers,
-} from "@executor/plugin-openapi/api";
+} from "@executor-js/plugin-openapi/api";
 import {
   McpGroup,
   McpExtensionService,
   McpHandlers,
-} from "@executor/plugin-mcp/api";
+} from "@executor-js/plugin-mcp/api";
 import {
   GoogleDiscoveryGroup,
   GoogleDiscoveryExtensionService,
   GoogleDiscoveryHandlers,
-} from "@executor/plugin-google-discovery/api";
+} from "@executor-js/plugin-google-discovery/api";
 import {
   GraphqlGroup,
   GraphqlExtensionService,
   GraphqlHandlers,
-} from "@executor/plugin-graphql/api";
+} from "@executor-js/plugin-graphql/api";
 
 import { OrgAuth } from "./auth/middleware";
 import { OrgAuthLive, SessionAuthLive } from "./auth/middleware-live";

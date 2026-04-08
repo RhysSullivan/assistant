@@ -5,9 +5,9 @@ import {
   makeTestConfig,
   type ToolMetadata,
 } from "@executor-js/core";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
 
 export const prerender = false;
 

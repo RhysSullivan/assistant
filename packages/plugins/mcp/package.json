@@ -1,15 +1,36 @@
 {
-  "name": "@executor/plugin-mcp",
-  "private": true,
+  "name": "@executor-js/plugin-mcp",
   "type": "module",
   "version": "1.4.2",
   "exports": {
-    ".": "./src/sdk/index.ts",
+    ".": "./src/promise.ts",
+    "./core": "./src/sdk/index.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
     "./presets": "./src/sdk/presets.ts"
   },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/promise.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/sdk/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -55,6 +76,7 @@
     "@types/node": "catalog:",
     "bun-types": "catalog:",
     "vitest": "catalog:",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "tsup": "catalog:"
   }
 }

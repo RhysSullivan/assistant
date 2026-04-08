@@ -10,19 +10,19 @@ import { makePgConfig, makePgKv } from "@executor/storage-postgres";
 import {
   openApiPlugin,
   makeKvOperationStore,
-} from "@executor/plugin-openapi";
+} from "@executor-js/plugin-openapi/core";
 import {
   mcpPlugin,
   makeKvBindingStore,
-} from "@executor/plugin-mcp";
+} from "@executor-js/plugin-mcp/core";
 import {
   googleDiscoveryPlugin,
   makeKvBindingStore as makeKvGoogleDiscoveryBindingStore,
-} from "@executor/plugin-google-discovery";
+} from "@executor-js/plugin-google-discovery/core";
 import {
   graphqlPlugin,
   makeKvOperationStore as makeKvGraphqlOperationStore,
-} from "@executor/plugin-graphql";
+} from "@executor-js/plugin-graphql/core";
 import { DbService } from "./db";
 
 // ---------------------------------------------------------------------------
