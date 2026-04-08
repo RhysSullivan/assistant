@@ -1,5 +1,11 @@
 import { openApiPlugin as openApiPluginEffect } from "./sdk/plugin";
 
 export type { OpenApiSpecConfig } from "./sdk/plugin";
+export type { OpenApiOperationStore } from "./sdk/operation-store";
 
-export const openApiPlugin = (options?: {}) => openApiPluginEffect(options);
+export interface OpenApiPluginOptions {
+  readonly operationStore?: import("./sdk/operation-store").OpenApiOperationStore;
+}
+
+export const openApiPlugin = (options?: OpenApiPluginOptions) =>
+  openApiPluginEffect(options);

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 
 import {
   createExecutor as createEffectExecutor,
@@ -8,6 +8,10 @@ import {
   makeInMemoryPolicyEngine,
   makeInMemorySourceRegistry,
   ScopeId,
+  type ToolRegistry as CoreToolRegistry,
+  type SourceRegistry as CoreSourceRegistry,
+  type SecretStore as CoreSecretStore,
+  type PolicyEngine as CorePolicyEngine,
   type ExecutorConfig as EffectExecutorConfig,
   type ExecutorPlugin,
   type PluginContext as EffectPluginContext,
@@ -15,8 +19,6 @@ import {
   type InvokeOptions as EffectInvokeOptions,
   type ToolInvocationResult,
   type ToolMetadata,
-  type ToolSchema,
-  type ToolRegistration,
   type ToolAnnotations,
   type ToolInvoker as EffectToolInvoker,
   type RuntimeToolHandler as EffectRuntimeToolHandler,
@@ -43,6 +45,31 @@ const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
 
 const fromPromise = <A>(fn: () => Promise<A>): Effect.Effect<A, Error> =>
   Effect.tryPromise({ try: fn, catch: (e) => (e instanceof Error ? e : new Error(String(e))) });
+
+// ---------------------------------------------------------------------------
+// Type derivation — derive Promise-based SDK types from core Effect types
+// ---------------------------------------------------------------------------
+
+/** Replace branded IDs with plain strings in parameter types */
+type UnbrandParam<T> =
+  T extends ToolId ? string :
+  T extends SecretId ? string :
+  T extends ScopeIdType ? string :
+  T extends PolicyId ? string :
+  T extends readonly (infer U)[] ? readonly UnbrandParam<U>[] :
+  T;
+
+/** Convert an Effect service interface to Promise-based, unbranding ID params */
+type PromisifyService<T> = {
+  readonly [K in keyof T]: NonNullable<T[K]> extends (...args: infer A) => Effect.Effect<infer R, infer _E>
+    ? (...args: { [I in keyof A]: UnbrandParam<A[I]> }) => Promise<R>
+    : T[K];
+};
+
+type CoreToolRegistryService = Context.Tag.Service<typeof CoreToolRegistry>;
+type CoreSourceRegistryService = Context.Tag.Service<typeof CoreSourceRegistry>;
+type CoreSecretStoreService = Context.Tag.Service<typeof CoreSecretStore>;
+type CorePolicyEngineService = Context.Tag.Service<typeof CorePolicyEngine>;
 
 // ---------------------------------------------------------------------------
 // Elicitation
@@ -98,22 +125,9 @@ export interface RuntimeToolHandler {
   readonly resolveAnnotations?: () => Promise<ToolAnnotations | undefined>;
 }
 
-export interface SourceManager {
-  readonly kind: string;
-  readonly list: () => Promise<readonly Source[]>;
-  readonly remove: (sourceId: string) => Promise<void>;
-  readonly refresh?: (sourceId: string) => Promise<void>;
-  readonly detect?: (url: string) => Promise<SourceDetectionResult | null>;
-}
+export type SourceManager = PromisifyService<EffectSourceManager>;
 
-export interface SecretProvider {
-  readonly key: string;
-  readonly writable: boolean;
-  readonly get: (key: string) => Promise<string | null>;
-  readonly set?: (key: string, value: string) => Promise<void>;
-  readonly delete?: (key: string) => Promise<boolean>;
-  readonly list?: () => Promise<readonly { id: string; name: string }[]>;
-}
+export type SecretProvider = PromisifyService<EffectSecretProvider>;
 
 // --- Adapters ---
 
@@ -173,50 +187,27 @@ export interface PluginContext {
   readonly policies: PolicyEngine;
 }
 
-export interface ToolRegistry {
+export interface ToolRegistry extends Omit<
+  PromisifyService<CoreToolRegistryService>,
+  'list' | 'invoke' | 'registerInvoker' | 'registerRuntimeHandler'
+> {
   readonly list: (filter?: { sourceId?: string; query?: string }) => Promise<readonly ToolMetadata[]>;
-  readonly schema: (toolId: string) => Promise<ToolSchema>;
   readonly invoke: (toolId: string, args: unknown, options: InvokeOptions) => Promise<ToolInvocationResult>;
-  readonly definitions: () => Promise<Record<string, unknown>>;
-  readonly registerDefinitions: (defs: Record<string, unknown>) => Promise<void>;
-  readonly registerRuntimeDefinitions: (defs: Record<string, unknown>) => Promise<void>;
-  readonly unregisterRuntimeDefinitions: (names: readonly string[]) => Promise<void>;
   readonly registerInvoker: (pluginKey: string, invoker: ToolInvoker) => Promise<void>;
-  readonly resolveAnnotations: (toolId: string) => Promise<ToolAnnotations | undefined>;
-  readonly register: (tools: readonly ToolRegistration[]) => Promise<void>;
-  readonly registerRuntime: (tools: readonly ToolRegistration[]) => Promise<void>;
   readonly registerRuntimeHandler: (toolId: string, handler: RuntimeToolHandler) => Promise<void>;
-  readonly unregisterRuntime: (toolIds: readonly string[]) => Promise<void>;
-  readonly unregister: (toolIds: readonly string[]) => Promise<void>;
-  readonly unregisterBySource: (sourceId: string) => Promise<void>;
 }
 
-export interface SourceRegistry {
+export interface SourceRegistry extends Omit<PromisifyService<CoreSourceRegistryService>, 'addManager'> {
   readonly addManager: (manager: SourceManager) => Promise<void>;
-  readonly registerRuntime: (source: Source) => Promise<void>;
-  readonly unregisterRuntime: (sourceId: string) => Promise<void>;
-  readonly list: () => Promise<readonly Source[]>;
-  readonly remove: (sourceId: string) => Promise<void>;
-  readonly refresh: (sourceId: string) => Promise<void>;
-  readonly detect: (url: string) => Promise<readonly SourceDetectionResult[]>;
 }
 
-export interface SecretStore {
-  readonly list: (scopeId: string) => Promise<readonly SecretRef[]>;
-  readonly get: (secretId: string) => Promise<SecretRef>;
-  readonly resolve: (secretId: string, scopeId: string) => Promise<string>;
-  readonly status: (secretId: string, scopeId: string) => Promise<"resolved" | "missing">;
+export interface SecretStore extends Omit<PromisifyService<CoreSecretStoreService>, 'set' | 'addProvider'> {
   readonly set: (input: { readonly id: string; readonly scopeId: string; readonly name: string; readonly value: string; readonly provider?: string; readonly purpose?: string }) => Promise<SecretRef>;
-  readonly remove: (secretId: string) => Promise<boolean>;
   readonly addProvider: (provider: SecretProvider) => Promise<void>;
-  readonly providers: () => Promise<readonly string[]>;
 }
 
-export interface PolicyEngine {
-  readonly list: (scopeId: string) => Promise<readonly Policy[]>;
+export interface PolicyEngine extends Omit<PromisifyService<CorePolicyEngineService>, 'check'> {
   readonly check: (input: { scopeId: string; toolId: string }) => Promise<void>;
-  readonly add: (policy: Omit<Policy, "id" | "createdAt">) => Promise<Policy>;
-  readonly remove: (policyId: string) => Promise<boolean>;
 }
 
 const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
@@ -313,18 +304,8 @@ export type AnyPlugin = Plugin<string, object> | ExecutorPlugin<string, object>;
 
 export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
   readonly scope: Scope;
-  readonly tools: {
-    readonly list: (filter?: { sourceId?: string; query?: string }) => Promise<readonly ToolMetadata[]>;
-    readonly schema: (toolId: string) => Promise<ToolSchema>;
-    readonly definitions: () => Promise<Record<string, unknown>>;
-    readonly invoke: (toolId: string, args: unknown, options: InvokeOptions) => Promise<ToolInvocationResult>;
-  };
-  readonly sources: {
-    readonly list: () => Promise<readonly Source[]>;
-    readonly remove: (sourceId: string) => Promise<void>;
-    readonly refresh: (sourceId: string) => Promise<void>;
-    readonly detect: (url: string) => Promise<readonly SourceDetectionResult[]>;
-  };
+  readonly tools: Pick<ToolRegistry, 'list' | 'schema' | 'definitions' | 'invoke'>;
+  readonly sources: Pick<SourceRegistry, 'list' | 'remove' | 'refresh' | 'detect'>;
   readonly policies: {
     readonly list: () => Promise<readonly Policy[]>;
     readonly add: (policy: Omit<Policy, "id" | "createdAt">) => Promise<Policy>;

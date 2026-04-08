@@ -11,4 +11,11 @@ export type {
   McpOAuthCompleteResponse,
 } from "./sdk/plugin";
 
-export const mcpPlugin = (options?: {}) => mcpPluginEffect(options);
+export type { McpBindingStore } from "./sdk/binding-store";
+
+export interface McpPluginOptions {
+  readonly bindingStore?: import("./sdk/binding-store").McpBindingStore;
+}
+
+export const mcpPlugin = (options?: McpPluginOptions) =>
+  mcpPluginEffect(options);

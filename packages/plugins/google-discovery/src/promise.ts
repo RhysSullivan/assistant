@@ -9,5 +9,12 @@ export type {
   GoogleDiscoveryOAuthAuthResult,
 } from "./sdk/plugin";
 
-export const googleDiscoveryPlugin = (options?: {}) =>
-  googleDiscoveryPluginEffect(options);
+export type { GoogleDiscoveryBindingStore } from "./sdk/binding-store";
+
+export interface GoogleDiscoveryPluginOptions {
+  readonly bindingStore?: import("./sdk/binding-store").GoogleDiscoveryBindingStore;
+}
+
+export const googleDiscoveryPlugin = (
+  options?: GoogleDiscoveryPluginOptions,
+) => googleDiscoveryPluginEffect(options);
