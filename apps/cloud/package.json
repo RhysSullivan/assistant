@@ -33,6 +33,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "nitro": "^3.0.260311-beta",
     "portless": "^0.10.1",
     "typescript": "catalog:",
     "vite": "catalog:"
@@ -40,7 +41,7 @@
   "scripts": {
     "dev": "op run --env-file=.env -- portless run --name executor-cloud vite dev",
     "build": "vite build",
-    "start": "bun ./server.ts",
+    "start": "node .output/server/index.mjs",
     "typecheck": "tsc --noEmit"
   }
 }

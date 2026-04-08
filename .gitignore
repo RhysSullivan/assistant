@@ -46,4 +46,10 @@ apps/desktop/resources/
 
 # cloud local dev database
 .pglite
+
+# nitro build output
+.output
+
+# tanstack router generated
+.tanstack
 .claude/

@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { nitro } from "nitro/vite";
 import { createEnv, Env } from "@executor/env";
 
 const server = {
@@ -23,11 +24,19 @@ export default defineConfig({
     host: "127.0.0.1",
   },
   resolve: { tsconfigPaths: true },
+  environments: {
+    ssr: {
+      resolve: {
+        external: ["shiki", "shiki/wasm"],
+      },
+    },
+  },
   plugins: [
     tailwindcss(),
     tanstackStart({
       spa: { enabled: true },
     }),
+    nitro({}),
     react(),
   ],
 });
