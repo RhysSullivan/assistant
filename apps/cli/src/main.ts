@@ -18,7 +18,6 @@ if (typeof Bun !== "undefined" && await Bun.file(wasmOnDisk).exists()) {
   setQuickJSModule(mod);
 }
 
-import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { Command, Options, Args } from "@effect/cli";
 import { BunRuntime } from "@effect/platform-bun";
@@ -74,33 +73,16 @@ const script = process.argv[1];
 const isDevMode = script?.endsWith(".ts") || script?.endsWith(".js");
 const cliPrefix = isDevMode ? `bun run ${script}` : "executor";
 
-const startBackgroundServer = (port: number): void => {
-  const args = isDevMode
-    ? ["run", script, "web", "--port", String(port)]
-    : ["web", "--port", String(port)];
-  const child = spawn(process.execPath, args, {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-};
-
 const ensureServer = (baseUrl: string) =>
   Effect.gen(function* () {
     if (yield* Effect.promise(() => isServerReachable(baseUrl))) return;
 
+    // Start server in-process instead of spawning a background child.
+    // This is more reliable across environments (containers, sandboxes, etc.)
     const url = new URL(baseUrl);
     const port = Number(url.port) || DEFAULT_PORT;
-    console.error(`Starting background server on port ${port}...`);
-    startBackgroundServer(port);
-
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 200)));
-      if (yield* Effect.promise(() => isServerReachable(baseUrl))) return;
-    }
-
-    return yield* Effect.fail(new Error(`Server failed to start within 30s at ${baseUrl}`));
+    console.error(`Starting server on port ${port}...`);
+    yield* Effect.promise(() => startServer({ port, embeddedWebUI }));
   });
 
 // ---------------------------------------------------------------------------
@@ -301,6 +283,11 @@ const runCli = Command.run(root, {
   version: CLI_VERSION,
   executable: CLI_NAME,
 });
+
+if (process.argv.includes("-v")) {
+  console.log(CLI_VERSION);
+  process.exit(0);
+}
 
 const program = runCli(process.argv).pipe(
   Effect.catchAllCause((cause) =>
