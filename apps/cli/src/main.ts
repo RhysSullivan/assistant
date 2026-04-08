@@ -30,6 +30,9 @@ import * as Cause from "effect/Cause";
 import { ExecutorApi } from "@executor/api";
 import { startServer, runMcpStdioServer, getExecutor } from "@executor/local";
 
+// Embedded web UI — baked into compiled binaries via `with { type: "file" }`
+import embeddedWebUI from "./embedded-web-ui.gen";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -115,7 +118,9 @@ const makeApiClient = (baseUrl: string) =>
 
 const runForegroundSession = (input: { port: number }) =>
   Effect.gen(function* () {
-    const server = yield* Effect.promise(() => startServer({ port: input.port }));
+    const server = yield* Effect.promise(() =>
+      startServer({ port: input.port, embeddedWebUI }),
+    );
 
     const baseUrl = `http://localhost:${server.port}`;
     console.log(`Executor is ready.`);
