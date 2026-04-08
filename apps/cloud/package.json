@@ -28,7 +28,6 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.4.3",
     "@tailwindcss/vite": "catalog:",
     "@types/pg": "^8.15.4",
     "@types/react": "catalog:",

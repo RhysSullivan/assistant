@@ -30,6 +30,11 @@ const resolveHyperdriveUrl = Effect.tryPromise({
 
 const resolveConnectionString = resolveHyperdriveUrl.pipe(
   Effect.map((url) => url ?? (server.DATABASE_URL || undefined)),
+  Effect.flatMap((url) =>
+    url
+      ? Effect.succeed(url)
+      : Effect.fail(new Error("No database connection string available (set DATABASE_URL or configure Hyperdrive)")),
+  ),
 );
 
 // ---------------------------------------------------------------------------
@@ -48,22 +53,6 @@ const releasePostgres = ({ pool }: { pool: { end: () => Promise<void> } }) =>
   Effect.promise(() => pool.end()).pipe(Effect.orElseSucceed(() => undefined));
 
 // ---------------------------------------------------------------------------
-// PGlite — local dev fallback
-// ---------------------------------------------------------------------------
-
-const acquirePglite = Effect.tryPromise(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { drizzle } = await import("drizzle-orm/pglite");
-  const client = new PGlite(server.PGLITE_DATA_DIR);
-  return { db: drizzle(client, { schema }) as DrizzleDb, client };
-});
-
-const releasePglite = ({ client }: { client: { close?: () => Promise<void> } }) =>
-  Effect.promise(() => client.close?.() ?? Promise.resolve()).pipe(
-    Effect.orElseSucceed(() => undefined),
-  );
-
-// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -75,16 +64,10 @@ export class DbService extends Context.Tag("@executor/cloud/DbService")<
     this,
     Effect.gen(function* () {
       const connectionString = yield* resolveConnectionString;
-
-      if (connectionString) {
-        const { db } = yield* Effect.acquireRelease(
-          acquirePostgres(connectionString),
-          releasePostgres,
-        );
-        return db;
-      }
-
-      const { db } = yield* Effect.acquireRelease(acquirePglite, releasePglite);
+      const { db } = yield* Effect.acquireRelease(
+        acquirePostgres(connectionString),
+        releasePostgres,
+      );
       return db;
     }),
   );
