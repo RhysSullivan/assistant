@@ -25,7 +25,8 @@
   "workspaces": [
     "packages/*/*",
     "packages/react",
-    "apps/*"
+    "apps/*",
+    "examples/*"
   ],
   "catalog": {
     "effect": "^3.21.0",
@@ -54,7 +55,8 @@
     "typescript": "^5.9.3",
     "tailwindcss": "^4.2.2",
     "quickjs-emscripten": "^0.31.0",
-    "@jitl/quickjs-wasmfile-release-sync": "0.31.0"
+    "@jitl/quickjs-wasmfile-release-sync": "0.31.0",
+    "tsup": "^8.5.0"
   },
   "scripts": {
     "dev": "turbo run dev --filter='!@executor/desktop' --filter='!@executor/cloud'",
@@ -62,6 +64,7 @@
     "dev:cli": "bun run apps/cli/src/main.ts",
     "test": "turbo run test",
     "test:release:bootstrap": "vitest run tests/release-bootstrap-smoke.test.ts",
+    "build:packages": "bun run --filter='@executor/sdk' build && bun run --filter='@executor/plugin-*' build",
     "typecheck": "turbo run typecheck",
     "lint": "oxlint -c .oxlintrc.jsonc . --deny-warnings",
     "lint:fix": "oxlint -c .oxlintrc.jsonc --fix .",
@@ -74,6 +77,8 @@
     "release:beta:stop": "changeset pre exit",
     "release:publish:dry-run": "bun run --cwd apps/cli release:publish:dry-run",
     "release:publish": "bun run --cwd apps/cli release:publish",
+    "release:publish:packages": "bun run scripts/publish-packages.ts",
+    "release:publish:packages:dry-run": "bun run scripts/publish-packages.ts --dry-run",
     "prepare": "effect-language-service patch"
   },
   "devDependencies": {

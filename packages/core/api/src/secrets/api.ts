@@ -5,7 +5,7 @@ import {
   SecretId,
   SecretNotFoundError,
   SecretResolutionError,
-} from "@executor/sdk";
+} from "@executor/sdk/core";
 
 // ---------------------------------------------------------------------------
 // Params

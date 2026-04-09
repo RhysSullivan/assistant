@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Executor, ToolMetadata, Source } from "@executor/sdk";
+import type { Executor, ToolMetadata, Source } from "@executor/sdk/core";
 
 /**
  * Builds a tool description dynamically.

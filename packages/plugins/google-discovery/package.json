@@ -1,15 +1,26 @@
 {
   "name": "@executor/plugin-google-discovery",
-  "private": true,
   "type": "module",
-  "version": "1.4.2",
+  "version": "0.0.1-beta.4",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/plugins/google-discovery"
+  },
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/google-discovery",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "exports": {
-    ".": "./src/sdk/index.ts",
+    ".": "./src/promise.ts",
+    "./core": "./src/sdk/index.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
     "./presets": "./src/sdk/presets.ts"
   },
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -47,6 +58,27 @@
     "@types/react": "catalog:",
     "bun-types": "catalog:",
     "react": "catalog:",
-    "vitest": "catalog:"
-  }
+    "vitest": "catalog:",
+    "tsup": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/promise.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/sdk/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ]
 }

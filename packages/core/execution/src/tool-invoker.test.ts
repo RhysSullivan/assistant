@@ -9,7 +9,7 @@ import {
   makeTestConfig,
   tool,
   type ToolId,
-} from "@executor/sdk";
+} from "@executor/sdk/core";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
 
@@ -23,7 +23,7 @@ const ContactInput = Schema.Struct({
 });
 
 import type { ExecutionResult } from "./engine";
-import { FormElicitation } from "@executor/sdk";
+import { FormElicitation } from "@executor/sdk/core";
 
 const acceptAll = () => Effect.succeed(new ElicitationResponse({ action: "accept" }));
 

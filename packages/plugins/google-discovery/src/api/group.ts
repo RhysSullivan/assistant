@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import { ScopeId } from "@executor/sdk/core";
 
 export { HttpApiSchema };
 

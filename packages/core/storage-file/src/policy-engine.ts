@@ -4,8 +4,8 @@
 
 import { Effect, Schema } from "effect";
 
-import { Policy, PolicyId, ScopeId } from "@executor/sdk";
-import type { ScopedKv, PolicyCheckInput } from "@executor/sdk";
+import { Policy, PolicyId, ScopeId } from "@executor/sdk/core";
+import type { ScopedKv, PolicyCheckInput } from "@executor/sdk/core";
 
 // ---------------------------------------------------------------------------
 // Serialization — leverage Policy Schema.Class directly

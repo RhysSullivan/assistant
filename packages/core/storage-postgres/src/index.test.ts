@@ -17,7 +17,7 @@ import {
   ToolRegistration,
   scopeKv,
   type Executor,
-} from "@executor/sdk";
+} from "@executor/sdk/core";
 
 import { makePgConfig } from "./index";
 import { makePgKv } from "./pg-kv";

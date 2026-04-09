@@ -4,9 +4,9 @@
 
 import { Effect, Option, Schema } from "effect";
 
-import { SecretRef, SecretId, ScopeId } from "@executor/sdk";
-import { SecretNotFoundError, SecretResolutionError } from "@executor/sdk";
-import type { SecretProvider, ScopedKv, SetSecretInput } from "@executor/sdk";
+import { SecretRef, SecretId, ScopeId } from "@executor/sdk/core";
+import { SecretNotFoundError, SecretResolutionError } from "@executor/sdk/core";
+import type { SecretProvider, ScopedKv, SetSecretInput } from "@executor/sdk/core";
 
 // ---------------------------------------------------------------------------
 // Serialization — leverage SecretRef Schema.Class directly

@@ -4,24 +4,25 @@
 
 import { Effect } from "effect";
 
-import { createExecutor } from "@executor/sdk";
+import { createExecutor } from "@executor/sdk/core";
+import type { DrizzleDb } from "@executor/storage-postgres";
 import { makePgConfig, makePgKv } from "@executor/storage-postgres";
 import {
   openApiPlugin,
   makeKvOperationStore,
-} from "@executor/plugin-openapi";
+} from "@executor/plugin-openapi/core";
 import {
   mcpPlugin,
   makeKvBindingStore,
-} from "@executor/plugin-mcp";
+} from "@executor/plugin-mcp/core";
 import {
   googleDiscoveryPlugin,
   makeKvBindingStore as makeKvGoogleDiscoveryBindingStore,
-} from "@executor/plugin-google-discovery";
+} from "@executor/plugin-google-discovery/core";
 import {
   graphqlPlugin,
   makeKvOperationStore as makeKvGraphqlOperationStore,
-} from "@executor/plugin-graphql";
+} from "@executor/plugin-graphql/core";
 import { DbService } from "./db";
 
 // ---------------------------------------------------------------------------

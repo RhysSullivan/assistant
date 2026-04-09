@@ -1,12 +1,43 @@
 {
   "name": "@executor/sdk",
-  "version": "1.4.2",
-  "private": true,
+  "version": "0.0.1-beta.4",
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/core/sdk"
   },
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/sdk",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
+  "exports": {
+    ".": "./src/promise.ts",
+    "./core": "./src/index.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/promise.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -16,6 +47,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "tsup": "catalog:",
     "vitest": "catalog:",
     "typescript": "catalog:"
   }

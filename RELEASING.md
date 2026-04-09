@@ -1,6 +1,8 @@
 # Releasing
 
-This repo uses Changesets for version orchestration and a custom publish script for the generated `executor` npm package plus its platform packages.
+This repo uses Changesets for version orchestration and two publish paths:
+the CLI (`executor` npm package plus its platform packages) and the
+`@executor-js/*` library packages (`core`, `sdk`, and the public plugins).
 
 ## Normal release flow
 
@@ -9,12 +11,16 @@ This repo uses Changesets for version orchestration and a custom publish script 
 2. Merge that PR to `main`.
 3. `.github/workflows/release.yml` opens or updates a `Version Packages` PR.
 4. Merge the `Version Packages` PR.
-5. The release workflow tags the commit and dispatches `.github/workflows/publish-executor-package.yml`.
-6. The publish workflow:
-   - runs `bun run release:check`
-   - performs a full dry-run release build before publish
-   - publishes npm packages under the correct dist-tag
-   - creates or updates the GitHub release with build artifacts
+5. The release workflow then does two things in parallel:
+   - Publishes every `@executor-js/*` library package whose current version
+     is not already on npm, via `bun run release:publish:packages`
+     (see `scripts/publish-packages.ts`).
+   - If `apps/cli/package.json` bumped, tags the commit and dispatches
+     `.github/workflows/publish-executor-package.yml`, which:
+     - runs `bun run release:check`
+     - performs a full dry-run release build before publish
+     - publishes the CLI npm package under the correct dist-tag
+     - creates or updates the GitHub release with build artifacts
 
 ## Beta releases
 
@@ -33,7 +39,7 @@ Beta versions publish to npm under `beta`.
 
 ## Local dry run
 
-To build the full release payload without publishing to npm or GitHub:
+To build the full CLI release payload without publishing to npm or GitHub:
 
 - `bun run release:publish:dry-run`
 
@@ -41,6 +47,10 @@ That produces:
 
 - platform archives in `apps/cli/dist`
 - the packed wrapper tarball in `apps/cli/dist/release`
+
+To pack the `@executor-js/*` library packages without publishing:
+
+- `bun run release:publish:packages:dry-run`
 
 ## Notes
 

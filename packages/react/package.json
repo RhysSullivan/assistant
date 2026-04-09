@@ -20,6 +20,7 @@
     "@executor/api": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@tanstack/react-router": "catalog:",
+    "@hookform/resolvers": "^5.2.2",
     "@shikijs/langs": "^4.0.2",
     "@shikijs/themes": "^4.0.2",
     "class-variance-authority": "^0.7.1",

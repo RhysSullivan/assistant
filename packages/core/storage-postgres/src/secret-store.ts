@@ -5,10 +5,10 @@
 import { Effect, Option } from "effect";
 import { eq, and } from "drizzle-orm";
 
-import { SecretRef, SecretId, ScopeId } from "@executor/sdk";
+import { SecretRef, SecretId, ScopeId } from "@executor/sdk/core";
 import type { DrizzleDb } from "./types";
-import { SecretNotFoundError, SecretResolutionError } from "@executor/sdk";
-import type { SecretProvider, SetSecretInput } from "@executor/sdk";
+import { SecretNotFoundError, SecretResolutionError } from "@executor/sdk/core";
+import type { SecretProvider, SetSecretInput } from "@executor/sdk/core";
 
 import { secrets } from "./schema";
 import { encrypt, decrypt } from "./crypto";

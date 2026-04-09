@@ -5,9 +5,9 @@
 import { Effect } from "effect";
 import { eq, and } from "drizzle-orm";
 
-import { Policy, PolicyId, ScopeId } from "@executor/sdk";
+import { Policy, PolicyId, ScopeId } from "@executor/sdk/core";
 import type { DrizzleDb } from "./types";
-import type { PolicyCheckInput } from "@executor/sdk";
+import type { PolicyCheckInput } from "@executor/sdk/core";
 
 import { policies } from "./schema";
 

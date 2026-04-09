@@ -8,6 +8,8 @@
     "./schema": "./src/schema.ts"
   },
   "dependencies": {
+    "@effect/sql": "catalog:",
+    "@effect/sql-pg": "^0.28.0",
     "@executor/sdk": "workspace:*",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",

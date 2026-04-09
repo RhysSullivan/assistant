@@ -11,7 +11,7 @@ import {
   ToolId,
   SecretId,
   type ToolRegistration,
-} from "@executor/sdk";
+} from "@executor/sdk/core";
 
 import {
   type McpStoredSourceData,
