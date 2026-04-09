@@ -150,7 +150,7 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
 
   const response = yield* client.execute(request).pipe(
     Effect.tapErrorCause((cause) =>
-      Effect.logError("graphql introspection: request failed", cause),
+      Effect.logError("graphql introspection request failed", cause),
     ),
     Effect.mapError(
       (err) =>
@@ -161,11 +161,6 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
   );
 
   if (response.status !== 200) {
-    const body = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed("")));
-    yield* Effect.logError(
-      `graphql introspection: status ${response.status}`,
-      body,
-    );
     return yield* new GraphqlIntrospectionError({
       message: `Introspection failed with status ${response.status}`,
     });
@@ -173,7 +168,7 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
 
   const raw = yield* response.json.pipe(
     Effect.tapErrorCause((cause) =>
-      Effect.logError("graphql introspection: JSON parse failed", cause),
+      Effect.logError("graphql introspection JSON parse failed", cause),
     ),
     Effect.mapError(
       () =>
@@ -186,10 +181,6 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
   const json = raw as { data?: IntrospectionResult; errors?: unknown[] };
 
   if (json.errors && Array.isArray(json.errors) && json.errors.length > 0) {
-    yield* Effect.logError(
-      `graphql introspection: endpoint returned errors`,
-      json.errors,
-    );
     return yield* new GraphqlIntrospectionError({
       message: `Introspection returned ${json.errors.length} error(s)`,
     });
