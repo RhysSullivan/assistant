@@ -2,6 +2,16 @@
   "name": "@executor-js/sdk",
   "version": "1.4.0",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/published/sdk"
+  },
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/published/sdk",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

@@ -2,6 +2,16 @@
   "name": "@executor-js/plugin-google-discovery",
   "type": "module",
   "version": "1.4.2",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/plugins/google-discovery"
+  },
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/google-discovery",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "exports": {
     ".": "./src/promise.ts",
     "./core": "./src/sdk/index.ts",
