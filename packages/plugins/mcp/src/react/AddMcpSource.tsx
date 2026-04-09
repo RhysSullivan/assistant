@@ -6,7 +6,10 @@ import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
+import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Spinner } from "@executor/react/components/spinner";
+import { SecretHeaderAuthRow } from "@executor/react/plugins/secret-header-auth";
+import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { probeMcpEndpoint, addMcpSource, startMcpOAuth } from "./atoms";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
 
@@ -38,6 +41,13 @@ type ProbeResult = {
   namespace: string;
   toolCount: number | null;
   serverName: string | null;
+};
+
+type RemoteAuthMode = "none" | "header" | "oauth2";
+
+type PlainHeader = {
+  name: string;
+  value: string;
 };
 
 type State =
@@ -230,6 +240,21 @@ export default function AddMcpSource(props: {
   const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
   const doAdd = useAtomSet(addMcpSource, { mode: "promise" });
   const doStartOAuth = useAtomSet(startMcpOAuth, { mode: "promise" });
+  const secretList = useSecretPickerSecrets();
+
+  const [remoteAuthMode, setRemoteAuthMode] = useState<RemoteAuthMode>("none");
+  const [remoteHeaderAuth, setRemoteHeaderAuth] = useState<{
+    name: string;
+    prefix?: string;
+    presetKey?: string;
+    secretId: string | null;
+  }>({
+    name: "Authorization",
+    prefix: "Bearer ",
+    presetKey: "bearer",
+    secretId: null,
+  });
+  const [remoteHeaders, setRemoteHeaders] = useState<PlainHeader[]>([]);
 
   const probe = "probe" in state ? state.probe : null;
   const tokens = "tokens" in state ? state.tokens : null;
@@ -237,8 +262,16 @@ export default function AddMcpSource(props: {
   const isProbing = state.step === "probing";
   const isAdding = state.step === "adding";
   const isOAuthBusy = state.step === "oauth-starting" || state.step === "oauth-waiting";
-  const needsOAuth = probe?.requiresOAuth === true && !tokens;
-  const canAdd = probe && !needsOAuth && !isAdding && !isOAuthBusy;
+  const canUseNone = probe?.requiresOAuth !== true;
+  const headerAuthComplete = Boolean(remoteHeaderAuth.name.trim() && remoteHeaderAuth.secretId);
+  const remoteHeadersComplete = remoteHeaders.every(
+    (header) => header.name.trim() && header.value.trim(),
+  );
+  const authReady =
+    remoteAuthMode === "none" ? canUseNone
+    : remoteAuthMode === "header" ? headerAuthComplete
+    : tokens !== null;
+  const canAdd = Boolean(probe) && authReady && remoteHeadersComplete && !isAdding && !isOAuthBusy;
   const error = state.step === "error" ? state.error : null;
 
   // ---- Remote actions ----
@@ -250,6 +283,7 @@ export default function AddMcpSource(props: {
         path: { scopeId },
         payload: { endpoint: state.url.trim() },
       });
+      setRemoteAuthMode(result.requiresOAuth ? "oauth2" : "none");
       dispatch({ type: "probe-ok", probe: result });
     } catch (e) {
       dispatch({ type: "probe-fail", error: e instanceof Error ? e.message : "Failed to connect" });
@@ -316,13 +350,15 @@ export default function AddMcpSource(props: {
     if (!probe) return;
     dispatch({ type: "add-start" });
     try {
-      await doAdd({
-        path: { scopeId },
-        payload: {
-          transport: "remote" as const,
-          name: probe.serverName ?? probe.name,
-          endpoint: state.url.trim(),
-          auth: tokens
+      const auth =
+        remoteAuthMode === "header"
+          ? {
+              kind: "header" as const,
+              headerName: remoteHeaderAuth.name.trim(),
+              secretId: remoteHeaderAuth.secretId!,
+              ...(remoteHeaderAuth.prefix ? { prefix: remoteHeaderAuth.prefix } : {}),
+            }
+          : remoteAuthMode === "oauth2" && tokens
             ? {
                 kind: "oauth2" as const,
                 accessTokenSecretId: tokens.accessTokenSecretId,
@@ -331,14 +367,28 @@ export default function AddMcpSource(props: {
                 expiresAt: tokens.expiresAt,
                 scope: tokens.scope,
               }
-            : { kind: "none" as const },
+            : { kind: "none" as const };
+      const headers = Object.fromEntries(
+        remoteHeaders
+          .map((header) => [header.name.trim(), header.value.trim()] as const)
+          .filter(([name, value]) => name && value),
+      );
+
+      await doAdd({
+        path: { scopeId },
+        payload: {
+          transport: "remote" as const,
+          name: probe.serverName ?? probe.name,
+          endpoint: state.url.trim(),
+          auth,
+          ...(Object.keys(headers).length > 0 ? { headers } : {}),
         },
       });
       props.onComplete();
     } catch (e) {
       dispatch({ type: "add-fail", error: e instanceof Error ? e.message : "Failed to add source" });
     }
-  }, [probe, tokens, state.url, doAdd, props]);
+  }, [probe, remoteAuthMode, remoteHeaderAuth, remoteHeaders, tokens, state.url, doAdd, props]);
 
   // ---- Stdio actions ----
 
@@ -483,51 +533,217 @@ export default function AddMcpSource(props: {
             </div>
           )}
 
-          {/* OAuth section */}
-          {probe?.requiresOAuth && !tokens && (
+          {/* Authentication */}
+          {probe && (
             <section className="space-y-2.5">
-              {state.step === "probed" && (
-                <Button onClick={handleOAuth} className="w-full" variant="outline">
-                  <svg viewBox="0 0 16 16" fill="none" className="mr-1.5 size-3.5">
-                    <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1z" stroke="currentColor" strokeWidth="1.2" />
-                    <path d="M8 4v4l2.5 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  Sign in with OAuth
-                </Button>
-              )}
+              <Label>Authentication</Label>
 
-              {state.step === "oauth-starting" && (
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-                  <Spinner className="size-3.5" />
-                  <span className="text-xs text-muted-foreground">Starting authorization…</span>
-                </div>
-              )}
-
-              {state.step === "oauth-waiting" && (
-                <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2.5">
-                  <Spinner className="size-3.5 text-blue-500" />
-                  <span className="text-xs text-blue-600 dark:text-blue-400">Waiting for authorization in popup…</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleCancelOAuth}
-                    className="ml-auto h-7 px-2 text-xs"
+              <RadioGroup
+                value={remoteAuthMode}
+                onValueChange={(value) => setRemoteAuthMode(value as RemoteAuthMode)}
+                className="gap-1.5"
+              >
+                {!probe.requiresOAuth && (
+                  <label
+                    className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                      remoteAuthMode === "none"
+                        ? "border-primary/50 bg-primary/[0.03]"
+                        : "border-border hover:bg-accent/50"
+                    }`}
                   >
-                    Cancel
-                  </Button>
+                    <RadioGroupItem value="none" />
+                    <span className="text-xs font-medium text-foreground">None</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">no auth header</span>
+                  </label>
+                )}
+
+                <label
+                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                    remoteAuthMode === "header"
+                      ? "border-primary/50 bg-primary/[0.03]"
+                      : "border-border hover:bg-accent/50"
+                  }`}
+                >
+                  <RadioGroupItem value="header" />
+                  <span className="text-xs font-medium text-foreground">Header</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">use a secret-backed auth header</span>
+                </label>
+
+                {probe.requiresOAuth && (
+                  <label
+                    className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                      remoteAuthMode === "oauth2"
+                        ? "border-primary/50 bg-primary/[0.03]"
+                        : "border-border hover:bg-accent/50"
+                    }`}
+                  >
+                    <RadioGroupItem value="oauth2" />
+                    <span className="text-xs font-medium text-foreground">OAuth</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">sign in with the server&apos;s OAuth flow</span>
+                  </label>
+                )}
+              </RadioGroup>
+
+              {remoteAuthMode === "header" && (
+                <SecretHeaderAuthRow
+                  label="Auth header"
+                  name={remoteHeaderAuth.name}
+                  prefix={remoteHeaderAuth.prefix}
+                  presetKey={remoteHeaderAuth.presetKey}
+                  secretId={remoteHeaderAuth.secretId}
+                  onChange={(update) =>
+                    setRemoteHeaderAuth((current) => ({
+                      ...current,
+                      ...update,
+                    }))
+                  }
+                  onSelectSecret={(secretId) =>
+                    setRemoteHeaderAuth((current) => ({
+                      ...current,
+                      secretId,
+                    }))
+                  }
+                  existingSecrets={secretList}
+                />
+              )}
+
+              {probe.requiresOAuth && remoteAuthMode === "oauth2" && !tokens && (
+                <>
+                  {state.step === "probed" && (
+                    <Button onClick={handleOAuth} className="w-full" variant="outline">
+                      <svg viewBox="0 0 16 16" fill="none" className="mr-1.5 size-3.5">
+                        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1z" stroke="currentColor" strokeWidth="1.2" />
+                        <path d="M8 4v4l2.5 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Sign in with OAuth
+                    </Button>
+                  )}
+
+                  {state.step === "oauth-starting" && (
+                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                      <Spinner className="size-3.5" />
+                      <span className="text-xs text-muted-foreground">Starting authorization…</span>
+                    </div>
+                  )}
+
+                  {state.step === "oauth-waiting" && (
+                    <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2.5">
+                      <Spinner className="size-3.5 text-blue-500" />
+                      <span className="text-xs text-blue-600 dark:text-blue-400">Waiting for authorization in popup…</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCancelOAuth}
+                        className="ml-auto h-7 px-2 text-xs"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {probe.requiresOAuth && remoteAuthMode === "oauth2" && tokens && (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+                  <svg viewBox="0 0 16 16" fill="none" className="size-3.5 text-emerald-500">
+                    <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Authenticated</span>
                 </div>
+              )}
+
+              {remoteAuthMode === "none" && probe.requiresOAuth && (
+                <p className="text-[12px] text-amber-600 dark:text-amber-400">
+                  This server requires authentication before it can be added.
+                </p>
               )}
             </section>
           )}
 
-          {/* OAuth success */}
-          {tokens && (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
-              <svg viewBox="0 0 16 16" fill="none" className="size-3.5 text-emerald-500">
-                <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Authenticated</span>
-            </div>
+          {/* Additional headers */}
+          {probe && (
+            <section className="space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Additional headers</Label>
+                  <p className="mt-1 text-[12px] text-muted-foreground">
+                    Plaintext headers sent with every request. Use authentication for secret-backed auth headers.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])}
+                >
+                  + Add header
+                </Button>
+              </div>
+
+              {remoteHeaders.length > 0 && (
+                <div className="space-y-2">
+                  {remoteHeaders.map((header, index) => (
+                    <div key={index} className="rounded-lg border border-border bg-card p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          Header
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() =>
+                            setRemoteHeaders((headers) =>
+                              headers.filter((_, headerIndex) => headerIndex !== index),
+                            )
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Name</Label>
+                          <Input
+                            value={header.name}
+                            onChange={(event) =>
+                              setRemoteHeaders((headers) =>
+                                headers.map((current, headerIndex) =>
+                                  headerIndex === index
+                                    ? { ...current, name: (event.target as HTMLInputElement).value }
+                                    : current,
+                                ),
+                              )
+                            }
+                            placeholder="X-Organization-Id"
+                            className="h-8 text-xs font-mono"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
+                          <Input
+                            value={header.value}
+                            onChange={(event) =>
+                              setRemoteHeaders((headers) =>
+                                headers.map((current, headerIndex) =>
+                                  headerIndex === index
+                                    ? { ...current, value: (event.target as HTMLInputElement).value }
+                                    : current,
+                                ),
+                              )
+                            }
+                            placeholder="workspace-id"
+                            className="h-8 text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
 
           {/* Error */}
