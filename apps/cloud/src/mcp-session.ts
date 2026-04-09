@@ -10,11 +10,15 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createExecutorMcpServer } from "@executor/host-mcp";
 import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
 import type { DrizzleDb } from "@executor/storage-postgres";
+import * as sharedSchema from "@executor/storage-postgres/schema";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Client } from "pg";
 
 import { UserStoreService } from "./auth/context";
 import { server } from "./env";
 import { createTeamExecutor } from "./services/executor";
 import { DbService } from "./services/db";
+import * as cloudSchema from "./services/schema";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,12 +70,8 @@ const resolveTeam = (token: McpSessionInit) =>
 const connectDb = async (): Promise<DrizzleDb> => {
   const connectionString =
     env.HYPERDRIVE?.connectionString ?? server.DATABASE_URL;
-  const { drizzle } = await import("drizzle-orm/node-postgres");
-  const { Client } = await import("pg");
   const client = new Client({ connectionString });
   await client.connect();
-  const sharedSchema = await import("@executor/storage-postgres/schema");
-  const cloudSchema = await import("./services/schema");
   return drizzle(client, {
     schema: { ...sharedSchema, ...cloudSchema },
   }) as DrizzleDb;
