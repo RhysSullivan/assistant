@@ -7,6 +7,8 @@
 
 import { env } from "cloudflare:workers";
 import { Context, Effect, Layer } from "effect";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Client } from "pg";
 import * as sharedSchema from "@executor/storage-postgres/schema";
 import * as cloudSchema from "./schema";
 import type { DrizzleDb } from "@executor/storage-postgres";
@@ -17,13 +19,14 @@ const schema = { ...sharedSchema, ...cloudSchema };
 export type { DrizzleDb };
 
 // ---------------------------------------------------------------------------
-// Postgres via node-postgres (used with Hyperdrive or DATABASE_URL)
+// Connection helpers
 // ---------------------------------------------------------------------------
+
+const resolveConnectionString = () =>
+  env.HYPERDRIVE?.connectionString ?? server.DATABASE_URL;
 
 const acquirePostgres = (connectionString: string) =>
   Effect.tryPromise(async () => {
-    const { drizzle } = await import("drizzle-orm/node-postgres");
-    const { Client } = await import("pg");
     const client = new Client({ connectionString });
     await client.connect();
     return { db: drizzle(client, { schema }) as DrizzleDb, client };
@@ -46,16 +49,24 @@ export class DbService extends Context.Tag("@executor/cloud/DbService")<
   DbService,
   DrizzleDb
 >() {
+  /** Scoped — connection released when the scope closes. Use for request handlers. */
   static Live = Layer.scoped(
     this,
     Effect.gen(function* () {
-      const connectionString =
-        env.HYPERDRIVE?.connectionString ?? server.DATABASE_URL;
       const { db } = yield* Effect.acquireRelease(
-        acquirePostgres(connectionString),
+        acquirePostgres(resolveConnectionString()),
         releasePostgres,
       );
       return db;
     }),
+  );
+
+  /** Unscoped — connection stays open. Use for long-lived contexts like Durable Objects. */
+  static Unscoped = Layer.effect(
+    this,
+    Effect.flatMap(
+      Effect.sync(resolveConnectionString),
+      (cs) => acquirePostgres(cs).pipe(Effect.map(({ db }) => db)),
+    ),
   );
 }

@@ -59,11 +59,13 @@ type VerifiedToken = {
   lastName?: string;
 };
 
+const BEARER_PREFIX = "Bearer ";
+
 const verifyBearerToken = async (request: Request): Promise<VerifiedToken | null> => {
   const authHeader = request.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) return null;
+  if (!authHeader?.startsWith(BEARER_PREFIX)) return null;
 
-  const token = authHeader.slice(7);
+  const token = authHeader.slice(BEARER_PREFIX.length);
   try {
     const { payload } = await jwtVerify(token, jwks, {
       issuer: AUTHKIT_DOMAIN,
