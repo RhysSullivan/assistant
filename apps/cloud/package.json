@@ -23,7 +23,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
-    "@workos-inc/node": "^7.0.0",
+    "@workos-inc/node": "^8.11.1",
     "agents": "^0.10.0",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
@@ -45,7 +45,7 @@
     "wrangler": "^4.81.0"
   },
   "scripts": {
-    "dev": "op run --env-file=.env -- portless run --name executor-cloud vite dev",
+    "dev": "bun run --env-file=.env -- portless run --name executor-cloud vite dev",
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",

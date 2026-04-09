@@ -16,6 +16,7 @@ const serverShape = {
     "ENCRYPTION_KEY",
     "local-dev-encryption-key",
   ),
+  VITE_PUBLIC_SITE_URL: Env.stringOr("VITE_PUBLIC_SITE_URL", ""),
   WORKOS_API_KEY: Env.string("WORKOS_API_KEY"),
   WORKOS_CLIENT_ID: Env.string("WORKOS_CLIENT_ID"),
   WORKOS_COOKIE_PASSWORD: Env.string("WORKOS_COOKIE_PASSWORD"),
@@ -28,6 +29,7 @@ type SharedEnv = Readonly<{
 type ServerEnv = SharedEnv & Readonly<{
   DATABASE_URL: string;
   ENCRYPTION_KEY: string;
+  VITE_PUBLIC_SITE_URL: string;
   WORKOS_API_KEY: string;
   WORKOS_CLIENT_ID: string;
   WORKOS_COOKIE_PASSWORD: string;
@@ -51,4 +53,3 @@ export const server = createEnv(serverShape, {
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
 }) as ServerEnv;
-

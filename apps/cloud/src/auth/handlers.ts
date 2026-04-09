@@ -13,7 +13,7 @@ const COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: "lax" as const,
   maxAge: 60 * 60 * 24 * 7,
-  secure: server.NODE_ENV === "production",
+  secure: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -32,8 +32,7 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
           const req = yield* HttpServerRequest.HttpServerRequest;
-          const proto = req.headers["x-forwarded-proto"] ?? "https";
-          const origin = new URL(req.url, `${proto}://${req.headers["host"]}`).origin;
+          const origin = server.VITE_PUBLIC_SITE_URL;
           const url = workos.getAuthorizationUrl(`${origin}${AUTH_PATHS.callback}`);
           return HttpServerResponse.redirect(url, { status: 302 });
         }),
