@@ -19,13 +19,6 @@
     "@executor/ir",
     "@executor/runtime-deno-subprocess",
     "@executor/runtime-quickjs",
-    "@executor-js/plugin-file-secrets",
-    "@executor-js/plugin-google-discovery",
-    "@executor-js/plugin-graphql",
-    "@executor-js/plugin-keychain",
-    "@executor-js/plugin-mcp",
-    "@executor-js/plugin-onepassword",
-    "@executor-js/plugin-openapi",
     "@executor/marketing"
   ]
 }
