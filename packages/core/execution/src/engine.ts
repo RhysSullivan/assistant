@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber, Ref } from "effect";
 
 import type {
   Executor,
@@ -35,8 +35,12 @@ export type ExecutionResult =
 export type PausedExecution = {
   readonly id: string;
   readonly elicitationContext: ElicitationContext;
-  readonly resolve: (response: typeof ElicitationResponse.Type) => void;
-  readonly completion: Promise<ExecuteResult>;
+  /** Deferred the caller completes with the user's response to resume the fiber. */
+  readonly response: Deferred.Deferred<typeof ElicitationResponse.Type>;
+  /** The fiber running the sandboxed code — stays alive across pause/resume cycles. */
+  readonly fiber: Fiber.Fiber<ExecuteResult, unknown>;
+  /** Ref to the current pause signal — swapped by resume() before unblocking. */
+  readonly pauseSignalRef: Ref.Ref<Deferred.Deferred<PausedExecution>>;
 };
 
 export type ResumeResponse = {
@@ -287,44 +291,95 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
   const pausedExecutions = new Map<string, PausedExecution>();
   let nextId = 0;
 
-  // Shared pause signal that can be re-armed for each elicitation.
-  // Both executeWithPause and resume race completion against this.
-  let signalPause: ((paused: PausedExecution) => void) | null = null;
-  const nextPause = () =>
-    new Promise<PausedExecution>((resolve) => {
-      signalPause = resolve;
+  /**
+   * Race a running fiber against a pause signal. Returns when either
+   * the fiber completes or an elicitation handler fires (whichever
+   * comes first). Re-used by both executeWithPause and resume.
+   */
+  const awaitCompletionOrPause = (
+    fiber: Fiber.Fiber<ExecuteResult, unknown>,
+    pauseSignal: Deferred.Deferred<PausedExecution>,
+  ): Effect.Effect<ExecutionResult> =>
+    Effect.race(
+      Fiber.join(fiber).pipe(
+        Effect.map((result): ExecutionResult => ({ status: "completed", result })),
+      ),
+      Deferred.await(pauseSignal).pipe(
+        Effect.map((paused): ExecutionResult => ({ status: "paused", execution: paused })),
+      ),
+    );
+
+  /**
+   * Start an execution in the pause/resume mode. Forks the sandbox
+   * onto its own fiber and waits for either completion or the first
+   * elicitation pause.
+   */
+  const startPausableExecution = (code: string): Effect.Effect<ExecutionResult> =>
+    Effect.gen(function* () {
+      // Ref holds the current pause signal. The elicitation handler reads
+      // it each time it fires, so resume() can swap in a fresh Deferred
+      // before unblocking the fiber.
+      const pauseSignalRef = yield* Ref.make(
+        yield* Deferred.make<PausedExecution>(),
+      );
+
+      // Will be set once the fiber is forked.
+      let fiber: Fiber.Fiber<ExecuteResult, unknown>;
+
+      const elicitationHandler: ElicitationHandler = (ctx) =>
+        Effect.gen(function* () {
+          const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
+          const id = `exec_${++nextId}`;
+
+          const paused: PausedExecution = {
+            id,
+            elicitationContext: ctx,
+            response: responseDeferred,
+            fiber: fiber!,
+            pauseSignalRef,
+          };
+          pausedExecutions.set(id, paused);
+
+          const currentSignal = yield* Ref.get(pauseSignalRef);
+          yield* Deferred.succeed(currentSignal, paused);
+
+          // Suspend until resume() completes responseDeferred.
+          return yield* Deferred.await(responseDeferred);
+        });
+
+      const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
+      fiber = yield* Effect.fork(codeExecutor.execute(code, invoker));
+
+      const initialSignal = yield* Ref.get(pauseSignalRef);
+      return yield* awaitCompletionOrPause(fiber, initialSignal);
     });
 
-  const elicitationHandler: ElicitationHandler = (ctx: ElicitationContext) =>
-    Effect.async<typeof ElicitationResponse.Type>((resume) => {
-      const id = `exec_${++nextId}`;
-      const paused: PausedExecution = {
-        id,
-        elicitationContext: ctx,
-        resolve: (response) => resume(Effect.succeed(response)),
-        completion: undefined as unknown as Promise<ExecuteResult>,
-      };
-      pausedExecutions.set(id, paused);
-      signalPause!(paused);
+  /**
+   * Resume a paused execution. Swaps in a fresh pause signal, completes
+   * the response Deferred to unblock the fiber, then races completion
+   * against the next pause.
+   */
+  const resumeExecution = (
+    executionId: string,
+    response: ResumeResponse,
+  ): Effect.Effect<ExecutionResult | null> =>
+    Effect.gen(function* () {
+      const paused = pausedExecutions.get(executionId);
+      if (!paused) return null;
+      pausedExecutions.delete(executionId);
+
+      // Swap in a fresh pause signal BEFORE unblocking the fiber, so the
+      // next elicitation handler call signals this new Deferred.
+      const nextSignal = yield* Deferred.make<PausedExecution>();
+      yield* Ref.set(paused.pauseSignalRef, nextSignal);
+
+      yield* Deferred.succeed(paused.response, {
+        action: response.action,
+        content: response.content,
+      });
+
+      return yield* awaitCompletionOrPause(paused.fiber, nextSignal);
     });
-
-  // Shared completion promise for the current execution.
-  let completionPromise: Promise<ExecuteResult> | null = null;
-
-  const raceCompletionOrPause = async (): Promise<ExecutionResult> => {
-    const pausePromise = nextPause();
-    const result = await Promise.race([
-      completionPromise!.then((r) => ({ kind: "completed" as const, result: r })),
-      pausePromise.then((p) => ({ kind: "paused" as const, execution: p })),
-    ]);
-
-    if (result.kind === "completed") {
-      return { status: "completed", result: result.result };
-    }
-
-    (result.execution as { completion: Promise<ExecuteResult> }).completion = completionPromise!;
-    return { status: "paused", execution: result.execution };
-  };
 
   return {
     execute: async (code, options) => {
@@ -334,20 +389,9 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       return runEffect(codeExecutor.execute(code, invoker));
     },
 
-    executeWithPause: async (code) => {
-      const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
-      completionPromise = runEffect(codeExecutor.execute(code, invoker));
-      return raceCompletionOrPause();
-    },
+    executeWithPause: (code) => runEffect(startPausableExecution(code)),
 
-    resume: async (executionId, response) => {
-      const paused = pausedExecutions.get(executionId);
-      if (!paused) return null;
-
-      pausedExecutions.delete(executionId);
-      paused.resolve({ action: response.action, content: response.content });
-      return raceCompletionOrPause();
-    },
+    resume: (executionId, response) => runEffect(resumeExecution(executionId, response)),
 
     getDescription: () => runEffect(buildExecuteDescription(executor)),
   };
