@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { sourceConfigAtom, updateSource, secretsAtom } from "@executor/react/api/atoms";
+import { sourceConfigAtom, secretsAtom } from "@executor/react/api/atoms";
+import { updateGraphqlSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
@@ -81,7 +82,7 @@ export default function EditGraphqlSource(props: {
   const scopeId = useScope();
   const configResult = useAtomValue(sourceConfigAtom(props.sourceId, scopeId));
   const refreshConfig = useAtomRefresh(sourceConfigAtom(props.sourceId, scopeId));
-  const doUpdate = useAtomSet(updateSource, { mode: "promise" });
+  const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
   const secrets = useAtomValue(secretsAtom(scopeId));
 
   const [endpoint, setEndpoint] = useState<string | null>(null);
@@ -143,12 +144,12 @@ export default function EditGraphqlSource(props: {
     setSaving(true);
     setError(null);
     try {
-      const payload: Record<string, unknown> = {};
+      const payload: { endpoint?: string; headers?: Record<string, HeaderValue> } = {};
       if (endpoint !== null) payload.endpoint = currentEndpoint;
       if (headers !== null) payload.headers = currentHeaders;
 
       await doUpdate({
-        path: { scopeId, sourceId: props.sourceId },
+        path: { scopeId, namespace: props.sourceId },
         payload,
       });
       refreshConfig();

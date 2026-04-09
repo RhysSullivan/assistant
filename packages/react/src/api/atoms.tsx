@@ -84,4 +84,3 @@ export const sourceConfigAtom = (sourceId: string, scopeId: ScopeId) =>
     timeToLive: "15 seconds",
   });
 
-export const updateSource = ExecutorApiClient.mutation("sources", "update");

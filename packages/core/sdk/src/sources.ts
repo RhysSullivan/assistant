@@ -63,9 +63,6 @@ export interface SourceManager {
 
   /** Retrieve the current config for a source */
   readonly getConfig?: (sourceId: string) => Effect.Effect<Record<string, unknown> | null>;
-
-  /** Update the config for a source (headers, baseUrl, etc.) */
-  readonly update?: (sourceId: string, config: Record<string, unknown>) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,9 +97,6 @@ export class SourceRegistry extends Context.Tag(
 
     /** Get the config for a source by id */
     readonly getConfig: (sourceId: string) => Effect.Effect<Record<string, unknown> | null>;
-
-    /** Update the config for a source by id */
-    readonly update: (sourceId: string, config: Record<string, unknown>) => Effect.Effect<void>;
   }
 >() {}
 
@@ -209,19 +203,6 @@ export const makeInMemorySourceRegistry = () => {
           }
         }
         return null;
-      }),
-
-    update: (sourceId: string, config: Record<string, unknown>) =>
-      Effect.gen(function* () {
-        for (const manager of managers.values()) {
-          const sources = yield* manager.list();
-          if (sources.some((s) => s.id === sourceId)) {
-            if (manager.update) {
-              yield* manager.update(sourceId, config);
-            }
-            return;
-          }
-        }
       }),
   };
 };

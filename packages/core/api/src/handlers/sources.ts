@@ -70,12 +70,5 @@ export const SourcesHandlers = HttpApiBuilder.group(
           const executor = yield* ExecutorService;
           return yield* executor.sources.getConfig(path.sourceId);
         }),
-      )
-      .handle("update", ({ path, payload }) =>
-        Effect.gen(function* () {
-          const executor = yield* ExecutorService;
-          yield* executor.sources.update(path.sourceId, payload as Record<string, unknown>);
-          return { updated: true };
-        }),
       ),
 );

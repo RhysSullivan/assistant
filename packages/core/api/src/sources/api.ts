@@ -44,12 +44,6 @@ const SourceConfigResponse = Schema.NullOr(
   Schema.Record({ key: Schema.String, value: Schema.Unknown }),
 );
 
-const UpdateSourcePayload = Schema.Record({ key: Schema.String, value: Schema.Unknown });
-
-const UpdateSourceResponse = Schema.Struct({
-  updated: Schema.Boolean,
-});
-
 const DetectRequest = Schema.Struct({
   url: Schema.String,
 });
@@ -91,10 +85,5 @@ export class SourcesApi extends HttpApiGroup.make("sources")
   .add(
     HttpApiEndpoint.get("getConfig")`/scopes/${scopeIdParam}/sources/${sourceIdParam}/config`
       .addSuccess(SourceConfigResponse),
-  )
-  .add(
-    HttpApiEndpoint.patch("update")`/scopes/${scopeIdParam}/sources/${sourceIdParam}`
-      .setPayload(UpdateSourcePayload)
-      .addSuccess(UpdateSourceResponse),
   )
   {}

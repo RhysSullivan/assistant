@@ -312,27 +312,6 @@ export const googleDiscoveryPlugin = (options?: {
               if (!config) return null;
               return config as unknown as Record<string, unknown>;
             }),
-          update: (sourceId: string, config: Record<string, unknown>) =>
-            Effect.gen(function* () {
-              const existingConfig = yield* bindingStore.getSourceConfig(sourceId);
-              if (!existingConfig) return;
-
-              // Merge auth changes
-              const updatedConfig = new GoogleDiscoveryStoredSourceDataSchema({
-                ...existingConfig,
-                ...(config.auth !== undefined ? { auth: config.auth as GoogleDiscoveryAuth } : {}),
-              });
-
-              // Find existing source meta
-              const sources = yield* bindingStore.listSources();
-              const existingMeta = sources.find((s) => s.namespace === sourceId);
-
-              yield* bindingStore.putSource({
-                namespace: sourceId,
-                name: existingMeta?.name ?? sourceId,
-                config: updatedConfig,
-              });
-            }),
           detect: (url: string) =>
             Effect.gen(function* () {
               const trimmed = url.trim();

@@ -110,6 +110,13 @@ export interface McpProbeResult {
   readonly serverName: string | null;
 }
 
+export interface McpUpdateSourceInput {
+  readonly endpoint?: string;
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
+  readonly auth?: McpConnectionAuth;
+}
+
 export interface McpPluginExtension {
   readonly probeEndpoint: (
     endpoint: string,
@@ -135,6 +142,12 @@ export interface McpPluginExtension {
   readonly completeOAuth: (
     input: McpOAuthCompleteInput,
   ) => Effect.Effect<McpOAuthCompleteResponse, Error>;
+
+  /** Update config for an existing remote MCP source */
+  readonly updateSource: (
+    namespace: string,
+    input: McpUpdateSourceInput,
+  ) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,41 +475,6 @@ export const mcpPlugin = (options?: {
               return config as unknown as Record<string, unknown>;
             }),
 
-          update: (sourceId: string, config: Record<string, unknown>) =>
-            Effect.gen(function* () {
-              const existingConfig = yield* bindingStore.getSourceConfig(sourceId);
-              if (!existingConfig || existingConfig.transport !== "remote") return;
-
-              // Merge with existing remote config
-              const remote = existingConfig as Extract<McpStoredSourceData, { transport: "remote" }>;
-              const updatedConfig: McpStoredSourceData = {
-                ...remote,
-                ...(config.endpoint !== undefined ? { endpoint: config.endpoint as string } : {}),
-                ...(config.headers !== undefined ? { headers: config.headers as Record<string, string> } : {}),
-                ...(config.auth !== undefined ? { auth: config.auth as typeof remote.auth } : {}),
-                ...(config.queryParams !== undefined ? { queryParams: config.queryParams as Record<string, string> } : {}),
-              };
-
-              // Update the stored source
-              const sources = yield* bindingStore.listSources();
-              const existingMeta = sources.find((s) => s.namespace === sourceId);
-
-              yield* bindingStore.putSource({
-                namespace: sourceId,
-                name: existingMeta?.name ?? sourceId,
-                config: updatedConfig,
-              });
-
-              // Update bindings with new source data
-              const toolIds = yield* bindingStore.listByNamespace(sourceId);
-              for (const toolId of toolIds) {
-                const entry = yield* bindingStore.get(toolId);
-                if (entry) {
-                  yield* bindingStore.put(toolId, sourceId, entry.binding, updatedConfig);
-                }
-              }
-            }),
-
           refresh: (sourceId: string) =>
             Effect.gen(function* () {
               const sd = yield* bindingStore.getSourceConfig(sourceId);
@@ -818,6 +796,38 @@ export const mcpPlugin = (options?: {
             };
           });
 
+        const updateSource = (namespace: string, input: McpUpdateSourceInput) =>
+          Effect.gen(function* () {
+            const existingConfig = yield* bindingStore.getSourceConfig(namespace);
+            if (!existingConfig || existingConfig.transport !== "remote") return;
+
+            const remote = existingConfig as Extract<McpStoredSourceData, { transport: "remote" }>;
+            const updatedConfig: McpStoredSourceData = {
+              ...remote,
+              ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
+              ...(input.headers !== undefined ? { headers: input.headers } : {}),
+              ...(input.auth !== undefined ? { auth: input.auth } : {}),
+              ...(input.queryParams !== undefined ? { queryParams: input.queryParams } : {}),
+            };
+
+            const sources = yield* bindingStore.listSources();
+            const existingMeta = sources.find((s) => s.namespace === namespace);
+
+            yield* bindingStore.putSource({
+              namespace,
+              name: existingMeta?.name ?? namespace,
+              config: updatedConfig,
+            });
+
+            const toolIds = yield* bindingStore.listByNamespace(namespace);
+            for (const toolId of toolIds) {
+              const entry = yield* bindingStore.get(toolId);
+              if (entry) {
+                yield* bindingStore.put(toolId, namespace, entry.binding, updatedConfig);
+              }
+            }
+          });
+
         return {
           extension: {
             probeEndpoint,
@@ -826,6 +836,7 @@ export const mcpPlugin = (options?: {
             refreshSource,
             startOAuth,
             completeOAuth,
+            updateSource,
           },
 
           close: () =>

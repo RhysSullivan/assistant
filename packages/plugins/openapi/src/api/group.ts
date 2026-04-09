@@ -13,6 +13,7 @@ import { SpecPreview } from "../sdk/preview";
 // ---------------------------------------------------------------------------
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
+const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 
 // ---------------------------------------------------------------------------
 // Payloads
@@ -29,6 +30,17 @@ const AddSpecPayload = Schema.Struct({
 
 const PreviewSpecPayload = Schema.Struct({
   spec: Schema.String,
+});
+
+const UpdateSourcePayload = Schema.Struct({
+  baseUrl: Schema.optional(Schema.String),
+  headers: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
+});
+
+const UpdateSourceResponse = Schema.Struct({
+  updated: Schema.Boolean,
 });
 
 // ---------------------------------------------------------------------------
@@ -69,5 +81,10 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
       .addSuccess(AddSpecResponse)
       .addError(ParseError)
       .addError(ExtractionError),
+  )
+  .add(
+    HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
+      .setPayload(UpdateSourcePayload)
+      .addSuccess(UpdateSourceResponse),
   )
   {}

@@ -53,6 +53,11 @@ export interface GraphqlSourceConfig {
 // Plugin extension
 // ---------------------------------------------------------------------------
 
+export interface GraphqlUpdateSourceInput {
+  readonly endpoint?: string;
+  readonly headers?: Record<string, HeaderValue>;
+}
+
 export interface GraphqlPluginExtension {
   /** Add a GraphQL endpoint and register its operations as tools */
   readonly addSource: (
@@ -61,6 +66,12 @@ export interface GraphqlPluginExtension {
 
   /** Remove all tools from a previously added GraphQL source by namespace */
   readonly removeSource: (namespace: string) => Effect.Effect<void>;
+
+  /** Update config (endpoint, headers) for an existing GraphQL source */
+  readonly updateSource: (
+    namespace: string,
+    input: GraphqlUpdateSourceInput,
+  ) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,43 +257,6 @@ export const graphqlPlugin = (options?: {
               return config as unknown as Record<string, unknown>;
             }),
 
-          update: (sourceId: string, config: Record<string, unknown>) =>
-            Effect.gen(function* () {
-              const existingConfig = yield* operationStore.getSourceConfig(sourceId);
-              if (!existingConfig) return;
-
-              // Merge with existing
-              const updatedConfig = {
-                ...existingConfig,
-                ...(config.endpoint !== undefined ? { endpoint: config.endpoint as string } : {}),
-                ...(config.headers !== undefined ? { headers: config.headers as Record<string, HeaderValueValue> } : {}),
-              };
-
-              // Update InvocationConfig on all bindings
-              const newInvocationConfig = new InvocationConfig({
-                endpoint: updatedConfig.endpoint,
-                headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
-              });
-
-              const toolIds = yield* operationStore.listByNamespace(sourceId);
-              for (const toolId of toolIds) {
-                const entry = yield* operationStore.get(toolId);
-                if (entry) {
-                  yield* operationStore.put(toolId, sourceId, entry.binding, newInvocationConfig);
-                }
-              }
-
-              // Update stored source
-              const sources = yield* operationStore.listSources();
-              const existingMeta = sources.find((s) => s.namespace === sourceId);
-
-              yield* operationStore.putSource({
-                namespace: sourceId,
-                name: existingMeta?.name ?? sourceId,
-                config: updatedConfig,
-              });
-            }),
-
           detect: (url: string) =>
             Effect.gen(function* () {
               const trimmed = url.trim();
@@ -465,6 +439,40 @@ export const graphqlPlugin = (options?: {
                   yield* ctx.tools.unregister(toolIds);
                 }
                 yield* operationStore.removeSource(namespace);
+              }),
+
+            updateSource: (namespace: string, input: GraphqlUpdateSourceInput) =>
+              Effect.gen(function* () {
+                const existingConfig = yield* operationStore.getSourceConfig(namespace);
+                if (!existingConfig) return;
+
+                const updatedConfig = {
+                  ...existingConfig,
+                  ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
+                  ...(input.headers !== undefined ? { headers: input.headers as Record<string, HeaderValueValue> } : {}),
+                };
+
+                const newInvocationConfig = new InvocationConfig({
+                  endpoint: updatedConfig.endpoint,
+                  headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
+                });
+
+                const toolIds = yield* operationStore.listByNamespace(namespace);
+                for (const toolId of toolIds) {
+                  const entry = yield* operationStore.get(toolId);
+                  if (entry) {
+                    yield* operationStore.put(toolId, namespace, entry.binding, newInvocationConfig);
+                  }
+                }
+
+                const sources = yield* operationStore.listSources();
+                const existingMeta = sources.find((s) => s.namespace === namespace);
+
+                yield* operationStore.putSource({
+                  namespace,
+                  name: existingMeta?.name ?? namespace,
+                  config: updatedConfig,
+                });
               }),
           },
 

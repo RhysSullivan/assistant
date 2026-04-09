@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { sourceConfigAtom, updateSource, secretsAtom } from "@executor/react/api/atoms";
+import { sourceConfigAtom, secretsAtom } from "@executor/react/api/atoms";
+import { updateOpenApiSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
@@ -81,7 +82,7 @@ export default function EditOpenApiSource(props: {
   const scopeId = useScope();
   const configResult = useAtomValue(sourceConfigAtom(props.sourceId, scopeId));
   const refreshConfig = useAtomRefresh(sourceConfigAtom(props.sourceId, scopeId));
-  const doUpdate = useAtomSet(updateSource, { mode: "promise" });
+  const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
   const secrets = useAtomValue(secretsAtom(scopeId));
 
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
@@ -144,12 +145,12 @@ export default function EditOpenApiSource(props: {
     setSaving(true);
     setError(null);
     try {
-      const payload: Record<string, unknown> = {};
+      const payload: { baseUrl?: string; headers?: Record<string, HeaderValue> } = {};
       if (baseUrl !== null) payload.baseUrl = currentBaseUrl;
       if (headers !== null) payload.headers = currentHeaders;
 
       await doUpdate({
-        path: { scopeId, sourceId: props.sourceId },
+        path: { scopeId, namespace: props.sourceId },
         payload,
       });
       refreshConfig();

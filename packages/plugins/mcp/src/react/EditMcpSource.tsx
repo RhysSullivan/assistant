@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { sourceConfigAtom, updateSource } from "@executor/react/api/atoms";
+import { sourceConfigAtom } from "@executor/react/api/atoms";
+import { updateMcpSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
@@ -21,7 +22,7 @@ export default function EditMcpSource({
   const scopeId = useScope();
   const configResult = useAtomValue(sourceConfigAtom(sourceId, scopeId));
   const refreshConfig = useAtomRefresh(sourceConfigAtom(sourceId, scopeId));
-  const doUpdate = useAtomSet(updateSource, { mode: "promise" });
+  const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
 
   const [endpoint, setEndpoint] = useState<string | null>(null);
   const [headerEntries, setHeaderEntries] = useState<Array<{ name: string; value: string }> | null>(null);
@@ -68,7 +69,7 @@ export default function EditMcpSource({
     setSaving(true);
     setError(null);
     try {
-      const payload: Record<string, unknown> = {};
+      const payload: { endpoint?: string; headers?: Record<string, string> } = {};
       if (endpoint !== null) payload.endpoint = currentEndpoint;
       if (headerEntries !== null) {
         const headersObj: Record<string, string> = {};
@@ -81,7 +82,7 @@ export default function EditMcpSource({
       }
 
       await doUpdate({
-        path: { scopeId, sourceId },
+        path: { scopeId, namespace: sourceId },
         payload,
       });
       refreshConfig();

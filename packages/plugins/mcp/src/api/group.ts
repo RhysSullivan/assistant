@@ -10,6 +10,7 @@ export { HttpApiSchema };
 // ---------------------------------------------------------------------------
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
+const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 
 // ---------------------------------------------------------------------------
 // Auth payload (only for remote)
@@ -70,6 +71,17 @@ const AddSourcePayload = Schema.Union(
 // ---------------------------------------------------------------------------
 // Other payloads
 // ---------------------------------------------------------------------------
+
+const UpdateSourcePayload = Schema.Struct({
+  endpoint: Schema.optional(Schema.String),
+  headers: Schema.optional(StringMap),
+  queryParams: Schema.optional(StringMap),
+  auth: Schema.optional(AuthPayload),
+});
+
+const UpdateSourceResponse = Schema.Struct({
+  updated: Schema.Boolean,
+});
 
 const ProbeEndpointPayload = Schema.Struct({
   endpoint: Schema.String,
@@ -192,6 +204,12 @@ export class McpGroup extends HttpApiGroup.make("mcp")
     HttpApiEndpoint.get("oauthCallback")`/mcp/oauth/callback`
       .setUrlParams(OAuthCallbackParams)
       .addSuccess(HtmlResponse)
+      .addError(McpApiError),
+  )
+  .add(
+    HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
+      .setPayload(UpdateSourcePayload)
+      .addSuccess(UpdateSourceResponse)
       .addError(McpApiError),
   )
   {}

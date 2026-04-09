@@ -10,3 +10,5 @@ export const previewOpenApiSpec = OpenApiClient.mutation(
 );
 
 export const addOpenApiSpec = OpenApiClient.mutation("openapi", "addSpec");
+
+export const updateOpenApiSource = OpenApiClient.mutation("openapi", "updateSource");

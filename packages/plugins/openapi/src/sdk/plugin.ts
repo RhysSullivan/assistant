@@ -48,6 +48,11 @@ export interface OpenApiSpecConfig {
 // Plugin extension
 // ---------------------------------------------------------------------------
 
+export interface OpenApiUpdateSourceInput {
+  readonly baseUrl?: string;
+  readonly headers?: Record<string, HeaderValue>;
+}
+
 export interface OpenApiPluginExtension {
   /** Preview a spec without registering — returns metadata, auth strategies, header presets */
   readonly previewSpec: (specText: string) => Effect.Effect<SpecPreview, Error>;
@@ -59,6 +64,12 @@ export interface OpenApiPluginExtension {
 
   /** Remove all tools from a previously added spec by namespace */
   readonly removeSpec: (namespace: string) => Effect.Effect<void>;
+
+  /** Update config (baseUrl, headers) for an existing OpenAPI source */
+  readonly updateSource: (
+    namespace: string,
+    input: OpenApiUpdateSourceInput,
+  ) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,50 +221,6 @@ export const openApiPlugin = (options?: {
               return config as unknown as Record<string, unknown>;
             }),
 
-          update: (sourceId: string, config: Record<string, unknown>) =>
-            Effect.gen(function* () {
-              const existingSource = yield* operationStore.getSourceConfig(sourceId);
-              if (!existingSource) return;
-
-              // Merge the updated config with the existing source config
-              const updatedConfig = {
-                ...existingSource,
-                ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl as string } : {}),
-                ...(config.headers !== undefined ? { headers: config.headers as Record<string, HeaderValueValue> } : {}),
-              };
-
-              // Update the InvocationConfig on all bindings for this namespace
-              const newInvocationConfig = new InvocationConfig({
-                baseUrl: updatedConfig.baseUrl ?? resolveBaseUrl([]),
-                headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
-              });
-
-              // Re-store bindings with new config
-              const toolIds = yield* operationStore.listByNamespace(sourceId);
-              for (const toolId of toolIds) {
-                const entry = yield* operationStore.get(toolId);
-                if (entry) {
-                  yield* operationStore.put([{
-                    toolId,
-                    namespace: sourceId,
-                    binding: entry.binding,
-                    config: newInvocationConfig,
-                  }]);
-                }
-              }
-
-              // Find existing source meta to preserve the name
-              const sources = yield* operationStore.listSources();
-              const existingMeta = sources.find((s) => s.namespace === sourceId);
-
-              // Update the stored source
-              yield* operationStore.putSource({
-                namespace: sourceId,
-                name: existingMeta?.name ?? sourceId,
-                config: updatedConfig,
-              });
-            }),
-
           detect: (url: string) =>
             Effect.gen(function* () {
               const trimmed = url.trim();
@@ -394,6 +361,45 @@ export const openApiPlugin = (options?: {
                   yield* ctx.tools.unregister(toolIds);
                 }
                 yield* operationStore.removeSource(namespace);
+              }),
+
+            updateSource: (namespace: string, input: OpenApiUpdateSourceInput) =>
+              Effect.gen(function* () {
+                const existingSource = yield* operationStore.getSourceConfig(namespace);
+                if (!existingSource) return;
+
+                const updatedConfig = {
+                  ...existingSource,
+                  ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
+                  ...(input.headers !== undefined ? { headers: input.headers as Record<string, HeaderValueValue> } : {}),
+                };
+
+                const newInvocationConfig = new InvocationConfig({
+                  baseUrl: updatedConfig.baseUrl ?? resolveBaseUrl([]),
+                  headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
+                });
+
+                const toolIds = yield* operationStore.listByNamespace(namespace);
+                for (const toolId of toolIds) {
+                  const entry = yield* operationStore.get(toolId);
+                  if (entry) {
+                    yield* operationStore.put([{
+                      toolId,
+                      namespace,
+                      binding: entry.binding,
+                      config: newInvocationConfig,
+                    }]);
+                  }
+                }
+
+                const sources = yield* operationStore.listSources();
+                const existingMeta = sources.find((s) => s.namespace === namespace);
+
+                yield* operationStore.putSource({
+                  namespace,
+                  name: existingMeta?.name ?? namespace,
+                  config: updatedConfig,
+                });
               }),
           },
 
