@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import { $ } from "bun";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -101,18 +102,24 @@ const resolveSecureExecV8 = (t: Target): string | null => {
 };
 
 // ---------------------------------------------------------------------------
+// Build mode
+// ---------------------------------------------------------------------------
+
+type BuildMode = "production" | "development";
+
+// ---------------------------------------------------------------------------
 // Build web app
 // ---------------------------------------------------------------------------
 
-const buildWeb = async () => {
+const buildWeb = async (mode: BuildMode) => {
   const webDist = join(webRoot, "dist");
   await rm(webDist, { recursive: true, force: true });
 
-  console.log("Building web app...");
-  const proc = Bun.spawn(["bun", "run", "build"], {
+  console.log(`Building web app (${mode})...`);
+  const proc = Bun.spawn(["bun", "run", "build", "--mode", mode], {
     cwd: webRoot,
     stdio: ["ignore", "inherit", "inherit"],
-    env: { ...process.env, NODE_ENV: "production" },
+    env: { ...process.env, NODE_ENV: mode },
   });
   if ((await proc.exited) !== 0) throw new Error("Web build failed");
   return webDist;
@@ -123,8 +130,8 @@ const buildWeb = async () => {
 // using `with { type: "file" }` so Bun bakes them into the compiled binary.
 // ---------------------------------------------------------------------------
 
-const createEmbeddedWebUISource = async () => {
-  const webDist = await buildWeb();
+const createEmbeddedWebUISource = async (mode: BuildMode) => {
+  const webDist = await buildWeb(mode);
   const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: webDist })))
     .map((f) => f.replaceAll("\\", "/"))
     .sort();
@@ -243,15 +250,15 @@ export function getBridgeAttachCode() { return bridgeAttachCode; }
 
 const EMBEDDED_WEB_UI_STUB = `const files: Record<string, string> | null = null;\n\nexport default files;\n`;
 
-const buildBinaries = async (targets: Target[]) => {
+const buildBinaries = async (targets: Target[], mode: BuildMode) => {
   const meta = await readMetadata();
   const binaries: Record<string, string> = {};
   const embeddedWebUIPath = join(cliRoot, "src/embedded-web-ui.gen.ts");
 
   await rm(distDir, { recursive: true, force: true });
 
-  console.log("Generating embedded web UI bundle...");
-  const embeddedWebUI = await createEmbeddedWebUISource();
+  console.log(`Generating embedded web UI bundle (${mode})...`);
+  const embeddedWebUI = await createEmbeddedWebUISource(mode);
   await writeFile(embeddedWebUIPath, `${embeddedWebUI}\n`);
   const quickJsWasmPath = resolveQuickJsWasmPath();
 
@@ -266,7 +273,7 @@ const buildBinaries = async (targets: Target[]) => {
 
     await Bun.build({
       entrypoints: [join(cliRoot, "src/main.ts")],
-      minify: true,
+      minify: mode === "production",
       compile: {
         target: bunTarget(target) as any,
         outfile: join(binDir, binaryName(target)),
@@ -635,24 +642,37 @@ const extract = () => {
 // CLI
 // ---------------------------------------------------------------------------
 
-const command = process.argv[2];
-const singleFlag = process.argv.includes("--single");
+const { values, positionals } = parseArgs({
+  args: process.argv.slice(2),
+  options: {
+    single: { type: "boolean", default: false },
+    mode: { type: "string", default: "production" },
+  },
+  allowPositionals: true,
+  strict: true,
+});
+
+const command = positionals[0];
+const mode = values.mode as BuildMode;
+if (mode !== "production" && mode !== "development") {
+  throw new Error(`Invalid --mode: ${mode}. Must be "production" or "development".`);
+}
 
 if (command === "binary") {
-  const targets = singleFlag
+  const targets = values.single
     ? ALL_TARGETS.filter(isCurrentPlatform)
     : ALL_TARGETS;
-  const binaries = await buildBinaries(targets);
+  const binaries = await buildBinaries(targets, mode);
   await buildWrapperPackage(binaries);
 } else if (command === "release-assets") {
   await createReleaseAssets();
 } else if (command === "publish") {
-  const channel = process.argv[3] ?? "latest";
+  const channel = positionals[1] ?? "latest";
   await publish(channel);
 } else {
   console.log(`Usage:
-  bun run build.ts binary [--single]   Build platform binaries + wrapper package
-  bun run build.ts release-assets      Create .tar.gz/.zip from built binaries
-  bun run build.ts publish [channel]   Publish all packages to npm`);
+  bun run build.ts binary [--single] [--mode production|development]
+  bun run build.ts release-assets
+  bun run build.ts publish [channel]`);
   process.exit(1);
 }
