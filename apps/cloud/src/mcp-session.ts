@@ -127,10 +127,17 @@ export class McpSessionDO extends DurableObject {
    */
   async handleRequest(request: Request): Promise<Response> {
     if (!this.initialized || !this.transport) {
-      console.error("[mcp-session] handleRequest called but not initialized");
+      // DO was evicted and lost in-memory state — tell client to reconnect
       return new Response(
-        JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: "Session not initialized" }, id: null }),
-        { status: 500, headers: { "content-type": "application/json" } },
+        JSON.stringify({
+          jsonrpc: "2.0",
+          error: {
+            code: -32001,
+            message: "Session expired — please reconnect",
+          },
+          id: null,
+        }),
+        { status: 404, headers: { "content-type": "application/json" } },
       );
     }
 
