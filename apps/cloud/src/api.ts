@@ -116,41 +116,21 @@ const resolveAuth = (request: Request) =>
   });
 
 const resolveTeamId = (
-  auth: {
-    readonly userId: string;
-    readonly email: string;
-    readonly firstName: string | null | undefined;
-    readonly lastName: string | null | undefined;
-    readonly avatarUrl: string | null | undefined;
-  },
+  userId: string,
   cookieTeamId: string | null,
 ) =>
   Effect.gen(function* () {
     const users = yield* UserStoreService;
-    const teams = yield* users.use((store) => store.getTeamsForUser(auth.userId));
+    const teams = yield* users.use((store) => store.getTeamsForUser(userId));
 
     if (cookieTeamId) {
       const hasAccess = teams.some((t) => t.teamId === cookieTeamId);
       if (hasAccess) return cookieTeamId;
-      // Cookie references a team the user doesn't belong to — ignore it
     }
 
     if (teams.length > 0) return teams[0]!.teamId;
 
-    const user = yield* users.use((store) =>
-      store.upsertUser({
-        id: auth.userId,
-        email: auth.email,
-        name: `${auth.firstName ?? ""} ${auth.lastName ?? ""}`.trim() || undefined,
-        avatarUrl: auth.avatarUrl ?? undefined,
-      }),
-    );
-
-    const team = yield* users.use((store) =>
-      store.createTeam(`${user.name ?? user.email}'s Team`),
-    );
-    yield* users.use((store) => store.addMember(team.id, user.id, "owner"));
-    return team.id;
+    return yield* Effect.fail(new Error("No team found — user may not have completed signup"));
   });
 
 const resolveExecutor = (teamId: string) =>
@@ -225,7 +205,7 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
     if (!auth) return unauthorized("Unauthorized");
 
     const cookieTeamId = parseCookie(request.headers.get("cookie"), "executor_team");
-    const teamId = yield* resolveTeamId(auth, cookieTeamId);
+    const teamId = yield* resolveTeamId(auth.userId, cookieTeamId);
 
     const executor = yield* Effect.acquireRelease(
       resolveExecutor(teamId),
