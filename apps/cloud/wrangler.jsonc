@@ -36,7 +36,8 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "776c27dfec5f47f59343603b35a7b4c2"
+      "id": "776c27dfec5f47f59343603b35a7b4c2",
+      "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5433/postgres"
     }
   ],
   "worker_loaders": [

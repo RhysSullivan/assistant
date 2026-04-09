@@ -16,6 +16,12 @@ const getMarketingWorker = () => env.MARKETING as { fetch: typeof fetch } | unde
 
 const marketingMiddleware = createMiddleware({ type: "request" }).server(
   async ({ pathname, request, next }) => {
+    // Only proxy to the marketing worker on the production domain. In local
+    // dev we don't run `executor-marketing`, so unauthenticated visits fall
+    // through to the cloud app's routes (which show the sign-in page).
+    const host = new URL(request.url).hostname;
+    if (host !== "executor.sh") return next();
+
     const shouldProxyToMarketing =
       isMarketingPath(pathname) ||
       (pathname === "/" && !parseCookie(request.headers.get("cookie"), "wos-session"));

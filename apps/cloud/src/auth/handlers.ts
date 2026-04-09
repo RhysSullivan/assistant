@@ -2,8 +2,7 @@ import { HttpApi, HttpApiBuilder, HttpServerRequest, HttpServerResponse } from "
 import { Effect } from "effect";
 import { setCookie, deleteCookie, getCookie } from "@tanstack/react-start/server";
 
-import { AUTH_PATHS, CloudAuthPublicApi } from "./api";
-import { CloudAuthApi } from "./api";
+import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
 import { WorkOSAuth } from "./workos";
@@ -18,13 +17,20 @@ const COOKIE_OPTIONS = {
 };
 
 // ---------------------------------------------------------------------------
+// Single non-protected API surface — public (login/callback) + session
+// (me/logout/createOrganization). The session group has SessionAuth on it.
+// ---------------------------------------------------------------------------
+
+export const NonProtectedApi = HttpApi.make("cloudWeb")
+  .add(CloudAuthPublicApi)
+  .add(CloudAuthApi);
+
+// ---------------------------------------------------------------------------
 // Public auth handlers (no authentication required)
 // ---------------------------------------------------------------------------
 
-const PublicAuthApi = HttpApi.make("cloudPublic").add(CloudAuthPublicApi);
-
 export const CloudAuthPublicHandlers = HttpApiBuilder.group(
-  PublicAuthApi,
+  NonProtectedApi,
   "cloudAuthPublic",
   (handlers) =>
     handlers
@@ -32,8 +38,12 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
           const req = yield* HttpServerRequest.HttpServerRequest;
-          const proto = req.headers["x-forwarded-proto"] ?? "https";
-          const origin = new URL(req.url, `${proto}://${req.headers["host"]}`).origin;
+          // Prefer APP_URL (set explicitly in dev/prod config) since the
+          // request's Host header is the internal proxy target in dev, not
+          // the public URL WorkOS needs to redirect back to.
+          const origin = server.APP_URL
+            ? server.APP_URL
+            : new URL(req.url, `${req.headers["x-forwarded-proto"] ?? "https"}://${req.headers["host"]}`).origin;
           const url = workos.getAuthorizationUrl(`${origin}${AUTH_PATHS.callback}`);
           return HttpServerResponse.redirect(url, { status: 302 });
         }),
@@ -45,29 +55,46 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
 
           const result = yield* workos.authenticateWithCode(urlParams.code);
 
-          // Mirror the account locally (foreign-key anchor only — no profile data)
+          // Mirror the account locally
           yield* users.use((s) => s.ensureAccount(result.user.id));
 
-          // Mirror the org if WorkOS returned one
-          if (result.organizationId) {
+          let sealedSession = result.sealedSession;
+          let organizationId = result.organizationId;
+
+          // WorkOS doesn't host an org creation flow — if the user has no
+          // org yet, create a default one on their behalf and refresh the
+          // session so it includes the new org_id claim.
+          if (!organizationId) {
+            const name =
+              [result.user.firstName, result.user.lastName]
+                .filter(Boolean)
+                .join(" ") || result.user.email;
+            const org = yield* workos.createOrganization(`${name}'s Workspace`);
+            yield* workos.createMembership(org.id, result.user.id);
+            yield* users.use((s) =>
+              s.upsertOrganization({ id: org.id, name: org.name }),
+            );
+
+            if (sealedSession) {
+              const refreshed = yield* workos.refreshSession(sealedSession, org.id);
+              if (refreshed) sealedSession = refreshed;
+            }
+            organizationId = org.id;
+          } else {
             yield* users.use((s) =>
               s.upsertOrganization({
-                id: result.organizationId!,
+                id: organizationId!,
                 name: "Organization",
               }),
             );
           }
 
-          const sealedSession = result.sealedSession;
           if (!sealedSession) {
             return HttpServerResponse.text("Failed to create session", { status: 500 });
           }
 
           setCookie("wos-session", sealedSession, COOKIE_OPTIONS);
-
-          // If no org yet, send the user to the setup flow.
-          const redirectTo = result.organizationId ? "/" : "/setup";
-          return HttpServerResponse.redirect(redirectTo, { status: 302 });
+          return HttpServerResponse.redirect("/", { status: 302 });
         }),
       ),
 );
@@ -76,10 +103,8 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
 // Session auth handlers (require session, may or may not have an org)
 // ---------------------------------------------------------------------------
 
-const SessionAuthApiSurface = HttpApi.make("cloudSession").add(CloudAuthApi);
-
 export const CloudSessionAuthHandlers = HttpApiBuilder.group(
-  SessionAuthApiSurface,
+  NonProtectedApi,
   "cloudAuth",
   (handlers) =>
     handlers

@@ -1,0 +1,4 @@
+.env
+.env.op
+.env.local
+.dev-db/

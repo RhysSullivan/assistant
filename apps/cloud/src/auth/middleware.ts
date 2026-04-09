@@ -1,16 +1,12 @@
 // ---------------------------------------------------------------------------
-// HTTP API middleware — session and organization authorization
+// HTTP API middleware tags — pure tag definitions, no server dependencies.
+// Live implementations are in ./middleware-live.ts to keep the WorkOS SDK
+// out of the client bundle (this file is imported by `auth/api.ts` which
+// the SPA pulls in for typed schemas).
 // ---------------------------------------------------------------------------
 
-import { Context, Effect, Layer, Redacted, Schema } from "effect";
-import {
-  HttpApiMiddleware,
-  HttpApiSchema,
-  HttpApiSecurity,
-  HttpServerRequest,
-} from "@effect/platform";
-
-import { WorkOSAuth } from "./workos";
+import { Context, Schema } from "effect";
+import { HttpApiMiddleware, HttpApiSchema, HttpApiSecurity } from "@effect/platform";
 
 // ---------------------------------------------------------------------------
 // Session — what every authenticated request gets
@@ -48,7 +44,7 @@ export class NoOrganization extends Schema.TaggedError<NoOrganization>()(
 ) {}
 
 // ---------------------------------------------------------------------------
-// SessionAuth middleware — resolves the WorkOS session cookie
+// SessionAuth — resolves the WorkOS session cookie, provides SessionContext
 // ---------------------------------------------------------------------------
 
 export class SessionAuth extends HttpApiMiddleware.Tag<SessionAuth>()(
@@ -57,46 +53,13 @@ export class SessionAuth extends HttpApiMiddleware.Tag<SessionAuth>()(
     failure: Unauthorized,
     provides: SessionContext,
     security: {
-      cookie: HttpApiSecurity.apiKey({
-        in: "cookie",
-        key: "wos-session",
-      }),
+      cookie: HttpApiSecurity.apiKey({ in: "cookie", key: "wos-session" }),
     },
   },
 ) {}
 
-export const SessionAuthLive = Layer.effect(
-  SessionAuth,
-  Effect.gen(function* () {
-    const workos = yield* WorkOSAuth;
-    return SessionAuth.of({
-      cookie: (sealedSession) =>
-        Effect.gen(function* () {
-          const result = yield* workos
-            .authenticateSealedSession(Redacted.value(sealedSession))
-            .pipe(Effect.orElseSucceed(() => null));
-
-          if (!result) {
-            return yield* new Unauthorized();
-          }
-
-          return {
-            accountId: result.userId,
-            email: result.email,
-            name:
-              `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() ||
-              null,
-            avatarUrl: result.avatarUrl ?? null,
-            organizationId: result.organizationId ?? null,
-            refreshedSession: result.refreshedSession ?? null,
-          };
-        }),
-    });
-  }),
-);
-
 // ---------------------------------------------------------------------------
-// OrgRequired middleware — requires an organization in the session
+// OrgAuth — like SessionAuth but rejects sessions with no organization
 // ---------------------------------------------------------------------------
 
 export class AuthContext extends Context.Tag("@executor/cloud/AuthContext")<
@@ -114,42 +77,6 @@ export class OrgAuth extends HttpApiMiddleware.Tag<OrgAuth>()("OrgAuth", {
   failure: Schema.Union(Unauthorized, NoOrganization),
   provides: AuthContext,
   security: {
-    cookie: HttpApiSecurity.apiKey({
-      in: "cookie",
-      key: "wos-session",
-    }),
+    cookie: HttpApiSecurity.apiKey({ in: "cookie", key: "wos-session" }),
   },
 }) {}
-
-export const OrgAuthLive = Layer.effect(
-  OrgAuth,
-  Effect.gen(function* () {
-    const workos = yield* WorkOSAuth;
-    return OrgAuth.of({
-      cookie: (sealedSession) =>
-        Effect.gen(function* () {
-          const result = yield* workos
-            .authenticateSealedSession(Redacted.value(sealedSession))
-            .pipe(Effect.orElseSucceed(() => null));
-
-          if (!result) {
-            return yield* new Unauthorized();
-          }
-
-          if (!result.organizationId) {
-            return yield* new NoOrganization();
-          }
-
-          return {
-            accountId: result.userId,
-            organizationId: result.organizationId,
-            email: result.email,
-            name:
-              `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() ||
-              null,
-            avatarUrl: result.avatarUrl ?? null,
-          };
-        }),
-    });
-  }),
-);

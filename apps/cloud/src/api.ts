@@ -1,10 +1,9 @@
 // ---------------------------------------------------------------------------
-// Cloud API — three layers: public, session-authenticated, org-authenticated
+// Cloud API — non-protected (auth) endpoints + org-protected executor endpoints
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
 import {
-  HttpApi,
   HttpApiBuilder,
   HttpApiSwagger,
   HttpMiddleware,
@@ -14,24 +13,44 @@ import {
 import { Effect, Layer } from "effect";
 
 import { CoreExecutorApi } from "@executor/api";
-import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
+import {
+  CoreHandlers,
+  ExecutorService,
+  ExecutionEngineService,
+} from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
-import { makeDynamicWorkerExecutor, type CodeExecutor } from "@executor/runtime-dynamic-worker";
-import { OpenApiGroup, OpenApiExtensionService, OpenApiHandlers } from "@executor/plugin-openapi/api";
-import { McpGroup, McpExtensionService, McpHandlers } from "@executor/plugin-mcp/api";
+import {
+  makeDynamicWorkerExecutor,
+  type CodeExecutor,
+} from "@executor/runtime-dynamic-worker";
+import {
+  OpenApiGroup,
+  OpenApiExtensionService,
+  OpenApiHandlers,
+} from "@executor/plugin-openapi/api";
+import {
+  McpGroup,
+  McpExtensionService,
+  McpHandlers,
+} from "@executor/plugin-mcp/api";
 import {
   GoogleDiscoveryGroup,
   GoogleDiscoveryExtensionService,
   GoogleDiscoveryHandlers,
 } from "@executor/plugin-google-discovery/api";
-import { GraphqlGroup, GraphqlExtensionService, GraphqlHandlers } from "@executor/plugin-graphql/api";
+import {
+  GraphqlGroup,
+  GraphqlExtensionService,
+  GraphqlHandlers,
+} from "@executor/plugin-graphql/api";
 
-import { CloudAuthApi, CloudAuthPublicApi } from "./auth/api";
-import { OrgAuth, OrgAuthLive, SessionAuthLive } from "./auth/middleware";
+import { OrgAuth } from "./auth/middleware";
+import { OrgAuthLive, SessionAuthLive } from "./auth/middleware-live";
 import { UserStoreService } from "./auth/context";
 import {
   CloudAuthPublicHandlers,
   CloudSessionAuthHandlers,
+  NonProtectedApi,
 } from "./auth/handlers";
 import { WorkOSAuth } from "./auth/workos";
 import { DbService } from "./services/db";
@@ -43,18 +62,11 @@ import { server } from "./env";
 // ---------------------------------------------------------------------------
 
 /** Protected (org-required) API — all the executor groups + OrgAuth middleware */
-const ProtectedCloudApi = CoreExecutorApi
-  .add(OpenApiGroup)
+const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
   .add(McpGroup)
   .add(GoogleDiscoveryGroup)
   .add(GraphqlGroup)
   .middleware(OrgAuth);
-
-/** Session-only API — just the auth endpoints (SessionAuth on the group) */
-const SessionCloudApi = HttpApi.make("cloudSession").add(CloudAuthApi);
-
-/** Public API — login + callback, no auth */
-const PublicCloudApi = HttpApi.make("cloudPublic").add(CloudAuthPublicApi);
 
 // ---------------------------------------------------------------------------
 // Layers
@@ -69,7 +81,6 @@ const SharedServices = Layer.mergeAll(
   WorkOSAuth.Default,
   HttpServer.layerContext,
 );
-
 const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -83,13 +94,9 @@ const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
   ),
 );
 
-const SessionCloudApiLive = HttpApiBuilder.api(SessionCloudApi).pipe(
-  Layer.provide(CloudSessionAuthHandlers),
+const NonProtectedApiLive = HttpApiBuilder.api(NonProtectedApi).pipe(
+  Layer.provide(Layer.mergeAll(CloudAuthPublicHandlers, CloudSessionAuthHandlers)),
   Layer.provideMerge(SessionAuthLive),
-);
-
-const PublicCloudApiLive = HttpApiBuilder.api(PublicCloudApi).pipe(
-  Layer.provide(CloudAuthPublicHandlers),
 );
 
 // ---------------------------------------------------------------------------
@@ -98,16 +105,8 @@ const PublicCloudApiLive = HttpApiBuilder.api(PublicCloudApi).pipe(
 
 const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
 
-const publicHandler = HttpApiBuilder.toWebHandler(
-  PublicCloudApiLive.pipe(
-    Layer.provideMerge(SharedServices),
-    Layer.provideMerge(RouterConfig),
-  ),
-  { middleware: HttpMiddleware.logger },
-);
-
-const sessionHandler = HttpApiBuilder.toWebHandler(
-  SessionCloudApiLive.pipe(
+const nonProtectedHandler = HttpApiBuilder.toWebHandler(
+  NonProtectedApiLive.pipe(
     Layer.provideMerge(SharedServices),
     Layer.provideMerge(RouterConfig),
   ),
@@ -147,7 +146,9 @@ const buildProtectedHandler = (
         Layer.provideMerge(ProtectedCloudApiLive),
         Layer.provideMerge(requestServices),
         Layer.provideMerge(SharedServices),
-        Layer.provideMerge(HttpRouter.setRouterConfig({ maxParamLength: 1000 })),
+        Layer.provideMerge(
+          HttpRouter.setRouterConfig({ maxParamLength: 1000 }),
+        ),
       ),
       { middleware: HttpMiddleware.logger },
     );
@@ -157,18 +158,12 @@ const buildProtectedHandler = (
 // Routing
 // ---------------------------------------------------------------------------
 
-const isPublicPath = (pathname: string): boolean =>
-  pathname === "/auth/login" || pathname === "/auth/callback";
-
-const isSessionPath = (pathname: string): boolean =>
-  pathname === "/auth/me" ||
-  pathname === "/auth/logout" ||
-  pathname === "/auth/organization";
+const isAuthPath = (pathname: string): boolean => pathname.startsWith("/auth/");
 
 /**
  * Resolve the user's organization for executor creation. Reads from the
- * session cookie via WorkOS — if there's no org we fall through to the
- * session handler which will reject with NoOrganization for non-session paths.
+ * session cookie via WorkOS — returns null if there's no session or no
+ * organization yet, so the caller can return a 403.
  */
 const lookupOrgForRequest = (request: Request) =>
   Effect.gen(function* () {
@@ -176,47 +171,43 @@ const lookupOrgForRequest = (request: Request) =>
     const result = yield* workos.authenticateRequest(request);
     if (!result || !result.organizationId) return null;
     const users = yield* UserStoreService;
-    const org = yield* users.use((s) =>
-      s.getOrganization(result.organizationId!),
-    );
-    return org;
+    return yield* users.use((s) => s.getOrganization(result.organizationId!));
   });
 
 export const handleApiRequest = async (request: Request): Promise<Response> => {
   const pathname = new URL(request.url).pathname;
 
-  if (isPublicPath(pathname)) {
-    return publicHandler.handler(request);
+  if (isAuthPath(pathname)) {
+    return nonProtectedHandler.handler(request);
   }
 
-  if (isSessionPath(pathname)) {
-    return sessionHandler.handler(request);
-  }
+  // Protected path — build the executor lazily for the request's org.
+  try {
+    const program = Effect.gen(function* () {
+      const org = yield* lookupOrgForRequest(request);
+      if (!org) return null;
 
-  // Protected path — needs an org-scoped executor
-  const program = Effect.gen(function* () {
-    const org = yield* lookupOrgForRequest(request);
-    if (!org) {
-      // No org — let the protected handler reject via OrgAuth middleware
-      // (it will return 403 NoOrganization)
-      return null;
+      const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
+      const handler = yield* buildProtectedHandler(org.id, org.name, codeExecutor);
+      return yield* Effect.promise(() => handler.handler(request));
+    });
+
+    const result = await Effect.runPromise(
+      program.pipe(Effect.provide(SharedServices), Effect.scoped),
+    );
+
+    if (result === null) {
+      return Response.json(
+        { error: "No organization in session", code: "no_organization" },
+        { status: 403 },
+      );
     }
-
-    const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
-    const handler = yield* buildProtectedHandler(org.id, org.name, codeExecutor);
-    return yield* Effect.promise(() => handler.handler(request));
-  });
-
-  const result = await Effect.runPromise(
-    program.pipe(
-      Effect.provide(SharedServices),
-      Effect.scoped,
-    ),
-  );
-
-  if (result === null) {
-    // Fall through to session handler so it returns the proper error
-    return sessionHandler.handler(request);
+    return result;
+  } catch (err) {
+    console.error("[api] request failed:", err instanceof Error ? err.stack : err);
+    return Response.json(
+      { error: err instanceof Error ? err.message : "Internal server error" },
+      { status: 500 },
+    );
   }
-  return result;
 };

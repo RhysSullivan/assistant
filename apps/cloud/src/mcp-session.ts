@@ -35,7 +35,7 @@ const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 // Session initialization effect
 // ---------------------------------------------------------------------------
 
-const DbLive = DbService.Unscoped;
+const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 const Services = Layer.mergeAll(DbLive, UserStoreLive);
 

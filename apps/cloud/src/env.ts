@@ -19,6 +19,7 @@ const serverShape = {
   WORKOS_API_KEY: Env.string("WORKOS_API_KEY"),
   WORKOS_CLIENT_ID: Env.string("WORKOS_CLIENT_ID"),
   WORKOS_COOKIE_PASSWORD: Env.string("WORKOS_COOKIE_PASSWORD"),
+  APP_URL: Env.stringOr("APP_URL", ""),
 };
 
 type SharedEnv = Readonly<{
@@ -31,6 +32,7 @@ type ServerEnv = SharedEnv & Readonly<{
   WORKOS_API_KEY: string;
   WORKOS_CLIENT_ID: string;
   WORKOS_COOKIE_PASSWORD: string;
+  APP_URL: string;
 }>;
 
 type WebEnv = Readonly<Record<string, never>>;
