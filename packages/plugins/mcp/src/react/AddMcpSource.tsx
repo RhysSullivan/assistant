@@ -137,32 +137,51 @@ type OAuthPopupResult =
   | { type: "executor:oauth-result"; ok: true; sessionId: string } & OAuthTokens
   | { type: "executor:oauth-result"; ok: false; sessionId: null; error: string };
 
+const OAUTH_RESULT_CHANNEL = "executor:mcp-oauth-result";
+
+const isOAuthPopupResult = (value: unknown): value is OAuthPopupResult =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { type?: unknown }).type === "executor:oauth-result";
+
 function openOAuthPopup(
   url: string,
   onResult: (data: OAuthPopupResult) => void,
-  onClosed?: () => void,
-): void {
+  onOpenFailed?: () => void,
+): () => void {
   const w = 600, h = 700;
   const left = window.screenX + (window.outerWidth - w) / 2;
   const top = window.screenY + (window.outerHeight - h) / 2;
-  const popup = window.open(url, "mcp-oauth", `width=${w},height=${h},left=${left},top=${top},popup=1`);
 
   let settled = false;
-  const settle = () => { settled = true; window.removeEventListener("message", onMsg); };
+  const channel = typeof BroadcastChannel !== "undefined"
+    ? new BroadcastChannel(OAUTH_RESULT_CHANNEL)
+    : null;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    window.removeEventListener("message", onMsg);
+    channel?.close();
+  };
+
+  const handleResult = (data: unknown) => {
+    if (!isOAuthPopupResult(data) || settled) return;
+    settle();
+    onResult(data);
+  };
 
   const onMsg = (e: MessageEvent) => {
-    if (e.origin === window.location.origin && e.data?.type === "executor:oauth-result" && !settled) {
-      settle();
-      onResult(e.data as OAuthPopupResult);
-    }
+    if (e.origin === window.location.origin) handleResult(e.data);
   };
   window.addEventListener("message", onMsg);
+  if (channel) channel.onmessage = (e) => handleResult(e.data);
 
-  if (popup) {
-    const iv = setInterval(() => {
-      if (popup.closed) { clearInterval(iv); if (!settled) { settle(); onClosed?.(); } }
-    }, 500);
+  const popup = window.open(url, "mcp-oauth", `width=${w},height=${h},left=${left},top=${top},popup=1`);
+  if (!popup && !settled) {
+    settle();
+    queueMicrotask(() => onOpenFailed?.());
   }
+  return settle;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,7 +264,11 @@ export default function AddMcpSource(props: {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const oauthCleanup = useRef<(() => void) | null>(null);
+
   const handleOAuth = useCallback(async () => {
+    oauthCleanup.current?.();
+    oauthCleanup.current = null;
     dispatch({ type: "oauth-start" });
     try {
       const redirectUrl = `${window.location.origin}/api/mcp/oauth/callback`;
@@ -254,9 +277,10 @@ export default function AddMcpSource(props: {
         payload: { endpoint: state.url.trim(), redirectUrl },
       });
       dispatch({ type: "oauth-waiting", sessionId: result.sessionId });
-      openOAuthPopup(
+      oauthCleanup.current = openOAuthPopup(
         result.authorizationUrl,
         (data) => {
+          oauthCleanup.current = null;
           if (data.ok) {
             dispatch({
               type: "oauth-ok",
@@ -272,12 +296,21 @@ export default function AddMcpSource(props: {
             dispatch({ type: "oauth-fail", error: data.error });
           }
         },
-        () => dispatch({ type: "oauth-cancelled" }),
+        () => {
+          oauthCleanup.current = null;
+          dispatch({ type: "oauth-fail", error: "OAuth popup was blocked" });
+        },
       );
     } catch (e) {
       dispatch({ type: "oauth-fail", error: e instanceof Error ? e.message : "Failed to start OAuth" });
     }
-  }, [state.url, doStartOAuth]);
+  }, [state.url, scopeId, doStartOAuth]);
+
+  const handleCancelOAuth = useCallback(() => {
+    oauthCleanup.current?.();
+    oauthCleanup.current = null;
+    dispatch({ type: "oauth-cancelled" });
+  }, []);
 
   const handleAddRemote = useCallback(async () => {
     if (!probe) return;
@@ -474,6 +507,14 @@ export default function AddMcpSource(props: {
                 <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2.5">
                   <Spinner className="size-3.5 text-blue-500" />
                   <span className="text-xs text-blue-600 dark:text-blue-400">Waiting for authorization in popup…</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCancelOAuth}
+                    className="ml-auto h-7 px-2 text-xs"
+                  >
+                    Cancel
+                  </Button>
                 </div>
               )}
             </section>
