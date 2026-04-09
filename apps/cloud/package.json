@@ -45,7 +45,7 @@
     "wrangler": "^4.81.0"
   },
   "scripts": {
-    "dev": "bun run --env-file=.env -- portless run --name executor-cloud vite dev",
+    "dev": "op run --env-file=.env -- portless run --name executor-cloud vite dev",
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",

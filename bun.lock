@@ -221,7 +221,6 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
-        "@types/node": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -238,7 +237,6 @@
         "@effect/experimental": "catalog:",
         "@effect/sql-sqlite-node": "catalog:",
         "@effect/vitest": "catalog:",
-        "@types/node": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -601,7 +599,6 @@
         "hast-util-to-jsx-runtime": "^2.3.6",
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
-        "vite": "catalog:",
       },
     },
   },
