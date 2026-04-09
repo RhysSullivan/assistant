@@ -31,9 +31,13 @@ export type McpSessionInit = {
   lastName?: string;
 };
 
-// Alarm fires after 60s of inactivity — clean up before Cloudflare evicts
-// so we can return a clear "timed out" message on the next request.
-const SESSION_TTL_MS = 60 * 1000;
+// Heartbeat interval — keeps the DO alive by re-scheduling an alarm before
+// Cloudflare's ~60s idle eviction kicks in.
+const HEARTBEAT_MS = 30 * 1000;
+
+// Session timeout — clean up after no requests for this long.
+// TODO: Make tier-based — free users get 60s, paid users get 5 minutes.
+const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Team resolution
@@ -42,10 +46,15 @@ const SESSION_TTL_MS = 60 * 1000;
 const resolveTeam = (token: McpSessionInit) =>
   Effect.gen(function* () {
     const users = yield* UserStoreService;
-    const teams = yield* users.use((store) => store.getTeamsForUser(token.userId));
+    const teams = yield* users.use((store) =>
+      store.getTeamsForUser(token.userId),
+    );
 
     if (teams.length > 0) {
-      return { teamId: teams[0]!.teamId, teamName: teams[0]!.teamName ?? "Team" };
+      return {
+        teamId: teams[0]!.teamId,
+        teamName: teams[0]!.teamName ?? "Team",
+      };
     }
 
     const name =
@@ -86,6 +95,7 @@ export class McpSessionDO extends DurableObject {
   private mcpServer: McpServer | null = null;
   private transport: WebStandardStreamableHTTPServerTransport | null = null;
   private initialized = false;
+  private lastActivityMs = 0;
 
   /**
    * Initialize the MCP session — resolves team, creates executor + engine + server.
@@ -119,8 +129,10 @@ export class McpSessionDO extends DurableObject {
 
     await this.mcpServer.connect(this.transport);
     this.initialized = true;
+    this.lastActivityMs = Date.now();
 
-    await this.ctx.storage.setAlarm(Date.now() + SESSION_TTL_MS);
+    // Start heartbeat — keeps DO alive until session times out
+    await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_MS);
   }
 
   /**
@@ -133,7 +145,7 @@ export class McpSessionDO extends DurableObject {
           jsonrpc: "2.0",
           error: {
             code: -32001,
-            message: "Session timed out after 60s of inactivity — please reconnect",
+            message: "Session timed out due to inactivity — please reconnect",
           },
           id: null,
         }),
@@ -141,20 +153,37 @@ export class McpSessionDO extends DurableObject {
       );
     }
 
+    this.lastActivityMs = Date.now();
+
     try {
-      await this.ctx.storage.setAlarm(Date.now() + SESSION_TTL_MS);
       return await this.transport.handleRequest(request);
     } catch (err) {
-      console.error("[mcp-session] handleRequest error:", err instanceof Error ? err.stack : err);
+      console.error(
+        "[mcp-session] handleRequest error:",
+        err instanceof Error ? err.stack : err,
+      );
       return new Response(
-        JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: err instanceof Error ? err.message : "Internal error" }, id: null }),
+        JSON.stringify({
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: err instanceof Error ? err.message : "Internal error",
+          },
+          id: null,
+        }),
         { status: 500, headers: { "content-type": "application/json" } },
       );
     }
   }
 
   async alarm(): Promise<void> {
-    await this.cleanup();
+    const idleMs = Date.now() - this.lastActivityMs;
+    if (idleMs >= SESSION_TIMEOUT_MS) {
+      await this.cleanup();
+      return;
+    }
+    // Still active — schedule next heartbeat
+    await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_MS);
   }
 
   private async cleanup(): Promise<void> {
