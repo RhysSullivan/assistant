@@ -263,6 +263,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
   const { toggleSidebar } = useSidebar();
 
   return (
+    // oxlint-disable-next-line react/forbid-elements
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"

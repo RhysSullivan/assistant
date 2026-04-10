@@ -153,7 +153,7 @@ const resolveConnectorInput = (
   }
 
   return Effect.gen(function* () {
-    const headers: Record<string, string> = { ...(sourceData.headers ?? {}) };
+    const headers: Record<string, string> = { ...sourceData.headers };
     let authProvider: OAuthClientProvider | undefined;
 
     const auth = sourceData.auth;
@@ -317,7 +317,7 @@ export const makeMcpInvoker = (opts: {
           elicitationHandler,
         ).pipe(
           // On failure, invalidate the cached connection and retry once
-          Effect.catchAll((err) =>
+          Effect.catchAll(() =>
             Effect.gen(function* () {
               yield* connectionCache.invalidate(cacheKey);
               pendingConnectors.set(cacheKey, connector);

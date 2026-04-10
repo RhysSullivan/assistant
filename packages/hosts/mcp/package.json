@@ -7,9 +7,10 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",

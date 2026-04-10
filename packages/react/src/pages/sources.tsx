@@ -5,6 +5,8 @@ import { sourcesAtom, detectSource } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin, SourcePreset } from "../plugins/source-plugin";
 import { McpInstallCard } from "../components/mcp-install-card";
+import { Button } from "../components/button";
+import { Input } from "../components/input";
 
 const KIND_TO_PLUGIN_KEY: Record<string, string> = {
   openapi: "openapi",
@@ -79,11 +81,11 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
           {/* URL detection input */}
           <div className="mt-5">
             <div className="flex gap-2">
-              <input
+              <Input
                 type="url"
                 value={url}
                 onChange={(e) => {
-                  setUrl(e.target.value);
+                  setUrl((e.target as HTMLInputElement).value);
                   setError(null);
                 }}
                 onKeyDown={(e) => {
@@ -91,15 +93,11 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                 }}
                 placeholder="Paste a URL to auto-detect source type..."
                 disabled={detecting}
-                className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                className="flex-1"
               />
-              <button
-                onClick={handleDetect}
-                disabled={detecting || !url.trim()}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none"
-              >
+              <Button onClick={handleDetect} disabled={detecting || !url.trim()}>
                 {detecting ? "Detecting..." : "Detect"}
-              </button>
+              </Button>
             </div>
             {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
             <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">

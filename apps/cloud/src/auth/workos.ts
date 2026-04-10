@@ -40,7 +40,7 @@ const make = Effect.gen(function* () {
         cookiePassword,
       });
 
-      const result = yield* use((wos) => session.authenticate());
+      const result = yield* use(() => session.authenticate());
 
       if (result.authenticated) {
         return {
@@ -58,7 +58,7 @@ const make = Effect.gen(function* () {
       if (result.reason === "no_session_cookie_provided") return null;
 
       // Try refreshing
-      const refreshed = yield* use((wos) => session.refresh()).pipe(
+      const refreshed = yield* use(() => session.refresh()).pipe(
         Effect.orElseSucceed(() => ({ authenticated: false as const })),
       );
 
@@ -117,7 +117,7 @@ const make = Effect.gen(function* () {
           sessionData,
           cookiePassword,
         });
-        const refreshed = yield* use((wos) =>
+        const refreshed = yield* use(() =>
           session.refresh(organizationId ? { organizationId } : undefined),
         );
         if (!refreshed.authenticated || !("sealedSession" in refreshed)) return null;
@@ -138,10 +138,48 @@ const make = Effect.gen(function* () {
         if (!sessionData) return null;
         return yield* authenticateSealedSession(sessionData);
       }),
+
+    /** List organization memberships with user details. */
+    listOrgMembers: (organizationId: string) =>
+      use((wos) =>
+        wos.userManagement.listOrganizationMemberships({
+          organizationId,
+          statuses: ["active", "pending"],
+        }),
+      ),
+
+    /** Get a user by ID. */
+    getUser: (userId: string) => use((wos) => wos.userManagement.getUser(userId)),
+
+    /** Send an organization invitation. */
+    sendInvitation: (params: { email: string; organizationId: string; roleSlug?: string }) =>
+      use((wos) =>
+        wos.userManagement.sendInvitation({
+          email: params.email,
+          organizationId: params.organizationId,
+          roleSlug: params.roleSlug,
+        }),
+      ),
+
+    /** Remove an organization membership. */
+    deleteOrgMembership: (membershipId: string) =>
+      use((wos) => wos.userManagement.deleteOrganizationMembership(membershipId)),
+
+    /** Get the role for a membership. */
+    getOrgMembership: (membershipId: string) =>
+      use((wos) => wos.userManagement.getOrganizationMembership(membershipId)),
+
+    /** Update a membership's role. */
+    updateOrgMembershipRole: (membershipId: string, roleSlug: string) =>
+      use((wos) => wos.userManagement.updateOrganizationMembership(membershipId, { roleSlug })),
+
+    /** List available roles for an organization. */
+    listOrgRoles: (organizationId: string) =>
+      use((wos) => wos.organizations.listOrganizationRoles({ organizationId })),
   };
 });
 
-type WorkOSAuthService = Effect.Effect.Success<typeof make>;
+export type WorkOSAuthService = Effect.Effect.Success<typeof make>;
 
 export class WorkOSAuth extends Context.Tag("@executor/cloud/WorkOSAuth")<
   WorkOSAuth,

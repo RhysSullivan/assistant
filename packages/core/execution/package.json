@@ -7,8 +7,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@executor/codemode-core": "workspace:*",

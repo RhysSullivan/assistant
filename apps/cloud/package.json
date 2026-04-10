@@ -13,9 +13,10 @@
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
     "cf-typegen": "wrangler types",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.31.1",
@@ -39,12 +40,14 @@
     "@tanstack/react-start": "catalog:",
     "@workos-inc/node": "^8.11.1",
     "agents": "^0.10.0",
+    "autumn-js": "^1.2.8",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "jose": "^5.6.3",
     "postgres": "^3.4.9",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "sonner": "^2.0.7"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.14.3",

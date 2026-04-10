@@ -38,8 +38,9 @@
   },
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "effect": "catalog:"

@@ -13,7 +13,7 @@ import {
   type ToolRegistration,
 } from "@executor/sdk";
 
-import type { GoogleDiscoveryBindingStore } from "./binding-store";
+import type { GoogleDiscoveryBindingStore, GoogleDiscoveryStoredSource } from "./binding-store";
 import { makeInMemoryBindingStore } from "./binding-store";
 import { extractGoogleDiscoveryManifest } from "./document";
 import { makeGoogleDiscoveryInvoker } from "./invoke";
@@ -108,6 +108,7 @@ export interface GoogleDiscoveryPluginExtension {
   readonly completeOAuth: (
     input: GoogleDiscoveryOAuthCompleteInput,
   ) => Effect.Effect<GoogleDiscoveryOAuthAuthResult, GoogleDiscoveryOAuthError>;
+  readonly getSource: (namespace: string) => Effect.Effect<GoogleDiscoveryStoredSource | null>;
 }
 
 const DISCOVERY_SERVICE_HOST = "https://www.googleapis.com/discovery/v1/apis";
@@ -290,6 +291,7 @@ export const googleDiscoveryPlugin = (options?: {
                       runtime: false,
                       canRemove: true,
                       canRefresh: true,
+                      canEdit: true,
                     }),
                 ),
               ),
@@ -528,6 +530,8 @@ export const googleDiscoveryPlugin = (options?: {
                 scopes: [...session.scopes],
               };
             }),
+
+          getSource: (namespace: string) => bindingStore.getSource(namespace),
         };
 
         return {

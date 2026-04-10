@@ -16,7 +16,6 @@ import {
   SecretId,
   ToolRegistration,
   scopeKv,
-  type Executor,
 } from "@executor/sdk";
 
 import { makePgConfig } from "./index";

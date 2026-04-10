@@ -152,7 +152,7 @@ export const makeNativeSdkService = (
 export const makeCliService = (
   auth: ResolvedAuth,
 ): Effect.Effect<OnePasswordService, OnePasswordError> =>
-  Effect.gen(function* () {
+  Effect.sync(() => {
     // Configure auth
     if (auth.kind === "service-account") {
       op.setServiceAccount(auth.token);

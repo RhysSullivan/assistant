@@ -280,6 +280,7 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
         entrypoints: [join(cliRoot, "src/main.ts")],
         minify: mode === "production",
         compile: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun compile target string is dynamically constructed
           target: bunTarget(target) as any,
           outfile: join(binDir, binaryName(target)),
         },
@@ -554,8 +555,8 @@ const repositoryUrl = typeof packageJson.repository === "string"
   ? packageJson.repository
   : packageJson.repository && packageJson.repository.url;
 const githubBase = String(packageJson.homepage || repositoryUrl || "https://github.com/RhysSullivan/executor")
-  .replace(/^git\+/, "")
-  .replace(/\.git$/, "");
+  .replace(/^git[+]/, "")
+  .replace(/.git$/, "");
 const version = packageJson.version;
 
 const platformMap = { darwin: "darwin", linux: "linux", win32: "windows" };

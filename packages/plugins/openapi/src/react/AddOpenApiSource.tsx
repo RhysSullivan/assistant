@@ -296,7 +296,7 @@ export default function AddOpenApiSource(props: {
                   {servers.map((s, i) => {
                     const url = s.url ?? "";
                     return (
-                      <label
+                      <Label
                         key={i}
                         className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                           baseUrl === url
@@ -306,7 +306,7 @@ export default function AddOpenApiSource(props: {
                       >
                         <RadioGroupItem value={url} />
                         <span className="font-mono text-xs text-foreground truncate">{url}</span>
-                      </label>
+                      </Label>
                     );
                   })}
                 </RadioGroup>
@@ -345,7 +345,7 @@ export default function AddOpenApiSource(props: {
                 className="gap-1.5"
               >
                 {presets.map((preset, i) => (
-                  <label
+                  <Label
                     key={i}
                     className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                       presetIndex === i
@@ -361,10 +361,10 @@ export default function AddOpenApiSource(props: {
                         {preset.secretHeaders.length > 1 ? "s" : ""}
                       </span>
                     )}
-                  </label>
+                  </Label>
                 ))}
 
-                <label
+                <Label
                   className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                     presetIndex === -2
                       ? "border-primary/50 bg-primary/[0.03]"
@@ -376,9 +376,9 @@ export default function AddOpenApiSource(props: {
                   <span className="ml-auto text-[10px] text-muted-foreground">
                     configure manually
                   </span>
-                </label>
+                </Label>
 
-                <label
+                <Label
                   className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                     presetIndex === -1
                       ? "border-primary/50 bg-primary/[0.03]"
@@ -388,7 +388,7 @@ export default function AddOpenApiSource(props: {
                   <RadioGroupItem value="-1" />
                   <span className="text-xs font-medium text-foreground">None</span>
                   <span className="ml-auto text-[10px] text-muted-foreground">skip auth</span>
-                </label>
+                </Label>
               </RadioGroup>
             )}
 

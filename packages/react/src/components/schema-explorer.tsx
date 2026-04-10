@@ -57,6 +57,7 @@ const deepResolve = (schema: JsonSchema, root: JsonSchema): JsonSchema => {
 // Type label — human readable, shows ref names
 // ---------------------------------------------------------------------------
 
+// oxlint-disable-next-line only-used-in-recursion
 const getTypeLabel = (schema: JsonSchema, root: JsonSchema): string => {
   if (schema.$ref) {
     return getRefName(schema.$ref) ?? "ref";

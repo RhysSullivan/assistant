@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomRefresh, useAtomValue, Result } from "@effect-atom/atom-react";
-import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
+import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { sourcesAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { AUTH_PATHS } from "../auth/api";
@@ -109,9 +109,11 @@ function UserFooter() {
           )}
         </div>
         <form action={AUTH_PATHS.logout} method="post">
-          <button
+          <Button
+            variant="ghost"
+            size="icon-xs"
             type="submit"
-            className="shrink-0 rounded-md p-1 text-muted-foreground/50 transition-colors hover:bg-sidebar-active hover:text-foreground"
+            className="shrink-0 text-muted-foreground/50 hover:bg-sidebar-active hover:text-foreground"
             title="Sign out"
           >
             <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
@@ -123,7 +125,7 @@ function UserFooter() {
                 strokeLinejoin="round"
               />
             </svg>
-          </button>
+          </Button>
         </form>
       </div>
     </div>
@@ -135,6 +137,8 @@ function UserFooter() {
 function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
+  const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
+  const isTeam = props.pathname === "/team";
 
   return (
     <>
@@ -149,6 +153,8 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
+        <NavItem to="/team" label="Team" active={isTeam} onNavigate={props.onNavigate} />
+        <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 
         <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
           <span>Configured</span>
@@ -167,9 +173,6 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 export function Shell() {
   const location = useLocation();
   const pathname = location.pathname;
-  const scopeId = useScope();
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
-  const refreshTools = useAtomRefresh(toolsAtom(scopeId));
   const lastPathname = useRef(pathname);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   if (lastPathname.current !== pathname) {
@@ -197,6 +200,7 @@ export function Shell() {
       {/* Mobile sidebar overlay */}
       {mobileSidebarOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden">
+          {/* oxlint-disable-next-line react/forbid-elements */}
           <button
             type="button"
             aria-label="Close navigation"
@@ -210,11 +214,13 @@ export function Shell() {
                   executor
                 </span>
               </Link>
-              <button
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 type="button"
                 aria-label="Close navigation"
                 onClick={() => setMobileSidebarOpen(false)}
-                className="size-8 flex items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
+                className="text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
               >
                 <svg viewBox="0 0 16 16" className="size-3.5">
                   <path
@@ -224,7 +230,7 @@ export function Shell() {
                     strokeLinecap="round"
                   />
                 </svg>
-              </button>
+              </Button>
             </div>
             <SidebarContent
               pathname={pathname}
@@ -239,11 +245,13 @@ export function Shell() {
       <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 md:hidden">
-          <button
+          <Button
+            variant="outline"
+            size="icon-sm"
             type="button"
             aria-label="Open navigation"
             onClick={() => setMobileSidebarOpen(true)}
-            className="size-8 flex items-center justify-center rounded-md border border-border bg-card hover:bg-accent/50"
+            className="bg-card hover:bg-accent/50"
           >
             <svg viewBox="0 0 16 16" className="size-4">
               <path
@@ -253,7 +261,7 @@ export function Shell() {
                 strokeLinecap="round"
               />
             </svg>
-          </button>
+          </Button>
           <Link to="/" className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>

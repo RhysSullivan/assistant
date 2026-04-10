@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/main.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@executor/plugin-graphql": "workspace:*",

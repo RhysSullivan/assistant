@@ -13,7 +13,8 @@
     "./globals.css": "./src/styles/globals.css"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -33,7 +34,6 @@
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^1.7.0",
-    "next-themes": "^0.4.6",
     "radix-ui": "^1.4.3",
     "react": "catalog:",
     "react-day-picker": "^9.14.0",

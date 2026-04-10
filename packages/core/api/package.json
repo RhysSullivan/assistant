@@ -8,7 +8,8 @@
     "./server": "./src/server.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@effect/platform": "catalog:",

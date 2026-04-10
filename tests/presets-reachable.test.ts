@@ -151,7 +151,7 @@ const publicPresets = allPresets.filter(
     // Skip auth-required endpoints that won't pass detection without credentials
     !["github-graphql", "linear", "monday", "stripe"].includes(p.id) &&
     // Skip stdio presets (not HTTP-reachable)
-    !("transport" in p && (p as any).transport === "stdio") &&
+    !("transport" in p && (p as Record<string, unknown>).transport === "stdio") &&
     // Skip host-scoped Google Discovery URLs (forms.googleapis.com/$discovery/...)
     // — the detector only recognises the central directory pattern today
     !["google-forms", "google-keep"].includes(p.id) &&

@@ -402,6 +402,7 @@ export function Shell() {
       {/* Mobile sidebar overlay */}
       {mobileSidebarOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden">
+          {/* oxlint-disable-next-line react/forbid-elements */}
           <button
             type="button"
             aria-label="Close navigation"
@@ -415,11 +416,12 @@ export function Shell() {
                   executor
                 </span>
               </Link>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 aria-label="Close navigation"
                 onClick={() => setMobileSidebarOpen(false)}
-                className="size-8 flex items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
+                className="text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
               >
                 <svg viewBox="0 0 16 16" className="size-3.5">
                   <path
@@ -429,7 +431,7 @@ export function Shell() {
                     strokeLinecap="round"
                   />
                 </svg>
-              </button>
+              </Button>
             </div>
             <SidebarContent
               pathname={pathname}
@@ -447,11 +449,12 @@ export function Shell() {
       <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 md:hidden">
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="icon-sm"
             aria-label="Open navigation"
             onClick={() => setMobileSidebarOpen(true)}
-            className="size-8 flex items-center justify-center rounded-md border border-border bg-card hover:bg-accent/50"
+            className="bg-card hover:bg-accent/50"
           >
             <svg viewBox="0 0 16 16" className="size-4">
               <path
@@ -461,7 +464,7 @@ export function Shell() {
                 strokeLinecap="round"
               />
             </svg>
-          </button>
+          </Button>
           <Link to="/" className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>

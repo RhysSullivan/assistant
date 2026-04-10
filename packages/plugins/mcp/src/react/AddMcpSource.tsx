@@ -8,6 +8,7 @@ import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Spinner } from "@executor/react/components/spinner";
+import { Textarea } from "@executor/react/components/textarea";
 import { SecretHeaderAuthRow } from "@executor/react/plugins/secret-header-auth";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { probeMcpEndpoint, addMcpSource, startMcpOAuth } from "./atoms";
@@ -420,7 +421,17 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to add source",
       });
     }
-  }, [probe, remoteAuthMode, remoteHeaderAuth, remoteHeaders, tokens, state.url, doAdd, props]);
+  }, [
+    probe,
+    remoteAuthMode,
+    remoteHeaderAuth,
+    remoteHeaders,
+    tokens,
+    state.url,
+    doAdd,
+    props,
+    scopeId,
+  ]);
 
   // ---- Stdio actions ----
 
@@ -483,7 +494,8 @@ export default function AddMcpSource(props: {
 
       {/* Transport toggle */}
       <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
-        <button
+        <Button
+          variant="ghost"
           type="button"
           onClick={() => setTransport("remote")}
           className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -493,8 +505,9 @@ export default function AddMcpSource(props: {
           }`}
         >
           Remote
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
           type="button"
           onClick={() => setTransport("stdio")}
           className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -504,7 +517,7 @@ export default function AddMcpSource(props: {
           }`}
         >
           Stdio
-        </button>
+        </Button>
       </div>
 
       {transport === "remote" ? (
@@ -603,7 +616,7 @@ export default function AddMcpSource(props: {
                 className="gap-1.5"
               >
                 {!probe.requiresOAuth && (
-                  <label
+                  <Label
                     className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                       remoteAuthMode === "none"
                         ? "border-primary/50 bg-primary/[0.03]"
@@ -615,10 +628,10 @@ export default function AddMcpSource(props: {
                     <span className="ml-auto text-[10px] text-muted-foreground">
                       no auth header
                     </span>
-                  </label>
+                  </Label>
                 )}
 
-                <label
+                <Label
                   className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                     remoteAuthMode === "header"
                       ? "border-primary/50 bg-primary/[0.03]"
@@ -630,10 +643,10 @@ export default function AddMcpSource(props: {
                   <span className="ml-auto text-[10px] text-muted-foreground">
                     use a secret-backed auth header
                   </span>
-                </label>
+                </Label>
 
                 {probe.requiresOAuth && (
-                  <label
+                  <Label
                     className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                       remoteAuthMode === "oauth2"
                         ? "border-primary/50 bg-primary/[0.03]"
@@ -645,7 +658,7 @@ export default function AddMcpSource(props: {
                     <span className="ml-auto text-[10px] text-muted-foreground">
                       sign in with the server&apos;s OAuth flow
                     </span>
-                  </label>
+                  </Label>
                 )}
               </RadioGroup>
 
@@ -936,12 +949,12 @@ export default function AddMcpSource(props: {
                 Environment variables{" "}
                 <span className="text-muted-foreground font-normal">(optional)</span>
               </Label>
-              <textarea
+              <Textarea
                 value={stdioEnv}
-                onChange={(e) => setStdioEnv(e.target.value)}
+                onChange={(e) => setStdioEnv((e.target as HTMLTextAreaElement).value)}
                 placeholder={"KEY=value\nANOTHER=value"}
                 rows={3}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="font-mono text-sm"
               />
               <p className="text-[12px] text-muted-foreground">One per line, KEY=value format.</p>
             </div>

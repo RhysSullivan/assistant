@@ -55,7 +55,10 @@ apps/cloud/.dev-db/
 !.env.example
 
 # local user config
-apps/local/executor.jsonc
+executor.jsonc
 
 # VS Code (per-workspace user settings)
 .vscode/mcp.json
+
+# reference repos (pulled via `bun run pull:references`)
+.reference/

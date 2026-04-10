@@ -16,7 +16,6 @@ import {
 import { Button } from "../components/button";
 import { Input } from "../components/input";
 import { Label } from "../components/label";
-import { Badge } from "../components/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,

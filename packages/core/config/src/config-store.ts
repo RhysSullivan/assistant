@@ -157,41 +157,64 @@ interface StoreWithSource<TSource> {
   removeSource: (namespace: string) => Effect.Effect<void>;
 }
 
+interface OpenApiSource {
+  namespace: string;
+  name: string;
+  config: { spec: string; baseUrl?: string; namespace?: string; headers?: Record<string, unknown> };
+}
+
+interface GraphqlSource {
+  namespace: string;
+  name: string;
+  config: {
+    endpoint: string;
+    introspectionJson?: string;
+    namespace?: string;
+    headers?: Record<string, unknown>;
+  };
+}
+
+interface McpSource {
+  namespace: string;
+  name: string;
+  config: { transport: string; [key: string]: unknown };
+}
+
 /**
  * Wrap a plugin store so putSource/removeSource also write to executor.jsonc.
  * Preserves the full store type — only the two methods are intercepted.
  */
 export const withConfigFile = {
-  openapi: <TStore extends StoreWithSource<{ namespace: string; name: string; config: any }>>(
+  openapi: <TStore extends StoreWithSource<OpenApiSource>>(
     inner: TStore,
     configPath: string,
     fsLayer: Layer.Layer<FileSystem.FileSystem>,
   ): TStore =>
     ({
       ...inner,
-      putSource: wrapPutSource(inner.putSource, configPath, openApiToSourceConfig as any, fsLayer),
+      putSource: wrapPutSource(inner.putSource, configPath, openApiToSourceConfig, fsLayer),
       removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
     }) as TStore,
 
-  graphql: <TStore extends StoreWithSource<{ namespace: string; name: string; config: any }>>(
+  graphql: <TStore extends StoreWithSource<GraphqlSource>>(
     inner: TStore,
     configPath: string,
     fsLayer: Layer.Layer<FileSystem.FileSystem>,
   ): TStore =>
     ({
       ...inner,
-      putSource: wrapPutSource(inner.putSource, configPath, graphqlToSourceConfig as any, fsLayer),
+      putSource: wrapPutSource(inner.putSource, configPath, graphqlToSourceConfig, fsLayer),
       removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
     }) as TStore,
 
-  mcp: <TStore extends StoreWithSource<{ namespace: string; name: string; config: any }>>(
+  mcp: <TStore extends StoreWithSource<McpSource>>(
     inner: TStore,
     configPath: string,
     fsLayer: Layer.Layer<FileSystem.FileSystem>,
   ): TStore =>
     ({
       ...inner,
-      putSource: wrapPutSource(inner.putSource, configPath, mcpToSourceConfig as any, fsLayer),
+      putSource: wrapPutSource(inner.putSource, configPath, mcpToSourceConfig, fsLayer),
       removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
     }) as TStore,
 };

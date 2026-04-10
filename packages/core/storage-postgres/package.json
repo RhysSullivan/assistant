@@ -9,9 +9,10 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@effect/sql": "catalog:",
@@ -24,6 +25,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@electric-sql/pglite": "^0.4.3",
+    "@types/node": "^25.6.0",
     "@types/pg": "^8.15.4",
     "drizzle-kit": "^0.31.0",
     "typescript": "catalog:",

@@ -19,6 +19,13 @@
     "@executor/ir",
     "@executor/runtime-deno-subprocess",
     "@executor/runtime-quickjs",
-    "@executor/marketing"
+    "@executor/marketing",
+    "@executor/plugin-google-discovery",
+    "@executor/plugin-graphql",
+    "@executor/plugin-mcp",
+    "@executor/plugin-onepassword",
+    "@executor/plugin-openapi",
+    "@executor/runtime-dynamic-worker",
+    "@executor/runtime-secure-exec"
   ]
 }

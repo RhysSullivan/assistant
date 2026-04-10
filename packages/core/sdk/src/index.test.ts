@@ -12,7 +12,6 @@ import {
   ElicitationResponse,
   Source,
   type MemoryToolContext,
-  type ToolId,
   type InvokeOptions,
   SecretId,
 } from "./index";

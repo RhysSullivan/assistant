@@ -4,6 +4,7 @@ import { cn } from "../lib/utils";
 
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
+    // oxlint-disable-next-line react/forbid-elements
     <input
       type={type}
       data-slot="input"

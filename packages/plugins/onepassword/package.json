@@ -40,9 +40,10 @@
   },
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@1password/op-js": "^0.1.13",

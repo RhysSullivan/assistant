@@ -21,9 +21,9 @@ describe("keychain plugin", () => {
   );
 
   // The tests below exercise the real system keychain.
-  // Run manually on a supported platform.
+  // They are skipped in CI because there is no keychain service available.
 
-  it.effect("stores and checks secret via system keychain", () =>
+  it.effect.skipIf(!!process.env.CI)("stores and checks secret via system keychain", () =>
     Effect.gen(function* () {
       const testId = SecretId.make(`test-keychain-${Date.now()}`);
       const executor = yield* createExecutor(
@@ -54,7 +54,7 @@ describe("keychain plugin", () => {
     }),
   );
 
-  it.effect("has returns false for missing secret", () =>
+  it.effect.skipIf(!!process.env.CI)("has returns false for missing secret", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({

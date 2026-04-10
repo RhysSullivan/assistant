@@ -81,6 +81,7 @@ const buildDefinitions = (
 
 const typeRefToJsonSchema = (
   ref: IntrospectionTypeRef,
+  // oxlint-disable-next-line only-used-in-recursion
   types: ReadonlyMap<string, IntrospectionType>,
 ): Record<string, unknown> => {
   switch (ref.kind) {

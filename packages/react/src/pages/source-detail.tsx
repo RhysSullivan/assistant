@@ -13,6 +13,7 @@ import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
 import type { ToolSummary } from "../components/tool-tree";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin } from "../plugins/source-plugin";
+import { Button } from "../components/button";
 
 export function SourceDetailPage(props: {
   namespace: string;
@@ -131,34 +132,26 @@ export function SourceDetailPage(props: {
 
         <div className="flex shrink-0 items-center gap-2">
           {canEdit && editPlugin && !editing && (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-            >
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               Edit
-            </button>
+            </Button>
           )}
 
           {editing && (
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-accent"
-            >
+            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
               Back to tools
-            </button>
+            </Button>
           )}
 
           {canRefresh && !editing && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => void handleRefresh()}
               disabled={refreshing}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
             >
               {refreshing ? "Refreshing..." : "Refresh"}
-            </button>
+            </Button>
           )}
 
           {canRemove &&
@@ -166,31 +159,32 @@ export function SourceDetailPage(props: {
             (confirmDelete ? (
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-medium text-destructive">Confirm?</span>
-                <button
-                  type="button"
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setConfirmDelete(false)}
                   disabled={deleting}
-                  className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   Cancel
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
                   onClick={() => void handleDelete()}
                   disabled={deleting}
-                  className="inline-flex items-center rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
                 >
                   {deleting ? "Deleting..." : "Delete"}
-                </button>
+                </Button>
               </div>
             ) : (
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setConfirmDelete(true)}
-                className="inline-flex items-center rounded-md border border-destructive/30 bg-background px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10"
+                className="border-destructive/30 text-destructive hover:bg-destructive/10"
               >
                 Delete
-              </button>
+              </Button>
             ))}
         </div>
       </div>

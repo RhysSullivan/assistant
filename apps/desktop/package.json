@@ -11,13 +11,14 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "bundle-cli": "node scripts/bundle-cli.js",
     "dist": "npm run build && npm run bundle-cli && electron-builder",
     "dist:mac": "npm run build && npm run bundle-cli && electron-builder --mac",
     "dist:win": "npm run build && npm run bundle-cli && electron-builder --win",
     "dist:linux": "npm run build && npm run bundle-cli && electron-builder --linux",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@executor/supervisor": "workspace:*",

@@ -6,7 +6,7 @@ import { ExecutorService } from "../services";
 
 export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (handlers) =>
   handlers
-    .handle("list", ({ path }) =>
+    .handle("list", () =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
         const sources = yield* executor.sources.list();
@@ -49,7 +49,7 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
         }));
       }),
     )
-    .handle("detect", ({ path, payload }) =>
+    .handle("detect", ({ payload }) =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
         const results = yield* executor.sources.detect(payload.url);

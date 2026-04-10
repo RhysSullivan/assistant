@@ -103,14 +103,14 @@ export const formatPausedExecution = (
   structured: Record<string, unknown>;
 } => {
   const req = paused.elicitationContext.request;
-  const lines: string[] = [`Execution paused: ${(req as any).message}`];
+  const lines: string[] = [`Execution paused: ${req.message}`];
 
   if (req._tag === "UrlElicitation") {
-    lines.push(`\nOpen this URL in a browser:\n${(req as any).url}`);
+    lines.push(`\nOpen this URL in a browser:\n${req.url}`);
     lines.push("\nAfter the browser flow, resume with the executionId below:");
   } else {
     lines.push("\nResume with the executionId below and a response matching the requested schema:");
-    const schema = (req as any).requestedSchema;
+    const schema = req.requestedSchema;
     if (schema && Object.keys(schema).length > 0) {
       lines.push(`\nRequested schema:\n${JSON.stringify(schema, null, 2)}`);
     }
@@ -125,11 +125,9 @@ export const formatPausedExecution = (
       executionId: paused.id,
       interaction: {
         kind: req._tag === "UrlElicitation" ? "url" : "form",
-        message: (req as any).message,
-        ...(req._tag === "UrlElicitation" ? { url: (req as any).url } : {}),
-        ...(req._tag === "FormElicitation"
-          ? { requestedSchema: (req as any).requestedSchema }
-          : {}),
+        message: req.message,
+        ...(req._tag === "UrlElicitation" ? { url: req.url } : {}),
+        ...(req._tag === "FormElicitation" ? { requestedSchema: req.requestedSchema } : {}),
       },
     },
   };
@@ -319,9 +317,10 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     );
 
   /**
-   * Start an execution in the pause/resume mode. Forks the sandbox
-   * onto its own fiber and waits for either completion or the first
-   * elicitation pause.
+   * Start an execution in pause/resume mode.
+   *
+   * The sandbox is forked as a daemon because paused executions can outlive the
+   * caller scope that returned the first pause, such as an HTTP request handler.
    */
   const startPausableExecution = (code: string): Effect.Effect<ExecutionResult> =>
     Effect.gen(function* () {
@@ -355,7 +354,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
         });
 
       const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
-      fiber = yield* Effect.fork(codeExecutor.execute(code, invoker));
+      fiber = yield* Effect.forkDaemon(codeExecutor.execute(code, invoker));
 
       const initialSignal = yield* Ref.get(pauseSignalRef);
       return yield* awaitCompletionOrPause(fiber, initialSignal);

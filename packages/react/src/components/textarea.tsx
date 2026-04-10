@@ -4,6 +4,7 @@ import { cn } from "../lib/utils";
 
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
+    // oxlint-disable-next-line react/forbid-elements
     <textarea
       data-slot="textarea"
       className={cn(

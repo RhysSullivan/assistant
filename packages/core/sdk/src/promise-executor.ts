@@ -18,6 +18,7 @@ import {
   type ExecutorConfig as EffectExecutorConfig,
   type ExecutorPlugin,
   type PluginContext as EffectPluginContext,
+  type PluginHandle as EffectPluginHandle,
   type ElicitationContext,
   type InvokeOptions as EffectInvokeOptions,
   type ToolInvocationResult,
@@ -26,8 +27,6 @@ import {
   type ToolSchema,
   type ToolInvoker as EffectToolInvoker,
   type RuntimeToolHandler as EffectRuntimeToolHandler,
-  type Source,
-  type SourceDetectionResult,
   type SourceManager as EffectSourceManager,
   type Policy,
   type SecretRef,
@@ -44,6 +43,8 @@ import {
   type SecretResolutionError,
   type PolicyDeniedError,
   type ElicitationDeclinedError,
+  ToolListFilter,
+  PolicyCheckInput,
 } from "./index";
 
 // ---------------------------------------------------------------------------
@@ -432,7 +433,7 @@ export interface PolicyEngine extends Omit<PromisifyService<CorePolicyEngineServ
 const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
   scope: ctx.scope,
   tools: {
-    list: (filter?) => run(ctx.tools.list(filter as any)),
+    list: (filter?) => run(ctx.tools.list(filter ? new ToolListFilter(filter) : undefined)),
     schema: (toolId) => run(ctx.tools.schema(ToolId.make(toolId))),
     invoke: (toolId, args, options) =>
       run(ctx.tools.invoke(ToolId.make(toolId), args, toEffectInvokeOptions(options))),
@@ -475,7 +476,15 @@ const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
   },
   policies: {
     list: (scopeId) => run(ctx.policies.list(ScopeId.make(scopeId))),
-    check: (input) => run(ctx.policies.check(input as any)),
+    check: (input) =>
+      run(
+        ctx.policies.check(
+          new PolicyCheckInput({
+            scopeId: ScopeId.make(input.scopeId),
+            toolId: ToolId.make(input.toolId),
+          }),
+        ),
+      ),
     add: (policy) => run(ctx.policies.add(policy)),
     remove: (policyId) => run(ctx.policies.remove(PolicyId.make(policyId))),
   },
@@ -516,7 +525,7 @@ const toEffectPlugin = <TKey extends string, TExtension extends object>(
           ? () => fromPromise(() => handle.close!()) as Effect.Effect<void>
           : undefined,
       };
-    }) as Effect.Effect<any, PromiseAdapterError>,
+    }) as Effect.Effect<EffectPluginHandle<TExtension>, PromiseAdapterError>,
 });
 
 // ---------------------------------------------------------------------------
@@ -616,7 +625,7 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
   config: ExecutorConfig<TPlugins> = {},
 ): Promise<Executor<TPlugins>> => {
   const effectPlugins = (config.plugins ?? []).map((p) =>
-    isPromisePlugin(p as any)
+    isPromisePlugin(p as { _promise?: boolean })
       ? toEffectPlugin(p as Plugin<string, object>)
       : (p as unknown as ExecutorPlugin<string, object>),
   );
@@ -640,7 +649,7 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
     scope: executor.scope,
     tools: {
       list: (filter?: { sourceId?: string; query?: string }) =>
-        run(executor.tools.list(filter as any)),
+        run(executor.tools.list(filter ? new ToolListFilter(filter) : undefined)),
       schema: (toolId: string) => run(executor.tools.schema(toolId)),
       definitions: () => run(executor.tools.definitions()),
       invoke: (toolId: string, args: unknown, options: InvokeOptions) =>
@@ -667,7 +676,7 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
         readonly value: string;
         readonly provider?: string;
         readonly purpose?: string;
-      }) => run(executor.secrets.set(input as any)),
+      }) => run(executor.secrets.set({ ...input, id: SecretId.make(input.id) })),
       remove: (secretId: string) => run(executor.secrets.remove(SecretId.make(secretId))),
       addProvider: (provider: SecretProvider) =>
         run(executor.secrets.addProvider(toEffectSecretProvider(provider))),

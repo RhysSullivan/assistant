@@ -1,5 +1,20 @@
 {
+  "plugins": ["react"],
   "rules": {
     "typescript/no-explicit-any": "error",
+    "react/forbid-elements": [
+      "error",
+      {
+        "forbid": [
+          { "element": "button", "message": "Use <Button> from @executor/react" },
+          { "element": "input", "message": "Use <Input> from @executor/react" },
+          { "element": "textarea", "message": "Use <Textarea> from @executor/react" },
+          { "element": "select", "message": "Use <Select> or <NativeSelect> from @executor/react" },
+          { "element": "table", "message": "Use <Table> from @executor/react" },
+          { "element": "label", "message": "Use <Label> from @executor/react" },
+        ],
+      },
+    ],
   },
+  "ignorePatterns": [".astro/"],
 }

@@ -481,7 +481,7 @@ export default function AddGoogleDiscoverySource(props: {
     } finally {
       setLoadingProbe(false);
     }
-  }, [discoveryUrl, doProbe, name]);
+  }, [discoveryUrl, doProbe, name, scopeId]);
 
   const autoProbed = useRef(false);
   useEffect(() => {
@@ -573,7 +573,7 @@ export default function AddGoogleDiscoverySource(props: {
       setError(e instanceof Error ? e.message : "Failed to add source");
       setAdding(false);
     }
-  }, [probe, doAdd, name, discoveryUrl, authKind, oauthAuth, props]);
+  }, [probe, doAdd, name, discoveryUrl, authKind, oauthAuth, props, scopeId]);
 
   const addDisabled =
     !probe || adding || (authKind === "oauth2" && (!canUseOAuth || oauthAuth === null));
@@ -598,11 +598,12 @@ export default function AddGoogleDiscoverySource(props: {
           {GOOGLE_DISCOVERY_TEMPLATES.map((template) => {
             const selected = template.id === selectedTemplateId;
             return (
-              <button
+              <Button
                 key={template.id}
+                variant="ghost"
                 type="button"
                 onClick={() => applyTemplate(template)}
-                className={`relative rounded-xl border px-4 py-3 text-left transition-colors ${
+                className={`relative h-auto rounded-xl border px-4 py-3 text-left transition-colors ${
                   selected
                     ? "border-primary bg-primary/5 shadow-[0_0_0_1px_rgba(0,0,0,0.02)]"
                     : "border-border bg-card hover:border-primary/30 hover:bg-card/80"
@@ -628,7 +629,7 @@ export default function AddGoogleDiscoverySource(props: {
                   </p>
                   <div className="h-px flex-1 bg-border/70" />
                 </div>
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -737,12 +738,13 @@ export default function AddGoogleDiscoverySource(props: {
                   </p>
                   {canUseOAuth && (probe?.scopes.length ?? 0) > 0 && (
                     <CollapsibleTrigger asChild>
-                      <button
+                      <Button
+                        variant="link"
                         type="button"
-                        className="text-xs font-medium text-primary hover:underline"
+                        className="h-auto p-0 text-xs font-medium text-primary hover:underline"
                       >
                         {showScopes ? "Hide scopes" : "View scopes"}
-                      </button>
+                      </Button>
                     </CollapsibleTrigger>
                   )}
                 </div>

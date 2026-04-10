@@ -267,9 +267,9 @@ export function tool<TInput, TOutput>(
 // Plugin factory
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const inMemoryToolsPlugin = (config: {
   readonly namespace?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Schema.Schema is invariant; `any` required to accept arbitrary MemoryToolDefinition types
   readonly tools: readonly MemoryToolDefinition<any, any>[];
 }) => {
   const ns = config.namespace ?? "memory";
@@ -303,6 +303,7 @@ export const inMemoryToolsPlugin = (config: {
 
         return {
           extension: {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Schema.Schema is invariant; `any` required to accept arbitrary MemoryToolDefinition types
             addTools: (newTools: readonly MemoryToolDefinition<any, any>[]) =>
               Effect.gen(function* () {
                 const newResults = newTools.map((t) => buildRegistration(ns, t));

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, startTransition } from "react";
 import { getHighlighter, THEME } from "../lib/shiki";
 import { cn } from "../lib/utils";
+import { Button } from "./button";
 import type { ThemedToken } from "shiki/core";
 
 // ---------------------------------------------------------------------------
@@ -371,14 +372,15 @@ export function ExpandableCodeBlock(props: {
   return (
     <div className={cn("rounded-lg border border-border/40 bg-card/60 overflow-hidden", className)}>
       <div className="group relative">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={handleCopy}
           className="absolute right-2 top-2 z-10 rounded-md border border-border bg-card/90 p-1.5 text-muted-foreground/40 opacity-0 backdrop-blur-sm hover:text-foreground group-hover:opacity-100 transition-opacity"
           title="Copy to clipboard"
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
-        </button>
+        </Button>
 
         <pre className="overflow-auto p-3 font-mono text-[0.75rem] leading-6 !bg-transparent">
           <code>
