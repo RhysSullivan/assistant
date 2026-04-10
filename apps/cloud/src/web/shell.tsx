@@ -5,8 +5,20 @@ import { sourcesAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
+import { CommandPalette } from "@executor/react/components/command-palette";
+import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
+import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
+import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
+import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
 import { AUTH_PATHS } from "../auth/api";
 import { useAuth } from "./auth";
+
+const sourcePlugins = [
+  openApiSourcePlugin,
+  mcpSourcePlugin,
+  googleDiscoverySourcePlugin,
+  graphqlSourcePlugin,
+];
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
@@ -194,6 +206,7 @@ export function Shell() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <CommandPalette sourcePlugins={sourcePlugins} />
       {/* Desktop sidebar */}
       <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
         <SidebarContent pathname={pathname} />
