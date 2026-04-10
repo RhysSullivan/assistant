@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { env } from "cloudflare:workers";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import type { SandboxToolInvoker } from "@executor/codemode-core";
 import { ToolDispatcher } from "./executor";
@@ -9,6 +10,10 @@ import { makeDynamicWorkerExecutor } from "./executor";
 // Helpers
 // ---------------------------------------------------------------------------
 
+class TestToolError extends Data.TaggedError("TestToolError")<{
+  readonly message: string;
+}> {}
+
 const makeInvoker = (
   fn: (input: { path: string; args: unknown }) => unknown,
 ): SandboxToolInvoker => ({
@@ -16,7 +21,7 @@ const makeInvoker = (
 });
 
 const failingInvoker = (message: string): SandboxToolInvoker => ({
-  invoke: () => Effect.fail(new Error(message)),
+  invoke: () => Effect.fail(new TestToolError({ message })),
 });
 
 // ---------------------------------------------------------------------------

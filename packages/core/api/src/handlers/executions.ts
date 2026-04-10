@@ -55,11 +55,20 @@ export const ExecutionsHandlers = HttpApiBuilder.group(
             });
           }
 
-          const formatted = formatExecuteResult(result);
+          if (result.status === "completed") {
+            const formatted = formatExecuteResult(result.result);
+            return {
+              text: formatted.text,
+              structured: formatted.structured,
+              isError: formatted.isError,
+            };
+          }
+
+          const formatted = formatPausedExecution(result.execution);
           return {
             text: formatted.text,
             structured: formatted.structured,
-            isError: formatted.isError,
+            isError: false,
           };
         }),
       ),

@@ -4,7 +4,7 @@
 
 import { Context, Effect, Layer } from "effect";
 import { WorkOS } from "@workos-inc/node/worker";
-import { WorkOSError, withServiceLogging } from "./errors";
+import { WorkOSError, tryPromiseService, withServiceLogging } from "./errors";
 import { server } from "../env";
 
 const COOKIE_NAME = "wos-session";
@@ -29,7 +29,7 @@ const make = Effect.gen(function* () {
     withServiceLogging(
       "workos",
       () => new WorkOSError(),
-      Effect.tryPromise({ try: () => fn(workos), catch: (e) => e }),
+      tryPromiseService(() => fn(workos)),
     );
 
   const authenticateSealedSession = (sessionData: string) =>
