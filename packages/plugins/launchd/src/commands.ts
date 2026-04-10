@@ -153,11 +153,13 @@ const stopCommand = Command.make("stop", { label: labelOpt, plist: plistOpt }, (
 
 const statusCommand = Command.make(
   "status",
-  { label: labelOpt, plist: plistOpt, json: jsonOpt },
-  ({ label, plist, json }) =>
+  { label: labelOpt, plist: plistOpt, "log-file": logFileOpt, port: portOpt, json: jsonOpt },
+  ({ label, plist, "log-file": logFile, port, json }) =>
     printAgent({
       label: unwrap(label),
       plistPath: unwrap(plist),
+      logPath: unwrap(logFile),
+      port,
     }).pipe(
       Effect.tap((status: AgentStatus) =>
         Effect.sync(() => {
