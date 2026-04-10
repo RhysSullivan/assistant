@@ -1,5 +1,10 @@
 import { useState, Suspense } from "react";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import {
+  useAtomValue,
+  useAtomSet,
+  useAtomRefresh,
+  Result,
+} from "@effect-atom/atom-react";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
 import { SecretId } from "@executor/sdk";
@@ -29,12 +34,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/select";
+import {
+  CardStack,
+  CardStackContent,
+  CardStackEntry,
+  CardStackEntryActions,
+  CardStackEntryContent,
+  CardStackEntryDescription,
+  CardStackEntryTitle,
+  CardStackHeader,
+} from "../components/card-stack";
+import { Badge } from "../components/badge";
 
 // ---------------------------------------------------------------------------
 // Add secret dialog
 // ---------------------------------------------------------------------------
 
-function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => void }) {
+function AddSecretDialog(props: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -93,8 +112,8 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
         <DialogHeader>
           <DialogTitle className="font-display text-xl">New secret</DialogTitle>
           <DialogDescription className="text-[13px] leading-relaxed">
-            Store a credential or API key. Values are kept in your system keychain when available,
-            with a local encrypted file fallback.
+            Store a credential or API key. Values are kept in your system
+            keychain when available, with a local encrypted file fallback.
           </DialogDescription>
         </DialogHeader>
 
@@ -164,7 +183,9 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
                 id="secret-purpose"
                 placeholder="GitHub API auth"
                 value={purpose}
-                onChange={(e) => setPurpose((e.target as HTMLInputElement).value)}
+                onChange={(e) =>
+                  setPurpose((e.target as HTMLInputElement).value)
+                }
                 className="text-[13px] h-9"
               />
             </div>
@@ -225,33 +246,25 @@ function SecretRow(props: {
   const { secret } = props;
 
   return (
-    <div className="group relative flex items-center gap-4 rounded-lg border border-border/60 bg-card px-4 py-3 transition-all hover:border-border hover:shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-      {/* Content */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="text-[13px] font-medium text-foreground leading-none">{secret.name}</p>
-          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
-            {secret.id}
-          </span>
-        </div>
+    <CardStackEntry>
+      <CardStackEntryContent>
+        <CardStackEntryTitle className="flex items-center gap-2">
+          <span className="truncate">{secret.name}</span>
+        </CardStackEntryTitle>
         {secret.purpose && (
-          <p className="mt-1 text-[12px] text-muted-foreground/70 leading-none">{secret.purpose}</p>
+          <CardStackEntryDescription>
+            <div className="flex gap-2 flex-col text-xs">{secret.purpose}</div>
+          </CardStackEntryDescription>
         )}
-      </div>
-
-      {/* Provider + actions */}
-      <div className="flex items-center gap-1.5">
-        {secret.provider && (
-          <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">
-            {secret.provider}
-          </span>
-        )}
+      </CardStackEntryContent>
+      <CardStackEntryActions>
+        {secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="size-7 opacity-0 transition-opacity group-hover/card-stack-entry:opacity-100 group-focus-within/card-stack-entry:opacity-100 data-[state=open]:opacity-100"
             >
               <svg viewBox="0 0 16 16" className="size-3">
                 <circle cx="8" cy="3" r="1.2" fill="currentColor" />
@@ -269,8 +282,8 @@ function SecretRow(props: {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
-    </div>
+      </CardStackEntryActions>
+    </CardStackEntry>
   );
 }
 
@@ -278,7 +291,9 @@ function SecretRow(props: {
 // Page
 // ---------------------------------------------------------------------------
 
-export function SecretsPage(props: { secretProviderPlugins: readonly SecretProviderPlugin[] }) {
+export function SecretsPage(props: {
+  secretProviderPlugins: readonly SecretProviderPlugin[];
+}) {
   const { secretProviderPlugins } = props;
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
@@ -321,26 +336,23 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
         {/* Provider plugins */}
         {secretProviderPlugins.length > 0 && (
           <div className="mb-10">
-            <div className="flex items-center gap-3 mb-4">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
-                Providers
-              </h2>
-              <div className="flex-1 h-px bg-border/50" />
-            </div>
-            <div className="grid gap-3">
-              {secretProviderPlugins.map((plugin) => (
-                <Suspense
-                  key={plugin.key}
-                  fallback={
-                    <div className="rounded-xl border border-border/60 bg-card p-5 animate-pulse">
-                      <div className="h-4 w-24 rounded bg-muted" />
-                    </div>
-                  }
-                >
-                  <plugin.settings />
-                </Suspense>
-              ))}
-            </div>
+            <CardStack>
+              <CardStackHeader>Providers</CardStackHeader>
+              <CardStackContent>
+                {secretProviderPlugins.map((plugin) => (
+                  <Suspense
+                    key={plugin.key}
+                    fallback={
+                      <div className="px-4 py-3 animate-pulse">
+                        <div className="h-4 w-24 rounded bg-muted" />
+                      </div>
+                    }
+                  >
+                    <plugin.settings />
+                  </Suspense>
+                ))}
+              </CardStackContent>
+            </CardStack>
           </div>
         )}
 
@@ -349,41 +361,57 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
           onInitial: () => (
             <div className="flex items-center gap-2 py-8">
               <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <p className="text-[13px] text-muted-foreground/60">Loading secrets…</p>
+              <p className="text-[13px] text-muted-foreground/60">
+                Loading secrets…
+              </p>
             </div>
           ),
           onFailure: () => (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-[13px] text-destructive">Failed to load secrets</p>
+              <p className="text-[13px] text-destructive">
+                Failed to load secrets
+              </p>
             </div>
           ),
-          onSuccess: ({ value }) =>
-            value.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 py-16">
-                <p className="text-[13px] font-medium text-foreground/60 mb-1">No secrets yet</p>
-                <p className="text-[12px] text-muted-foreground/50 mb-5 max-w-[240px] text-center leading-relaxed">
-                  Add API keys and credentials to authenticate your sources.
-                </p>
-                <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
-                  Add your first secret
-                </Button>
-              </div>
-            ) : (
-              <div className="grid gap-1.5">
-                {value.map((s) => (
-                  <SecretRow
-                    key={s.id}
-                    secret={{
-                      id: s.id,
-                      name: s.name,
-                      purpose: s.purpose,
-                      provider: s.provider ? String(s.provider) : undefined,
-                    }}
-                    onRemove={() => handleRemove(s.id)}
-                  />
-                ))}
-              </div>
-            ),
+          onSuccess: ({ value }) => (
+            <CardStack>
+              <CardStackHeader>Secrets</CardStackHeader>
+              <CardStackContent>
+                {value.length === 0 ? (
+                  <CardStackEntry>
+                    <CardStackEntryContent>
+                      <CardStackEntryDescription>
+                        Add API keys and credentials to authenticate your sources.
+                      </CardStackEntryDescription>
+                    </CardStackEntryContent>
+                    <CardStackEntryActions>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-7 px-0 text-[12px]"
+                        onClick={() => setAddOpen(true)}
+                      >
+                        Add your first secret
+                      </Button>
+                    </CardStackEntryActions>
+                  </CardStackEntry>
+                ) : (
+                  value.map((s) => (
+                    <SecretRow
+                      key={s.id}
+                      secret={{
+                        id: s.id,
+                        name: s.name,
+                        purpose: s.purpose,
+                        provider: s.provider ? String(s.provider) : undefined,
+                      }}
+                      onRemove={() => handleRemove(s.id)}
+                    />
+                  ))
+                )}
+              </CardStackContent>
+            </CardStack>
+          ),
         })}
 
         <AddSecretDialog open={addOpen} onOpenChange={setAddOpen} />

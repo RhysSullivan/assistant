@@ -6,7 +6,23 @@ import { Button } from "./button";
 import { Markdown } from "./markdown";
 import { SchemaExplorer } from "./schema-explorer";
 import { ExpandableCodeBlock } from "./expandable-code-block";
+import {
+  CardStack,
+  CardStackHeader,
+  CardStackContent,
+} from "./card-stack";
 import { Copy, Check, ChevronRight } from "lucide-react";
+
+function EmptySection(props: { title: string; message: string }) {
+  return (
+    <CardStack>
+      <CardStackHeader>{props.title}</CardStackHeader>
+      <CardStackContent>
+        <p className="px-4 py-3 text-sm text-muted-foreground">{props.message}</p>
+      </CardStackContent>
+    </CardStack>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Copy button
@@ -92,7 +108,7 @@ export function ToolDetail(props: {
       <div className="shrink-0 border-b border-border/40">
         <div className="px-5 pt-4 pb-0">
           {crumbs.length > 1 && (
-            <div className="flex items-center gap-1 text-sm text-muted-foreground/40">
+            <div className="flex items-center gap-1 text-sm text-muted-foreground">
               {crumbs.slice(0, -1).map((part, i) => (
                 <span key={i} className="flex items-center gap-1">
                   {i > 0 && <ChevronRight className="size-3 shrink-0" />}
@@ -106,7 +122,7 @@ export function ToolDetail(props: {
             <CopyButton text={props.toolId} label="Copy tool ID" />
           </div>
           {props.toolDescription && (
-            <div className="mt-1.5 max-w-lg text-sm text-muted-foreground/70 line-clamp-2">
+            <div className="mt-1.5 max-w-lg text-sm text-muted-foreground line-clamp-2">
               <Markdown>{props.toolDescription}</Markdown>
             </div>
           )}
@@ -122,7 +138,7 @@ export function ToolDetail(props: {
                 "border-b-2 pb-2.5 text-sm font-medium transition-colors rounded-none",
                 tab === "schema"
                   ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground/50 hover:text-muted-foreground",
+                  : "border-transparent text-muted-foreground hover:text-foreground",
               ].join(" ")}
             >
               Schema
@@ -136,7 +152,7 @@ export function ToolDetail(props: {
                 "border-b-2 pb-2.5 text-sm font-medium transition-colors rounded-none",
                 tab === "typescript"
                   ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground/50 hover:text-muted-foreground",
+                  : "border-transparent text-muted-foreground hover:text-foreground",
               ].join(" ")}
             >
               TypeScript
@@ -152,66 +168,48 @@ export function ToolDetail(props: {
           onFailure: () => <div className="p-5 text-sm text-destructive">Something went wrong</div>,
           onSuccess: () =>
             tab === "schema" ? (
-              <div className="px-5 py-5 space-y-6">
-                <section>
-                  <h4 className="text-[0.6875rem] font-medium uppercase tracking-widest text-muted-foreground/40">
-                    Parameters
-                  </h4>
-                  <div className="mt-2.5">
-                    {data?.inputSchema ? (
-                      <SchemaExplorer schema={data.inputSchema} />
-                    ) : (
-                      <p className="py-2 text-sm text-muted-foreground/40">None</p>
-                    )}
-                  </div>
-                </section>
-
-                <section>
-                  <h4 className="text-[0.6875rem] font-medium uppercase tracking-widest text-muted-foreground/40">
-                    Response
-                  </h4>
-                  <div className="mt-2.5">
-                    {data?.outputSchema ? (
-                      <SchemaExplorer schema={data.outputSchema} />
-                    ) : (
-                      <p className="py-2 text-sm text-muted-foreground/40">None</p>
-                    )}
-                  </div>
-                </section>
+              <div className="px-5 py-5 space-y-5">
+                {data?.inputSchema ? (
+                  <SchemaExplorer schema={data.inputSchema} title="Parameters" />
+                ) : (
+                  <EmptySection title="Parameters" message="None" />
+                )}
+                {data?.outputSchema ? (
+                  <SchemaExplorer schema={data.outputSchema} title="Response" />
+                ) : (
+                  <EmptySection title="Response" message="None" />
+                )}
               </div>
             ) : (
-              <div className="px-5 py-5 space-y-6">
-                <section>
-                  <h4 className="text-[0.6875rem] font-medium uppercase tracking-widest text-muted-foreground/40">
-                    Input
-                  </h4>
-                  <div className="mt-2.5">
-                    {data?.inputTypeScript ? (
+              <div className="px-5 py-5 space-y-5">
+                {data?.inputTypeScript ? (
+                  <CardStack>
+                    <CardStackHeader>Input</CardStackHeader>
+                    <CardStackContent>
                       <ExpandableCodeBlock
                         code={data.inputTypeScript}
                         definitions={data.definitions}
+                        className="rounded-none border-0"
                       />
-                    ) : (
-                      <p className="py-2 text-sm text-muted-foreground/40">void</p>
-                    )}
-                  </div>
-                </section>
-
-                <section>
-                  <h4 className="text-[0.6875rem] font-medium uppercase tracking-widest text-muted-foreground/40">
-                    Output
-                  </h4>
-                  <div className="mt-2.5">
-                    {data?.outputTypeScript ? (
+                    </CardStackContent>
+                  </CardStack>
+                ) : (
+                  <EmptySection title="Input" message="void" />
+                )}
+                {data?.outputTypeScript ? (
+                  <CardStack>
+                    <CardStackHeader>Output</CardStackHeader>
+                    <CardStackContent>
                       <ExpandableCodeBlock
                         code={data.outputTypeScript}
                         definitions={data.definitions}
+                        className="rounded-none border-0"
                       />
-                    ) : (
-                      <p className="py-2 text-sm text-muted-foreground/40">void</p>
-                    )}
-                  </div>
-                </section>
+                    </CardStackContent>
+                  </CardStack>
+                ) : (
+                  <EmptySection title="Output" message="void" />
+                )}
               </div>
             ),
         })}
@@ -228,11 +226,11 @@ export function ToolDetailEmpty(props: { hasTools: boolean }) {
   return (
     <div className="flex h-full items-center justify-center">
       <div className="text-center">
-        <p className="text-sm font-medium text-foreground/70">
+        <p className="text-sm font-medium text-foreground">
           {props.hasTools ? "Select a tool" : "No tools available"}
         </p>
         {props.hasTools && (
-          <p className="mt-1.5 text-sm text-muted-foreground/50">
+          <p className="mt-1.5 text-sm text-muted-foreground">
             Choose from the list to see what it does.
           </p>
         )}
