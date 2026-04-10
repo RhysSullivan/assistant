@@ -24,6 +24,7 @@
     "@executor/api": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@hookform/resolvers": "^5.2.2",
+    "@lobehub/icons": "^5.4.0",
     "@shikijs/langs": "^4.0.2",
     "@shikijs/themes": "^4.0.2",
     "@tanstack/react-router": "catalog:",
