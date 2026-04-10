@@ -110,7 +110,8 @@ export class McpSessionDO extends DurableObject {
     const program = Effect.gen(function* () {
       const users = yield* UserStoreService;
       const org = yield* users.use((store) => store.getOrganization(token.organizationId));
-      if (!org) return yield* new OrganizationNotFoundError({ organizationId: token.organizationId });
+      if (!org)
+        return yield* new OrganizationNotFoundError({ organizationId: token.organizationId });
 
       const executor = yield* createOrgExecutor(org.id, org.name, server.ENCRYPTION_KEY);
       const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });

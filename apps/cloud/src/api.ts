@@ -386,9 +386,6 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
   } catch (err) {
     Sentry.captureException(err);
     console.error("[api] request failed:", err instanceof Error ? err.stack : err);
-    return Response.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
+    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 };
