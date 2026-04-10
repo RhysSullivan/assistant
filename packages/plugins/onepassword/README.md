@@ -44,10 +44,10 @@ await executor.onepassword.configure({
 
 ## Using with Effect
 
-If you're building on `@executor/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { onepasswordPlugin } from "@executor/plugin-onepassword/core";
+import { onepasswordPlugin } from "@executor/plugin-onepassword";
 ```
 
 ## Status

@@ -4,7 +4,7 @@
 
 import { Effect } from "effect";
 import { eq, and } from "drizzle-orm";
-import type { Kv } from "@executor/sdk/core";
+import type { Kv } from "@executor/sdk";
 
 import { pluginKv } from "./schema";
 import type { DrizzleDb } from "./types";

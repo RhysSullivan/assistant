@@ -9,7 +9,7 @@ import {
   type Kv,
   type ToolId,
   type ScopedKv,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 
 import { McpToolBinding } from "./types";
 import type { McpStoredSourceData } from "./types";

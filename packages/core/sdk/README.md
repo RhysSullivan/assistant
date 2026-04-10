@@ -136,7 +136,7 @@ Plugins accept `{ secretId, prefix }` wherever a header value is expected, so yo
 The SDK is built on [Effect](https://effect.website/) under the hood. If you want the raw Effect-based primitives instead of the promise wrapper, import from the `/core` subpath:
 
 ```ts
-import { createExecutor } from "@executor/sdk/core";
+import { createExecutor } from "@executor/sdk";
 ```
 
 `/core` exposes `createExecutor` returning an `Effect`, the `ToolRegistry` / `SourceRegistry` / `SecretStore` / `PolicyEngine` Context tags, the in-memory store factories, and every branded ID + error class. Every `@executor/plugin-*` ships a matching `/core` subpath.

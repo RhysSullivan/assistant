@@ -4,7 +4,7 @@ import {
   createExecutor,
   makeTestConfig,
   type ToolMetadata,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 import { openApiPlugin } from "@executor/plugin-openapi";
 import { graphqlPlugin } from "@executor/plugin-graphql";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";

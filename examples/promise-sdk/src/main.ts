@@ -2,11 +2,11 @@
  * Example: Promise-based executor SDK with MCP, OpenAPI, GraphQL,
  * and a custom plugin — no Effect knowledge needed.
  */
-import { createExecutor, definePlugin } from "@executor/sdk";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { ToolRegistration, ToolInvocationResult, ToolId } from "@executor/sdk";
+import { createExecutor, definePlugin } from "@executor/sdk/promise";
+import { mcpPlugin } from "@executor/plugin-mcp/promise";
+import { openApiPlugin } from "@executor/plugin-openapi/promise";
+import { graphqlPlugin } from "@executor/plugin-graphql/promise";
+import { ToolRegistration, ToolInvocationResult, ToolId } from "@executor/sdk/promise";
 
 // ---------------------------------------------------------------------------
 // 1. Define a custom plugin using only async/await

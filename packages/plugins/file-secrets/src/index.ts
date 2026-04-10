@@ -3,7 +3,7 @@ import {
   definePlugin,
   type ExecutorPlugin,
   type SecretProvider,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 import * as fs from "node:fs";
 import * as path from "node:path";
 

@@ -40,10 +40,10 @@ Secrets written through `executor.secrets.set(...)` become available to every ot
 
 ## Using with Effect
 
-If you're building on `@executor/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { fileSecretsPlugin } from "@executor/plugin-file-secrets/core";
+import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 ```
 
 ## Security note

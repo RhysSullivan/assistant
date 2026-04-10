@@ -5,7 +5,7 @@ import {
   type Kv,
   type ScopedKv,
   type ToolId,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 
 import {
   GoogleDiscoveryMethodBinding,

@@ -4,7 +4,7 @@ import {
   definePlugin,
   type SecretId,
   type ExecutorPlugin,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 
 import { displayName, isSupportedPlatform, resolveServiceName } from "./keyring";
 import { getPassword } from "./keyring";

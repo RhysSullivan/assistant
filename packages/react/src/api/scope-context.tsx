@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 
-import type { ScopeId } from "@executor/sdk/core";
+import type { ScopeId } from "@executor/sdk";
 import { scopeAtom } from "./atoms";
 
 export interface ScopeInfo {

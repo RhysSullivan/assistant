@@ -8,7 +8,7 @@ import {
   ToolInvocationError,
   ToolInvocationResult,
   type ToolInvoker,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 
 import { GoogleDiscoveryInvocationError } from "./errors";
 import type { GoogleDiscoveryBindingStore } from "./binding-store";

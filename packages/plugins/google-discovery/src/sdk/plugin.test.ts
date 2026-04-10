@@ -10,7 +10,7 @@ import {
   makeTestConfig,
   SecretId,
   type InvokeOptions,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 import { googleDiscoveryPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };

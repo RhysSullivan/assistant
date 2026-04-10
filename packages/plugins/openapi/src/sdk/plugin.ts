@@ -12,7 +12,7 @@ import {
   type PluginContext,
   ToolId,
   type ToolRegistration,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 
 import { parse } from "./parse";
 import { extract } from "./extract";

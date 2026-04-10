@@ -70,7 +70,7 @@ import { openApiPresets } from "@executor/plugin-openapi/presets";
 If you're using `@executor/core` directly, import from the `/core` subpath:
 
 ```ts
-import { openApiPlugin } from "@executor/plugin-openapi/core";
+import { openApiPlugin } from "@executor/plugin-openapi";
 ```
 
 ## Status

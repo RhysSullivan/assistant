@@ -13,8 +13,8 @@
     "url": "https://github.com/RhysSullivan/executor/issues"
   },
   "exports": {
-    ".": "./src/promise.ts",
-    "./core": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./promise": "./src/promise.ts"
   },
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",

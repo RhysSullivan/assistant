@@ -4,15 +4,15 @@
 
 import { Effect, Schema } from "effect";
 
-import type { ToolId, ScopedKv } from "@executor/sdk/core";
-import { ToolNotFoundError, ToolInvocationError, ToolRegistration } from "@executor/sdk/core";
+import type { ToolId, ScopedKv } from "@executor/sdk";
+import { ToolNotFoundError, ToolInvocationError, ToolRegistration } from "@executor/sdk";
 import type {
   ToolInvoker,
   ToolListFilter,
   InvokeOptions,
   RuntimeToolHandler,
-} from "@executor/sdk/core";
-import { buildToolTypeScriptPreview, reattachDefs } from "@executor/sdk/core";
+} from "@executor/sdk";
+import { buildToolTypeScriptPreview, reattachDefs } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // Serialization — leverage ToolRegistration Schema.Class directly

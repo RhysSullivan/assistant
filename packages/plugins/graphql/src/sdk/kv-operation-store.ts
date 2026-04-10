@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk/core";
+import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
 
 import type { GraphqlOperationStore, StoredSource } from "./operation-store";
 import { OperationBinding, InvocationConfig, HeaderValue } from "./types";

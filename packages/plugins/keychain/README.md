@@ -44,10 +44,10 @@ Secrets written through this plugin are available to every other plugin that res
 
 ## Using with Effect
 
-If you're building on `@executor/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { keychainPlugin } from "@executor/plugin-keychain/core";
+import { keychainPlugin } from "@executor/plugin-keychain";
 ```
 
 ## Status

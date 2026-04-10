@@ -45,10 +45,10 @@ import { googleDiscoveryPresets } from "@executor/plugin-google-discovery/preset
 
 ## Using with Effect
 
-If you're building on `@executor/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery/core";
+import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
 ```
 
 ## Status

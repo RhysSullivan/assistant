@@ -56,10 +56,10 @@ await executor.graphql.addSource({
 
 ## Using with Effect
 
-If you're building on `@executor/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { graphqlPlugin } from "@executor/plugin-graphql/core";
+import { graphqlPlugin } from "@executor/plugin-graphql";
 ```
 
 ## Status

@@ -5,16 +5,16 @@
 import { Effect } from "effect";
 import { eq, and, inArray, sql } from "drizzle-orm";
 
-import type { ToolId } from "@executor/sdk/core";
+import type { ToolId } from "@executor/sdk";
 import type { DrizzleDb } from "./types";
-import { ToolNotFoundError, ToolInvocationError, ToolRegistration } from "@executor/sdk/core";
-import { buildToolTypeScriptPreview } from "@executor/sdk/core";
+import { ToolNotFoundError, ToolInvocationError, ToolRegistration } from "@executor/sdk";
+import { buildToolTypeScriptPreview } from "@executor/sdk";
 import type {
   ToolInvoker,
   ToolListFilter,
   InvokeOptions,
   RuntimeToolHandler,
-} from "@executor/sdk/core";
+} from "@executor/sdk";
 
 import { tools, toolDefinitions } from "./schema";
 

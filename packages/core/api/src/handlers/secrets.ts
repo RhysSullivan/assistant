@@ -1,6 +1,6 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect, Option } from "effect";
-import type { SecretId, ScopeId } from "@executor/sdk/core";
+import type { SecretId, ScopeId } from "@executor/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";

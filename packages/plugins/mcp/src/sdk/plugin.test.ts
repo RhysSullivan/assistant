@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { createExecutor, makeTestConfig } from "@executor/sdk/core";
+import { createExecutor, makeTestConfig } from "@executor/sdk";
 
 import { mcpPlugin } from "./plugin";
 import { makeInMemoryBindingStore } from "./binding-store";

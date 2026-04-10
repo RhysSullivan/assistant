@@ -48,10 +48,10 @@ const result = await executor.tools.invoke(
 
 ## Using with Effect
 
-If you're building on `@executor/sdk/core` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { mcpPlugin } from "@executor/plugin-mcp/core";
+import { mcpPlugin } from "@executor/plugin-mcp";
 ```
 
 ## Status
