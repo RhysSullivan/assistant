@@ -2,15 +2,13 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "executor-cloud",
   "compatibility_date": "2025-04-01",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
+  "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
   "routes": [
     {
       "pattern": "executor.sh",
-      "custom_domain": true
-    }
+      "custom_domain": true,
+    },
   ],
   "limits": {
     "cpu_ms": 300000,
@@ -29,9 +27,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": [
-        "McpSessionDO"
-      ],
+      "new_classes": ["McpSessionDO"],
     },
   ],
   "services": [
