@@ -2,6 +2,7 @@ import React from "react";
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { AutumnProvider } from "autumn-js/react";
 import { ExecutorProvider } from "@executor/react/api/provider";
+import { Toaster } from "@executor/react/components/sonner";
 import { AuthProvider, useAuth } from "../web/auth";
 import { LoginPage } from "../web/pages/login";
 import { Shell } from "../web/shell";
@@ -70,6 +71,7 @@ function AuthGate() {
     <AutumnProvider pathPrefix="/api/autumn">
       <ExecutorProvider>
         <Shell />
+        <Toaster />
       </ExecutorProvider>
     </AutumnProvider>
   );

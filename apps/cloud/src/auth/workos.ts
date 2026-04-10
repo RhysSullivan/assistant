@@ -138,10 +138,67 @@ const make = Effect.gen(function* () {
         if (!sessionData) return null;
         return yield* authenticateSealedSession(sessionData);
       }),
+
+    /** Generate a widget token for the UsersManagement widget. */
+    getWidgetToken: (userId: string, organizationId: string) =>
+      use((wos) =>
+        wos.widgets.getToken({
+          userId,
+          organizationId,
+          scopes: ["widgets:users-table:manage"],
+        }),
+      ),
+
+    /** List organization memberships with user details. */
+    listOrgMembers: (organizationId: string) =>
+      use((wos) =>
+        wos.userManagement.listOrganizationMemberships({
+          organizationId,
+          statuses: ["active", "pending"],
+        }),
+      ),
+
+    /** Get a user by ID. */
+    getUser: (userId: string) =>
+      use((wos) => wos.userManagement.getUser(userId)),
+
+    /** Send an organization invitation. */
+    sendInvitation: (params: { email: string; organizationId: string; roleSlug?: string }) =>
+      use((wos) =>
+        wos.userManagement.sendInvitation({
+          email: params.email,
+          organizationId: params.organizationId,
+          roleSlug: params.roleSlug,
+        }),
+      ),
+
+    /** Remove an organization membership. */
+    deleteOrgMembership: (membershipId: string) =>
+      use((wos) =>
+        wos.userManagement.deleteOrganizationMembership(membershipId),
+      ),
+
+    /** Get the role for a membership. */
+    getOrgMembership: (membershipId: string) =>
+      use((wos) =>
+        wos.userManagement.getOrganizationMembership(membershipId),
+      ),
+
+    /** Update a membership's role. */
+    updateOrgMembershipRole: (membershipId: string, roleSlug: string) =>
+      use((wos) =>
+        wos.userManagement.updateOrganizationMembership(membershipId, { roleSlug }),
+      ),
+
+    /** List available roles for an organization. */
+    listOrgRoles: (organizationId: string) =>
+      use((wos) =>
+        wos.organizations.listOrganizationRoles({ organizationId }),
+      ),
   };
 });
 
-type WorkOSAuthService = Effect.Effect.Success<typeof make>;
+export type WorkOSAuthService = Effect.Effect.Success<typeof make>;
 
 export class WorkOSAuth extends Context.Tag("@executor/cloud/WorkOSAuth")<
   WorkOSAuth,
