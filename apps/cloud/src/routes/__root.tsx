@@ -23,9 +23,7 @@ export const Route = createRootRoute({
       },
       { rel: "stylesheet", href: appCss },
     ],
-    scripts: import.meta.env.DEV
-      ? [{ src: "https://ui.sh/ui-picker.js" }]
-      : [],
+    scripts: import.meta.env.DEV ? [{ src: "https://ui.sh/ui-picker.js" }] : [],
   }),
   component: RootComponent,
   shellComponent: RootDocument,

@@ -107,7 +107,8 @@ function BillingPage() {
               <p className="text-[0.8125rem] tabular-nums text-muted-foreground">
                 {executions.usage.toLocaleString()}
                 <span className="text-muted-foreground/50">
-                  {" / "}{executions.granted.toLocaleString()} this month
+                  {" / "}
+                  {executions.granted.toLocaleString()} this month
                 </span>
               </p>
             </div>
@@ -115,7 +116,12 @@ function BillingPage() {
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
                 <div
                   className="h-full rounded-full bg-primary transition-all duration-300"
-                  style={{ "--progress": `${Math.min(100, (executions.usage / executions.granted) * 100)}%`, width: "var(--progress)" } as React.CSSProperties}
+                  style={
+                    {
+                      "--progress": `${Math.min(100, (executions.usage / executions.granted) * 100)}%`,
+                      width: "var(--progress)",
+                    } as React.CSSProperties
+                  }
                 />
               </div>
             )}

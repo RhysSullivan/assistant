@@ -13,9 +13,7 @@ export class AutumnError extends Data.TaggedError("AutumnError")<{
   cause: unknown;
 }> {}
 
-export class AutumnInstantiationError extends Data.TaggedError(
-  "AutumnInstantiationError",
-)<{
+export class AutumnInstantiationError extends Data.TaggedError("AutumnInstantiationError")<{
   cause: unknown;
 }> {}
 
@@ -25,9 +23,7 @@ export class AutumnInstantiationError extends Data.TaggedError(
 
 export type IAutumnService = Readonly<{
   client: AutumnSDK;
-  use: <A>(
-    fn: (client: AutumnSDK) => Promise<A>,
-  ) => Effect.Effect<A, AutumnError, never>;
+  use: <A>(fn: (client: AutumnSDK) => Promise<A>) => Effect.Effect<A, AutumnError, never>;
 }>;
 
 // ---------------------------------------------------------------------------
@@ -55,7 +51,5 @@ export class AutumnService extends Context.Tag("@executor/cloud/AutumnService")<
   AutumnService,
   IAutumnService
 >() {
-  static Default = Layer.effect(this, make).pipe(
-    Layer.annotateSpans({ module: "AutumnService" }),
-  );
+  static Default = Layer.effect(this, make).pipe(Layer.annotateSpans({ module: "AutumnService" }));
 }

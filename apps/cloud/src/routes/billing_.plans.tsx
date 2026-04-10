@@ -44,9 +44,7 @@ function PlansPage() {
 
   const isLoading = customerLoading || plansLoading;
 
-  const paidPlans = (plans ?? []).filter(
-    (p) => p.id === "hobby" || p.id === "professional",
-  );
+  const paidPlans = (plans ?? []).filter((p) => p.id === "hobby" || p.id === "professional");
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -57,7 +55,13 @@ function PlansPage() {
             className="inline-flex items-center gap-1 text-[0.8125rem] text-muted-foreground hover:text-foreground transition-colors mb-4"
           >
             <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-              <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M10 4L6 8l4 4"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
             Billing
           </Link>
@@ -75,7 +79,12 @@ function PlansPage() {
             <div className="h-64 animate-pulse rounded-xl bg-muted" />
           </div>
         ) : (
-          <div className={["grid gap-4 grid-cols-2 transition-opacity", isFetching ? "opacity-50 pointer-events-none" : ""].join(" ")}>
+          <div
+            className={[
+              "grid gap-4 grid-cols-2 transition-opacity",
+              isFetching ? "opacity-50 pointer-events-none" : "",
+            ].join(" ")}
+          >
             {paidPlans.map((plan) => {
               const meta = PLAN_META[plan.id];
               if (!meta) return null;
@@ -122,9 +131,7 @@ function PlansPage() {
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-[0.75rem] text-muted-foreground/70">
-                    {meta.tagline}
-                  </p>
+                  <p className="mt-1 text-[0.75rem] text-muted-foreground/70">{meta.tagline}</p>
 
                   <div className="mt-4 flex items-baseline gap-1.5">
                     <span className="text-2xl font-semibold text-foreground tabular-nums">
@@ -174,9 +181,22 @@ function PlansPage() {
 
                   <ul role="list" className="mt-5 space-y-2">
                     {meta.features.map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-[0.75rem] text-muted-foreground">
-                        <svg viewBox="0 0 16 16" fill="none" className="mt-px size-3.5 shrink-0 text-primary/60">
-                          <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <li
+                        key={f}
+                        className="flex items-start gap-2 text-[0.75rem] text-muted-foreground"
+                      >
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          className="mt-px size-3.5 shrink-0 text-primary/60"
+                        >
+                          <path
+                            d="M3.5 8.5L6.5 11.5L12.5 5"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
                         </svg>
                         <span>{f}</span>
                       </li>

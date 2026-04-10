@@ -197,16 +197,14 @@ const handleAutumnRequest = async (request: Request): Promise<Response> => {
     const result = yield* workos.authenticateRequest(request);
 
     if (!result || !result.organizationId) {
-      return Response.json(
-        { error: "Unauthorized" },
-        { status: 401 },
-      );
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const url = new URL(request.url);
-    const body = request.method !== "GET" && request.method !== "HEAD"
-      ? yield* Effect.promise(() => request.json())
-      : undefined;
+    const body =
+      request.method !== "GET" && request.method !== "HEAD"
+        ? yield* Effect.promise(() => request.json())
+        : undefined;
 
     const { statusCode, response } = yield* Effect.promise(() =>
       autumnHandler({
@@ -230,15 +228,12 @@ const handleAutumnRequest = async (request: Request): Promise<Response> => {
     return Response.json(response, { status: statusCode });
   });
 
-  return Effect.runPromise(
-    program.pipe(Effect.provide(SharedServices), Effect.scoped),
-  ).catch((err) => {
-    console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
-    return Response.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
-  });
+  return Effect.runPromise(program.pipe(Effect.provide(SharedServices), Effect.scoped)).catch(
+    (err) => {
+      console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    },
+  );
 };
 
 export const handleApiRequest = async (request: Request): Promise<Response> => {
@@ -284,13 +279,15 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
     if (isExecutionPath(pathname) && result.response.ok) {
       const autumn = getAutumn();
       if (autumn) {
-        autumn.track({
-          customerId: result.orgId,
-          featureId: "executions",
-          value: 1,
-        }).catch((err) => {
-          console.error("[billing] track failed:", err);
-        });
+        autumn
+          .track({
+            customerId: result.orgId,
+            featureId: "executions",
+            value: 1,
+          })
+          .catch((err) => {
+            console.error("[billing] track failed:", err);
+          });
       }
     }
 
