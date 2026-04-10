@@ -21,7 +21,7 @@ import {
   GraphqlExtractionError,
 } from "./errors";
 import { makeGraphqlInvoker } from "./invoke";
-import type { GraphqlOperationStore } from "./operation-store";
+import type { GraphqlOperationStore, StoredSource } from "./operation-store";
 import { makeInMemoryOperationStore } from "./kv-operation-store";
 import {
   ExtractedField,
@@ -53,6 +53,11 @@ export interface GraphqlSourceConfig {
 // Plugin extension
 // ---------------------------------------------------------------------------
 
+export interface GraphqlUpdateSourceInput {
+  readonly endpoint?: string;
+  readonly headers?: Record<string, HeaderValue>;
+}
+
 export interface GraphqlPluginExtension {
   /** Add a GraphQL endpoint and register its operations as tools */
   readonly addSource: (
@@ -61,6 +66,17 @@ export interface GraphqlPluginExtension {
 
   /** Remove all tools from a previously added GraphQL source by namespace */
   readonly removeSource: (namespace: string) => Effect.Effect<void>;
+
+  /** Fetch the full stored source by namespace (or null if missing) */
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<StoredSource | null>;
+
+  /** Update config (endpoint, headers) for an existing GraphQL source */
+  readonly updateSource: (
+    namespace: string,
+    input: GraphqlUpdateSourceInput,
+  ) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +242,7 @@ export const graphqlPlugin = (options?: {
                       runtime: false,
                       canRemove: true,
                       canRefresh: false,
+                      canEdit: true,
                     }),
                 ),
               ),
@@ -420,6 +437,43 @@ export const graphqlPlugin = (options?: {
                   yield* ctx.tools.unregister(toolIds);
                 }
                 yield* operationStore.removeSource(namespace);
+              }),
+
+            getSource: (namespace: string) =>
+              operationStore.getSource(namespace),
+
+            updateSource: (namespace: string, input: GraphqlUpdateSourceInput) =>
+              Effect.gen(function* () {
+                const existingConfig = yield* operationStore.getSourceConfig(namespace);
+                if (!existingConfig) return;
+
+                const updatedConfig = {
+                  ...existingConfig,
+                  ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
+                  ...(input.headers !== undefined ? { headers: input.headers as Record<string, HeaderValueValue> } : {}),
+                };
+
+                const newInvocationConfig = new InvocationConfig({
+                  endpoint: updatedConfig.endpoint,
+                  headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
+                });
+
+                const toolIds = yield* operationStore.listByNamespace(namespace);
+                for (const toolId of toolIds) {
+                  const entry = yield* operationStore.get(toolId);
+                  if (entry) {
+                    yield* operationStore.put(toolId, namespace, entry.binding, newInvocationConfig);
+                  }
+                }
+
+                const sources = yield* operationStore.listSources();
+                const existingMeta = sources.find((s) => s.namespace === namespace);
+
+                yield* operationStore.putSource({
+                  namespace,
+                  name: existingMeta?.name ?? namespace,
+                  config: updatedConfig,
+                });
               }),
           },
 

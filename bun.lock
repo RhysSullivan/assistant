@@ -441,6 +441,7 @@
       "dependencies": {
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
+        "@executor/config": "workspace:*",
         "@executor/sdk": "workspace:*",
         "effect": "catalog:",
       },
