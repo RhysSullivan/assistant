@@ -1,9 +1,9 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomRefresh, useAtomValue, Result } from "@effect-atom/atom-react";
-import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
+import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { sourcesAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
-import { Button } from "@executor/react/components/button";
+
 import { AUTH_PATHS } from "../auth/api";
 import { useAuth } from "./auth";
 
@@ -169,9 +169,6 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 export function Shell() {
   const location = useLocation();
   const pathname = location.pathname;
-  const scopeId = useScope();
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
-  const refreshTools = useAtomRefresh(toolsAtom(scopeId));
   const lastPathname = useRef(pathname);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   if (lastPathname.current !== pathname) {

@@ -5,8 +5,6 @@
 import { env } from "cloudflare:workers";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-import type { McpSessionInit } from "./mcp-session";
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------

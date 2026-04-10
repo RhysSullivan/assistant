@@ -384,8 +384,8 @@ export const buildToolTypeScriptPreview = (input: {
       : null;
 
   const mergedDefinitions = {
-    ...(inputPreview?.definitions ?? {}),
-    ...(outputPreview?.definitions ?? {}),
+    ...inputPreview?.definitions,
+    ...outputPreview?.definitions,
   };
 
   return {

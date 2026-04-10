@@ -40,7 +40,7 @@ const make = Effect.gen(function* () {
         cookiePassword,
       });
 
-      const result = yield* use((wos) => session.authenticate());
+      const result = yield* use((_wos) => session.authenticate());
 
       if (result.authenticated) {
         return {
@@ -58,7 +58,7 @@ const make = Effect.gen(function* () {
       if (result.reason === "no_session_cookie_provided") return null;
 
       // Try refreshing
-      const refreshed = yield* use((wos) => session.refresh()).pipe(
+      const refreshed = yield* use((_wos) => session.refresh()).pipe(
         Effect.orElseSucceed(() => ({ authenticated: false as const })),
       );
 
@@ -117,7 +117,7 @@ const make = Effect.gen(function* () {
           sessionData,
           cookiePassword,
         });
-        const refreshed = yield* use((wos) =>
+        const refreshed = yield* use((_wos) =>
           session.refresh(organizationId ? { organizationId } : undefined),
         );
         if (!refreshed.authenticated || !("sealedSession" in refreshed)) return null;

@@ -11,7 +11,9 @@ export interface RuntimeToolDefinition<TInput = unknown, TOutput = unknown> {
   readonly sourceId?: string;
   readonly name: string;
   readonly description?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Schema.Schema is invariant in Encoded; `any` is the only way to accept arbitrary encodings
   readonly inputSchema: Schema.Schema<TInput, any, never>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Schema.Schema is invariant in Encoded; `any` is the only way to accept arbitrary encodings
   readonly outputSchema?: Schema.Schema<TOutput, any, never>;
   readonly handler: (args: TInput) => Effect.Effect<unknown, unknown>;
 }
@@ -95,6 +97,7 @@ const toRuntimeHandler = (toolId: ToolId, entry: RuntimeHandlerEntry): RuntimeTo
 });
 
 export const registerRuntimeTools = <
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RuntimeToolDefinition requires `any` for Schema invariant Encoded param
   const TTools extends readonly RuntimeToolDefinition<any, any>[],
 >(input: {
   readonly registry: {

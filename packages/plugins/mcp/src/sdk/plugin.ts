@@ -308,14 +308,14 @@ export const mcpPlugin = (options?: {
 
           return Effect.gen(function* () {
             const headers: Record<string, string> = {
-              ...(sd.headers ?? {}),
+              ...sd.headers,
             };
             let authProvider: OAuthClientProvider | undefined;
 
             const auth = sd.auth;
             if (auth.kind === "header") {
               const val = yield* ctx.secrets
-                .resolve(auth.secretId as any, ctx.scope.id)
+                .resolve(SecretId.make(auth.secretId), ctx.scope.id)
                 .pipe(
                   Effect.mapError(() =>
                     remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`),
@@ -324,7 +324,7 @@ export const mcpPlugin = (options?: {
               headers[auth.headerName] = auth.prefix ? `${auth.prefix}${val}` : val;
             } else if (auth.kind === "oauth2") {
               const accessToken = yield* ctx.secrets
-                .resolve(auth.accessTokenSecretId as any, ctx.scope.id)
+                .resolve(SecretId.make(auth.accessTokenSecretId), ctx.scope.id)
                 .pipe(
                   Effect.mapError(() =>
                     remoteConnectionError("Failed to resolve OAuth access token"),
@@ -334,7 +334,7 @@ export const mcpPlugin = (options?: {
               let refreshToken: string | undefined;
               if (auth.refreshTokenSecretId) {
                 refreshToken = yield* ctx.secrets
-                  .resolve(auth.refreshTokenSecretId as any, ctx.scope.id)
+                  .resolve(SecretId.make(auth.refreshTokenSecretId), ctx.scope.id)
                   .pipe(
                     Effect.option,
                     Effect.map((o) => (o._tag === "Some" ? o.value : undefined)),

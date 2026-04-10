@@ -14,13 +14,19 @@ if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
   const variant = {
     type: "sync" as const,
     importFFI: () =>
-      import("@jitl/quickjs-wasmfile-release-sync/ffi").then((m: any) => m.QuickJSFFI),
+      import("@jitl/quickjs-wasmfile-release-sync/ffi").then(
+        (m: Record<string, unknown>) => m.QuickJSFFI,
+      ),
     importModuleLoader: () =>
-      import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then((m: any) => {
-        const original = m.default;
-        return (moduleArg: any = {}) => original({ ...moduleArg, wasmBinary });
-      }),
+      import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then(
+        (m: Record<string, unknown>) => {
+          const original = m.default as (...args: unknown[]) => unknown;
+          return (moduleArg: Record<string, unknown> = {}) =>
+            original({ ...moduleArg, wasmBinary });
+        },
+      ),
   };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- quickjs-emscripten variant type is not publicly exported
   const mod = await newQuickJSWASMModule(variant as any);
   setQuickJSModule(mod);
 }
@@ -200,7 +206,8 @@ const callCommand = Command.make(
         }
       } else {
         console.log(result.text);
-        const executionId = (result.structured as any)?.executionId;
+        const executionId = (result.structured as Record<string, unknown> | undefined)
+          ?.executionId;
         if (executionId) {
           console.log(
             `\nTo resume:\n  ${cliPrefix} resume --execution-id ${executionId} --action accept`,

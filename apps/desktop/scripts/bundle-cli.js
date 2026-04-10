@@ -2,7 +2,7 @@
  * Builds the executor CLI binary and copies it into the desktop app's
  * resources/ folder so electron-builder can bundle it as a sidecar.
  */
-const { execSync, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 const { existsSync, mkdirSync, cpSync, chmodSync } = require("node:fs");
 const { resolve, join } = require("node:path");
 

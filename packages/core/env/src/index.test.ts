@@ -287,6 +287,7 @@ describe("createEnv", () => {
       },
     );
 
+    // oxlint-disable-next-line no-constant-condition -- compile-time-only type check
     if (false) {
       createEnv(
         {

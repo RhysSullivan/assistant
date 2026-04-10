@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 
 import { extract } from "./extract";
 import type { IntrospectionResult } from "./introspect";
@@ -182,11 +182,11 @@ describe("extract", () => {
     const createUser = result.fields.find((f) => f.fieldName === "createUser");
     expect(createUser).toBeDefined();
 
-    const inputSchema = createUser!.inputSchema as any;
-    expect(inputSchema.value).toBeDefined();
-    const schema = inputSchema.value;
+    expect(Option.isSome(createUser!.inputSchema)).toBe(true);
+    const schema = Option.getOrThrow(createUser!.inputSchema) as Record<string, unknown>;
     expect(schema.type).toBe("object");
-    expect(schema.properties.name.type).toBe("string");
+    const properties = schema.properties as Record<string, Record<string, unknown>>;
+    expect(properties.name.type).toBe("string");
     expect(schema.required).toContain("name");
     expect(schema.required).not.toContain("email");
   });
@@ -311,15 +311,18 @@ describe("extract", () => {
     expect(issuesField.fieldName).toBe("issues");
 
     // The filter arg should use a $ref, not inline the full type
-    const schema = (issuesField.inputSchema as any).value;
-    expect(schema.properties.filter.$ref).toBe("#/$defs/IssueFilter");
+    const schema = Option.getOrThrow(issuesField.inputSchema) as Record<string, unknown>;
+    const schemaProps = schema.properties as Record<string, Record<string, unknown>>;
+    expect(schemaProps.filter.$ref).toBe("#/$defs/IssueFilter");
 
     // The definition should exist with proper fields
-    const filterDef = definitions["IssueFilter"] as any;
+    const filterDef = definitions["IssueFilter"] as Record<string, unknown>;
     expect(filterDef.type).toBe("object");
-    expect(filterDef.properties.title.type).toBe("string");
+    const filterProps = filterDef.properties as Record<string, Record<string, unknown>>;
+    expect(filterProps.title.type).toBe("string");
     // Self-referential "and" field uses $ref back to itself
-    expect(filterDef.properties.and.type).toBe("array");
-    expect(filterDef.properties.and.items.$ref).toBe("#/$defs/IssueFilter");
+    expect(filterProps.and.type).toBe("array");
+    const andItems = filterProps.and.items as Record<string, unknown>;
+    expect(andItems.$ref).toBe("#/$defs/IssueFilter");
   });
 });
