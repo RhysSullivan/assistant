@@ -2,6 +2,8 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 
+import { McpStoredSourceSchema } from "../sdk/stored-source";
+
 // Re-export for handler use
 export { HttpApiSchema };
 
@@ -204,6 +206,11 @@ export class McpGroup extends HttpApiGroup.make("mcp")
     HttpApiEndpoint.get("oauthCallback")`/mcp/oauth/callback`
       .setUrlParams(OAuthCallbackParams)
       .addSuccess(HtmlResponse)
+      .addError(McpApiError),
+  )
+  .add(
+    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
+      .addSuccess(Schema.NullOr(McpStoredSourceSchema))
       .addError(McpApiError),
   )
   .add(

@@ -6,6 +6,7 @@ import {
   GraphqlIntrospectionError,
   GraphqlExtractionError,
 } from "../sdk/errors";
+import { StoredSourceSchema } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -69,6 +70,10 @@ export class GraphqlGroup extends HttpApiGroup.make("graphql")
       .addSuccess(AddSourceResponse)
       .addError(IntrospectionError)
       .addError(ExtractionError),
+  )
+  .add(
+    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`
+      .addSuccess(Schema.NullOr(StoredSourceSchema)),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`

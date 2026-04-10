@@ -1,8 +1,9 @@
 import { useAtomValue, Result } from "@effect-atom/atom-react";
-import { sourceConfigAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
+
+import { googleDiscoverySourceAtom } from "./atoms";
 
 export default function EditGoogleDiscoverySource({
   sourceId,
@@ -12,10 +13,11 @@ export default function EditGoogleDiscoverySource({
   readonly onSave: () => void;
 }) {
   const scopeId = useScope();
-  const configResult = useAtomValue(sourceConfigAtom(sourceId, scopeId));
+  const sourceResult = useAtomValue(googleDiscoverySourceAtom(scopeId, sourceId));
 
-  const config = Result.isSuccess(configResult) ? configResult.value : null;
-  const authKind = (config as any)?.auth?.kind ?? "none";
+  const source = Result.isSuccess(sourceResult) ? sourceResult.value : null;
+  const config = source?.config;
+  const authKind = config?.auth.kind ?? "none";
 
   return (
     <div className="space-y-6">
@@ -32,11 +34,11 @@ export default function EditGoogleDiscoverySource({
       <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-card-foreground">
-            {(config as any)?.name ?? sourceId}
+            {source?.name ?? sourceId}
           </p>
-          {(config as any)?.discoveryUrl && (
+          {config?.discoveryUrl && (
             <p className="mt-0.5 text-xs text-muted-foreground font-mono truncate">
-              {(config as any).discoveryUrl}
+              {config.discoveryUrl}
             </p>
           )}
         </div>
@@ -51,13 +53,13 @@ export default function EditGoogleDiscoverySource({
             <div className="rounded-lg border border-border bg-card/50 p-3">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Service</p>
               <p className="text-sm font-medium text-foreground">
-                {(config as any)?.service ?? "unknown"}
+                {config.service}
               </p>
             </div>
             <div className="rounded-lg border border-border bg-card/50 p-3">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Version</p>
               <p className="text-sm font-medium text-foreground">
-                {(config as any)?.version ?? "unknown"}
+                {config.version}
               </p>
             </div>
           </div>

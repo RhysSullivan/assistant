@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { sourceConfigAtom, secretsAtom } from "@executor/react/api/atoms";
-import { updateOpenApiSource } from "./atoms";
+import { secretsAtom } from "@executor/react/api/atoms";
+import { openApiSourceAtom, updateOpenApiSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
@@ -9,6 +9,7 @@ import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import { type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
 import { CustomHeaderRow, matchPresetKey, type CustomHeaderState } from "./custom-header-row";
+import type { StoredSourceSchemaType } from "../sdk/stored-source";
 import type { HeaderValue } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
@@ -24,12 +25,11 @@ function headerValueToState(name: string, value: HeaderValue): CustomHeaderState
       presetKey: matchPresetKey(name, undefined),
     };
   }
-  const secretRef = value as { secretId: string; prefix?: string };
   return {
     name,
-    secretId: secretRef.secretId,
-    prefix: secretRef.prefix,
-    presetKey: matchPresetKey(name, secretRef.prefix),
+    secretId: value.secretId,
+    prefix: value.prefix,
+    presetKey: matchPresetKey(name, value.prefix),
   };
 }
 
@@ -49,54 +49,29 @@ function headersFromState(
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Edit form — rendered once the source has loaded.
+// Initializes form state from props, so no useEffect mirror is needed.
 // ---------------------------------------------------------------------------
 
-export default function EditOpenApiSource(props: {
+function EditForm(props: {
   sourceId: string;
+  initial: StoredSourceSchemaType;
+  secretList: readonly SecretPickerSecret[];
   onSave: () => void;
 }) {
   const scopeId = useScope();
-  const configResult = useAtomValue(sourceConfigAtom(props.sourceId, scopeId));
-  const refreshConfig = useAtomRefresh(sourceConfigAtom(props.sourceId, scopeId));
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
-  const secrets = useAtomValue(secretsAtom(scopeId));
+  const refreshSource = useAtomRefresh(openApiSourceAtom(scopeId, props.sourceId));
 
-  const [baseUrl, setBaseUrl] = useState("");
-  const [customHeaders, setCustomHeaders] = useState<CustomHeaderState[]>([]);
-  const [initialized, setInitialized] = useState(false);
+  const [baseUrl, setBaseUrl] = useState(props.initial.config.baseUrl ?? "");
+  const [customHeaders, setCustomHeaders] = useState<CustomHeaderState[]>(() =>
+    Object.entries(props.initial.config.headers ?? {}).map(([name, value]) =>
+      headerValueToState(name, value),
+    ),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
-
-  // Initialize form state from config on first successful load
-  useEffect(() => {
-    if (initialized) return;
-    if (!Result.isSuccess(configResult)) return;
-    const cfg = configResult.value as {
-      baseUrl?: string;
-      headers?: Record<string, HeaderValue>;
-    } | null;
-    if (!cfg) return;
-    setBaseUrl(cfg.baseUrl ?? "");
-    setCustomHeaders(
-      Object.entries(cfg.headers ?? {}).map(([name, value]) =>
-        headerValueToState(name, value),
-      ),
-    );
-    setInitialized(true);
-  }, [configResult, initialized]);
-
-  const secretList: readonly SecretPickerSecret[] = Result.match(secrets, {
-    onInitial: () => [] as SecretPickerSecret[],
-    onFailure: () => [] as SecretPickerSecret[],
-    onSuccess: ({ value }) =>
-      value.map((s) => ({
-        id: s.id,
-        name: s.name,
-        provider: s.provider ? String(s.provider) : undefined,
-      })),
-  });
 
   const updateHeader = (index: number, update: Partial<CustomHeaderState>) => {
     setCustomHeaders((prev) =>
@@ -129,7 +104,7 @@ export default function EditOpenApiSource(props: {
           headers: headersFromState(customHeaders),
         },
       });
-      refreshConfig();
+      refreshSource();
       setDirty(false);
       props.onSave();
     } catch (e) {
@@ -138,17 +113,6 @@ export default function EditOpenApiSource(props: {
       setSaving(false);
     }
   };
-
-  if (!Result.isSuccess(configResult)) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Edit OpenAPI Source</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">Loading configuration…</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -195,7 +159,7 @@ export default function EditOpenApiSource(props: {
             onChange={(update) => updateHeader(i, update)}
             onSelectSecret={(secretId) => updateHeader(i, { secretId })}
             onRemove={() => removeHeader(i)}
-            existingSecrets={secretList}
+            existingSecrets={props.secretList}
           />
         ))}
         <Button
@@ -223,5 +187,49 @@ export default function EditOpenApiSource(props: {
         </Button>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component — loads the source, then delegates to EditForm
+// ---------------------------------------------------------------------------
+
+export default function EditOpenApiSource(props: {
+  sourceId: string;
+  onSave: () => void;
+}) {
+  const scopeId = useScope();
+  const sourceResult = useAtomValue(openApiSourceAtom(scopeId, props.sourceId));
+  const secrets = useAtomValue(secretsAtom(scopeId));
+
+  const secretList: readonly SecretPickerSecret[] = Result.match(secrets, {
+    onInitial: () => [] as SecretPickerSecret[],
+    onFailure: () => [] as SecretPickerSecret[],
+    onSuccess: ({ value }) =>
+      value.map((s) => ({
+        id: s.id,
+        name: s.name,
+        provider: s.provider ? String(s.provider) : undefined,
+      })),
+  });
+
+  if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Edit OpenAPI Source</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">Loading configuration…</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <EditForm
+      sourceId={props.sourceId}
+      initial={sourceResult.value}
+      secretList={secretList}
+      onSave={props.onSave}
+    />
   );
 }

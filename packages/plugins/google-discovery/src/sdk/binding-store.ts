@@ -55,6 +55,9 @@ export interface GoogleDiscoveryBindingStore {
   readonly putSource: (source: GoogleDiscoveryStoredSource) => Effect.Effect<void>;
   readonly removeSource: (namespace: string) => Effect.Effect<void>;
   readonly listSources: () => Effect.Effect<readonly GoogleDiscoveryStoredSource[]>;
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<GoogleDiscoveryStoredSource | null>;
   readonly getSourceConfig: (
     namespace: string,
   ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null>;
@@ -118,6 +121,14 @@ const makeStore = (
     Effect.gen(function* () {
       const entries = yield* sources.list();
       return entries.map((e) => JSON.parse(e.value) as GoogleDiscoveryStoredSource);
+    }),
+
+  getSource: (namespace) =>
+    Effect.gen(function* () {
+      const raw = yield* sources.get(namespace);
+      if (!raw) return null;
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      return JSON.parse(raw) as GoogleDiscoveryStoredSource;
     }),
 
   getSourceConfig: (namespace) =>

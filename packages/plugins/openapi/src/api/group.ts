@@ -7,6 +7,7 @@ import {
   OpenApiExtractionError,
 } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
+import { StoredSourceSchema } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -81,6 +82,10 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
       .addSuccess(AddSpecResponse)
       .addError(ParseError)
       .addError(ExtractionError),
+  )
+  .add(
+    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
+      .addSuccess(Schema.NullOr(StoredSourceSchema)),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`

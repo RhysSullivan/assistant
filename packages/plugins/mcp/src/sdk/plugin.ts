@@ -21,6 +21,7 @@ import {
 import {
   makeInMemoryBindingStore,
   type McpBindingStore,
+  type McpStoredSource,
 } from "./binding-store";
 import {
   createMcpConnector,
@@ -142,6 +143,11 @@ export interface McpPluginExtension {
   readonly completeOAuth: (
     input: McpOAuthCompleteInput,
   ) => Effect.Effect<McpOAuthCompleteResponse, Error>;
+
+  /** Fetch the full stored source by namespace (or null if missing) */
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<McpStoredSource | null>;
 
   /** Update config for an existing remote MCP source */
   readonly updateSource: (
@@ -466,13 +472,6 @@ export const mcpPlugin = (options?: {
               }
 
               return null;
-            }),
-
-          getConfig: (sourceId: string) =>
-            Effect.gen(function* () {
-              const config = yield* bindingStore.getSourceConfig(sourceId);
-              if (!config) return null;
-              return config as unknown as Record<string, unknown>;
             }),
 
           refresh: (sourceId: string) =>
@@ -828,6 +827,9 @@ export const mcpPlugin = (options?: {
             }
           });
 
+        const getSource = (namespace: string) =>
+          bindingStore.getSource(namespace);
+
         return {
           extension: {
             probeEndpoint,
@@ -836,6 +838,7 @@ export const mcpPlugin = (options?: {
             refreshSource,
             startOAuth,
             completeOAuth,
+            getSource,
             updateSource,
           },
 

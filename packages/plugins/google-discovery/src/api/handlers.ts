@@ -105,6 +105,12 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
           });
         }).pipe(Effect.orDie),
       )
+      .handle("getSource", ({ path }) =>
+        Effect.gen(function* () {
+          const ext = yield* GoogleDiscoveryExtensionService;
+          return yield* ext.getSource(path.namespace);
+        }).pipe(Effect.orDie),
+      )
       .handle("oauthCallback", ({ urlParams }) =>
         Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;

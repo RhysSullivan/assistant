@@ -40,10 +40,6 @@ const ToolMetadataResponse = Schema.Struct({
   mayElicit: Schema.optional(Schema.Boolean),
 });
 
-const SourceConfigResponse = Schema.NullOr(
-  Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-);
-
 const DetectRequest = Schema.Struct({
   url: Schema.String,
 });
@@ -81,9 +77,5 @@ export class SourcesApi extends HttpApiGroup.make("sources")
     HttpApiEndpoint.post("detect")`/scopes/${scopeIdParam}/sources/detect`
       .setPayload(DetectRequest)
       .addSuccess(Schema.Array(DetectResultResponse)),
-  )
-  .add(
-    HttpApiEndpoint.get("getConfig")`/scopes/${scopeIdParam}/sources/${sourceIdParam}/config`
-      .addSuccess(SourceConfigResponse),
   )
   {}

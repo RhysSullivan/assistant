@@ -64,11 +64,5 @@ export const SourcesHandlers = HttpApiBuilder.group(
             namespace: r.namespace,
           }));
         }),
-      )
-      .handle("getConfig", ({ path }) =>
-        Effect.gen(function* () {
-          const executor = yield* ExecutorService;
-          return yield* executor.sources.getConfig(path.sourceId);
-        }),
       ),
 );

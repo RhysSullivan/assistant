@@ -21,7 +21,7 @@ import {
   GraphqlExtractionError,
 } from "./errors";
 import { makeGraphqlInvoker } from "./invoke";
-import type { GraphqlOperationStore } from "./operation-store";
+import type { GraphqlOperationStore, StoredSource } from "./operation-store";
 import { makeInMemoryOperationStore } from "./kv-operation-store";
 import {
   ExtractedField,
@@ -66,6 +66,11 @@ export interface GraphqlPluginExtension {
 
   /** Remove all tools from a previously added GraphQL source by namespace */
   readonly removeSource: (namespace: string) => Effect.Effect<void>;
+
+  /** Fetch the full stored source by namespace (or null if missing) */
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<StoredSource | null>;
 
   /** Update config (endpoint, headers) for an existing GraphQL source */
   readonly updateSource: (
@@ -248,13 +253,6 @@ export const graphqlPlugin = (options?: {
               yield* operationStore.removeByNamespace(sourceId);
               yield* operationStore.removeSource(sourceId);
               yield* ctx.tools.unregisterBySource(sourceId);
-            }),
-
-          getConfig: (sourceId: string) =>
-            Effect.gen(function* () {
-              const config = yield* operationStore.getSourceConfig(sourceId);
-              if (!config) return null;
-              return config as unknown as Record<string, unknown>;
             }),
 
           detect: (url: string) =>
@@ -440,6 +438,9 @@ export const graphqlPlugin = (options?: {
                 }
                 yield* operationStore.removeSource(namespace);
               }),
+
+            getSource: (namespace: string) =>
+              operationStore.getSource(namespace),
 
             updateSource: (namespace: string, input: GraphqlUpdateSourceInput) =>
               Effect.gen(function* () {

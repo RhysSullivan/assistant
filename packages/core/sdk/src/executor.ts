@@ -71,7 +71,6 @@ export type Executor<
     readonly remove: (sourceId: string) => Effect.Effect<void>;
     readonly refresh: (sourceId: string) => Effect.Effect<void>;
     readonly detect: (url: string) => Effect.Effect<readonly SourceDetectionResult[]>;
-    readonly getConfig: (sourceId: string) => Effect.Effect<Record<string, unknown> | null>;
   };
 
   readonly policies: {
@@ -196,7 +195,6 @@ export const createExecutor = <
         remove: (sourceId: string) => sources.remove(sourceId),
         refresh: (sourceId: string) => sources.refresh(sourceId),
         detect: (url: string) => sources.detect(url),
-        getConfig: (sourceId: string) => sources.getConfig(sourceId),
       },
 
       policies: {

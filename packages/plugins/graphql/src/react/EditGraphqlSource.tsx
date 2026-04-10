@@ -1,30 +1,59 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { sourceConfigAtom, secretsAtom } from "@executor/react/api/atoms";
-import { updateGraphqlSource } from "./atoms";
+import { secretsAtom } from "@executor/react/api/atoms";
+import { graphqlSourceAtom, updateGraphqlSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
+import type { StoredSourceSchemaType } from "../sdk/stored-source";
 import type { HeaderValue } from "../sdk/types";
+
+// ---------------------------------------------------------------------------
+// Editable header row state
+// ---------------------------------------------------------------------------
+
+type HeaderRowState = {
+  readonly name: string;
+  readonly secretId: string | null;
+  readonly prefix?: string;
+};
+
+function headerValueToState(name: string, value: HeaderValue): HeaderRowState {
+  if (typeof value === "string") {
+    return { name, secretId: null };
+  }
+  return { name, secretId: value.secretId, prefix: value.prefix };
+}
+
+function headersFromState(
+  entries: readonly HeaderRowState[],
+): Record<string, HeaderValue> {
+  const result: Record<string, HeaderValue> = {};
+  for (const entry of entries) {
+    const name = entry.name.trim();
+    if (!name || !entry.secretId) continue;
+    result[name] = {
+      secretId: entry.secretId,
+      ...(entry.prefix ? { prefix: entry.prefix } : {}),
+    };
+  }
+  return result;
+}
 
 // ---------------------------------------------------------------------------
 // Header row
 // ---------------------------------------------------------------------------
 
 function HeaderRow(props: {
-  name: string;
-  value: HeaderValue;
-  onChange: (name: string, value: HeaderValue) => void;
+  state: HeaderRowState;
+  onChange: (update: Partial<HeaderRowState>) => void;
   onRemove: () => void;
   secrets: readonly SecretPickerSecret[];
 }) {
-  const { name, value, onChange, onRemove, secrets } = props;
-  const isSecretRef = typeof value === "object" && value !== null && "secretId" in value;
-  const secretId = isSecretRef ? (value as { secretId: string }).secretId : null;
-  const prefix = isSecretRef ? (value as { prefix?: string }).prefix : undefined;
+  const { state, onChange, onRemove, secrets } = props;
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2">
@@ -38,8 +67,8 @@ function HeaderRow(props: {
         <div className="space-y-1">
           <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Name</Label>
           <Input
-            value={name}
-            onChange={(e) => onChange((e.target as HTMLInputElement).value, value)}
+            value={state.name}
+            onChange={(e) => onChange({ name: (e.target as HTMLInputElement).value })}
             placeholder="Authorization"
             className="h-8 text-xs font-mono"
           />
@@ -47,13 +76,12 @@ function HeaderRow(props: {
         <div className="space-y-1">
           <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Prefix</Label>
           <Input
-            value={prefix ?? ""}
-            onChange={(e) => {
-              const p = (e.target as HTMLInputElement).value || undefined;
-              if (secretId) {
-                onChange(name, { secretId, ...(p ? { prefix: p } : {}) });
-              }
-            }}
+            value={state.prefix ?? ""}
+            onChange={(e) =>
+              onChange({
+                prefix: (e.target as HTMLInputElement).value || undefined,
+              })
+            }
             placeholder="Bearer "
             className="h-8 text-xs font-mono"
           />
@@ -62,8 +90,8 @@ function HeaderRow(props: {
       <div className="space-y-1">
         <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Secret</Label>
         <SecretPicker
-          value={secretId}
-          onSelect={(id) => onChange(name, { secretId: id, ...(prefix ? { prefix } : {}) })}
+          value={state.secretId}
+          onSelect={(id) => onChange({ secretId: id })}
           secrets={secrets}
         />
       </div>
@@ -72,71 +100,43 @@ function HeaderRow(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Edit form — rendered once the source has loaded
 // ---------------------------------------------------------------------------
 
-export default function EditGraphqlSource(props: {
+function EditForm(props: {
   sourceId: string;
+  initial: StoredSourceSchemaType;
+  secretList: readonly SecretPickerSecret[];
   onSave: () => void;
 }) {
   const scopeId = useScope();
-  const configResult = useAtomValue(sourceConfigAtom(props.sourceId, scopeId));
-  const refreshConfig = useAtomRefresh(sourceConfigAtom(props.sourceId, scopeId));
   const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
-  const secrets = useAtomValue(secretsAtom(scopeId));
+  const refreshSource = useAtomRefresh(graphqlSourceAtom(scopeId, props.sourceId));
 
-  const [endpoint, setEndpoint] = useState<string | null>(null);
-  const [headers, setHeaders] = useState<Record<string, HeaderValue> | null>(null);
+  const [endpoint, setEndpoint] = useState(props.initial.config.endpoint);
+  const [headers, setHeaders] = useState<HeaderRowState[]>(() =>
+    Object.entries(props.initial.config.headers ?? {}).map(([name, value]) =>
+      headerValueToState(name, value),
+    ),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const config = Result.isSuccess(configResult) ? configResult.value : null;
-
-  const currentEndpoint = endpoint ?? (config as any)?.endpoint ?? "";
-  const currentHeaders: Record<string, HeaderValue> = headers ?? (config as any)?.headers ?? {};
-
-  const secretList: readonly SecretPickerSecret[] = Result.match(secrets, {
-    onInitial: () => [] as SecretPickerSecret[],
-    onFailure: () => [] as SecretPickerSecret[],
-    onSuccess: ({ value }) =>
-      value.map((s) => ({
-        id: s.id,
-        name: s.name,
-        provider: s.provider ? String(s.provider) : undefined,
-      })),
-  });
-
-  const headerEntries = useMemo(
-    () => Object.entries(currentHeaders),
-    [currentHeaders],
-  );
-
-  const updateEndpoint_ = (value: string) => {
-    setEndpoint(value);
+  const updateHeader = (index: number, update: Partial<HeaderRowState>) => {
+    setHeaders((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, ...update } : row)),
+    );
     setDirty(true);
   };
 
-  const updateHeader = (oldName: string, newName: string, value: HeaderValue) => {
-    const next = { ...currentHeaders };
-    if (oldName !== newName) {
-      delete next[oldName];
-    }
-    next[newName] = value;
-    setHeaders(next);
-    setDirty(true);
-  };
-
-  const removeHeader = (name: string) => {
-    const next = { ...currentHeaders };
-    delete next[name];
-    setHeaders(next);
+  const removeHeader = (index: number) => {
+    setHeaders((prev) => prev.filter((_, i) => i !== index));
     setDirty(true);
   };
 
   const addHeader = () => {
-    const next = { ...currentHeaders, "": { secretId: "" } };
-    setHeaders(next);
+    setHeaders((prev) => [...prev, { name: "", secretId: null }]);
     setDirty(true);
   };
 
@@ -144,15 +144,14 @@ export default function EditGraphqlSource(props: {
     setSaving(true);
     setError(null);
     try {
-      const payload: { endpoint?: string; headers?: Record<string, HeaderValue> } = {};
-      if (endpoint !== null) payload.endpoint = currentEndpoint;
-      if (headers !== null) payload.headers = currentHeaders;
-
       await doUpdate({
         path: { scopeId, namespace: props.sourceId },
-        payload,
+        payload: {
+          endpoint: endpoint.trim() || undefined,
+          headers: headersFromState(headers),
+        },
       });
-      refreshConfig();
+      refreshSource();
       setDirty(false);
       props.onSave();
     } catch (e) {
@@ -161,17 +160,6 @@ export default function EditGraphqlSource(props: {
       setSaving(false);
     }
   };
-
-  if (!Result.isSuccess(configResult)) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">Loading configuration...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -195,8 +183,11 @@ export default function EditGraphqlSource(props: {
       <section className="space-y-2">
         <Label>Endpoint</Label>
         <Input
-          value={currentEndpoint}
-          onChange={(e) => updateEndpoint_((e.target as HTMLInputElement).value)}
+          value={endpoint}
+          onChange={(e) => {
+            setEndpoint((e.target as HTMLInputElement).value);
+            setDirty(true);
+          }}
           placeholder="https://api.example.com/graphql"
           className="font-mono text-sm"
         />
@@ -205,14 +196,13 @@ export default function EditGraphqlSource(props: {
       {/* Headers */}
       <section className="space-y-2.5">
         <Label>Headers</Label>
-        {headerEntries.map(([name, value]) => (
+        {headers.map((row, i) => (
           <HeaderRow
-            key={name}
-            name={name}
-            value={value}
-            onChange={(newName, newValue) => updateHeader(name, newName, newValue)}
-            onRemove={() => removeHeader(name)}
-            secrets={secretList}
+            key={i}
+            state={row}
+            onChange={(update) => updateHeader(i, update)}
+            onRemove={() => removeHeader(i)}
+            secrets={props.secretList}
           />
         ))}
         <Button
@@ -236,9 +226,53 @@ export default function EditGraphqlSource(props: {
           Cancel
         </Button>
         <Button onClick={handleSave} disabled={!dirty || saving}>
-          {saving ? "Saving..." : "Save changes"}
+          {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export default function EditGraphqlSource(props: {
+  sourceId: string;
+  onSave: () => void;
+}) {
+  const scopeId = useScope();
+  const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId));
+  const secrets = useAtomValue(secretsAtom(scopeId));
+
+  const secretList: readonly SecretPickerSecret[] = Result.match(secrets, {
+    onInitial: () => [] as SecretPickerSecret[],
+    onFailure: () => [] as SecretPickerSecret[],
+    onSuccess: ({ value }) =>
+      value.map((s) => ({
+        id: s.id,
+        name: s.name,
+        provider: s.provider ? String(s.provider) : undefined,
+      })),
+  });
+
+  if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">Loading configuration…</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <EditForm
+      sourceId={props.sourceId}
+      initial={sourceResult.value}
+      secretList={secretList}
+      onSave={props.onSave}
+    />
   );
 }

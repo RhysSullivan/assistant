@@ -60,9 +60,6 @@ export interface SourceManager {
 
   /** Detect whether a URL matches this plugin's source type */
   readonly detect?: (url: string) => Effect.Effect<SourceDetectionResult | null>;
-
-  /** Retrieve the current config for a source */
-  readonly getConfig?: (sourceId: string) => Effect.Effect<Record<string, unknown> | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,9 +91,6 @@ export class SourceRegistry extends Context.Tag(
 
     /** Detect source type from a URL by probing all registered plugins */
     readonly detect: (url: string) => Effect.Effect<readonly SourceDetectionResult[]>;
-
-    /** Get the config for a source by id */
-    readonly getConfig: (sourceId: string) => Effect.Effect<Record<string, unknown> | null>;
   }
 >() {}
 
@@ -189,20 +183,6 @@ export const makeInMemorySourceRegistry = () => {
             const order = { high: 0, medium: 1, low: 2 };
             return order[a.confidence] - order[b.confidence];
           });
-      }),
-
-    getConfig: (sourceId: string) =>
-      Effect.gen(function* () {
-        for (const manager of managers.values()) {
-          const sources = yield* manager.list();
-          if (sources.some((s) => s.id === sourceId)) {
-            if (manager.getConfig) {
-              return yield* manager.getConfig(sourceId);
-            }
-            return null;
-          }
-        }
-        return null;
       }),
   };
 };

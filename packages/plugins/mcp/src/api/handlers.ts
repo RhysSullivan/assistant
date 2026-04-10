@@ -196,6 +196,12 @@ export const McpHandlers = HttpApiBuilder.group(
           });
         }).pipe(Effect.orDie),
       )
+      .handle("getSource", ({ path }) =>
+        Effect.gen(function* () {
+          const ext = yield* McpExtensionService;
+          return yield* ext.getSource(path.namespace);
+        }).pipe(Effect.orDie),
+      )
       .handle("updateSource", ({ path, payload }) =>
         Effect.gen(function* () {
           const ext = yield* McpExtensionService;

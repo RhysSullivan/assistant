@@ -43,6 +43,12 @@ export const GraphqlHandlers = HttpApiBuilder.group(
           };
         }).pipe(Effect.orDie),
       )
+      .handle("getSource", ({ path }) =>
+        Effect.gen(function* () {
+          const ext = yield* GraphqlExtensionService;
+          return yield* ext.getSource(path.namespace);
+        }).pipe(Effect.orDie),
+      )
       .handle("updateSource", ({ path, payload }) =>
         Effect.gen(function* () {
           const ext = yield* GraphqlExtensionService;

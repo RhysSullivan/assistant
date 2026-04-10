@@ -15,6 +15,7 @@ import {
 
 import type {
   GoogleDiscoveryBindingStore,
+  GoogleDiscoveryStoredSource,
 } from "./binding-store";
 import { makeInMemoryBindingStore } from "./binding-store";
 import { extractGoogleDiscoveryManifest } from "./document";
@@ -110,6 +111,9 @@ export interface GoogleDiscoveryPluginExtension {
   readonly completeOAuth: (
     input: GoogleDiscoveryOAuthCompleteInput,
   ) => Effect.Effect<GoogleDiscoveryOAuthAuthResult, GoogleDiscoveryOAuthError>;
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<GoogleDiscoveryStoredSource | null>;
 }
 
 const DISCOVERY_SERVICE_HOST = "https://www.googleapis.com/discovery/v1/apis";
@@ -305,12 +309,6 @@ export const googleDiscoveryPlugin = (options?: {
                 yield* ctx.tools.unregister(toolIds);
               }
               yield* bindingStore.removeSource(sourceId);
-            }),
-          getConfig: (sourceId: string) =>
-            Effect.gen(function* () {
-              const config = yield* bindingStore.getSourceConfig(sourceId);
-              if (!config) return null;
-              return config as unknown as Record<string, unknown>;
             }),
           detect: (url: string) =>
             Effect.gen(function* () {
@@ -565,6 +563,9 @@ export const googleDiscoveryPlugin = (options?: {
                 scopes: [...session.scopes],
               };
             }),
+
+          getSource: (namespace: string) =>
+            bindingStore.getSource(namespace),
         };
 
         return {

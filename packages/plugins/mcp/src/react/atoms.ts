@@ -1,4 +1,15 @@
+import type { ScopeId } from "@executor/sdk";
 import { McpClient } from "./client";
+
+// ---------------------------------------------------------------------------
+// Query atoms
+// ---------------------------------------------------------------------------
+
+export const mcpSourceAtom = (scopeId: ScopeId, namespace: string) =>
+  McpClient.query("mcp", "getSource", {
+    path: { scopeId, namespace },
+    timeToLive: "15 seconds",
+  });
 
 // ---------------------------------------------------------------------------
 // Mutation atoms

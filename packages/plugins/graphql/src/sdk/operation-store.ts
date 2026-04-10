@@ -44,6 +44,10 @@ export interface GraphqlOperationStore {
 
   readonly listSources: () => Effect.Effect<readonly StoredSource[]>;
 
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<StoredSource | null>;
+
   readonly getSourceConfig: (
     namespace: string,
   ) => Effect.Effect<SourceConfig | null>;

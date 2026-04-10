@@ -2,9 +2,12 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 
+import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
+
 export { HttpApiSchema };
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
+const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 
 const AuthPayload = Schema.Union(
   Schema.Struct({
@@ -123,6 +126,11 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
     HttpApiEndpoint.get("oauthCallback")`/google-discovery/oauth/callback`
       .setUrlParams(OAuthCallbackParams)
       .addSuccess(HtmlResponse)
+      .addError(ApiError),
+  )
+  .add(
+    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
+      .addSuccess(Schema.NullOr(GoogleDiscoveryStoredSourceSchema))
       .addError(ApiError),
   )
   {}

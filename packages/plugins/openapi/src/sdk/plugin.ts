@@ -19,7 +19,7 @@ import { extract } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
 import { makeOpenApiInvoker } from "./invoke";
 import { resolveBaseUrl } from "./openapi-utils";
-import type { OpenApiOperationStore } from "./operation-store";
+import type { OpenApiOperationStore, StoredSource } from "./operation-store";
 import { makeInMemoryOperationStore } from "./kv-operation-store";
 import { previewSpec, SpecPreview } from "./preview";
 import {
@@ -64,6 +64,11 @@ export interface OpenApiPluginExtension {
 
   /** Remove all tools from a previously added spec by namespace */
   readonly removeSpec: (namespace: string) => Effect.Effect<void>;
+
+  /** Fetch the full stored source by namespace (or null if missing) */
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<StoredSource | null>;
 
   /** Update config (baseUrl, headers) for an existing OpenAPI source */
   readonly updateSource: (
@@ -214,13 +219,6 @@ export const openApiPlugin = (options?: {
               yield* ctx.tools.unregisterBySource(sourceId);
             }),
 
-          getConfig: (sourceId: string) =>
-            Effect.gen(function* () {
-              const config = yield* operationStore.getSourceConfig(sourceId);
-              if (!config) return null;
-              return config as unknown as Record<string, unknown>;
-            }),
-
           detect: (url: string) =>
             Effect.gen(function* () {
               const trimmed = url.trim();
@@ -362,6 +360,9 @@ export const openApiPlugin = (options?: {
                 }
                 yield* operationStore.removeSource(namespace);
               }),
+
+            getSource: (namespace: string) =>
+              operationStore.getSource(namespace),
 
             updateSource: (namespace: string, input: OpenApiUpdateSourceInput) =>
               Effect.gen(function* () {
