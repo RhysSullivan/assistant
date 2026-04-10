@@ -52,7 +52,13 @@ const memberAuth = {
 };
 
 type FakeMembership = { id: string; userId: string; status: string; role: { slug: string } };
-type FakeUser = { email: string; firstName: string | null; lastName: string | null; profilePictureUrl: string | null; lastSignInAt: string | null };
+type FakeUser = {
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  profilePictureUrl: string | null;
+  lastSignInAt: string | null;
+};
 type FakeRole = { slug: string; name: string };
 
 const fakeMemberships: FakeMembership[] = [
@@ -190,7 +196,8 @@ describe("Team handlers", () => {
         Effect.provide(
           provide(adminAuth, {
             ...withMembers,
-            sendInvitation: (p: { email: string }) => Effect.succeed({ id: "inv_1", email: p.email }),
+            sendInvitation: (p: { email: string }) =>
+              Effect.succeed({ id: "inv_1", email: p.email }),
           }),
         ),
       ),
