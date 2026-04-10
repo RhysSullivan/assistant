@@ -1,5 +1,5 @@
 import { HttpApiSchema } from "@effect/platform";
-import { Effect, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 
 export class UserStoreError extends Schema.TaggedError<UserStoreError>()(
   "UserStoreError",
@@ -12,6 +12,27 @@ export class WorkOSError extends Schema.TaggedError<WorkOSError>()(
   {},
   HttpApiSchema.annotations({ status: 500 }),
 ) {}
+
+/**
+ * Private wrapper used by service adapters that lift Promise APIs into
+ * Effect. `withServiceLogging` immediately remaps these into a public-facing
+ * tagged error, so callers never observe this tag directly — its only job is
+ * to keep the internal failure channel typed instead of `unknown` / `Error`.
+ */
+export class ServiceAdapterError extends Data.TaggedError(
+  "ServiceAdapterError",
+)<{
+  readonly cause: unknown;
+}> {}
+
+/** Lift a Promise-returning function into Effect with a typed failure channel. */
+export const tryPromiseService = <A>(
+  fn: () => Promise<A>,
+): Effect.Effect<A, ServiceAdapterError> =>
+  Effect.tryPromise({
+    try: fn,
+    catch: (cause) => new ServiceAdapterError({ cause }),
+  });
 
 /**
  * Service-boundary error wrapper. Logs the full Cause chain (drizzle

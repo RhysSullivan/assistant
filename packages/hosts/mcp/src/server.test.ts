@@ -5,19 +5,15 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 
-import { FormElicitation, UrlElicitation } from "@executor/sdk";
+import { FormElicitation, ToolId, UrlElicitation } from "@executor/sdk";
 import type { ExecutionEngine, ExecutionResult } from "@executor/execution";
 
 import { createExecutorMcpServer } from "./server";
 
 // ---------------------------------------------------------------------------
-// Helpers — stub engine
+// Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Creates a fake ExecutionEngine where `execute` and `executeWithPause`
- * call into caller-provided functions so each test can control behaviour.
- */
 const makeStubEngine = (overrides: {
   execute?: ExecutionEngine["execute"];
   executeWithPause?: ExecutionEngine["executeWithPause"];
@@ -25,150 +21,139 @@ const makeStubEngine = (overrides: {
   description?: string;
 }): ExecutionEngine => ({
   execute: overrides.execute ?? (async () => ({ result: "default" })),
-  executeWithPause: overrides.executeWithPause ??
+  executeWithPause:
+    overrides.executeWithPause ??
     (async () => ({ status: "completed", result: { result: "default" } })),
   resume: overrides.resume ?? (async () => null),
   getDescription: async () => overrides.description ?? "test executor",
 });
 
-// ---------------------------------------------------------------------------
-// Helpers — spin up in-memory client ↔ server
-// ---------------------------------------------------------------------------
-
-type TestHarness = {
-  client: Client;
-  close: () => Promise<void>;
-};
-
-/**
- * Connect a real MCP Client to our executor MCP server over in-memory
- * transports. The `clientCapabilities` parameter controls whether the
- * client advertises elicitation support.
- */
-const connect = async (
+/** Connect a real MCP Client to our executor MCP server over in-memory transports. */
+const withClient = async (
   engine: ExecutionEngine,
-  clientCapabilities: ClientCapabilities = {},
-): Promise<TestHarness> => {
+  capabilities: ClientCapabilities,
+  fn: (client: Client) => Promise<void>,
+) => {
   const mcpServer = await createExecutorMcpServer({ engine });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const client = new Client(
     { name: "test-client", version: "1.0.0" },
-    { capabilities: clientCapabilities },
+    { capabilities },
   );
-
   await mcpServer.connect(serverTransport);
   await client.connect(clientTransport);
-
-  return {
-    client,
-    close: async () => {
-      await clientTransport.close();
-      await serverTransport.close();
-    },
-  };
+  try {
+    await fn(client);
+  } finally {
+    await clientTransport.close();
+    await serverTransport.close();
+  }
 };
 
+const ELICITATION_CAPS: ClientCapabilities = {
+  elicitation: { form: {}, url: {} },
+};
+const FORM_ONLY_CAPS: ClientCapabilities = { elicitation: { form: {} } };
+const NO_CAPS: ClientCapabilities = {};
+
+/** Extract the first text content from a callTool result. */
+const textOf = (result: Awaited<ReturnType<Client["callTool"]>>): string =>
+  (result.content as Array<{ type: string; text: string }>)[0].text;
+
+const STUB_TOOL_ID = ToolId.make("t");
+
+/** Build a stub paused ExecutionResult with the given id and elicitation request. */
+const makePausedResult = (
+  id: string,
+  request: FormElicitation | UrlElicitation,
+): ExecutionResult => ({
+  status: "paused",
+  execution: {
+    id,
+    elicitationContext: { toolId: STUB_TOOL_ID, args: {}, request },
+  },
+});
+
+/** Build an engine whose execute triggers one elicitation and returns the handler's result. */
+const makeElicitingEngine = (
+  request: FormElicitation | UrlElicitation,
+  formatResult: (
+    response: { action: string; content?: Record<string, unknown> },
+  ) => unknown = (r) => r.action,
+): ExecutionEngine =>
+  makeStubEngine({
+    execute: async (_code, { onElicitation }) => {
+      const response = await Effect.runPromise(
+        onElicitation({
+          toolId: STUB_TOOL_ID,
+          args: {},
+          request,
+        }),
+      );
+      return { result: formatResult(response) };
+    },
+  });
+
 // ---------------------------------------------------------------------------
-// Tests — client WITH elicitation support (managed / inline path)
+// Client WITH elicitation support (managed / inline path)
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — client with elicitation", () => {
   it("execute tool calls engine.execute and returns result", async () => {
     const engine = makeStubEngine({
-      execute: async (code) => ({
-        result: `ran: ${code}`,
-      }),
+      execute: async (code) => ({ result: `ran: ${code}` }),
     });
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
-
-    try {
-      const result = await client.callTool({ name: "execute", arguments: { code: "1+1" } });
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      const result = await client.callTool({
+        name: "execute",
+        arguments: { code: "1+1" },
+      });
       expect(result.content).toEqual([{ type: "text", text: "ran: 1+1" }]);
       expect(result.isError).toBeFalsy();
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("form elicitation is bridged from engine to MCP client and back", async () => {
-    const engine = makeStubEngine({
-      execute: async (code, { onElicitation }) => {
-        const response = await Effect.runPromise(
-          onElicitation({
-            toolId: "test-tool" as any,
-            args: { code },
-            request: new FormElicitation({
-              message: "Approve this action?",
-              requestedSchema: {
-                type: "object",
-                properties: {
-                  approved: { type: "boolean" },
-                },
-              },
-            }),
-          }),
-        );
-        return {
-          result:
-            response.action === "accept" && response.content?.approved
-              ? "approved"
-              : "denied",
-        };
-      },
-    });
+    const engine = makeElicitingEngine(
+      new FormElicitation({
+        message: "Approve this action?",
+        requestedSchema: {
+          type: "object",
+          properties: { approved: { type: "boolean" } },
+        },
+      }),
+      (r) =>
+        r.action === "accept" && r.content?.approved ? "approved" : "denied",
+    );
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      client.setRequestHandler(ElicitRequestSchema, async () => ({
+        action: "accept" as const,
+        content: { approved: true },
+      }));
 
-    // Register a client-side handler that auto-accepts
-    client.setRequestHandler(ElicitRequestSchema, async () => ({
-      action: "accept" as const,
-      content: { approved: true },
-    }));
-
-    try {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "do-it" },
       });
       expect(result.content).toEqual([{ type: "text", text: "approved" }]);
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("form elicitation declined by client → engine sees decline", async () => {
-    const engine = makeStubEngine({
-      execute: async (code, { onElicitation }) => {
-        const response = await Effect.runPromise(
-          onElicitation({
-            toolId: "t" as any,
-            args: {},
-            request: new FormElicitation({
-              message: "Accept?",
-              requestedSchema: {},
-            }),
-          }),
-        );
-        return { result: `action:${response.action}` };
-      },
-    });
+    const engine = makeElicitingEngine(
+      new FormElicitation({ message: "Accept?", requestedSchema: {} }),
+      (r) => `action:${r.action}`,
+    );
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      client.setRequestHandler(ElicitRequestSchema, async () => ({
+        action: "decline" as const,
+        content: {},
+      }));
 
-    client.setRequestHandler(ElicitRequestSchema, async () => ({
-      action: "decline" as const,
-      content: {},
-    }));
-
-    try {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "x" },
@@ -176,86 +161,48 @@ describe("MCP host server — client with elicitation", () => {
       expect(result.content).toEqual([
         { type: "text", text: "action:decline" },
       ]);
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("empty form schema gets wrapped with minimal valid schema", async () => {
     let receivedSchema: unknown;
+    const engine = makeElicitingEngine(
+      new FormElicitation({ message: "Just approve", requestedSchema: {} }),
+    );
 
-    const engine = makeStubEngine({
-      execute: async (_code, { onElicitation }) => {
-        const response = await Effect.runPromise(
-          onElicitation({
-            toolId: "t" as any,
-            args: {},
-            request: new FormElicitation({
-              message: "Just approve",
-              requestedSchema: {}, // empty — approval only
-            }),
-          }),
-        );
-        return { result: response.action };
-      },
-    });
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      client.setRequestHandler(ElicitRequestSchema, async (request) => {
+        const params = request.params;
+        if ("requestedSchema" in params) {
+          receivedSchema = params.requestedSchema;
+        }
+        return { action: "accept" as const, content: {} };
+      });
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
-
-    client.setRequestHandler(ElicitRequestSchema, async (request) => {
-      const params = request.params;
-      if ("requestedSchema" in params) {
-        receivedSchema = params.requestedSchema;
-      }
-      return { action: "accept" as const, content: {} };
-    });
-
-    try {
       await client.callTool({
         name: "execute",
         arguments: { code: "approve" },
       });
-      expect(receivedSchema).toEqual({
-        type: "object",
-        properties: {},
-      });
-    } finally {
-      await close();
-    }
+      expect(receivedSchema).toEqual({ type: "object", properties: {} });
+    });
   });
 
   it("UrlElicitation is sent as native mode:url elicitation", async () => {
     let receivedParams: Record<string, unknown> | undefined;
+    const engine = makeElicitingEngine(
+      new UrlElicitation({
+        message: "Please authenticate",
+        url: "https://example.com/oauth",
+        elicitationId: "elic-1",
+      }),
+    );
 
-    const engine = makeStubEngine({
-      execute: async (_code, { onElicitation }) => {
-        const response = await Effect.runPromise(
-          onElicitation({
-            toolId: "t" as any,
-            args: {},
-            request: new UrlElicitation({
-              message: "Please authenticate",
-              url: "https://example.com/oauth",
-              elicitationId: "elic-1",
-            }),
-          }),
-        );
-        return { result: response.action };
-      },
-    });
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      client.setRequestHandler(ElicitRequestSchema, async (request) => {
+        receivedParams = request.params as Record<string, unknown>;
+        return { action: "accept" as const, content: {} };
+      });
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
-
-    client.setRequestHandler(ElicitRequestSchema, async (request) => {
-      receivedParams = request.params as Record<string, unknown>;
-      return { action: "accept" as const, content: {} };
-    });
-
-    try {
       await client.callTool({
         name: "execute",
         arguments: { code: "oauth" },
@@ -264,9 +211,7 @@ describe("MCP host server — client with elicitation", () => {
       expect(receivedParams?.message).toBe("Please authenticate");
       expect(receivedParams?.url).toBe("https://example.com/oauth");
       expect(receivedParams?.elicitationId).toBe("elic-1");
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("engine error is surfaced as isError result", async () => {
@@ -278,113 +223,72 @@ describe("MCP host server — client with elicitation", () => {
       }),
     });
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
-
-    try {
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "bad" },
       });
       expect(result.isError).toBe(true);
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-      expect(text).toContain("something broke");
-    } finally {
-      await close();
-    }
+      expect(textOf(result)).toContain("something broke");
+    });
   });
 
   it("resume tool is hidden when client supports elicitation", async () => {
-    const engine = makeStubEngine({});
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
-
-    try {
+    await withClient(makeStubEngine({}), ELICITATION_CAPS, async (client) => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name);
       expect(names).toContain("execute");
       expect(names).not.toContain("resume");
-    } finally {
-      await close();
-    }
+    });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests — client with form-only elicitation (uses managed elicitation)
+// Client with form-only elicitation (uses managed elicitation)
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — client with form-only elicitation", () => {
   it("resume tool is hidden when client supports form elicitation", async () => {
-    const engine = makeStubEngine({});
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {} },
-    });
-
-    try {
+    await withClient(makeStubEngine({}), FORM_ONLY_CAPS, async (client) => {
       const { tools } = await client.listTools();
-      const names = tools.map((t) => t.name);
-      expect(names).toContain("execute");
-      expect(names).not.toContain("resume");
-    } finally {
-      await close();
-    }
+      expect(tools.map((t) => t.name)).toContain("execute");
+      expect(tools.map((t) => t.name)).not.toContain("resume");
+    });
   });
 
   it("uses managed elicitation path when client supports form", async () => {
     const engine = makeStubEngine({
-      execute: async (code) => ({
-        result: `managed: ${code}`,
-      }),
+      execute: async (code) => ({ result: `managed: ${code}` }),
     });
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {} },
-    });
-
-    try {
+    await withClient(engine, FORM_ONLY_CAPS, async (client) => {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "test" },
       });
-      expect(result.content).toEqual([{ type: "text", text: "managed: test" }]);
-    } finally {
-      await close();
-    }
+      expect(result.content).toEqual([
+        { type: "text", text: "managed: test" },
+      ]);
+    });
   });
 
   it("UrlElicitation falls back to form when client lacks url support", async () => {
     let receivedMessage: string | undefined;
+    const engine = makeElicitingEngine(
+      new UrlElicitation({
+        message: "Please authenticate",
+        url: "https://auth.example.com/oauth",
+        elicitationId: "elic-1",
+      }),
+    );
 
-    const engine = makeStubEngine({
-      execute: async (_code, { onElicitation }) => {
-        const response = await Effect.runPromise(
-          onElicitation({
-            toolId: "t" as any,
-            args: {},
-            request: new UrlElicitation({
-              message: "Please authenticate",
-              url: "https://auth.example.com/oauth",
-              elicitationId: "elic-1",
-            }),
-          }),
-        );
-        return { result: response.action };
-      },
-    });
+    await withClient(engine, FORM_ONLY_CAPS, async (client) => {
+      client.setRequestHandler(ElicitRequestSchema, async (request) => {
+        receivedMessage = (request.params as Record<string, unknown>)
+          .message as string;
+        return { action: "accept" as const, content: {} };
+      });
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {} }, // no url support
-    });
-
-    client.setRequestHandler(ElicitRequestSchema, async (request) => {
-      receivedMessage = (request.params as Record<string, unknown>).message as string;
-      return { action: "accept" as const, content: {} };
-    });
-
-    try {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "oauth" },
@@ -392,14 +296,12 @@ describe("MCP host server — client with form-only elicitation", () => {
       expect(result.content).toEqual([{ type: "text", text: "accept" }]);
       expect(receivedMessage).toContain("https://auth.example.com/oauth");
       expect(receivedMessage).toContain("Please authenticate");
-    } finally {
-      await close();
-    }
+    });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests — client WITHOUT elicitation (pause/resume path)
+// Client WITHOUT elicitation (pause/resume path)
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — client without elicitation (pause/resume)", () => {
@@ -411,76 +313,53 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
       }),
     });
 
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "ok" },
       });
       expect(result.content).toEqual([{ type: "text", text: "done" }]);
       expect(result.isError).toBeFalsy();
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("both execute and resume tools are visible", async () => {
-    const engine = makeStubEngine({});
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(makeStubEngine({}), NO_CAPS, async (client) => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name);
       expect(names).toContain("execute");
       expect(names).toContain("resume");
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("paused execution returns interaction metadata with executionId", async () => {
     const engine = makeStubEngine({
-      executeWithPause: async (): Promise<ExecutionResult> => ({
-        status: "paused",
-        execution: {
-          id: "exec_42",
-          elicitationContext: {
-            toolId: "t" as any,
-            args: {},
-            request: new FormElicitation({
-              message: "Need approval",
-              requestedSchema: {
-                type: "object",
-                properties: { ok: { type: "boolean" } },
-              },
-            }),
-          },
-          resolve: () => {},
-          completion: new Promise(() => {}), // never resolves in this test
-        },
-      }),
+      executeWithPause: async () =>
+        makePausedResult(
+          "exec_42",
+          new FormElicitation({
+            message: "Need approval",
+            requestedSchema: {
+              type: "object",
+              properties: { ok: { type: "boolean" } },
+            },
+          }),
+        ),
     });
 
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "pause-me" },
       });
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-      expect(text).toContain("exec_42");
-      expect(text).toContain("Need approval");
+      expect(textOf(result)).toContain("exec_42");
+      expect(textOf(result)).toContain("Need approval");
       expect(result.isError).toBeFalsy();
 
-      // structuredContent should contain the executionId
       const structured = result.structuredContent as Record<string, unknown>;
       expect(structured?.executionId).toBe("exec_42");
       expect(structured?.status).toBe("waiting_for_interaction");
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("resume tool completes a paused execution", async () => {
@@ -493,29 +372,20 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
       },
     });
 
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       const result = await client.callTool({
         name: "resume",
-        arguments: {
-          executionId: "exec_1",
-          action: "accept",
-          content: "{}",
-        },
+        arguments: { executionId: "exec_1", action: "accept", content: "{}" },
       });
       expect(result.content).toEqual([
         { type: "text", text: "resumed-ok" },
       ]);
       expect(result.isError).toBeFalsy();
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("resume tool passes parsed content to engine", async () => {
     let receivedContent: Record<string, unknown> | undefined;
-
     const engine = makeStubEngine({
       resume: async (_id, response) => {
         receivedContent = response.content;
@@ -523,9 +393,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
       },
     });
 
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       await client.callTool({
         name: "resume",
         arguments: {
@@ -535,14 +403,11 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         },
       });
       expect(receivedContent).toEqual({ approved: true, name: "test" });
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("resume with empty content passes undefined", async () => {
     let receivedContent: Record<string, unknown> | undefined = { marker: true };
-
     const engine = makeStubEngine({
       resume: async (_id, response) => {
         receivedContent = response.content;
@@ -550,31 +415,19 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
       },
     });
 
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       await client.callTool({
         name: "resume",
-        arguments: {
-          executionId: "exec_1",
-          action: "accept",
-          content: "{}",
-        },
+        arguments: { executionId: "exec_1", action: "accept", content: "{}" },
       });
       expect(receivedContent).toBeUndefined();
-    } finally {
-      await close();
-    }
+    });
   });
 
   it("resume with unknown executionId returns error", async () => {
-    const engine = makeStubEngine({
-      resume: async () => null,
-    });
+    const engine = makeStubEngine({ resume: async () => null });
 
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       const result = await client.callTool({
         name: "resume",
         arguments: {
@@ -584,150 +437,104 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         },
       });
       expect(result.isError).toBe(true);
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-      expect(text).toContain("does-not-exist");
-    } finally {
-      await close();
-    }
+      expect(textOf(result)).toContain("does-not-exist");
+    });
   });
 
   it("paused UrlElicitation includes url and kind in structured output", async () => {
     const engine = makeStubEngine({
-      executeWithPause: async (): Promise<ExecutionResult> => ({
-        status: "paused",
-        execution: {
-          id: "exec_99",
-          elicitationContext: {
-            toolId: "t" as any,
-            args: {},
-            request: new UrlElicitation({
-              message: "Please authenticate",
-              url: "https://auth.example.com/callback",
-              elicitationId: "elic-url-1",
-            }),
-          },
-          resolve: () => {},
-          completion: new Promise(() => {}),
-        },
-      }),
+      executeWithPause: async () =>
+        makePausedResult(
+          "exec_99",
+          new UrlElicitation({
+            message: "Please authenticate",
+            url: "https://auth.example.com/callback",
+            elicitationId: "elic-url-1",
+          }),
+        ),
     });
 
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "oauth" },
       });
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-      expect(text).toContain("https://auth.example.com/callback");
-      expect(text).toContain("exec_99");
+      expect(textOf(result)).toContain("https://auth.example.com/callback");
+      expect(textOf(result)).toContain("exec_99");
 
       const structured = result.structuredContent as Record<string, unknown>;
       const interaction = structured?.interaction as Record<string, unknown>;
       expect(interaction?.kind).toBe("url");
       expect(interaction?.url).toBe("https://auth.example.com/callback");
-    } finally {
-      await close();
-    }
+    });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests — elicitation error handling
+// Elicitation error handling
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — elicitation error handling", () => {
   it("elicitInput failure falls back to cancel", async () => {
-    const engine = makeStubEngine({
-      execute: async (_code, { onElicitation }) => {
-        const response = await Effect.runPromise(
-          onElicitation({
-            toolId: "t" as any,
-            args: {},
-            request: new FormElicitation({
-              message: "will fail",
-              requestedSchema: {
-                type: "object",
-                properties: { x: { type: "string" } },
-              },
-            }),
-          }),
-        );
-        return { result: `fallback:${response.action}` };
-      },
-    });
+    const engine = makeElicitingEngine(
+      new FormElicitation({
+        message: "will fail",
+        requestedSchema: {
+          type: "object",
+          properties: { x: { type: "string" } },
+        },
+      }),
+      (r) => `fallback:${r.action}`,
+    );
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      client.setRequestHandler(ElicitRequestSchema, async () => {
+        throw new Error("client cannot handle this");
+      });
 
-    // Client throws when it receives the elicitation — server should catch
-    client.setRequestHandler(ElicitRequestSchema, async () => {
-      throw new Error("client cannot handle this");
-    });
-
-    try {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "fail" },
       });
-      // The server catches the error and returns cancel
       expect(result.content).toEqual([
         { type: "text", text: "fallback:cancel" },
       ]);
-    } finally {
-      await close();
-    }
+    });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests — parseJsonContent edge cases
+// Resume content parsing edge cases
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — resume content parsing", () => {
-  it("array JSON is rejected (not passed as content)", async () => {
+  const makeResumeEngine = () => {
     let receivedContent: Record<string, unknown> | undefined = { marker: true };
-
     const engine = makeStubEngine({
       resume: async (_id, response) => {
         receivedContent = response.content;
         return { status: "completed", result: { result: "ok" } };
       },
     });
+    return { engine, getContent: () => receivedContent };
+  };
 
-    const { client, close } = await connect(engine);
+  it("array JSON is rejected (not passed as content)", async () => {
+    const { engine, getContent } = makeResumeEngine();
 
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       await client.callTool({
         name: "resume",
-        arguments: {
-          executionId: "exec_1",
-          action: "accept",
-          content: "[1,2,3]",
-        },
+        arguments: { executionId: "exec_1", action: "accept", content: "[1,2,3]" },
       });
-      // Array should be rejected — engine receives undefined
-      expect(receivedContent).toBeUndefined();
-    } finally {
-      await close();
-    }
+      expect(getContent()).toBeUndefined();
+    });
   });
 
   it("invalid JSON is handled gracefully (not thrown)", async () => {
-    let receivedContent: Record<string, unknown> | undefined = { marker: true };
+    const { engine, getContent } = makeResumeEngine();
 
-    const engine = makeStubEngine({
-      resume: async (_id, response) => {
-        receivedContent = response.content;
-        return { status: "completed", result: { result: "ok" } };
-      },
-    });
-
-    const { client, close } = await connect(engine);
-
-    try {
+    await withClient(engine, NO_CAPS, async (client) => {
       const result = await client.callTool({
         name: "resume",
         arguments: {
@@ -736,27 +543,23 @@ describe("MCP host server — resume content parsing", () => {
           content: "not-valid-json",
         },
       });
-      // Should not crash — invalid JSON treated as undefined content
-      expect(receivedContent).toBeUndefined();
+      expect(getContent()).toBeUndefined();
       expect(result.isError).toBeFalsy();
-    } finally {
-      await close();
-    }
+    });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests — multiple elicitations in a single execution
+// Multiple elicitations in a single execution
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — multiple elicitations", () => {
   it("engine can elicit multiple times during a single execute call", async () => {
     const engine = makeStubEngine({
       execute: async (_code, { onElicitation }) => {
-        // First elicitation — ask for name
         const r1 = await Effect.runPromise(
           onElicitation({
-            toolId: "t" as any,
+            toolId: STUB_TOOL_ID,
             args: {},
             request: new FormElicitation({
               message: "What is your name?",
@@ -768,10 +571,9 @@ describe("MCP host server — multiple elicitations", () => {
           }),
         );
 
-        // Second elicitation — ask for confirmation
         const r2 = await Effect.runPromise(
           onElicitation({
-            toolId: "t" as any,
+            toolId: STUB_TOOL_ID,
             args: {},
             request: new FormElicitation({
               message: `Confirm: ${r1.content?.name}?`,
@@ -789,20 +591,16 @@ describe("MCP host server — multiple elicitations", () => {
       },
     });
 
-    const { client, close } = await connect(engine, {
-      elicitation: { form: {}, url: {} },
-    });
+    await withClient(engine, ELICITATION_CAPS, async (client) => {
+      let callCount = 0;
+      client.setRequestHandler(ElicitRequestSchema, async () => {
+        callCount++;
+        if (callCount === 1) {
+          return { action: "accept" as const, content: { name: "Alice" } };
+        }
+        return { action: "accept" as const, content: { confirmed: true } };
+      });
 
-    let callCount = 0;
-    client.setRequestHandler(ElicitRequestSchema, async () => {
-      callCount++;
-      if (callCount === 1) {
-        return { action: "accept" as const, content: { name: "Alice" } };
-      }
-      return { action: "accept" as const, content: { confirmed: true } };
-    });
-
-    try {
       const result = await client.callTool({
         name: "execute",
         arguments: { code: "multi" },
@@ -811,8 +609,6 @@ describe("MCP host server — multiple elicitations", () => {
         { type: "text", text: "name=Alice,confirmed=true" },
       ]);
       expect(callCount).toBe(2);
-    } finally {
-      await close();
-    }
+    });
   });
 });

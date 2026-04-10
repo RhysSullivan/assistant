@@ -1,7 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 import { makeUserStore } from "../services/user-store";
 import { DbService } from "../services/db";
-import { UserStoreError, withServiceLogging } from "./errors";
+import { UserStoreError, tryPromiseService, withServiceLogging } from "./errors";
 
 // AuthContext is defined in ./middleware.ts to keep middleware-related types together.
 export { AuthContext } from "./middleware";
@@ -17,7 +17,7 @@ const makeService = (store: RawStore) => ({
     withServiceLogging(
       "user_store",
       () => new UserStoreError(),
-      Effect.tryPromise({ try: () => fn(store), catch: (e) => e }),
+      tryPromiseService(() => fn(store)),
     ),
 });
 

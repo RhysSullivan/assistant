@@ -13,9 +13,7 @@
     "plugins": [
       {
         "name": "@effect/language-service",
-        "diagnosticSeverity": {
-          "globalErrorInEffectCatch": "off"
-        }
+        "diagnosticSeverity": {}
       }
     ]
   },

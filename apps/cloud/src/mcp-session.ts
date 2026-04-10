@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { DurableObject, env } from "cloudflare:workers";
-import { Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WorkerTransport, type TransportState } from "agents/mcp";
 
@@ -39,15 +39,19 @@ const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 const Services = Layer.mergeAll(DbLive, UserStoreLive);
 
+class OrganizationNotFoundError extends Data.TaggedError(
+  "OrganizationNotFoundError",
+)<{
+  readonly organizationId: string;
+}> {}
+
 const initSession = (organizationId: string) =>
   Effect.gen(function* () {
     const users = yield* UserStoreService;
     const org = yield* users.use((store) => store.getOrganization(organizationId));
 
     if (!org) {
-      return yield* Effect.fail(
-        new Error(`Organization ${organizationId} not found`),
-      );
+      return yield* new OrganizationNotFoundError({ organizationId });
     }
 
     const executor = yield* createOrgExecutor(

@@ -1,4 +1,4 @@
-import { Context, Effect } from "effect";
+import { Context, Data, Effect } from "effect";
 
 import {
   createExecutor as createEffectExecutor,
@@ -8,6 +8,9 @@ import {
   makeInMemoryPolicyEngine,
   makeInMemorySourceRegistry,
   ScopeId,
+  ToolId,
+  SecretId,
+  PolicyId,
   type ToolRegistry as CoreToolRegistry,
   type SourceRegistry as CoreSourceRegistry,
   type SecretStore as CoreSecretStore,
@@ -31,10 +34,10 @@ import {
   type SecretProvider as EffectSecretProvider,
   type SetSecretInput,
   type Scope,
-  type ToolId,
-  type SecretId,
+  type ToolId as ToolIdType,
+  type SecretId as SecretIdType,
   type ScopeId as ScopeIdType,
-  type PolicyId,
+  type PolicyId as PolicyIdType,
   type ToolNotFoundError,
   type ToolInvocationError,
   type SecretNotFoundError,
@@ -50,8 +53,22 @@ import {
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, never>);
 
-const fromPromise = <A>(fn: () => Promise<A>): Effect.Effect<A, Error> =>
-  Effect.tryPromise({ try: fn, catch: (e) => (e instanceof Error ? e : new Error(String(e))) });
+/**
+ * Tagged error produced by the Promise→Effect adapter layer. User-supplied
+ * Promise-based store implementations can reject with anything; we wrap the
+ * raw rejection in `cause` so downstream code can inspect or re-throw it.
+ */
+class PromiseAdapterError extends Data.TaggedError("PromiseAdapterError")<{
+  readonly cause: unknown;
+}> {}
+
+const fromPromise = <A>(
+  fn: () => Promise<A>,
+): Effect.Effect<A, PromiseAdapterError> =>
+  Effect.tryPromise({
+    try: fn,
+    catch: (cause) => new PromiseAdapterError({ cause }),
+  });
 
 /**
  * Wrap a promise-returning function as an Effect whose error channel is
@@ -62,16 +79,43 @@ const fromPromise = <A>(fn: () => Promise<A>): Effect.Effect<A, Error> =>
 const fromPromiseDying = <A>(fn: () => Promise<A>): Effect.Effect<A, never> =>
   Effect.orDie(fromPromise(fn));
 
+/**
+ * Wrap a promise-returning function as an Effect whose error channel contains
+ * only the expected tagged errors listed in `tags`. If the promise rejects
+ * with anything whose `_tag` isn't in the list, the rejection becomes an
+ * unhandled defect — users of the promise-shaped store interfaces are expected
+ * to throw the documented tagged error types from core.
+ */
+const fromPromiseTagged = <E extends { readonly _tag: string }, A>(
+  fn: () => Promise<A>,
+  tags: readonly E["_tag"][],
+): Effect.Effect<A, E> =>
+  fromPromise(fn).pipe(
+    Effect.catchAll((err) => {
+      const cause = err.cause;
+      if (
+        cause !== null &&
+        typeof cause === "object" &&
+        "_tag" in cause &&
+        typeof (cause as { _tag: unknown })._tag === "string" &&
+        (tags as readonly string[]).includes((cause as { _tag: string })._tag)
+      ) {
+        return Effect.fail(cause as E);
+      }
+      return Effect.die(cause);
+    }),
+  );
+
 // ---------------------------------------------------------------------------
 // Type derivation — derive Promise-based SDK types from core Effect types
 // ---------------------------------------------------------------------------
 
 /** Replace branded IDs with plain strings in parameter types */
 type UnbrandParam<T> =
-  T extends ToolId ? string :
-  T extends SecretId ? string :
+  T extends ToolIdType ? string :
+  T extends SecretIdType ? string :
   T extends ScopeIdType ? string :
-  T extends PolicyId ? string :
+  T extends PolicyIdType ? string :
   T extends readonly (infer U)[] ? readonly UnbrandParam<U>[] :
   T;
 
@@ -106,10 +150,7 @@ export interface InvokeOptions {
 
 const toEffectElicitationHandler = (handler: ElicitationHandler) =>
   (ctx: ElicitationContext) =>
-    Effect.tryPromise({
-      try: () => handler(ctx),
-      catch: (e) => e as Error,
-    }).pipe(
+    fromPromise(() => handler(ctx)).pipe(
       Effect.map(
         (r) =>
           new ElicitationResponseClass({
@@ -117,7 +158,7 @@ const toEffectElicitationHandler = (handler: ElicitationHandler) =>
             content: r.content,
           }),
       ),
-      Effect.catchAll((e) => Effect.die(e)),
+      Effect.catchAll((e) => Effect.die(e.cause)),
     );
 
 const toEffectInvokeOptions = (options: InvokeOptions): EffectInvokeOptions => ({
@@ -160,35 +201,41 @@ const effectToPromiseInvokeOptions = (options?: EffectInvokeOptions): InvokeOpti
 
 const toEffectInvoker = (invoker: ToolInvoker): EffectToolInvoker => ({
   invoke: (toolId, args, options) =>
-    fromPromise(() => invoker.invoke(toolId, args, effectToPromiseInvokeOptions(options))) as Effect.Effect<ToolInvocationResult, any>,
+    fromPromiseTagged<ToolInvocationError | ElicitationDeclinedError, ToolInvocationResult>(
+      () => invoker.invoke(toolId, args, effectToPromiseInvokeOptions(options)),
+      ["ToolInvocationError", "ElicitationDeclinedError"],
+    ),
   resolveAnnotations: invoker.resolveAnnotations
-    ? (toolId) => fromPromise(() => invoker.resolveAnnotations!(toolId)) as Effect.Effect<ToolAnnotations | undefined>
+    ? (toolId) => fromPromiseDying(() => invoker.resolveAnnotations!(toolId))
     : undefined,
 });
 
 const toEffectRuntimeHandler = (handler: RuntimeToolHandler): EffectRuntimeToolHandler => ({
   invoke: (args, options) =>
-    fromPromise(() => handler.invoke(args, effectToPromiseInvokeOptions(options))) as Effect.Effect<ToolInvocationResult, any>,
+    fromPromiseTagged<ToolInvocationError | ElicitationDeclinedError, ToolInvocationResult>(
+      () => handler.invoke(args, effectToPromiseInvokeOptions(options)),
+      ["ToolInvocationError", "ElicitationDeclinedError"],
+    ),
   resolveAnnotations: handler.resolveAnnotations
-    ? () => fromPromise(() => handler.resolveAnnotations!()) as Effect.Effect<ToolAnnotations | undefined>
+    ? () => fromPromiseDying(() => handler.resolveAnnotations!())
     : undefined,
 });
 
 const toEffectSourceManager = (manager: SourceManager): EffectSourceManager => ({
   kind: manager.kind,
-  list: () => fromPromise(() => manager.list()) as Effect.Effect<readonly Source[]>,
-  remove: (sourceId) => fromPromise(() => manager.remove(sourceId)) as Effect.Effect<void>,
-  refresh: manager.refresh ? (sourceId) => fromPromise(() => manager.refresh!(sourceId)) as Effect.Effect<void> : undefined,
-  detect: manager.detect ? (url) => fromPromise(() => manager.detect!(url)) as Effect.Effect<SourceDetectionResult | null> : undefined,
+  list: () => fromPromiseDying(() => manager.list()),
+  remove: (sourceId) => fromPromiseDying(() => manager.remove(sourceId)),
+  refresh: manager.refresh ? (sourceId) => fromPromiseDying(() => manager.refresh!(sourceId)) : undefined,
+  detect: manager.detect ? (url) => fromPromiseDying(() => manager.detect!(url)) : undefined,
 });
 
 const toEffectSecretProvider = (provider: SecretProvider): EffectSecretProvider => ({
   key: provider.key,
   writable: provider.writable,
-  get: (key) => fromPromise(() => provider.get(key)) as Effect.Effect<string | null>,
-  set: provider.set ? (key, value) => fromPromise(() => provider.set!(key, value)) as Effect.Effect<void> : undefined,
-  delete: provider.delete ? (key) => fromPromise(() => provider.delete!(key)) as Effect.Effect<boolean> : undefined,
-  list: provider.list ? () => fromPromise(() => provider.list!()) as Effect.Effect<readonly { id: string; name: string }[]> : undefined,
+  get: (key) => fromPromiseDying(() => provider.get(key)),
+  set: provider.set ? (key, value) => fromPromiseDying(() => provider.set!(key, value)) : undefined,
+  delete: provider.delete ? (key) => fromPromiseDying(() => provider.delete!(key)) : undefined,
+  list: provider.list ? () => fromPromiseDying(() => provider.list!()) : undefined,
 });
 
 // --- Reverse adapters (Effect -> Promise) for callbacks handed to user stores ---
@@ -200,9 +247,9 @@ const toEffectSecretProvider = (provider: SecretProvider): EffectSecretProvider 
 
 const toPromiseInvoker = (invoker: EffectToolInvoker): ToolInvoker => ({
   invoke: (toolId, args, options) =>
-    run(invoker.invoke(toolId as ToolId, args, toEffectInvokeOptions(options))) as Promise<ToolInvocationResult>,
+    run(invoker.invoke(ToolId.make(toolId), args, toEffectInvokeOptions(options))) as Promise<ToolInvocationResult>,
   resolveAnnotations: invoker.resolveAnnotations
-    ? (toolId) => run(invoker.resolveAnnotations!(toolId as ToolId))
+    ? (toolId) => run(invoker.resolveAnnotations!(ToolId.make(toolId)))
     : undefined,
 });
 
@@ -241,7 +288,10 @@ const toPromiseSecretProvider = (provider: EffectSecretProvider): SecretProvider
 const toEffectToolRegistry = (r: ToolRegistry): CoreToolRegistryService => ({
   list: (filter) => fromPromiseDying(() => r.list(filter)),
   schema: (toolId) =>
-    fromPromise(() => r.schema(toolId)) as Effect.Effect<ToolSchema, ToolNotFoundError>,
+    fromPromiseTagged<ToolNotFoundError, ToolSchema>(
+      () => r.schema(toolId),
+      ["ToolNotFoundError"],
+    ),
   definitions: () => fromPromiseDying(() => r.definitions()),
   registerDefinitions: (defs) => fromPromiseDying(() => r.registerDefinitions(defs)),
   registerRuntimeDefinitions: (defs) =>
@@ -253,12 +303,13 @@ const toEffectToolRegistry = (r: ToolRegistry): CoreToolRegistryService => ({
   resolveAnnotations: (toolId) =>
     fromPromiseDying(() => r.resolveAnnotations(toolId)),
   invoke: (toolId, args, options) =>
-    fromPromise(() =>
-      r.invoke(toolId, args, effectToPromiseInvokeOptions(options)),
-    ) as Effect.Effect<
-      ToolInvocationResult,
-      ToolNotFoundError | ToolInvocationError | ElicitationDeclinedError
-    >,
+    fromPromiseTagged<
+      ToolNotFoundError | ToolInvocationError | ElicitationDeclinedError,
+      ToolInvocationResult
+    >(
+      () => r.invoke(toolId, args, effectToPromiseInvokeOptions(options)),
+      ["ToolNotFoundError", "ToolInvocationError", "ElicitationDeclinedError"],
+    ),
   register: (tools) => fromPromiseDying(() => r.register(tools)),
   registerRuntime: (tools) => fromPromiseDying(() => r.registerRuntime(tools)),
   registerRuntimeHandler: (toolId, effectHandler) =>
@@ -284,18 +335,27 @@ const toEffectSourceRegistry = (r: SourceRegistry): CoreSourceRegistryService =>
 const toEffectSecretStore = (s: SecretStore): CoreSecretStoreService => ({
   list: (scopeId) => fromPromiseDying(() => s.list(scopeId)),
   get: (secretId) =>
-    fromPromise(() => s.get(secretId)) as Effect.Effect<SecretRef, SecretNotFoundError>,
+    fromPromiseTagged<SecretNotFoundError, SecretRef>(
+      () => s.get(secretId),
+      ["SecretNotFoundError"],
+    ),
   resolve: (secretId, scopeId) =>
-    fromPromise(() => s.resolve(secretId, scopeId)) as Effect.Effect<
-      string,
-      SecretNotFoundError | SecretResolutionError
-    >,
+    fromPromiseTagged<SecretNotFoundError | SecretResolutionError, string>(
+      () => s.resolve(secretId, scopeId),
+      ["SecretNotFoundError", "SecretResolutionError"],
+    ),
   status: (secretId, scopeId) =>
     fromPromiseDying(() => s.status(secretId, scopeId)),
   set: (input) =>
-    fromPromise(() => s.set(input)) as Effect.Effect<SecretRef, SecretResolutionError>,
+    fromPromiseTagged<SecretResolutionError, SecretRef>(
+      () => s.set(input),
+      ["SecretResolutionError"],
+    ),
   remove: (secretId) =>
-    fromPromise(() => s.remove(secretId)) as Effect.Effect<boolean, SecretNotFoundError>,
+    fromPromiseTagged<SecretNotFoundError, boolean>(
+      () => s.remove(secretId),
+      ["SecretNotFoundError"],
+    ),
   addProvider: (provider) =>
     fromPromiseDying(() => s.addProvider(toPromiseSecretProvider(provider))),
   providers: () => fromPromiseDying(() => s.providers()),
@@ -304,9 +364,10 @@ const toEffectSecretStore = (s: SecretStore): CoreSecretStoreService => ({
 const toEffectPolicyEngine = (p: PolicyEngine): CorePolicyEngineService => ({
   list: (scopeId) => fromPromiseDying(() => p.list(scopeId)),
   check: (input) =>
-    fromPromise(() =>
-      p.check({ scopeId: input.scopeId, toolId: input.toolId }),
-    ) as Effect.Effect<void, PolicyDeniedError>,
+    fromPromiseTagged<PolicyDeniedError, void>(
+      () => p.check({ scopeId: input.scopeId, toolId: input.toolId }),
+      ["PolicyDeniedError"],
+    ),
   add: (policy) => fromPromiseDying(() => p.add(policy)),
   remove: (policyId) => fromPromiseDying(() => p.remove(policyId)),
 });
@@ -350,19 +411,19 @@ const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
   scope: ctx.scope,
   tools: {
     list: (filter?) => run(ctx.tools.list(filter as any)),
-    schema: (toolId) => run(ctx.tools.schema(toolId as ToolId)),
-    invoke: (toolId, args, options) => run(ctx.tools.invoke(toolId as ToolId, args, toEffectInvokeOptions(options))),
+    schema: (toolId) => run(ctx.tools.schema(ToolId.make(toolId))),
+    invoke: (toolId, args, options) => run(ctx.tools.invoke(ToolId.make(toolId), args, toEffectInvokeOptions(options))),
     definitions: () => run(ctx.tools.definitions()),
     registerDefinitions: (defs) => run(ctx.tools.registerDefinitions(defs)),
     registerRuntimeDefinitions: (defs) => run(ctx.tools.registerRuntimeDefinitions(defs)),
     unregisterRuntimeDefinitions: (names) => run(ctx.tools.unregisterRuntimeDefinitions(names)),
     registerInvoker: (pluginKey, invoker) => run(ctx.tools.registerInvoker(pluginKey, toEffectInvoker(invoker))),
-    resolveAnnotations: (toolId) => run(ctx.tools.resolveAnnotations(toolId as ToolId)),
+    resolveAnnotations: (toolId) => run(ctx.tools.resolveAnnotations(ToolId.make(toolId))),
     register: (tools) => run(ctx.tools.register(tools)),
     registerRuntime: (tools) => run(ctx.tools.registerRuntime(tools)),
-    registerRuntimeHandler: (toolId, handler) => run(ctx.tools.registerRuntimeHandler(toolId as ToolId, toEffectRuntimeHandler(handler))),
-    unregisterRuntime: (toolIds) => run(ctx.tools.unregisterRuntime(toolIds as readonly ToolId[])),
-    unregister: (toolIds) => run(ctx.tools.unregister(toolIds as readonly ToolId[])),
+    registerRuntimeHandler: (toolId, handler) => run(ctx.tools.registerRuntimeHandler(ToolId.make(toolId), toEffectRuntimeHandler(handler))),
+    unregisterRuntime: (toolIds) => run(ctx.tools.unregisterRuntime(toolIds.map((id) => ToolId.make(id)))),
+    unregister: (toolIds) => run(ctx.tools.unregister(toolIds.map((id) => ToolId.make(id)))),
     unregisterBySource: (sourceId) => run(ctx.tools.unregisterBySource(sourceId)),
   },
   sources: {
@@ -375,20 +436,20 @@ const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
     detect: (url) => run(ctx.sources.detect(url)),
   },
   secrets: {
-    list: (scopeId) => run(ctx.secrets.list(scopeId as ScopeIdType)),
-    get: (secretId) => run(ctx.secrets.get(secretId as SecretId)),
-    resolve: (secretId, scopeId) => run(ctx.secrets.resolve(secretId as SecretId, scopeId as ScopeIdType)),
-    status: (secretId, scopeId) => run(ctx.secrets.status(secretId as SecretId, scopeId as ScopeIdType)),
+    list: (scopeId) => run(ctx.secrets.list(ScopeId.make(scopeId))),
+    get: (secretId) => run(ctx.secrets.get(SecretId.make(secretId))),
+    resolve: (secretId, scopeId) => run(ctx.secrets.resolve(SecretId.make(secretId), ScopeId.make(scopeId))),
+    status: (secretId, scopeId) => run(ctx.secrets.status(SecretId.make(secretId), ScopeId.make(scopeId))),
     set: (input) => run(ctx.secrets.set(input as SetSecretInput)),
-    remove: (secretId) => run(ctx.secrets.remove(secretId as SecretId)),
+    remove: (secretId) => run(ctx.secrets.remove(SecretId.make(secretId))),
     addProvider: (provider) => run(ctx.secrets.addProvider(toEffectSecretProvider(provider))),
     providers: () => run(ctx.secrets.providers()),
   },
   policies: {
-    list: (scopeId) => run(ctx.policies.list(scopeId as ScopeIdType)),
+    list: (scopeId) => run(ctx.policies.list(ScopeId.make(scopeId))),
     check: (input) => run(ctx.policies.check(input as any)),
     add: (policy) => run(ctx.policies.add(policy)),
-    remove: (policyId) => run(ctx.policies.remove(policyId as PolicyId)),
+    remove: (policyId) => run(ctx.policies.remove(PolicyId.make(policyId))),
   },
 });
 
@@ -425,7 +486,7 @@ const toEffectPlugin = <TKey extends string, TExtension extends object>(
         extension: handle.extension,
         close: handle.close ? () => fromPromise(() => handle.close!()) as Effect.Effect<void> : undefined,
       };
-    }) as Effect.Effect<any, Error>,
+    }) as Effect.Effect<any, PromiseAdapterError>,
 });
 
 // ---------------------------------------------------------------------------
@@ -560,11 +621,11 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
     },
     secrets: {
       list: () => run(executor.secrets.list()),
-      resolve: (secretId: string) => run(executor.secrets.resolve(secretId as SecretId)),
-      status: (secretId: string) => run(executor.secrets.status(secretId as SecretId)),
+      resolve: (secretId: string) => run(executor.secrets.resolve(SecretId.make(secretId))),
+      status: (secretId: string) => run(executor.secrets.status(SecretId.make(secretId))),
       set: (input: { readonly id: string; readonly name: string; readonly value: string; readonly provider?: string; readonly purpose?: string }) =>
         run(executor.secrets.set(input as any)),
-      remove: (secretId: string) => run(executor.secrets.remove(secretId as SecretId)),
+      remove: (secretId: string) => run(executor.secrets.remove(SecretId.make(secretId))),
       addProvider: (provider: SecretProvider) => run(executor.secrets.addProvider(toEffectSecretProvider(provider))),
       providers: () => run(executor.secrets.providers()),
     },

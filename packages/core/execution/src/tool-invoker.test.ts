@@ -8,7 +8,6 @@ import {
   inMemoryToolsPlugin,
   makeTestConfig,
   tool,
-  type ToolId,
 } from "@executor/sdk";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
@@ -22,7 +21,6 @@ const ContactInput = Schema.Struct({
   email: Schema.String,
 });
 
-import type { ExecutionResult } from "./engine";
 import { FormElicitation } from "@executor/sdk";
 
 const acceptAll = () => Effect.succeed(new ElicitationResponse({ action: "accept" }));
@@ -344,8 +342,8 @@ describe("pause/resume with multiple elicitations", () => {
           engine.executeWithPause(code),
         );
         expect(outcome1.status).toBe("paused");
-        if (outcome1.status !== "paused") throw new Error("expected pause");
-        expect(outcome1.execution.elicitationContext.request.message).toBe(
+        const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
+        expect(paused1.execution.elicitationContext.request.message).toBe(
           "First approval",
         );
 
@@ -354,7 +352,7 @@ describe("pause/resume with multiple elicitations", () => {
         // result or the completion).
         const outcome2 = yield* Effect.promise(() =>
           Promise.race([
-            engine.resume(outcome1.execution.id, { action: "accept" }),
+            engine.resume(paused1.execution.id, { action: "accept" }),
             new Promise<never>((_, reject) =>
               setTimeout(
                 () =>

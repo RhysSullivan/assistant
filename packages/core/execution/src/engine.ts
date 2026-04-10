@@ -35,12 +35,13 @@ export type ExecutionResult =
 export type PausedExecution = {
   readonly id: string;
   readonly elicitationContext: ElicitationContext;
-  /** Deferred the caller completes with the user's response to resume the fiber. */
+};
+
+/** Internal representation with Effect runtime state for pause/resume. */
+type InternalPausedExecution = PausedExecution & {
   readonly response: Deferred.Deferred<typeof ElicitationResponse.Type>;
-  /** The fiber running the sandboxed code — stays alive across pause/resume cycles. */
   readonly fiber: Fiber.Fiber<ExecuteResult, unknown>;
-  /** Ref to the current pause signal — swapped by resume() before unblocking. */
-  readonly pauseSignalRef: Ref.Ref<Deferred.Deferred<PausedExecution>>;
+  readonly pauseSignalRef: Ref.Ref<Deferred.Deferred<InternalPausedExecution>>;
 };
 
 export type ResumeResponse = {
@@ -288,7 +289,7 @@ const runEffect = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
 export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionEngine => {
   const { executor } = config;
   const codeExecutor = config.codeExecutor ?? makeQuickJsExecutor();
-  const pausedExecutions = new Map<string, PausedExecution>();
+  const pausedExecutions = new Map<string, InternalPausedExecution>();
   let nextId = 0;
 
   /**
@@ -298,7 +299,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
    */
   const awaitCompletionOrPause = (
     fiber: Fiber.Fiber<ExecuteResult, unknown>,
-    pauseSignal: Deferred.Deferred<PausedExecution>,
+    pauseSignal: Deferred.Deferred<InternalPausedExecution>,
   ): Effect.Effect<ExecutionResult> =>
     Effect.race(
       Fiber.join(fiber).pipe(
@@ -321,7 +322,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       // it each time it fires, so resume() can swap in a fresh Deferred
       // before unblocking the fiber.
       const pauseSignalRef = yield* Ref.make(
-        yield* Deferred.make<PausedExecution>(),
+        yield* Deferred.make<InternalPausedExecution>(),
       );
 
       // Will be set once the fiber is forked.
@@ -332,7 +333,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
           const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
           const id = `exec_${++nextId}`;
 
-          const paused: PausedExecution = {
+          const paused: InternalPausedExecution = {
             id,
             elicitationContext: ctx,
             response: responseDeferred,
@@ -371,7 +372,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
 
       // Swap in a fresh pause signal BEFORE unblocking the fiber, so the
       // next elicitation handler call signals this new Deferred.
-      const nextSignal = yield* Deferred.make<PausedExecution>();
+      const nextSignal = yield* Deferred.make<InternalPausedExecution>();
       yield* Ref.set(paused.pauseSignalRef, nextSignal);
 
       yield* Deferred.succeed(paused.response, {
