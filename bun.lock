@@ -30,6 +30,7 @@
         "@effect/platform-bun": "catalog:",
         "@executor/api": "workspace:*",
         "@executor/local": "workspace:*",
+        "@executor/plugin-launchd": "workspace:*",
         "@executor/runtime-quickjs": "workspace:*",
         "@jitl/quickjs-wasmfile-release-sync": "catalog:",
         "effect": "catalog:",
@@ -94,6 +95,10 @@
     "apps/desktop": {
       "name": "@executor/desktop",
       "version": "1.4.0",
+      "dependencies": {
+        "@executor/supervisor": "workspace:*",
+        "effect": "catalog:",
+      },
       "devDependencies": {
         "@types/node": "catalog:",
         "electron": "35.7.5",
@@ -118,6 +123,7 @@
         "@executor/plugin-google-discovery": "workspace:*",
         "@executor/plugin-graphql": "workspace:*",
         "@executor/plugin-keychain": "workspace:*",
+        "@executor/plugin-launchd": "workspace:*",
         "@executor/plugin-mcp": "workspace:*",
         "@executor/plugin-onepassword": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
@@ -282,6 +288,19 @@
         "@electric-sql/pglite": "^0.4.3",
         "@types/pg": "^8.15.4",
         "drizzle-kit": "^0.31.0",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/core/supervisor": {
+      "name": "@executor/supervisor",
+      "version": "1.4.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -479,6 +498,23 @@
       "dependencies": {
         "@executor/sdk": "workspace:*",
         "@napi-rs/keyring": "^1.2.0",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+        "tsup": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/plugins/launchd": {
+      "name": "@executor/plugin-launchd",
+      "version": "0.0.1-beta.5",
+      "dependencies": {
+        "@effect/cli": "catalog:",
+        "@executor/sdk": "workspace:*",
+        "@executor/supervisor": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -1024,6 +1060,8 @@
 
     "@executor/plugin-keychain": ["@executor/plugin-keychain@workspace:packages/plugins/keychain"],
 
+    "@executor/plugin-launchd": ["@executor/plugin-launchd@workspace:packages/plugins/launchd"],
+
     "@executor/plugin-mcp": ["@executor/plugin-mcp@workspace:packages/plugins/mcp"],
 
     "@executor/plugin-onepassword": ["@executor/plugin-onepassword@workspace:packages/plugins/onepassword"],
@@ -1045,6 +1083,8 @@
     "@executor/storage-file": ["@executor/storage-file@workspace:packages/core/storage-file"],
 
     "@executor/storage-postgres": ["@executor/storage-postgres@workspace:packages/core/storage-postgres"],
+
+    "@executor/supervisor": ["@executor/supervisor@workspace:packages/core/supervisor"],
 
     "@floating-ui/core": ["@floating-ui/core@1.7.5", "", { "dependencies": { "@floating-ui/utils": "^0.2.11" } }, "sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ=="],
 

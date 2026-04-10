@@ -11,19 +11,16 @@ export default function EditGoogleDiscoverySource({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">
-          Edit Google Discovery Source
-        </h1>
+        <h1 className="text-xl font-semibold text-foreground">Edit Google Discovery Source</h1>
         <p className="mt-1 text-[13px] text-muted-foreground">
-          This source is managed from its Discovery document and can be refreshed from the source header.
+          This source is managed from its Discovery document and can be refreshed from the source
+          header.
         </p>
       </div>
 
       <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-card-foreground">
-            {sourceId}
-          </p>
+          <p className="truncate text-sm font-semibold text-card-foreground">{sourceId}</p>
         </div>
         <Badge variant="secondary" className="text-[10px]">
           Google Discovery

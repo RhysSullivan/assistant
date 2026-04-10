@@ -6,6 +6,12 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "dev": "portless run --name executor-local bunx --bun vite dev",
+    "build": "bunx --bun vite build",
+    "start": "bun run src/serve.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/platform": "catalog:",
@@ -20,6 +26,7 @@
     "@executor/plugin-google-discovery": "workspace:*",
     "@executor/plugin-graphql": "workspace:*",
     "@executor/plugin-keychain": "workspace:*",
+    "@executor/plugin-launchd": "workspace:*",
     "@executor/plugin-mcp": "workspace:*",
     "@executor/plugin-onepassword": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
@@ -44,11 +51,5 @@
     "react-grab": "^0.1.31",
     "typescript": "catalog:",
     "vite": "catalog:"
-  },
-  "scripts": {
-    "dev": "portless run --name executor-local bunx --bun vite dev",
-    "build": "bunx --bun vite build",
-    "start": "bun run src/serve.ts",
-    "typecheck": "tsc --noEmit"
   }
 }

@@ -3,11 +3,11 @@
   "version": "1.4.0",
   "private": true,
   "description": "Executor desktop app",
+  "homepage": "https://github.com/RhysSullivan/executor",
   "author": {
     "name": "Rhys Sullivan",
     "email": "39114868+RhysSullivan@users.noreply.github.com"
   },
-  "homepage": "https://github.com/RhysSullivan/executor",
   "main": "dist/main.js",
   "scripts": {
     "dev": "node scripts/dev.js",
@@ -19,7 +19,10 @@
     "dist:linux": "npm run build && npm run bundle-cli && electron-builder --linux",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@executor/supervisor": "workspace:*",
+    "effect": "catalog:"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "electron": "35.7.5",
@@ -37,31 +40,59 @@
       {
         "from": "resources/",
         "to": "",
-        "filter": ["executor*", "emscripten-module.wasm"]
+        "filter": [
+          "executor*",
+          "emscripten-module.wasm"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] },
-        { "target": "zip", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.icns"
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "build/icon.ico"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Development",
       "icon": "build/icons"
     },
     "dmg": {
       "title": "Executor",
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "nsis": {

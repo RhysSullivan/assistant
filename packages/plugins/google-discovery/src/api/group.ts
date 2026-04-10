@@ -124,5 +124,4 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
       .setUrlParams(OAuthCallbackParams)
       .addSuccess(HtmlResponse)
       .addError(ApiError),
-  )
-  {}
+  ) {}
