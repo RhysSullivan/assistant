@@ -3,6 +3,7 @@ import { jsx, jsxs, Fragment } from "react/jsx-runtime";
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
 import { getHighlighter, resolveLang, THEME } from "../lib/shiki";
 import { cn } from "../lib/utils";
+import { Button } from "./button";
 
 // ---------------------------------------------------------------------------
 // Language detection
@@ -113,26 +114,28 @@ export function CodeBlock(props: {
           <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
             {title}
           </span>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={handleCopy}
-            className="size-6 flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+            className="text-muted-foreground/30 hover:text-muted-foreground"
             title="Copy"
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
-          </button>
+          </Button>
         </div>
       )}
       <div className="group relative">
         {!title && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={handleCopy}
             className="absolute right-2 top-2 z-10 rounded-md border border-border bg-card/90 p-1.5 text-muted-foreground/40 opacity-0 backdrop-blur-sm hover:text-foreground group-hover:opacity-100 transition-opacity"
             title="Copy to clipboard"
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
-          </button>
+          </Button>
         )}
 
         <div
@@ -148,13 +151,14 @@ export function CodeBlock(props: {
 
         {isLong && !expanded && (
           <div className="absolute bottom-0 left-0 right-0 flex justify-center bg-gradient-to-t from-card/90 to-transparent pb-2 pt-8">
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setExpanded(true)}
-              className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+              className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
             >
               Show all ({lines.length} lines)
-            </button>
+            </Button>
           </div>
         )}
       </div>

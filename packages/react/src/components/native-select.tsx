@@ -13,6 +13,7 @@ function NativeSelect({
       className="group/native-select relative w-fit has-[select:disabled]:opacity-50"
       data-slot="native-select-wrapper"
     >
+      {/* oxlint-disable-next-line react/forbid-elements */}
       <select
         data-slot="native-select"
         data-size={size}

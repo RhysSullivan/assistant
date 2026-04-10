@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCustomer, useListPlans } from "autumn-js/react";
+import { Button } from "@executor/react/components/button";
 
 export const Route = createFileRoute("/billing_/plans")({
   component: PlansPage,
@@ -149,16 +150,16 @@ function PlansPage() {
                         {isCurrent ? "Current plan" : "Scheduled"}
                       </div>
                     ) : isCanceling ? (
-                      <button
+                      <Button
                         type="button"
                         disabled={loadingPlan !== null}
                         onClick={() => openCustomerPortal()}
                         className="flex h-9 w-full items-center justify-center rounded-md bg-primary text-[0.8125rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
                       >
                         Resume
-                      </button>
+                      </Button>
                     ) : (
-                      <button
+                      <Button
                         type="button"
                         disabled={loadingPlan !== null}
                         onClick={async () => {
@@ -174,7 +175,7 @@ function PlansPage() {
                         ].join(" ")}
                       >
                         {loadingPlan === plan.id ? "Loading…" : label}
-                      </button>
+                      </Button>
                     )}
                   </div>
 

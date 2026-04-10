@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCustomer, useListPlans } from "autumn-js/react";
+import { Button } from "@executor/react/components/button";
 
 export const Route = createFileRoute("/billing")({
   component: BillingPage,
@@ -87,13 +88,14 @@ function BillingPage() {
           </div>
           <div className="flex items-center gap-2">
             {activePlan && !isCanceling && (
-              <button
+              <Button
+                variant="ghost"
                 type="button"
                 onClick={() => openCustomerPortal()}
                 className="rounded-md px-3 py-1.5 text-[0.75rem] font-medium text-destructive transition-colors hover:bg-destructive/10"
               >
                 Cancel plan
-              </button>
+              </Button>
             )}
             <Link
               to="/billing/plans"

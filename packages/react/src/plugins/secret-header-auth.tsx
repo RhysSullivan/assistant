@@ -343,8 +343,10 @@ export function SecretHeaderAuthRow(props: {
 
       <div className="flex flex-wrap gap-1">
         {presets.map((preset) => (
-          <button
+          <Button
             key={preset.key}
+            variant="ghost"
+            size="sm"
             type="button"
             onClick={() =>
               onChange({
@@ -360,7 +362,7 @@ export function SecretHeaderAuthRow(props: {
             }`}
           >
             {preset.label}
-          </button>
+          </Button>
         ))}
       </div>
 

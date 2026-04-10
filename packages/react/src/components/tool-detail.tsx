@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { toolSchemaAtom } from "../api/atoms";
 import { ScopeId, ToolId } from "@executor/sdk";
-
+import { Button } from "./button";
 import { Markdown } from "./markdown";
 import { SchemaExplorer } from "./schema-explorer";
 import { ExpandableCodeBlock } from "./expandable-code-block";
@@ -16,19 +16,20 @@ function CopyButton(props: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon-xs"
       onClick={() => {
         void navigator.clipboard.writeText(props.text).then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         });
       }}
-      className="size-6 shrink-0 flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+      className="shrink-0 text-muted-foreground/30 hover:text-muted-foreground transition-colors"
       title={props.label ?? "Copy"}
     >
       {copied ? <Check className="size-3.5 shrink-0" /> : <Copy className="size-3.5 shrink-0" />}
-    </button>
+    </Button>
   );
 }
 
@@ -80,7 +81,7 @@ export function ToolDetail(props: {
       outputTypeScript: v.outputTypeScript ? `type Output = ${v.outputTypeScript}` : null,
       definitions,
     };
-  }, [toolContract, props.toolName]);
+  }, [toolContract]);
 
   const crumbs = breadcrumbParts(props.toolName);
   const displayName = friendlyName(props.toolName);
@@ -112,34 +113,34 @@ export function ToolDetail(props: {
 
           {/* Tabs */}
           <div className="mt-3 flex gap-4" role="tablist">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               role="tab"
               aria-selected={tab === "schema"}
               onClick={() => setTab("schema")}
               className={[
-                "border-b-2 pb-2.5 text-sm font-medium transition-colors",
+                "border-b-2 pb-2.5 text-sm font-medium transition-colors rounded-none",
                 tab === "schema"
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground/50 hover:text-muted-foreground",
               ].join(" ")}
             >
               Schema
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="ghost"
               role="tab"
               aria-selected={tab === "typescript"}
               onClick={() => setTab("typescript")}
               className={[
-                "border-b-2 pb-2.5 text-sm font-medium transition-colors",
+                "border-b-2 pb-2.5 text-sm font-medium transition-colors rounded-none",
                 tab === "typescript"
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground/50 hover:text-muted-foreground",
               ].join(" ")}
             >
               TypeScript
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "./button";
+import { Input } from "./input";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,8 +163,8 @@ function TreeNodeView(props: {
 
   return (
     <div>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="group flex h-auto w-full items-center gap-1.5 rounded-md py-1 pr-2.5 text-[12px] hover:bg-accent/40 text-left"
@@ -184,7 +186,7 @@ function TreeNodeView(props: {
         <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/25">
           {leafCount}
         </span>
-      </button>
+      </Button>
 
       {open && hasChildren && (
         <div className="relative flex flex-col gap-px">
@@ -232,9 +234,9 @@ function ToolLeafItem(props: {
   }, [props.active]);
 
   return (
-    <button
+    <Button
       ref={ref}
-      type="button"
+      variant="ghost"
       onClick={props.onSelect}
       className={[
         "group flex h-auto w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-left",
@@ -255,7 +257,7 @@ function ToolLeafItem(props: {
       <span className="flex-1 truncate font-mono text-[12px]">
         {highlightMatch(label, props.search)}
       </span>
-    </button>
+    </Button>
   );
 }
 
@@ -313,21 +315,22 @@ export function ToolTree(props: {
               strokeLinecap="round"
             />
           </svg>
-          <input
+          <Input
             ref={searchRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={`Filter ${props.tools.length} tools…`}
-            className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] shadow-none outline-none placeholder:text-muted-foreground/40"
+            className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] shadow-none outline-none placeholder:text-muted-foreground/40 h-auto rounded-none focus-visible:ring-0 focus-visible:border-transparent"
           />
           {search.length > 0 ? (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onClick={() => setSearch("")}
-              className="size-5 shrink-0 flex items-center justify-center text-muted-foreground/40 hover:text-foreground"
+              className="size-5 shrink-0 text-muted-foreground/40 hover:text-foreground"
             >
               ×
-            </button>
+            </Button>
           ) : (
             <kbd className="shrink-0 rounded border border-border bg-muted px-1 py-px text-[10px] leading-none text-muted-foreground/50">
               /
