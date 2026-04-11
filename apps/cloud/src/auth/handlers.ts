@@ -5,7 +5,6 @@ import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
-import { UserStoreError, WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
 import { server } from "../env";
 
