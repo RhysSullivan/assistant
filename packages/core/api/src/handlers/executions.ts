@@ -24,13 +24,25 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
           ?.split(",")
           .map((value) => value.trim())
           .filter((value): value is ExecutionStatus => EXECUTION_STATUSES.has(value as ExecutionStatus));
+        const triggerFilter = urlParams.trigger
+          ?.split(",")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0);
+        const toolPathFilter = urlParams.tool
+          ?.split(",")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0);
         // Meta (chart + totals) is only computed on the first page so the
-        // client can pin it without refetching on scroll.
-        const includeMeta = urlParams.cursor === undefined;
+        // client can pin it without refetching on scroll. Live mode
+        // refetches with ?after= and also skips meta — no chart rebucket.
+        const includeMeta = urlParams.cursor === undefined && urlParams.after === undefined;
         const result = yield* executor.executions.list(executor.scope.id, {
           limit: Math.max(1, Math.min(urlParams.limit ?? 25, 100)),
           cursor: urlParams.cursor,
           statusFilter: statusFilter && statusFilter.length > 0 ? statusFilter : undefined,
+          triggerFilter: triggerFilter && triggerFilter.length > 0 ? triggerFilter : undefined,
+          toolPathFilter: toolPathFilter && toolPathFilter.length > 0 ? toolPathFilter : undefined,
+          after: urlParams.after,
           timeRange:
             urlParams.from !== undefined || urlParams.to !== undefined
               ? {
@@ -64,10 +76,33 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
         return result;
       }),
     )
-    .handle("execute", ({ payload }) =>
+    .handle("listToolCalls", ({ path }) =>
+      Effect.gen(function* () {
+        const executor = yield* ExecutorService;
+        // Confirm the execution actually exists so we return 404 for
+        // unknown ids rather than an empty success.
+        const execution = yield* executor.executions.get(ExecutionId.make(path.executionId));
+        if (!execution) {
+          return yield* Effect.fail({
+            _tag: "ExecutionNotFoundError" as const,
+            executionId: path.executionId,
+          });
+        }
+        const toolCalls = yield* executor.executions.listToolCalls(
+          ExecutionId.make(path.executionId),
+        );
+        return { toolCalls };
+      }),
+    )
+    .handle("execute", ({ payload, headers }) =>
       Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
-        const outcome = yield* Effect.promise(() => engine.executeWithPause(payload.code));
+        const triggerKind = headers["x-executor-trigger"] ?? "http";
+        const outcome = yield* Effect.promise(() =>
+          engine.executeWithPause(payload.code, {
+            trigger: { kind: triggerKind },
+          }),
+        );
 
         if (outcome.status === "completed") {
           const formatted = formatExecuteResult(outcome.result);
