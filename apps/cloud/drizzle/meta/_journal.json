@@ -8,6 +8,13 @@
       "when": 1775764846378,
       "tag": "0000_redundant_night_nurse",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1807000000000,
+      "tag": "0001_phase_c_storage_contract",
+      "breakpoints": true
     }
   ]
 }

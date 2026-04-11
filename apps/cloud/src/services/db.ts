@@ -15,12 +15,11 @@ import { env } from "cloudflare:workers";
 import { Context, Effect, Layer } from "effect";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as sharedSchema from "@executor/storage-postgres/schema";
 import * as cloudSchema from "./schema";
 import type { DrizzleDb } from "@executor/storage-postgres";
 import { server } from "../env";
 
-const schema = { ...sharedSchema, ...cloudSchema };
+const schema = { ...cloudSchema };
 
 export type { DrizzleDb };
 

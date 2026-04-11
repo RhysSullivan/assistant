@@ -12,7 +12,6 @@ import postgres from "postgres";
 import { createExecutorMcpServer } from "@executor/host-mcp";
 import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
 import type { DrizzleDb } from "@executor/storage-postgres";
-import * as sharedSchema from "@executor/storage-postgres/schema";
 
 import { UserStoreService } from "./auth/context";
 import { server } from "./env";
@@ -49,7 +48,7 @@ const jsonRpcError = (status: number, code: number, message: string) =>
     headers: { "content-type": "application/json" },
   });
 
-const combinedSchema = { ...sharedSchema, ...cloudSchema };
+const combinedSchema = { ...cloudSchema };
 
 /**
  * Create a long-lived DB connection for the DO lifetime.
