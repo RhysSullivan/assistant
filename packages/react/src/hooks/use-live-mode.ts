@@ -29,17 +29,23 @@ export function useLiveMode<T extends { readonly id: string; readonly createdAt:
 ): LiveModeState<T> {
   const [cutoffTimestamp, setCutoffTimestamp] = React.useState<number | null>(null);
 
-  // On live toggle: capture the newest row's timestamp (or clear).
-  // `rows` is deliberately not a dep — we only snapshot on the rising
-  // edge of `live`, not every time a new row arrives.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  React.useEffect(() => {
-    if (!live) {
+  // `rows` is non-reactive here — we only want to read its latest value
+  // when `live` transitions, not re-run the effect every time a new row
+  // arrives. `useEffectEvent` is exactly this: the event sees the
+  // freshest `rows` at the transition moment while the surrounding
+  // effect's sole reactive dependency stays `live`. See
+  // https://react.dev/reference/react/useEffectEvent
+  const onLiveChange = React.useEffectEvent((isLive: boolean) => {
+    if (!isLive) {
       setCutoffTimestamp(null);
       return;
     }
     const newest = rows[0];
     setCutoffTimestamp(newest ? newest.createdAt : Date.now());
+  });
+
+  React.useEffect(() => {
+    onLiveChange(live);
   }, [live]);
 
   const cutoffRow = React.useMemo(() => {
