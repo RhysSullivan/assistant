@@ -335,13 +335,6 @@ function GoogleServiceIcon(props: { readonly service: string; readonly className
   );
 }
 
-type ProbeOperation = {
-  toolPath: string;
-  method: string;
-  pathTemplate: string;
-  description: string | null;
-};
-
 type ProbeResult = {
   name: string;
   title: string | null;
@@ -349,7 +342,6 @@ type ProbeResult = {
   version: string;
   toolCount: number;
   scopes: readonly string[];
-  operations: readonly ProbeOperation[];
 };
 
 type OAuthAuth = {
