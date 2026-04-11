@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { ChevronRight } from "lucide-react";
+import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
 
 // ---------------------------------------------------------------------------
 // JSON Schema types (subset we render)
@@ -180,7 +181,7 @@ const mergeAllOf = (schemas: JsonSchema[], root: JsonSchema): JsonSchema => {
 // Type label styling — plain text, no colored pills
 // ---------------------------------------------------------------------------
 
-const typeClasses = "font-mono text-[0.6875rem] leading-5 text-muted-foreground/50";
+const typeClasses = "font-mono text-[0.6875rem] leading-5 text-muted-foreground";
 
 // ---------------------------------------------------------------------------
 // PropertyRow
@@ -231,20 +232,20 @@ function PropertyRow(props: {
             : undefined
         }
         className={[
-          "flex items-start gap-2 py-2.5 px-3",
-          expandable ? "cursor-pointer hover:bg-accent/30 transition-colors" : "",
+          "flex items-start gap-2 py-2.5 px-4",
+          expandable ? "cursor-pointer hover:bg-accent/40 transition-colors" : "",
         ].join(" ")}
-        style={depth > 0 ? { paddingLeft: `${depth * 16 + 12}px` } : undefined}
+        style={depth > 0 ? { paddingLeft: `${depth * 16 + 16}px` } : undefined}
       >
         {/* Chevron or dot */}
         <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
           {expandable ? (
             <ChevronRight
-              className="size-3 shrink-0 text-muted-foreground/30 transition-transform duration-150"
+              className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150"
               style={open ? { transform: "rotate(90deg)" } : undefined}
             />
           ) : (
-            <span className="size-1 rounded-full bg-muted-foreground/15" />
+            <span className="size-1 rounded-full bg-muted-foreground/40" />
           )}
         </div>
 
@@ -254,14 +255,14 @@ function PropertyRow(props: {
           <p className={typeClasses}>{typeLabel}</p>
           {!hideRequiredBadge &&
             (required ? (
-              <p className="text-[0.6875rem] leading-5 text-orange-600/60 dark:text-orange-400/60">
+              <p className="text-[0.6875rem] leading-5 font-medium text-orange-600 dark:text-orange-400">
                 required
               </p>
             ) : (
-              <p className="text-[0.6875rem] leading-5 text-muted-foreground/25">optional</p>
+              <p className="text-[0.6875rem] leading-5 text-muted-foreground">optional</p>
             ))}
           {schema.default !== undefined && (
-            <p className="text-[0.6875rem] leading-5 text-muted-foreground/30">
+            <p className="text-[0.6875rem] leading-5 text-muted-foreground">
               = {JSON.stringify(schema.default)}
             </p>
           )}
@@ -271,8 +272,8 @@ function PropertyRow(props: {
       {/* Description — below the row */}
       {description && (
         <p
-          className="px-3 pb-2 text-[0.8125rem] leading-5 text-muted-foreground/50"
-          style={{ paddingLeft: `${depth * 16 + 32}px` }}
+          className="pr-4 pb-2.5 text-[0.8125rem] leading-5 text-muted-foreground"
+          style={{ paddingLeft: `${depth * 16 + 36}px` }}
         >
           {description}
         </p>
@@ -280,7 +281,7 @@ function PropertyRow(props: {
 
       {/* Children — rendered lazily on expand */}
       {open && expandable && (
-        <div className="border-l border-border/30" style={{ marginLeft: `${depth * 16 + 20}px` }}>
+        <div className="border-l border-border/60" style={{ marginLeft: `${depth * 16 + 22}px` }}>
           <PropertyChildren schema={childSchema} root={root} depth={depth + 1} />
         </div>
       )}
@@ -297,7 +298,7 @@ function PropertyChildren(props: { schema: JsonSchema; root: JsonSchema; depth: 
 
   if (depth > 6) {
     return (
-      <p className="px-3 py-2 text-[0.8125rem] text-muted-foreground/30">
+      <p className="px-4 py-2 text-[0.8125rem] text-muted-foreground">
         Nested too deep to display.
       </p>
     );
@@ -316,7 +317,7 @@ function PropertyChildren(props: { schema: JsonSchema; root: JsonSchema; depth: 
       return a.localeCompare(b);
     });
     return (
-      <div className="divide-y divide-border/20">
+      <div className="divide-y divide-border/50">
         {entries.map(([key, value], i) => (
           <PropertyRow
             key={key}
@@ -356,12 +357,12 @@ function PropertyChildren(props: { schema: JsonSchema; root: JsonSchema; depth: 
     return (
       <div>
         <p
-          className="px-3 py-2 text-[0.6875rem] font-medium uppercase tracking-widest text-muted-foreground/30"
-          style={depth > 0 ? { paddingLeft: `${depth * 16 + 12}px` } : undefined}
+          className="px-4 py-2 text-[0.6875rem] font-medium uppercase tracking-widest text-muted-foreground"
+          style={depth > 0 ? { paddingLeft: `${depth * 16 + 16}px` } : undefined}
         >
           {label}
         </p>
-        <div className="divide-y divide-border/20">
+        <div className="divide-y divide-border/50">
           {variants.map((variant, i) => (
             <PropertyRow
               key={i}
@@ -395,29 +396,68 @@ function PropertyChildren(props: { schema: JsonSchema; root: JsonSchema; depth: 
 }
 
 // ---------------------------------------------------------------------------
+// Count top-level fields for the header subtitle
+// ---------------------------------------------------------------------------
+
+const countTopLevelFields = (schema: JsonSchema): number => {
+  const resolved = deepResolve(schema, schema);
+  if (resolved.properties) return Object.keys(resolved.properties).length;
+  if (resolved.allOf) {
+    const merged = mergeAllOf(resolved.allOf, schema);
+    return merged.properties ? Object.keys(merged.properties).length : 0;
+  }
+  if (resolved.oneOf && resolved.oneOf.length > 1) return resolved.oneOf.length;
+  if (resolved.anyOf && resolved.anyOf.length > 1) return resolved.anyOf.length;
+  return 0;
+};
+
+// ---------------------------------------------------------------------------
 // SchemaExplorer — main export
 // ---------------------------------------------------------------------------
 
-export function SchemaExplorer(props: { schema: unknown }) {
+export function SchemaExplorer(props: { schema: unknown; title?: string }) {
   const schema = props.schema as JsonSchema | undefined;
   if (!schema) return null;
 
   const hasContent = isExpandable(schema, schema);
+  const title = props.title;
 
   if (!hasContent) {
     const typeLabel = getTypeLabel(schema, schema);
     return (
-      <div className="rounded-lg border border-border/40 px-4 py-3">
-        <p className="text-sm text-muted-foreground/50">
-          <span className={typeClasses}>{typeLabel}</span>
-        </p>
-      </div>
+      <CardStack>
+        {title && <CardStackHeader>{title}</CardStackHeader>}
+        <CardStackContent>
+          <div className="flex items-center gap-2 px-4 py-3">
+            <span className={typeClasses}>{typeLabel}</span>
+          </div>
+        </CardStackContent>
+      </CardStack>
     );
   }
 
+  const fieldCount = countTopLevelFields(schema);
+  const countLabel =
+    fieldCount > 0 ? `${fieldCount} ${fieldCount === 1 ? "field" : "fields"}` : null;
+
   return (
-    <div className="rounded-lg border border-border/40 overflow-hidden divide-y divide-border/20">
-      <PropertyChildren schema={schema} root={schema} depth={0} />
-    </div>
+    <CardStack>
+      {title && (
+        <CardStackHeader
+          rightSlot={
+            countLabel ? (
+              <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+                {countLabel}
+              </span>
+            ) : undefined
+          }
+        >
+          {title}
+        </CardStackHeader>
+      )}
+      <CardStackContent>
+        <PropertyChildren schema={schema} root={schema} depth={0} />
+      </CardStackContent>
+    </CardStack>
   );
 }
