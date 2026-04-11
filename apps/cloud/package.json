@@ -60,8 +60,8 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.14.3",
-    "@effect/platform-node": "catalog:",
     "@cloudflare/workers-types": "^4.20250620.0",
+    "@effect/platform-node": "catalog:",
     "@effect/vitest": "^0.29.0",
     "@electric-sql/pglite": "^0.4.3",
     "@electric-sql/pglite-socket": "^0.1.3",
