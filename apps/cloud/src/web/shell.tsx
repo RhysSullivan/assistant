@@ -4,8 +4,21 @@ import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { sourcesAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
+import { SourceFavicon } from "@executor/react/components/source-favicon";
+import { CommandPalette } from "@executor/react/components/command-palette";
+import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
+import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
+import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
+import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
 import { AUTH_PATHS } from "../auth/api";
 import { useAuth } from "./auth";
+
+const sourcePlugins = [
+  openApiSourcePlugin,
+  mcpSourcePlugin,
+  googleDiscoverySourcePlugin,
+  graphqlSourcePlugin,
+];
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
@@ -63,6 +76,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
                 ].join(" ")}
               >
+                <SourceFavicon url={s.url} />
                 <span className="flex-1 truncate">{s.name}</span>
                 <span className="rounded bg-secondary/50 px-1 py-px text-[9px] font-medium text-muted-foreground/50">
                   {s.kind}
@@ -157,7 +171,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 
         <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
-          <span>Configured</span>
+          <span>Sources</span>
         </div>
 
         <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
@@ -192,6 +206,7 @@ export function Shell() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <CommandPalette sourcePlugins={sourcePlugins} />
       {/* Desktop sidebar */}
       <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
         <SidebarContent pathname={pathname} />

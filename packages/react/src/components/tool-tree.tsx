@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRightIcon, SearchIcon, XIcon } from "lucide-react";
 import { Button } from "./button";
 import { Input } from "./input";
+import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,24 +17,38 @@ export interface ToolSummary {
 
 type TreeNode = {
   segment: string;
+  path: string;
   tool?: ToolSummary;
   children: Map<string, TreeNode>;
 };
+
+type Row =
+  | { kind: "leaf"; depth: number; path: string; tool: ToolSummary }
+  | {
+      kind: "group";
+      depth: number;
+      path: string;
+      segment: string;
+      count: number;
+      open: boolean;
+    };
 
 // ---------------------------------------------------------------------------
 // Tree builder
 // ---------------------------------------------------------------------------
 
 const buildTree = (tools: readonly ToolSummary[]): TreeNode => {
-  const root: TreeNode = { segment: "", children: new Map() };
+  const root: TreeNode = { segment: "", path: "", children: new Map() };
 
   for (const tool of tools) {
     const parts = tool.name.split(".");
     let node = root;
+    let path = "";
     for (const part of parts) {
+      path = path ? `${path}.${part}` : part;
       let child = node.children.get(part);
       if (!child) {
-        child = { segment: part, children: new Map() };
+        child = { segment: part, path, children: new Map() };
         node.children.set(part, child);
       }
       node = child;
@@ -49,6 +65,46 @@ const countLeaves = (node: TreeNode): number => {
     count += countLeaves(child);
   }
   return count;
+};
+
+const collectGroupPaths = (node: TreeNode, acc: Set<string>): void => {
+  for (const child of node.children.values()) {
+    if (child.children.size > 0) {
+      acc.add(child.path);
+      collectGroupPaths(child, acc);
+    }
+  }
+};
+
+const flattenTree = (
+  node: TreeNode,
+  depth: number,
+  openSet: ReadonlySet<string>,
+  acc: Row[],
+): void => {
+  const sorted = [...node.children.values()].sort((a, b) => a.segment.localeCompare(b.segment));
+  for (const child of sorted) {
+    const hasChildren = child.children.size > 0;
+    const isLeaf = !!child.tool && !hasChildren;
+
+    if (isLeaf) {
+      acc.push({ kind: "leaf", depth, path: child.path, tool: child.tool! });
+      continue;
+    }
+
+    const open = openSet.has(child.path);
+    acc.push({
+      kind: "group",
+      depth,
+      path: child.path,
+      segment: child.segment,
+      count: countLeaves(child),
+      open,
+    });
+    if (open) {
+      flattenTree(child, depth + 1, openSet, acc);
+    }
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -99,7 +155,7 @@ const highlightMatch = (text: string, search: string) => {
     <>
       {parts.map((p, i) =>
         p.hl ? (
-          <mark key={i} className="rounded-sm bg-primary/20 px-px text-foreground">
+          <mark key={i} className="rounded-sm bg-primary/25 px-px text-foreground">
             {p.text}
           </mark>
         ) : (
@@ -111,157 +167,6 @@ const highlightMatch = (text: string, search: string) => {
 };
 
 // ---------------------------------------------------------------------------
-// Tree node view
-// ---------------------------------------------------------------------------
-
-function TreeNodeView(props: {
-  node: TreeNode;
-  depth: number;
-  selectedToolId: string | null;
-  onSelect: (toolId: string) => void;
-  search: string;
-  defaultOpen: boolean;
-}) {
-  const { node, depth, selectedToolId, onSelect, search, defaultOpen } = props;
-  const hasChildren = node.children.size > 0;
-  const isLeaf = !!node.tool && !hasChildren;
-
-  const hasSelectedDescendant = useMemo(() => {
-    if (!selectedToolId) return false;
-    const check = (n: TreeNode): boolean => {
-      if (n.tool?.id === selectedToolId) return true;
-      for (const child of n.children.values()) {
-        if (check(child)) return true;
-      }
-      return false;
-    };
-    return check(node);
-  }, [node, selectedToolId]);
-
-  const [open, setOpen] = useState(defaultOpen || hasSelectedDescendant);
-
-  useEffect(() => {
-    if (defaultOpen || hasSelectedDescendant) setOpen(true);
-  }, [defaultOpen, hasSelectedDescendant]);
-
-  const paddingLeft = 8 + depth * 16;
-
-  if (isLeaf) {
-    return (
-      <ToolLeafItem
-        tool={node.tool!}
-        active={node.tool!.id === selectedToolId}
-        onSelect={() => onSelect(node.tool!.id)}
-        search={search}
-        depth={depth}
-      />
-    );
-  }
-
-  const sorted = [...node.children.values()].sort((a, b) => a.segment.localeCompare(b.segment));
-  const leafCount = countLeaves(node);
-
-  return (
-    <div>
-      <Button
-        variant="ghost"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="group flex h-auto w-full items-center gap-1.5 rounded-md py-1 pr-2.5 text-[12px] hover:bg-accent/40 text-left"
-        style={{ paddingLeft }}
-      >
-        <svg
-          viewBox="0 0 8 8"
-          className="size-2 shrink-0 text-muted-foreground/30 transition-transform duration-150"
-          style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
-        >
-          <path d="M2 1l4 3-4 3z" fill="currentColor" />
-        </svg>
-        <svg viewBox="0 0 16 16" className="size-3 shrink-0 text-muted-foreground/30">
-          <path d="M2 4h5l2 2h5v7H2V4z" fill="none" stroke="currentColor" strokeWidth="1.2" />
-        </svg>
-        <span className="flex-1 truncate font-mono text-foreground/70">
-          {highlightMatch(node.segment, search)}
-        </span>
-        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/25">
-          {leafCount}
-        </span>
-      </Button>
-
-      {open && hasChildren && (
-        <div className="relative flex flex-col gap-px">
-          <span
-            className="absolute bottom-1 top-0 w-px bg-border/40"
-            style={{ left: paddingLeft + 5 }}
-            aria-hidden
-          />
-          {sorted.map((child) => (
-            <TreeNodeView
-              key={child.segment}
-              node={child}
-              depth={depth + 1}
-              selectedToolId={selectedToolId}
-              onSelect={onSelect}
-              search={search}
-              defaultOpen={defaultOpen}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Leaf item
-// ---------------------------------------------------------------------------
-
-function ToolLeafItem(props: {
-  tool: ToolSummary;
-  active: boolean;
-  onSelect: () => void;
-  search: string;
-  depth: number;
-}) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const paddingLeft = 8 + props.depth * 16 + 8;
-  const label = props.tool.name.split(".").pop() ?? props.tool.name;
-
-  useEffect(() => {
-    if (props.active && ref.current) {
-      ref.current.scrollIntoView({ block: "nearest" });
-    }
-  }, [props.active]);
-
-  return (
-    <Button
-      ref={ref}
-      variant="ghost"
-      onClick={props.onSelect}
-      className={[
-        "group flex h-auto w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-left",
-        props.active
-          ? "border-l-2 border-l-primary bg-primary/10 text-foreground"
-          : "text-foreground/70 hover:bg-accent/50 hover:text-foreground",
-      ].join(" ")}
-      style={{ paddingLeft }}
-    >
-      <svg viewBox="0 0 16 16" className="size-3 shrink-0 text-muted-foreground/40">
-        <path
-          d="M4 2h8l1 3H3l1-3zM3 6h10v8H3V6z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.2"
-        />
-      </svg>
-      <span className="flex-1 truncate font-mono text-[12px]">
-        {highlightMatch(label, props.search)}
-      </span>
-    </Button>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // ToolTree — main export
 // ---------------------------------------------------------------------------
 
@@ -270,20 +175,61 @@ export function ToolTree(props: {
   selectedToolId: string | null;
   onSelect: (toolId: string) => void;
 }) {
+  const { tools, selectedToolId, onSelect } = props;
   const [search, setSearch] = useState("");
+  const [manualOpen, setManualOpen] = useState<Set<string>>(() => new Set());
   const searchRef = useRef<HTMLInputElement>(null);
+  const selectedRowRef = useRef<HTMLButtonElement>(null);
+
   const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
   const filteredTools = useMemo(() => {
-    if (terms.length === 0) return props.tools;
-    return props.tools.filter((t) => {
+    if (terms.length === 0) return tools;
+    return tools.filter((t) => {
       const corpus = [t.name, t.description ?? ""].join(" ").toLowerCase();
       return terms.every((term) => corpus.includes(term));
     });
-  }, [props.tools, terms]);
+  }, [tools, terms]);
 
   const tree = useMemo(() => buildTree(filteredTools), [filteredTools]);
 
+  // When searching, expand everything so matches are visible.
+  // Also auto-expand groups that contain the selected tool.
+  const openSet = useMemo(() => {
+    if (terms.length > 0) {
+      const all = new Set<string>();
+      collectGroupPaths(tree, all);
+      return all;
+    }
+    const set = new Set(manualOpen);
+    if (selectedToolId) {
+      const parts = selectedToolId.split(".");
+      // Progressively add ancestor paths (best-effort, based on dotted name).
+      let acc = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        acc = acc ? `${acc}.${parts[i]}` : parts[i]!;
+        set.add(acc);
+      }
+    }
+    return set;
+  }, [tree, manualOpen, selectedToolId, terms.length]);
+
+  const rows = useMemo(() => {
+    const acc: Row[] = [];
+    flattenTree(tree, 0, openSet, acc);
+    return acc;
+  }, [tree, openSet]);
+
+  const toggleGroup = (path: string) => {
+    setManualOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  // Keyboard shortcuts — `/` focuses search, Escape clears
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "/" && document.activeElement?.tagName !== "INPUT") {
@@ -299,68 +245,137 @@ export function ToolTree(props: {
     return () => document.removeEventListener("keydown", handler);
   }, [search]);
 
-  const entries = [...tree.children.values()].sort((a, b) => a.segment.localeCompare(b.segment));
+  // Scroll the selected row into view when it changes
+  useEffect(() => {
+    if (!selectedToolId) return;
+    selectedRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedToolId, rows]);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Search */}
-      <div className="shrink-0 border-b border-border px-3 py-2">
-        <div className="flex h-8 items-center gap-2 rounded-md border border-input bg-background px-2.5">
-          <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-muted-foreground/40">
-            <circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" strokeWidth="1.2" />
-            <path
-              d="M10 10l4.5 4.5"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-          </svg>
-          <Input
-            ref={searchRef}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Filter ${props.tools.length} tools…`}
-            className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] shadow-none outline-none placeholder:text-muted-foreground/40 h-auto rounded-none focus-visible:ring-0 focus-visible:border-transparent"
-          />
-          {search.length > 0 ? (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => setSearch("")}
-              className="size-5 shrink-0 text-muted-foreground/40 hover:text-foreground"
-            >
-              ×
-            </Button>
-          ) : (
-            <kbd className="shrink-0 rounded border border-border bg-muted px-1 py-px text-[10px] leading-none text-muted-foreground/50">
-              /
-            </kbd>
-          )}
-        </div>
+    <div className="flex h-full min-h-0 flex-col bg-muted/20">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
+        <SearchIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+        <Input
+          ref={searchRef}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={`Filter ${tools.length} tools…`}
+          aria-label="Filter tools"
+          className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.75rem] shadow-none outline-none placeholder:text-muted-foreground/50 focus-visible:border-transparent focus-visible:ring-0"
+        />
+        {search.length > 0 && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+            className="size-4 shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <XIcon className="size-3" />
+          </Button>
+        )}
       </div>
-
-      {/* Tree */}
-      <div className="flex-1 overflow-y-auto p-1.5">
+      <div className="mx-2 border-t border-border/30" />
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {filteredTools.length === 0 ? (
-          <div className="p-4 text-center text-[13px] text-muted-foreground/50">
+          <div className="p-4 text-center text-[13px] text-muted-foreground">
             {terms.length > 0 ? "No tools match your filter" : "No tools available"}
           </div>
         ) : (
-          <div className="flex flex-col gap-px">
-            {entries.map((node) => (
-              <TreeNodeView
-                key={node.segment}
-                node={node}
-                depth={0}
-                selectedToolId={props.selectedToolId}
-                onSelect={props.onSelect}
+          rows.map((row) =>
+            row.kind === "leaf" ? (
+              <ToolLeafRow
+                key={row.path}
+                buttonRef={row.tool.id === selectedToolId ? selectedRowRef : undefined}
+                tool={row.tool}
+                depth={row.depth}
+                active={row.tool.id === selectedToolId}
+                onSelect={() => onSelect(row.tool.id)}
                 search={search}
-                defaultOpen={terms.length > 0}
               />
-            ))}
-          </div>
+            ) : (
+              <ToolGroupRow
+                key={row.path}
+                segment={row.segment}
+                depth={row.depth}
+                count={row.count}
+                open={row.open}
+                onToggle={() => toggleGroup(row.path)}
+                search={search}
+              />
+            ),
+          )
         )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row renderers
+// ---------------------------------------------------------------------------
+
+const rowIndent = (depth: number) => 12 + depth * 16;
+
+const rowBaseClasses =
+  "relative flex h-auto w-full items-center justify-start gap-2 rounded-none py-2 text-[13px] font-normal transition-[background-color] duration-150";
+
+function ToolGroupRow(props: {
+  segment: string;
+  depth: number;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  search: string;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      aria-expanded={props.open}
+      onClick={props.onToggle}
+      className={cn(rowBaseClasses, "hover:bg-accent/60")}
+      style={{ paddingLeft: rowIndent(props.depth), paddingRight: 12 }}
+    >
+      <ChevronRightIcon
+        aria-hidden
+        className={cn(
+          "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
+          props.open && "rotate-90",
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate text-left font-mono text-[13px] text-foreground">
+        {highlightMatch(props.segment, props.search)}
+      </span>
+      <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">{props.count}</span>
+    </Button>
+  );
+}
+
+function ToolLeafRow(props: {
+  buttonRef?: React.Ref<HTMLButtonElement>;
+  tool: ToolSummary;
+  depth: number;
+  active: boolean;
+  onSelect: () => void;
+  search: string;
+}) {
+  const label = props.tool.name.split(".").pop() ?? props.tool.name;
+  return (
+    <Button
+      ref={props.buttonRef}
+      variant="ghost"
+      onClick={props.onSelect}
+      className={cn(
+        rowBaseClasses,
+        props.active
+          ? "bg-primary/15 text-foreground ring-1 ring-inset ring-primary/40 hover:bg-primary/20"
+          : "text-foreground/80 hover:bg-accent/60 hover:text-foreground",
+      )}
+      style={{ paddingLeft: rowIndent(props.depth) + 20, paddingRight: 12 }}
+    >
+      <span className="flex-1 truncate text-left font-mono">
+        {highlightMatch(label, props.search)}
+      </span>
+    </Button>
   );
 }

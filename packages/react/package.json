@@ -1,6 +1,6 @@
 {
   "name": "@executor/react",
-  "version": "1.4.2",
+  "version": "1.4.3-beta.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -24,6 +24,7 @@
     "@executor/api": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@hookform/resolvers": "^5.2.2",
+    "@lobehub/icons": "^5.4.0",
     "@shikijs/langs": "^4.0.2",
     "@shikijs/themes": "^4.0.2",
     "@tanstack/react-router": "catalog:",
@@ -44,6 +45,7 @@
     "sonner": "^2.0.7",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.3.0",
+    "tldts": "^7.0.28",
     "vaul": "^1.1.2"
   },
   "devDependencies": {

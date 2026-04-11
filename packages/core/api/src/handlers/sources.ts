@@ -14,6 +14,7 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
           id: s.id,
           name: s.name,
           kind: s.kind,
+          url: s.url,
           runtime: s.runtime,
           canRemove: s.canRemove,
           canRefresh: s.canRefresh,

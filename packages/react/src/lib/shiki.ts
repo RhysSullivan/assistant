@@ -1,8 +1,22 @@
-import { createHighlighterCore, type HighlighterCore, type LanguageInput } from "shiki/core";
+import { createHighlighterCoreSync, type HighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import { useIsDark } from "../hooks/use-is-dark";
 
 // ---------------------------------------------------------------------------
-// Supported languages — explicit imports to avoid bundling all grammars
+// Eagerly loaded languages (sync — available immediately)
+// ---------------------------------------------------------------------------
+
+import langTypescript from "@shikijs/langs/typescript";
+import langJavascript from "@shikijs/langs/javascript";
+import langTsx from "@shikijs/langs/tsx";
+import langJsx from "@shikijs/langs/jsx";
+import langJson from "@shikijs/langs/json";
+import langShellscript from "@shikijs/langs/shellscript";
+import githubDark from "@shikijs/themes/github-dark";
+import githubLight from "@shikijs/themes/github-light";
+
+// ---------------------------------------------------------------------------
+// Lazily loaded languages — imported on first use
 // ---------------------------------------------------------------------------
 
 const SUPPORTED_LANGS = [
@@ -60,13 +74,9 @@ const LANG_ALIASES: Record<string, SupportedLang> = {
   yml: "yaml",
 };
 
-const LANG_LOADERS: Record<SupportedLang, () => LanguageInput> = {
-  json: () => import("@shikijs/langs/json"),
+const LAZY_LANG_LOADERS: Partial<Record<SupportedLang, () => Promise<unknown>>> = {
   xml: () => import("@shikijs/langs/xml"),
   yaml: () => import("@shikijs/langs/yaml"),
-  shellscript: () => import("@shikijs/langs/shellscript"),
-  typescript: () => import("@shikijs/langs/typescript"),
-  javascript: () => import("@shikijs/langs/javascript"),
   python: () => import("@shikijs/langs/python"),
   html: () => import("@shikijs/langs/html"),
   css: () => import("@shikijs/langs/css"),
@@ -83,8 +93,6 @@ const LANG_LOADERS: Record<SupportedLang, () => LanguageInput> = {
   c: () => import("@shikijs/langs/c"),
   cpp: () => import("@shikijs/langs/cpp"),
   csharp: () => import("@shikijs/langs/csharp"),
-  tsx: () => import("@shikijs/langs/tsx"),
-  jsx: () => import("@shikijs/langs/jsx"),
   toml: () => import("@shikijs/langs/toml"),
   dockerfile: () => import("@shikijs/langs/dockerfile"),
   diff: () => import("@shikijs/langs/diff"),
@@ -96,12 +104,34 @@ const LANG_LOADERS: Record<SupportedLang, () => LanguageInput> = {
 
 const supportedSet = new Set<string>([...SUPPORTED_LANGS, ...Object.keys(LANG_ALIASES)]);
 
-export const THEME = "vitesse-dark";
+export const SUPPORTED_THEMES = ["github-dark", "github-light"] as const;
+export type SupportedTheme = (typeof SUPPORTED_THEMES)[number];
+
+export const DEFAULT_LIGHT_THEME: SupportedTheme = "github-light";
+export const DEFAULT_DARK_THEME: SupportedTheme = "github-dark";
+
+export type ShikiThemeProp = SupportedTheme | { light: SupportedTheme; dark: SupportedTheme };
+
+/**
+ * Resolve a `ShikiThemeProp` (either a single theme or a `{ light, dark }`
+ * pair) to the theme that should currently be used, reacting to system
+ * dark-mode changes. When no theme is provided, the default github pair is
+ * used.
+ */
+export function useResolvedShikiTheme(theme?: ShikiThemeProp): SupportedTheme {
+  const isDark = useIsDark();
+  if (typeof theme === "string") return theme;
+  const light = theme?.light ?? DEFAULT_LIGHT_THEME;
+  const dark = theme?.dark ?? DEFAULT_DARK_THEME;
+  return isDark ? dark : light;
+}
 
 export function resolveLang(lang: string): SupportedLang | null {
   const l = lang.trim().toLowerCase();
-  if (l in LANG_LOADERS) return l as SupportedLang;
-  if (l in LANG_ALIASES) return LANG_ALIASES[l]!;
+  if (supportedSet.has(l)) {
+    if (l in LANG_ALIASES) return LANG_ALIASES[l]!;
+    return l as SupportedLang;
+  }
   return null;
 }
 
@@ -110,22 +140,52 @@ export function isSupportedLang(lang: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Shared singleton highlighter — lazy, created on first use
+// Shared singleton highlighter — synchronous, created eagerly with core langs
 // ---------------------------------------------------------------------------
 
-const jsEngine = createJavaScriptRegexEngine({ forgiving: true });
+const highlighter: HighlighterCore = createHighlighterCoreSync({
+  themes: [githubDark, githubLight],
+  langs: [langTypescript, langJavascript, langTsx, langJsx, langJson, langShellscript],
+  engine: createJavaScriptRegexEngine({ forgiving: true }),
+});
 
-let _promise: Promise<HighlighterCore> | null = null;
+export function getHighlighter(): HighlighterCore {
+  return highlighter;
+}
 
-export function getHighlighter(): Promise<HighlighterCore> {
-  if (!_promise) {
-    _promise = createHighlighterCore({
-      themes: [import("@shikijs/themes/vitesse-dark")],
-      langs: Object.values(LANG_LOADERS).map((loader) => loader()),
-      engine: jsEngine,
+/**
+ * Ensure a language is loaded into the highlighter. Returns true if the
+ * language is ready for synchronous use, false if it needs to be loaded
+ * asynchronously (in which case `onLoaded` will be called when ready).
+ */
+const loadingLangs = new Set<string>();
+
+export function ensureLang(lang: SupportedLang, onLoaded?: () => void): boolean {
+  const loaded = highlighter.getLoadedLanguages();
+  if (loaded.includes(lang)) return true;
+
+  const loader = LAZY_LANG_LOADERS[lang];
+  if (!loader) return true; // Not a lazy lang, must be already loaded
+
+  if (!loadingLangs.has(lang)) {
+    loadingLangs.add(lang);
+    void loader().then((mod: any) => {
+      const registration = mod.default ?? mod;
+      highlighter.loadLanguageSync(registration);
+      loadingLangs.delete(lang);
+      onLoaded?.();
+    });
+  } else if (onLoaded) {
+    const l = loader;
+    void l().then((mod: any) => {
+      const registration = mod.default ?? mod;
+      if (!highlighter.getLoadedLanguages().includes(lang)) {
+        highlighter.loadLanguageSync(registration);
+      }
+      onLoaded();
     });
   }
-  return _promise;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,47 +195,51 @@ export function getHighlighter(): Promise<HighlighterCore> {
 import type { CodeHighlighterPlugin, ThemeInput } from "streamdown";
 
 const tokensCache = new Map<string, unknown>();
-const pendingCallbacks = new Map<string, Set<(result: unknown) => void>>();
+
+/**
+ * Read the current system color-scheme preference synchronously. Used in
+ * non-React contexts (like the streamdown plugin) where hooks aren't
+ * available.
+ */
+const prefersDarkNow = (): boolean => {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+};
 
 export function createCodeHighlighterPlugin(): CodeHighlighterPlugin {
   return {
     name: "shiki" as const,
     type: "code-highlighter" as const,
     getSupportedLanguages: () => [...SUPPORTED_LANGS] as string[] as never,
-    getThemes: () => [THEME as ThemeInput, THEME as ThemeInput],
+    getThemes: () => [DEFAULT_LIGHT_THEME as ThemeInput, DEFAULT_DARK_THEME as ThemeInput],
     supportsLanguage: (language: string) => isSupportedLang(language),
     highlight(options, callback) {
       const resolved = resolveLang(options.language);
       const lang = resolved ?? "json";
-      const key = `${lang}:${options.code.length}:${options.code.slice(0, 128)}`;
+      const activeTheme = prefersDarkNow() ? DEFAULT_DARK_THEME : DEFAULT_LIGHT_THEME;
+      const key = `${activeTheme}:${lang}:${options.code.length}:${options.code.slice(0, 128)}`;
 
       const cached = tokensCache.get(key);
       if (cached) return cached as never;
 
-      if (callback) {
-        if (!pendingCallbacks.has(key)) {
-          pendingCallbacks.set(key, new Set());
-        }
-        pendingCallbacks.get(key)!.add(callback as (result: unknown) => void);
-      }
-
-      void getHighlighter().then((highlighter) => {
-        if (tokensCache.has(key)) {
-          const result = tokensCache.get(key);
-          pendingCallbacks.get(key)?.forEach((cb) => cb(result));
-          pendingCallbacks.delete(key);
-          return;
-        }
+      const isReady = ensureLang(lang, () => {
+        // Language just loaded — highlight and notify via callback
         const result = highlighter.codeToTokens(options.code, {
           lang,
-          themes: { light: THEME, dark: THEME },
+          themes: { light: activeTheme, dark: activeTheme },
         });
         tokensCache.set(key, result);
-        pendingCallbacks.get(key)?.forEach((cb) => cb(result));
-        pendingCallbacks.delete(key);
+        callback?.(result as never);
       });
 
-      return null;
+      if (!isReady) return null;
+
+      const result = highlighter.codeToTokens(options.code, {
+        lang,
+        themes: { light: activeTheme, dark: activeTheme },
+      });
+      tokensCache.set(key, result);
+      return result as never;
     },
   };
 }

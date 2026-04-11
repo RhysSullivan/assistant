@@ -11,6 +11,8 @@ export class Source extends Schema.Class<Source>("Source")({
   name: Schema.String,
   /** Plugin kind that manages this source (e.g. "openapi", "mcp") */
   kind: Schema.String,
+  /** Optional upstream URL for this source — used to derive a favicon in the UI */
+  url: Schema.optional(Schema.String),
   /** True when the source is provided by the running executor */
   runtime: Schema.optional(Schema.Boolean),
   /** Whether the source supports removal */

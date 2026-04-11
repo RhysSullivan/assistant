@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { jsx, jsxs, Fragment } from "react/jsx-runtime";
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
-import { getHighlighter, resolveLang, THEME } from "../lib/shiki";
+import {
+  getHighlighter,
+  ensureLang,
+  resolveLang,
+  useResolvedShikiTheme,
+  type ShikiThemeProp,
+  type SupportedTheme,
+} from "../lib/shiki";
 import { cn } from "../lib/utils";
 import { Button } from "./button";
 
@@ -55,27 +62,17 @@ const CheckIcon = () => (
 // Highlight hook
 // ---------------------------------------------------------------------------
 
-function useHighlighted(code: string, lang: string): ReactNode | null {
-  const [highlighted, setHighlighted] = useState<ReactNode | null>(null);
+function useHighlighted(code: string, lang: string, theme: SupportedTheme): ReactNode | null {
+  const [, setTick] = useState(0);
+  const resolvedLang = (resolveLang(lang) ?? "json") as Parameters<typeof ensureLang>[0];
 
-  useEffect(() => {
-    let cancelled = false;
+  const isReady = ensureLang(resolvedLang, () => setTick((t) => t + 1));
 
-    getHighlighter().then((highlighter) => {
-      if (cancelled) return;
+  if (!isReady) return null;
 
-      const hast = highlighter.codeToHast(code, { lang, theme: THEME });
-      const nodes = toJsxRuntime(hast, { jsx, jsxs, Fragment });
-
-      if (!cancelled) setHighlighted(nodes);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [code, lang]);
-
-  return highlighted;
+  const highlighter = getHighlighter();
+  const hast = highlighter.codeToHast(code, { lang: resolvedLang, theme });
+  return toJsxRuntime(hast, { jsx, jsxs, Fragment });
 }
 
 // ---------------------------------------------------------------------------
@@ -88,13 +85,15 @@ export function CodeBlock(props: {
   title?: string;
   maxHeight?: string;
   className?: string;
+  theme?: ShikiThemeProp;
 }) {
-  const { code, lang: langHint, title, className } = props;
+  const { code, lang: langHint, title, className, theme } = props;
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const language = useMemo(() => detectLanguage(code, langHint), [code, langHint]);
-  const highlighted = useHighlighted(code, language);
+  const resolvedTheme = useResolvedShikiTheme(theme);
+  const highlighted = useHighlighted(code, language, resolvedTheme);
 
   const lines = code.split("\n");
   const isLong = lines.length > 24;

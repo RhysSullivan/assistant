@@ -236,6 +236,7 @@ export const graphqlPlugin = (options?: {
                       id: s.namespace,
                       name: s.name,
                       kind: "graphql",
+                      url: s.config.endpoint,
                       runtime: false,
                       canRemove: true,
                       canRefresh: false,
