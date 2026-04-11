@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import type { ScopedKv, ToolId } from "@executor/storage";
+import type { ScopedKv, ToolId } from "@executor/sdk";
 
 import { McpToolBinding } from "./types";
 import type { McpStoredSourceData } from "./types";

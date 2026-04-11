@@ -1,4 +1,4 @@
-import type { ScopeId } from "@executor/storage";
+import type { ScopeId } from "@executor/sdk";
 import { GoogleDiscoveryClient } from "./client";
 
 export const googleDiscoverySourceAtom = (scopeId: ScopeId, namespace: string) =>

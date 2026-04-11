@@ -3,7 +3,7 @@ import { FetchHttpClient, FileSystem, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
 
 import { definePlugin, registerRuntimeTools, runtimeTool, type ExecutorPlugin, type PluginContext } from "@executor/sdk";
-import { Source, SourceDetectionResult, ToolId, type SecretId, type ToolRegistration } from "@executor/storage";
+import { Source, SourceDetectionResult, ToolId, type SecretId, type ToolRegistration } from "@executor/sdk";
 
 import {
   introspect,

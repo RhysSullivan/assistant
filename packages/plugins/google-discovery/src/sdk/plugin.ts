@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Effect, Option } from "effect";
 
 import { definePlugin, type ExecutorPlugin, type PluginContext } from "@executor/sdk";
-import { Source, SourceDetectionResult, SecretId, ToolId, type ToolRegistration } from "@executor/storage";
+import { Source, SourceDetectionResult, SecretId, ToolId, type ToolRegistration } from "@executor/sdk";
 
 import type { GoogleDiscoveryBindingStore, GoogleDiscoveryStoredSource } from "./binding-store";
 import { makeBindingStore } from "./binding-store";

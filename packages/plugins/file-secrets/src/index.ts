@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { definePlugin, type ExecutorPlugin } from "@executor/sdk";
-import { type SecretProvider } from "@executor/storage";
+import { type SecretProvider } from "@executor/sdk";
 import * as fs from "node:fs";
 import * as path from "node:path";
 

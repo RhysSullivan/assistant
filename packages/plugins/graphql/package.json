@@ -51,7 +51,6 @@
     "@effect/platform-node": "catalog:",
     "@executor/config": "workspace:*",
     "@executor/sdk": "workspace:*",
-    "@executor/storage": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

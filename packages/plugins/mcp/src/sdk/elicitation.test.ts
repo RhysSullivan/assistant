@@ -6,7 +6,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 import { createExecutor } from "@executor/sdk";
-import { FormElicitation, ElicitationResponse, type InvokeOptions } from "@executor/storage";
+import { FormElicitation, ElicitationResponse, type InvokeOptions } from "@executor/sdk";
 import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 
 import { mcpPlugin } from "./plugin";

@@ -13,7 +13,7 @@ import type {
   ElicitationHandler,
   ElicitationContext,
   ElicitationRequest,
-} from "@executor/storage";
+} from "@executor/sdk";
 import {
   createExecutionEngine,
   formatExecuteResult,

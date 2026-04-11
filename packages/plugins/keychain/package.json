@@ -45,7 +45,6 @@
   },
   "dependencies": {
     "@executor/sdk": "workspace:*",
-    "@executor/storage": "workspace:*",
     "@napi-rs/keyring": "^1.2.0",
     "effect": "catalog:"
   },

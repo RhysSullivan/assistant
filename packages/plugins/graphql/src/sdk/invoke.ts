@@ -1,7 +1,7 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 
-import { type ToolId, type ToolInvoker, ToolInvocationResult, ToolInvocationError, type ScopeId, type SecretId } from "@executor/storage";
+import { type ToolId, type ToolInvoker, ToolInvocationResult, ToolInvocationError, type ScopeId, type SecretId } from "@executor/sdk";
 
 import { GraphqlInvocationError } from "./errors";
 import type { GraphqlOperationStore } from "./operation-store";

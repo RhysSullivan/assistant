@@ -50,7 +50,6 @@
     "@effect/platform": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/sdk": "workspace:*",
-    "@executor/storage": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

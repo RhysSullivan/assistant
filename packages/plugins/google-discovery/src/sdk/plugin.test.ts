@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import { createExecutor } from "@executor/sdk";
-import { SecretId, type InvokeOptions } from "@executor/storage";
+import { SecretId, type InvokeOptions } from "@executor/sdk";
 import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 import { googleDiscoveryPlugin } from "./plugin";
 

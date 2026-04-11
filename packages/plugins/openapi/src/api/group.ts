@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/storage";
+import { ScopeId } from "@executor/sdk";
 
 import { OpenApiParseError, OpenApiExtractionError } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { createExecutor } from "@executor/sdk";
-import { SecretId } from "@executor/storage";
+import { SecretId } from "@executor/sdk";
 import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 import { keychainPlugin } from "./index";
 

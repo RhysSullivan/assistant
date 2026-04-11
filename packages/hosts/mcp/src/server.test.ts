@@ -5,7 +5,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 
-import { FormElicitation, ToolId, UrlElicitation } from "@executor/storage";
+import { FormElicitation, ToolId, UrlElicitation } from "@executor/sdk";
 import type { ExecutionEngine, ExecutionResult } from "@executor/execution";
 
 import { createExecutorMcpServer } from "./server";

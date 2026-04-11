@@ -52,7 +52,6 @@
     "@effect/platform-node": "catalog:",
     "@executor/config": "workspace:*",
     "@executor/sdk": "workspace:*",
-    "@executor/storage": "workspace:*",
     "effect": "catalog:",
     "openapi-types": "^12.1.3",
     "yaml": "^2.7.1"

@@ -15,7 +15,7 @@
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
     "@executor/execution": "workspace:*",
-    "@executor/storage": "workspace:*",
+    "@executor/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "effect": "catalog:",
     "zod": "^4.3.0"
