@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Fiber, Schema } from "effect";
 
 import {
   ElicitationResponse,
@@ -293,6 +293,22 @@ describe("pause/resume with multiple elicitations", () => {
                     return { first: r1, second: r2 };
                   }),
               }),
+              tool({
+                name: "singleApproval",
+                description:
+                  "A tool that elicits exactly once and then returns a value. Mirrors the shape of a typical `gmail.users.labels.create` style operation: one approval, one side effect, one success response.",
+                inputSchema: EmptyInput,
+                handler: (_args, ctx) =>
+                  Effect.gen(function* () {
+                    const r = yield* ctx.elicit(
+                      new FormElicitation({
+                        message: "Only approval",
+                        requestedSchema: {},
+                      }),
+                    );
+                    return { ok: true, response: r };
+                  }),
+              }),
             ],
           }),
         ] as const,
@@ -346,4 +362,49 @@ describe("pause/resume with multiple elicitations", () => {
       }),
     { timeout: 10000 },
   );
+
+  // Regression: use separate top-level runPromise calls to match HTTP/CLI
+  // pause/resume, and a single-elicit tool so no later pause can mask a dead
+  // sandbox fiber.
+  it("resume returns across separate runPromise boundaries for a single-elicit tool (HTTP-like)", async () => {
+    const executor = await Effect.runPromise(makeElicitingExecutor());
+    const engine = createExecutionEngine({ executor });
+
+    const code = "return await tools.api.singleApproval({});";
+
+    const outcome1 = await engine.executeWithPause(code);
+    expect(outcome1.status).toBe("paused");
+    const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
+    expect(paused1.execution.elicitationContext.request.message).toBe("Only approval");
+
+    // `execution.fiber` is on `InternalPausedExecution`; the exported
+    // `PausedExecution` type doesn't carry it. Cast to read.
+    const sandboxFiber = (
+      paused1.execution as unknown as {
+        readonly fiber: Fiber.Fiber<unknown, unknown>;
+      }
+    ).fiber;
+    const exitProbe = await Effect.runPromise(
+      Effect.race(
+        Fiber.await(sandboxFiber),
+        Effect.map(Effect.sleep("50 millis"), () => "still-running" as const),
+      ),
+    );
+    expect(exitProbe).toBe("still-running");
+
+    const outcome2 = await Promise.race([
+      engine.resume(paused1.execution.id, { action: "accept" }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("resume hung across runPromise boundaries")), 2000),
+      ),
+    ]);
+
+    expect(outcome2).not.toBeNull();
+    const resumed = outcome2 as NonNullable<typeof outcome2>;
+    expect(resumed.status).toBe("completed");
+    if (resumed.status === "completed") {
+      expect(resumed.result.error).toBeUndefined();
+      expect(resumed.result.result).toMatchObject({ ok: true });
+    }
+  }, 10000);
 });

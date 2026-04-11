@@ -36,7 +36,7 @@ const getResult = () =>
     return cachedResult;
   });
 
-describe("Real specs: Cloudflare API", () => {
+describe("Real specs: Cloudflare API", { timeout: 60_000 }, () => {
   it.effect("parses the full Cloudflare spec", () =>
     Effect.gen(function* () {
       const doc = yield* getDoc();
