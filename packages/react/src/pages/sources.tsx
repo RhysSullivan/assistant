@@ -103,7 +103,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
         {/* Header */}
         <div className="mb-8">
           <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
@@ -163,7 +163,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
           {/* Connected / Explore */}
           <CardStack searchable>
             <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-col gap-0">
-              <CardStackHeader className="border-b border-border/50">
+              <CardStackHeader className="flex-wrap border-b border-border/50">
                 <TabsList>
                   <TabsTrigger value="connected">
                     Connected
