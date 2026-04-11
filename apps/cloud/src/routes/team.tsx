@@ -1,7 +1,8 @@
 import { useReducer, useState } from "react";
 import { Exit } from "effect";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useCustomer } from "autumn-js/react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -36,10 +37,15 @@ import {
 import {
   teamMembersAtom,
   teamRolesAtom,
+  teamDomainsAtom,
   inviteMember,
   removeMember,
   updateMemberRole,
+  addDomain,
+  deleteDomain,
+  updateTeamName,
 } from "../web/team-atoms";
+import { authAtom, useAuth } from "../web/auth";
 
 export const Route = createFileRoute("/team")({
   component: TeamPage,
@@ -96,12 +102,23 @@ function formatLastActive(lastActiveAt: string | null): string {
 }
 
 function TeamPage() {
+  const auth = useAuth();
+  const orgName =
+    auth.status === "authenticated" ? (auth.organization?.name ?? "Team") : "Team";
   const membersResult = useAtomValue(teamMembersAtom);
   const rolesResult = useAtomValue(teamRolesAtom);
+  const domainsResult = useAtomValue(teamDomainsAtom);
   const refreshMembers = useAtomRefresh(teamMembersAtom);
+  const refreshDomains = useAtomRefresh(teamDomainsAtom);
   const doRemove = useAtomSet(removeMember, { mode: "promiseExit" });
   const doUpdateRole = useAtomSet(updateMemberRole, { mode: "promiseExit" });
+  const doDeleteDomain = useAtomSet(deleteDomain, { mode: "promiseExit" });
+  const doUpdateTeamName = useAtomSet(updateTeamName, { mode: "promiseExit" });
+  const { check, isLoading: customerLoading } = useCustomer();
+  const canUseDomains = customerLoading ? false : check({ featureId: "domain-verification" }).allowed;
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [domainOpen, setDomainOpen] = useState(false);
+  const [editName, setEditName] = useState(orgName);
   const [search, setSearch] = useState("");
 
   const roles = Result.match(rolesResult, {
@@ -130,6 +147,34 @@ function TeamPage() {
     }
   };
 
+  const refreshAuth = useAtomRefresh(authAtom);
+
+  const handleSaveName = async () => {
+    const trimmed = editName.trim();
+    if (!trimmed || trimmed === orgName) {
+      setEditName(orgName);
+      return;
+    }
+    const exit = await doUpdateTeamName({ payload: { name: trimmed } });
+    if (Exit.isSuccess(exit)) {
+      toast.success("Team name updated");
+      refreshAuth();
+    } else {
+      toast.error("Failed to update team name");
+      setEditName(orgName);
+    }
+  };
+
+  const handleDeleteDomain = async (domainId: string, domain: string) => {
+    const exit = await doDeleteDomain({ path: { domainId } });
+    if (Exit.isSuccess(exit)) {
+      toast.success(`Removed ${domain}`);
+      refreshDomains();
+    } else {
+      toast.error("Failed to remove domain");
+    }
+  };
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
@@ -140,6 +185,34 @@ function TeamPage() {
           <Button size="sm" onClick={() => setInviteOpen(true)}>
             Invite member
           </Button>
+        </div>
+
+        {/* Team name */}
+        <div className="mb-6 rounded-lg border border-foreground/[0.06] px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <Label
+                htmlFor="team-name"
+                className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground"
+              >
+                Team name
+              </Label>
+              <Input
+                id="team-name"
+                value={editName}
+                onChange={(e) => setEditName((e.target as HTMLInputElement).value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveName();
+                }}
+                className="mt-1 text-[0.8125rem] h-8 border-none bg-transparent px-0 shadow-none focus-visible:ring-0"
+              />
+            </div>
+            {editName.trim() !== orgName && editName.trim() !== "" && (
+              <Button size="sm" className="h-7 text-[0.75rem]" onClick={handleSaveName}>
+                Save
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Search */}
@@ -312,6 +385,87 @@ function TeamPage() {
           },
         })}
 
+        {/* Domains */}
+        <div className="mt-14">
+          <div className="flex items-end justify-between mb-6">
+            <div>
+              <h2 className="font-display text-xl tracking-tight text-foreground leading-none">
+                Domains
+              </h2>
+              <p className="mt-2 text-[0.8125rem] text-muted-foreground leading-relaxed">
+                Verify a domain to let anyone with a matching email join automatically.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled={!canUseDomains}
+              onClick={() => canUseDomains && setDomainOpen(true)}
+            >
+              Add domain
+            </Button>
+          </div>
+
+          {!canUseDomains && (
+            <div className="mb-3 flex items-center justify-between rounded-lg border border-foreground/[0.06] px-4 py-3">
+              <p className="text-[0.8125rem] text-muted-foreground">
+                Domain verification is available on the Professional plan.
+              </p>
+              <Link to="/billing/plans">
+                <Button size="sm" variant="outline" className="h-7 text-[0.75rem]">
+                  Upgrade
+                </Button>
+              </Link>
+            </div>
+          )}
+
+          {Result.match(domainsResult, {
+            onInitial: () => (
+              <div className="space-y-3">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/50" />
+                ))}
+              </div>
+            ),
+            onFailure: () => (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+                <p className="text-[0.8125rem] text-destructive">Failed to load domains</p>
+              </div>
+            ),
+            onSuccess: ({ value }) => {
+              if (value.domains.length === 0) {
+                return (
+                  <div className="rounded-lg border border-dashed border-foreground/10 px-6 py-10 text-center">
+                    <p className="text-[0.8125rem] font-medium text-foreground">
+                      No domains yet
+                    </p>
+                    <p className="mt-1 text-[0.75rem] text-muted-foreground">
+                      Add your company domain so teammates can join without an invite.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {value.domains.map((d) => (
+                    <DomainCard
+                      key={d.id}
+                      domain={d}
+                      onDelete={() => handleDeleteDomain(d.id, d.domain)}
+                    />
+                  ))}
+                </div>
+              );
+            },
+          })}
+        </div>
+
+        <AddDomainDialog
+          open={domainOpen}
+          onOpenChange={setDomainOpen}
+          onAdded={refreshDomains}
+        />
+
         <InviteDialog
           open={inviteOpen}
           onOpenChange={setInviteOpen}
@@ -319,6 +473,156 @@ function TeamPage() {
           roles={roles}
         />
       </div>
+    </div>
+  );
+}
+
+type DomainData = {
+  id: string;
+  domain: string;
+  state: string;
+  verificationStrategy: string;
+  verificationToken?: string;
+  verificationPrefix?: string;
+};
+
+function CopyButton({ value, label }: { value: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const icon = copied ? (
+    <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
+      <path
+        d="M3.5 8.5L6.5 11.5L12.5 5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
+      <rect x="5.5" y="5.5" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M3.5 10.5V3.5H10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+
+  if (label) {
+    return (
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+        aria-label={label}
+      >
+        {icon}
+        {copied ? "Copied" : label}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="ml-1.5 inline-flex shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+      aria-label="Copy to clipboard"
+    >
+      {icon}
+    </button>
+  );
+}
+
+function DomainCard({
+  domain: d,
+  onDelete,
+}: {
+  domain: DomainData;
+  onDelete: () => void;
+}) {
+  const isVerified = d.state === "verified";
+  const isPending = d.state === "pending";
+
+  const copyPromptValue = `Add a DNS TXT record for domain verification:\n\nDomain: ${d.domain}\nRecord name: ${d.verificationPrefix ?? "_workos"}.${d.domain}\nRecord value: ${d.verificationToken}\n\nPlease add this TXT record to my DNS configuration.`;
+
+  const recordName = `${d.verificationPrefix ?? "_workos"}.${d.domain}`;
+
+  return (
+    <div className="rounded-lg border border-foreground/[0.06]">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-[0.8125rem] font-medium text-foreground leading-none">
+              {d.domain}
+            </p>
+            <Badge
+              className={
+                isVerified
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : isPending
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    : "bg-destructive/10 text-destructive"
+              }
+            >
+              {isVerified ? "Verified" : isPending ? "Pending" : "Failed"}
+            </Badge>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-7">
+                <svg viewBox="0 0 16 16" className="size-3">
+                  <circle cx="8" cy="3" r="1.2" fill="currentColor" />
+                  <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+                  <circle cx="8" cy="13" r="1.2" fill="currentColor" />
+                </svg>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive text-[0.75rem]"
+                onClick={onDelete}
+              >
+                Remove domain
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {!isVerified && d.verificationToken && (
+        <div className="border-t border-foreground/[0.06] px-4 py-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[0.8125rem] text-muted-foreground leading-none">
+              Add this record to your DNS provider to verify ownership.
+            </p>
+            <CopyButton value={copyPromptValue} label="Copy prompt" />
+          </div>
+          <div className="mt-3 grid grid-cols-[4.5rem_1fr_1fr] items-baseline gap-y-2">
+            <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Type</p>
+            <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Name</p>
+            <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Value</p>
+            <p className="text-[0.8125rem] font-mono text-foreground leading-none">TXT</p>
+            <span className="inline-flex items-center gap-1">
+              <code className="text-[0.8125rem] font-mono text-foreground leading-none">{recordName}</code>
+              <CopyButton value={recordName} />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <code className="text-[0.8125rem] font-mono text-foreground leading-none">{d.verificationToken}</code>
+              <CopyButton value={d.verificationToken} />
+            </span>
+          </div>
+          <p className="mt-3 text-[0.75rem] text-muted-foreground/50 leading-none">
+            DNS changes can take up to 72 hours to propagate, but usually complete within a few minutes.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -437,6 +741,102 @@ function InviteDialog(props: {
             disabled={!state.email.trim() || state.status === "sending"}
           >
             {state.status === "sending" ? "Sending…" : "Send invite"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddDomainDialog(props: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onAdded: () => void;
+}) {
+  const [domain, setDomain] = useState("");
+  const [status, setStatus] = useState<"idle" | "adding" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const doAdd = useAtomSet(addDomain, { mode: "promiseExit" });
+
+  const handleAdd = async () => {
+    const trimmed = domain.trim().toLowerCase();
+    if (!trimmed) return;
+    setStatus("adding");
+    setError(null);
+
+    const exit = await doAdd({ payload: { domain: trimmed } });
+    if (Exit.isSuccess(exit)) {
+      toast.success(`Domain ${trimmed} added — check verification instructions`);
+      setDomain("");
+      setStatus("idle");
+      props.onOpenChange(false);
+      props.onAdded();
+    } else {
+      setStatus("error");
+      setError("Failed to add domain. It may already be claimed by another organization.");
+    }
+  };
+
+  return (
+    <Dialog
+      open={props.open}
+      onOpenChange={(v) => {
+        if (!v) {
+          setDomain("");
+          setStatus("idle");
+          setError(null);
+        }
+        props.onOpenChange(v);
+      }}
+    >
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-xl">Add domain</DialogTitle>
+          <DialogDescription className="text-[0.8125rem] leading-relaxed">
+            Claim a domain so users with matching emails automatically join your team on sign-up.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-3">
+          <div className="grid gap-1.5">
+            <Label
+              htmlFor="domain-input"
+              className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground"
+            >
+              Domain
+            </Label>
+            <Input
+              id="domain-input"
+              type="text"
+              placeholder="acme.com"
+              value={domain}
+              onChange={(e) => setDomain((e.target as HTMLInputElement).value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAdd();
+              }}
+              className="text-[0.8125rem] h-9"
+            />
+          </div>
+
+          {status === "error" && error && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              <p className="text-[0.75rem] text-destructive">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost" size="sm">
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button
+            size="sm"
+            onClick={handleAdd}
+            disabled={!domain.trim() || status === "adding"}
+          >
+            {status === "adding" ? "Adding…" : "Add domain"}
           </Button>
         </DialogFooter>
       </DialogContent>

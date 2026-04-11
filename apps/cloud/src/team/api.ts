@@ -57,6 +57,37 @@ const UpdateRoleResponse = Schema.Struct({
   success: Schema.Boolean,
 });
 
+const UpdateTeamNameBody = Schema.Struct({
+  name: Schema.String,
+});
+
+const UpdateTeamNameResponse = Schema.Struct({
+  name: Schema.String,
+});
+
+const DomainItem = Schema.Struct({
+  id: Schema.String,
+  domain: Schema.String,
+  state: Schema.String,
+  verificationStrategy: Schema.String,
+  verificationToken: Schema.optional(Schema.String),
+  verificationPrefix: Schema.optional(Schema.String),
+});
+
+const DomainsResponse = Schema.Struct({
+  domains: Schema.Array(DomainItem),
+});
+
+const AddDomainBody = Schema.Struct({
+  domain: Schema.String,
+});
+
+const DomainResponse = Schema.Struct({
+  domain: DomainItem,
+});
+
+const domainIdParam = HttpApiSchema.param("domainId", Schema.String);
+
 export { TeamMember, TeamMembersResponse };
 
 export class TeamApi extends HttpApiGroup.make("team")
@@ -87,6 +118,31 @@ export class TeamApi extends HttpApiGroup.make("team")
     HttpApiEndpoint.patch("updateMemberRole")`/team/members/${membershipIdParam}/role`
       .setPayload(UpdateRoleBody)
       .addSuccess(UpdateRoleResponse)
+      .addError(WorkOSError)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.get("listDomains")`/team/domains`
+      .addSuccess(DomainsResponse)
+      .addError(WorkOSError),
+  )
+  .add(
+    HttpApiEndpoint.post("addDomain")`/team/domains`
+      .setPayload(AddDomainBody)
+      .addSuccess(DomainResponse)
+      .addError(WorkOSError)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.del("deleteDomain")`/team/domains/${domainIdParam}`
+      .addSuccess(RemoveResponse)
+      .addError(WorkOSError)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.patch("updateTeamName")`/team/name`
+      .setPayload(UpdateTeamNameBody)
+      .addSuccess(UpdateTeamNameResponse)
       .addError(WorkOSError)
       .addError(Forbidden),
   ) {}
