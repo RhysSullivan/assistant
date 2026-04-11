@@ -65,7 +65,22 @@ export {
 } from "./plugin";
 
 // Executor
-export { createExecutor, type Executor, type ExecutorConfig } from "./executor";
+export {
+  createExecutor,
+  type Executor,
+  type ExecutorConfig,
+  type ExecutorAuthProvider,
+} from "./executor";
+
+// Storage-backed services (built on top of @executor/storage)
+export { makeStorageToolRegistry } from "./storage-stores/tool-registry";
+export {
+  makeStorageSecretStore,
+  type StorageSecretStoreOptions,
+} from "./storage-stores/secret-store";
+export { makeStoragePolicyEngine } from "./storage-stores/policy-engine";
+export { makeStoragePluginKv } from "./storage-stores/plugin-kv";
+export { encrypt, decrypt } from "./storage-stores/crypto";
 
 // Built-in plugins
 export {

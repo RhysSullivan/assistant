@@ -1,12 +1,10 @@
 import { Context, Data, Effect } from "effect";
+import type { ExecutorStorage } from "@executor/storage";
+import { makeMemoryStorage } from "@executor/storage-memory";
 
 import {
   createExecutor as createEffectExecutor,
   ElicitationResponse as ElicitationResponseClass,
-  makeInMemoryToolRegistry,
-  makeInMemorySecretStore,
-  makeInMemoryPolicyEngine,
-  makeInMemorySourceRegistry,
   ScopeId,
   ToolId,
   SecretId,
@@ -37,11 +35,7 @@ import {
   type SecretId as SecretIdType,
   type ScopeId as ScopeIdType,
   type PolicyId as PolicyIdType,
-  type ToolNotFoundError,
   type ToolInvocationError,
-  type SecretNotFoundError,
-  type SecretResolutionError,
-  type PolicyDeniedError,
   type ElicitationDeclinedError,
   ToolListFilter,
   PolicyCheckInput,
@@ -288,93 +282,6 @@ const toPromiseSecretProvider = (provider: EffectSecretProvider): SecretProvider
   list: provider.list ? () => run(provider.list!()) : undefined,
 });
 
-// --- Main store adapters (Promise -> Effect) ---
-//
-// Users implementing a pluggable store (e.g. a Postgres-backed tool registry)
-// write against the promise-shaped ToolRegistry / SourceRegistry / SecretStore
-// / PolicyEngine interfaces declared below. These adapters wrap the user impl
-// so the Effect core layer sees a native Effect service.
-
-const toEffectToolRegistry = (r: ToolRegistry): CoreToolRegistryService => ({
-  list: (filter) => fromPromiseDying(() => r.list(filter)),
-  schema: (toolId) =>
-    fromPromiseTagged<ToolNotFoundError, ToolSchema>(() => r.schema(toolId), ["ToolNotFoundError"]),
-  definitions: () => fromPromiseDying(() => r.definitions()),
-  registerDefinitions: (defs) => fromPromiseDying(() => r.registerDefinitions(defs)),
-  registerRuntimeDefinitions: (defs) => fromPromiseDying(() => r.registerRuntimeDefinitions(defs)),
-  unregisterRuntimeDefinitions: (names) =>
-    fromPromiseDying(() => r.unregisterRuntimeDefinitions(names)),
-  registerInvoker: (pluginKey, effectInvoker) =>
-    fromPromiseDying(() => r.registerInvoker(pluginKey, toPromiseInvoker(effectInvoker))),
-  resolveAnnotations: (toolId) => fromPromiseDying(() => r.resolveAnnotations(toolId)),
-  invoke: (toolId, args, options) =>
-    fromPromiseTagged<
-      ToolNotFoundError | ToolInvocationError | ElicitationDeclinedError,
-      ToolInvocationResult
-    >(
-      () => r.invoke(toolId, args, effectToPromiseInvokeOptions(options)),
-      ["ToolNotFoundError", "ToolInvocationError", "ElicitationDeclinedError"],
-    ),
-  register: (tools) => fromPromiseDying(() => r.register(tools)),
-  registerRuntime: (tools) => fromPromiseDying(() => r.registerRuntime(tools)),
-  registerRuntimeHandler: (toolId, effectHandler) =>
-    fromPromiseDying(() =>
-      r.registerRuntimeHandler(toolId, toPromiseRuntimeHandler(effectHandler)),
-    ),
-  unregisterRuntime: (toolIds) => fromPromiseDying(() => r.unregisterRuntime(toolIds)),
-  unregister: (toolIds) => fromPromiseDying(() => r.unregister(toolIds)),
-  unregisterBySource: (sourceId) => fromPromiseDying(() => r.unregisterBySource(sourceId)),
-});
-
-const toEffectSourceRegistry = (r: SourceRegistry): CoreSourceRegistryService => ({
-  addManager: (manager) => fromPromiseDying(() => r.addManager(toPromiseSourceManager(manager))),
-  registerRuntime: (source) => fromPromiseDying(() => r.registerRuntime(source)),
-  unregisterRuntime: (sourceId) => fromPromiseDying(() => r.unregisterRuntime(sourceId)),
-  list: () => fromPromiseDying(() => r.list()),
-  remove: (sourceId) => fromPromiseDying(() => r.remove(sourceId)),
-  refresh: (sourceId) => fromPromiseDying(() => r.refresh(sourceId)),
-  detect: (url) => fromPromiseDying(() => r.detect(url)),
-});
-
-const toEffectSecretStore = (s: SecretStore): CoreSecretStoreService => ({
-  list: (scopeId) => fromPromiseDying(() => s.list(scopeId)),
-  get: (secretId) =>
-    fromPromiseTagged<SecretNotFoundError, SecretRef>(
-      () => s.get(secretId),
-      ["SecretNotFoundError"],
-    ),
-  resolve: (secretId, scopeId) =>
-    fromPromiseTagged<SecretNotFoundError | SecretResolutionError, string>(
-      () => s.resolve(secretId, scopeId),
-      ["SecretNotFoundError", "SecretResolutionError"],
-    ),
-  status: (secretId, scopeId) => fromPromiseDying(() => s.status(secretId, scopeId)),
-  set: (input) =>
-    fromPromiseTagged<SecretResolutionError, SecretRef>(
-      () => s.set(input),
-      ["SecretResolutionError"],
-    ),
-  remove: (secretId) =>
-    fromPromiseTagged<SecretNotFoundError, boolean>(
-      () => s.remove(secretId),
-      ["SecretNotFoundError"],
-    ),
-  addProvider: (provider) =>
-    fromPromiseDying(() => s.addProvider(toPromiseSecretProvider(provider))),
-  providers: () => fromPromiseDying(() => s.providers()),
-});
-
-const toEffectPolicyEngine = (p: PolicyEngine): CorePolicyEngineService => ({
-  list: (scopeId) => fromPromiseDying(() => p.list(scopeId)),
-  check: (input) =>
-    fromPromiseTagged<PolicyDeniedError, void>(
-      () => p.check({ scopeId: input.scopeId, toolId: input.toolId }),
-      ["PolicyDeniedError"],
-    ),
-  add: (policy) => fromPromiseDying(() => p.add(policy)),
-  remove: (policyId) => fromPromiseDying(() => p.remove(policyId)),
-});
-
 // ---------------------------------------------------------------------------
 // Plugin context
 // ---------------------------------------------------------------------------
@@ -601,22 +508,14 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
   readonly scope?: { readonly id?: string; readonly name?: string };
   readonly plugins?: TPlugins;
   /**
-   * Custom tool registry implementation. Defaults to an in-memory store.
-   * Implement the promise-shaped `ToolRegistry` interface to persist tool
-   * metadata to a database, remote service, etc.
+   * Optional pre-built storage adapter (e.g. memory, SQLite, Postgres).
+   * Defaults to an in-memory adapter. Custom promise-shaped registries
+   * are no longer supported — the Promise API always delegates to the
+   * Effect `createExecutor`, which builds typed services from storage.
    */
-  readonly tools?: ToolRegistry;
-  /** Custom source registry implementation. Defaults to an in-memory store. */
-  readonly sources?: SourceRegistry;
-  /**
-   * Custom secret store implementation. Defaults to an in-memory store.
-   * For most use cases, prefer passing a custom `SecretProvider` via
-   * `executor.secrets.addProvider(...)` — only replace the whole store if you
-   * need to persist the `SecretRef` metadata itself.
-   */
-  readonly secrets?: SecretStore;
-  /** Custom policy engine implementation. Defaults to an in-memory store. */
-  readonly policies?: PolicyEngine;
+  readonly storage?: ExecutorStorage;
+  /** Symmetric encryption key for the secret store. */
+  readonly encryptionKey?: string;
 }
 
 const KNOWN_KEYS = new Set(["scope", "tools", "sources", "policies", "secrets", "close"]);
@@ -630,16 +529,16 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
       : (p as unknown as ExecutorPlugin<string, object>),
   );
 
+  const storage = config.storage ?? (await run(makeMemoryStorage()));
+
   const effectConfig: EffectExecutorConfig<ExecutorPlugin<string, object>[]> = {
     scope: {
       id: ScopeId.make(config.scope?.id ?? "default"),
       name: config.scope?.name ?? "default",
       createdAt: new Date(),
     },
-    tools: config.tools ? toEffectToolRegistry(config.tools) : makeInMemoryToolRegistry(),
-    sources: config.sources ? toEffectSourceRegistry(config.sources) : makeInMemorySourceRegistry(),
-    secrets: config.secrets ? toEffectSecretStore(config.secrets) : makeInMemorySecretStore(),
-    policies: config.policies ? toEffectPolicyEngine(config.policies) : makeInMemoryPolicyEngine(),
+    storage,
+    encryptionKey: config.encryptionKey,
     plugins: effectPlugins,
   };
 

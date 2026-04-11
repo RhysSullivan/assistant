@@ -1,17 +1,22 @@
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
+import {
+  type ExecutorDBSchema,
+  type ExecutorStorage,
+  composeExecutorSchema,
+} from "@executor/storage";
 
 import type { ToolId, SecretId, PolicyId } from "./ids";
-import type { SecretProvider, SecretRef, SecretStore, SetSecretInput } from "./secrets";
+import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 import type {
   ToolMetadata,
   ToolSchema,
   ToolInvocationResult,
-  ToolRegistry,
   ToolListFilter,
   InvokeOptions,
 } from "./tools";
-import type { Source, SourceDetectionResult, SourceRegistry } from "./sources";
-import type { Policy, PolicyEngine } from "./policies";
+import type { Source, SourceDetectionResult } from "./sources";
+import { makeInMemorySourceRegistry } from "./sources";
+import type { Policy } from "./policies";
 import type { Scope } from "./scope";
 import type { ExecutorPlugin, PluginExtensions, PluginHandle } from "./plugin";
 import type {
@@ -27,6 +32,10 @@ import {
   ElicitationResponse,
   type ElicitationHandler,
 } from "./elicitation";
+import { makeStorageToolRegistry } from "./storage-stores/tool-registry";
+import { makeStorageSecretStore } from "./storage-stores/secret-store";
+import { makeStoragePolicyEngine } from "./storage-stores/policy-engine";
+import { makeStoragePluginKv } from "./storage-stores/plugin-kv";
 
 const resolveElicitationHandler = (options: InvokeOptions): ElicitationHandler =>
   options.onElicitation === "accept-all"
@@ -91,25 +100,39 @@ export type Executor<TPlugins extends readonly ExecutorPlugin<string, object>[] 
 } & PluginExtensions<TPlugins>;
 
 // ---------------------------------------------------------------------------
-// Resolved services — what we need to build an Executor
+// Auth provider port — compose-friendly schema contributor
 // ---------------------------------------------------------------------------
 
-export type ToolRegistryService = Context.Tag.Service<typeof ToolRegistry>;
-export type SourceRegistryService = Context.Tag.Service<typeof SourceRegistry>;
-export type SecretStoreService = Context.Tag.Service<typeof SecretStore>;
-export type PolicyEngineService = Context.Tag.Service<typeof PolicyEngine>;
-
-export interface ExecutorConfig<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> {
-  readonly scope: Scope;
-  readonly tools: ToolRegistryService;
-  readonly sources: SourceRegistryService;
-  readonly secrets: SecretStoreService;
-  readonly policies: PolicyEngineService;
-  readonly plugins?: TPlugins;
+export interface ExecutorAuthProvider {
+  readonly key: string;
+  readonly schema?: ExecutorDBSchema;
 }
 
 // ---------------------------------------------------------------------------
-// createExecutor — builds an Executor, initializes plugins
+// ExecutorConfig — the input shape callers pass to createExecutor
+// ---------------------------------------------------------------------------
+
+export interface ExecutorConfig<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> {
+  readonly scope: Scope;
+  readonly storage: ExecutorStorage;
+  readonly plugins?: TPlugins;
+  readonly auth?: ExecutorAuthProvider;
+  /**
+   * Symmetric encryption key for the secret store. Required when secrets
+   * are persisted through `ExecutorStorage`. If omitted, the secret store
+   * still accepts providers but cannot encrypt/decrypt values itself.
+   */
+  readonly encryptionKey?: string;
+  /**
+   * Additional secret providers to register at construction time
+   * (keychain, env, 1Password, etc.). Plugins may also call
+   * `executor.secrets.addProvider()` after startup.
+   */
+  readonly secretProviders?: readonly SecretProvider[];
+}
+
+// ---------------------------------------------------------------------------
+// createExecutor — builds an Executor from storage, initializes plugins
 // ---------------------------------------------------------------------------
 
 export const createExecutor = <
@@ -118,9 +141,26 @@ export const createExecutor = <
   config: ExecutorConfig<TPlugins>,
 ): Effect.Effect<Executor<TPlugins>, Error> =>
   Effect.gen(function* () {
-    const { scope, tools, sources, secrets, policies, plugins = [] } = config;
+    const { scope, storage, plugins = [] as unknown as TPlugins, auth, encryptionKey } = config;
 
-    // Initialize all plugins
+    // Schema composition is not wired into storage here — adapters are
+    // expected to have been constructed with the composed schema already.
+    // We compute it to surface early failures around plugin schema
+    // contributions even if the adapter ignores it.
+    composeExecutorSchema({
+      plugins: plugins as readonly { readonly storage?: { readonly schema?: ExecutorDBSchema } }[],
+      auth: auth?.schema,
+    });
+
+    const tools = makeStorageToolRegistry(storage, scope);
+    const sources = makeInMemorySourceRegistry();
+    const secrets = makeStorageSecretStore(storage, scope, {
+      encryptionKey: encryptionKey ?? "",
+      providers: config.secretProviders,
+    });
+    const policies = makeStoragePolicyEngine(storage, scope);
+    const pluginKv = makeStoragePluginKv(storage, scope);
+
     const handles = new Map<string, PluginHandle<object>>();
     const extensions: Record<string, object> = {};
 
@@ -131,6 +171,8 @@ export const createExecutor = <
         sources,
         secrets,
         policies,
+        storage,
+        pluginKv,
       });
       handles.set(plugin.key, handle);
       extensions[plugin.key] = handle.extension;

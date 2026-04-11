@@ -1,15 +1,14 @@
+import { Effect } from "effect";
+import { makeMemoryStorage } from "@executor/storage-memory";
+
 import { ScopeId } from "./ids";
 import type { Scope } from "./scope";
 import type { ExecutorConfig } from "./executor";
 import type { ExecutorPlugin } from "./plugin";
 
-import { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
-import { makeInMemorySecretStore } from "./in-memory/secret-store";
-import { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
-import { makeInMemorySourceRegistry } from "./sources";
-
 // ---------------------------------------------------------------------------
-// makeTestConfig — one-liner to build a test ExecutorConfig
+// makeTestConfig — one-liner to build a test ExecutorConfig backed by
+// an in-memory storage adapter.
 // ---------------------------------------------------------------------------
 
 export const makeTestConfig = <
@@ -25,12 +24,12 @@ export const makeTestConfig = <
     createdAt: new Date(),
   };
 
+  const storage = Effect.runSync(makeMemoryStorage());
+
   return {
     scope,
-    tools: makeInMemoryToolRegistry(),
-    sources: makeInMemorySourceRegistry(),
-    secrets: makeInMemorySecretStore(),
-    policies: makeInMemoryPolicyEngine(),
+    storage,
     plugins: options?.plugins,
+    encryptionKey: "test-encryption-key",
   };
 };

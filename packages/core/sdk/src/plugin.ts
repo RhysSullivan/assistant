@@ -18,8 +18,10 @@ export interface PluginContext {
   readonly sources: Context.Tag.Service<typeof SourceRegistry>;
   readonly secrets: Context.Tag.Service<typeof SecretStore>;
   readonly policies: Context.Tag.Service<typeof PolicyEngine>;
-  readonly storage?: ExecutorStorage;
-  readonly pluginKv?: (namespace?: string) => ScopedKv;
+  /** Raw storage adapter for plugins that declare their own schema */
+  readonly storage: ExecutorStorage;
+  /** Opaque-state escape hatch bound to the plugin's namespace */
+  readonly pluginKv: (namespace: string) => ScopedKv;
 }
 
 export interface PluginStorageDefinition {
