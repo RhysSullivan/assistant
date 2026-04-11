@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { WorkOSError } from "../auth/errors";
+import { UserStoreError, WorkOSError } from "../auth/errors";
 
 export class Forbidden extends Schema.TaggedError<Forbidden>()(
   "Forbidden",
@@ -69,7 +69,6 @@ const DomainItem = Schema.Struct({
   id: Schema.String,
   domain: Schema.String,
   state: Schema.String,
-  verificationStrategy: Schema.String,
   verificationToken: Schema.optional(Schema.String),
   verificationPrefix: Schema.optional(Schema.String),
 });
@@ -78,12 +77,8 @@ const DomainsResponse = Schema.Struct({
   domains: Schema.Array(DomainItem),
 });
 
-const AddDomainBody = Schema.Struct({
-  domain: Schema.String,
-});
-
-const DomainResponse = Schema.Struct({
-  domain: DomainItem,
+const DomainVerificationLinkResponse = Schema.Struct({
+  link: Schema.String,
 });
 
 const domainIdParam = HttpApiSchema.param("domainId", Schema.String);
@@ -127,9 +122,8 @@ export class TeamApi extends HttpApiGroup.make("team")
       .addError(WorkOSError),
   )
   .add(
-    HttpApiEndpoint.post("addDomain")`/team/domains`
-      .setPayload(AddDomainBody)
-      .addSuccess(DomainResponse)
+    HttpApiEndpoint.post("getDomainVerificationLink")`/team/domains/verify-link`
+      .addSuccess(DomainVerificationLinkResponse)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
@@ -144,5 +138,6 @@ export class TeamApi extends HttpApiGroup.make("team")
       .setPayload(UpdateTeamNameBody)
       .addSuccess(UpdateTeamNameResponse)
       .addError(WorkOSError)
+      .addError(UserStoreError)
       .addError(Forbidden),
   ) {}

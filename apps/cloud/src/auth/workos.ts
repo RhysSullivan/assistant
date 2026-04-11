@@ -200,14 +200,11 @@ const make = Effect.gen(function* () {
       use((wos) =>
         wos.portal.generateLink({
           organization: organizationId,
-          intent: "domain_verification" as const,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          intent: "domain_verification" as any,
           returnUrl,
         }),
       ),
-
-    /** Create a domain claim for an organization. */
-    createOrganizationDomain: (organizationId: string, domain: string) =>
-      use((wos) => wos.organizationDomains.create({ organizationId, domain })),
 
     /** Get a domain by ID. */
     getOrganizationDomain: (domainId: string) =>

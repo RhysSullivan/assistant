@@ -1,8 +1,10 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
 
+import { UserStoreService } from "../auth/context";
 import { AuthContext } from "../auth/middleware";
 import { WorkOSAuth } from "../auth/workos";
+import { server } from "../env";
 import { AutumnService } from "../services/autumn";
 import { TeamOrgApi } from "./compose";
 import { Forbidden } from "./api";
@@ -101,8 +103,6 @@ export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) 
         const workos = yield* WorkOSAuth;
         const org = yield* workos.getOrganization(auth.organizationId);
 
-        // The org-level response may omit verificationToken/verificationPrefix,
-        // so fetch each domain individually to get the full details.
         const domains = yield* Effect.all(
           org.domains.map((d) =>
             Effect.gen(function* () {
@@ -111,7 +111,6 @@ export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) 
                 id: full.id,
                 domain: full.domain,
                 state: full.state,
-                verificationStrategy: full.verificationStrategy,
                 verificationToken: full.verificationToken,
                 verificationPrefix: full.verificationPrefix,
               };
@@ -123,7 +122,7 @@ export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) 
         return { domains };
       }),
     )
-    .handle("addDomain", ({ payload }) =>
+    .handle("getDomainVerificationLink", () =>
       Effect.gen(function* () {
         yield* requireAdmin;
         const auth = yield* AuthContext;
@@ -143,17 +142,11 @@ export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) 
         }
 
         const workos = yield* WorkOSAuth;
-        const d = yield* workos.createOrganizationDomain(auth.organizationId, payload.domain);
-        return {
-          domain: {
-            id: d.id,
-            domain: d.domain,
-            state: d.state,
-            verificationStrategy: d.verificationStrategy,
-            verificationToken: d.verificationToken,
-            verificationPrefix: d.verificationPrefix,
-          },
-        };
+        const { link } = yield* workos.generateDomainVerificationPortalLink(
+          auth.organizationId,
+          server.VITE_PUBLIC_SITE_URL ? `${server.VITE_PUBLIC_SITE_URL}/team` : "/team",
+        );
+        return { link };
       }),
     )
     .handle("deleteDomain", ({ path }) =>
@@ -169,7 +162,9 @@ export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) 
         yield* requireAdmin;
         const auth = yield* AuthContext;
         const workos = yield* WorkOSAuth;
+        const users = yield* UserStoreService;
         const org = yield* workos.updateOrganization(auth.organizationId, payload.name);
+        yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
         return { name: org.name };
       }),
     ),

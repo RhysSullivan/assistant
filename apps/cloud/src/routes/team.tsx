@@ -41,7 +41,7 @@ import {
   inviteMember,
   removeMember,
   updateMemberRole,
-  addDomain,
+  getDomainVerificationLink,
   deleteDomain,
   updateTeamName,
 } from "../web/team-atoms";
@@ -113,12 +113,13 @@ function TeamPage() {
   const doRemove = useAtomSet(removeMember, { mode: "promiseExit" });
   const doUpdateRole = useAtomSet(updateMemberRole, { mode: "promiseExit" });
   const doDeleteDomain = useAtomSet(deleteDomain, { mode: "promiseExit" });
+  const doGetVerificationLink = useAtomSet(getDomainVerificationLink, { mode: "promiseExit" });
   const doUpdateTeamName = useAtomSet(updateTeamName, { mode: "promiseExit" });
   const { check, isLoading: customerLoading } = useCustomer();
   const canUseDomains = customerLoading ? false : check({ featureId: "domain-verification" }).allowed;
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [domainOpen, setDomainOpen] = useState(false);
   const [editName, setEditName] = useState(orgName);
+  const [savingName, setSavingName] = useState(false);
   const [search, setSearch] = useState("");
 
   const roles = Result.match(rolesResult, {
@@ -155,6 +156,7 @@ function TeamPage() {
       setEditName(orgName);
       return;
     }
+    setSavingName(true);
     const exit = await doUpdateTeamName({ payload: { name: trimmed } });
     if (Exit.isSuccess(exit)) {
       toast.success("Team name updated");
@@ -163,6 +165,7 @@ function TeamPage() {
       toast.error("Failed to update team name");
       setEditName(orgName);
     }
+    setSavingName(false);
   };
 
   const handleDeleteDomain = async (domainId: string, domain: string) => {
@@ -172,6 +175,15 @@ function TeamPage() {
       refreshDomains();
     } else {
       toast.error("Failed to remove domain");
+    }
+  };
+
+  const handleAddDomain = async () => {
+    const exit = await doGetVerificationLink({});
+    if (Exit.isSuccess(exit)) {
+      window.open(exit.value.link, "_blank");
+    } else {
+      toast.error("Failed to generate verification link");
     }
   };
 
@@ -188,7 +200,7 @@ function TeamPage() {
         </div>
 
         {/* Team name */}
-        <div className="mb-6 rounded-lg border border-foreground/[0.06] px-4 py-3">
+        <div className="mb-6 rounded-lg border border-border px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <Label
@@ -204,12 +216,12 @@ function TeamPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSaveName();
                 }}
-                className="mt-1 text-[0.8125rem] h-8 border-none bg-transparent px-0 shadow-none focus-visible:ring-0"
+                className="mt-1 text-[0.8125rem] h-9"
               />
             </div>
             {editName.trim() !== orgName && editName.trim() !== "" && (
-              <Button size="sm" className="h-7 text-[0.75rem]" onClick={handleSaveName}>
-                Save
+              <Button size="sm" className="h-7 text-[0.75rem]" onClick={handleSaveName} disabled={savingName}>
+                {savingName ? "Saving\u2026" : "Save"}
               </Button>
             )}
           </div>
@@ -252,7 +264,7 @@ function TeamPage() {
 
             if (filtered.length === 0) {
               return (
-                <p className="py-8 text-center text-[0.8125rem] text-muted-foreground/60">
+                <p className="py-8 text-center text-[0.8125rem] text-muted-foreground">
                   {search ? "No matching members" : "No team members yet"}
                 </p>
               );
@@ -297,7 +309,7 @@ function TeamPage() {
                         )}
                       </div>
                       {member.name && (
-                        <p className="mt-0.5 truncate text-[0.75rem] text-muted-foreground/70 leading-none">
+                        <p className="mt-0.5 truncate text-[0.75rem] text-muted-foreground leading-none">
                           {member.email}
                         </p>
                       )}
@@ -309,7 +321,7 @@ function TeamPage() {
                     </p>
 
                     {/* Last active */}
-                    <p className="text-[0.75rem] text-muted-foreground/60 leading-none">
+                    <p className="text-[0.75rem] text-muted-foreground leading-none">
                       {formatLastActive(member.lastActiveAt)}
                     </p>
 
@@ -348,7 +360,7 @@ function TeamPage() {
                                     >
                                       {role.name}
                                       {role.slug === member.role && (
-                                        <span className="ml-auto text-muted-foreground/50">
+                                        <span className="ml-auto text-muted-foreground">
                                           <svg viewBox="0 0 16 16" fill="none" className="size-3">
                                             <path
                                               d="M3.5 8.5L6.5 11.5L12.5 5"
@@ -399,14 +411,14 @@ function TeamPage() {
             <Button
               size="sm"
               disabled={!canUseDomains}
-              onClick={() => canUseDomains && setDomainOpen(true)}
+              onClick={handleAddDomain}
             >
               Add domain
             </Button>
           </div>
 
           {!canUseDomains && (
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-foreground/[0.06] px-4 py-3">
+            <div className="mb-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <p className="text-[0.8125rem] text-muted-foreground">
                 Domain verification is available on the Professional plan.
               </p>
@@ -434,7 +446,7 @@ function TeamPage() {
             onSuccess: ({ value }) => {
               if (value.domains.length === 0) {
                 return (
-                  <div className="rounded-lg border border-dashed border-foreground/10 px-6 py-10 text-center">
+                  <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center">
                     <p className="text-[0.8125rem] font-medium text-foreground">
                       No domains yet
                     </p>
@@ -460,12 +472,6 @@ function TeamPage() {
           })}
         </div>
 
-        <AddDomainDialog
-          open={domainOpen}
-          onOpenChange={setDomainOpen}
-          onAdded={refreshDomains}
-        />
-
         <InviteDialog
           open={inviteOpen}
           onOpenChange={setInviteOpen}
@@ -481,7 +487,6 @@ type DomainData = {
   id: string;
   domain: string;
   state: string;
-  verificationStrategy: string;
   verificationToken?: string;
   verificationPrefix?: string;
 };
@@ -517,7 +522,7 @@ function CopyButton({ value, label }: { value: string; label?: string }) {
       <button
         type="button"
         onClick={handleCopy}
-        className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+        className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground transition-colors hover:text-muted-foreground"
         aria-label={label}
       >
         {icon}
@@ -530,7 +535,7 @@ function CopyButton({ value, label }: { value: string; label?: string }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="ml-1.5 inline-flex shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+      className="ml-1.5 inline-flex shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground transition-colors hover:text-muted-foreground"
       aria-label="Copy to clipboard"
     >
       {icon}
@@ -548,12 +553,14 @@ function DomainCard({
   const isVerified = d.state === "verified";
   const isPending = d.state === "pending";
 
-  const copyPromptValue = `Add a DNS TXT record for domain verification:\n\nDomain: ${d.domain}\nRecord name: ${d.verificationPrefix ?? "_workos"}.${d.domain}\nRecord value: ${d.verificationToken}\n\nPlease add this TXT record to my DNS configuration.`;
+  const recordValue = d.verificationPrefix
+    ? `${d.verificationPrefix}=${d.verificationToken}`
+    : d.verificationToken ?? "";
 
-  const recordName = `${d.verificationPrefix ?? "_workos"}.${d.domain}`;
+  const copyPromptValue = `Add a DNS TXT record for domain verification:\n\nDomain: ${d.domain}\nRecord name: @\nRecord value: ${recordValue}\n\nPlease add this TXT record to my DNS configuration.`;
 
   return (
-    <div className="rounded-lg border border-foreground/[0.06]">
+    <div className="rounded-lg border border-border">
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -597,28 +604,25 @@ function DomainCard({
       </div>
 
       {!isVerified && d.verificationToken && (
-        <div className="border-t border-foreground/[0.06] px-4 py-3">
+        <div className="border-t border-border px-4 py-3">
           <div className="flex items-center justify-between">
-            <p className="text-[0.8125rem] text-muted-foreground leading-none">
-              Add this record to your DNS provider to verify ownership.
+            <p className="text-[0.75rem] text-muted-foreground leading-none">
+              Add this TXT record to your DNS provider to verify ownership.
             </p>
             <CopyButton value={copyPromptValue} label="Copy prompt" />
           </div>
-          <div className="mt-3 grid grid-cols-[4.5rem_1fr_1fr] items-baseline gap-y-2">
+          <div className="mt-3 grid grid-cols-[4rem_3.5rem_1fr] items-center gap-y-2">
             <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Type</p>
             <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Name</p>
             <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Value</p>
             <p className="text-[0.8125rem] font-mono text-foreground leading-none">TXT</p>
-            <span className="inline-flex items-center gap-1">
-              <code className="text-[0.8125rem] font-mono text-foreground leading-none">{recordName}</code>
-              <CopyButton value={recordName} />
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <code className="text-[0.8125rem] font-mono text-foreground leading-none">{d.verificationToken}</code>
-              <CopyButton value={d.verificationToken} />
+            <p className="text-[0.8125rem] font-mono text-foreground leading-none">@</p>
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <code className="truncate text-[0.8125rem] font-mono text-foreground leading-none">{recordValue}</code>
+              <CopyButton value={recordValue} />
             </span>
           </div>
-          <p className="mt-3 text-[0.75rem] text-muted-foreground/50 leading-none">
+          <p className="mt-3 text-[0.75rem] text-muted-foreground leading-none">
             DNS changes can take up to 72 hours to propagate, but usually complete within a few minutes.
           </p>
         </div>
@@ -748,98 +752,3 @@ function InviteDialog(props: {
   );
 }
 
-function AddDomainDialog(props: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  onAdded: () => void;
-}) {
-  const [domain, setDomain] = useState("");
-  const [status, setStatus] = useState<"idle" | "adding" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const doAdd = useAtomSet(addDomain, { mode: "promiseExit" });
-
-  const handleAdd = async () => {
-    const trimmed = domain.trim().toLowerCase();
-    if (!trimmed) return;
-    setStatus("adding");
-    setError(null);
-
-    const exit = await doAdd({ payload: { domain: trimmed } });
-    if (Exit.isSuccess(exit)) {
-      toast.success(`Domain ${trimmed} added — check verification instructions`);
-      setDomain("");
-      setStatus("idle");
-      props.onOpenChange(false);
-      props.onAdded();
-    } else {
-      setStatus("error");
-      setError("Failed to add domain. It may already be claimed by another organization.");
-    }
-  };
-
-  return (
-    <Dialog
-      open={props.open}
-      onOpenChange={(v) => {
-        if (!v) {
-          setDomain("");
-          setStatus("idle");
-          setError(null);
-        }
-        props.onOpenChange(v);
-      }}
-    >
-      <DialogContent className="sm:max-w-[400px]">
-        <DialogHeader>
-          <DialogTitle className="font-display text-xl">Add domain</DialogTitle>
-          <DialogDescription className="text-[0.8125rem] leading-relaxed">
-            Claim a domain so users with matching emails automatically join your team on sign-up.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 py-3">
-          <div className="grid gap-1.5">
-            <Label
-              htmlFor="domain-input"
-              className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground"
-            >
-              Domain
-            </Label>
-            <Input
-              id="domain-input"
-              type="text"
-              placeholder="acme.com"
-              value={domain}
-              onChange={(e) => setDomain((e.target as HTMLInputElement).value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAdd();
-              }}
-              className="text-[0.8125rem] h-9"
-            />
-          </div>
-
-          {status === "error" && error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-[0.75rem] text-destructive">{error}</p>
-            </div>
-          )}
-        </div>
-
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="ghost" size="sm">
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button
-            size="sm"
-            onClick={handleAdd}
-            disabled={!domain.trim() || status === "adding"}
-          >
-            {status === "adding" ? "Adding…" : "Add domain"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
