@@ -1,20 +1,22 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Schema } from "effect";
+import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 
 import {
   createExecutor,
-  makeTestConfig,
-  makeInMemorySourceRegistry,
   inMemoryToolsPlugin,
   tool,
+  type MemoryToolContext,
+} from "./index";
+import {
+  makeInMemorySourceRegistry,
   FormElicitation,
   UrlElicitation,
   ElicitationResponse,
   Source,
-  type MemoryToolContext,
   type InvokeOptions,
   SecretId,
-} from "./index";
+} from "@executor/storage";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -35,7 +37,8 @@ const ConnectResult = Schema.Struct({ connected: Schema.Boolean, code: Schema.St
 describe("SDK Executor", () => {
   it.effect("creates an executor with no plugins", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig());
+      const config = yield* makeInMemoryConfig({ cwd: "/test" });
+      const executor = yield* createExecutor(config);
       expect(executor.scope.name).toBe("/test");
       expect(yield* executor.tools.list()).toHaveLength(0);
     }),
@@ -78,34 +81,34 @@ describe("SDK Executor", () => {
 
   it.effect("memory plugin registers tools and they are discoverable", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "inventory",
-              tools: [
-                tool({
-                  name: "listItems",
-                  description: "List all items",
-                  inputSchema: EmptyInput,
-                  outputSchema: Schema.Array(Item),
-                  handler: () => [
-                    { id: 1, name: "Widget" },
-                    { id: 2, name: "Gadget" },
-                  ],
-                }),
-                tool({
-                  name: "getItem",
-                  description: "Get an item by ID",
-                  inputSchema: GetItemInput,
-                  outputSchema: Item,
-                  handler: ({ itemId }: { itemId: number }) => ({ id: itemId, name: "Widget" }),
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "inventory",
+            tools: [
+              tool({
+                name: "listItems",
+                description: "List all items",
+                inputSchema: EmptyInput,
+                outputSchema: Schema.Array(Item),
+                handler: () => [
+                  { id: 1, name: "Widget" },
+                  { id: 2, name: "Gadget" },
+                ],
+              }),
+              tool({
+                name: "getItem",
+                description: "Get an item by ID",
+                inputSchema: GetItemInput,
+                outputSchema: Item,
+                handler: ({ itemId }: { itemId: number }) => ({ id: itemId, name: "Widget" }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const tools = yield* executor.tools.list();
       expect(tools).toHaveLength(2);
@@ -116,23 +119,23 @@ describe("SDK Executor", () => {
 
   it.effect("invokes a tool with typed args", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "inventory",
-              tools: [
-                tool({
-                  name: "getItem",
-                  inputSchema: GetItemInput,
-                  outputSchema: Item,
-                  handler: ({ itemId }: { itemId: number }) => ({ id: itemId, name: "Widget" }),
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "inventory",
+            tools: [
+              tool({
+                name: "getItem",
+                inputSchema: GetItemInput,
+                outputSchema: Item,
+                handler: ({ itemId }: { itemId: number }) => ({ id: itemId, name: "Widget" }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const result = yield* executor.tools.invoke("inventory.getItem", { itemId: 42 }, autoApprove);
       expect(result.data).toEqual({ id: 42, name: "Widget" });
@@ -142,22 +145,22 @@ describe("SDK Executor", () => {
 
   it.effect("validates input against schema", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "inventory",
-              tools: [
-                tool({
-                  name: "getItem",
-                  inputSchema: GetItemInput,
-                  handler: ({ itemId }: { itemId: number }) => ({ id: itemId }),
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "inventory",
+            tools: [
+              tool({
+                name: "getItem",
+                inputSchema: GetItemInput,
+                handler: ({ itemId }: { itemId: number }) => ({ id: itemId }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const exit = yield* executor.tools
         .invoke("inventory.getItem", { itemId: "not-a-number" }, autoApprove)
@@ -173,7 +176,8 @@ describe("SDK Executor", () => {
 
   it.effect("tool invocation fails for unknown tool", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig());
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor(config);
       const error = yield* Effect.flip(executor.tools.invoke("nonexistent", {}, autoApprove));
       expect(error._tag).toBe("ToolNotFoundError");
     }),
@@ -181,29 +185,29 @@ describe("SDK Executor", () => {
 
   it.effect("filters tools by query", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "store",
-              tools: [
-                tool({
-                  name: "listItems",
-                  description: "List all items",
-                  inputSchema: EmptyInput,
-                  handler: () => [],
-                }),
-                tool({
-                  name: "createOrder",
-                  description: "Create an order",
-                  inputSchema: EmptyInput,
-                  handler: () => ({}),
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "store",
+            tools: [
+              tool({
+                name: "listItems",
+                description: "List all items",
+                inputSchema: EmptyInput,
+                handler: () => [],
+              }),
+              tool({
+                name: "createOrder",
+                description: "Create an order",
+                inputSchema: EmptyInput,
+                handler: () => ({}),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const itemTools = yield* executor.tools.list({ query: "item" });
       expect(itemTools).toHaveLength(1);
@@ -217,11 +221,11 @@ describe("SDK Executor", () => {
 
   it.effect("plugin extension is typed and accessible", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [inMemoryToolsPlugin({ namespace: "runtime", tools: [] })] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [inMemoryToolsPlugin({ namespace: "runtime", tools: [] })] as const,
+      });
 
       expect(executor.inMemoryTools).toBeDefined();
       expect(typeof executor.inMemoryTools.addTools).toBe("function");
@@ -246,7 +250,8 @@ describe("SDK Executor", () => {
 
   it.effect("stores and lists secrets", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig());
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor(config);
 
       const secret = yield* executor.secrets.set({
         id: SecretId.make("api-key"),
@@ -275,41 +280,41 @@ describe("SDK Executor", () => {
 
   it.effect("form elicitation: tool collects user input mid-invocation", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "auth",
-              tools: [
-                tool({
-                  name: "login",
-                  inputSchema: EmptyInput,
-                  outputSchema: LoginResult,
-                  handler: (_, ctx: MemoryToolContext) =>
-                    Effect.gen(function* () {
-                      const creds = yield* ctx.elicit(
-                        new FormElicitation({
-                          message: "Enter credentials",
-                          requestedSchema: {
-                            type: "object",
-                            properties: {
-                              username: { type: "string" },
-                              password: { type: "string" },
-                            },
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "auth",
+            tools: [
+              tool({
+                name: "login",
+                inputSchema: EmptyInput,
+                outputSchema: LoginResult,
+                handler: (_, ctx: MemoryToolContext) =>
+                  Effect.gen(function* () {
+                    const creds = yield* ctx.elicit(
+                      new FormElicitation({
+                        message: "Enter credentials",
+                        requestedSchema: {
+                          type: "object",
+                          properties: {
+                            username: { type: "string" },
+                            password: { type: "string" },
                           },
-                        }),
-                      );
-                      return {
-                        user: creds.username as string,
-                        status: "logged_in",
-                      };
-                    }),
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+                        },
+                      }),
+                    );
+                    return {
+                      user: creds.username as string,
+                      status: "logged_in",
+                    };
+                  }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const result = yield* executor.tools.invoke(
         "auth.login",
@@ -331,28 +336,28 @@ describe("SDK Executor", () => {
 
   it.effect("elicitation declined returns error", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "auth",
-              tools: [
-                tool({
-                  name: "login",
-                  inputSchema: EmptyInput,
-                  handler: (_, ctx: MemoryToolContext) =>
-                    ctx.elicit(
-                      new FormElicitation({
-                        message: "Enter credentials",
-                        requestedSchema: {},
-                      }),
-                    ),
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "auth",
+            tools: [
+              tool({
+                name: "login",
+                inputSchema: EmptyInput,
+                handler: (_, ctx: MemoryToolContext) =>
+                  ctx.elicit(
+                    new FormElicitation({
+                      message: "Enter credentials",
+                      requestedSchema: {},
+                    }),
+                  ),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const error = yield* Effect.flip(
         executor.tools.invoke(
@@ -370,28 +375,28 @@ describe("SDK Executor", () => {
 
   it.effect("elicitation with no handler auto-declines", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "auth",
-              tools: [
-                tool({
-                  name: "login",
-                  inputSchema: EmptyInput,
-                  handler: (_, ctx: MemoryToolContext) =>
-                    ctx.elicit(
-                      new FormElicitation({
-                        message: "Need input",
-                        requestedSchema: {},
-                      }),
-                    ),
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "auth",
+            tools: [
+              tool({
+                name: "login",
+                inputSchema: EmptyInput,
+                handler: (_, ctx: MemoryToolContext) =>
+                  ctx.elicit(
+                    new FormElicitation({
+                      message: "Need input",
+                      requestedSchema: {},
+                    }),
+                  ),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const error = yield* Effect.flip(
         executor.tools.invoke(
@@ -408,33 +413,33 @@ describe("SDK Executor", () => {
 
   it.effect("url elicitation: tool requests URL visit", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "oauth",
-              tools: [
-                tool({
-                  name: "connect",
-                  inputSchema: EmptyInput,
-                  outputSchema: ConnectResult,
-                  handler: (_, ctx: MemoryToolContext) =>
-                    Effect.gen(function* () {
-                      const result = yield* ctx.elicit(
-                        new UrlElicitation({
-                          message: "Please authorize the app",
-                          url: "https://oauth.example.com/authorize?state=abc",
-                          elicitationId: "oauth-abc",
-                        }),
-                      );
-                      return { connected: true, code: result.code as string };
-                    }),
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "oauth",
+            tools: [
+              tool({
+                name: "connect",
+                inputSchema: EmptyInput,
+                outputSchema: ConnectResult,
+                handler: (_, ctx: MemoryToolContext) =>
+                  Effect.gen(function* () {
+                    const result = yield* ctx.elicit(
+                      new UrlElicitation({
+                        message: "Please authorize the app",
+                        url: "https://oauth.example.com/authorize?state=abc",
+                        elicitationId: "oauth-abc",
+                      }),
+                    );
+                    return { connected: true, code: result.code as string };
+                  }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const result = yield* executor.tools.invoke(
         "oauth.connect",
@@ -458,50 +463,50 @@ describe("SDK Executor", () => {
 
   it.effect("plugin reads and writes secrets through the SDK", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "vault",
-              tools: [
-                tool({
-                  name: "rotateKey",
-                  inputSchema: Schema.Struct({
-                    secretName: Schema.String,
-                    newValue: Schema.String,
-                  }),
-                  outputSchema: Schema.Struct({
-                    oldValue: Schema.String,
-                    newValue: Schema.String,
-                  }),
-                  handler: ({ secretName, newValue }, ctx: MemoryToolContext) =>
-                    Effect.gen(function* () {
-                      // Try to resolve the existing secret by key
-                      const secretId = SecretId.make(secretName);
-                      const status = yield* ctx.sdk.secrets.status(secretId);
-
-                      let oldValue = "<none>";
-                      if (status === "resolved") {
-                        oldValue = yield* ctx.sdk.secrets.resolve(secretId);
-                        yield* ctx.sdk.secrets.remove(secretId);
-                      }
-
-                      // Store the new value
-                      yield* ctx.sdk.secrets.set({
-                        id: secretId,
-                        name: secretName,
-                        value: newValue,
-                        purpose: "api_key",
-                      });
-
-                      return { oldValue, newValue };
-                    }),
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "vault",
+            tools: [
+              tool({
+                name: "rotateKey",
+                inputSchema: Schema.Struct({
+                  secretName: Schema.String,
+                  newValue: Schema.String,
                 }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+                outputSchema: Schema.Struct({
+                  oldValue: Schema.String,
+                  newValue: Schema.String,
+                }),
+                handler: ({ secretName, newValue }, ctx: MemoryToolContext) =>
+                  Effect.gen(function* () {
+                    // Try to resolve the existing secret by key
+                    const secretId = SecretId.make(secretName);
+                    const status = yield* ctx.sdk.secrets.status(secretId);
+
+                    let oldValue = "<none>";
+                    if (status === "resolved") {
+                      oldValue = yield* ctx.sdk.secrets.resolve(secretId);
+                      yield* ctx.sdk.secrets.remove(secretId);
+                    }
+
+                    // Store the new value
+                    yield* ctx.sdk.secrets.set({
+                      id: secretId,
+                      name: secretName,
+                      value: newValue,
+                      purpose: "api_key",
+                    });
+
+                    return { oldValue, newValue };
+                  }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       // 1. Write initial secret
       yield* executor.secrets.set({
@@ -551,36 +556,36 @@ describe("SDK Executor", () => {
         zip: Schema.String,
       }).annotations({ identifier: "Address" });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "crm",
-              tools: [
-                tool({
-                  name: "createContact",
-                  description: "Create a contact",
-                  inputSchema: Schema.Struct({
-                    name: Schema.String,
-                    homeAddress: Address,
-                    workAddress: Address,
-                  }),
-                  handler: (args: unknown) => args,
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "crm",
+            tools: [
+              tool({
+                name: "createContact",
+                description: "Create a contact",
+                inputSchema: Schema.Struct({
+                  name: Schema.String,
+                  homeAddress: Address,
+                  workAddress: Address,
                 }),
-                tool({
-                  name: "createCompany",
-                  description: "Create a company",
-                  inputSchema: Schema.Struct({
-                    companyName: Schema.String,
-                    headquarters: Address,
-                  }),
-                  handler: (args: unknown) => args,
+                handler: (args: unknown) => args,
+              }),
+              tool({
+                name: "createCompany",
+                description: "Create a company",
+                inputSchema: Schema.Struct({
+                  companyName: Schema.String,
+                  headquarters: Address,
                 }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+                handler: (args: unknown) => args,
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       const contactSchema = yield* executor.tools.schema("crm.createContact");
       const companySchema = yield* executor.tools.schema("crm.createCompany");
@@ -606,34 +611,34 @@ describe("SDK Executor", () => {
         zip: Schema.String,
       }).annotations({ identifier: "Address" });
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "crm",
-              tools: [
-                tool({
-                  name: "createContact",
-                  inputSchema: Schema.Struct({
-                    name: Schema.String,
-                    homeAddress: Address,
-                    workAddress: Address,
-                  }),
-                  handler: (args: unknown) => args,
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "crm",
+            tools: [
+              tool({
+                name: "createContact",
+                inputSchema: Schema.Struct({
+                  name: Schema.String,
+                  homeAddress: Address,
+                  workAddress: Address,
                 }),
-                tool({
-                  name: "createCompany",
-                  inputSchema: Schema.Struct({
-                    companyName: Schema.String,
-                    headquarters: Address,
-                  }),
-                  handler: (args: unknown) => args,
+                handler: (args: unknown) => args,
+              }),
+              tool({
+                name: "createCompany",
+                inputSchema: Schema.Struct({
+                  companyName: Schema.String,
+                  headquarters: Address,
                 }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+                handler: (args: unknown) => args,
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       // The shared definitions store holds Address once —
       // not duplicated per tool
@@ -645,22 +650,22 @@ describe("SDK Executor", () => {
 
   it.effect("close cleans up plugin resources", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({
-              namespace: "temp",
-              tools: [
-                tool({
-                  name: "ephemeral",
-                  inputSchema: EmptyInput,
-                  handler: () => "here",
-                }),
-              ],
-            }),
-          ] as const,
-        }),
-      );
+      const config = yield* makeInMemoryConfig();
+      const executor = yield* createExecutor({
+        ...config,
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "temp",
+            tools: [
+              tool({
+                name: "ephemeral",
+                inputSchema: EmptyInput,
+                handler: () => "here",
+              }),
+            ],
+          }),
+        ] as const,
+      });
 
       expect(yield* executor.tools.list()).toHaveLength(1);
       yield* executor.close();

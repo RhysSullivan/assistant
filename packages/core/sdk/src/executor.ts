@@ -1,23 +1,21 @@
-import { Effect } from "effect";
-import {
-  type ExecutorDBSchema,
-  type ExecutorStorage,
-  composeExecutorSchema,
-} from "@executor/storage";
+import { Context, Effect } from "effect";
 
-import type { ToolId, SecretId, PolicyId } from "./ids";
-import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
+import type { ToolId, SecretId, PolicyId } from "@executor/storage";
+import type { SecretProvider, SecretRef, SetSecretInput } from "@executor/storage";
+import { SecretManager } from "@executor/storage";
 import type {
   ToolMetadata,
   ToolSchema,
   ToolInvocationResult,
   ToolListFilter,
   InvokeOptions,
-} from "./tools";
-import type { Source, SourceDetectionResult } from "./sources";
-import { makeInMemorySourceRegistry } from "./sources";
-import type { Policy } from "./policies";
-import type { Scope } from "./scope";
+} from "@executor/storage";
+import { ToolRegistry } from "@executor/storage";
+import type { Source, SourceDetectionResult } from "@executor/storage";
+import { SourceRegistry, makeInMemorySourceRegistry } from "@executor/storage";
+import type { Policy } from "@executor/storage";
+import { PolicyEngine } from "@executor/storage";
+import type { Scope } from "@executor/storage";
 import type { ExecutorPlugin, PluginExtensions, PluginHandle } from "./plugin";
 import type {
   ToolNotFoundError,
@@ -25,17 +23,14 @@ import type {
   SecretNotFoundError,
   SecretResolutionError,
   PolicyDeniedError,
-} from "./errors";
+} from "@executor/storage";
 import {
   FormElicitation,
   ElicitationDeclinedError,
   ElicitationResponse,
   type ElicitationHandler,
-} from "./elicitation";
-import { makeStorageToolRegistry } from "./storage-stores/tool-registry";
-import { makeStorageSecretStore } from "./storage-stores/secret-store";
-import { makeStoragePolicyEngine } from "./storage-stores/policy-engine";
-import { makeStoragePluginKv } from "./storage-stores/plugin-kv";
+} from "@executor/storage";
+import type { ScopedKv } from "@executor/storage";
 
 const resolveElicitationHandler = (options: InvokeOptions): ElicitationHandler =>
   options.onElicitation === "accept-all"
@@ -105,34 +100,25 @@ export type Executor<TPlugins extends readonly ExecutorPlugin<string, object>[] 
 
 export interface ExecutorAuthProvider {
   readonly key: string;
-  readonly schema?: ExecutorDBSchema;
 }
 
 // ---------------------------------------------------------------------------
-// ExecutorConfig — the input shape callers pass to createExecutor
+// ExecutorConfig — flat-spread shape callers pass to createExecutor
 // ---------------------------------------------------------------------------
 
 export interface ExecutorConfig<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> {
   readonly scope: Scope;
-  readonly storage: ExecutorStorage;
+  readonly tools: Context.Tag.Service<typeof ToolRegistry>;
+  readonly sources?: Context.Tag.Service<typeof SourceRegistry>;
+  readonly secrets: Context.Tag.Service<typeof SecretManager>;
+  readonly policies: Context.Tag.Service<typeof PolicyEngine>;
+  readonly pluginKv: (namespace: string) => ScopedKv;
   readonly plugins?: TPlugins;
   readonly auth?: ExecutorAuthProvider;
-  /**
-   * Symmetric encryption key for the secret store. Required when secrets
-   * are persisted through `ExecutorStorage`. If omitted, the secret store
-   * still accepts providers but cannot encrypt/decrypt values itself.
-   */
-  readonly encryptionKey?: string;
-  /**
-   * Additional secret providers to register at construction time
-   * (keychain, env, 1Password, etc.). Plugins may also call
-   * `executor.secrets.addProvider()` after startup.
-   */
-  readonly secretProviders?: readonly SecretProvider[];
 }
 
 // ---------------------------------------------------------------------------
-// createExecutor — builds an Executor from storage, initializes plugins
+// createExecutor — builds an Executor from services, initializes plugins
 // ---------------------------------------------------------------------------
 
 export const createExecutor = <
@@ -141,25 +127,16 @@ export const createExecutor = <
   config: ExecutorConfig<TPlugins>,
 ): Effect.Effect<Executor<TPlugins>, Error> =>
   Effect.gen(function* () {
-    const { scope, storage, plugins = [] as unknown as TPlugins, auth, encryptionKey } = config;
+    const {
+      scope,
+      tools,
+      secrets,
+      policies,
+      pluginKv,
+      plugins = [] as unknown as TPlugins,
+    } = config;
 
-    // Schema composition is not wired into storage here — adapters are
-    // expected to have been constructed with the composed schema already.
-    // We compute it to surface early failures around plugin schema
-    // contributions even if the adapter ignores it.
-    composeExecutorSchema({
-      plugins: plugins as readonly { readonly storage?: { readonly schema?: ExecutorDBSchema } }[],
-      auth: auth?.schema,
-    });
-
-    const tools = makeStorageToolRegistry(storage, scope);
-    const sources = makeInMemorySourceRegistry();
-    const secrets = makeStorageSecretStore(storage, scope, {
-      encryptionKey: encryptionKey ?? "",
-      providers: config.secretProviders,
-    });
-    const policies = makeStoragePolicyEngine(storage, scope);
-    const pluginKv = makeStoragePluginKv(storage, scope);
+    const sources = config.sources ?? makeInMemorySourceRegistry();
 
     const handles = new Map<string, PluginHandle<object>>();
     const extensions: Record<string, object> = {};
@@ -171,7 +148,6 @@ export const createExecutor = <
         sources,
         secrets,
         policies,
-        storage,
         pluginKv,
       });
       handles.set(plugin.key, handle);

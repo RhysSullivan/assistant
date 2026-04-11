@@ -1,22 +1,16 @@
 import { Context, Data, Effect } from "effect";
-import type { ExecutorStorage } from "@executor/storage";
-import { makeMemoryStorage } from "@executor/storage-memory";
+import { makeInMemorySqliteServices } from "@executor/storage-sqlite";
 
 import {
-  createExecutor as createEffectExecutor,
   ElicitationResponse as ElicitationResponseClass,
   ScopeId,
   ToolId,
   SecretId,
   PolicyId,
-  type ToolRegistry as CoreToolRegistry,
-  type SourceRegistry as CoreSourceRegistry,
-  type SecretStore as CoreSecretStore,
-  type PolicyEngine as CorePolicyEngine,
-  type ExecutorConfig as EffectExecutorConfig,
-  type ExecutorPlugin,
-  type PluginContext as EffectPluginContext,
-  type PluginHandle as EffectPluginHandle,
+  ToolRegistry as CoreToolRegistryTag,
+  SourceRegistry as CoreSourceRegistryTag,
+  SecretManager as CoreSecretManagerTag,
+  PolicyEngine as CorePolicyEngineTag,
   type ElicitationContext,
   type InvokeOptions as EffectInvokeOptions,
   type ToolInvocationResult,
@@ -39,7 +33,16 @@ import {
   type ElicitationDeclinedError,
   ToolListFilter,
   PolicyCheckInput,
-} from "./index";
+} from "@executor/storage";
+import {
+  createExecutor as createEffectExecutor,
+  type ExecutorConfig as EffectExecutorConfig,
+} from "./executor";
+import type {
+  ExecutorPlugin,
+  PluginContext as EffectPluginContext,
+  PluginHandle as EffectPluginHandle,
+} from "./plugin";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,10 +128,10 @@ type PromisifyService<T> = {
     : T[K];
 };
 
-type CoreToolRegistryService = Context.Tag.Service<typeof CoreToolRegistry>;
-type CoreSourceRegistryService = Context.Tag.Service<typeof CoreSourceRegistry>;
-type CoreSecretStoreService = Context.Tag.Service<typeof CoreSecretStore>;
-type CorePolicyEngineService = Context.Tag.Service<typeof CorePolicyEngine>;
+type CoreToolRegistryService = Context.Tag.Service<typeof CoreToolRegistryTag>;
+type CoreSourceRegistryService = Context.Tag.Service<typeof CoreSourceRegistryTag>;
+type CoreSecretStoreService = Context.Tag.Service<typeof CoreSecretManagerTag>;
+type CorePolicyEngineService = Context.Tag.Service<typeof CorePolicyEngineTag>;
 
 // ---------------------------------------------------------------------------
 // Elicitation
@@ -507,13 +510,6 @@ function promisifyObject<T extends object>(obj: T): Promisified<T> {
 export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = []> {
   readonly scope?: { readonly id?: string; readonly name?: string };
   readonly plugins?: TPlugins;
-  /**
-   * Optional pre-built storage adapter (e.g. memory, SQLite, Postgres).
-   * Defaults to an in-memory adapter. Custom promise-shaped registries
-   * are no longer supported — the Promise API always delegates to the
-   * Effect `createExecutor`, which builds typed services from storage.
-   */
-  readonly storage?: ExecutorStorage;
   /** Symmetric encryption key for the secret store. */
   readonly encryptionKey?: string;
 }
@@ -529,16 +525,19 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
       : (p as unknown as ExecutorPlugin<string, object>),
   );
 
-  const storage = config.storage ?? (await run(makeMemoryStorage()));
+  const scope: Scope = {
+    id: ScopeId.make(config.scope?.id ?? "default"),
+    name: config.scope?.name ?? "default",
+    createdAt: new Date(),
+  };
+
+  const services = await run(
+    makeInMemorySqliteServices({ scope, encryptionKey: config.encryptionKey ?? "default-key" }),
+  );
 
   const effectConfig: EffectExecutorConfig<ExecutorPlugin<string, object>[]> = {
-    scope: {
-      id: ScopeId.make(config.scope?.id ?? "default"),
-      name: config.scope?.name ?? "default",
-      createdAt: new Date(),
-    },
-    storage,
-    encryptionKey: config.encryptionKey,
+    scope,
+    ...services,
     plugins: effectPlugins,
   };
 

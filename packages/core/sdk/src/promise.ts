@@ -56,4 +56,4 @@ export {
   SecretResolutionError,
   PolicyDeniedError,
   ElicitationDeclinedError,
-} from "./index";
+} from "@executor/storage";

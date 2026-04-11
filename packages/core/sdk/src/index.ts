@@ -1,67 +1,10 @@
-// IDs
-export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
-
-// Errors
-export {
-  ToolNotFoundError,
-  ToolInvocationError,
-  SecretNotFoundError,
-  SecretResolutionError,
-  PolicyDeniedError,
-} from "./errors";
-
-// Tools
-export {
-  ToolMetadata,
-  ToolSchema,
-  ToolInvocationResult,
-  ToolRegistry,
-  ToolRegistration,
-  ToolAnnotations,
-  ToolListFilter,
-  type ToolInvoker,
-  type RuntimeToolHandler,
-  type InvokeOptions,
-} from "./tools";
-
-// Sources
-export {
-  Source,
-  SourceDetectionResult,
-  SourceRegistry,
-  makeInMemorySourceRegistry,
-  type SourceManager,
-} from "./sources";
-
-// Elicitation
-export {
-  FormElicitation,
-  UrlElicitation,
-  ElicitationAction,
-  ElicitationResponse,
-  ElicitationDeclinedError,
-  type ElicitationRequest,
-  type ElicitationHandler,
-  type ElicitationContext,
-} from "./elicitation";
-
-// Secrets
-export { SecretRef, SetSecretInput, SecretStore, type SecretProvider } from "./secrets";
-
-// Policies
-export { Policy, PolicyAction, PolicyCheckInput, PolicyEngine } from "./policies";
-
-// Scope
-export { Scope } from "./scope";
-
-// Plugin
+// Plugin system
 export {
   definePlugin,
   type ExecutorPlugin,
   type PluginContext,
   type PluginHandle,
   type PluginExtensions,
-  type PluginStorageDefinition,
 } from "./plugin";
 
 // Executor
@@ -72,15 +15,13 @@ export {
   type ExecutorAuthProvider,
 } from "./executor";
 
-// Storage-backed services (built on top of @executor/storage)
-export { makeStorageToolRegistry } from "./storage-stores/tool-registry";
+// Runtime tools
 export {
-  makeStorageSecretStore,
-  type StorageSecretStoreOptions,
-} from "./storage-stores/secret-store";
-export { makeStoragePolicyEngine } from "./storage-stores/policy-engine";
-export { makeStoragePluginKv } from "./storage-stores/plugin-kv";
-export { encrypt, decrypt } from "./storage-stores/crypto";
+  registerRuntimeTools,
+  runtimeTool,
+  type RuntimeSourceDefinition,
+  type RuntimeToolDefinition,
+} from "./runtime-tools";
 
 // Built-in plugins
 export {
@@ -91,27 +32,3 @@ export {
   type MemoryToolSdkAccess,
   type InMemoryToolsPluginExtension,
 } from "./plugins/in-memory-tools";
-
-// Schema ref utilities
-export { hoistDefinitions, collectRefs, reattachDefs, normalizeRefs } from "./schema-refs";
-export {
-  schemaToTypeScriptPreview,
-  schemaToTypeScriptPreviewWithDefs,
-  buildToolTypeScriptPreview,
-  type TypeScriptRenderOptions,
-  type TypeScriptSchemaPreview,
-} from "./schema-types";
-
-// Runtime tools
-export {
-  registerRuntimeTools,
-  runtimeTool,
-  type RuntimeSourceDefinition,
-  type RuntimeToolDefinition,
-} from "./runtime-tools";
-
-// Testing
-export { makeTestConfig } from "./testing";
-
-// Plugin KV (ScopedKv type returned by `ctx.pluginKv(namespace)`)
-export { type KvEntry, type ScopedKv } from "./plugin-kv";

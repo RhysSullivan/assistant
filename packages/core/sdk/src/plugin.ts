@@ -1,12 +1,11 @@
-import type { Effect } from "effect";
-import type { ExecutorDBSchema, ExecutorStorage } from "@executor/storage";
+import type { Context, Effect } from "effect";
 
-import type { ToolRegistry } from "./tools";
-import type { SecretStore } from "./secrets";
-import type { PolicyEngine } from "./policies";
-import type { SourceRegistry } from "./sources";
-import type { Scope } from "./scope";
-import type { ScopedKv } from "./plugin-kv";
+import type { ToolRegistry } from "@executor/storage";
+import type { SecretManager } from "@executor/storage";
+import type { PolicyEngine } from "@executor/storage";
+import type { SourceRegistry } from "@executor/storage";
+import type { Scope } from "@executor/storage";
+import type { ScopedKv } from "@executor/storage";
 
 // ---------------------------------------------------------------------------
 // Plugin context — what the SDK gives a plugin when it starts
@@ -16,16 +15,10 @@ export interface PluginContext {
   readonly scope: Scope;
   readonly tools: Context.Tag.Service<typeof ToolRegistry>;
   readonly sources: Context.Tag.Service<typeof SourceRegistry>;
-  readonly secrets: Context.Tag.Service<typeof SecretStore>;
+  readonly secrets: Context.Tag.Service<typeof SecretManager>;
   readonly policies: Context.Tag.Service<typeof PolicyEngine>;
-  /** Raw storage adapter for plugins that declare their own schema */
-  readonly storage: ExecutorStorage;
   /** Opaque-state escape hatch bound to the plugin's namespace */
   readonly pluginKv: (namespace: string) => ScopedKv;
-}
-
-export interface PluginStorageDefinition {
-  readonly schema?: ExecutorDBSchema;
 }
 
 // ---------------------------------------------------------------------------
@@ -35,8 +28,6 @@ export interface PluginStorageDefinition {
 export interface ExecutorPlugin<TKey extends string = string, TExtension extends object = object> {
   /** Unique plugin key — becomes a property on the Executor type */
   readonly key: TKey;
-  /** Optional plugin-owned storage schema contributed to the host schema */
-  readonly storage?: PluginStorageDefinition;
 
   /**
    * Called when the executor starts. The plugin should register its tools
@@ -62,9 +53,6 @@ export type PluginExtensions<TPlugins extends readonly ExecutorPlugin<string, ob
     ? TExt
     : never;
 };
-
-// We need Context imported for the Tag.Service usage
-import type { Context } from "effect";
 
 // ---------------------------------------------------------------------------
 // definePlugin — helper for type inference

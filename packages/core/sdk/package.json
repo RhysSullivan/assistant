@@ -39,17 +39,18 @@
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsgo --noEmit",
-    "test": "vitest run",
+    "test": "bunx --bun vitest run",
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@executor/storage": "workspace:*",
-    "@executor/storage-memory": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@executor/storage-sqlite": "workspace:*",
     "@types/node": "catalog:",
+    "bun-types": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
