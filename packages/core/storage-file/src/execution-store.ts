@@ -7,14 +7,20 @@ import {
   ExecutionId,
   ExecutionInteraction,
   ExecutionInteractionId,
+  ExecutionToolCall,
+  ExecutionToolCallId,
   buildExecutionListMeta,
+  matchToolPathPattern,
   type CreateExecutionInput,
   type CreateExecutionInteractionInput,
+  type CreateExecutionToolCallInput,
   type ExecutionListItem,
   type ExecutionListOptions,
   type UpdateExecutionInput,
   type UpdateExecutionInteractionInput,
+  type UpdateExecutionToolCallInput,
   type ExecutionStatus,
+  type ExecutionToolCallStatus,
   ScopeId,
 } from "@executor/sdk";
 
@@ -53,6 +59,9 @@ type ExecutionRow = {
   logs_json: string | null;
   started_at: number | null;
   completed_at: number | null;
+  trigger_kind: string | null;
+  trigger_meta_json: string | null;
+  tool_call_count: number;
   created_at: number;
   updated_at: number;
 };
@@ -70,6 +79,20 @@ type ExecutionInteractionRow = {
   updated_at: number;
 };
 
+type ExecutionToolCallRow = {
+  id: string;
+  execution_id: string;
+  status: string;
+  tool_path: string;
+  namespace: string;
+  args_json: string | null;
+  result_json: string | null;
+  error_text: string | null;
+  started_at: number;
+  completed_at: number | null;
+  duration_ms: number | null;
+};
+
 const toExecution = (row: ExecutionRow): Execution =>
   new Execution({
     id: ExecutionId.make(row.id),
@@ -81,6 +104,9 @@ const toExecution = (row: ExecutionRow): Execution =>
     logsJson: row.logs_json,
     startedAt: row.started_at,
     completedAt: row.completed_at,
+    triggerKind: row.trigger_kind,
+    triggerMetaJson: row.trigger_meta_json,
+    toolCallCount: row.tool_call_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
@@ -99,33 +125,63 @@ const toInteraction = (row: ExecutionInteractionRow): ExecutionInteraction =>
     updatedAt: row.updated_at,
   });
 
-const matchesFilters = (execution: Execution, options: ExecutionListOptions): boolean => {
-  if (options.statusFilter && options.statusFilter.length > 0) {
-    const allowed = new Set<ExecutionStatus>(options.statusFilter);
-    if (!allowed.has(execution.status)) {
-      return false;
-    }
-  }
-
-  if (options.timeRange?.from !== undefined && execution.createdAt < options.timeRange.from) {
-    return false;
-  }
-
-  if (options.timeRange?.to !== undefined && execution.createdAt > options.timeRange.to) {
-    return false;
-  }
-
-  if (options.codeQuery) {
-    const query = options.codeQuery.trim().toLowerCase();
-    if (query.length > 0 && !execution.code.toLowerCase().includes(query)) {
-      return false;
-    }
-  }
-
-  return true;
-};
+const toToolCall = (row: ExecutionToolCallRow): ExecutionToolCall =>
+  new ExecutionToolCall({
+    id: ExecutionToolCallId.make(row.id),
+    executionId: ExecutionId.make(row.execution_id),
+    status: row.status as ExecutionToolCallStatus,
+    toolPath: row.tool_path,
+    namespace: row.namespace,
+    argsJson: row.args_json,
+    resultJson: row.result_json,
+    errorText: row.error_text,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationMs: row.duration_ms,
+  });
 
 export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
+  const matchesFilters = (
+    execution: Execution,
+    options: ExecutionListOptions,
+    toolPathsByExecution: Map<ExecutionId, string[]>,
+  ): boolean => {
+    if (options.statusFilter && options.statusFilter.length > 0) {
+      const allowed = new Set<ExecutionStatus>(options.statusFilter);
+      if (!allowed.has(execution.status)) return false;
+    }
+
+    if (options.triggerFilter && options.triggerFilter.length > 0) {
+      const allowed = new Set(options.triggerFilter);
+      const kind = execution.triggerKind ?? "unknown";
+      if (!allowed.has(kind)) return false;
+    }
+
+    if (options.timeRange?.from !== undefined && execution.createdAt < options.timeRange.from) {
+      return false;
+    }
+    if (options.timeRange?.to !== undefined && execution.createdAt > options.timeRange.to) {
+      return false;
+    }
+    if (options.after !== undefined && execution.createdAt <= options.after) {
+      return false;
+    }
+    if (options.codeQuery) {
+      const query = options.codeQuery.trim().toLowerCase();
+      if (query.length > 0 && !execution.code.toLowerCase().includes(query)) return false;
+    }
+
+    if (options.toolPathFilter && options.toolPathFilter.length > 0) {
+      const paths = toolPathsByExecution.get(execution.id) ?? [];
+      const any = options.toolPathFilter.some((pattern) =>
+        paths.some((path) => matchToolPathPattern(path, pattern)),
+      );
+      if (!any) return false;
+    }
+
+    return true;
+  };
+
   const getPendingInteractions = (): Effect.Effect<Map<ExecutionId, ExecutionInteraction>> =>
     absorbSql(
       Effect.gen(function* () {
@@ -147,6 +203,31 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
       }),
     );
 
+  const getToolPathsForScope = (
+    scopeId: ScopeId,
+  ): Effect.Effect<Map<ExecutionId, string[]>> =>
+    absorbSql(
+      Effect.gen(function* () {
+        const rows = yield* sql<{ execution_id: string; tool_path: string }>`
+          SELECT tc.execution_id, tc.tool_path
+          FROM execution_tool_calls tc
+          INNER JOIN executions e ON e.id = tc.execution_id
+          WHERE e.scope_id = ${scopeId}
+        `;
+        const map = new Map<ExecutionId, string[]>();
+        for (const row of rows) {
+          const executionId = ExecutionId.make(row.execution_id);
+          const list = map.get(executionId);
+          if (list) {
+            list.push(row.tool_path);
+          } else {
+            map.set(executionId, [row.tool_path]);
+          }
+        }
+        return map;
+      }),
+    );
+
   return {
     create: (input: CreateExecutionInput) =>
       absorbSql(
@@ -155,7 +236,8 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
           yield* sql`
             INSERT INTO executions (
               id, scope_id, status, code, result_json, error_text, logs_json,
-              started_at, completed_at, created_at, updated_at
+              started_at, completed_at, trigger_kind, trigger_meta_json,
+              tool_call_count, created_at, updated_at
             ) VALUES (
               ${id},
               ${input.scopeId},
@@ -166,6 +248,9 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
               ${input.logsJson},
               ${input.startedAt},
               ${input.completedAt},
+              ${input.triggerKind},
+              ${input.triggerMetaJson},
+              ${input.toolCallCount},
               ${input.createdAt},
               ${input.updatedAt}
             )
@@ -200,6 +285,7 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
               logs_json = ${next.logsJson},
               started_at = ${next.startedAt},
               completed_at = ${next.completedAt},
+              tool_call_count = ${next.toolCallCount},
               updated_at = ${next.updatedAt}
             WHERE id = ${id}
           `;
@@ -220,8 +306,13 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
           `;
 
           const allInScope = allRows.map(toExecution);
+
+          // Tool path map is needed for both filter evaluation (when
+          // toolPathFilter is set) and meta toolFacets. Load once.
+          const toolPathsByExecution = yield* getToolPathsForScope(scopeId);
+
           const allFiltered = allInScope.filter((execution) =>
-            matchesFilters(execution, options),
+            matchesFilters(execution, options, toolPathsByExecution),
           );
 
           const cursor = options.cursor ? decodeCursor(options.cursor) : null;
@@ -242,9 +333,24 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
 
           const hasMore = afterCursor.length > limit;
           const last = executions.at(-1);
-          const meta = options.includeMeta
-            ? buildExecutionListMeta(allFiltered, options.timeRange, allInScope.length)
-            : undefined;
+
+          let meta;
+          if (options.includeMeta) {
+            const filteredIds = new Set(allFiltered.map((execution) => execution.id));
+            const toolPathCounts = new Map<string, number>();
+            for (const [execId, paths] of toolPathsByExecution.entries()) {
+              if (!filteredIds.has(execId)) continue;
+              for (const path of paths) {
+                toolPathCounts.set(path, (toolPathCounts.get(path) ?? 0) + 1);
+              }
+            }
+            meta = buildExecutionListMeta({
+              filtered: allFiltered,
+              timeRange: options.timeRange,
+              totalRowCount: allInScope.length,
+              toolPathCounts,
+            });
+          }
 
           return {
             executions: items,
@@ -339,10 +445,85 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
         }),
       ),
 
+    recordToolCall: (input: CreateExecutionToolCallInput) =>
+      absorbSql(
+        Effect.gen(function* () {
+          const id = ExecutionToolCallId.make(`toolcall_${randomUUID()}`);
+          yield* sql`
+            INSERT INTO execution_tool_calls (
+              id, execution_id, status, tool_path, namespace, args_json,
+              result_json, error_text, started_at, completed_at, duration_ms
+            ) VALUES (
+              ${id},
+              ${input.executionId},
+              ${input.status},
+              ${input.toolPath},
+              ${input.namespace},
+              ${input.argsJson},
+              ${input.resultJson},
+              ${input.errorText},
+              ${input.startedAt},
+              ${input.completedAt},
+              ${input.durationMs}
+            )
+          `;
+          return new ExecutionToolCall({ id, ...input });
+        }),
+      ),
+
+    finishToolCall: (id: ExecutionToolCallId, patch: UpdateExecutionToolCallInput) =>
+      absorbSql(
+        Effect.gen(function* () {
+          const currentRows = yield* sql<ExecutionToolCallRow>`
+            SELECT * FROM execution_tool_calls WHERE id = ${id}
+          `;
+          const current = currentRows[0];
+          if (!current) {
+            return yield* Effect.die(new Error(`Execution tool call not found: ${id}`));
+          }
+
+          const next = new ExecutionToolCall({
+            ...toToolCall(current),
+            ...patch,
+            id,
+            executionId: ExecutionId.make(current.execution_id),
+          });
+
+          yield* sql`
+            UPDATE execution_tool_calls SET
+              status = ${next.status},
+              result_json = ${next.resultJson},
+              error_text = ${next.errorText},
+              completed_at = ${next.completedAt},
+              duration_ms = ${next.durationMs}
+            WHERE id = ${id}
+          `;
+
+          return next;
+        }),
+      ),
+
+    listToolCalls: (executionId: ExecutionId) =>
+      absorbSql(
+        Effect.gen(function* () {
+          const rows = yield* sql<ExecutionToolCallRow>`
+            SELECT * FROM execution_tool_calls
+            WHERE execution_id = ${executionId}
+            ORDER BY started_at ASC, id ASC
+          `;
+          return rows.map(toToolCall);
+        }),
+      ),
+
     sweep: () =>
       absorbSql(
         Effect.gen(function* () {
           const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+          // Tool calls cascade via FK, but emit the DELETE explicitly
+          // so we're immune to the foreign_keys pragma not being set.
+          yield* sql`DELETE FROM execution_tool_calls WHERE execution_id IN (
+            SELECT id FROM executions WHERE created_at < ${cutoff}
+          )`;
           yield* sql`DELETE FROM execution_interactions WHERE execution_id IN (
             SELECT id FROM executions WHERE created_at < ${cutoff}
           )`;

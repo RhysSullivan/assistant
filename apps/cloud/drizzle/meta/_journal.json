@@ -15,6 +15,13 @@
       "when": 1775923200000,
       "tag": "0001_execution_history",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776124800000,
+      "tag": "0002_execution_tool_calls",
+      "breakpoints": true
     }
   ]
 }

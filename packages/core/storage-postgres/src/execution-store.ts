@@ -1,23 +1,43 @@
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, ilike, inArray, lt, lte, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  like,
+  lt,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import {
   Execution,
   ExecutionId,
   ExecutionInteraction,
   ExecutionInteractionId,
+  ExecutionToolCall,
+  ExecutionToolCallId,
   buildExecutionListMeta,
   type CreateExecutionInput,
   type CreateExecutionInteractionInput,
+  type CreateExecutionToolCallInput,
   type ExecutionListItem,
   type ExecutionListOptions,
   type UpdateExecutionInput,
   type UpdateExecutionInteractionInput,
+  type UpdateExecutionToolCallInput,
+  type ExecutionToolCallStatus,
   ScopeId,
 } from "@executor/sdk";
 import type { DrizzleDb } from "./types";
-import { executionInteractions, executions } from "./schema";
+import { executionInteractions, executionToolCalls, executions } from "./schema";
 
 const encodeCursor = (execution: Execution): string =>
   encodeURIComponent(JSON.stringify({ createdAt: execution.createdAt, id: execution.id }));
@@ -53,6 +73,9 @@ const toExecution = (row: typeof executions.$inferSelect): Execution =>
     logsJson: row.logsJson,
     startedAt: row.startedAt,
     completedAt: row.completedAt,
+    triggerKind: row.triggerKind,
+    triggerMetaJson: row.triggerMetaJson,
+    toolCallCount: row.toolCallCount,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
@@ -71,6 +94,34 @@ const toInteraction = (row: typeof executionInteractions.$inferSelect): Executio
     updatedAt: row.updatedAt,
   });
 
+const toToolCall = (row: typeof executionToolCalls.$inferSelect): ExecutionToolCall =>
+  new ExecutionToolCall({
+    id: ExecutionToolCallId.make(row.id),
+    executionId: ExecutionId.make(row.executionId),
+    status: row.status as ExecutionToolCallStatus,
+    toolPath: row.toolPath,
+    namespace: row.namespace,
+    argsJson: row.argsJson,
+    resultJson: row.resultJson,
+    errorText: row.errorText,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt,
+    durationMs: row.durationMs,
+  });
+
+/**
+ * Translate a `toolPathFilter` entry into a SQL predicate suitable
+ * for an `ANY (…)` / `OR` composition. Supports exact match and
+ * trailing `.*` glob.
+ */
+const toolPathPredicate = (pattern: string): SQL => {
+  if (pattern.endsWith(".*")) {
+    const prefix = pattern.slice(0, -1); // keep trailing `.`
+    return like(executionToolCalls.toolPath, `${prefix}%`);
+  }
+  return eq(executionToolCalls.toolPath, pattern);
+};
+
 export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
   return {
     create: (input: CreateExecutionInput) =>
@@ -87,6 +138,9 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
           logsJson: input.logsJson,
           startedAt: input.startedAt,
           completedAt: input.completedAt,
+          triggerKind: input.triggerKind,
+          triggerMetaJson: input.triggerMetaJson,
+          toolCallCount: input.toolCallCount,
           createdAt: input.createdAt,
           updatedAt: input.updatedAt,
         });
@@ -121,6 +175,7 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
             logsJson: next.logsJson,
             startedAt: next.startedAt,
             completedAt: next.completedAt,
+            toolCallCount: next.toolCallCount,
             updatedAt: next.updatedAt,
           })
           .where(and(eq(executions.id, id), eq(executions.organizationId, organizationId)));
@@ -140,14 +195,45 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
         if (options.statusFilter && options.statusFilter.length > 0) {
           filterConditions.push(inArray(executions.status, [...options.statusFilter]));
         }
+        if (options.triggerFilter && options.triggerFilter.length > 0) {
+          // Postgres `NULL` is not equal to any literal, so treat "unknown"
+          // as "triggerKind IS NULL" when the filter includes it.
+          const kinds = options.triggerFilter.filter((k) => k !== "unknown");
+          const includeUnknown = options.triggerFilter.includes("unknown");
+          const parts: SQL[] = [];
+          if (kinds.length > 0) parts.push(inArray(executions.triggerKind, kinds));
+          if (includeUnknown) parts.push(sql`${executions.triggerKind} IS NULL`);
+          if (parts.length > 0) {
+            filterConditions.push(parts.length === 1 ? parts[0]! : or(...parts)!);
+          }
+        }
         if (options.timeRange?.from !== undefined) {
           filterConditions.push(gte(executions.createdAt, options.timeRange.from));
         }
         if (options.timeRange?.to !== undefined) {
           filterConditions.push(lte(executions.createdAt, options.timeRange.to));
         }
+        if (options.after !== undefined) {
+          filterConditions.push(gt(executions.createdAt, options.after));
+        }
         if (options.codeQuery && options.codeQuery.trim().length > 0) {
           filterConditions.push(ilike(executions.code, `%${options.codeQuery.trim()}%`));
+        }
+        if (options.toolPathFilter && options.toolPathFilter.length > 0) {
+          // Subquery: execution_ids that have at least one matching tool call
+          const patternConditions = options.toolPathFilter.map(toolPathPredicate);
+          const patternWhere =
+            patternConditions.length === 1 ? patternConditions[0]! : or(...patternConditions)!;
+          const subquery = db
+            .select({ id: executionToolCalls.executionId })
+            .from(executionToolCalls)
+            .where(
+              and(
+                eq(executionToolCalls.organizationId, organizationId),
+                patternWhere,
+              ),
+            );
+          filterConditions.push(inArray(executions.id, subquery));
         }
 
         const conditions = [...filterConditions];
@@ -205,8 +291,9 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
         let meta;
         if (options.includeMeta) {
           // Meta summarizes the full filtered set, independent of pagination.
-          // Two queries: filtered rows for bucketing, and an unfiltered
-          // scope count for totalRowCount.
+          // Three queries: filtered rows (for triggerCounts + chart), the
+          // scope-wide total count, and a grouped tool-path count over the
+          // filtered subset.
           const [filteredForMeta, scopeTotals] = await Promise.all([
             db
               .select()
@@ -219,11 +306,37 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
               .where(and(...scopeConditions)),
           ]);
 
-          meta = buildExecutionListMeta(
-            filteredForMeta.map(toExecution),
-            options.timeRange,
-            scopeTotals.length,
-          );
+          const filteredExecutions = filteredForMeta.map(toExecution);
+          const filteredIds = filteredExecutions.map((execution) => execution.id);
+
+          const toolCountRows =
+            filteredIds.length === 0
+              ? []
+              : await db
+                  .select({
+                    toolPath: executionToolCalls.toolPath,
+                    count: sql<number>`count(*)::int`,
+                  })
+                  .from(executionToolCalls)
+                  .where(
+                    and(
+                      eq(executionToolCalls.organizationId, organizationId),
+                      inArray(executionToolCalls.executionId, filteredIds),
+                    ),
+                  )
+                  .groupBy(executionToolCalls.toolPath);
+
+          const toolPathCounts = new Map<string, number>();
+          for (const row of toolCountRows) {
+            toolPathCounts.set(row.toolPath, Number(row.count));
+          }
+
+          meta = buildExecutionListMeta({
+            filtered: filteredExecutions,
+            timeRange: options.timeRange,
+            totalRowCount: scopeTotals.length,
+            toolPathCounts,
+          });
         }
 
         return {
@@ -326,6 +439,83 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
         return next;
       }).pipe(Effect.orDie),
 
+    recordToolCall: (input: CreateExecutionToolCallInput) =>
+      Effect.tryPromise(async () => {
+        const id = ExecutionToolCallId.make(`toolcall_${randomUUID()}`);
+        await db.insert(executionToolCalls).values({
+          id,
+          organizationId,
+          executionId: input.executionId,
+          status: input.status,
+          toolPath: input.toolPath,
+          namespace: input.namespace,
+          argsJson: input.argsJson,
+          resultJson: input.resultJson,
+          errorText: input.errorText,
+          startedAt: input.startedAt,
+          completedAt: input.completedAt,
+          durationMs: input.durationMs,
+        });
+        return new ExecutionToolCall({ id, ...input });
+      }).pipe(Effect.orDie),
+
+    finishToolCall: (id: ExecutionToolCallId, patch: UpdateExecutionToolCallInput) =>
+      Effect.tryPromise(async () => {
+        const currentRows = await db
+          .select()
+          .from(executionToolCalls)
+          .where(
+            and(
+              eq(executionToolCalls.id, id),
+              eq(executionToolCalls.organizationId, organizationId),
+            ),
+          );
+        const current = currentRows[0];
+        if (!current) {
+          throw new Error(`Execution tool call not found: ${id}`);
+        }
+
+        const next = new ExecutionToolCall({
+          ...toToolCall(current),
+          ...patch,
+          id,
+          executionId: ExecutionId.make(current.executionId),
+        });
+
+        await db
+          .update(executionToolCalls)
+          .set({
+            status: next.status,
+            resultJson: next.resultJson,
+            errorText: next.errorText,
+            completedAt: next.completedAt,
+            durationMs: next.durationMs,
+          })
+          .where(
+            and(
+              eq(executionToolCalls.id, id),
+              eq(executionToolCalls.organizationId, organizationId),
+            ),
+          );
+
+        return next;
+      }).pipe(Effect.orDie),
+
+    listToolCalls: (executionId: ExecutionId) =>
+      Effect.tryPromise(async () => {
+        const rows = await db
+          .select()
+          .from(executionToolCalls)
+          .where(
+            and(
+              eq(executionToolCalls.organizationId, organizationId),
+              eq(executionToolCalls.executionId, executionId),
+            ),
+          )
+          .orderBy(asc(executionToolCalls.startedAt), asc(executionToolCalls.id));
+        return rows.map(toToolCall);
+      }).pipe(Effect.orDie),
+
     sweep: () =>
       Effect.tryPromise(async () => {
         const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -336,6 +526,14 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
         const expiredIds = expiredExecutions.map((row) => row.id);
 
         if (expiredIds.length > 0) {
+          await db
+            .delete(executionToolCalls)
+            .where(
+              and(
+                eq(executionToolCalls.organizationId, organizationId),
+                inArray(executionToolCalls.executionId, expiredIds),
+              ),
+            );
           await db
             .delete(executionInteractions)
             .where(

@@ -269,6 +269,29 @@ describe("KvPolicyEngine", () => {
   );
 });
 
+type CreateExecutionInputBuilder = Parameters<
+  ReturnType<typeof makeSqliteExecutionStore>["create"]
+>[0];
+
+const makeExecutionInput = (
+  overrides: Partial<CreateExecutionInputBuilder>,
+): CreateExecutionInputBuilder => ({
+  scopeId: ScopeId.make("test"),
+  status: "completed",
+  code: "return 1",
+  resultJson: null,
+  errorText: null,
+  logsJson: null,
+  startedAt: null,
+  completedAt: null,
+  triggerKind: null,
+  triggerMetaJson: null,
+  toolCallCount: 0,
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  ...overrides,
+});
+
 describe("SqliteExecutionStore", () => {
   it.effect("lists scoped executions with filters and pending interactions", () =>
     Effect.gen(function* () {
@@ -278,30 +301,30 @@ describe("SqliteExecutionStore", () => {
       const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const now = Date.now();
 
-      const first = yield* store.create({
-        scopeId,
-        status: "completed",
-        code: "return 1",
-        resultJson: "1",
-        errorText: null,
-        logsJson: null,
-        startedAt: now - 20,
-        completedAt: now - 10,
-        createdAt: now - 20,
-        updatedAt: now - 10,
-      });
-      const second = yield* store.create({
-        scopeId,
-        status: "waiting_for_interaction",
-        code: "return await tools.api.singleApproval({})",
-        resultJson: null,
-        errorText: null,
-        logsJson: null,
-        startedAt: now,
-        completedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      });
+      const first = yield* store.create(
+        makeExecutionInput({
+          scopeId,
+          status: "completed",
+          code: "return 1",
+          resultJson: "1",
+          startedAt: now - 20,
+          completedAt: now - 10,
+          triggerKind: "http",
+          createdAt: now - 20,
+          updatedAt: now - 10,
+        }),
+      );
+      const second = yield* store.create(
+        makeExecutionInput({
+          scopeId,
+          status: "waiting_for_interaction",
+          code: "return await tools.api.singleApproval({})",
+          startedAt: now,
+          triggerKind: "mcp-pause",
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
 
       yield* store.recordInteraction(second.id, {
         executionId: second.id,
@@ -338,7 +361,138 @@ describe("SqliteExecutionStore", () => {
     }).pipe(Effect.provide(TestSqlLayer)),
   );
 
-  it.effect("sweeps expired executions and their interactions", () =>
+  it.effect("filters by triggerKind and populates triggerCounts in meta", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
+      const store = makeSqliteExecutionStore(sql);
+      const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const now = Date.now();
+
+      yield* store.create(makeExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 30 }));
+      yield* store.create(makeExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 20 }));
+      yield* store.create(makeExecutionInput({ scopeId, triggerKind: "mcp-inline", createdAt: now - 10 }));
+      yield* store.create(makeExecutionInput({ scopeId, triggerKind: null, createdAt: now }));
+
+      const httpOnly = yield* store.list(scopeId, {
+        limit: 10,
+        triggerFilter: ["http"],
+        includeMeta: true,
+      });
+      expect(httpOnly.executions).toHaveLength(2);
+
+      const all = yield* store.list(scopeId, { limit: 10, includeMeta: true });
+      expect(all.meta?.triggerCounts.http).toBe(2);
+      expect(all.meta?.triggerCounts["mcp-inline"]).toBe(1);
+      expect(all.meta?.triggerCounts.unknown).toBe(1);
+    }).pipe(Effect.provide(TestSqlLayer)),
+  );
+
+  it.effect("records tool calls, lists them, and populates toolFacets", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
+      const store = makeSqliteExecutionStore(sql);
+      const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const now = Date.now();
+
+      const execution = yield* store.create(
+        makeExecutionInput({
+          scopeId,
+          code: "return await tools.github.listIssues({})",
+          triggerKind: "http",
+          createdAt: now,
+        }),
+      );
+
+      const call1 = yield* store.recordToolCall({
+        executionId: execution.id,
+        status: "running",
+        toolPath: "github.listIssues",
+        namespace: "github",
+        argsJson: "{}",
+        resultJson: null,
+        errorText: null,
+        startedAt: now,
+        completedAt: null,
+        durationMs: null,
+      });
+
+      yield* store.finishToolCall(call1.id, {
+        status: "completed",
+        resultJson: "[]",
+        errorText: null,
+        completedAt: now + 50,
+        durationMs: 50,
+      });
+
+      yield* store.recordToolCall({
+        executionId: execution.id,
+        status: "completed",
+        toolPath: "github.getIssue",
+        namespace: "github",
+        argsJson: "{}",
+        resultJson: null,
+        errorText: null,
+        startedAt: now + 10,
+        completedAt: now + 30,
+        durationMs: 20,
+      });
+
+      const calls = yield* store.listToolCalls(execution.id);
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.toolPath).toBe("github.listIssues");
+      expect(calls[0]?.status).toBe("completed");
+      expect(calls[0]?.durationMs).toBe(50);
+      expect(calls[1]?.toolPath).toBe("github.getIssue");
+
+      const listed = yield* store.list(scopeId, { limit: 10, includeMeta: true });
+      expect(listed.meta?.toolFacets).toHaveLength(2);
+      const facetMap = Object.fromEntries(
+        (listed.meta?.toolFacets ?? []).map((facet) => [facet.toolPath, facet.count]),
+      );
+      expect(facetMap["github.listIssues"]).toBe(1);
+      expect(facetMap["github.getIssue"]).toBe(1);
+
+      const glob = yield* store.list(scopeId, {
+        limit: 10,
+        toolPathFilter: ["github.*"],
+      });
+      expect(glob.executions).toHaveLength(1);
+
+      const exact = yield* store.list(scopeId, {
+        limit: 10,
+        toolPathFilter: ["github.listIssues"],
+      });
+      expect(exact.executions).toHaveLength(1);
+
+      const miss = yield* store.list(scopeId, {
+        limit: 10,
+        toolPathFilter: ["stripe.*"],
+      });
+      expect(miss.executions).toHaveLength(0);
+    }).pipe(Effect.provide(TestSqlLayer)),
+  );
+
+  it.effect("after cursor returns only rows newer than the given timestamp", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
+      const store = makeSqliteExecutionStore(sql);
+      const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const base = Date.now();
+
+      yield* store.create(makeExecutionInput({ scopeId, createdAt: base - 100 }));
+      yield* store.create(makeExecutionInput({ scopeId, createdAt: base - 50 }));
+      yield* store.create(makeExecutionInput({ scopeId, createdAt: base }));
+
+      const afterResult = yield* store.list(scopeId, { limit: 10, after: base - 60 });
+      expect(afterResult.executions).toHaveLength(2);
+      expect(afterResult.executions.every((e) => e.createdAt > base - 60)).toBe(true);
+    }).pipe(Effect.provide(TestSqlLayer)),
+  );
+
+  it.effect("sweeps expired executions, their interactions, and tool calls", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
@@ -346,18 +500,18 @@ describe("SqliteExecutionStore", () => {
       const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const expiredAt = Date.now() - 31 * 24 * 60 * 60 * 1000;
 
-      const expired = yield* store.create({
-        scopeId,
-        status: "failed",
-        code: "throw new Error('boom')",
-        resultJson: null,
-        errorText: "boom",
-        logsJson: null,
-        startedAt: expiredAt,
-        completedAt: expiredAt,
-        createdAt: expiredAt,
-        updatedAt: expiredAt,
-      });
+      const expired = yield* store.create(
+        makeExecutionInput({
+          scopeId,
+          status: "failed",
+          code: "throw new Error('boom')",
+          errorText: "boom",
+          startedAt: expiredAt,
+          completedAt: expiredAt,
+          createdAt: expiredAt,
+          updatedAt: expiredAt,
+        }),
+      );
 
       yield* store.recordInteraction(expired.id, {
         executionId: expired.id,
@@ -371,10 +525,25 @@ describe("SqliteExecutionStore", () => {
         updatedAt: expiredAt,
       });
 
+      yield* store.recordToolCall({
+        executionId: expired.id,
+        status: "completed",
+        toolPath: "github.listIssues",
+        namespace: "github",
+        argsJson: null,
+        resultJson: null,
+        errorText: null,
+        startedAt: expiredAt,
+        completedAt: expiredAt + 1,
+        durationMs: 1,
+      });
+
       yield* store.sweep();
 
       const result = yield* store.get(expired.id);
       expect(result).toBeNull();
+      const calls = yield* store.listToolCalls(expired.id);
+      expect(calls).toHaveLength(0);
     }).pipe(Effect.provide(TestSqlLayer)),
   );
 });

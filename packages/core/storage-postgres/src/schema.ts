@@ -126,12 +126,18 @@ export const executions = pgTable(
     logsJson: text("logs_json"),
     startedAt: bigint("started_at", { mode: "number" }),
     completedAt: bigint("completed_at", { mode: "number" }),
+    triggerKind: text("trigger_kind"),
+    triggerMetaJson: text("trigger_meta_json"),
+    toolCallCount: integer("tool_call_count")
+      .notNull()
+      .$default(() => 0),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.id, table.organizationId] }),
     index("executions_scope_created_at_idx").on(table.scopeId, table.createdAt, table.id),
+    index("executions_trigger_kind_idx").on(table.organizationId, table.triggerKind),
   ],
 );
 
@@ -153,5 +159,32 @@ export const executionInteractions = pgTable(
   (table) => [
     primaryKey({ columns: [table.id, table.organizationId] }),
     index("execution_interactions_execution_status_idx").on(table.executionId, table.status),
+  ],
+);
+
+export const executionToolCalls = pgTable(
+  "execution_tool_calls",
+  {
+    id: text("id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    executionId: text("execution_id").notNull(),
+    status: text("status").notNull(),
+    toolPath: text("tool_path").notNull(),
+    namespace: text("namespace").notNull(),
+    argsJson: text("args_json"),
+    resultJson: text("result_json"),
+    errorText: text("error_text"),
+    startedAt: bigint("started_at", { mode: "number" }).notNull(),
+    completedAt: bigint("completed_at", { mode: "number" }),
+    durationMs: bigint("duration_ms", { mode: "number" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id, table.organizationId] }),
+    index("execution_tool_calls_execution_idx").on(
+      table.organizationId,
+      table.executionId,
+      table.startedAt,
+    ),
+    index("execution_tool_calls_path_idx").on(table.organizationId, table.toolPath),
   ],
 );
