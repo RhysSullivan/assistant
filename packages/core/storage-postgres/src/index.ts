@@ -29,6 +29,7 @@ export { makePgKv } from "./pg-kv";
 export { makePgToolRegistry } from "./tool-registry";
 export { makePgSecretStore } from "./secret-store";
 export { makePgPolicyEngine } from "./policy-engine";
+export { makePostgresStorage, migratePostgresStorage } from "./executor-storage";
 export { encrypt, decrypt } from "./crypto";
 export type { DrizzleDb } from "./types";
 

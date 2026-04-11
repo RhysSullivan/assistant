@@ -1,5 +1,5 @@
 {
-  "name": "@executor/storage-postgres",
+  "name": "@executor/storage-sqlite",
   "version": "1.4.0",
   "private": true,
   "type": "module",
@@ -10,25 +10,17 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsgo --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/sql": "catalog:",
-    "@effect/sql-pg": "^0.28.0",
-    "@executor/sdk": "workspace:*",
     "@executor/storage": "workspace:*",
+    "better-sqlite3": "^12.8.0",
     "drizzle-orm": "catalog:",
-    "effect": "catalog:",
-    "pg": "^8.16.0"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@electric-sql/pglite": "^0.4.3",
-    "@types/node": "^25.6.0",
-    "@types/pg": "^8.15.4",
-    "drizzle-kit": "^0.31.0",
+    "@types/better-sqlite3": "^7.6.13",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
