@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
-import { PlusIcon } from "lucide-react";
+import { DatabaseIcon, PlusIcon } from "lucide-react";
 import { sourcesAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin } from "../plugins/source-plugin";
@@ -15,7 +15,6 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "./command";
-import { SourceFavicon } from "./source-favicon";
 
 // ---------------------------------------------------------------------------
 // CommandPalette — global ⌘K navigator.
@@ -48,20 +47,20 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
   const connectedSources = useMemo(
     () =>
       Result.match(sourcesResult, {
-        onInitial: () => [] as Array<{
-          id: string;
-          name: string;
-          kind: string;
-          url?: string;
-          runtime?: boolean;
-        }>,
-        onFailure: () => [] as Array<{
-          id: string;
-          name: string;
-          kind: string;
-          url?: string;
-          runtime?: boolean;
-        }>,
+        onInitial: () =>
+          [] as Array<{
+            id: string;
+            name: string;
+            kind: string;
+            runtime?: boolean;
+          }>,
+        onFailure: () =>
+          [] as Array<{
+            id: string;
+            name: string;
+            kind: string;
+            runtime?: boolean;
+          }>,
         onSuccess: ({ value }) => value.filter((s) => !s.runtime),
       }),
     [sourcesResult],
@@ -142,7 +141,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
                 value={`connected ${s.name} ${s.id} ${s.kind}`}
                 onSelect={() => goToSource(s.id)}
               >
-                <SourceFavicon url={s.url} />
+                <DatabaseIcon />
                 <span className="flex-1 truncate">{s.name}</span>
                 <CommandShortcut>{s.kind}</CommandShortcut>
               </CommandItem>
@@ -150,9 +149,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
           </CommandGroup>
         )}
 
-        {connectedSources.length > 0 && sourcePlugins.length > 0 && (
-          <CommandSeparator />
-        )}
+        {connectedSources.length > 0 && sourcePlugins.length > 0 && <CommandSeparator />}
 
         {sourcePlugins.length > 0 && (
           <CommandGroup heading="Add source">
@@ -187,10 +184,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
                     loading="lazy"
                   />
                 ) : (
-                  <span
-                    aria-hidden
-                    className="size-4 shrink-0 rounded-sm bg-muted-foreground/20"
-                  />
+                  <span aria-hidden className="size-4 shrink-0 rounded-sm bg-muted-foreground/20" />
                 )}
                 <span className="flex-1 truncate">{e.presetName}</span>
                 <CommandShortcut>{e.pluginLabel}</CommandShortcut>
@@ -198,7 +192,6 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
             ))}
           </CommandGroup>
         )}
-
       </CommandList>
     </CommandDialog>
   );
