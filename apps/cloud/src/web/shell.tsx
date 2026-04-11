@@ -28,7 +28,7 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
       to={props.to}
       onClick={props.onNavigate}
       className={[
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
         props.active
           ? "bg-sidebar-active text-foreground font-medium"
           : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
