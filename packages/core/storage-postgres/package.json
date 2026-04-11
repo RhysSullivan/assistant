@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
   },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsgo --noEmit",
-    "typecheck:slow": "tsc --noEmit"
+    "typecheck:slow": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@executor/storage": "workspace:*",
@@ -19,6 +21,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@electric-sql/pglite": "^0.4.3",
+    "drizzle-kit": "^0.31.10",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
