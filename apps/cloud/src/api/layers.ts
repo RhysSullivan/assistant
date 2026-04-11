@@ -63,15 +63,15 @@ const TeamApiLive = HttpApiBuilder.api(TeamOrgApi).pipe(
 );
 
 const NonProtectedRequestLayer = NonProtectedApiLive.pipe(
-  Layer.provideMerge(SharedServices),
   Layer.provideMerge(RouterConfig),
+  Layer.provideMerge(HttpServer.layerContext),
   Layer.provideMerge(HttpApiBuilder.Router.Live),
   Layer.provideMerge(HttpApiBuilder.Middleware.layer),
 );
 
 const TeamRequestLayer = TeamApiLive.pipe(
-  Layer.provideMerge(SharedServices),
   Layer.provideMerge(RouterConfig),
+  Layer.provideMerge(HttpServer.layerContext),
   Layer.provideMerge(HttpApiBuilder.Router.Live),
   Layer.provideMerge(HttpApiBuilder.Middleware.layer),
 );
@@ -79,9 +79,9 @@ const TeamRequestLayer = TeamApiLive.pipe(
 export const NonProtectedApiApp = Effect.flatMap(
   HttpApiBuilder.httpApp.pipe(Effect.provide(NonProtectedRequestLayer)),
   HttpMiddleware.logger,
-).pipe(Effect.provide(HttpServer.layerContext));
+).pipe(Effect.provide(SharedServices));
 
 export const TeamApiApp = Effect.flatMap(
   HttpApiBuilder.httpApp.pipe(Effect.provide(TeamRequestLayer)),
   HttpMiddleware.logger,
-).pipe(Effect.provide(HttpServer.layerContext));
+).pipe(Effect.provide(SharedServices));
