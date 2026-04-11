@@ -116,7 +116,7 @@ export function SecretPicker(props: {
                         }}
                       >
                         <span className="truncate">{secret.name}</span>
-                        <span className="ml-auto truncate text-[10px] font-mono text-muted-foreground">
+                        <span className="ml-auto truncate text-xs font-mono text-muted-foreground">
                           {secret.id}
                         </span>
                       </CommandItem>

@@ -181,7 +181,7 @@ const mergeAllOf = (schemas: JsonSchema[], root: JsonSchema): JsonSchema => {
 // Type label styling — plain text, no colored pills
 // ---------------------------------------------------------------------------
 
-const typeClasses = "font-mono text-[0.6875rem] leading-5 text-muted-foreground";
+const typeClasses = "font-mono text-xs leading-5 text-muted-foreground";
 
 // ---------------------------------------------------------------------------
 // PropertyRow
@@ -255,14 +255,14 @@ function PropertyRow(props: {
           <p className={typeClasses}>{typeLabel}</p>
           {!hideRequiredBadge &&
             (required ? (
-              <p className="text-[0.6875rem] leading-5 font-medium text-orange-600 dark:text-orange-400">
+              <p className="text-xs leading-5 font-medium text-orange-600 dark:text-orange-400">
                 required
               </p>
             ) : (
-              <p className="text-[0.6875rem] leading-5 text-muted-foreground">optional</p>
+              <p className="text-xs leading-5 text-muted-foreground">optional</p>
             ))}
           {schema.default !== undefined && (
-            <p className="text-[0.6875rem] leading-5 text-muted-foreground">
+            <p className="text-xs leading-5 text-muted-foreground">
               = {JSON.stringify(schema.default)}
             </p>
           )}
@@ -272,7 +272,7 @@ function PropertyRow(props: {
       {/* Description — below the row */}
       {description && (
         <p
-          className="pr-4 pb-2.5 text-[0.8125rem] leading-5 text-muted-foreground"
+          className="pr-4 pb-2.5 text-sm leading-5 text-muted-foreground"
           style={{ paddingLeft: `${depth * 16 + 36}px` }}
         >
           {description}
@@ -298,7 +298,7 @@ function PropertyChildren(props: { schema: JsonSchema; root: JsonSchema; depth: 
 
   if (depth > 6) {
     return (
-      <p className="px-4 py-2 text-[0.8125rem] text-muted-foreground">
+      <p className="px-4 py-2 text-sm text-muted-foreground">
         Nested too deep to display.
       </p>
     );
@@ -357,7 +357,7 @@ function PropertyChildren(props: { schema: JsonSchema; root: JsonSchema; depth: 
     return (
       <div>
         <p
-          className="px-4 py-2 text-[0.6875rem] font-medium uppercase tracking-widest text-muted-foreground"
+          className="px-4 py-2 text-xs font-medium uppercase tracking-widest text-muted-foreground"
           style={depth > 0 ? { paddingLeft: `${depth * 16 + 16}px` } : undefined}
         >
           {label}
@@ -446,7 +446,7 @@ export function SchemaExplorer(props: { schema: unknown; title?: string }) {
         <CardStackHeader
           rightSlot={
             countLabel ? (
-              <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+              <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
                 {countLabel}
               </span>
             ) : undefined

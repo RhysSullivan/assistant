@@ -23,7 +23,7 @@ export default function EditGoogleDiscoverySource({
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit Google Discovery Source</h1>
-        <p className="mt-1 text-[13px] text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           View configuration for this Google API source. To change authentication, remove and re-add
           the source with updated OAuth credentials.
         </p>
@@ -40,7 +40,7 @@ export default function EditGoogleDiscoverySource({
             </p>
           )}
         </div>
-        <Badge variant="secondary" className="text-[10px]">
+        <Badge variant="secondary" className="text-xs">
           Google Discovery
         </Badge>
       </div>
@@ -49,13 +49,13 @@ export default function EditGoogleDiscoverySource({
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg border border-border bg-card/50 p-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
                 Service
               </p>
               <p className="text-sm font-medium text-foreground">{config.service}</p>
             </div>
             <div className="rounded-lg border border-border bg-card/50 p-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
                 Version
               </p>
               <p className="text-sm font-medium text-foreground">{config.version}</p>
@@ -63,7 +63,7 @@ export default function EditGoogleDiscoverySource({
           </div>
 
           <div className="rounded-lg border border-border bg-card/50 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
               Authentication
             </p>
             <p className="text-sm font-medium text-foreground capitalize">

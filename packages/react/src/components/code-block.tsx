@@ -110,14 +110,14 @@ export function CodeBlock(props: {
     <div className={cn("rounded-lg border border-border bg-card/60 overflow-hidden", className)}>
       {title && (
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          <span className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
             {title}
           </span>
           <Button
             variant="ghost"
             size="icon-xs"
             onClick={handleCopy}
-            className="text-muted-foreground/30 hover:text-muted-foreground"
+            className="text-muted-foreground hover:text-muted-foreground"
             title="Copy"
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
@@ -130,7 +130,7 @@ export function CodeBlock(props: {
             variant="ghost"
             size="icon-xs"
             onClick={handleCopy}
-            className="absolute right-2 top-2 z-10 rounded-md border border-border bg-card/90 p-1.5 text-muted-foreground/40 opacity-0 backdrop-blur-sm hover:text-foreground group-hover:opacity-100 transition-opacity"
+            className="absolute right-2 top-2 z-10 rounded-md border border-border bg-card/90 p-1.5 text-muted-foreground opacity-0 backdrop-blur-sm hover:text-foreground group-hover:opacity-100 transition-opacity"
             title="Copy to clipboard"
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
@@ -138,11 +138,11 @@ export function CodeBlock(props: {
         )}
 
         <div
-          className="overflow-auto text-[12px] leading-relaxed [&_pre]:!bg-transparent [&_pre]:p-3 [&_code]:font-mono"
+          className="overflow-auto text-sm leading-relaxed [&_pre]:!bg-transparent [&_pre]:p-3 [&_code]:font-mono"
           style={maxH ? { maxHeight: maxH } : undefined}
         >
           {highlighted ?? (
-            <pre className="p-3 font-mono text-[12px] leading-relaxed text-foreground/60">
+            <pre className="p-3 font-mono text-sm leading-relaxed text-foreground/60">
               {code}
             </pre>
           )}
@@ -154,7 +154,7 @@ export function CodeBlock(props: {
               variant="outline"
               size="sm"
               onClick={() => setExpanded(true)}
-              className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              className="text-xs font-medium text-muted-foreground hover:text-foreground"
             >
               Show all ({lines.length} lines)
             </Button>

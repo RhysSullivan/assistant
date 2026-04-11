@@ -65,7 +65,7 @@ function BillingPage() {
         <div className="flex items-center justify-between py-4">
           <div>
             <div className="flex items-center gap-2">
-              <p className="text-[0.8125rem] font-medium text-foreground leading-none">
+              <p className="text-sm font-medium text-foreground leading-none">
                 {planName}
               </p>
               {isSwitching && (
@@ -79,7 +79,7 @@ function BillingPage() {
                 </Badge>
               )}
             </div>
-            <p className="mt-1 text-[0.75rem] text-muted-foreground/70 leading-none">
+            <p className="mt-1 text-xs text-muted-foreground leading-none">
               {isSwitching && sub?.currentPeriodEnd
                 ? `Starts ${new Date(sub.currentPeriodEnd).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`
                 : isCanceling && sub?.currentPeriodEnd
@@ -95,14 +95,14 @@ function BillingPage() {
                 variant="ghost"
                 type="button"
                 onClick={() => openCustomerPortal()}
-                className="rounded-md px-3 py-1.5 text-[0.75rem] font-medium text-destructive transition-colors hover:bg-destructive/10"
+                className="rounded-md px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
               >
                 Cancel plan
               </Button>
             )}
             <Link
               to="/billing/plans"
-              className="rounded-md bg-primary px-3 py-1.5 text-[0.75rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Manage
             </Link>
@@ -116,10 +116,10 @@ function BillingPage() {
         {executions && (
           <div className="py-4">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[0.8125rem] font-medium text-foreground">Executions</p>
-              <p className="text-[0.8125rem] tabular-nums text-muted-foreground">
+              <p className="text-sm font-medium text-foreground">Executions</p>
+              <p className="text-sm tabular-nums text-muted-foreground">
                 {executions.usage.toLocaleString()}
-                <span className="text-muted-foreground/50">
+                <span className="text-muted-foreground">
                   {" / "}
                   {executions.granted.toLocaleString()} this month
                 </span>

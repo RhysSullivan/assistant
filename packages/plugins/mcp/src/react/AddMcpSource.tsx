@@ -487,7 +487,7 @@ export default function AddMcpSource(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Add MCP Source</h1>
-        <p className="mt-1 text-[13px] text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           Connect to an MCP server to discover and use its tools.
         </p>
       </div>
@@ -550,7 +550,7 @@ export default function AddMcpSource(props: {
                 </Button>
               )}
             </div>
-            <p className="text-[12px] text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Supports Streamable HTTP and SSE transports.
             </p>
           </section>
@@ -581,7 +581,7 @@ export default function AddMcpSource(props: {
                 <p className="truncate text-sm font-semibold text-card-foreground leading-none">
                   {probe.serverName ?? probe.name}
                 </p>
-                <p className="mt-1 text-[12px] text-muted-foreground leading-none">
+                <p className="mt-1 text-xs text-muted-foreground leading-none">
                   {probe.connected
                     ? `${probe.toolCount} tool${probe.toolCount !== 1 ? "s" : ""} available`
                     : "OAuth required to discover tools"}
@@ -590,14 +590,14 @@ export default function AddMcpSource(props: {
               {probe.connected ? (
                 <Badge
                   variant="outline"
-                  className="border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-600 dark:text-emerald-400"
+                  className="border-emerald-500/20 bg-emerald-500/10 text-xs text-emerald-600 dark:text-emerald-400"
                 >
                   Connected
                 </Badge>
               ) : (
                 <Badge
                   variant="outline"
-                  className="border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-600 dark:text-amber-400"
+                  className="border-amber-500/20 bg-amber-500/10 text-xs text-amber-600 dark:text-amber-400"
                 >
                   OAuth required
                 </Badge>
@@ -625,7 +625,7 @@ export default function AddMcpSource(props: {
                   >
                     <RadioGroupItem value="none" />
                     <span className="text-xs font-medium text-foreground">None</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">
+                    <span className="ml-auto text-xs text-muted-foreground">
                       no auth header
                     </span>
                   </Label>
@@ -640,7 +640,7 @@ export default function AddMcpSource(props: {
                 >
                   <RadioGroupItem value="header" />
                   <span className="text-xs font-medium text-foreground">Header</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">
+                  <span className="ml-auto text-xs text-muted-foreground">
                     use a secret-backed auth header
                   </span>
                 </Label>
@@ -655,7 +655,7 @@ export default function AddMcpSource(props: {
                   >
                     <RadioGroupItem value="oauth2" />
                     <span className="text-xs font-medium text-foreground">OAuth</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">
+                    <span className="ml-auto text-xs text-muted-foreground">
                       sign in with the server&apos;s OAuth flow
                     </span>
                   </Label>
@@ -710,7 +710,7 @@ export default function AddMcpSource(props: {
                   {state.step === "oauth-starting" && (
                     <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
                       <Spinner className="size-3.5" />
-                      <span className="text-xs text-muted-foreground">Starting authorization…</span>
+                      <span className="text-sm text-muted-foreground">Starting authorization…</span>
                     </div>
                   )}
 
@@ -751,7 +751,7 @@ export default function AddMcpSource(props: {
               )}
 
               {remoteAuthMode === "none" && probe.requiresOAuth && (
-                <p className="text-[12px] text-amber-600 dark:text-amber-400">
+                <p className="text-xs text-amber-600 dark:text-amber-400">
                   This server requires authentication before it can be added.
                 </p>
               )}
@@ -764,7 +764,7 @@ export default function AddMcpSource(props: {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <Label>Additional headers</Label>
-                  <p className="mt-1 text-[12px] text-muted-foreground">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Plaintext headers sent with every request. Use authentication for secret-backed
                     auth headers.
                   </p>
@@ -790,7 +790,7 @@ export default function AddMcpSource(props: {
                       className="rounded-lg border border-border bg-card p-3 space-y-2"
                     >
                       <div className="flex items-center justify-between">
-                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                           Header
                         </Label>
                         <Button
@@ -809,7 +809,7 @@ export default function AddMcpSource(props: {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
-                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                             Name
                           </Label>
                           <Input
@@ -824,11 +824,11 @@ export default function AddMcpSource(props: {
                               )
                             }
                             placeholder="X-Organization-Id"
-                            className="h-8 text-xs font-mono"
+                            className="h-8 text-sm font-mono"
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                             Value
                           </Label>
                           <Input
@@ -846,7 +846,7 @@ export default function AddMcpSource(props: {
                               )
                             }
                             placeholder="workspace-id"
-                            className="h-8 text-xs font-mono"
+                            className="h-8 text-sm font-mono"
                           />
                         </div>
                       </div>
@@ -861,7 +861,7 @@ export default function AddMcpSource(props: {
           {error && (
             <div className="space-y-2">
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-                <p className="text-[12px] text-destructive">{error}</p>
+                <p className="text-sm text-destructive">{error}</p>
               </div>
               <Button
                 variant="outline"
@@ -914,7 +914,7 @@ export default function AddMcpSource(props: {
                 placeholder="npx"
                 className="font-mono text-sm"
               />
-              <p className="text-[12px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 The executable to run (e.g. npx, uvx, node).
               </p>
             </div>
@@ -927,7 +927,7 @@ export default function AddMcpSource(props: {
                 placeholder="-y chrome-devtools-mcp@latest"
                 className="font-mono text-sm"
               />
-              <p className="text-[12px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Space-separated arguments passed to the command.
               </p>
             </div>
@@ -956,14 +956,14 @@ export default function AddMcpSource(props: {
                 rows={3}
                 className="font-mono text-sm"
               />
-              <p className="text-[12px] text-muted-foreground">One per line, KEY=value format.</p>
+              <p className="text-sm text-muted-foreground">One per line, KEY=value format.</p>
             </div>
           </section>
 
           {/* Stdio error */}
           {stdioError && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-[12px] text-destructive">{stdioError}</p>
+              <p className="text-sm text-destructive">{stdioError}</p>
             </div>
           )}
 
