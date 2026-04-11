@@ -83,9 +83,7 @@ const flattenTree = (
   openSet: ReadonlySet<string>,
   acc: Row[],
 ): void => {
-  const sorted = [...node.children.values()].sort((a, b) =>
-    a.segment.localeCompare(b.segment),
-  );
+  const sorted = [...node.children.values()].sort((a, b) => a.segment.localeCompare(b.segment));
   for (const child of sorted) {
     const hasChildren = child.children.size > 0;
     const isLeaf = !!child.tool && !hasChildren;
@@ -297,9 +295,7 @@ export function ToolTree(props: {
                 row.kind === "leaf" ? (
                   <ToolLeafRow
                     key={row.path}
-                    buttonRef={
-                      row.tool.id === selectedToolId ? selectedRowRef : undefined
-                    }
+                    buttonRef={row.tool.id === selectedToolId ? selectedRowRef : undefined}
                     tool={row.tool}
                     depth={row.depth}
                     active={row.tool.id === selectedToolId}
@@ -361,9 +357,7 @@ function ToolGroupRow(props: {
       <span className="min-w-0 flex-1 truncate text-left font-mono text-[13px] text-foreground">
         {highlightMatch(props.segment, props.search)}
       </span>
-      <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
-        {props.count}
-      </span>
+      <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">{props.count}</span>
     </Button>
   );
 }

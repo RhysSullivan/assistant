@@ -1,10 +1,5 @@
 import { useState, Suspense } from "react";
-import {
-  useAtomValue,
-  useAtomSet,
-  useAtomRefresh,
-  Result,
-} from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
 import { SecretId } from "@executor/sdk";
@@ -50,10 +45,7 @@ import { Badge } from "../components/badge";
 // Add secret dialog
 // ---------------------------------------------------------------------------
 
-function AddSecretDialog(props: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-}) {
+function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -112,8 +104,8 @@ function AddSecretDialog(props: {
         <DialogHeader>
           <DialogTitle className="font-display text-xl">New secret</DialogTitle>
           <DialogDescription className="text-[13px] leading-relaxed">
-            Store a credential or API key. Values are kept in your system
-            keychain when available, with a local encrypted file fallback.
+            Store a credential or API key. Values are kept in your system keychain when available,
+            with a local encrypted file fallback.
           </DialogDescription>
         </DialogHeader>
 
@@ -183,9 +175,7 @@ function AddSecretDialog(props: {
                 id="secret-purpose"
                 placeholder="GitHub API auth"
                 value={purpose}
-                onChange={(e) =>
-                  setPurpose((e.target as HTMLInputElement).value)
-                }
+                onChange={(e) => setPurpose((e.target as HTMLInputElement).value)}
                 className="text-[13px] h-9"
               />
             </div>
@@ -291,9 +281,7 @@ function SecretRow(props: {
 // Page
 // ---------------------------------------------------------------------------
 
-export function SecretsPage(props: {
-  secretProviderPlugins: readonly SecretProviderPlugin[];
-}) {
+export function SecretsPage(props: { secretProviderPlugins: readonly SecretProviderPlugin[] }) {
   const { secretProviderPlugins } = props;
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
@@ -361,16 +349,12 @@ export function SecretsPage(props: {
           onInitial: () => (
             <div className="flex items-center gap-2 py-8">
               <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <p className="text-[13px] text-muted-foreground/60">
-                Loading secrets…
-              </p>
+              <p className="text-[13px] text-muted-foreground/60">Loading secrets…</p>
             </div>
           ),
           onFailure: () => (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-[13px] text-destructive">
-                Failed to load secrets
-              </p>
+              <p className="text-[13px] text-destructive">Failed to load secrets</p>
             </div>
           ),
           onSuccess: ({ value }) => (

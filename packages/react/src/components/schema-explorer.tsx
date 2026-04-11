@@ -1,10 +1,6 @@
 import { useState, useCallback } from "react";
 import { ChevronRight } from "lucide-react";
-import {
-  CardStack,
-  CardStackHeader,
-  CardStackContent,
-} from "./card-stack";
+import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
 
 // ---------------------------------------------------------------------------
 // JSON Schema types (subset we render)

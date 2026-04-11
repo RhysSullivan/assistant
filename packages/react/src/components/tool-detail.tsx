@@ -6,11 +6,7 @@ import { Button } from "./button";
 import { Markdown } from "./markdown";
 import { SchemaExplorer } from "./schema-explorer";
 import { ExpandableCodeBlock } from "./expandable-code-block";
-import {
-  CardStack,
-  CardStackHeader,
-  CardStackContent,
-} from "./card-stack";
+import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
 import { Copy, Check, ChevronRight } from "lucide-react";
 
 function EmptySection(props: { title: string; message: string }) {
