@@ -1,13 +1,7 @@
 import { Effect, Schema } from "effect";
 
-import {
-  definePlugin,
-  type ExecutorPlugin,
-  type PluginContext,
-  type SecretProvider,
-  type ScopedKv,
-  SecretId,
-} from "@executor/sdk";
+import { definePlugin, type ExecutorPlugin, type PluginContext } from "@executor/sdk";
+import { type SecretProvider, type ScopedKv, SecretId } from "@executor/storage";
 
 import { OnePasswordConfig, Vault, ConnectionStatus } from "./types";
 import type { OnePasswordAuth } from "./types";

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 
-import { definePlugin, type SecretId, type ExecutorPlugin } from "@executor/sdk";
+import { definePlugin, type ExecutorPlugin } from "@executor/sdk";
+import { type SecretId } from "@executor/storage";
 
 import { displayName, isSupportedPlatform, resolveServiceName } from "./keyring";
 import { getPassword } from "./keyring";

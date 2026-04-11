@@ -1,15 +1,15 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { createExecutor, makeTestConfig, SecretId } from "@executor/sdk";
+import { createExecutor } from "@executor/sdk";
+import { SecretId } from "@executor/storage";
+import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 import { keychainPlugin } from "./index";
 
 describe("keychain plugin", () => {
   it.effect("registers keychain as a secret provider", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [keychainPlugin()] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [keychainPlugin()] as const }),
       );
 
       expect(executor.keychain.displayName).toBeTypeOf("string");
@@ -26,10 +26,8 @@ describe("keychain plugin", () => {
   it.effect.skipIf(!!process.env.CI)("stores and checks secret via system keychain", () =>
     Effect.gen(function* () {
       const testId = SecretId.make(`test-keychain-${Date.now()}`);
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [keychainPlugin({ serviceName: "executor-test" })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [keychainPlugin({ serviceName: "executor-test" })] as const }),
       );
 
       try {
@@ -56,10 +54,8 @@ describe("keychain plugin", () => {
 
   it.effect.skipIf(!!process.env.CI)("has returns false for missing secret", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [keychainPlugin({ serviceName: "executor-test" })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [keychainPlugin({ serviceName: "executor-test" })] as const }),
       );
 
       const exists = yield* executor.keychain.has(SecretId.make("nonexistent-secret"));

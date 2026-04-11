@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "bun-types": "catalog:",
     "typescript": "latest"
   }
 }

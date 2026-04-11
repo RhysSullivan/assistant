@@ -1,11 +1,11 @@
 {
   "name": "@executor/storage",
-  "version": "1.4.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./test-suite": "./src/test-suite.ts"
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "test": "vitest run",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -8,7 +8,7 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["node"]
+    "types": ["node", "bun-types"]
   },
   "include": ["src"]
 }

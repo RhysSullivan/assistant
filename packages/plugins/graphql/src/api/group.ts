@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import { ScopeId } from "@executor/storage";
 
 import { GraphqlIntrospectionError, GraphqlExtractionError } from "../sdk/errors";
 import { StoredSourceSchema } from "../sdk/stored-source";
