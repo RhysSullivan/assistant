@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, SearchIcon, XIcon } from "lucide-react";
 import { Button } from "./button";
 import { Input } from "./input";
-import { CardStack, CardStackContent } from "./card-stack";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -253,71 +252,61 @@ export function ToolTree(props: {
   }, [selectedToolId, rows]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <CardStack className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent">
-        {/* Search header */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2">
-          <SearchIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-          <Input
-            ref={searchRef}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Filter ${tools.length} tools…`}
-            aria-label="Filter tools"
-            className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[13px] shadow-none outline-none placeholder:text-muted-foreground focus-visible:border-transparent focus-visible:ring-0"
-          />
-          {search.length > 0 ? (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => setSearch("")}
-              aria-label="Clear search"
-              className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <XIcon className="size-3.5" />
-            </Button>
-          ) : (
-            <kbd className="shrink-0 rounded border border-border bg-muted px-1 py-px text-[10px] leading-none text-muted-foreground">
-              /
-            </kbd>
-          )}
-        </div>
-
-        {/* Tree body */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {filteredTools.length === 0 ? (
-            <div className="p-4 text-center text-[13px] text-muted-foreground">
-              {terms.length > 0 ? "No tools match your filter" : "No tools available"}
-            </div>
-          ) : (
-            <CardStackContent>
-              {rows.map((row) =>
-                row.kind === "leaf" ? (
-                  <ToolLeafRow
-                    key={row.path}
-                    buttonRef={row.tool.id === selectedToolId ? selectedRowRef : undefined}
-                    tool={row.tool}
-                    depth={row.depth}
-                    active={row.tool.id === selectedToolId}
-                    onSelect={() => onSelect(row.tool.id)}
-                    search={search}
-                  />
-                ) : (
-                  <ToolGroupRow
-                    key={row.path}
-                    segment={row.segment}
-                    depth={row.depth}
-                    count={row.count}
-                    open={row.open}
-                    onToggle={() => toggleGroup(row.path)}
-                    search={search}
-                  />
-                ),
-              )}
-            </CardStackContent>
-          )}
-        </div>
-      </CardStack>
+    <div className="flex h-full min-h-0 flex-col bg-muted/20">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
+        <SearchIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+        <Input
+          ref={searchRef}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={`Filter ${tools.length} tools…`}
+          aria-label="Filter tools"
+          className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.75rem] shadow-none outline-none placeholder:text-muted-foreground/50 focus-visible:border-transparent focus-visible:ring-0"
+        />
+        {search.length > 0 && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+            className="size-4 shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <XIcon className="size-3" />
+          </Button>
+        )}
+      </div>
+      <div className="mx-2 border-t border-border/30" />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {filteredTools.length === 0 ? (
+          <div className="p-4 text-center text-[13px] text-muted-foreground">
+            {terms.length > 0 ? "No tools match your filter" : "No tools available"}
+          </div>
+        ) : (
+          rows.map((row) =>
+            row.kind === "leaf" ? (
+              <ToolLeafRow
+                key={row.path}
+                buttonRef={row.tool.id === selectedToolId ? selectedRowRef : undefined}
+                tool={row.tool}
+                depth={row.depth}
+                active={row.tool.id === selectedToolId}
+                onSelect={() => onSelect(row.tool.id)}
+                search={search}
+              />
+            ) : (
+              <ToolGroupRow
+                key={row.path}
+                segment={row.segment}
+                depth={row.depth}
+                count={row.count}
+                open={row.open}
+                onToggle={() => toggleGroup(row.path)}
+                search={search}
+              />
+            ),
+          )
+        )}
+      </div>
     </div>
   );
 }
