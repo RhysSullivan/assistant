@@ -44,7 +44,8 @@ import * as Cause from "effect/Cause";
 
 import { ExecutorApi } from "@executor/api";
 import { startServer, runMcpStdioServer, getExecutor } from "@executor/local";
-import { makeServiceCommand } from "@executor/plugin-launchd";
+import { makeServiceCommand, makeUnsupportedPlatformSupervisor } from "@executor/supervisor";
+import { makeLaunchdSupervisorLayer } from "@executor/plugin-launchd";
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
 import embeddedWebUI from "./embedded-web-ui.gen";
@@ -288,8 +289,16 @@ const mcpCommand = Command.make("mcp", { scope }, ({ scope }) =>
 // Root command
 // ---------------------------------------------------------------------------
 
-// Host-contributed commands; future host plugin work can replace this seam.
-const hostCommandFactories = [makeServiceCommand()] as const;
+// Platform-gated PlatformSupervisor layer. The ternary discriminator must use
+// `BUILD_PLATFORM` directly (not via an intermediate const) so Bun's DCE can
+// fold the switch and tree-shake the unused plugin import at build time.
+const platformSupervisorLayer =
+  (typeof BUILD_PLATFORM !== "undefined" ? BUILD_PLATFORM : process.platform) === "darwin"
+    ? makeLaunchdSupervisorLayer()
+    : makeUnsupportedPlatformSupervisor({
+        platform:
+          typeof BUILD_PLATFORM !== "undefined" ? BUILD_PLATFORM : (process.platform as string),
+      });
 
 const root = Command.make("executor").pipe(
   Command.withSubcommands([
@@ -297,7 +306,7 @@ const root = Command.make("executor").pipe(
     resumeCommand,
     webCommand,
     mcpCommand,
-    ...hostCommandFactories,
+    makeServiceCommand(),
   ] as const),
   Command.withDescription("Executor local CLI"),
 );
@@ -318,6 +327,7 @@ if (process.argv.includes("-v")) {
 }
 
 const program = runCli(process.argv).pipe(
+  Effect.provide(platformSupervisorLayer),
   Effect.catchAllCause((cause) =>
     Effect.sync(() => {
       console.error(Cause.pretty(cause));

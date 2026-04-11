@@ -34,6 +34,7 @@
     "@executor/react": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@executor/storage-file": "workspace:*",
+    "@executor/supervisor": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tanstack/react-router": "catalog:",
     "effect": "catalog:",
