@@ -5,12 +5,29 @@ import {
   ElicitationResponse,
   Source,
   createExecutor,
+  definePlugin,
   inMemoryToolsPlugin,
   makeTestConfig,
   tool,
 } from "@executor/sdk";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
+
+// Test helper — register a set of runtime sources through the plugin
+// lifecycle. The new ExecutorConfig shape routes source management
+// through plugins; this keeps the old registerRuntime test pattern
+// working via a plugin-shaped adapter.
+const runtimeSourcesPlugin = (sources: readonly Source[]) =>
+  definePlugin({
+    key: "test-runtime-sources",
+    init: (ctx) =>
+      Effect.gen(function* () {
+        for (const source of sources) {
+          yield* ctx.sources.registerRuntime(source);
+        }
+        return { extension: {} };
+      }),
+  });
 
 const EmptyInput = Schema.Struct({});
 const RepoInput = Schema.Struct({
@@ -29,6 +46,24 @@ const makeSearchExecutor = () =>
   Effect.gen(function* () {
     const config = makeTestConfig({
       plugins: [
+        runtimeSourcesPlugin([
+          new Source({
+            id: "github",
+            name: "GitHub",
+            kind: "in-memory",
+            runtime: true,
+            canRemove: false,
+            canRefresh: false,
+          }),
+          new Source({
+            id: "crm",
+            name: "CRM",
+            kind: "in-memory",
+            runtime: true,
+            canRemove: false,
+            canRefresh: false,
+          }),
+        ]),
         inMemoryToolsPlugin({
           namespace: "github",
           tools: [
@@ -71,27 +106,6 @@ const makeSearchExecutor = () =>
         }),
       ] as const,
     });
-
-    yield* config.sources.registerRuntime(
-      new Source({
-        id: "github",
-        name: "GitHub",
-        kind: "in-memory",
-        runtime: true,
-        canRemove: false,
-        canRefresh: false,
-      }),
-    );
-    yield* config.sources.registerRuntime(
-      new Source({
-        id: "crm",
-        name: "CRM",
-        kind: "in-memory",
-        runtime: true,
-        canRemove: false,
-        canRefresh: false,
-      }),
-    );
 
     return yield* createExecutor(config);
   });
@@ -269,6 +283,16 @@ describe("pause/resume with multiple elicitations", () => {
     Effect.gen(function* () {
       const config = makeTestConfig({
         plugins: [
+          runtimeSourcesPlugin([
+            new Source({
+              id: "api",
+              name: "API",
+              kind: "in-memory",
+              runtime: true,
+              canRemove: false,
+              canRefresh: false,
+            }),
+          ]),
           inMemoryToolsPlugin({
             namespace: "api",
             tools: [
@@ -313,17 +337,6 @@ describe("pause/resume with multiple elicitations", () => {
           }),
         ] as const,
       });
-
-      yield* config.sources.registerRuntime(
-        new Source({
-          id: "api",
-          name: "API",
-          kind: "in-memory",
-          runtime: true,
-          canRemove: false,
-          canRefresh: false,
-        }),
-      );
 
       return yield* createExecutor(config);
     });
