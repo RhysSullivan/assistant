@@ -87,9 +87,11 @@ export const statusTone = (status: ExecutionStatus): StatusTone => STATUS_TONES[
 // Trigger tones
 // ---------------------------------------------------------------------------
 //
-// A second palette, keyed on `triggerKind` ("mcp-inline" | "mcp-pause" |
-// "http" | "cli" | "test" | null), used by the row `via:` indicator,
-// the filter rail Trigger facet, and the drawer trigger chip.
+// A second palette, keyed on `triggerKind` ("mcp" | "http" | "cli" |
+// null), used by the row `via:` indicator, the filter rail Trigger
+// facet, and the drawer trigger chip. Whether an `mcp` run actually
+// elicited is tracked separately via the Interactions facet.
+// Unknown/custom kinds fall through to `UNKNOWN_TRIGGER_TONE`.
 
 export type TriggerTone = {
   readonly dot: string;
@@ -104,15 +106,10 @@ const UNKNOWN_TRIGGER_TONE: TriggerTone = {
 };
 
 export const TRIGGER_TONES: Record<string, TriggerTone> = {
-  "mcp-inline": {
+  mcp: {
     dot: "bg-[color:var(--color-info)]",
     text: "text-[color:var(--color-info)]",
-    label: "mcp-inline",
-  },
-  "mcp-pause": {
-    dot: "bg-[color:var(--color-warning)]",
-    text: "text-[color:var(--color-warning)]",
-    label: "mcp-pause",
+    label: "mcp",
   },
   http: {
     dot: "bg-[color:var(--color-success)]",
@@ -124,11 +121,6 @@ export const TRIGGER_TONES: Record<string, TriggerTone> = {
     text: "text-foreground",
     label: "cli",
   },
-  test: {
-    dot: "bg-foreground/40",
-    text: "text-muted-foreground",
-    label: "test",
-  },
 };
 
 export const triggerTone = (kind: string | null | undefined): TriggerTone => {
@@ -136,4 +128,4 @@ export const triggerTone = (kind: string | null | undefined): TriggerTone => {
   return TRIGGER_TONES[kind] ?? { ...UNKNOWN_TRIGGER_TONE, label: kind };
 };
 
-export const TRIGGER_ORDER = ["mcp-inline", "mcp-pause", "http", "cli", "test"] as const;
+export const TRIGGER_ORDER = ["mcp", "http", "cli"] as const;

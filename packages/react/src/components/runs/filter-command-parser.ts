@@ -13,7 +13,7 @@
 // Examples:
 //   status:failed
 //   status:failed,completed
-//   trigger:mcp-inline
+//   trigger:mcp
 //   tool:github.*
 //   code:axiom
 //   duration_ms:>5000
@@ -181,8 +181,8 @@ export const FILTER_COMMAND_KEYS: readonly FilterCommandKey[] = [
   {
     key: "trigger",
     description: "Entry point that started the run",
-    example: "trigger:mcp-inline",
-    hints: ["mcp-inline", "mcp-pause", "http", "cli"],
+    example: "trigger:mcp",
+    hints: ["mcp", "http", "cli"],
   },
   {
     key: "tool",
