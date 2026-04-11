@@ -1,14 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Schema } from "effect";
-import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 
 import {
   createExecutor,
   inMemoryToolsPlugin,
   tool,
   type MemoryToolContext,
-} from "./index";
-import {
   makeInMemorySourceRegistry,
   FormElicitation,
   UrlElicitation,
@@ -16,7 +13,8 @@ import {
   Source,
   type InvokeOptions,
   SecretId,
-} from "@executor/storage";
+} from "./index";
+import { makeInMemoryConfig } from "./testing/in-memory-stores";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 

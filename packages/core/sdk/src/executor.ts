@@ -1,36 +1,40 @@
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
 
-import type { ToolId, SecretId, PolicyId } from "@executor/storage";
-import type { SecretProvider, SecretRef, SetSecretInput } from "@executor/storage";
-import { SecretManager } from "@executor/storage";
+import type { ToolId, SecretId, PolicyId } from "./ids";
+import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 import type {
   ToolMetadata,
   ToolSchema,
   ToolInvocationResult,
   ToolListFilter,
   InvokeOptions,
-} from "@executor/storage";
-import { ToolRegistry } from "@executor/storage";
-import type { Source, SourceDetectionResult } from "@executor/storage";
-import { SourceRegistry, makeInMemorySourceRegistry } from "@executor/storage";
-import type { Policy } from "@executor/storage";
-import { PolicyEngine } from "@executor/storage";
-import type { Scope } from "@executor/storage";
-import type { ExecutorPlugin, PluginExtensions, PluginHandle } from "./plugin";
+} from "./tools";
+import type { Source, SourceDetectionResult, SourceManager } from "./sources";
+import { makeInMemorySourceRegistry } from "./sources";
+import type { Policy } from "./policies";
+import type { Scope } from "./scope";
 import type {
   ToolNotFoundError,
   ToolInvocationError,
   SecretNotFoundError,
   SecretResolutionError,
   PolicyDeniedError,
-} from "@executor/storage";
+} from "./errors";
 import {
   FormElicitation,
   ElicitationDeclinedError,
   ElicitationResponse,
   type ElicitationHandler,
-} from "@executor/storage";
-import type { ScopedKv } from "@executor/storage";
+} from "./elicitation";
+import type { ExecutorPlugin, PluginExtensions, PluginHandle } from "./plugin";
+import type { ToolStore } from "./stores/tool-store";
+import type { SecretStore } from "./stores/secret-store";
+import type { PolicyStore } from "./stores/policy-store";
+import type { PluginKvStore } from "./stores/plugin-kv-store";
+import { makeToolRegistry } from "./services/tool-registry";
+import { makeSecretManager } from "./services/secret-manager";
+import { makePolicyEngine } from "./services/policy-engine";
+import { makePluginKvFactory } from "./services/plugin-kv-factory";
 
 const resolveElicitationHandler = (options: InvokeOptions): ElicitationHandler =>
   options.onElicitation === "accept-all"
@@ -103,22 +107,29 @@ export interface ExecutorAuthProvider {
 }
 
 // ---------------------------------------------------------------------------
-// ExecutorConfig — flat-spread shape callers pass to createExecutor
+// ExecutorConfig — stores-in shape
 // ---------------------------------------------------------------------------
+
+export interface ExecutorStores {
+  readonly tools: ToolStore;
+  readonly secrets: SecretStore;
+  readonly policies: PolicyStore;
+  readonly pluginKv: PluginKvStore;
+}
 
 export interface ExecutorConfig<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> {
   readonly scope: Scope;
-  readonly tools: Context.Tag.Service<typeof ToolRegistry>;
-  readonly sources?: Context.Tag.Service<typeof SourceRegistry>;
-  readonly secrets: Context.Tag.Service<typeof SecretManager>;
-  readonly policies: Context.Tag.Service<typeof PolicyEngine>;
-  readonly pluginKv: (namespace: string) => ScopedKv;
+  readonly stores: ExecutorStores;
+  readonly encryptionKey: string;
+  readonly secretProviders?: readonly SecretProvider[];
+  /** Optional: provide a pre-built SourceRegistry. Defaults to in-memory. */
+  readonly sourceManagers?: readonly SourceManager[];
   readonly plugins?: TPlugins;
   readonly auth?: ExecutorAuthProvider;
 }
 
 // ---------------------------------------------------------------------------
-// createExecutor — builds an Executor from services, initializes plugins
+// createExecutor — builds an Executor from stores, wraps services internally
 // ---------------------------------------------------------------------------
 
 export const createExecutor = <
@@ -129,14 +140,26 @@ export const createExecutor = <
   Effect.gen(function* () {
     const {
       scope,
-      tools,
-      secrets,
-      policies,
-      pluginKv,
+      stores,
+      encryptionKey,
+      secretProviders,
       plugins = [] as unknown as TPlugins,
     } = config;
 
-    const sources = config.sources ?? makeInMemorySourceRegistry();
+    const tools = makeToolRegistry(stores.tools, scope);
+    const secrets = makeSecretManager(stores.secrets, scope, {
+      encryptionKey,
+      providers: secretProviders,
+    });
+    const policies = makePolicyEngine(stores.policies, scope);
+    const pluginKv = makePluginKvFactory(stores.pluginKv, scope);
+    const sources = makeInMemorySourceRegistry();
+
+    if (config.sourceManagers) {
+      for (const manager of config.sourceManagers) {
+        yield* sources.addManager(manager);
+      }
+    }
 
     const handles = new Map<string, PluginHandle<object>>();
     const extensions: Record<string, object> = {};

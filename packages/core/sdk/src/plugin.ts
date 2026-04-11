@@ -1,11 +1,11 @@
 import type { Context, Effect } from "effect";
 
-import type { ToolRegistry } from "@executor/storage";
-import type { SecretManager } from "@executor/storage";
-import type { PolicyEngine } from "@executor/storage";
-import type { SourceRegistry } from "@executor/storage";
-import type { Scope } from "@executor/storage";
-import type { ScopedKv } from "@executor/storage";
+import type { ToolRegistry } from "./tools";
+import type { SecretManager } from "./secrets";
+import type { PolicyEngine } from "./policies";
+import type { SourceRegistry } from "./sources";
+import type { Scope } from "./scope";
+import type { ScopedKv } from "./plugin-kv";
 
 // ---------------------------------------------------------------------------
 // Plugin context — what the SDK gives a plugin when it starts

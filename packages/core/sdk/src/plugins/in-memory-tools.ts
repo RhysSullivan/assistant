@@ -1,23 +1,23 @@
 import { Effect, JSONSchema, Schema } from "effect";
 
-import type { SecretId } from "@executor/storage";
-import { ToolId } from "@executor/storage";
-import { ToolInvocationError } from "@executor/storage";
-import type { SecretRef } from "@executor/storage";
+import type { SecretId } from "../ids";
+import { ToolId } from "../ids";
+import { ToolInvocationError } from "../errors";
+import type { SecretRef } from "../secrets";
 import {
   ToolInvocationResult,
   type ToolRegistration,
   type ToolInvoker,
   type InvokeOptions,
-} from "@executor/storage";
+} from "../tools";
 import {
   ElicitationDeclinedError,
   ElicitationResponse,
   type ElicitationHandler,
   type ElicitationRequest,
-} from "@executor/storage";
+} from "../elicitation";
 import { definePlugin, type PluginContext } from "../plugin";
-import { hoistDefinitions } from "@executor/storage";
+import { hoistDefinitions } from "../schema-refs";
 
 // ---------------------------------------------------------------------------
 // In-memory tool definition — typed via Schema

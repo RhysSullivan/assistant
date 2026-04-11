@@ -1,43 +1,45 @@
 import { Context, Data, Effect } from "effect";
-import { makeInMemorySqliteServices } from "@executor/storage-sqlite";
 
+import { ElicitationResponse as ElicitationResponseClass } from "./elicitation";
+import type { ElicitationContext } from "./elicitation";
+import { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
+import type {
+  ToolId as ToolIdType,
+  SecretId as SecretIdType,
+  ScopeId as ScopeIdType,
+  PolicyId as PolicyIdType,
+} from "./ids";
 import {
-  ElicitationResponse as ElicitationResponseClass,
-  ScopeId,
-  ToolId,
-  SecretId,
-  PolicyId,
   ToolRegistry as CoreToolRegistryTag,
-  SourceRegistry as CoreSourceRegistryTag,
-  SecretManager as CoreSecretManagerTag,
-  PolicyEngine as CorePolicyEngineTag,
-  type ElicitationContext,
-  type InvokeOptions as EffectInvokeOptions,
-  type ToolInvocationResult,
-  type ToolMetadata,
-  type ToolAnnotations,
-  type ToolSchema,
-  type ToolInvoker as EffectToolInvoker,
-  type RuntimeToolHandler as EffectRuntimeToolHandler,
-  type SourceManager as EffectSourceManager,
-  type Policy,
-  type SecretRef,
-  type SecretProvider as EffectSecretProvider,
-  type SetSecretInput,
-  type Scope,
-  type ToolId as ToolIdType,
-  type SecretId as SecretIdType,
-  type ScopeId as ScopeIdType,
-  type PolicyId as PolicyIdType,
-  type ToolInvocationError,
-  type ElicitationDeclinedError,
   ToolListFilter,
-  PolicyCheckInput,
-} from "@executor/storage";
+} from "./tools";
+import type {
+  InvokeOptions as EffectInvokeOptions,
+  ToolInvocationResult,
+  ToolMetadata,
+  ToolAnnotations,
+  ToolSchema,
+  ToolInvoker as EffectToolInvoker,
+  RuntimeToolHandler as EffectRuntimeToolHandler,
+} from "./tools";
+import { SourceRegistry as CoreSourceRegistryTag } from "./sources";
+import type { SourceManager as EffectSourceManager } from "./sources";
+import { SecretManager as CoreSecretManagerTag } from "./secrets";
+import type {
+  SecretRef,
+  SecretProvider as EffectSecretProvider,
+  SetSecretInput,
+} from "./secrets";
+import { PolicyEngine as CorePolicyEngineTag, PolicyCheckInput } from "./policies";
+import type { Policy } from "./policies";
+import type { Scope } from "./scope";
+import type { ToolInvocationError } from "./errors";
+import type { ElicitationDeclinedError } from "./elicitation";
 import {
   createExecutor as createEffectExecutor,
   type ExecutorConfig as EffectExecutorConfig,
 } from "./executor";
+import { makeInMemoryStores } from "./testing/in-memory-stores";
 import type {
   ExecutorPlugin,
   PluginContext as EffectPluginContext,
@@ -531,13 +533,12 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
     createdAt: new Date(),
   };
 
-  const services = await run(
-    makeInMemorySqliteServices({ scope, encryptionKey: config.encryptionKey ?? "default-key" }),
-  );
+  const stores = makeInMemoryStores();
 
   const effectConfig: EffectExecutorConfig<ExecutorPlugin<string, object>[]> = {
     scope,
-    ...services,
+    stores,
+    encryptionKey: config.encryptionKey ?? "default-key",
     plugins: effectPlugins,
   };
 

@@ -1,10 +1,10 @@
 import { Effect, JSONSchema, Schema } from "effect";
 
-import { ToolId } from "@executor/storage";
-import { ToolInvocationError } from "@executor/storage";
-import { Source } from "@executor/storage";
-import { ToolInvocationResult, type ToolRegistration, type RuntimeToolHandler } from "@executor/storage";
-import { hoistDefinitions } from "@executor/storage";
+import { ToolId } from "./ids";
+import { ToolInvocationError } from "./errors";
+import { Source } from "./sources";
+import { ToolInvocationResult, type ToolRegistration, type RuntimeToolHandler } from "./tools";
+import { hoistDefinitions } from "./schema-refs";
 
 export interface RuntimeToolDefinition<TInput = unknown, TOutput = unknown> {
   readonly id: string;
