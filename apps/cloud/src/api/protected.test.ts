@@ -34,7 +34,7 @@ describe("withExecutionUsageTracking", () => {
     }),
   );
 
-  it.effect("tracks resume only when an execution exists", () =>
+  it.effect("does not track resume usage", () =>
     Effect.gen(function* () {
       const tracked: string[] = [];
       const base = makeBaseEngine();
@@ -66,7 +66,7 @@ describe("withExecutionUsageTracking", () => {
         }),
       );
 
-      expect(tracked).toEqual(["org_2"]);
+      expect(tracked).toEqual([]);
     }),
   );
 });

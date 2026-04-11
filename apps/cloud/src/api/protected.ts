@@ -15,6 +15,7 @@ import { WorkOSAuth } from "../auth/workos";
 import { server } from "../env";
 import { createOrgExecutor } from "../services/executor";
 import { trackExecutionUsage } from "./autumn";
+import { HttpResponseError, isServerError, toErrorResponse } from "./error-response";
 import { withExecutionUsageTracking } from "./execution-usage";
 import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
 
@@ -70,9 +71,12 @@ const handleProtectedRequestEffect = (request: Request) =>
   Effect.gen(function* () {
     const org = yield* lookupOrgForRequest(request);
     if (!org) {
-      return Response.json(
-        { error: "No organization in session", code: "no_organization" },
-        { status: 403 },
+      return yield* Effect.fail(
+        new HttpResponseError({
+          status: 403,
+          code: "no_organization",
+          message: "No organization in session",
+        }),
       );
     }
 
@@ -85,8 +89,10 @@ const handleProtectedRequestEffect = (request: Request) =>
     Effect.provide(SharedServices),
     Effect.scoped,
     Effect.catchAll((err) => {
-      console.error("[api] request failed:", err instanceof Error ? err.stack : err);
-      return Effect.succeed(Response.json({ error: "Internal server error" }, { status: 500 }));
+      if (isServerError(err)) {
+        console.error("[api] request failed:", err instanceof Error ? err.stack : err);
+      }
+      return Effect.succeed(toErrorResponse(err));
     }),
   );
 

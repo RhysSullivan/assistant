@@ -4,6 +4,7 @@ import { autumnHandler } from "autumn-js/backend";
 
 import { WorkOSAuth } from "../auth/workos";
 import { server } from "../env";
+import { HttpResponseError, isServerError, toErrorResponse } from "./error-response";
 import { SharedServices } from "./layers";
 
 let cachedAutumn: Autumn | null = null;
@@ -36,13 +37,27 @@ export const handleAutumnRequest = async (request: Request): Promise<Response> =
     const session = yield* workos.authenticateRequest(request);
 
     if (!session || !session.organizationId) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return yield* Effect.fail(
+        new HttpResponseError({
+          status: 401,
+          code: "unauthorized",
+          message: "Unauthorized",
+        }),
+      );
     }
 
     const url = new URL(request.url);
     const body =
       request.method !== "GET" && request.method !== "HEAD"
-        ? yield* Effect.promise(() => request.json())
+        ? yield* Effect.tryPromise({
+            try: () => request.json(),
+            catch: () =>
+              new HttpResponseError({
+                status: 400,
+                code: "invalid_json",
+                message: "Invalid request body",
+              }),
+          })
         : undefined;
 
     const { statusCode, response } = yield* Effect.promise(() =>
@@ -66,16 +81,28 @@ export const handleAutumnRequest = async (request: Request): Promise<Response> =
 
     if (statusCode >= 400) {
       console.error("[autumn] upstream error:", statusCode, response);
-      return Response.json({ error: "Billing request failed" }, { status: statusCode });
+      return yield* Effect.fail(
+        new HttpResponseError({
+          status: statusCode,
+          code: "billing_request_failed",
+          message: "Billing request failed",
+        }),
+      );
     }
 
     return Response.json(response, { status: statusCode });
   });
 
-  return Effect.runPromise(program.pipe(Effect.provide(SharedServices), Effect.scoped)).catch(
-    (err) => {
-      console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
-      return Response.json({ error: "Internal server error" }, { status: 500 });
-    },
+  return Effect.runPromise(
+    program.pipe(
+      Effect.provide(SharedServices),
+      Effect.scoped,
+      Effect.catchAll((err) => {
+        if (isServerError(err)) {
+          console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
+        }
+        return Effect.succeed(toErrorResponse(err));
+      }),
+    ),
   );
 };
