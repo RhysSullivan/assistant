@@ -18,12 +18,14 @@ const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 
 const AddSourcePayload = Schema.Struct({
   endpoint: Schema.String,
+  name: Schema.optional(Schema.String),
   introspectionJson: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
 });
 
 const UpdateSourcePayload = Schema.Struct({
+  name: Schema.optional(Schema.String),
   endpoint: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
 });

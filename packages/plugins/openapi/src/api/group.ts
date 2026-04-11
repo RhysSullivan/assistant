@@ -30,6 +30,7 @@ const PreviewSpecPayload = Schema.Struct({
 });
 
 const UpdateSourcePayload = Schema.Struct({
+  name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
 });

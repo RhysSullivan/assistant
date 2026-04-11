@@ -130,7 +130,7 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
           return yield* ext.startOAuth({
             name: payload.name,
             discoveryUrl: payload.discoveryUrl,
-            clientId: payload.clientId,
+            clientIdSecretId: payload.clientIdSecretId,
             clientSecretSecretId: payload.clientSecretSecretId,
             redirectUrl: payload.redirectUrl,
             scopes: payload.scopes,

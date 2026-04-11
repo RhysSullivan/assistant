@@ -160,11 +160,20 @@ describe("Google Discovery plugin", () => {
         ),
       );
 
+      await Effect.runPromise(
+        executor.secrets.set({
+          id: SecretId.make("google-client-id"),
+          name: "Google Client ID",
+          value: "client-123",
+          purpose: "google_oauth_client_id",
+        }),
+      );
+
       const result = await Effect.runPromise(
         executor.googleDiscovery.startOAuth({
           name: "Google Drive",
           discoveryUrl,
-          clientId: "client-123",
+          clientIdSecretId: "google-client-id",
           redirectUrl: "http://localhost/callback",
         }),
       );
@@ -187,6 +196,15 @@ describe("Google Discovery plugin", () => {
             plugins: [googleDiscoveryPlugin()] as const,
           }),
         ),
+      );
+
+      await Effect.runPromise(
+        executor.secrets.set({
+          id: SecretId.make("google-client-id"),
+          name: "Google Client ID",
+          value: "client-123",
+          purpose: "google_oauth_client_id",
+        }),
       );
 
       await Effect.runPromise(
@@ -231,7 +249,7 @@ describe("Google Discovery plugin", () => {
           executor.googleDiscovery.startOAuth({
             name: "Google Drive",
             discoveryUrl,
-            clientId: "client-123",
+            clientIdSecretId: "google-client-id",
             clientSecretSecretId: "google-client-secret",
             redirectUrl: "http://localhost/callback",
           }),
@@ -245,7 +263,7 @@ describe("Google Discovery plugin", () => {
         );
 
         expect(auth.kind).toBe("oauth2");
-        expect(auth.clientId).toBe("client-123");
+        expect(auth.clientIdSecretId).toBe("google-client-id");
         expect(auth.refreshTokenSecretId).not.toBeNull();
 
         const accessToken = await Effect.runPromise(
@@ -283,6 +301,15 @@ describe("Google Discovery plugin", () => {
           }),
         );
 
+        await Effect.runPromise(
+          executor.secrets.set({
+            id: SecretId.make("drive-client-id"),
+            name: "Drive Client ID",
+            value: "client-123",
+            purpose: "google_oauth_client_id",
+          }),
+        );
+
         const result = await Effect.runPromise(
           executor.googleDiscovery.addSource({
             name: "Google Drive",
@@ -290,7 +317,7 @@ describe("Google Discovery plugin", () => {
             namespace: "drive",
             auth: {
               kind: "oauth2",
-              clientId: "client-123",
+              clientIdSecretId: "drive-client-id",
               clientSecretSecretId: null,
               accessTokenSecretId: "drive-access-token",
               refreshTokenSecretId: null,

@@ -45,6 +45,8 @@ export type HeaderValue = HeaderValueValue;
 export interface GraphqlSourceConfig {
   /** The GraphQL endpoint URL */
   readonly endpoint: string;
+  /** Display name for the source. Falls back to namespace if not provided. */
+  readonly name?: string;
   /** Optional: introspection JSON text (if endpoint doesn't support introspection) */
   readonly introspectionJson?: string;
   /** Namespace for the tools (derived from endpoint if not provided) */
@@ -58,6 +60,7 @@ export interface GraphqlSourceConfig {
 // ---------------------------------------------------------------------------
 
 export interface GraphqlUpdateSourceInput {
+  readonly name?: string;
   readonly endpoint?: string;
   readonly headers?: Record<string, HeaderValue>;
 }
@@ -87,6 +90,7 @@ export interface GraphqlPluginExtension {
 
 const AddSourceInputSchema = Schema.Struct({
   endpoint: Schema.String,
+  name: Schema.optional(Schema.String),
   introspectionJson: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
@@ -379,7 +383,7 @@ export const graphqlPlugin = (options?: {
 
             yield* operationStore.putSource({
               namespace,
-              name: namespace,
+              name: config.name?.trim() || namespace,
               config: {
                 endpoint: config.endpoint,
                 introspectionJson: config.introspectionJson,
@@ -472,7 +476,7 @@ export const graphqlPlugin = (options?: {
 
                 yield* operationStore.putSource({
                   namespace,
-                  name: existingMeta?.name ?? namespace,
+                  name: input.name?.trim() || existingMeta?.name || namespace,
                   config: updatedConfig,
                 });
               }),

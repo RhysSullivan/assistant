@@ -4,14 +4,23 @@ import { openApiSourceAtom, updateOpenApiSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import {
-  SecretHeaderAuthRow,
   headerValueToState,
   headersFromState,
   type HeaderState,
 } from "@executor/react/plugins/secret-header-auth";
+import { HeadersList } from "@executor/react/plugins/headers-list";
+import {
+  SourceIdentityFields,
+  useSourceIdentity,
+} from "@executor/react/plugins/source-identity";
 import { Button } from "@executor/react/components/button";
+import {
+  CardStack,
+  CardStackContent,
+  CardStackEntryField,
+} from "@executor/react/components/card-stack";
+import { FieldLabel } from "@executor/react/components/field";
 import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import type { StoredSourceSchemaType } from "../sdk/stored-source";
 
@@ -29,6 +38,10 @@ function EditForm(props: {
   const refreshSource = useAtomRefresh(openApiSourceAtom(scopeId, props.sourceId));
   const secretList = useSecretPickerSecrets();
 
+  const identity = useSourceIdentity({
+    fallbackName: props.initial.name,
+    fallbackNamespace: props.initial.namespace,
+  });
   const [baseUrl, setBaseUrl] = useState(props.initial.config.baseUrl ?? "");
   const [headers, setHeaders] = useState<HeaderState[]>(() =>
     Object.entries(props.initial.config.headers ?? {}).map(([name, value]) =>
@@ -39,8 +52,10 @@ function EditForm(props: {
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const updateHeader = (index: number, update: Partial<HeaderState>) => {
-    setHeaders((prev) => prev.map((h, i) => (i === index ? { ...h, ...update } : h)));
+  const identityDirty = identity.name.trim() !== props.initial.name.trim();
+
+  const handleHeadersChange = (next: HeaderState[]) => {
+    setHeaders(next);
     setDirty(true);
   };
 
@@ -51,6 +66,7 @@ function EditForm(props: {
       await doUpdate({
         path: { scopeId, namespace: props.sourceId },
         payload: {
+          name: identity.name.trim() || undefined,
           baseUrl: baseUrl.trim() || undefined,
           headers: headersFromState(headers),
         },
@@ -83,48 +99,31 @@ function EditForm(props: {
         </Badge>
       </div>
 
-      <section className="space-y-2">
-        <Label>Base URL</Label>
-        <Input
-          value={baseUrl}
-          onChange={(e) => {
-            setBaseUrl((e.target as HTMLInputElement).value);
-            setDirty(true);
-          }}
-          placeholder="https://api.example.com"
-          className="font-mono text-sm"
-        />
-      </section>
+      <SourceIdentityFields identity={identity} namespaceReadOnly />
+
+      <CardStack>
+        <CardStackContent className="border-t-0">
+          <CardStackEntryField label="Base URL">
+            <Input
+              value={baseUrl}
+              onChange={(e) => {
+                setBaseUrl((e.target as HTMLInputElement).value);
+                setDirty(true);
+              }}
+              placeholder="https://api.example.com"
+              className="font-mono text-sm"
+            />
+          </CardStackEntryField>
+        </CardStackContent>
+      </CardStack>
 
       <section className="space-y-2.5">
-        <Label>Headers</Label>
-        {headers.map((h, i) => (
-          <SecretHeaderAuthRow
-            key={i}
-            name={h.name}
-            prefix={h.prefix}
-            presetKey={h.presetKey}
-            secretId={h.secretId}
-            onChange={(update) => updateHeader(i, update)}
-            onSelectSecret={(secretId) => updateHeader(i, { secretId })}
-            onRemove={() => {
-              setHeaders((prev) => prev.filter((_, j) => j !== i));
-              setDirty(true);
-            }}
-            existingSecrets={secretList}
-          />
-        ))}
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full border-dashed"
-          onClick={() => {
-            setHeaders((prev) => [...prev, { name: "", secretId: null }]);
-            setDirty(true);
-          }}
-        >
-          + Add header
-        </Button>
+        <FieldLabel>Headers</FieldLabel>
+        <HeadersList
+          headers={headers}
+          onHeadersChange={handleHeadersChange}
+          existingSecrets={secretList}
+        />
       </section>
 
       {error && (
@@ -137,7 +136,7 @@ function EditForm(props: {
         <Button variant="ghost" onClick={props.onSave}>
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={!dirty || saving}>
+        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>

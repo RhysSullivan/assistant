@@ -31,6 +31,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
         const ext = yield* GraphqlExtensionService;
         const result = yield* ext.addSource({
           endpoint: payload.endpoint,
+          name: payload.name,
           introspectionJson: payload.introspectionJson,
           namespace: payload.namespace,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
@@ -51,6 +52,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
       Effect.gen(function* () {
         const ext = yield* GraphqlExtensionService;
         yield* ext.updateSource(path.namespace, {
+          name: payload.name,
           endpoint: payload.endpoint,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
         } as GraphqlUpdateSourceInput);

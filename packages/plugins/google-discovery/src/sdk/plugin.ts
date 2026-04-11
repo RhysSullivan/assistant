@@ -36,6 +36,13 @@ import type {
 } from "./types";
 import { GoogleDiscoveryStoredSourceData as GoogleDiscoveryStoredSourceDataSchema } from "./types";
 
+export interface GoogleDiscoveryProbeOperation {
+  readonly toolPath: string;
+  readonly method: string;
+  readonly pathTemplate: string;
+  readonly description: string | null;
+}
+
 export interface GoogleDiscoveryProbeResult {
   readonly name: string;
   readonly title: string | null;
@@ -43,6 +50,7 @@ export interface GoogleDiscoveryProbeResult {
   readonly version: string;
   readonly toolCount: number;
   readonly scopes: readonly string[];
+  readonly operations: readonly GoogleDiscoveryProbeOperation[];
 }
 
 export interface GoogleDiscoveryAddSourceInput {
@@ -55,7 +63,7 @@ export interface GoogleDiscoveryAddSourceInput {
 export interface GoogleDiscoveryOAuthStartInput {
   readonly name: string;
   readonly discoveryUrl: string;
-  readonly clientId: string;
+  readonly clientIdSecretId: string;
   readonly clientSecretSecretId?: string | null;
   readonly redirectUrl: string;
   readonly scopes?: readonly string[];
@@ -75,7 +83,7 @@ export interface GoogleDiscoveryOAuthCompleteInput {
 
 export interface GoogleDiscoveryOAuthAuthResult {
   readonly kind: "oauth2";
-  readonly clientId: string;
+  readonly clientIdSecretId: string;
   readonly clientSecretSecretId: string | null;
   readonly accessTokenSecretId: string;
   readonly refreshTokenSecretId: string | null;
@@ -370,6 +378,12 @@ export const googleDiscoveryPlugin = (options?: {
               const scopes = Object.keys(
                 manifest.oauthScopes._tag === "Some" ? manifest.oauthScopes.value : {},
               ).sort();
+              const operations = manifest.methods.map((method) => ({
+                toolPath: method.toolPath,
+                method: method.binding.method,
+                pathTemplate: method.binding.pathTemplate,
+                description: method.description._tag === "Some" ? method.description.value : null,
+              }));
               return {
                 name:
                   manifest.title._tag === "Some"
@@ -380,6 +394,7 @@ export const googleDiscoveryPlugin = (options?: {
                 version: manifest.version,
                 toolCount: manifest.methods.length,
                 scopes,
+                operations,
               };
             }),
 
@@ -437,12 +452,22 @@ export const googleDiscoveryPlugin = (options?: {
                   message: "This Google Discovery document does not declare any OAuth scopes",
                 });
               }
+              const clientId = yield* ctx.secrets
+                .resolve(SecretId.make(input.clientIdSecretId), ctx.scope.id)
+                .pipe(
+                  Effect.mapError(
+                    (error) =>
+                      new GoogleDiscoveryOAuthError({
+                        message: error.message,
+                      }),
+                  ),
+                );
               const sessionId = randomUUID();
               const codeVerifier = createPkceCodeVerifier();
               oauthSessions.set(sessionId, {
                 discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
                 name: input.name,
-                clientId: input.clientId,
+                clientIdSecretId: input.clientIdSecretId,
                 clientSecretSecretId: input.clientSecretSecretId ?? null,
                 redirectUrl: input.redirectUrl,
                 scopes,
@@ -451,7 +476,7 @@ export const googleDiscoveryPlugin = (options?: {
               return {
                 sessionId,
                 authorizationUrl: buildGoogleAuthorizationUrl({
-                  clientId: input.clientId,
+                  clientId,
                   redirectUrl: input.redirectUrl,
                   scopes,
                   state: sessionId,
@@ -482,8 +507,18 @@ export const googleDiscoveryPlugin = (options?: {
                 });
               }
 
+              const clientId = yield* ctx.secrets
+                .resolve(SecretId.make(session.clientIdSecretId), ctx.scope.id)
+                .pipe(
+                  Effect.mapError(
+                    (error) =>
+                      new GoogleDiscoveryOAuthError({
+                        message: error.message,
+                      }),
+                  ),
+                );
               const tokenResponse = yield* exchangeAuthorizationCode({
-                clientId: session.clientId,
+                clientId,
                 clientSecret:
                   session.clientSecretSecretId === null
                     ? null
@@ -518,7 +553,7 @@ export const googleDiscoveryPlugin = (options?: {
                 : null;
               return {
                 kind: "oauth2" as const,
-                clientId: session.clientId,
+                clientIdSecretId: session.clientIdSecretId,
                 clientSecretSecretId: session.clientSecretSecretId,
                 accessTokenSecretId: accessTokenRef.id,
                 refreshTokenSecretId: refreshTokenRef?.id ?? null,
