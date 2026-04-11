@@ -6,10 +6,13 @@ const RunsSearchSchema = Schema.standardSchemaV1(
   Schema.Struct({
     executionId: Schema.optional(Schema.String),
     status: Schema.optional(Schema.String),
+    trigger: Schema.optional(Schema.String),
+    tool: Schema.optional(Schema.String),
     range: Schema.optional(Schema.String),
     from: Schema.optional(Schema.String),
     to: Schema.optional(Schema.String),
     code: Schema.optional(Schema.String),
+    live: Schema.optional(Schema.String),
   }),
 );
 
