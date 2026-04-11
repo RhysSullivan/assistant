@@ -10,7 +10,6 @@
   "ignore": [
     "@executor/local",
     "@executor/execution",
-    "@executor/storage-file",
     "@executor/host-mcp",
     "@executor/codemode-core",
     "@executor/ir",
