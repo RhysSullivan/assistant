@@ -6,6 +6,7 @@ export {
   PolicyId,
   ExecutionId,
   ExecutionInteractionId,
+  ExecutionToolCallId,
 } from "./ids";
 
 // Errors
@@ -64,18 +65,25 @@ export {
   Execution,
   ExecutionInteractionStatus,
   ExecutionInteraction,
+  ExecutionToolCall,
+  ExecutionToolCallStatus,
   ExecutionStore,
   EXECUTION_STATUS_KEYS,
   pickChartBucketMs,
   buildExecutionListMeta,
+  matchToolPathPattern,
   type CreateExecutionInput,
   type UpdateExecutionInput,
   type CreateExecutionInteractionInput,
   type UpdateExecutionInteractionInput,
+  type CreateExecutionToolCallInput,
+  type UpdateExecutionToolCallInput,
   type ExecutionListItem,
   type ExecutionListOptions,
   type ExecutionListMeta,
   type ExecutionChartBucket,
+  type ExecutionToolFacet,
+  type BuildExecutionListMetaInput,
 } from "./executions";
 
 // Scope

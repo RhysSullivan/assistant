@@ -17,3 +17,6 @@ export type ExecutionId = typeof ExecutionId.Type;
 
 export const ExecutionInteractionId = Schema.String.pipe(Schema.brand("ExecutionInteractionId"));
 export type ExecutionInteractionId = typeof ExecutionInteractionId.Type;
+
+export const ExecutionToolCallId = Schema.String.pipe(Schema.brand("ExecutionToolCallId"));
+export type ExecutionToolCallId = typeof ExecutionToolCallId.Type;
