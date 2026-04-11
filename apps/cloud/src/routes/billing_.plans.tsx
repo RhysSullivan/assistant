@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCustomer, useListPlans } from "autumn-js/react";
 import { Button } from "@executor/react/components/button";
+import { Badge } from "@executor/react/components/badge";
 
 type Plan = NonNullable<ReturnType<typeof useListPlans>["data"]>[number];
 
@@ -48,7 +49,7 @@ function PlansPage() {
   const isLoading = customerLoading || plansLoading;
 
   const paidPlans = (plans ?? ([] as Plan[])).filter(
-    (p) => p.id === "hobby" || p.id === "professional",
+    (p: Plan) => p.id === "hobby" || p.id === "professional",
   );
 
   return (
@@ -90,7 +91,7 @@ function PlansPage() {
               isFetching ? "opacity-50 pointer-events-none" : "",
             ].join(" ")}
           >
-            {paidPlans.map((plan) => {
+            {paidPlans.map((plan: Plan) => {
               const meta = PLAN_META[plan.id];
               if (!meta) return null;
 
@@ -120,19 +121,19 @@ function PlansPage() {
                       {plan.name}
                     </p>
                     {isCurrent && (
-                      <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-amber-600 dark:text-amber-400 leading-none">
+                      <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
                         Your plan
-                      </span>
+                      </Badge>
                     )}
                     {isCanceling && (
-                      <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-amber-600 dark:text-amber-400 leading-none">
+                      <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
                         Canceling
-                      </span>
+                      </Badge>
                     )}
                     {isScheduled && (
-                      <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-emerald-600 dark:text-emerald-400 leading-none">
+                      <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                         Scheduled
-                      </span>
+                      </Badge>
                     )}
                   </div>
                   <p className="mt-1 text-[0.75rem] text-muted-foreground/70">{meta.tagline}</p>

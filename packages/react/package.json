@@ -1,6 +1,6 @@
 {
   "name": "@executor/react",
-  "version": "1.4.2",
+  "version": "1.4.3-beta.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -44,6 +44,7 @@
     "sonner": "^2.0.7",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.3.0",
+    "tldts": "^7.0.28",
     "vaul": "^1.1.2"
   },
   "devDependencies": {

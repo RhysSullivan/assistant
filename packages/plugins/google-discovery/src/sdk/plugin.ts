@@ -288,6 +288,7 @@ export const googleDiscoveryPlugin = (options?: {
                       id: s.namespace,
                       name: s.name,
                       kind: "googleDiscovery",
+                      url: s.config.rootUrl,
                       runtime: false,
                       canRemove: true,
                       canRefresh: true,

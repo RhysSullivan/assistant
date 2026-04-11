@@ -286,6 +286,7 @@ export const mcpPlugin = (options?: {
               id: s.namespace,
               name: s.name,
               kind: "mcp",
+              url: s.config.transport === "remote" ? s.config.endpoint : undefined,
               canEdit: isRemote,
             }),
           );
@@ -560,6 +561,7 @@ export const mcpPlugin = (options?: {
                 id: namespace,
                 name: sourceName,
                 kind: "mcp",
+                url: sd.transport === "remote" ? sd.endpoint : undefined,
                 canEdit: config.transport === "remote",
               }),
             );

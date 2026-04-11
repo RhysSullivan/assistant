@@ -4,6 +4,7 @@ import { useAtomRefresh, useAtomValue, Result } from "@effect-atom/atom-react";
 import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
 import { useScope, useScopeInfo } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
+import { SourceFavicon } from "@executor/react/components/source-favicon";
 
 // ── Env ─────────────────────────────────────────────────────────────────
 
@@ -242,6 +243,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
                 ].join(" ")}
               >
+                <SourceFavicon url={s.url} />
                 <span className="flex-1 truncate">{s.name}</span>
                 <span className="rounded bg-secondary/50 px-1 py-px text-[9px] font-medium text-muted-foreground/50">
                   {s.kind}
@@ -306,7 +308,7 @@ function SidebarContent(props: {
 
         {/* Sources list */}
         <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
-          <span>Configured</span>
+          <span>Sources</span>
         </div>
 
         <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
