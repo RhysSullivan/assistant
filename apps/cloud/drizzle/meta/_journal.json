@@ -15,6 +15,13 @@
       "when": 1807000000000,
       "tag": "0001_phase_c_storage_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1744320000000,
+      "tag": "0002_rename_organization_id_to_scope_id",
+      "breakpoints": true
     }
   ]
 }

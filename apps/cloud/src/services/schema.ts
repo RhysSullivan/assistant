@@ -46,3 +46,7 @@ export const memberships = pgTable(
     pk: primaryKey({ columns: [t.accountId, t.organizationId] }),
   }),
 );
+
+// Re-export storage schema so drizzle-kit's single-schema-file config picks up
+// both cloud-auth tables and the executor-storage tables in one migration history.
+export * from "@executor/storage-postgres/schema";
