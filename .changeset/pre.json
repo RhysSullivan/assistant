@@ -30,5 +30,8 @@
     "@executor/plugin-openapi": "0.0.1-beta.5",
     "@executor/react": "1.4.2"
   },
-  "changesets": ["tiny-keys-check"]
+  "changesets": [
+    "sxrw-owyl",
+    "tiny-keys-check"
+  ]
 }
