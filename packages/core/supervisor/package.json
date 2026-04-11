@@ -3,6 +3,7 @@
   "version": "1.4.0",
   "private": true,
   "type": "module",
+  "sideEffects": false,
   "main": "./src/index.cjs",
   "types": "./src/index.ts",
   "exports": {
@@ -17,6 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@effect/cli": "catalog:",
+    "@executor/sdk": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

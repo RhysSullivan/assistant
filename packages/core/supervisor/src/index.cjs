@@ -1,3 +1,12 @@
+// This CommonJS entry is a deliberate SUBSET of the package surface.
+// Electron's main process `require()`s it for the readiness + process
+// primitives only (gracefulStopPid, pollReadiness, isReachable, isPidAlive,
+// ReadinessTimeout). The higher-level `PlatformSupervisor` interface,
+// `makeServiceCommand`, and `makeServiceToolsPlugin` are ESM-only: they are
+// only consumed by `apps/cli` and `apps/local`, both of which use ES modules.
+// If a future Electron consumer needs them, add them here — but until then
+// the subset keeps the handwritten CJS file minimal.
+
 const { Effect, Data } = require("effect");
 
 class ReadinessTimeout extends Data.TaggedError("ReadinessTimeout") {}
