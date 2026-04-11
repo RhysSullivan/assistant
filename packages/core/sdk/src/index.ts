@@ -61,6 +61,7 @@ export {
   type PluginContext,
   type PluginHandle,
   type PluginExtensions,
+  type PluginStorageDefinition,
 } from "./plugin";
 
 // Executor

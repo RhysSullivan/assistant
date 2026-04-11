@@ -1,10 +1,12 @@
 import type { Effect } from "effect";
+import type { ExecutorDBSchema, ExecutorStorage } from "@executor/storage";
 
 import type { ToolRegistry } from "./tools";
 import type { SecretStore } from "./secrets";
 import type { PolicyEngine } from "./policies";
 import type { SourceRegistry } from "./sources";
 import type { Scope } from "./scope";
+import type { ScopedKv } from "./plugin-kv";
 
 // ---------------------------------------------------------------------------
 // Plugin context — what the SDK gives a plugin when it starts
@@ -16,6 +18,12 @@ export interface PluginContext {
   readonly sources: Context.Tag.Service<typeof SourceRegistry>;
   readonly secrets: Context.Tag.Service<typeof SecretStore>;
   readonly policies: Context.Tag.Service<typeof PolicyEngine>;
+  readonly storage?: ExecutorStorage;
+  readonly pluginKv?: (namespace?: string) => ScopedKv;
+}
+
+export interface PluginStorageDefinition {
+  readonly schema?: ExecutorDBSchema;
 }
 
 // ---------------------------------------------------------------------------
@@ -25,6 +33,8 @@ export interface PluginContext {
 export interface ExecutorPlugin<TKey extends string = string, TExtension extends object = object> {
   /** Unique plugin key — becomes a property on the Executor type */
   readonly key: TKey;
+  /** Optional plugin-owned storage schema contributed to the host schema */
+  readonly storage?: PluginStorageDefinition;
 
   /**
    * Called when the executor starts. The plugin should register its tools
