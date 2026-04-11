@@ -30,7 +30,6 @@
     "@executor/plugin-openapi": "workspace:*",
     "@executor/react": "workspace:*",
     "@executor/sdk": "workspace:*",
-    "@executor/storage": "workspace:*",
     "@executor/storage-sqlite": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tanstack/react-router": "catalog:",

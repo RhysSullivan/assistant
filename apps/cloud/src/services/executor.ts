@@ -4,9 +4,8 @@
 
 import { Effect } from "effect";
 
-import { createExecutor } from "@executor/sdk";
-import { ScopeId, type Scope } from "@executor/storage";
-import { makePostgresServices } from "@executor/storage-postgres";
+import { createExecutor, ScopeId, Scope } from "@executor/sdk";
+import { makePostgresStores } from "@executor/storage-postgres";
 import { openApiPlugin } from "@executor/plugin-openapi";
 import { mcpPlugin } from "@executor/plugin-mcp";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
@@ -21,20 +20,18 @@ export const createOrgExecutor = (
   Effect.gen(function* () {
     const db = yield* DbService;
 
-    const scope: Scope = {
+    const scope = new Scope({
       id: ScopeId.make(organizationId),
       name: organizationName,
       createdAt: new Date(),
-    };
-
-    const services = yield* makePostgresServices(db, {
-      scope,
-      encryptionKey,
     });
+
+    const stores = makePostgresStores(db);
 
     return yield* createExecutor({
       scope,
-      ...services,
+      stores,
+      encryptionKey,
       plugins: [
         openApiPlugin(),
         mcpPlugin(),

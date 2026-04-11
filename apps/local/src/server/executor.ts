@@ -5,9 +5,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
-import { createExecutor } from "@executor/sdk";
-import { ScopeId, type Scope } from "@executor/storage";
-import { makeFileSqliteServices } from "@executor/storage-sqlite";
+import { createExecutor, ScopeId, Scope } from "@executor/sdk";
+import { makeFileSqliteStores } from "@executor/storage-sqlite";
 import { openApiPlugin } from "@executor/plugin-openapi";
 import { mcpPlugin } from "@executor/plugin-mcp";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
@@ -135,22 +134,21 @@ const createLocalExecutorLayer = () => {
 
       const plugins = createLocalPlugins(configPath, fsLayer);
 
-      const scope: Scope = {
+      const scope = new Scope({
         id: ScopeId.make(makeScopeId(cwd)),
         name: cwd,
         createdAt: new Date(),
-      };
+      });
 
-      const services = yield* makeFileSqliteServices({
+      const stores = makeFileSqliteStores({
         filename: dbPath,
-        scope,
-        encryptionKey: LOCAL_ENCRYPTION_KEY,
         migrate: true, // first launch creates schema from drizzle/0000
       });
 
       return yield* createExecutor({
         scope,
-        ...services,
+        stores,
+        encryptionKey: LOCAL_ENCRYPTION_KEY,
         plugins,
       });
     }),
