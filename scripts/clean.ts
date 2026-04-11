@@ -9,8 +9,12 @@ const rootTargets = ["node_modules", ".turbo", ".astro", "dist"];
 for (const name of rootTargets) {
   const p = path.join(root, name);
   if (fs.existsSync(p)) {
-    fs.rmSync(p, { recursive: true, force: true });
-    console.log("removed", p);
+    try {
+      fs.rmSync(p, { recursive: true, force: true });
+      console.log("removed", p);
+    } catch (e: any) {
+      console.warn("skipped (in use?):", p, "-", e.message);
+    }
   }
 }
 
@@ -31,14 +35,22 @@ function clean(dir: string, depth: number) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (nestedTargets.has(entry.name)) {
-        fs.rmSync(full, { recursive: true, force: true });
-        console.log("removed", full);
+        try {
+          fs.rmSync(full, { recursive: true, force: true });
+          console.log("removed", full);
+        } catch (e: any) {
+          console.warn("skipped (in use?):", full, "-", e.message);
+        }
       } else {
         clean(full, depth + 1);
       }
     } else if (entry.isFile() && nestedGlobs.test(entry.name)) {
-      fs.rmSync(full, { force: true });
-      console.log("removed", full);
+      try {
+        fs.rmSync(full, { force: true });
+        console.log("removed", full);
+      } catch (e: any) {
+        console.warn("skipped (in use?):", full, "-", e.message);
+      }
     }
   }
 }
