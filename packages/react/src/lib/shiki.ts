@@ -11,6 +11,7 @@ import langJavascript from "@shikijs/langs/javascript";
 import langTsx from "@shikijs/langs/tsx";
 import langJsx from "@shikijs/langs/jsx";
 import langJson from "@shikijs/langs/json";
+import langShellscript from "@shikijs/langs/shellscript";
 import githubDark from "@shikijs/themes/github-dark";
 import githubLight from "@shikijs/themes/github-light";
 
@@ -76,7 +77,6 @@ const LANG_ALIASES: Record<string, SupportedLang> = {
 const LAZY_LANG_LOADERS: Partial<Record<SupportedLang, () => Promise<unknown>>> = {
   xml: () => import("@shikijs/langs/xml"),
   yaml: () => import("@shikijs/langs/yaml"),
-  shellscript: () => import("@shikijs/langs/shellscript"),
   python: () => import("@shikijs/langs/python"),
   html: () => import("@shikijs/langs/html"),
   css: () => import("@shikijs/langs/css"),
@@ -145,7 +145,7 @@ export function isSupportedLang(lang: string): boolean {
 
 const highlighter: HighlighterCore = createHighlighterCoreSync({
   themes: [githubDark, githubLight],
-  langs: [langTypescript, langJavascript, langTsx, langJsx, langJson],
+  langs: [langTypescript, langJavascript, langTsx, langJsx, langJson, langShellscript],
   engine: createJavaScriptRegexEngine({ forgiving: true }),
 });
 
