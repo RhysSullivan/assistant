@@ -353,7 +353,7 @@ function OrgPage() {
                     {member.avatarUrl ? (
                       <img src={member.avatarUrl} alt="" className="size-8 rounded-full" />
                     ) : (
-                      <div className="flex size-8 items-center justify-center rounded-full bg-muted text-[0.625rem] font-semibold text-muted-foreground">
+                      <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
                         {member.name
                           ? member.name
                               .split(" ")
@@ -368,7 +368,7 @@ function OrgPage() {
                     {/* Name + email */}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="truncate text-[0.8125rem] font-medium text-foreground leading-none">
+                        <p className="truncate text-sm font-medium text-foreground leading-none">
                           {member.name ?? member.email}
                         </p>
                         {member.isCurrentUser && (
@@ -381,19 +381,19 @@ function OrgPage() {
                         )}
                       </div>
                       {member.name && (
-                        <p className="mt-0.5 truncate text-[0.75rem] text-muted-foreground leading-none">
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground leading-none">
                           {member.email}
                         </p>
                       )}
                     </div>
 
                     {/* Role */}
-                    <p className="text-[0.8125rem] text-muted-foreground capitalize leading-none">
+                    <p className="text-sm text-muted-foreground capitalize leading-none">
                       {member.role}
                     </p>
 
                     {/* Last active */}
-                    <p className="text-[0.75rem] text-muted-foreground leading-none">
+                    <p className="text-xs text-muted-foreground leading-none">
                       {formatLastActive(member.lastActiveAt)}
                     </p>
 
@@ -417,14 +417,14 @@ function OrgPage() {
                           {roles.length > 0 && (
                             <>
                               <DropdownMenuSub>
-                                <DropdownMenuSubTrigger className="text-[0.75rem]">
+                                <DropdownMenuSubTrigger className="text-xs">
                                   Change role
                                 </DropdownMenuSubTrigger>
                                 <DropdownMenuSubContent>
                                   {roles.map((role) => (
                                     <DropdownMenuItem
                                       key={role.slug}
-                                      className="text-[0.75rem]"
+                                      className="text-xs"
                                       disabled={role.slug === member.role}
                                       onClick={() =>
                                         handleChangeRole(member.id, role.slug, role.name)
@@ -452,7 +452,7 @@ function OrgPage() {
                             </>
                           )}
                           <DropdownMenuItem
-                            className="text-destructive focus:text-destructive text-[0.75rem]"
+                            className="text-destructive focus:text-destructive text-xs"
                             onClick={() => handleRemove(member.id, member.name ?? member.email)}
                           >
                             Remove member
@@ -539,7 +539,7 @@ function DomainCard({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem
-                className="text-destructive focus:text-destructive text-[0.75rem]"
+                className="text-destructive focus:text-destructive text-xs"
                 onClick={onDelete}
               >
                 Remove domain
@@ -618,7 +618,7 @@ function InviteDialog(props: {
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle className="font-display text-xl">Invite member</DialogTitle>
-          <DialogDescription className="text-[0.8125rem] leading-relaxed">
+          <DialogDescription className="text-sm leading-relaxed">
             Send an email invitation to join your organization.
           </DialogDescription>
         </DialogHeader>
@@ -627,7 +627,7 @@ function InviteDialog(props: {
           <div className="grid gap-1.5">
             <Label
               htmlFor="invite-email"
-              className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground"
+              className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
             >
               Email
             </Label>
@@ -642,7 +642,7 @@ function InviteDialog(props: {
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleInvite();
               }}
-              className="text-[0.8125rem] h-9"
+              className="text-sm h-9"
             />
           </div>
 
@@ -650,7 +650,7 @@ function InviteDialog(props: {
             <div className="grid gap-1.5">
               <Label
                 htmlFor="invite-role"
-                className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground"
+                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
               >
                 Role
               </Label>
@@ -658,7 +658,7 @@ function InviteDialog(props: {
                 value={state.roleSlug}
                 onValueChange={(v) => dispatch({ type: "setRole", roleSlug: v })}
               >
-                <SelectTrigger id="invite-role" className="h-9 text-[0.8125rem]">
+                <SelectTrigger id="invite-role" className="h-9 text-sm">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
@@ -674,7 +674,7 @@ function InviteDialog(props: {
 
           {state.status === "error" && state.error && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-[0.75rem] text-destructive">{state.error}</p>
+              <p className="text-xs text-destructive">{state.error}</p>
             </div>
           )}
         </div>

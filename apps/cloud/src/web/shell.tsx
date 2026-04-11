@@ -28,7 +28,7 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
       to={props.to}
       onClick={props.onNavigate}
       className={[
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
         props.active
           ? "bg-sidebar-active text-foreground font-medium"
           : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
@@ -47,14 +47,14 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
 
   return Result.match(sources, {
     onInitial: () => (
-      <div className="px-2.5 py-2 text-[11px] text-muted-foreground/40">Loading…</div>
+      <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>
     ),
     onFailure: () => (
-      <div className="px-2.5 py-2 text-[11px] text-muted-foreground/40">No sources yet</div>
+      <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
     ),
     onSuccess: ({ value }) =>
       value.length === 0 ? (
-        <div className="px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground/40">
+        <div className="px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
           No sources yet
         </div>
       ) : (
@@ -70,7 +70,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                 params={{ namespace: s.id }}
                 onClick={props.onNavigate}
                 className={[
-                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
                   active
                     ? "bg-sidebar-active text-foreground font-medium"
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
@@ -78,7 +78,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
               >
                 <SourceFavicon url={s.url} />
                 <span className="flex-1 truncate">{s.name}</span>
-                <span className="rounded bg-secondary/50 px-1 py-px text-[9px] font-medium text-muted-foreground/50">
+                <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
                   {s.kind}
                 </span>
               </Link>
@@ -110,16 +110,16 @@ function UserFooter() {
         {auth.user.avatarUrl ? (
           <img src={auth.user.avatarUrl} alt="" className="size-7 shrink-0 rounded-full" />
         ) : (
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
             {initials}
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[12px] font-medium text-foreground">
+          <p className="truncate text-xs font-medium text-foreground">
             {auth.user.name ?? auth.user.email}
           </p>
           {auth.organization && (
-            <p className="truncate text-[10px] text-muted-foreground">{auth.organization.name}</p>
+            <p className="truncate text-xs text-muted-foreground">{auth.organization.name}</p>
           )}
         </div>
         <form action={AUTH_PATHS.logout} method="post">
@@ -127,7 +127,7 @@ function UserFooter() {
             variant="ghost"
             size="icon-xs"
             type="submit"
-            className="shrink-0 text-muted-foreground/50 hover:bg-sidebar-active hover:text-foreground"
+            className="shrink-0 text-muted-foreground hover:bg-sidebar-active hover:text-foreground"
             title="Sign out"
           >
             <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
@@ -170,7 +170,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
         <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 
-        <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
+        <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <span>Sources</span>
         </div>
 

@@ -89,7 +89,7 @@ function RemoteEditForm(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
-        <p className="mt-1 text-[13px] text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           Update the endpoint and headers for this MCP connection.
         </p>
       </div>
@@ -98,7 +98,7 @@ function RemoteEditForm(props: {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-card-foreground">{props.sourceId}</p>
         </div>
-        <Badge variant="secondary" className="text-[10px]">
+        <Badge variant="secondary" className="text-xs">
           remote
         </Badge>
       </div>
@@ -151,7 +151,7 @@ function RemoteEditForm(props: {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-[12px] text-destructive">{error}</p>
+          <p className="text-xs text-destructive">{error}</p>
         </div>
       )}
 
@@ -181,7 +181,7 @@ function StdioReadOnly(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
-        <p className="mt-1 text-[13px] text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           Stdio MCP sources cannot be edited in the UI. Modify the executor.jsonc config file
           directly.
         </p>
@@ -194,7 +194,7 @@ function StdioReadOnly(props: {
             {command} {(args ?? []).join(" ")}
           </p>
         </div>
-        <Badge variant="secondary" className="text-[10px]">
+        <Badge variant="secondary" className="text-xs">
           stdio
         </Badge>
       </div>
@@ -225,7 +225,7 @@ export default function EditMcpSource({
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">Loading configuration…</p>
+          <p className="mt-1 text-xs text-muted-foreground">Loading configuration…</p>
         </div>
       </div>
     );

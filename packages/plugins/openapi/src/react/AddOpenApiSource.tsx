@@ -253,13 +253,13 @@ export default function AddOpenApiSource(props: {
 
         {analyzeError && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-            <p className="text-[12px] text-destructive">{analyzeError}</p>
+            <p className="text-xs text-destructive">{analyzeError}</p>
           </div>
         )}
 
         {!preview && (
           <div className="flex items-center justify-between">
-            <p className="text-[12px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Paste a URL or raw JSON/YAML content.
             </p>
             <Button disabled={!specUrl.trim() || analyzing} onClick={handleAnalyze}>
@@ -279,7 +279,7 @@ export default function AddOpenApiSource(props: {
               <p className="text-sm font-semibold text-card-foreground leading-none truncate">
                 {Option.getOrElse(preview.title, () => "API")}
               </p>
-              <p className="mt-1 text-[12px] text-muted-foreground leading-none">
+              <p className="mt-1 text-xs text-muted-foreground leading-none">
                 {Option.getOrElse(preview.version, () => "")}
                 {Option.isSome(preview.version) && " · "}
                 {preview.operationCount} operation{preview.operationCount !== 1 ? "s" : ""}
@@ -290,12 +290,12 @@ export default function AddOpenApiSource(props: {
             {preview.tags.length > 0 && (
               <div className="hidden sm:flex flex-wrap gap-1 max-w-[200px] justify-end">
                 {preview.tags.slice(0, 4).map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-[10px]">
+                  <Badge key={tag} variant="secondary" className="text-xs">
                     {tag}
                   </Badge>
                 ))}
                 {preview.tags.length > 4 && (
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     +{preview.tags.length - 4}
                   </span>
                 )}
@@ -310,7 +310,7 @@ export default function AddOpenApiSource(props: {
               value={sourceName}
               onChange={(e) => setSourceName((e.target as HTMLInputElement).value)}
               placeholder="e.g. Sentry API"
-              className="text-[0.8125rem]"
+              className="text-sm"
             />
           </section>
 
@@ -325,9 +325,9 @@ export default function AddOpenApiSource(props: {
                 )
               }
               placeholder="e.g. sentry, stripe, github"
-              className="font-mono text-[0.8125rem]"
+              className="font-mono text-sm"
             />
-            <p className="text-[0.75rem] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Unique identifier for this source. Used in tool names.
             </p>
           </section>
@@ -373,7 +373,7 @@ export default function AddOpenApiSource(props: {
             )}
 
             {!baseUrl.trim() && (
-              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              <p className="text-xs text-amber-600 dark:text-amber-400">
                 A base URL is required to make requests.
               </p>
             )}
@@ -402,7 +402,7 @@ export default function AddOpenApiSource(props: {
                     <RadioGroupItem value={String(i)} />
                     <span className="text-xs font-medium text-foreground">{preset.label}</span>
                     {preset.secretHeaders.length > 0 && (
-                      <span className="ml-auto text-[10px] text-muted-foreground">
+                      <span className="ml-auto text-xs text-muted-foreground">
                         {preset.secretHeaders.length} header
                         {preset.secretHeaders.length > 1 ? "s" : ""}
                       </span>
@@ -419,7 +419,7 @@ export default function AddOpenApiSource(props: {
                 >
                   <RadioGroupItem value="-2" />
                   <span className="text-xs font-medium text-foreground">Custom</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">
+                  <span className="ml-auto text-xs text-muted-foreground">
                     configure manually
                   </span>
                 </Label>
@@ -433,7 +433,7 @@ export default function AddOpenApiSource(props: {
                 >
                   <RadioGroupItem value="-1" />
                   <span className="text-xs font-medium text-foreground">None</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">skip auth</span>
+                  <span className="ml-auto text-xs text-muted-foreground">skip auth</span>
                 </Label>
               </RadioGroup>
             )}
@@ -472,7 +472,7 @@ export default function AddOpenApiSource(props: {
           {/* Add error */}
           {addError && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-[12px] text-destructive">{addError}</p>
+              <p className="text-xs text-destructive">{addError}</p>
             </div>
           )}
 

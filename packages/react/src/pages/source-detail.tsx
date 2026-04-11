@@ -121,7 +121,7 @@ export function SourceDetailPage(props: {
           )}
           <Badge variant="secondary">{sourceData?.kind ?? "source"}</Badge>
           {Result.isSuccess(tools) && !editing && (
-            <span className="hidden text-[11px] tabular-nums text-muted-foreground/50 sm:block">
+            <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
               {sourceTools.length} {sourceTools.length === 1 ? "tool" : "tools"}
             </span>
           )}
@@ -155,7 +155,7 @@ export function SourceDetailPage(props: {
             !editing &&
             (confirmDelete ? (
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-medium text-destructive">Confirm?</span>
+                <span className="text-xs font-medium text-destructive">Confirm?</span>
                 <Button
                   variant="outline"
                   size="sm"

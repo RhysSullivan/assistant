@@ -369,13 +369,13 @@ export function ExpandableCodeBlock(props: {
           variant="ghost"
           size="icon-xs"
           onClick={handleCopy}
-          className="absolute right-2 top-2 z-10 rounded-md border border-border bg-card/90 p-1.5 text-muted-foreground/40 opacity-0 backdrop-blur-sm hover:text-foreground group-hover:opacity-100 transition-opacity"
+          className="absolute right-2 top-2 z-10 rounded-md border border-border bg-card/90 p-1.5 text-muted-foreground opacity-0 backdrop-blur-sm hover:text-foreground group-hover:opacity-100 transition-opacity"
           title="Copy to clipboard"
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
         </Button>
 
-        <pre className="overflow-auto p-3 font-mono text-[0.75rem] leading-6 !bg-transparent">
+        <pre className="overflow-auto p-3 font-mono text-xs leading-6 !bg-transparent">
           <code>
             <HighlightedCode
               tokens={tokens}

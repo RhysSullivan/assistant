@@ -61,10 +61,10 @@ function InlineCreateSecret(props: {
 
   return (
     <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-2.5">
-      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
+      <p className="text-xs font-semibold text-primary tracking-wide uppercase">New secret</p>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">ID</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">ID</Label>
           <Input
             value={secretId}
             onChange={(e) => setSecretIdValue((e.target as HTMLInputElement).value)}
@@ -73,7 +73,7 @@ function InlineCreateSecret(props: {
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
             Label
           </Label>
           <Input
@@ -85,7 +85,7 @@ function InlineCreateSecret(props: {
         </div>
       </div>
       <div className="space-y-1">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
+        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Value</Label>
         <Input
           type="password"
           value={secretValue}
@@ -94,7 +94,7 @@ function InlineCreateSecret(props: {
           className="h-8 text-xs font-mono"
         />
       </div>
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-1.5 pt-0.5">
         <Button variant="outline" size="xs" onClick={props.onCancel}>
           Cancel
@@ -582,7 +582,7 @@ export default function AddGoogleDiscoverySource(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Add Google Discovery Source</h1>
-        <p className="mt-1 text-[13px] text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           Connect a Google API from its Discovery document and register its methods as tools.
         </p>
       </div>
@@ -624,7 +624,7 @@ export default function AddGoogleDiscoverySource(props: {
                   </div>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-mono text-muted-foreground">
+                  <p className="text-xs font-mono text-muted-foreground">
                     {template.service} · {template.version}
                   </p>
                   <div className="h-px flex-1 bg-border/70" />
@@ -782,7 +782,7 @@ export default function AddGoogleDiscoverySource(props: {
                     {(probe?.scopes ?? []).map((scope) => (
                       <li
                         key={scope}
-                        className="break-all font-mono text-[11px] text-muted-foreground"
+                        className="break-all font-mono text-xs text-muted-foreground"
                       >
                         {scope}
                       </li>

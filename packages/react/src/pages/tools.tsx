@@ -16,7 +16,7 @@ export function ToolsPage() {
             <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
               Tools
             </h1>
-            <p className="mt-1.5 text-[14px] text-muted-foreground">
+            <p className="mt-1.5 text-sm text-muted-foreground">
               All registered tools across your connected sources.
             </p>
           </div>
@@ -38,10 +38,10 @@ export function ToolsPage() {
                     />
                   </svg>
                 </div>
-                <p className="text-[14px] font-medium text-foreground/70 mb-1">
+                <p className="text-sm font-medium text-foreground/70 mb-1">
                   No tools registered
                 </p>
-                <p className="text-[13px] text-muted-foreground/60">
+                <p className="text-xs text-muted-foreground">
                   Add a source to start discovering tools.
                 </p>
               </div>

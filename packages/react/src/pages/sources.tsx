@@ -72,7 +72,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
               <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
                 Sources
               </h1>
-              <p className="mt-1.5 text-[14px] text-muted-foreground">
+              <p className="mt-1.5 text-sm text-muted-foreground">
                 Tool providers available in this workspace.
               </p>
             </div>
@@ -139,8 +139,8 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                     />
                   </svg>
                 </div>
-                <p className="text-[14px] font-medium text-foreground/70 mb-1">No sources yet</p>
-                <p className="text-[13px] text-muted-foreground/60 mb-5">
+                <p className="text-sm font-medium text-foreground/70 mb-1">No sources yet</p>
+                <p className="text-xs text-muted-foreground mb-5">
                   Add a source to get started.
                 </p>
               </div>
@@ -150,7 +150,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                   <section className="space-y-3">
                     <div>
                       <h2 className="text-sm font-semibold text-foreground">Built-in</h2>
-                      <p className="mt-1 text-[13px] text-muted-foreground">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         Runtime sources exposed by the loaded executor plugins.
                       </p>
                     </div>
@@ -162,7 +162,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                   <section className="space-y-3">
                     <div>
                       <h2 className="text-sm font-semibold text-foreground">Connected</h2>
-                      <p className="mt-1 text-[13px] text-muted-foreground">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         User-configured sources available in this workspace.
                       </p>
                     </div>
@@ -207,7 +207,7 @@ function PresetCard({ preset, pluginKey, pluginLabel }: PresetEntry) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{preset.name}</span>
-          <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+          <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground">
             {pluginLabel}
           </span>
         </div>
@@ -234,7 +234,7 @@ function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
     <section className="mb-8 space-y-3">
       <div>
         <h2 className="text-sm font-semibold text-foreground">Popular sources</h2>
-        <p className="mt-1 text-[13px] text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           One-click setup for common APIs and services.
         </p>
       </div>
@@ -280,11 +280,11 @@ function SourceGrid(props: {
                 <div className="truncate text-sm font-semibold text-foreground">{s.name}</div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {s.runtime && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                       built-in
                     </span>
                   )}
-                  <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                  <span className="rounded bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground">
                     {s.kind}
                   </span>
                 </div>

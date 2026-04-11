@@ -299,7 +299,7 @@ function CardStackEntryField({
         </div>
       )}
       {children}
-      {hint && <p className="text-[12px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }

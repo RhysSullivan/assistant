@@ -152,8 +152,8 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
           </svg>
         </div>
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-foreground">Update available</p>
-          <p className="text-[10px] text-muted-foreground">v{props.latestVersion}</p>
+          <p className="text-xs font-semibold text-foreground">Update available</p>
+          <p className="text-xs text-muted-foreground">v{props.latestVersion}</p>
         </div>
       </div>
       <Button
@@ -162,7 +162,7 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
         onClick={handleCopy}
         className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border-border/60 bg-background/50 px-2.5 py-1.5 text-left hover:bg-background/80"
       >
-        <code className="truncate font-mono text-[10px] text-sidebar-foreground">{command}</code>
+        <code className="truncate font-mono text-xs text-sidebar-foreground">{command}</code>
         <span className="shrink-0 text-muted-foreground transition-colors group-hover:text-foreground">
           {copied ? (
             <svg viewBox="0 0 16 16" fill="none" className="size-3 text-primary">
@@ -207,7 +207,7 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
       to={props.to}
       onClick={props.onNavigate}
       className={[
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
         props.active
           ? "bg-sidebar-active text-foreground font-medium"
           : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
@@ -226,14 +226,14 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
 
   return Result.match(sources, {
     onInitial: () => (
-      <div className="px-2.5 py-2 text-[11px] text-muted-foreground/40">Loading…</div>
+      <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>
     ),
     onFailure: () => (
-      <div className="px-2.5 py-2 text-[11px] text-muted-foreground/40">No sources yet</div>
+      <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
     ),
     onSuccess: ({ value }) =>
       value.length === 0 ? (
-        <div className="px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground/40">
+        <div className="px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
           No sources yet
         </div>
       ) : (
@@ -249,7 +249,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                 params={{ namespace: s.id }}
                 onClick={props.onNavigate}
                 className={[
-                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
                   active
                     ? "bg-sidebar-active text-foreground font-medium"
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
@@ -257,7 +257,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
               >
                 <SourceFavicon url={s.url} />
                 <span className="flex-1 truncate">{s.name}</span>
-                <span className="rounded bg-secondary/50 px-1 py-px text-[9px] font-medium text-muted-foreground/50">
+                <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
                   {s.kind}
                 </span>
               </Link>
@@ -278,14 +278,14 @@ function ScopeLabel() {
 
   return (
     <div className="mb-1.5 flex items-center gap-1.5 rounded-md px-2.5 py-1.5" title={name}>
-      <svg viewBox="0 0 16 16" fill="none" className="size-3.5 shrink-0 text-muted-foreground/50">
+      <svg viewBox="0 0 16 16" fill="none" className="size-3.5 shrink-0 text-muted-foreground">
         <path
           d="M2 4.5C2 3.67 2.67 3 3.5 3h3.09a1 1 0 0 1 .7.29l1.42 1.42a1 1 0 0 0 .7.29H12.5c.83 0 1.5.67 1.5 1.5v5.5c0 .83-.67 1.5-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5z"
           stroke="currentColor"
           strokeWidth="1.2"
         />
       </svg>
-      <span className="truncate text-[12px] font-medium text-foreground/80">{folder}</span>
+      <span className="truncate text-xs font-medium text-foreground/80">{folder}</span>
     </div>
   );
 }
@@ -319,7 +319,7 @@ function SidebarContent(props: {
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
 
         {/* Sources list */}
-        <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
+        <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <span>Sources</span>
         </div>
 
@@ -332,12 +332,12 @@ function SidebarContent(props: {
 
       {/* Footer */}
       <div className="shrink-0 border-t border-sidebar-border px-4 py-2.5">
-        <div className="flex flex-col gap-1.5 text-[11px] leading-none">
+        <div className="flex flex-col gap-1.5 text-xs leading-none">
           <a
             href={`${VITE_GITHUB_URL}/issues`}
             target="_blank"
             rel="noreferrer"
-            className="text-muted-foreground/70 transition-colors hover:text-foreground"
+            className="text-muted-foreground transition-colors hover:text-foreground"
           >
             Feedback / bug?
           </a>
@@ -345,11 +345,11 @@ function SidebarContent(props: {
             href={VITE_GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="text-muted-foreground/70 transition-colors hover:text-foreground"
+            className="text-muted-foreground transition-colors hover:text-foreground"
           >
             Star on GitHub
           </a>
-          <span className="mt-0.5 text-[10px] text-muted-foreground/50 tabular-nums">
+          <span className="mt-0.5 text-xs text-muted-foreground tabular-nums">
             v{VITE_APP_VERSION}
           </span>
         </div>
