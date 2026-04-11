@@ -21,6 +21,12 @@ import {
   DialogFooter,
   DialogClose,
 } from "@executor/react/components/dialog";
+import {
+  CardStackEntry,
+  CardStackEntryActions,
+  CardStackEntryContent,
+  CardStackEntryDescription,
+} from "@executor/react/components/card-stack";
 
 import {
   onepasswordConfigAtom,
@@ -74,7 +80,7 @@ function VaultPicker(props: {
 
   if (!account) {
     return (
-      <p className="text-xs text-muted-foreground py-1">
+      <p className="text-[11px] text-muted-foreground/50 py-1">
         Enter account details to load vaults.
       </p>
     );
@@ -90,7 +96,7 @@ function VaultPicker(props: {
           if (v) props.onVaultSelect(v.id, v.name);
         }}
       >
-        <SelectTrigger className="h-9 text-sm">
+        <SelectTrigger className="h-9 text-[13px]">
           <SelectValue placeholder={isLoading ? "Loading…" : "Select a vault"} />
         </SelectTrigger>
         <SelectContent>
@@ -103,7 +109,7 @@ function VaultPicker(props: {
       </Select>
       {error && (
         <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
-          <p className="text-xs text-destructive leading-relaxed whitespace-pre-line">
+          <p className="text-[11px] text-destructive leading-relaxed whitespace-pre-line">
             {error}
           </p>
         </div>
@@ -182,7 +188,7 @@ function ConfigDialog(props: {
           <DialogTitle className="font-display text-xl">
             {isEdit ? "Edit 1Password" : "Connect 1Password"}
           </DialogTitle>
-          <DialogDescription className="text-sm leading-relaxed">
+          <DialogDescription className="text-[13px] leading-relaxed">
             Link a vault to resolve secrets via the 1Password desktop app or a service account.
           </DialogDescription>
         </DialogHeader>
@@ -190,14 +196,14 @@ function ConfigDialog(props: {
         <div className="grid gap-5 py-3">
           {/* Auth method */}
           <div className="grid gap-1.5">
-            <Label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Auth method
             </Label>
             <Select
               value={authKind}
               onValueChange={(v) => setAuthKind(v as "desktop-app" | "service-account")}
             >
-              <SelectTrigger className="h-9 text-sm">
+              <SelectTrigger className="h-9 text-[13px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -209,16 +215,16 @@ function ConfigDialog(props: {
 
           {/* Account / token */}
           <div className="grid gap-1.5">
-            <Label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               {authKind === "desktop-app" ? "Account domain" : "Token secret ID"}
             </Label>
             <Input
               placeholder={authKind === "desktop-app" ? "my.1password.com" : "op-service-token"}
               value={accountName}
               onChange={(e) => setAccountName((e.target as HTMLInputElement).value)}
-              className="font-mono text-xs h-9"
+              className="font-mono text-[13px] h-9"
             />
-            <p className="text-xs text-muted-foreground leading-relaxed">
+            <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
               {authKind === "desktop-app"
                 ? "Requires the 1Password desktop app with biometric unlock."
                 : "Reference an executor secret that holds the service account token."}
@@ -227,7 +233,7 @@ function ConfigDialog(props: {
 
           {/* Vault */}
           <div className="grid gap-1.5">
-            <Label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Vault
             </Label>
             <VaultPicker
@@ -239,25 +245,25 @@ function ConfigDialog(props: {
                 setVaultName(name);
               }}
             />
-            {vaultId && <p className="font-mono text-xs text-muted-foreground">{vaultId}</p>}
+            {vaultId && <p className="font-mono text-[10px] text-muted-foreground/50">{vaultId}</p>}
           </div>
 
           {/* Display name */}
           <div className="grid gap-1.5">
-            <Label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Display name
             </Label>
             <Input
               placeholder="1Password"
               value={vaultName}
               onChange={(e) => setVaultName((e.target as HTMLInputElement).value)}
-              className="text-sm h-9"
+              className="text-[13px] h-9"
             />
           </div>
 
           {error && (
             <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-              <p className="text-xs text-destructive whitespace-pre-line">{error}</p>
+              <p className="text-[12px] text-destructive whitespace-pre-line">{error}</p>
             </div>
           )}
         </div>
@@ -317,92 +323,70 @@ export default function OnePasswordSettings() {
   });
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card overflow-hidden transition-all hover:border-border">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-border/40">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="text-xs font-semibold text-foreground leading-none">1Password</h3>
-            {isLoading ? (
-              <span className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-            ) : isError ? (
-              <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive leading-none">
-                Error
+    <>
+      <CardStackEntry>
+        <CardStackEntryContent>
+          {isLoading ? (
+            <CardStackEntryDescription>Loading…</CardStackEntryDescription>
+          ) : isError ? (
+            <CardStackEntryDescription className="text-destructive">
+              Failed to load configuration
+            </CardStackEntryDescription>
+          ) : config ? (
+            <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-[12px]">
+              <span className="text-muted-foreground/60">Auth</span>
+              <span className="font-mono text-foreground/80 truncate">
+                {config.auth.kind === "desktop-app" ? config.auth.accountName : "service-account"}
               </span>
-            ) : config ? (
-              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 leading-none">
-                Connected
-              </span>
-            ) : (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground leading-none">
-                Not configured
-              </span>
-            )}
-          </div>
-        </div>
-        {config && (
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2.5 text-xs"
-              onClick={() => setConfigOpen(true)}
-            >
-              Edit
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2.5 text-xs text-destructive/70 hover:text-destructive"
-              onClick={handleRemove}
-            >
-              Disconnect
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Body */}
-      <div className="px-5 py-4">
-        {isLoading ? (
-          <div className="flex items-center gap-2">
-            <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          </div>
-        ) : isError ? (
-          <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-            <p className="text-sm text-destructive">Failed to load configuration</p>
-          </div>
-        ) : config ? (
-          <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-xs">
-            <span className="text-muted-foreground">Auth</span>
-            <span className="font-mono text-foreground/80">
-              {config.auth.kind === "desktop-app" ? config.auth.accountName : "service-account"}
-            </span>
-            <span className="text-muted-foreground">Vault</span>
-            <div className="flex items-center gap-2">
-              <span className="text-foreground/80">{config.name}</span>
-              <span className="font-mono text-xs text-muted-foreground">
-                {config.vaultId}
-              </span>
+              <span className="text-muted-foreground/60">Vault</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-foreground/80 truncate">{config.name}</span>
+                <span className="font-mono text-[10px] text-muted-foreground/40 truncate">
+                  {config.vaultId}
+                </span>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground leading-relaxed">
+          ) : (
+            <CardStackEntryDescription>
               Resolve secrets from your 1Password vault.
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs shrink-0"
-              onClick={() => setConfigOpen(true)}
-            >
-              Connect
-            </Button>
-          </div>
-        )}
-      </div>
+            </CardStackEntryDescription>
+          )}
+        </CardStackEntryContent>
+        <CardStackEntryActions>
+          {config ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2.5 text-[12px]"
+                onClick={() => setConfigOpen(true)}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2.5 text-[12px] text-destructive/70 hover:text-destructive"
+                onClick={handleRemove}
+              >
+                Disconnect
+              </Button>
+            </>
+          ) : (
+            !isLoading &&
+            !isError && (
+              <Button
+                variant="link"
+                size="sm"
+                className="h-7 px-0 text-[12px] shrink-0"
+                onClick={() => setConfigOpen(true)}
+              >
+                Add 1Password
+              </Button>
+            )
+          )}
+        </CardStackEntryActions>
+      </CardStackEntry>
 
       {configOpen && (
         <ConfigDialog
@@ -423,6 +407,6 @@ export default function OnePasswordSettings() {
           }
         />
       )}
-    </div>
+    </>
   );
 }

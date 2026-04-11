@@ -66,7 +66,7 @@ export const GoogleDiscoveryAuth = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
-    clientId: Schema.String,
+    clientIdSecretId: Schema.String,
     clientSecretSecretId: Schema.NullOr(Schema.String),
     accessTokenSecretId: Schema.String,
     refreshTokenSecretId: Schema.NullOr(Schema.String),
@@ -108,7 +108,7 @@ export interface GoogleDiscoverySourceMeta {
 export const GoogleDiscoveryOAuthSession = Schema.Struct({
   discoveryUrl: Schema.String,
   name: Schema.String,
-  clientId: Schema.String,
+  clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
   redirectUrl: Schema.String,
   scopes: Schema.Array(Schema.String),

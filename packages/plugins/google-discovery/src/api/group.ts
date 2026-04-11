@@ -15,7 +15,7 @@ const AuthPayload = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
-    clientId: Schema.String,
+    clientIdSecretId: Schema.String,
     clientSecretSecretId: Schema.NullOr(Schema.String),
     accessTokenSecretId: Schema.String,
     refreshTokenSecretId: Schema.NullOr(Schema.String),
@@ -30,6 +30,13 @@ const ProbePayload = Schema.Struct({
   discoveryUrl: Schema.String,
 });
 
+const ProbeOperation = Schema.Struct({
+  toolPath: Schema.String,
+  method: Schema.String,
+  pathTemplate: Schema.String,
+  description: Schema.NullOr(Schema.String),
+});
+
 const ProbeResponse = Schema.Struct({
   name: Schema.String,
   title: Schema.NullOr(Schema.String),
@@ -37,6 +44,7 @@ const ProbeResponse = Schema.Struct({
   version: Schema.String,
   toolCount: Schema.Number,
   scopes: Schema.Array(Schema.String),
+  operations: Schema.Array(ProbeOperation),
 });
 
 const AddSourcePayload = Schema.Struct({
@@ -54,7 +62,7 @@ const AddSourceResponse = Schema.Struct({
 const StartOAuthPayload = Schema.Struct({
   name: Schema.String,
   discoveryUrl: Schema.String,
-  clientId: Schema.String,
+  clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   redirectUrl: Schema.String,
   scopes: Schema.optional(Schema.Array(Schema.String)),
@@ -74,7 +82,7 @@ const CompleteOAuthPayload = Schema.Struct({
 
 const CompleteOAuthResponse = Schema.Struct({
   kind: Schema.Literal("oauth2"),
-  clientId: Schema.String,
+  clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
   accessTokenSecretId: Schema.String,
   refreshTokenSecretId: Schema.NullOr(Schema.String),
