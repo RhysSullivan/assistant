@@ -1,5 +1,5 @@
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from "@effect/platform";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 
 import { CoreExecutorApi } from "@executor/api";
 import { CoreHandlers } from "@executor/api/server";
@@ -62,32 +62,26 @@ const TeamApiLive = HttpApiBuilder.api(TeamOrgApi).pipe(
   Layer.provideMerge(OrgAuthLive),
 );
 
-const createNonProtectedHandler = () =>
-  HttpApiBuilder.toWebHandler(
-    NonProtectedApiLive.pipe(Layer.provideMerge(SharedServices), Layer.provideMerge(RouterConfig)),
-    { middleware: HttpMiddleware.logger },
-  );
+const NonProtectedRequestLayer = NonProtectedApiLive.pipe(
+  Layer.provideMerge(SharedServices),
+  Layer.provideMerge(RouterConfig),
+  Layer.provideMerge(HttpApiBuilder.Router.Live),
+  Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+);
 
-const createTeamHandler = () =>
-  HttpApiBuilder.toWebHandler(
-    TeamApiLive.pipe(Layer.provideMerge(SharedServices), Layer.provideMerge(RouterConfig)),
-    { middleware: HttpMiddleware.logger },
-  );
+const TeamRequestLayer = TeamApiLive.pipe(
+  Layer.provideMerge(SharedServices),
+  Layer.provideMerge(RouterConfig),
+  Layer.provideMerge(HttpApiBuilder.Router.Live),
+  Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+);
 
-const runWithFreshHandler = async (
-  createHandler: typeof createNonProtectedHandler,
-  request: Request,
-): Promise<Response> => {
-  const handler = createHandler();
-  try {
-    return await handler.handler(request);
-  } finally {
-    await handler.dispose();
-  }
-};
+export const NonProtectedApiApp = Effect.flatMap(
+  HttpApiBuilder.httpApp.pipe(Effect.provide(NonProtectedRequestLayer)),
+  HttpMiddleware.logger,
+).pipe(Effect.provide(HttpServer.layerContext));
 
-export const handleNonProtectedRequest = (request: Request): Promise<Response> =>
-  runWithFreshHandler(createNonProtectedHandler, request);
-
-export const handleTeamRequest = (request: Request): Promise<Response> =>
-  runWithFreshHandler(createTeamHandler, request);
+export const TeamApiApp = Effect.flatMap(
+  HttpApiBuilder.httpApp.pipe(Effect.provide(TeamRequestLayer)),
+  HttpMiddleware.logger,
+).pipe(Effect.provide(HttpServer.layerContext));

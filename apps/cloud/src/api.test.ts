@@ -1,4 +1,4 @@
-import { HttpApi, HttpApiBuilder, HttpApiClient, HttpApiEndpoint, HttpApiGroup, HttpApp, HttpClient, HttpServer } from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpApiClient, HttpApiEndpoint, HttpApiGroup, HttpApp, HttpClient, HttpServer, HttpServerResponse } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
@@ -43,43 +43,47 @@ const ProtectedHandlers = HttpApiBuilder.group(ProtectedApi, "protected", (handl
     .handle("resume", () => Effect.succeed({ source: "protected" })),
 );
 
-const createTeamTestHandler = () =>
-  HttpApiBuilder.toWebHandler(
-    HttpApiBuilder.api(TeamApi).pipe(
-      Layer.provide(TeamHandlers),
-      Layer.provideMerge(HttpServer.layerContext),
+const TeamTestApp = Effect.flatMap(
+  HttpApiBuilder.httpApp.pipe(
+    Effect.provide(
+      HttpApiBuilder.api(TeamApi).pipe(
+        Layer.provide(TeamHandlers),
+        Layer.provideMerge(HttpServer.layerContext),
+        Layer.provideMerge(HttpApiBuilder.Router.Live),
+        Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+      ),
     ),
-  );
+  ),
+  (app) => app,
+).pipe(Effect.provide(HttpServer.layerContext));
 
-const createAuthTestHandler = () =>
-  HttpApiBuilder.toWebHandler(
-    HttpApiBuilder.api(AuthApi).pipe(
-      Layer.provide(AuthHandlers),
-      Layer.provideMerge(HttpServer.layerContext),
+const AuthTestApp = Effect.flatMap(
+  HttpApiBuilder.httpApp.pipe(
+    Effect.provide(
+      HttpApiBuilder.api(AuthApi).pipe(
+        Layer.provide(AuthHandlers),
+        Layer.provideMerge(HttpServer.layerContext),
+        Layer.provideMerge(HttpApiBuilder.Router.Live),
+        Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+      ),
     ),
-  );
+  ),
+  (app) => app,
+).pipe(Effect.provide(HttpServer.layerContext));
 
-const createProtectedTestHandler = () =>
-  HttpApiBuilder.toWebHandler(
-    HttpApiBuilder.api(ProtectedApi).pipe(
-      Layer.provide(ProtectedHandlers),
-      Layer.provideMerge(HttpServer.layerContext),
+const ProtectedBaseTestApp = Effect.flatMap(
+  HttpApiBuilder.httpApp.pipe(
+    Effect.provide(
+      HttpApiBuilder.api(ProtectedApi).pipe(
+        Layer.provide(ProtectedHandlers),
+        Layer.provideMerge(HttpServer.layerContext),
+        Layer.provideMerge(HttpApiBuilder.Router.Live),
+        Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+      ),
     ),
-  );
-
-type TestWebHandlerFactory = typeof createTeamTestHandler;
-
-const runWithFreshHandler = async (
-  createHandler: TestWebHandlerFactory,
-  request: Request,
-): Promise<Response> => {
-  const handler = createHandler();
-  try {
-    return await handler.handler(request);
-  } finally {
-    await handler.dispose();
-  }
-};
+  ),
+  (app) => app,
+).pipe(Effect.provide(HttpServer.layerContext));
 
 type ProtectedMode = "ok" | "none" | "error" | "bad-status";
 
@@ -93,57 +97,29 @@ const resetState = () => {
   testState.mode = "ok";
 };
 
-const handleProtectedTestRequest = async (request: Request) => {
+const ProtectedTestApp = Effect.gen(function* () {
   if (testState.mode === "none") {
-    return Response.json(
+    return HttpServerResponse.unsafeJson(
       { error: "No organization in session", code: "no_organization" },
       { status: 403 },
     );
   }
   if (testState.mode === "error") {
-    return Response.json({ error: "boom" }, { status: 500 });
+    return HttpServerResponse.unsafeJson({ error: "boom" }, { status: 500 });
   }
-
-  const handler = createProtectedTestHandler();
-  try {
-    const response = await handler.handler(request);
-    if (testState.mode === "bad-status") {
-      return new Response(JSON.stringify({ source: "protected" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
-    }
-    return response;
-  } finally {
-    await handler.dispose();
+  if (testState.mode === "bad-status") {
+    return HttpServerResponse.unsafeJson({ source: "protected" }, { status: 400 });
   }
-};
+  return yield* ProtectedBaseTestApp;
+});
 
 const TestRequestHandlersLive = Layer.mergeAll(
-  Layer.succeed(
-    TeamRequestHandlerService,
-    TeamRequestHandlerService.make({
-      handle: (request: Request) => runWithFreshHandler(createTeamTestHandler, request),
-    }),
-  ),
-  Layer.succeed(
-    NonProtectedRequestHandlerService,
-    NonProtectedRequestHandlerService.make({
-      handle: (request: Request) => runWithFreshHandler(createAuthTestHandler, request),
-    }),
-  ),
-  Layer.succeed(
-    AutumnRequestHandlerService,
-    AutumnRequestHandlerService.make({
-      handle: async () => Response.json({ source: "autumn" }),
-    }),
-  ),
-  Layer.succeed(
-    ProtectedRequestHandlerService,
-    ProtectedRequestHandlerService.make({
-      handle: handleProtectedTestRequest,
-    }),
-  ),
+  Layer.succeed(TeamRequestHandlerService, { app: TeamTestApp }),
+  Layer.succeed(NonProtectedRequestHandlerService, { app: AuthTestApp }),
+  Layer.succeed(AutumnRequestHandlerService, {
+    app: Effect.succeed(HttpServerResponse.unsafeJson({ source: "autumn" })),
+  }),
+  Layer.succeed(ProtectedRequestHandlerService, { app: ProtectedTestApp }),
 );
 
 const requestHandler = Effect.runSync(Effect.provide(ApiRequestHandler, TestRequestHandlersLive));

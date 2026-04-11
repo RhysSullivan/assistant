@@ -1,53 +1,25 @@
 import { HttpApp, HttpRouter } from "@effect/platform";
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 
-export class TeamRequestHandlerService extends Effect.Service<TeamRequestHandlerService>()(
+type RequestAppService = {
+  readonly app: HttpApp.Default;
+};
+
+export class TeamRequestHandlerService extends Context.Tag(
   "@executor/cloud/TeamRequestHandlerService",
-  {
-    sync: () => ({
-      handle: async (request: Request) => {
-        const { handleTeamRequest } = await import("./layers");
-        return handleTeamRequest(request);
-      },
-    }),
-  },
-) {}
+)<TeamRequestHandlerService, RequestAppService>() {}
 
-export class NonProtectedRequestHandlerService extends Effect.Service<NonProtectedRequestHandlerService>()(
+export class NonProtectedRequestHandlerService extends Context.Tag(
   "@executor/cloud/NonProtectedRequestHandlerService",
-  {
-    sync: () => ({
-      handle: async (request: Request) => {
-        const { handleNonProtectedRequest } = await import("./layers");
-        return handleNonProtectedRequest(request);
-      },
-    }),
-  },
-) {}
+)<NonProtectedRequestHandlerService, RequestAppService>() {}
 
-export class AutumnRequestHandlerService extends Effect.Service<AutumnRequestHandlerService>()(
+export class AutumnRequestHandlerService extends Context.Tag(
   "@executor/cloud/AutumnRequestHandlerService",
-  {
-    sync: () => ({
-      handle: async (request: Request) => {
-        const { handleAutumnRequest } = await import("./autumn");
-        return handleAutumnRequest(request);
-      },
-    }),
-  },
-) {}
+)<AutumnRequestHandlerService, RequestAppService>() {}
 
-export class ProtectedRequestHandlerService extends Effect.Service<ProtectedRequestHandlerService>()(
+export class ProtectedRequestHandlerService extends Context.Tag(
   "@executor/cloud/ProtectedRequestHandlerService",
-  {
-    sync: () => ({
-      handle: async (request: Request): Promise<Response> => {
-        const { handleProtectedRequest } = await import("./protected");
-        return handleProtectedRequest(request);
-      },
-    }),
-  },
-) {}
+)<ProtectedRequestHandlerService, RequestAppService>() {}
 
 export const ApiRouterApp = Effect.gen(function* () {
   const team = yield* TeamRequestHandlerService;
@@ -55,16 +27,11 @@ export const ApiRouterApp = Effect.gen(function* () {
   const autumn = yield* AutumnRequestHandlerService;
   const protectedHandler = yield* ProtectedRequestHandlerService;
 
-  const teamApp = HttpApp.fromWebHandler(team.handle);
-  const authApp = HttpApp.fromWebHandler(nonProtected.handle);
-  const autumnApp = HttpApp.fromWebHandler(autumn.handle);
-  const protectedApp = HttpApp.fromWebHandler(protectedHandler.handle);
-
   return yield* HttpRouter.empty.pipe(
-    HttpRouter.mountApp("/team", teamApp),
-    HttpRouter.mountApp("/auth", authApp),
-    HttpRouter.mountApp("/autumn", autumnApp),
-    HttpRouter.mountApp("/", protectedApp),
+    HttpRouter.mountApp("/team", team.app, { includePrefix: true }),
+    HttpRouter.mountApp("/auth", nonProtected.app, { includePrefix: true }),
+    HttpRouter.mountApp("/autumn", autumn.app, { includePrefix: true }),
+    HttpRouter.mountApp("/", protectedHandler.app),
     HttpRouter.toHttpApp,
   );
 });

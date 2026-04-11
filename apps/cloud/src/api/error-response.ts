@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import { HttpServerResponse } from "@effect/platform";
 
 export class HttpResponseError extends Data.TaggedError("HttpResponseError")<{
   readonly status: number;
@@ -20,6 +21,14 @@ export const isServerError = (error: unknown): boolean => toHttpResponseError(er
 export const toErrorResponse = (error: unknown): Response => {
   const mapped = toHttpResponseError(error);
   return Response.json(
+    { error: mapped.message, code: mapped.code },
+    { status: mapped.status },
+  );
+};
+
+export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpServerResponse => {
+  const mapped = toHttpResponseError(error);
+  return HttpServerResponse.unsafeJson(
     { error: mapped.message, code: mapped.code },
     { status: mapped.status },
   );
