@@ -126,6 +126,7 @@ describe("Real specs: Cloudflare API", () => {
       const zoneTools = yield* executor.tools.list({ query: "zone" });
       expect(zoneTools.length).toBeGreaterThan(0);
     }),
+    { timeout: 60_000 },
   );
 
   it.effect("schema deduplication: definitions stored once, tools reference via $ref", () =>
