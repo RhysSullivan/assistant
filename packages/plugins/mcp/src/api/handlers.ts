@@ -266,15 +266,15 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
                 scope: c.scope,
               }),
             ),
-              Effect.catchAllCause((cause) =>
-                Effect.succeed<OAuthPopupResult>({
-                  type: "executor:oauth-result",
-                  ok: false,
-                  sessionId: null,
-                  error: toPopupErrorMessage(Cause.squash(cause)),
-                }),
-              ),
-            );
+            Effect.catchAllCause((cause) =>
+              Effect.succeed<OAuthPopupResult>({
+                type: "executor:oauth-result",
+                ok: false,
+                sessionId: null,
+                error: toPopupErrorMessage(Cause.squash(cause)),
+              }),
+            ),
+          );
         return yield* HttpServerResponse.html(popupDocument(result));
       }).pipe(sanitizeMcpFailure),
     ),

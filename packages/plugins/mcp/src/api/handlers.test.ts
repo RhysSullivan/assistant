@@ -3,11 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
 
 import { addGroup } from "@executor/api";
-import {
-  CoreHandlers,
-  ExecutionEngineService,
-  ExecutorService,
-} from "@executor/api/server";
+import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor/api/server";
 import type { McpPluginExtension } from "../sdk/plugin";
 import { McpExtensionService, McpHandlers } from "./handlers";
 import { McpGroup } from "./group";

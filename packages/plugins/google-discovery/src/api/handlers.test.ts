@@ -3,16 +3,9 @@ import { describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
 
 import { addGroup } from "@executor/api";
-import {
-  CoreHandlers,
-  ExecutionEngineService,
-  ExecutorService,
-} from "@executor/api/server";
+import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor/api/server";
 import type { GoogleDiscoveryPluginExtension } from "../sdk/plugin";
-import {
-  GoogleDiscoveryExtensionService,
-  GoogleDiscoveryHandlers,
-} from "./handlers";
+import { GoogleDiscoveryExtensionService, GoogleDiscoveryHandlers } from "./handlers";
 import { GoogleDiscoveryGroup } from "./group";
 
 const unused = Effect.dieMessage("unused");
@@ -38,12 +31,7 @@ const createHandler = () =>
       Layer.provide(GoogleDiscoveryHandlers),
       Layer.provide(Layer.succeed(ExecutorService, fakeExecutor)),
       Layer.provide(Layer.succeed(ExecutionEngineService, fakeExecutionEngine)),
-      Layer.provide(
-        Layer.succeed(
-          GoogleDiscoveryExtensionService,
-          createFailingExtension(),
-        ),
-      ),
+      Layer.provide(Layer.succeed(GoogleDiscoveryExtensionService, createFailingExtension())),
       Layer.provideMerge(HttpServer.layerContext),
       Layer.provideMerge(HttpApiBuilder.Router.Live),
       Layer.provideMerge(HttpApiBuilder.Middleware.layer),
