@@ -28,7 +28,7 @@ const formatDuration = (execution: Execution): string => {
   return `${(ms / 60_000).toFixed(1)}m`;
 };
 
-/** Recursively parse up to 4 layers of JSON-in-JSON for display. */
+/** Recursively parse up to 4 layers of JSON-in-JSON — QuickJS double-serializes tool results. */
 const unwrapJson = (
   raw: string | null,
 ): { readonly formatted: string | null; readonly lang: "json" | "text" } => {
