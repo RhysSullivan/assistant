@@ -393,6 +393,7 @@ const makeFullInvoker = (
 
         return describeTool(executor, args.path);
       }
+      // Only record user-facing tool calls; search/describe/sources.list are engine plumbing.
       if (recording) {
         return withToolCallRecording(base, recording, path, args);
       }
