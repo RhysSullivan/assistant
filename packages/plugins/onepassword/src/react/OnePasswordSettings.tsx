@@ -74,7 +74,7 @@ function VaultPicker(props: {
 
   if (!account) {
     return (
-      <p className="text-[11px] text-muted-foreground/50 py-1">
+      <p className="text-xs text-muted-foreground py-1">
         Enter account details to load vaults.
       </p>
     );
@@ -90,7 +90,7 @@ function VaultPicker(props: {
           if (v) props.onVaultSelect(v.id, v.name);
         }}
       >
-        <SelectTrigger className="h-9 text-[13px]">
+        <SelectTrigger className="h-9 text-sm">
           <SelectValue placeholder={isLoading ? "Loading…" : "Select a vault"} />
         </SelectTrigger>
         <SelectContent>
@@ -103,7 +103,7 @@ function VaultPicker(props: {
       </Select>
       {error && (
         <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
-          <p className="text-[11px] text-destructive leading-relaxed whitespace-pre-line">
+          <p className="text-xs text-destructive leading-relaxed whitespace-pre-line">
             {error}
           </p>
         </div>
@@ -182,7 +182,7 @@ function ConfigDialog(props: {
           <DialogTitle className="font-display text-xl">
             {isEdit ? "Edit 1Password" : "Connect 1Password"}
           </DialogTitle>
-          <DialogDescription className="text-[13px] leading-relaxed">
+          <DialogDescription className="text-sm leading-relaxed">
             Link a vault to resolve secrets via the 1Password desktop app or a service account.
           </DialogDescription>
         </DialogHeader>
@@ -190,14 +190,14 @@ function ConfigDialog(props: {
         <div className="grid gap-5 py-3">
           {/* Auth method */}
           <div className="grid gap-1.5">
-            <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Auth method
             </Label>
             <Select
               value={authKind}
               onValueChange={(v) => setAuthKind(v as "desktop-app" | "service-account")}
             >
-              <SelectTrigger className="h-9 text-[13px]">
+              <SelectTrigger className="h-9 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -209,16 +209,16 @@ function ConfigDialog(props: {
 
           {/* Account / token */}
           <div className="grid gap-1.5">
-            <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
               {authKind === "desktop-app" ? "Account domain" : "Token secret ID"}
             </Label>
             <Input
               placeholder={authKind === "desktop-app" ? "my.1password.com" : "op-service-token"}
               value={accountName}
               onChange={(e) => setAccountName((e.target as HTMLInputElement).value)}
-              className="font-mono text-[13px] h-9"
+              className="font-mono text-xs h-9"
             />
-            <p className="text-[11px] text-muted-foreground/60 leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               {authKind === "desktop-app"
                 ? "Requires the 1Password desktop app with biometric unlock."
                 : "Reference an executor secret that holds the service account token."}
@@ -227,7 +227,7 @@ function ConfigDialog(props: {
 
           {/* Vault */}
           <div className="grid gap-1.5">
-            <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Vault
             </Label>
             <VaultPicker
@@ -239,25 +239,25 @@ function ConfigDialog(props: {
                 setVaultName(name);
               }}
             />
-            {vaultId && <p className="font-mono text-[10px] text-muted-foreground/50">{vaultId}</p>}
+            {vaultId && <p className="font-mono text-xs text-muted-foreground">{vaultId}</p>}
           </div>
 
           {/* Display name */}
           <div className="grid gap-1.5">
-            <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Display name
             </Label>
             <Input
               placeholder="1Password"
               value={vaultName}
               onChange={(e) => setVaultName((e.target as HTMLInputElement).value)}
-              className="text-[13px] h-9"
+              className="text-sm h-9"
             />
           </div>
 
           {error && (
             <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-              <p className="text-[12px] text-destructive whitespace-pre-line">{error}</p>
+              <p className="text-xs text-destructive whitespace-pre-line">{error}</p>
             </div>
           )}
         </div>
@@ -322,19 +322,19 @@ export default function OnePasswordSettings() {
       <div className="flex items-center gap-3 px-5 py-4 border-b border-border/40">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="text-[13px] font-semibold text-foreground leading-none">1Password</h3>
+            <h3 className="text-xs font-semibold text-foreground leading-none">1Password</h3>
             {isLoading ? (
               <span className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
             ) : isError ? (
-              <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-medium text-destructive leading-none">
+              <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive leading-none">
                 Error
               </span>
             ) : config ? (
-              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 leading-none">
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 leading-none">
                 Connected
               </span>
             ) : (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground leading-none">
                 Not configured
               </span>
             )}
@@ -345,7 +345,7 @@ export default function OnePasswordSettings() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2.5 text-[12px]"
+              className="h-7 px-2.5 text-xs"
               onClick={() => setConfigOpen(true)}
             >
               Edit
@@ -353,7 +353,7 @@ export default function OnePasswordSettings() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2.5 text-[12px] text-destructive/70 hover:text-destructive"
+              className="h-7 px-2.5 text-xs text-destructive/70 hover:text-destructive"
               onClick={handleRemove}
             >
               Disconnect
@@ -367,35 +367,35 @@ export default function OnePasswordSettings() {
         {isLoading ? (
           <div className="flex items-center gap-2">
             <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-            <p className="text-[12px] text-muted-foreground/50">Loading…</p>
+            <p className="text-sm text-muted-foreground">Loading…</p>
           </div>
         ) : isError ? (
           <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-            <p className="text-[12px] text-destructive">Failed to load configuration</p>
+            <p className="text-sm text-destructive">Failed to load configuration</p>
           </div>
         ) : config ? (
-          <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[12px]">
-            <span className="text-muted-foreground/60">Auth</span>
+          <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-xs">
+            <span className="text-muted-foreground">Auth</span>
             <span className="font-mono text-foreground/80">
               {config.auth.kind === "desktop-app" ? config.auth.accountName : "service-account"}
             </span>
-            <span className="text-muted-foreground/60">Vault</span>
+            <span className="text-muted-foreground">Vault</span>
             <div className="flex items-center gap-2">
               <span className="text-foreground/80">{config.name}</span>
-              <span className="font-mono text-[10px] text-muted-foreground/40">
+              <span className="font-mono text-xs text-muted-foreground">
                 {config.vaultId}
               </span>
             </div>
           </div>
         ) : (
           <div className="flex items-center justify-between">
-            <p className="text-[12px] text-muted-foreground/60 leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               Resolve secrets from your 1Password vault.
             </p>
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-[12px] shrink-0"
+              className="h-7 text-xs shrink-0"
               onClick={() => setConfigOpen(true)}
             >
               Connect

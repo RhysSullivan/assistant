@@ -254,14 +254,14 @@ export function ToolTree(props: {
   return (
     <div className="flex h-full min-h-0 flex-col bg-muted/20">
       <div className="flex shrink-0 items-center gap-2 px-3 py-2">
-        <SearchIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+        <SearchIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
         <Input
           ref={searchRef}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={`Filter ${tools.length} tools…`}
           aria-label="Filter tools"
-          className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[0.75rem] shadow-none outline-none placeholder:text-muted-foreground/50 focus-visible:border-transparent focus-visible:ring-0"
+          className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-xs shadow-none outline-none placeholder:text-muted-foreground focus-visible:border-transparent focus-visible:ring-0"
         />
         {search.length > 0 && (
           <Button
@@ -278,7 +278,7 @@ export function ToolTree(props: {
       <div className="mx-2 border-t border-border/30" />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {filteredTools.length === 0 ? (
-          <div className="p-4 text-center text-[13px] text-muted-foreground">
+          <div className="p-4 text-center text-xs text-muted-foreground">
             {terms.length > 0 ? "No tools match your filter" : "No tools available"}
           </div>
         ) : (
@@ -318,7 +318,7 @@ export function ToolTree(props: {
 const rowIndent = (depth: number) => 12 + depth * 16;
 
 const rowBaseClasses =
-  "relative flex h-auto w-full items-center justify-start gap-2 rounded-none py-2 text-[13px] font-normal transition-[background-color] duration-150";
+  "relative flex h-auto w-full items-center justify-start gap-2 rounded-none py-2 text-xs font-normal transition-[background-color] duration-150";
 
 function ToolGroupRow(props: {
   segment: string;
@@ -343,10 +343,10 @@ function ToolGroupRow(props: {
           props.open && "rotate-90",
         )}
       />
-      <span className="min-w-0 flex-1 truncate text-left font-mono text-[13px] text-foreground">
+      <span className="min-w-0 flex-1 truncate text-left font-mono text-xs text-foreground">
         {highlightMatch(props.segment, props.search)}
       </span>
-      <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">{props.count}</span>
+      <span className="shrink-0 tabular-nums text-xs text-muted-foreground">{props.count}</span>
     </Button>
   );
 }

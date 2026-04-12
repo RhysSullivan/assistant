@@ -1,0 +1,21 @@
+name: Publish (pkg.pr.new)
+
+on:
+  pull_request:
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run build:packages
+
+      - run: npx pkg-pr-new publish --compact './packages/core/sdk' './packages/plugins/*'

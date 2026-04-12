@@ -99,31 +99,31 @@ function InlineCreateSecret(props: {
 
   return (
     <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-2.5">
-      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
+      <p className="text-xs font-semibold text-primary tracking-wide uppercase">New secret</p>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">ID</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">ID</Label>
           <Input
             value={secretId}
             onChange={(e) => setSecretId((e.target as HTMLInputElement).value)}
             placeholder="my-api-token"
-            className="h-8 text-xs font-mono"
+            className="h-8 text-sm font-mono"
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
             Label
           </Label>
           <Input
             value={secretName}
             onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
             placeholder="API Token"
-            className="h-8 text-xs"
+            className="h-8 text-sm"
           />
         </div>
       </div>
       <div className="space-y-1">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
+        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Value</Label>
         <div className="relative">
           <Input
             type={secretRevealed ? "text" : "password"}
@@ -144,7 +144,7 @@ function InlineCreateSecret(props: {
           </Button>
         </div>
       </div>
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex gap-1.5 pt-0.5">
         <Button variant="outline" size="xs" onClick={props.onCancel}>
           Cancel
@@ -326,7 +326,7 @@ export function SecretHeaderAuthRow(props: {
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
       <div className="flex items-center justify-between">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        <Label className="text-xs uppercase tracking-wider text-muted-foreground">
           {label}
         </Label>
         {onRemove && (
@@ -369,7 +369,7 @@ export function SecretHeaderAuthRow(props: {
       {presetKey !== undefined && (
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
               Name
             </Label>
             <Input
@@ -382,13 +382,13 @@ export function SecretHeaderAuthRow(props: {
                 })
               }
               placeholder="Authorization"
-              className="h-8 text-xs font-mono"
+              className="h-8 text-sm font-mono"
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
               Prefix{" "}
-              <span className="normal-case tracking-normal font-normal text-muted-foreground/60">
+              <span className="normal-case tracking-normal font-normal text-muted-foreground">
                 (opt.)
               </span>
             </Label>
@@ -402,7 +402,7 @@ export function SecretHeaderAuthRow(props: {
                 })
               }
               placeholder="Bearer "
-              className="h-8 text-xs font-mono"
+              className="h-8 text-sm font-mono"
             />
           </div>
         </div>

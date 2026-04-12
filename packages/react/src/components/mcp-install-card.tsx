@@ -53,7 +53,7 @@ export function McpInstallCard(props: { className?: string }) {
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-foreground">Connect an agent</h2>
-          <p className="text-[13px] text-muted-foreground">{description}</p>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
           <div className="group/agents flex items-center">
@@ -72,7 +72,7 @@ export function McpInstallCard(props: { className?: string }) {
               </span>
             ))}
           </div>
-          <span className="text-[12px] text-muted-foreground/70">and more</span>
+          <span className="text-sm text-muted-foreground">and more</span>
         </div>
       </div>
 
@@ -87,7 +87,7 @@ export function McpInstallCard(props: { className?: string }) {
           </TabsContent>
           <TabsContent value="stdio">
             <CodeBlock code={command} lang="bash" />
-            <p className="mt-3 text-[12px] text-muted-foreground">
+            <p className="mt-3 text-xs text-muted-foreground">
               {isDev
                 ? "Uses the repo-local dev CLI. Run from the repository root."
                 : "Requires the executor CLI on your PATH."}
