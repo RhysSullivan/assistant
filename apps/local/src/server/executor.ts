@@ -6,30 +6,9 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { createExecutor, scopeKv } from "@executor/sdk";
+import { createExecutor } from "@executor/sdk";
 import { makeSqliteKv, makeKvConfig, makeScopedKv, migrate } from "@executor/storage-file";
-import {
-  openApiPlugin,
-  makeKvOperationStore,
-  withConfigFile as withOpenApiConfigFile,
-} from "@executor/plugin-openapi";
-import {
-  mcpPlugin,
-  makeKvBindingStore,
-  withConfigFile as withMcpConfigFile,
-} from "@executor/plugin-mcp";
-import {
-  googleDiscoveryPlugin,
-  makeKvBindingStore as makeKvGoogleDiscoveryBindingStore,
-} from "@executor/plugin-google-discovery";
-import {
-  graphqlPlugin,
-  makeKvOperationStore as makeKvGraphqlOperationStore,
-  withConfigFile as withGraphqlConfigFile,
-} from "@executor/plugin-graphql";
-import { keychainPlugin } from "@executor/plugin-keychain";
-import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
-import { onepasswordPlugin } from "@executor/plugin-onepassword";
+import { createLocalRuntimePlugins } from "./plugin-registry";
 
 // ---------------------------------------------------------------------------
 // Data directory
@@ -45,41 +24,8 @@ const resolveDbPath = (): string => {
 // Local plugins — defined once, used for both the layer and type inference
 // ---------------------------------------------------------------------------
 
-const createLocalPlugins = (
-  scopedKv: ReturnType<typeof makeScopedKv>,
-  configPath: string,
-  fsLayer: typeof NodeFileSystem.layer,
-) =>
-  [
-    openApiPlugin({
-      operationStore: withOpenApiConfigFile(
-        makeKvOperationStore(scopedKv, "openapi"),
-        configPath,
-        fsLayer,
-      ),
-    }),
-    mcpPlugin({
-      bindingStore: withMcpConfigFile(makeKvBindingStore(scopedKv, "mcp"), configPath, fsLayer),
-    }),
-    googleDiscoveryPlugin({
-      bindingStore: makeKvGoogleDiscoveryBindingStore(scopedKv, "google-discovery"),
-    }),
-    graphqlPlugin({
-      operationStore: withGraphqlConfigFile(
-        makeKvGraphqlOperationStore(scopedKv, "graphql"),
-        configPath,
-        fsLayer,
-      ),
-    }),
-    keychainPlugin(),
-    fileSecretsPlugin(),
-    onepasswordPlugin({
-      kv: scopeKv(scopedKv, "onepassword"),
-    }),
-  ] as const;
-
 // Full typed executor — inferred from plugin list
-type LocalPlugins = ReturnType<typeof createLocalPlugins>;
+type LocalPlugins = ReturnType<typeof createLocalRuntimePlugins>;
 
 // Private tag preserving the full plugin type
 class LocalExecutorTag extends Context.Tag("@executor/local/Executor")<
@@ -112,7 +58,7 @@ const createLocalExecutorLayer = () => {
 
       return yield* createExecutor({
         ...config,
-        plugins: createLocalPlugins(scopedKv, configPath, fsLayer),
+        plugins: createLocalRuntimePlugins({ scopedKv, configPath, fsLayer }),
       });
     }),
   ).pipe(Layer.provide(SqliteClient.layer({ filename: dbPath })));

@@ -4,6 +4,7 @@ import { Result, useAtomValue, useAtomSet } from "@effect-atom/atom-react";
 import { sourcesAtom, detectSource } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin, SourcePreset } from "../plugins/source-plugin";
+import { useSourcePlugins } from "../plugins/plugin-catalog";
 import { McpInstallCard } from "../components/mcp-install-card";
 import { Button } from "../components/button";
 import { Input } from "../components/input";
@@ -19,8 +20,8 @@ const KIND_TO_PLUGIN_KEY: Record<string, string> = {
 // Page
 // ---------------------------------------------------------------------------
 
-export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
-  const { sourcePlugins } = props;
+export function SourcesPage() {
+  const sourcePlugins = useSourcePlugins();
   const [url, setUrl] = useState("");
   const [detecting, setDetecting] = useState(false);
   const [error, setError] = useState<string | null>(null);

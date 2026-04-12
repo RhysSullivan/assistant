@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "../web/auth";
 import { LoginPage } from "../web/pages/login";
 import { Shell } from "../web/shell";
 import appCss from "@executor/react/globals.css?url";
+import { cloudSecretProviderPlugins, cloudSourcePlugins } from "../plugin-catalog";
 
 if (typeof window !== "undefined" && import.meta.env.VITE_PUBLIC_SENTRY_DSN) {
   Sentry.init({
@@ -80,7 +81,10 @@ function AuthGate() {
 
   return (
     <AutumnProvider pathPrefix="/api/autumn">
-      <ExecutorProvider>
+      <ExecutorProvider
+        sourcePlugins={cloudSourcePlugins}
+        secretProviderPlugins={cloudSecretProviderPlugins}
+      >
         <Shell />
         <Toaster />
       </ExecutorProvider>

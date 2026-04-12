@@ -3,13 +3,6 @@ import { Effect, Layer } from "effect";
 
 import { CoreExecutorApi } from "@executor/api";
 import { CoreHandlers } from "@executor/api/server";
-import { OpenApiGroup, OpenApiHandlers } from "@executor/plugin-openapi/api";
-import { McpGroup, McpHandlers } from "@executor/plugin-mcp/api";
-import {
-  GoogleDiscoveryGroup,
-  GoogleDiscoveryHandlers,
-} from "@executor/plugin-google-discovery/api";
-import { GraphqlGroup, GraphqlHandlers } from "@executor/plugin-graphql/api";
 
 import { OrgAuth } from "../auth/middleware";
 import { OrgAuthLive, SessionAuthLive } from "../auth/middleware-live";
@@ -24,12 +17,9 @@ import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
 import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
+import { addCloudPluginGroups, CloudPluginHandlers } from "../server/plugin-registry";
 
-const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
-  .add(McpGroup)
-  .add(GoogleDiscoveryGroup)
-  .add(GraphqlGroup)
-  .middleware(OrgAuth);
+const ProtectedCloudApi = addCloudPluginGroups(CoreExecutorApi).middleware(OrgAuth);
 
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
@@ -45,16 +35,9 @@ export const SharedServices = Layer.mergeAll(
 export const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
 
 export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      CoreHandlers,
-      OpenApiHandlers,
-      McpHandlers,
-      GoogleDiscoveryHandlers,
-      GraphqlHandlers,
-      OrgAuthLive,
-    ),
-  ),
+  Layer.provide(CoreHandlers),
+  Layer.provide(CloudPluginHandlers),
+  Layer.provideMerge(OrgAuthLive),
 );
 
 const NonProtectedApiLive = HttpApiBuilder.api(NonProtectedApi).pipe(

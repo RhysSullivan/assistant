@@ -6,17 +6,8 @@ import { Effect } from "effect";
 
 import { createExecutor } from "@executor/sdk";
 import { makePgConfig, makePgKv } from "@executor/storage-postgres";
-import { openApiPlugin, makeKvOperationStore } from "@executor/plugin-openapi";
-import { mcpPlugin, makeKvBindingStore } from "@executor/plugin-mcp";
-import {
-  googleDiscoveryPlugin,
-  makeKvBindingStore as makeKvGoogleDiscoveryBindingStore,
-} from "@executor/plugin-google-discovery";
-import {
-  graphqlPlugin,
-  makeKvOperationStore as makeKvGraphqlOperationStore,
-} from "@executor/plugin-graphql";
 import { DbService } from "./db";
+import { createCloudRuntimePlugins } from "../server/plugin-registry";
 
 // ---------------------------------------------------------------------------
 // Create a fresh executor for an organization (stateless, per-request)
@@ -34,20 +25,7 @@ export const createOrgExecutor = (
       organizationId,
       organizationName,
       encryptionKey,
-      plugins: [
-        openApiPlugin({
-          operationStore: makeKvOperationStore(kv, "openapi"),
-        }),
-        mcpPlugin({
-          bindingStore: makeKvBindingStore(kv, "mcp"),
-        }),
-        googleDiscoveryPlugin({
-          bindingStore: makeKvGoogleDiscoveryBindingStore(kv, "google-discovery"),
-        }),
-        graphqlPlugin({
-          operationStore: makeKvGraphqlOperationStore(kv, "graphql"),
-        }),
-      ] as const,
+      plugins: createCloudRuntimePlugins(kv),
     });
 
     return yield* createExecutor(config);

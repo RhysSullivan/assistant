@@ -55,6 +55,7 @@
         "@executor/env": "workspace:*",
         "@executor/execution": "workspace:*",
         "@executor/host-mcp": "workspace:*",
+        "@executor/host-plugins": "workspace:*",
         "@executor/plugin-google-discovery": "workspace:*",
         "@executor/plugin-graphql": "workspace:*",
         "@executor/plugin-mcp": "workspace:*",
@@ -128,6 +129,7 @@
         "@executor/config": "workspace:*",
         "@executor/execution": "workspace:*",
         "@executor/host-mcp": "workspace:*",
+        "@executor/host-plugins": "workspace:*",
         "@executor/plugin-file-secrets": "workspace:*",
         "@executor/plugin-google-discovery": "workspace:*",
         "@executor/plugin-graphql": "workspace:*",
@@ -316,6 +318,24 @@
         "@types/node": "catalog:",
         "bun-types": "catalog:",
         "vitest": "catalog:",
+      },
+    },
+    "packages/hosts/plugins": {
+      "name": "@executor/host-plugins",
+      "version": "1.4.2",
+      "dependencies": {
+        "@executor/api": "workspace:*",
+        "@executor/plugin-google-discovery": "workspace:*",
+        "@executor/plugin-graphql": "workspace:*",
+        "@executor/plugin-mcp": "workspace:*",
+        "@executor/plugin-openapi": "workspace:*",
+        "@executor/react": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
+        "bun-types": "catalog:",
       },
     },
     "packages/kernel/core": {
@@ -1086,6 +1106,8 @@
     "@executor/execution": ["@executor/execution@workspace:packages/core/execution"],
 
     "@executor/host-mcp": ["@executor/host-mcp@workspace:packages/hosts/mcp"],
+
+    "@executor/host-plugins": ["@executor/host-plugins@workspace:packages/hosts/plugins"],
 
     "@executor/ir": ["@executor/ir@workspace:packages/kernel/ir"],
 

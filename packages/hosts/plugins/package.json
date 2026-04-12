@@ -1,0 +1,29 @@
+{
+  "name": "@executor/host-plugins",
+  "version": "1.4.2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts",
+    "./ui": "./src/ui.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/api": "workspace:*",
+    "@executor/plugin-google-discovery": "workspace:*",
+    "@executor/plugin-graphql": "workspace:*",
+    "@executor/plugin-mcp": "workspace:*",
+    "@executor/plugin-openapi": "workspace:*",
+    "@executor/react": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "bun-types": "catalog:"
+  }
+}

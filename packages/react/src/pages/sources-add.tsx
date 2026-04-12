@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { SourcePlugin } from "../plugins/source-plugin";
 import { useAtomRefresh } from "@effect-atom/atom-react";
 import { sourcesAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
+import { useSourcePlugins } from "../plugins/plugin-catalog";
 
 // ---------------------------------------------------------------------------
 // Page
@@ -14,9 +14,9 @@ export function SourcesAddPage(props: {
   url?: string;
   preset?: string;
   namespace?: string;
-  sourcePlugins: readonly SourcePlugin[];
 }) {
-  const { pluginKey, url, preset, namespace, sourcePlugins } = props;
+  const { pluginKey, url, preset, namespace } = props;
+  const sourcePlugins = useSourcePlugins();
   const scopeId = useScope();
   const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const navigate = useNavigate();

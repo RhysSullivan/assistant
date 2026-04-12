@@ -5,10 +5,6 @@ import { Effect, Layer } from "effect";
 import { ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
 import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
-import { OpenApiExtensionService } from "@executor/plugin-openapi/api";
-import { McpExtensionService } from "@executor/plugin-mcp/api";
-import { GoogleDiscoveryExtensionService } from "@executor/plugin-google-discovery/api";
-import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
 
 import { UserStoreService } from "../auth/context";
 import { WorkOSAuth } from "../auth/workos";
@@ -19,6 +15,7 @@ import { makeTrackExecutionUsage } from "./autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { withExecutionUsageTracking } from "./execution-usage";
 import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
+import { createCloudPluginExtensions } from "../server/plugin-registry";
 
 const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
   Effect.gen(function* () {
@@ -57,10 +54,7 @@ const createProtectedApp = (organizationId: string, organizationName: string) =>
     const requestServices = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
       Layer.succeed(ExecutionEngineService, engine),
-      Layer.succeed(OpenApiExtensionService, executor.openapi),
-      Layer.succeed(McpExtensionService, executor.mcp),
-      Layer.succeed(GoogleDiscoveryExtensionService, executor.googleDiscovery),
-      Layer.succeed(GraphqlExtensionService, executor.graphql),
+      createCloudPluginExtensions(executor),
     );
 
     return yield* HttpApiBuilder.httpApp.pipe(

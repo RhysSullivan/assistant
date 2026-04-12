@@ -40,6 +40,7 @@ import {
   CardStackHeader,
 } from "../components/card-stack";
 import { Badge } from "../components/badge";
+import { useSecretProviderPlugins } from "../plugins/plugin-catalog";
 
 // ---------------------------------------------------------------------------
 // Add secret dialog
@@ -281,8 +282,8 @@ function SecretRow(props: {
 // Page
 // ---------------------------------------------------------------------------
 
-export function SecretsPage(props: { secretProviderPlugins: readonly SecretProviderPlugin[] }) {
-  const { secretProviderPlugins } = props;
+export function SecretsPage() {
+  const secretProviderPlugins = useSecretProviderPlugins();
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
   const secrets = useAtomValue(secretsAtom(scopeId));

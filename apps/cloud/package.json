@@ -28,6 +28,7 @@
     "@executor/env": "workspace:*",
     "@executor/execution": "workspace:*",
     "@executor/host-mcp": "workspace:*",
+    "@executor/host-plugins": "workspace:*",
     "@executor/plugin-google-discovery": "workspace:*",
     "@executor/plugin-graphql": "workspace:*",
     "@executor/plugin-mcp": "workspace:*",

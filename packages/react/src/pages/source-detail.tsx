@@ -12,15 +12,13 @@ import { ToolTree } from "../components/tool-tree";
 import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
 import type { ToolSummary } from "../components/tool-tree";
 import { useScope } from "../hooks/use-scope";
-import type { SourcePlugin } from "../plugins/source-plugin";
+import { useSourcePlugins } from "../plugins/plugin-catalog";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
 
-export function SourceDetailPage(props: {
-  namespace: string;
-  sourcePlugins?: readonly SourcePlugin[];
-}) {
-  const { namespace, sourcePlugins } = props;
+export function SourceDetailPage(props: { namespace: string }) {
+  const { namespace } = props;
+  const sourcePlugins = useSourcePlugins();
   const scopeId = useScope();
   const source = useAtomValue(sourceAtom(namespace, scopeId));
   const tools = useAtomValue(sourceToolsAtom(namespace, scopeId));
@@ -56,7 +54,7 @@ export function SourceDetailPage(props: {
 
   // Find the plugin edit component based on source kind
   const editPlugin = useMemo(() => {
-    if (!sourceData || !sourcePlugins) return null;
+    if (!sourceData) return null;
     return sourcePlugins.find((p) => p.key === sourceData.kind) ?? null;
   }, [sourceData, sourcePlugins]);
 
