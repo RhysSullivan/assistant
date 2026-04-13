@@ -41,11 +41,7 @@ const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
 
 const createProtectedApp = (organizationId: string, organizationName: string) =>
   Effect.gen(function* () {
-    const executor = yield* createOrgExecutor(
-      organizationId,
-      organizationName,
-      server.ENCRYPTION_KEY,
-    );
+    const executor = yield* createOrgExecutor(organizationId, organizationName);
     const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
     const autumn = yield* AutumnService;
     const engine = withExecutionUsageTracking(

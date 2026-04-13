@@ -113,7 +113,7 @@ export class McpSessionDO extends DurableObject {
       if (!org)
         return yield* new OrganizationNotFoundError({ organizationId: token.organizationId });
 
-      const executor = yield* createOrgExecutor(org.id, org.name, server.ENCRYPTION_KEY);
+      const executor = yield* createOrgExecutor(org.id, org.name);
       const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
       return yield* Effect.promise(() => createExecutorMcpServer({ executor, codeExecutor }));
     }).pipe(Effect.provide(Services));

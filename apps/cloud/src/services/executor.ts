@@ -32,7 +32,6 @@ import { server } from "../env";
 export const createOrgExecutor = (
   organizationId: string,
   organizationName: string,
-  _encryptionKey: string,
 ) =>
   Effect.gen(function* () {
     const db = yield* DbService;
