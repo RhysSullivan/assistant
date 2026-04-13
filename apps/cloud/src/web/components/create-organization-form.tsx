@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useReducer } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
@@ -7,49 +7,75 @@ import { createOrganization } from "../auth";
 
 type CreatedOrganization = { id: string; name: string };
 
+type State = {
+  name: string;
+  error: string | null;
+  creating: boolean;
+};
+
+type Action =
+  | { type: "setName"; name: string }
+  | { type: "submitStart" }
+  | { type: "submitEnd"; error: string | null }
+  | { type: "reset"; name: string };
+
+const reducer = (state: State, action: Action): State => {
+  switch (action.type) {
+    // Typing into the field clears any stale error. Consolidating this into
+    // the reducer means callers don't need to wire up an explicit clear.
+    case "setName":
+      return { ...state, name: action.name, error: null };
+    case "submitStart":
+      return { ...state, creating: true, error: null };
+    case "submitEnd":
+      return { ...state, creating: false, error: action.error };
+    case "reset":
+      return { name: action.name, error: null, creating: false };
+  }
+};
+
 export function useCreateOrganizationForm(options: {
   defaultName?: string;
   onSuccess: (org: CreatedOrganization) => void;
   onFailure?: () => void;
 }) {
   const doCreate = useAtomSet(createOrganization, { mode: "promiseExit" });
-  const [name, setName] = useState(options.defaultName ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [state, dispatch] = useReducer(reducer, {
+    name: options.defaultName ?? "",
+    error: null,
+    creating: false,
+  });
 
-  const reset = (nextName = options.defaultName ?? "") => {
-    setName(nextName);
-    setError(null);
-    setCreating(false);
-  };
+  const setName = (name: string) => dispatch({ type: "setName", name });
+
+  const reset = (nextName = options.defaultName ?? "") =>
+    dispatch({ type: "reset", name: nextName });
 
   const submit = async () => {
-    const trimmed = name.trim();
+    const trimmed = state.name.trim();
     if (!trimmed) {
-      setError("Organization name is required.");
+      dispatch({ type: "submitEnd", error: "Organization name is required." });
       return;
     }
-    setCreating(true);
-    setError(null);
+    dispatch({ type: "submitStart" });
     const exit = await doCreate({ payload: { name: trimmed } });
-    setCreating(false);
     if (exit._tag === "Success") {
+      dispatch({ type: "submitEnd", error: null });
       options.onSuccess(exit.value);
     } else {
-      setError("Failed to create organization.");
+      dispatch({ type: "submitEnd", error: "Failed to create organization." });
       options.onFailure?.();
     }
   };
 
   return {
-    name,
+    name: state.name,
     setName,
-    error,
-    setError,
-    creating,
+    error: state.error,
+    creating: state.creating,
     submit,
     reset,
-    canSubmit: name.trim().length > 0,
+    canSubmit: state.name.trim().length > 0,
   };
 }
 

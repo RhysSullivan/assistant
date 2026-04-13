@@ -321,10 +321,7 @@ function UserFooter() {
 
           <CreateOrganizationFields
             name={form.name}
-            onNameChange={(name) => {
-              form.setName(name);
-              if (form.error) form.setError(null);
-            }}
+            onNameChange={form.setName}
             error={form.error}
             onSubmit={() => void form.submit()}
           />
