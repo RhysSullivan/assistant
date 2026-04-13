@@ -106,9 +106,25 @@ const installCli = (): void => {
     );
     let out = "";
     result.stdout?.on("data", (d: Buffer) => (out += d.toString()));
-    result.on("close", () => {
-      const match = out.match(/Path\s+REG(?:_EXPAND)?_SZ\s+(.+)/i);
-      const current = match ? match[1].trim() : "";
+    result.on("close", (code) => {
+      // Exit codes: 0 = value exists, 1 = value missing (treat as empty).
+      // Anything else (2 = access denied, etc.) is an unexpected failure —
+      // bail rather than risk writing a malformed PATH.
+      if (code !== 0 && code !== 1) {
+        console.warn(`executor: reg query failed (code ${code}), skipping PATH update`);
+        return;
+      }
+      let current = "";
+      if (code === 0) {
+        const match = out.match(/Path\s+REG(?:_EXPAND)?_SZ\s+(.+)/i);
+        if (!match) {
+          // reg query succeeded but the output didn't parse — this means the
+          // format changed and we can't safely rewrite PATH. Bail.
+          console.warn("executor: could not parse reg query output, skipping PATH update");
+          return;
+        }
+        current = match[1].trim();
+      }
       if (!current.toLowerCase().includes(CLI_BIN_DIR.toLowerCase())) {
         const updated = current ? `${current};${CLI_BIN_DIR}` : CLI_BIN_DIR;
         spawn("reg", [
