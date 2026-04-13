@@ -12,7 +12,6 @@ import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
 
 import { UserStoreService } from "../auth/context";
 import { WorkOSAuth } from "../auth/workos";
-import { server } from "../env";
 import { AutumnService } from "../services/autumn";
 import { createOrgExecutor } from "../services/executor";
 import { makeTrackExecutionUsage } from "./autumn";

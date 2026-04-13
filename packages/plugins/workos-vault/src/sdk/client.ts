@@ -1,4 +1,5 @@
 import type { WorkOS } from "@workos-inc/node/worker";
+import { Data, Effect } from "effect";
 
 export interface WorkOSVaultObjectMetadata {
   readonly context: Record<string, unknown>;
@@ -14,26 +15,55 @@ export interface WorkOSVaultObject {
   readonly value?: string;
 }
 
+export class WorkOSVaultClientError extends Data.TaggedError("WorkOSVaultClientError")<{
+  readonly cause: unknown;
+  readonly operation: string;
+}> {}
+
+type WorkOSVaultSdk = Pick<WorkOS, "vault">["vault"];
+
 export interface WorkOSVaultClient {
+  readonly use: <A>(
+    operation: string,
+    fn: (client: WorkOSVaultSdk) => Promise<A>,
+  ) => Effect.Effect<A, WorkOSVaultClientError, never>;
   readonly createObject: (options: {
     readonly name: string;
     readonly value: string;
     readonly context: Record<string, string>;
-  }) => Promise<WorkOSVaultObjectMetadata>;
-  readonly readObjectByName: (name: string) => Promise<WorkOSVaultObject>;
+  }) => Effect.Effect<WorkOSVaultObjectMetadata, WorkOSVaultClientError, never>;
+  readonly readObjectByName: (
+    name: string,
+  ) => Effect.Effect<WorkOSVaultObject, WorkOSVaultClientError, never>;
   readonly updateObject: (options: {
     readonly id: string;
     readonly value: string;
     readonly versionCheck?: string;
-  }) => Promise<WorkOSVaultObject>;
-  readonly deleteObject: (options: { readonly id: string }) => Promise<void>;
+  }) => Effect.Effect<WorkOSVaultObject, WorkOSVaultClientError, never>;
+  readonly deleteObject: (options: {
+    readonly id: string;
+  }) => Effect.Effect<void, WorkOSVaultClientError, never>;
 }
 
 export const makeWorkOSVaultClient = (
   workos: Pick<WorkOS, "vault">,
-): WorkOSVaultClient => ({
-  createObject: (options) => workos.vault.createObject(options),
-  readObjectByName: (name) => workos.vault.readObjectByName(name),
-  updateObject: (options) => workos.vault.updateObject(options),
-  deleteObject: (options) => workos.vault.deleteObject(options),
-});
+): WorkOSVaultClient => {
+  const client = workos.vault;
+
+  const use = <A>(
+    operation: string,
+    fn: (vault: WorkOSVaultSdk) => Promise<A>,
+  ): Effect.Effect<A, WorkOSVaultClientError, never> =>
+    Effect.tryPromise({
+      try: () => fn(client),
+      catch: (cause) => new WorkOSVaultClientError({ cause, operation }),
+    }).pipe(Effect.withSpan(`workos_vault.${operation}`));
+
+  return {
+    use,
+    createObject: (options) => use("create_object", (vault) => vault.createObject(options)),
+    readObjectByName: (name) => use("read_object_by_name", (vault) => vault.readObjectByName(name)),
+    updateObject: (options) => use("update_object", (vault) => vault.updateObject(options)),
+    deleteObject: (options) => use("delete_object", (vault) => vault.deleteObject(options)),
+  };
+};

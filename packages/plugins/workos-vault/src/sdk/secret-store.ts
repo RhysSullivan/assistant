@@ -12,7 +12,11 @@ import {
   type SetSecretInput,
 } from "@executor/sdk";
 
-import type { WorkOSVaultClient, WorkOSVaultObject } from "./client";
+import {
+  WorkOSVaultClientError,
+  type WorkOSVaultClient,
+  type WorkOSVaultObject,
+} from "./client";
 
 export const WORKOS_VAULT_PROVIDER_KEY = "workos-vault";
 
@@ -32,14 +36,22 @@ export interface WorkOSVaultSecretStoreOptions {
   readonly scopeId: string;
 }
 
-const isStatusError = (error: unknown, status: number): boolean =>
-  ((error instanceof GenericServerException || error instanceof NotFoundException) &&
-    error.status === status) ||
-  (typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    typeof error.status === "number" &&
-    error.status === status);
+const unwrapVaultError = (error: unknown): unknown =>
+  error instanceof WorkOSVaultClientError ? error.cause : error;
+
+const isStatusError = (error: unknown, status: number): boolean => {
+  const cause = unwrapVaultError(error);
+
+  return (
+    ((cause instanceof GenericServerException || cause instanceof NotFoundException) &&
+      cause.status === status) ||
+    (typeof cause === "object" &&
+      cause !== null &&
+      "status" in cause &&
+      typeof cause.status === "number" &&
+      cause.status === status)
+  );
+};
 
 const objectContext = (scopeId: string): Record<string, string> => ({
   app: "executor",
@@ -79,77 +91,79 @@ const toSecretRef = (
     createdAt: new Date(secret.createdAt),
   });
 
-const loadSecretObject = async (
+const loadSecretObject = (
   client: WorkOSVaultClient,
   prefix: string,
   scopeId: string,
   secretId: string,
-): Promise<WorkOSVaultObject | null> => {
-  try {
-    return await client.readObjectByName(secretObjectName(prefix, scopeId, secretId));
-  } catch (error) {
-    if (isStatusError(error, 404)) return null;
-    throw error;
-  }
-};
+): Effect.Effect<WorkOSVaultObject | null, WorkOSVaultClientError, never> =>
+  client.readObjectByName(secretObjectName(prefix, scopeId, secretId)).pipe(
+    Effect.catchAll((error) => (isStatusError(error, 404) ? Effect.succeed(null) : Effect.fail(error))),
+  );
 
-const upsertSecretValue = async (
+const upsertSecretValue = (
   client: WorkOSVaultClient,
   prefix: string,
   scopeId: string,
   secretId: string,
   value: string,
-): Promise<void> => {
-  let lastError: unknown;
+): Effect.Effect<void, WorkOSVaultClientError, never> => {
+  const attemptWrite = (
+    remainingAttempts: number,
+  ): Effect.Effect<void, WorkOSVaultClientError, never> =>
+    Effect.gen(function* () {
+      const existing = yield* loadSecretObject(client, prefix, scopeId, secretId);
 
-  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
-    const existing = await loadSecretObject(client, prefix, scopeId, secretId);
-
-    try {
       if (existing) {
-        await client.updateObject({
+        yield* client.updateObject({
           id: existing.id,
           value,
           versionCheck: existing.metadata.versionId,
         });
-      } else {
-        await client.createObject({
-          name: secretObjectName(prefix, scopeId, secretId),
-          value,
-          context: objectContext(scopeId),
-        });
+        return;
       }
 
-      return;
-    } catch (error) {
-      if (isStatusError(error, 409)) {
-        lastError = error;
-        continue;
-      }
-      throw error;
-    }
-  }
+      yield* client.createObject({
+        name: secretObjectName(prefix, scopeId, secretId),
+        value,
+        context: objectContext(scopeId),
+      });
+    }).pipe(
+      Effect.catchAll((error) => {
+        if (remainingAttempts > 1 && isStatusError(error, 409)) {
+          return attemptWrite(remainingAttempts - 1);
+        }
 
-  throw lastError ?? new Error(`Failed to write WorkOS Vault secret "${secretId}"`);
+        return Effect.fail(error);
+      }),
+    );
+
+  return attemptWrite(MAX_WRITE_ATTEMPTS);
 };
 
-const deleteSecretValue = async (
+const deleteSecretValue = (
   client: WorkOSVaultClient,
   prefix: string,
   scopeId: string,
   secretId: string,
-): Promise<boolean> => {
-  const existing = await loadSecretObject(client, prefix, scopeId, secretId);
-  if (!existing) return false;
+): Effect.Effect<boolean, WorkOSVaultClientError, never> =>
+  Effect.gen(function* () {
+    const existing = yield* loadSecretObject(client, prefix, scopeId, secretId);
+    if (!existing) return false;
 
-  await client.deleteObject({ id: existing.id });
-  return true;
+    yield* client.deleteObject({ id: existing.id });
+    return true;
+  });
+
+const formatVaultError = (error: unknown): string => {
+  const cause = unwrapVaultError(error);
+  return cause instanceof Error ? cause.message : String(cause);
 };
 
 const mapVaultError = (secretId: SecretId, error: unknown): SecretResolutionError =>
   new SecretResolutionError({
     secretId,
-    message: error instanceof Error ? error.message : String(error),
+    message: formatVaultError(error),
   });
 
 export const makeWorkOSVaultSecretStore = (
@@ -190,9 +204,9 @@ export const makeWorkOSVaultSecretStore = (
           return yield* new SecretNotFoundError({ secretId });
         }
 
-        const object = yield* Effect.tryPromise(() =>
-          loadSecretObject(options.client, prefix, options.scopeId, secretId),
-        ).pipe(Effect.mapError((error) => mapVaultError(secretId, error)));
+        const object = yield* loadSecretObject(options.client, prefix, options.scopeId, secretId).pipe(
+          Effect.mapError((error) => mapVaultError(secretId, error)),
+        );
 
         if (!object?.value) {
           return yield* new SecretResolutionError({
@@ -209,9 +223,9 @@ export const makeWorkOSVaultSecretStore = (
         const secret = yield* options.metadataStore.get(secretId).pipe(Effect.orDie);
         if (!decodeSecretRef(secret)) return "missing" as const;
 
-        const object = yield* Effect.tryPromise(() =>
-          loadSecretObject(options.client, prefix, options.scopeId, secretId),
-        ).pipe(Effect.orDie);
+        const object = yield* loadSecretObject(options.client, prefix, options.scopeId, secretId).pipe(
+          Effect.orDie,
+        );
 
         return object?.value ? ("resolved" as const) : ("missing" as const);
       }),
@@ -228,9 +242,9 @@ export const makeWorkOSVaultSecretStore = (
         const existing = yield* options.metadataStore.get(input.id).pipe(Effect.orDie);
         const existingSecret = decodeSecretRef(existing);
 
-        yield* Effect.tryPromise(() =>
-          upsertSecretValue(options.client, prefix, options.scopeId, input.id, input.value),
-        ).pipe(Effect.mapError((error) => mapVaultError(input.id, error)));
+        yield* upsertSecretValue(options.client, prefix, options.scopeId, input.id, input.value).pipe(
+          Effect.mapError((error) => mapVaultError(input.id, error)),
+        );
 
         const storedSecret: StoredSecretRef = {
           createdAt: existingSecret?.createdAt ?? Date.now(),
@@ -252,9 +266,7 @@ export const makeWorkOSVaultSecretStore = (
           return yield* new SecretNotFoundError({ secretId });
         }
 
-        yield* Effect.tryPromise(() =>
-          deleteSecretValue(options.client, prefix, options.scopeId, secretId),
-        ).pipe(Effect.orDie);
+        yield* deleteSecretValue(options.client, prefix, options.scopeId, secretId).pipe(Effect.orDie);
 
         yield* options.metadataStore.delete([secretId]).pipe(Effect.orDie);
 
