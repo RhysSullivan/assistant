@@ -21,7 +21,7 @@ import {
 } from "./binding-store";
 import { createMcpConnector, type McpConnection, type ConnectorInput } from "./connection";
 import { McpConnectionError, McpOAuthError, McpToolDiscoveryError } from "./errors";
-import { startMcpOAuthAuthorization, exchangeMcpOAuthCode, type McpOAuthSession } from "./oauth";
+import { startMcpOAuthAuthorization, exchangeMcpOAuthCode } from "./oauth";
 import { discoverTools } from "./discover";
 import { makeMcpInvoker } from "./invoke";
 import { deriveMcpNamespace, joinToolPath, type McpToolManifestEntry } from "./manifest";
@@ -228,7 +228,6 @@ export const mcpPlugin = (options?: {
 }): ExecutorPlugin<"mcp", McpPluginExtension> => {
   const bindingStore = options?.bindingStore ?? makeInMemoryBindingStore();
   const addedSources = new Map<string, Source>();
-  const oauthSessions = new Map<string, McpOAuthSession>();
 
   return definePlugin({
     key: "mcp",
@@ -626,7 +625,7 @@ export const mcpPlugin = (options?: {
               state: sessionId,
             }).pipe(Effect.mapError((e) => mcpOAuthError(`OAuth start failed: ${e.message}`)));
 
-            oauthSessions.set(sessionId, {
+            yield* bindingStore.putOAuthSession(sessionId, {
               endpoint: fullEndpoint,
               redirectUrl: input.redirectUrl,
               codeVerifier: started.codeVerifier,
@@ -648,7 +647,7 @@ export const mcpPlugin = (options?: {
             if (input.error) return yield* mcpOAuthError(`OAuth error: ${input.error}`);
             if (!input.code) return yield* mcpOAuthError("Missing OAuth authorization code");
 
-            const session = oauthSessions.get(input.state);
+            const session = yield* bindingStore.getOAuthSession(input.state);
             if (!session) return yield* mcpOAuthError(`OAuth session not found: ${input.state}`);
 
             const exchanged = yield* exchangeMcpOAuthCode({
@@ -686,7 +685,7 @@ export const mcpPlugin = (options?: {
               refreshTokenSecretId = ref.id;
             }
 
-            oauthSessions.delete(input.state);
+            yield* bindingStore.deleteOAuthSession(input.state);
 
             const expiresAt =
               typeof exchanged.tokens.expires_in === "number"

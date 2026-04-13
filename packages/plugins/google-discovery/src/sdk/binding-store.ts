@@ -1,7 +1,22 @@
 import { Effect, Schema } from "effect";
 import { makeInMemoryScopedKv, scopeKv, type Kv, type ScopedKv, type ToolId } from "@executor/sdk";
 
-import { GoogleDiscoveryMethodBinding, GoogleDiscoveryStoredSourceData } from "./types";
+import {
+  GoogleDiscoveryMethodBinding,
+  GoogleDiscoveryStoredSourceData,
+  type GoogleDiscoveryOAuthSession,
+} from "./types";
+
+// ---------------------------------------------------------------------------
+// OAuth session TTL — pending sessions are cleaned up after this many ms
+// ---------------------------------------------------------------------------
+
+export const GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
+
+interface StoredOAuthSession {
+  readonly session: GoogleDiscoveryOAuthSession;
+  readonly expiresAt: number;
+}
 
 const StoredBindingEntry = Schema.Struct({
   namespace: Schema.String,
@@ -40,9 +55,22 @@ export interface GoogleDiscoveryBindingStore {
   readonly getSourceConfig: (
     namespace: string,
   ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null>;
+
+  readonly putOAuthSession: (
+    sessionId: string,
+    session: GoogleDiscoveryOAuthSession,
+  ) => Effect.Effect<void>;
+  readonly getOAuthSession: (
+    sessionId: string,
+  ) => Effect.Effect<GoogleDiscoveryOAuthSession | null>;
+  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void>;
 }
 
-const makeStore = (bindings: ScopedKv, sources: ScopedKv): GoogleDiscoveryBindingStore => ({
+const makeStore = (
+  bindings: ScopedKv,
+  sources: ScopedKv,
+  oauthSessions: ScopedKv,
+): GoogleDiscoveryBindingStore => ({
   get: (toolId) =>
     Effect.gen(function* () {
       const raw = yield* bindings.get(toolId);
@@ -108,10 +136,42 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): GoogleDiscoveryBindin
       const source = JSON.parse(raw) as GoogleDiscoveryStoredSource;
       return source.config;
     }),
+
+  // ---- Pending OAuth sessions (short-lived, between startOAuth and completeOAuth) ----
+
+  putOAuthSession: (sessionId, session) =>
+    oauthSessions.set([
+      {
+        key: sessionId,
+        value: JSON.stringify({
+          session,
+          expiresAt: Date.now() + GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS,
+        } satisfies StoredOAuthSession),
+      },
+    ]),
+
+  getOAuthSession: (sessionId) =>
+    Effect.gen(function* () {
+      const raw = yield* oauthSessions.get(sessionId);
+      if (!raw) return null;
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      const entry = JSON.parse(raw) as StoredOAuthSession;
+      if (entry.expiresAt < Date.now()) {
+        yield* oauthSessions.delete([sessionId]);
+        return null;
+      }
+      return entry.session;
+    }),
+
+  deleteOAuthSession: (sessionId) => oauthSessions.delete([sessionId]).pipe(Effect.asVoid),
 });
 
 export const makeKvBindingStore = (kv: Kv, namespace: string): GoogleDiscoveryBindingStore =>
-  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
+  makeStore(
+    scopeKv(kv, `${namespace}.bindings`),
+    scopeKv(kv, `${namespace}.sources`),
+    scopeKv(kv, `${namespace}.oauth-sessions`),
+  );
 
 export const makeInMemoryBindingStore = (): GoogleDiscoveryBindingStore =>
-  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());
+  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv(), makeInMemoryScopedKv());

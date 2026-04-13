@@ -31,7 +31,6 @@ import type {
   GoogleDiscoveryAuth,
   GoogleDiscoveryManifest,
   GoogleDiscoveryManifestMethod,
-  GoogleDiscoveryOAuthSession,
   GoogleDiscoveryStoredSourceData,
 } from "./types";
 import { GoogleDiscoveryStoredSourceData as GoogleDiscoveryStoredSourceDataSchema } from "./types";
@@ -262,7 +261,6 @@ export const googleDiscoveryPlugin = (options?: {
   readonly bindingStore?: GoogleDiscoveryBindingStore;
 }): ExecutorPlugin<"googleDiscovery", GoogleDiscoveryPluginExtension> => {
   const bindingStore = options?.bindingStore ?? makeInMemoryBindingStore();
-  const oauthSessions = new Map<string, GoogleDiscoveryOAuthSession>();
 
   return definePlugin({
     key: "googleDiscovery",
@@ -439,7 +437,7 @@ export const googleDiscoveryPlugin = (options?: {
               }
               const sessionId = randomUUID();
               const codeVerifier = createPkceCodeVerifier();
-              oauthSessions.set(sessionId, {
+              yield* bindingStore.putOAuthSession(sessionId, {
                 discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
                 name: input.name,
                 clientId: input.clientId,
@@ -463,13 +461,13 @@ export const googleDiscoveryPlugin = (options?: {
 
           completeOAuth: (input) =>
             Effect.gen(function* () {
-              const session = oauthSessions.get(input.state);
+              const session = yield* bindingStore.getOAuthSession(input.state);
               if (!session) {
                 return yield* new GoogleDiscoveryOAuthError({
                   message: "OAuth session not found or has expired",
                 });
               }
-              oauthSessions.delete(input.state);
+              yield* bindingStore.deleteOAuthSession(input.state);
 
               if (input.error) {
                 return yield* new GoogleDiscoveryOAuthError({
@@ -537,10 +535,7 @@ export const googleDiscoveryPlugin = (options?: {
 
         return {
           extension,
-          close: () =>
-            Effect.sync(() => {
-              oauthSessions.clear();
-            }),
+          close: () => Effect.void,
         };
       }),
   });
