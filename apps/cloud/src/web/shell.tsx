@@ -24,8 +24,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@executor/react/components/dropdown-menu";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { CommandPalette } from "@executor/react/components/command-palette";
 import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
@@ -33,12 +31,11 @@ import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
 import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
 import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
 import { AUTH_PATHS } from "../auth/api";
+import { organizationsAtom, switchOrganization, useAuth } from "./auth";
 import {
-  createOrganization,
-  organizationsAtom,
-  switchOrganization,
-  useAuth,
-} from "./auth";
+  CreateOrganizationFields,
+  useCreateOrganizationForm,
+} from "./components/create-organization-form";
 
 const sourcePlugins = [
   openApiSourcePlugin,
@@ -198,41 +195,25 @@ function CheckIcon() {
 
 function UserFooter() {
   const auth = useAuth();
-  const doCreateOrganization = useAtomSet(createOrganization, { mode: "promiseExit" });
   const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false);
-  const [organizationName, setOrganizationName] = useState("");
-  const [createOrganizationError, setCreateOrganizationError] = useState<string | null>(null);
-  const [creatingOrganization, setCreatingOrganization] = useState(false);
-  if (auth.status !== "authenticated") return null;
 
   const suggestedOrganizationName =
-    auth.user.name?.trim() !== "" && auth.user.name != null
+    auth.status === "authenticated" &&
+    auth.user.name?.trim() !== "" &&
+    auth.user.name != null
       ? `${auth.user.name}'s Organization`
       : "New Organization";
 
+  const form = useCreateOrganizationForm({
+    defaultName: suggestedOrganizationName,
+    onSuccess: () => window.location.reload(),
+  });
+
+  if (auth.status !== "authenticated") return null;
+
   const openCreateOrganization = () => {
-    setOrganizationName(suggestedOrganizationName);
-    setCreateOrganizationError(null);
+    form.reset(suggestedOrganizationName);
     setCreateOrganizationOpen(true);
-  };
-
-  const handleCreateOrganization = async () => {
-    const name = organizationName.trim();
-    if (!name) {
-      setCreateOrganizationError("Organization name is required.");
-      return;
-    }
-
-    setCreatingOrganization(true);
-    setCreateOrganizationError(null);
-    const exit = await doCreateOrganization({ payload: { name } });
-    if (exit._tag === "Success") {
-      window.location.reload();
-    } else {
-      setCreateOrganizationError("Failed to create organization.");
-    }
-
-    setCreatingOrganization(false);
   };
 
   return (
@@ -241,11 +222,7 @@ function UserFooter() {
         open={createOrganizationOpen}
         onOpenChange={(open) => {
           setCreateOrganizationOpen(open);
-          if (!open) {
-            setOrganizationName(suggestedOrganizationName);
-            setCreateOrganizationError(null);
-            setCreatingOrganization(false);
-          }
+          if (!open) form.reset(suggestedOrganizationName);
         }}
       >
         <DropdownMenu>
@@ -342,49 +319,28 @@ function UserFooter() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-3">
-            <div className="grid gap-1.5">
-              <Label
-                htmlFor="organization-name"
-                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-              >
-                Organization name
-              </Label>
-              <Input
-                id="organization-name"
-                value={organizationName}
-                placeholder="Northwind Labs"
-                autoFocus
-                onChange={(event) => {
-                  setOrganizationName((event.target as HTMLInputElement).value);
-                  if (createOrganizationError) setCreateOrganizationError(null);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void handleCreateOrganization();
-                }}
-                className="h-9 text-sm"
-              />
-            </div>
-
-            {createOrganizationError && (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-                <p className="text-sm text-destructive">{createOrganizationError}</p>
-              </div>
-            )}
-          </div>
+          <CreateOrganizationFields
+            name={form.name}
+            onNameChange={(name) => {
+              form.setName(name);
+              if (form.error) form.setError(null);
+            }}
+            error={form.error}
+            onSubmit={() => void form.submit()}
+          />
 
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="ghost" size="sm" disabled={creatingOrganization}>
+              <Button variant="ghost" size="sm" disabled={form.creating}>
                 Cancel
               </Button>
             </DialogClose>
             <Button
               size="sm"
-              onClick={() => void handleCreateOrganization()}
-              disabled={!organizationName.trim() || creatingOrganization}
+              onClick={() => void form.submit()}
+              disabled={!form.canSubmit || form.creating}
             >
-              {creatingOrganization ? "Creating…" : "Create organization"}
+              {form.creating ? "Creating…" : "Create organization"}
             </Button>
           </DialogFooter>
         </DialogContent>

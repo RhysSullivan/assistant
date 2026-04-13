@@ -66,7 +66,12 @@ export class CloudAuthPublicApi extends HttpApiGroup.make("cloudAuthPublic")
 
 /** Session auth endpoints — require a logged-in user, may not have an org */
 export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
-  .add(HttpApiEndpoint.get("me")`/auth/me`.addSuccess(AuthMeResponse).addError(UserStoreError))
+  .add(
+    HttpApiEndpoint.get("me")`/auth/me`
+      .addSuccess(AuthMeResponse)
+      .addError(UserStoreError)
+      .addError(WorkOSError),
+  )
   .add(HttpApiEndpoint.post("logout")`/auth/logout`)
   .add(
     HttpApiEndpoint.get("organizations")`/auth/organizations`

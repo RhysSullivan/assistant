@@ -10,7 +10,7 @@ import { McpExtensionService } from "@executor/plugin-mcp/api";
 import { GoogleDiscoveryExtensionService } from "@executor/plugin-google-discovery/api";
 import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
 
-import { UserStoreService } from "../auth/context";
+import { authorizeOrganization } from "../auth/authorize-organization";
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { createOrgExecutor } from "../services/executor";
@@ -34,8 +34,7 @@ const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
     const session = yield* workos.authenticateRequest(webRequest);
     if (!session || !session.organizationId) return null;
 
-    const users = yield* UserStoreService;
-    return yield* users.use((s) => s.getOrganization(session.organizationId!));
+    return yield* authorizeOrganization(session.userId, session.organizationId);
   });
 
 const createProtectedApp = (organizationId: string, organizationName: string) =>

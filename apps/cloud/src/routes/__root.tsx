@@ -6,6 +6,7 @@ import { ExecutorProvider } from "@executor/react/api/provider";
 import { Toaster } from "@executor/react/components/sonner";
 import { AuthProvider, useAuth } from "../web/auth";
 import { LoginPage } from "../web/pages/login";
+import { OnboardingPage } from "../web/pages/onboarding";
 import { Shell } from "../web/shell";
 import appCss from "@executor/react/globals.css?url";
 
@@ -80,6 +81,10 @@ function AuthGate() {
 
   if (auth.status === "unauthenticated") {
     return <LoginPage />;
+  }
+
+  if (auth.organization == null) {
+    return <OnboardingPage />;
   }
 
   return (
