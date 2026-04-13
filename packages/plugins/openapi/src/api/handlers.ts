@@ -58,6 +58,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
       Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         yield* ext.updateSource(path.namespace, {
+          name: payload.name,
           baseUrl: payload.baseUrl,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
         } as OpenApiUpdateSourceInput);

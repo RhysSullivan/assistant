@@ -50,6 +50,7 @@ export interface OpenApiSpecConfig {
 // ---------------------------------------------------------------------------
 
 export interface OpenApiUpdateSourceInput {
+  readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, HeaderValue>;
 }
@@ -363,7 +364,7 @@ export const openApiPlugin = (options?: {
 
                 yield* operationStore.putSource({
                   namespace,
-                  name: existing.name,
+                  name: input.name?.trim() || existing.name,
                   config: updatedConfig,
                   invocationConfig: newInvocationConfig,
                 });

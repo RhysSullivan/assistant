@@ -137,8 +137,21 @@ const resolveOAuthAccessToken = (input: {
             ),
           );
 
+    const clientId = yield* input.secrets
+      .resolve(auth.clientIdSecretId as SecretId, input.scopeId)
+      .pipe(
+        Effect.mapError(
+          () =>
+            new ToolInvocationError({
+              toolId: "" as ToolId,
+              message: "Failed to resolve Google OAuth client ID",
+              cause: undefined,
+            }),
+        ),
+      );
+
     const refreshed = yield* refreshAccessToken({
-      clientId: auth.clientId,
+      clientId,
       clientSecret,
       refreshToken,
       scopes: auth.scopes,
@@ -199,7 +212,7 @@ const resolveOAuthAccessToken = (input: {
       ...input.source,
       auth: {
         kind: "oauth2",
-        clientId: auth.clientId,
+        clientIdSecretId: auth.clientIdSecretId,
         clientSecretSecretId: auth.clientSecretSecretId,
         accessTokenSecretId: auth.accessTokenSecretId,
         refreshTokenSecretId,
