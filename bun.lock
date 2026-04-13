@@ -59,6 +59,7 @@
         "@executor/plugin-graphql": "workspace:*",
         "@executor/plugin-mcp": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
+        "@executor/plugin-workos-vault": "workspace:*",
         "@executor/react": "workspace:*",
         "@executor/runtime-dynamic-worker": "workspace:*",
         "@executor/sdk": "workspace:*",
@@ -614,6 +615,30 @@
         "react",
       ],
     },
+    "packages/plugins/workos-vault": {
+      "name": "@executor/plugin-workos-vault",
+      "version": "0.0.1-beta.0",
+      "dependencies": {
+        "@executor/sdk": "workspace:*",
+        "@workos-inc/node": "^8.11.1",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/react": "catalog:",
+        "react": "catalog:",
+        "tsup": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "@executor/react": "workspace:*",
+        "react": ">=18",
+      },
+      "optionalPeers": [
+        "@executor/react",
+        "react",
+      ],
+    },
     "packages/react": {
       "name": "@executor/react",
       "version": "1.4.3-beta.0",
@@ -1106,6 +1131,8 @@
     "@executor/plugin-onepassword": ["@executor/plugin-onepassword@workspace:packages/plugins/onepassword"],
 
     "@executor/plugin-openapi": ["@executor/plugin-openapi@workspace:packages/plugins/openapi"],
+
+    "@executor/plugin-workos-vault": ["@executor/plugin-workos-vault@workspace:packages/plugins/workos-vault"],
 
     "@executor/react": ["@executor/react@workspace:packages/react"],
 

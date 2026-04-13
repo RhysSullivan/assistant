@@ -1,0 +1,71 @@
+{
+  "name": "@executor/plugin-workos-vault",
+  "version": "0.0.1-beta.0",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/workos-vault",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/plugins/workos-vault"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/sdk/index.ts",
+    "./promise": "./src/promise.ts",
+    "./react": "./src/react/index.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/promise.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/sdk/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/sdk": "workspace:*",
+    "@workos-inc/node": "^8.11.1",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "tsup": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@executor/react": "workspace:*",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "@executor/react": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  }
+}

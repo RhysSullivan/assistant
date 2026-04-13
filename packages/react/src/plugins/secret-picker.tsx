@@ -57,6 +57,7 @@ export function SecretPicker(props: {
       [...items].sort((a, b) => a.name.localeCompare(b.name)),
     ])
     .sort(([a], [b]) => a.localeCompare(b));
+  const showGroupHeadings = groups.length > 1;
 
   return (
     <div className="relative w-full">
@@ -104,7 +105,7 @@ export function SecretPicker(props: {
                   : items;
                 if (filtered.length === 0) return null;
                 return (
-                  <CommandGroup key={label} heading={label}>
+                  <CommandGroup key={label} heading={showGroupHeadings ? label : undefined}>
                     {filtered.map((secret) => (
                       <CommandItem
                         key={secret.id}
@@ -116,9 +117,6 @@ export function SecretPicker(props: {
                         }}
                       >
                         <span className="truncate">{secret.name}</span>
-                        <span className="ml-auto truncate text-xs font-mono text-muted-foreground">
-                          {secret.id}
-                        </span>
                       </CommandItem>
                     ))}
                   </CommandGroup>
