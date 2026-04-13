@@ -3,7 +3,6 @@
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
-import { WorkOS } from "@workos-inc/node/worker";
 
 import { ScopeId, createExecutor, makeInMemorySourceRegistry, scopeKv } from "@executor/sdk";
 import { makePgKv, makePgPolicyEngine, makePgToolRegistry } from "@executor/storage-postgres";
@@ -18,8 +17,7 @@ import {
   makeKvOperationStore as makeKvGraphqlOperationStore,
 } from "@executor/plugin-graphql";
 import {
-  makeWorkOSVaultClient,
-  makeWorkOSVaultSecretStore,
+  makeConfiguredWorkOSVaultSecretStore,
   workosVaultPlugin,
 } from "@executor/plugin-workos-vault";
 import { DbService } from "./db";
@@ -36,11 +34,14 @@ export const createOrgExecutor = (
   Effect.gen(function* () {
     const db = yield* DbService;
     const kv = makePgKv(db, organizationId);
-    const workos = new WorkOS({
-      apiKey: server.WORKOS_API_KEY,
-      clientId: server.WORKOS_CLIENT_ID,
-    });
-    const vaultClient = makeWorkOSVaultClient(workos);
+    const secrets = yield* makeConfiguredWorkOSVaultSecretStore({
+      credentials: {
+        apiKey: server.WORKOS_API_KEY,
+        clientId: server.WORKOS_CLIENT_ID,
+      },
+      metadataStore: scopeKv(kv, "secrets"),
+      scopeId: organizationId,
+    }).pipe(Effect.orDie);
 
     return yield* createExecutor({
       scope: {
@@ -50,11 +51,7 @@ export const createOrgExecutor = (
       },
       tools: makePgToolRegistry(db, organizationId),
       sources: makeInMemorySourceRegistry(),
-      secrets: makeWorkOSVaultSecretStore({
-        client: vaultClient,
-        metadataStore: scopeKv(kv, "secrets"),
-        scopeId: organizationId,
-      }),
+      secrets,
       policies: makePgPolicyEngine(db, organizationId),
       plugins: [
         openApiPlugin({

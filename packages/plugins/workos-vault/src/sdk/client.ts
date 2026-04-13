@@ -1,4 +1,5 @@
 import type { WorkOS } from "@workos-inc/node/worker";
+import { WorkOS as WorkOSClient } from "@workos-inc/node/worker";
 import { Data, Effect } from "effect";
 
 export interface WorkOSVaultObjectMetadata {
@@ -20,7 +21,18 @@ export class WorkOSVaultClientError extends Data.TaggedError("WorkOSVaultClientE
   readonly operation: string;
 }> {}
 
+export class WorkOSVaultClientInstantiationError extends Data.TaggedError(
+  "WorkOSVaultClientInstantiationError",
+)<{
+  readonly cause: unknown;
+}> {}
+
 type WorkOSVaultSdk = Pick<WorkOS, "vault">["vault"];
+
+export interface WorkOSVaultCredentials {
+  readonly apiKey: string;
+  readonly clientId: string;
+}
 
 export interface WorkOSVaultClient {
   readonly use: <A>(
@@ -67,3 +79,17 @@ export const makeWorkOSVaultClient = (
     deleteObject: (options) => use("delete_object", (vault) => vault.deleteObject(options)),
   };
 };
+
+export const makeConfiguredWorkOSVaultClient = (
+  credentials: WorkOSVaultCredentials,
+): Effect.Effect<WorkOSVaultClient, WorkOSVaultClientInstantiationError, never> =>
+  Effect.try({
+    try: () =>
+      makeWorkOSVaultClient(
+        new WorkOSClient({
+          apiKey: credentials.apiKey,
+          clientId: credentials.clientId,
+        }),
+      ),
+    catch: (cause) => new WorkOSVaultClientInstantiationError({ cause }),
+  }).pipe(Effect.withSpan("workos_vault.make_client"));

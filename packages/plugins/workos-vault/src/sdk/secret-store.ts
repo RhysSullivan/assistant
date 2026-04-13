@@ -13,7 +13,10 @@ import {
 } from "@executor/sdk";
 
 import {
+  WorkOSVaultClientInstantiationError,
   WorkOSVaultClientError,
+  makeConfiguredWorkOSVaultClient,
+  type WorkOSVaultCredentials,
   type WorkOSVaultClient,
   type WorkOSVaultObject,
 } from "./client";
@@ -31,6 +34,13 @@ type StoredSecretRef = {
 
 export interface WorkOSVaultSecretStoreOptions {
   readonly client: WorkOSVaultClient;
+  readonly metadataStore: ScopedKv;
+  readonly objectPrefix?: string;
+  readonly scopeId: string;
+}
+
+export interface ConfiguredWorkOSVaultSecretStoreOptions {
+  readonly credentials: WorkOSVaultCredentials;
   readonly metadataStore: ScopedKv;
   readonly objectPrefix?: string;
   readonly scopeId: string;
@@ -278,3 +288,22 @@ export const makeWorkOSVaultSecretStore = (
     providers: () => Effect.succeed([WORKOS_VAULT_PROVIDER_KEY] as const),
   };
 };
+
+export const makeConfiguredWorkOSVaultSecretStore = (
+  options: ConfiguredWorkOSVaultSecretStoreOptions,
+): Effect.Effect<
+  Context.Tag.Service<typeof SecretStore>,
+  WorkOSVaultClientInstantiationError,
+  never
+> =>
+  makeConfiguredWorkOSVaultClient(options.credentials).pipe(
+    Effect.map((client) =>
+      makeWorkOSVaultSecretStore({
+        client,
+        metadataStore: options.metadataStore,
+        objectPrefix: options.objectPrefix,
+        scopeId: options.scopeId,
+      }),
+    ),
+    Effect.withSpan("workos_vault.make_secret_store"),
+  );
