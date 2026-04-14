@@ -5,8 +5,8 @@
 // provider-specific quirks.
 // ---------------------------------------------------------------------------
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Effect, Exit } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest";
+import { Cause, Chunk, Effect, Exit } from "effect";
 
 import {
   OAUTH2_DEFAULT_TIMEOUT_MS,
@@ -123,85 +123,133 @@ describe("buildAuthorizationUrl", () => {
 // ---------------------------------------------------------------------------
 
 describe("decodeTokenResponse", () => {
-  it("parses a minimal successful response", async () => {
-    const result = await decodeTokenResponse(jsonResponse(200, { access_token: "tok" }));
-    expect(result.access_token).toBe("tok");
-    expect(result.token_type).toBeUndefined();
-    expect(result.expires_in).toBeUndefined();
-  });
+  /** Assert the decode effect fails with an OAuth2Error whose message matches `pattern`. */
+  const expectOAuth2ErrorMatching = (
+    exit: Exit.Exit<unknown, OAuth2Error>,
+    pattern: RegExp | string,
+  ) => {
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const failures = Chunk.toReadonlyArray(Cause.failures(exit.cause));
+    expect(failures.length).toBeGreaterThan(0);
+    const error = failures[0]!;
+    expect(error).toBeInstanceOf(OAuth2Error);
+    if (typeof pattern === "string") {
+      expect(error.message).toContain(pattern);
+    } else {
+      expect(error.message).toMatch(pattern);
+    }
+  };
 
-  it("parses a fully populated successful response", async () => {
-    const result = await decodeTokenResponse(
-      jsonResponse(200, {
+  it.effect("parses a minimal successful response", () =>
+    Effect.gen(function* () {
+      const result = yield* decodeTokenResponse(
+        jsonResponse(200, { access_token: "tok" }),
+      );
+      expect(result.access_token).toBe("tok");
+      expect(result.token_type).toBeUndefined();
+      expect(result.expires_in).toBeUndefined();
+    }),
+  );
+
+  it.effect("parses a fully populated successful response", () =>
+    Effect.gen(function* () {
+      const result = yield* decodeTokenResponse(
+        jsonResponse(200, {
+          access_token: "tok",
+          token_type: "Bearer",
+          refresh_token: "rtok",
+          expires_in: 3600,
+          scope: "read write",
+        }),
+      );
+      expect(result).toEqual({
         access_token: "tok",
         token_type: "Bearer",
         refresh_token: "rtok",
         expires_in: 3600,
         scope: "read write",
-      }),
-    );
-    expect(result).toEqual({
-      access_token: "tok",
-      token_type: "Bearer",
-      refresh_token: "rtok",
-      expires_in: 3600,
-      scope: "read write",
-    });
-  });
+      });
+    }),
+  );
 
-  it("accepts expires_in as a string (Azure / older providers)", async () => {
-    const result = await decodeTokenResponse(
-      jsonResponse(200, { access_token: "tok", expires_in: "3600" }),
-    );
-    expect(result.expires_in).toBe(3600);
-  });
+  it.effect("accepts expires_in as a string (Azure / older providers)", () =>
+    Effect.gen(function* () {
+      const result = yield* decodeTokenResponse(
+        jsonResponse(200, { access_token: "tok", expires_in: "3600" }),
+      );
+      expect(result.expires_in).toBe(3600);
+    }),
+  );
 
-  it("rejects non-JSON bodies (HTML error pages from proxies / 5xx)", async () => {
-    await expect(decodeTokenResponse(textResponse(502, "<html>bad gateway</html>"))).rejects.toThrow(
-      /non-JSON response \(502\)/,
-    );
-  });
+  it.effect("fails with OAuth2Error on non-JSON bodies (HTML error pages from proxies / 5xx)", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        decodeTokenResponse(textResponse(502, "<html>bad gateway</html>")),
+      );
+      expectOAuth2ErrorMatching(exit, /non-JSON response \(502\)/);
+    }),
+  );
 
-  it("rejects JSON arrays / non-object payloads", async () => {
-    await expect(
-      decodeTokenResponse(jsonResponse(200, ["not", "an", "object"])),
-    ).rejects.toThrow(/invalid JSON payload \(200\)/);
-  });
+  it.effect("fails with OAuth2Error on JSON arrays / non-object payloads", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        decodeTokenResponse(jsonResponse(200, ["not", "an", "object"])),
+      );
+      expectOAuth2ErrorMatching(exit, /invalid JSON payload \(200\)/);
+    }),
+  );
 
-  it("uses error_description from RFC 6749 error responses", async () => {
-    await expect(
-      decodeTokenResponse(
-        jsonResponse(400, {
-          error: "invalid_grant",
-          error_description: "The provided authorization grant is invalid",
-        }),
-      ),
-    ).rejects.toThrow("OAuth token exchange failed: The provided authorization grant is invalid");
-  });
+  it.effect("uses error_description from RFC 6749 error responses", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        decodeTokenResponse(
+          jsonResponse(400, {
+            error: "invalid_grant",
+            error_description: "The provided authorization grant is invalid",
+          }),
+        ),
+      );
+      expectOAuth2ErrorMatching(
+        exit,
+        "OAuth token exchange failed: The provided authorization grant is invalid",
+      );
+    }),
+  );
 
-  it("falls back to error code when error_description is absent", async () => {
-    await expect(
-      decodeTokenResponse(jsonResponse(400, { error: "invalid_grant" })),
-    ).rejects.toThrow("OAuth token exchange failed: invalid_grant");
-  });
+  it.effect("falls back to error code when error_description is absent", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        decodeTokenResponse(jsonResponse(400, { error: "invalid_grant" })),
+      );
+      expectOAuth2ErrorMatching(exit, "OAuth token exchange failed: invalid_grant");
+    }),
+  );
 
-  it("falls back to status N when no error fields are present", async () => {
-    await expect(decodeTokenResponse(jsonResponse(500, {}))).rejects.toThrow(
-      "OAuth token exchange failed: status 500",
-    );
-  });
+  it.effect("falls back to status N when no error fields are present", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(decodeTokenResponse(jsonResponse(500, {})));
+      expectOAuth2ErrorMatching(exit, "OAuth token exchange failed: status 500");
+    }),
+  );
 
-  it("rejects 200 responses with an empty access_token", async () => {
-    await expect(
-      decodeTokenResponse(jsonResponse(200, { access_token: "" })),
-    ).rejects.toThrow(/did not return an access_token/);
-  });
+  it.effect("fails with OAuth2Error on 200 responses with an empty access_token", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        decodeTokenResponse(jsonResponse(200, { access_token: "" })),
+      );
+      expectOAuth2ErrorMatching(exit, /did not return an access_token/);
+    }),
+  );
 
-  it("rejects 200 responses with no access_token field", async () => {
-    await expect(decodeTokenResponse(jsonResponse(200, { token_type: "Bearer" }))).rejects.toThrow(
-      /did not return an access_token/,
-    );
-  });
+  it.effect("fails with OAuth2Error on 200 responses with no access_token field", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        decodeTokenResponse(jsonResponse(200, { token_type: "Bearer" })),
+      );
+      expectOAuth2ErrorMatching(exit, /did not return an access_token/);
+    }),
+  );
 });
 
 // ---------------------------------------------------------------------------

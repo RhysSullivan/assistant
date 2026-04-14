@@ -12,9 +12,7 @@
     "plugins": [
       {
         "name": "@effect/language-service",
-        "diagnosticSeverity": {
-          "preferSchemaOverJson": "off"
-        }
+        "diagnosticSeverity": {}
       }
     ]
   },

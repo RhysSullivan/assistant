@@ -14,7 +14,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { Data, Effect } from "effect";
+import { Data, Effect, ParseResult, Schema } from "effect";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -104,8 +104,82 @@ export const buildAuthorizationUrl = (input: BuildAuthorizationUrlInput): string
 // Token endpoint response parsing
 // ---------------------------------------------------------------------------
 
+const oauth2Error = (message: string, cause?: unknown): OAuth2Error =>
+  new OAuth2Error({ message, cause });
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
 /**
- * Parse a Response from a token endpoint into an `OAuth2TokenResponse`.
+ * `expires_in` per RFC 6749 is a number of seconds, but some providers
+ * (Azure, older OAuth servers) return it as a string. Accept either and
+ * coerce to number.
+ */
+const TokenExpirySeconds = Schema.transformOrFail(
+  Schema.Union(Schema.Number, Schema.String),
+  Schema.Number,
+  {
+    strict: true,
+    decode: (input, _options, ast) => {
+      if (typeof input === "number") return ParseResult.succeed(input);
+      const parsed = Number(input);
+      return Number.isFinite(parsed)
+        ? ParseResult.succeed(parsed)
+        : ParseResult.fail(
+            new ParseResult.Type(ast, input, `expires_in "${input}" is not a number`),
+          );
+    },
+    encode: (value) => ParseResult.succeed(value),
+  },
+);
+
+const OAuth2TokenSuccessSchema = Schema.Struct({
+  /** RFC 6749 §5.1 requires a non-empty access_token on success. */
+  access_token: Schema.String.pipe(Schema.minLength(1)),
+  token_type: Schema.optional(Schema.String),
+  refresh_token: Schema.optional(Schema.String),
+  expires_in: Schema.optional(TokenExpirySeconds),
+  scope: Schema.optional(Schema.String),
+});
+
+/** RFC 6749 §5.2 error response envelope — all fields optional; we probe them. */
+const OAuth2ErrorEnvelopeSchema = Schema.Struct({
+  error: Schema.optional(Schema.String),
+  error_description: Schema.optional(Schema.String),
+});
+
+const decodeSuccessBody = Schema.decodeUnknown(OAuth2TokenSuccessSchema);
+const decodeErrorBody = Schema.decodeUnknown(OAuth2ErrorEnvelopeSchema);
+
+/**
+ * Parse the body of a token endpoint Response as JSON and ensure it's a
+ * plain object. Fails with `OAuth2Error` whose message matches the
+ * historical wording (`non-JSON response (${status})` /
+ * `invalid JSON payload (${status})`) so callers keep their fidelity
+ * guarantees.
+ */
+const parseJsonObject = (
+  rawText: string,
+  status: number,
+): Effect.Effect<Record<string, unknown>, OAuth2Error> =>
+  Effect.try({
+    try: () => JSON.parse(rawText) as unknown,
+    catch: () => oauth2Error(`OAuth token endpoint returned non-JSON response (${status})`),
+  }).pipe(
+    Effect.flatMap((parsed) =>
+      parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+        ? Effect.succeed(parsed as Record<string, unknown>)
+        : Effect.fail(
+            oauth2Error(`OAuth token endpoint returned invalid JSON payload (${status})`),
+          ),
+    ),
+  );
+
+/**
+ * Parse a `Response` from an OAuth 2.0 token endpoint into an
+ * `OAuth2TokenResponse`. Failures surface through the Effect failure
+ * channel as `OAuth2Error`.
  *
  * Handles, in order, the failure modes we have seen in the wild:
  *   1. Non-JSON bodies (HTML error pages from misconfigured proxies / 5xx)
@@ -114,52 +188,45 @@ export const buildAuthorizationUrl = (input: BuildAuthorizationUrlInput): string
  *   4. 200 responses with empty / missing `access_token`
  *   5. `expires_in` returned as a string instead of a number (Azure et al.)
  */
-export const decodeTokenResponse = async (response: Response): Promise<OAuth2TokenResponse> => {
-  const rawText = await response.text();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    throw new Error(`OAuth token endpoint returned non-JSON response (${response.status})`);
-  }
+export const decodeTokenResponse = (
+  response: Response,
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
+  Effect.gen(function* () {
+    const rawText = yield* Effect.tryPromise({
+      try: () => response.text(),
+      catch: (cause) =>
+        oauth2Error(
+          `Failed to read OAuth token endpoint body: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        ),
+    });
 
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`OAuth token endpoint returned invalid JSON payload (${response.status})`);
-  }
+    const record = yield* parseJsonObject(rawText, response.status);
 
-  const record = parsed as Record<string, unknown>;
-  const accessToken =
-    typeof record.access_token === "string" && record.access_token.length > 0
-      ? record.access_token
-      : null;
+    if (!response.ok) {
+      // Probe the error envelope. A body that doesn't match the envelope
+      // (e.g. completely empty) is not itself a failure — we just fall
+      // back to `status N`. This mirrors the tolerant behavior of the
+      // prior hand-rolled parser.
+      const envelope = yield* decodeErrorBody(record).pipe(
+        Effect.catchAll(() => Effect.succeed({} as { error?: string; error_description?: string })),
+      );
+      const description =
+        envelope.error_description ?? envelope.error ?? `status ${response.status}`;
+      return yield* Effect.fail(oauth2Error(`OAuth token exchange failed: ${description}`));
+    }
 
-  if (!response.ok) {
-    const description =
-      typeof record.error_description === "string"
-        ? record.error_description
-        : typeof record.error === "string"
-          ? record.error
-          : `status ${response.status}`;
-    throw new Error(`OAuth token exchange failed: ${description}`);
-  }
-
-  if (accessToken === null) {
-    throw new Error("OAuth token endpoint did not return an access_token");
-  }
-
-  return {
-    access_token: accessToken,
-    token_type: typeof record.token_type === "string" ? record.token_type : undefined,
-    refresh_token: typeof record.refresh_token === "string" ? record.refresh_token : undefined,
-    expires_in:
-      typeof record.expires_in === "number"
-        ? record.expires_in
-        : typeof record.expires_in === "string"
-          ? Number(record.expires_in)
-          : undefined,
-    scope: typeof record.scope === "string" ? record.scope : undefined,
-  };
-};
+    return yield* decodeSuccessBody(record).pipe(
+      Effect.mapError(() =>
+        // The only schema constraint that can fail on a 2xx is "access_token
+        // is a non-empty string". Any other shape mismatch (wrong type on an
+        // optional field, malformed expires_in) also surfaces as the same
+        // message — we deliberately fold them together: the user needs an
+        // access token, and they didn't get one.
+        oauth2Error("OAuth token endpoint did not return an access_token"),
+      ),
+    );
+  });
 
 // ---------------------------------------------------------------------------
 // Token endpoint POST
@@ -195,8 +262,8 @@ const postToTokenEndpoint = (input: {
   readonly timeoutMs: number;
 }): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
   Effect.tryPromise({
-    try: async () => {
-      const response = await fetch(input.tokenUrl, {
+    try: () =>
+      fetch(input.tokenUrl, {
         method: "POST",
         headers: {
           "content-type": "application/x-www-form-urlencoded",
@@ -205,15 +272,9 @@ const postToTokenEndpoint = (input: {
         },
         body: input.body,
         signal: AbortSignal.timeout(input.timeoutMs),
-      });
-      return decodeTokenResponse(response);
-    },
-    catch: (cause) =>
-      new OAuth2Error({
-        message: cause instanceof Error ? cause.message : String(cause),
-        cause,
       }),
-  });
+    catch: (cause) => oauth2Error(cause instanceof Error ? cause.message : String(cause), cause),
+  }).pipe(Effect.flatMap(decodeTokenResponse));
 
 // ---------------------------------------------------------------------------
 // Exchange authorization code → tokens
