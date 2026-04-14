@@ -49,6 +49,7 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@executor/api": "workspace:*",
+    "@executor/plugin-oauth2": "workspace:*",
     "@executor/sdk": "workspace:*",
     "effect": "catalog:"
   },

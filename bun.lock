@@ -427,6 +427,7 @@
       "dependencies": {
         "@effect/platform": "catalog:",
         "@executor/api": "workspace:*",
+        "@executor/plugin-oauth2": "workspace:*",
         "@executor/sdk": "workspace:*",
         "effect": "catalog:",
       },
@@ -544,6 +545,19 @@
         "@tanstack/react-router",
         "react",
       ],
+    },
+    "packages/plugins/oauth2": {
+      "name": "@executor/plugin-oauth2",
+      "version": "0.0.1",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+        "tsup": "catalog:",
+        "vitest": "catalog:",
+      },
     },
     "packages/plugins/onepassword": {
       "name": "@executor/plugin-onepassword",
@@ -1129,6 +1143,8 @@
     "@executor/plugin-keychain": ["@executor/plugin-keychain@workspace:packages/plugins/keychain"],
 
     "@executor/plugin-mcp": ["@executor/plugin-mcp@workspace:packages/plugins/mcp"],
+
+    "@executor/plugin-oauth2": ["@executor/plugin-oauth2@workspace:packages/plugins/oauth2"],
 
     "@executor/plugin-onepassword": ["@executor/plugin-onepassword@workspace:packages/plugins/onepassword"],
 

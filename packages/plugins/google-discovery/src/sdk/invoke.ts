@@ -1,6 +1,8 @@
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
 
+import { shouldRefreshToken } from "@executor/plugin-oauth2";
+
 import {
   type ScopeId,
   type SecretId,
@@ -18,8 +20,6 @@ import {
   type GoogleDiscoveryParameter,
 } from "./types";
 import { refreshAccessToken } from "./oauth";
-
-const OAUTH_REFRESH_SKEW_MS = 60_000;
 
 const SAFE_METHODS = new Set(["get", "head", "options"]);
 
@@ -91,11 +91,9 @@ const resolveOAuthAccessToken = (input: {
     }
 
     const auth = input.source.auth;
-    const now = Date.now();
     const needsRefresh =
       auth.refreshTokenSecretId !== null &&
-      auth.expiresAt !== null &&
-      auth.expiresAt <= now + OAUTH_REFRESH_SKEW_MS;
+      shouldRefreshToken({ expiresAt: auth.expiresAt });
 
     if (!needsRefresh) {
       return yield* input.secrets.resolve(auth.accessTokenSecretId as SecretId, input.scopeId).pipe(
