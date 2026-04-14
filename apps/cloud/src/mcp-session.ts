@@ -10,14 +10,18 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
 import { createExecutorMcpServer } from "@executor/host-mcp";
+import { createExecutionEngine } from "@executor/execution";
 import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
 import type { DrizzleDb } from "@executor/storage-postgres";
 import * as sharedSchema from "@executor/storage-postgres/schema";
 
+import { makeTrackExecutionUsage } from "./api/autumn";
+import { withExecutionUsageTracking } from "./api/execution-usage";
 import { UserStoreService } from "./auth/context";
 import { resolveOrganization } from "./auth/resolve-organization";
 import { WorkOSAuth } from "./auth/workos";
 import { server } from "./env";
+import { AutumnService } from "./services/autumn";
 import { createOrgExecutor } from "./services/executor";
 import { DbService } from "./services/db";
 import * as cloudSchema from "./services/schema";
@@ -107,7 +111,12 @@ export class McpSessionDO extends DurableObject {
 
     const DbLive = Layer.succeed(DbService, this.dbHandle.db);
     const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
-    const Services = Layer.mergeAll(DbLive, UserStoreLive, WorkOSAuth.Default);
+    const Services = Layer.mergeAll(
+      DbLive,
+      UserStoreLive,
+      WorkOSAuth.Default,
+      AutumnService.Default,
+    );
 
     const program = Effect.gen(function* () {
       const org = yield* resolveOrganization(token.organizationId);
@@ -116,7 +125,13 @@ export class McpSessionDO extends DurableObject {
 
       const executor = yield* createOrgExecutor(org.id, org.name);
       const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
-      return yield* Effect.promise(() => createExecutorMcpServer({ executor, codeExecutor }));
+      const autumn = yield* AutumnService;
+      const engine = withExecutionUsageTracking(
+        org.id,
+        createExecutionEngine({ executor, codeExecutor }),
+        makeTrackExecutionUsage(autumn),
+      );
+      return yield* Effect.promise(() => createExecutorMcpServer({ engine }));
     }).pipe(Effect.provide(Services));
 
     this.mcpServer = await Effect.runPromise(program);
