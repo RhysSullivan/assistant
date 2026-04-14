@@ -9,10 +9,6 @@ import { makePgKv, makePgPolicyEngine, makePgToolRegistry } from "@executor/stor
 import { openApiPlugin, makeKvOperationStore } from "@executor/plugin-openapi";
 import { mcpPlugin, makeKvBindingStore } from "@executor/plugin-mcp";
 import {
-  googleDiscoveryPlugin,
-  makeKvBindingStore as makeKvGoogleDiscoveryBindingStore,
-} from "@executor/plugin-google-discovery";
-import {
   graphqlPlugin,
   makeKvOperationStore as makeKvGraphqlOperationStore,
 } from "@executor/plugin-graphql";
@@ -59,9 +55,6 @@ export const createOrgExecutor = (
         }),
         mcpPlugin({
           bindingStore: makeKvBindingStore(kv, "mcp"),
-        }),
-        googleDiscoveryPlugin({
-          bindingStore: makeKvGoogleDiscoveryBindingStore(kv, "google-discovery"),
         }),
         graphqlPlugin({
           operationStore: makeKvGraphqlOperationStore(kv, "graphql"),
