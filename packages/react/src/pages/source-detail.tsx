@@ -15,6 +15,7 @@ import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin } from "../plugins/source-plugin";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
+import { Skeleton } from "../components/skeleton";
 
 export function SourceDetailPage(props: {
   namespace: string;
@@ -190,9 +191,7 @@ export function SourceDetailPage(props: {
       {editing && editPlugin ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-2xl px-6 py-8">
-            <Suspense
-              fallback={<div className="p-6 text-sm text-muted-foreground">Loading...</div>}
-            >
+            <Suspense fallback={<EditFormSkeleton />}>
               <editPlugin.edit sourceId={namespace} onSave={handleEditSave} />
             </Suspense>
           </div>
@@ -200,7 +199,7 @@ export function SourceDetailPage(props: {
       ) : (
         /* Content -- split pane */
         Result.match(tools, {
-          onInitial: () => <div className="p-6 text-sm text-muted-foreground">Loading...</div>,
+          onInitial: () => <SourceDetailSkeleton />,
           onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
           onSuccess: () => (
             <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -230,6 +229,65 @@ export function SourceDetailPage(props: {
           ),
         })
       )}
+    </div>
+  );
+}
+
+function SourceDetailSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      {/* Left: tool tree skeleton */}
+      <div className="flex w-72 shrink-0 flex-col gap-1 border-r border-border/60 p-3 lg:w-80 xl:w-[22rem]">
+        <Skeleton className="mb-2 h-8 w-full rounded-md" />
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+            <Skeleton className="size-4 shrink-0 rounded" />
+            <Skeleton
+              className="h-3.5"
+              style={{ width: `${55 + ((i * 13) % 35)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Right: tool detail skeleton */}
+      <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-hidden p-6">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-4 w-80" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-20 w-full rounded-md" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-20 w-full rounded-md" />
+        </div>
+        <Skeleton className="h-9 w-32 rounded-md" />
+      </div>
+    </div>
+  );
+}
+
+function EditFormSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 p-6">
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-9 w-full rounded-md" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-9 w-full rounded-md" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-24 w-full rounded-md" />
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <Skeleton className="h-9 w-20 rounded-md" />
+        <Skeleton className="h-9 w-24 rounded-md" />
+      </div>
     </div>
   );
 }

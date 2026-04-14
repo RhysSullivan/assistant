@@ -14,17 +14,18 @@ const ScopeContext = React.createContext<ScopeInfo | null>(null);
 
 /**
  * Provides the server scope to all children.
- * Renders nothing until the scope is fetched.
+ * Renders the optional `fallback` until the scope is fetched.
  */
-export function ScopeProvider(props: React.PropsWithChildren) {
+export function ScopeProvider(
+  props: React.PropsWithChildren<{ fallback?: React.ReactNode }>,
+) {
   const result = useAtomValue(scopeAtom);
 
   if (Result.isSuccess(result)) {
     return <ScopeContext.Provider value={result.value}>{props.children}</ScopeContext.Provider>;
   }
 
-  // Loading or error — don't render children
-  return null;
+  return <>{props.fallback ?? null}</>;
 }
 
 /**

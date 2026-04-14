@@ -21,6 +21,7 @@ import {
   CardStackEntryActions,
 } from "../components/card-stack";
 import { SourceFavicon } from "../components/source-favicon";
+import { Skeleton } from "../components/skeleton";
 
 const KIND_TO_PLUGIN_KEY: Record<string, string> = {
   openapi: "openapi",
@@ -144,7 +145,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
         </div>
 
         {Result.match(sources, {
-          onInitial: () => <p className="text-sm text-muted-foreground">Loading…</p>,
+          onInitial: () => <SourcesGridSkeleton />,
           onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
           onSuccess: ({ value }) => {
             const connectedSources = value.filter((source) => !source.runtime);
@@ -292,6 +293,29 @@ function SourceGrid(props: {
               </CardStackEntryActions>
             </Link>
           </CardStackEntry>
+        ))}
+      </CardStackContent>
+    </CardStack>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+function SourcesGridSkeleton() {
+  return (
+    <CardStack>
+      <CardStackContent>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-3">
+            <Skeleton className="size-8 shrink-0 rounded-md" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <Skeleton className="h-4" style={{ width: `${40 + ((i * 11) % 30)}%` }} />
+              <Skeleton className="h-3" style={{ width: `${25 + ((i * 7) % 20)}%` }} />
+            </div>
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
         ))}
       </CardStackContent>
     </CardStack>

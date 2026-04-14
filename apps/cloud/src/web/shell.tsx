@@ -4,6 +4,7 @@ import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { sourcesAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
+import { Skeleton } from "@executor/react/components/skeleton";
 import {
   Dialog,
   DialogClose,
@@ -71,7 +72,14 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
 
   return Result.match(sources, {
     onInitial: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>
+      <div className="flex flex-col gap-1 px-2.5 py-1">
+        {[80, 65, 72, 58, 68].map((w, i) => (
+          <div key={i} className="flex items-center gap-2 rounded-md py-1.5">
+            <Skeleton className="size-3.5 shrink-0 rounded" />
+            <Skeleton className="h-3" style={{ width: `${w}%` }} />
+          </div>
+        ))}
+      </div>
     ),
     onFailure: () => (
       <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
