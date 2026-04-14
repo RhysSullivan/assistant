@@ -16,7 +16,7 @@ const makeService = (store: RawStore) => ({
   use: <A>(fn: (s: RawStore) => Promise<A>) =>
     withServiceLogging(
       "user_store",
-      () => new UserStoreError(),
+      (message) => new UserStoreError({ message }),
       tryPromiseService(() => fn(store)),
     ),
 });

@@ -98,8 +98,36 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           return HttpServerResponse.redirect("/", { status: 302 });
         }).pipe(
           Effect.catchTags({
-            WorkOSError: () => Effect.succeed(HttpServerResponse.redirect("/", { status: 302 })),
-            UserStoreError: () => Effect.succeed(HttpServerResponse.redirect("/", { status: 302 })),
+            WorkOSError: (error) =>
+              Effect.sync(() => {
+                console.error("[auth] WorkOS callback failed:", error);
+                return HttpServerResponse.text(
+                  [
+                    "Authentication failed during the WorkOS callback.",
+                    error.message ? `WorkOS said: ${error.message}` : "",
+                    "",
+                    "Verify this exact redirect URI is allowed in WorkOS:",
+                    `${server.VITE_PUBLIC_SITE_URL}${AUTH_PATHS.callback}`,
+                    "",
+                    "You should start sign-in from this URL:",
+                    `${server.VITE_PUBLIC_SITE_URL}${AUTH_PATHS.login}`,
+                  ].join("\n"),
+                  { status: 500 },
+                );
+              }),
+            UserStoreError: (error) =>
+              Effect.sync(() => {
+                console.error("[auth] User store callback failed:", error);
+                return HttpServerResponse.text(
+                  [
+                    "Authentication succeeded with WorkOS, but local account setup failed.",
+                    error.message ? `Local error: ${error.message}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
+                  { status: 500 },
+                );
+              }),
           }),
         ),
       ),

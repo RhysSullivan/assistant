@@ -3,13 +3,17 @@ import { Data, Effect, Schema } from "effect";
 
 export class UserStoreError extends Schema.TaggedError<UserStoreError>()(
   "UserStoreError",
-  {},
+  {
+    message: Schema.String,
+  },
   HttpApiSchema.annotations({ status: 500 }),
 ) {}
 
 export class WorkOSError extends Schema.TaggedError<WorkOSError>()(
   "WorkOSError",
-  {},
+  {
+    message: Schema.String,
+  },
   HttpApiSchema.annotations({ status: 500 }),
 ) {}
 
@@ -42,11 +46,21 @@ export const tryPromiseService = <A>(fn: () => Promise<A>): Effect.Effect<A, Ser
  */
 export const withServiceLogging = <A, E, R>(
   name: string,
-  publicError: () => E,
+  publicError: (message: string) => E,
   effect: Effect.Effect<A, unknown, R>,
 ): Effect.Effect<A, E, R> =>
   effect.pipe(
     Effect.tapErrorCause((cause) => Effect.logError(`${name} failed`, cause)),
-    Effect.mapError(publicError),
+    Effect.mapError((error) => {
+      const message =
+        error instanceof ServiceAdapterError
+          ? error.cause instanceof Error
+            ? error.cause.message
+            : String(error.cause)
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      return publicError(message);
+    }),
     Effect.withSpan(name),
   );

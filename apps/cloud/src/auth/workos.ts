@@ -27,7 +27,7 @@ const make = Effect.gen(function* () {
   const use = <A>(fn: (wos: WorkOS) => Promise<A>) =>
     withServiceLogging(
       "workos",
-      () => new WorkOSError(),
+      (message) => new WorkOSError({ message }),
       tryPromiseService(() => fn(workos)),
     );
 
