@@ -324,6 +324,7 @@
       "name": "@executor/codemode-core",
       "version": "1.4.3",
       "dependencies": {
+        "@babel/parser": "^7.29.2",
         "@standard-schema/spec": "^1.0.0",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
