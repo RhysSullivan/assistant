@@ -28,13 +28,25 @@ import { FieldLabel } from "@executor/react/components/field";
 import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@executor/react/components/native-select";
 import { Textarea } from "@executor/react/components/textarea";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { previewOpenApiSpec, addOpenApiSpec } from "./atoms";
 import type { SpecPreview, HeaderPreset } from "../sdk/preview";
-import type { HeaderValue } from "../sdk/types";
+import type { HeaderValue, ServerInfo, ServerVariable } from "../sdk/types";
+
+const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
+  let out = url;
+  for (const [name, value] of Object.entries(values)) {
+    out = out.replaceAll(`{${name}}`, value);
+  }
+  return out;
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,7 +91,11 @@ export default function AddOpenApiSource(props: {
 
   // After analysis
   const [preview, setPreview] = useState<SpecPreview | null>(null);
-  const [baseUrl, setBaseUrl] = useState("");
+  // -1 means the user is entering a fully custom base URL (no server selected).
+  const [selectedServerIndex, setSelectedServerIndex] = useState<number>(-1);
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  // Variable selections for the currently selected server, keyed by variable name.
+  const [variableSelections, setVariableSelections] = useState<Record<string, string>>({});
   const identity = useSourceIdentity({
     fallbackName: preview ? Option.getOrElse(preview.title, () => "") : "",
     fallbackNamespace: props.initialNamespace,
@@ -118,7 +134,35 @@ export default function AddOpenApiSource(props: {
 
   // ---- Derived state ----
 
-  const servers = (preview?.servers ?? []) as Array<{ url?: string }>;
+  const servers: readonly ServerInfo[] = preview?.servers ?? [];
+  const selectedServer: ServerInfo | null =
+    selectedServerIndex >= 0 ? (servers[selectedServerIndex] ?? null) : null;
+
+  const serverVariables: Record<string, ServerVariable> = selectedServer
+    ? Option.getOrElse(
+        selectedServer.variables,
+        () => ({}) as Record<string, ServerVariable>,
+      )
+    : {};
+  const serverVariableEntries: Array<[string, ServerVariable]> =
+    Object.entries(serverVariables);
+
+  const resolvedBaseUrl =
+    selectedServer !== null
+      ? substituteUrlVariables(selectedServer.url, variableSelections)
+      : customBaseUrl.trim();
+
+  // Helper used by analyze + server selection: build a default selection map
+  // from a server's variable defaults.
+  const defaultSelectionsFor = (server: ServerInfo): Record<string, string> => {
+    const vars: Record<string, ServerVariable> = Option.getOrElse(
+      server.variables,
+      () => ({}) as Record<string, ServerVariable>,
+    );
+    const out: Record<string, string> = {};
+    for (const [name, v] of Object.entries(vars)) out[name] = v.default;
+    return out;
+  };
 
   // Derive a favicon URL from the spec URL (if the user entered one — raw
   // JSON/YAML content will fail URL parsing and yield null). Uses Google's
@@ -155,7 +199,7 @@ export default function AddOpenApiSource(props: {
 
   const canAdd =
     preview !== null &&
-    baseUrl.trim().length > 0 &&
+    resolvedBaseUrl.length > 0 &&
     (customHeaders.length === 0 || customHeadersValid);
 
   // ---- Handlers ----
@@ -171,8 +215,16 @@ export default function AddOpenApiSource(props: {
       });
       setPreview(result);
 
-      const firstUrl = (result.servers as Array<{ url?: string }>)?.[0]?.url;
-      if (firstUrl) setBaseUrl(firstUrl);
+      const firstServer = result.servers[0];
+      if (firstServer) {
+        setSelectedServerIndex(0);
+        setVariableSelections(defaultSelectionsFor(firstServer));
+        setCustomBaseUrl("");
+      } else {
+        setSelectedServerIndex(-1);
+        setVariableSelections({});
+        setCustomBaseUrl("");
+      }
 
       const firstPreset = result.headerPresets[0];
       if (firstPreset) {
@@ -228,7 +280,7 @@ export default function AddOpenApiSource(props: {
           spec: specUrl,
           name: identity.name.trim() || undefined,
           namespace: slugifyNamespace(identity.namespace) || undefined,
-          baseUrl: baseUrl.trim() || undefined,
+          baseUrl: resolvedBaseUrl || undefined,
           ...(hasHeaders ? { headers: allHeaders } : {}),
         },
       });
@@ -259,7 +311,9 @@ export default function AddOpenApiSource(props: {
                   setSpecUrl((e.target as HTMLTextAreaElement).value);
                   if (preview) {
                     setPreview(null);
-                    setBaseUrl("");
+                    setSelectedServerIndex(-1);
+                    setCustomBaseUrl("");
+                    setVariableSelections({});
                     setCustomHeaders([]);
                     setSelectedStrategy(-1);
                   }
@@ -337,45 +391,125 @@ export default function AddOpenApiSource(props: {
           <CardStack>
             <CardStackContent className="border-t-0">
               <CardStackEntryField label="Base URL">
-                {servers.length > 1 ? (
-                  <div className="space-y-2">
-                    <RadioGroup value={baseUrl} onValueChange={setBaseUrl} className="gap-1.5">
-                      {servers.map((s, i) => {
-                        const url = s.url ?? "";
-                        return (
-                          <Label
-                            key={i}
-                            className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                              baseUrl === url
-                                ? "border-primary/50 bg-primary/[0.03]"
-                                : "border-border hover:bg-accent/50"
-                            }`}
-                          >
-                            <RadioGroupItem value={url} />
-                            <span className="font-mono text-xs text-foreground truncate">
-                              {url}
-                            </span>
-                          </Label>
-                        );
-                      })}
-                    </RadioGroup>
-                    <Input
-                      value={baseUrl}
-                      onChange={(e) => setBaseUrl((e.target as HTMLInputElement).value)}
-                      placeholder="Or enter a custom URL…"
-                      className="font-mono text-sm"
-                    />
+                {servers.length >= 1 && (
+                  <RadioGroup
+                    value={String(selectedServerIndex)}
+                    onValueChange={(value) => {
+                      const idx = Number(value);
+                      setSelectedServerIndex(idx);
+                      if (idx >= 0) {
+                        const s = servers[idx];
+                        if (s) setVariableSelections(defaultSelectionsFor(s));
+                      } else {
+                        setVariableSelections({});
+                      }
+                    }}
+                    className="gap-1.5"
+                  >
+                    {servers.map((s, i) => (
+                      <Label
+                        key={i}
+                        className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                          selectedServerIndex === i
+                            ? "border-primary/50 bg-primary/[0.03]"
+                            : "border-border hover:bg-accent/50"
+                        }`}
+                      >
+                        <RadioGroupItem value={String(i)} className="mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono text-xs text-foreground truncate">
+                            {s.url}
+                          </div>
+                          {Option.isSome(s.description) && (
+                            <div className="mt-0.5 text-[10px] text-muted-foreground">
+                              {s.description.value}
+                            </div>
+                          )}
+                        </div>
+                      </Label>
+                    ))}
+                    <Label
+                      className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                        selectedServerIndex === -1
+                          ? "border-primary/50 bg-primary/[0.03]"
+                          : "border-border hover:bg-accent/50"
+                      }`}
+                    >
+                      <RadioGroupItem value="-1" />
+                      <span className="text-xs font-medium text-foreground">Custom</span>
+                    </Label>
+                  </RadioGroup>
+                )}
+
+                {/* Per-variable pickers for the selected server */}
+                {selectedServer && serverVariableEntries.length > 0 && (
+                  <div className="mt-2 space-y-2 rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                    {serverVariableEntries.map(([name, variable]) => {
+                      const enumValues: readonly string[] = Option.getOrElse(
+                        variable.enum,
+                        () => [] as readonly string[],
+                      );
+                      const current = variableSelections[name] ?? variable.default;
+                      return (
+                        <div key={name} className="space-y-1">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <Label className="font-mono text-[11px] text-foreground">
+                              {`{${name}}`}
+                            </Label>
+                            {Option.isSome(variable.description) && (
+                              <span className="text-[10px] text-muted-foreground truncate">
+                                {variable.description.value}
+                              </span>
+                            )}
+                          </div>
+                          {enumValues.length > 0 ? (
+                            <NativeSelect
+                              value={current}
+                              onChange={(e) =>
+                                setVariableSelections((prev) => ({
+                                  ...prev,
+                                  [name]: (e.target as HTMLSelectElement).value,
+                                }))
+                              }
+                            >
+                              {enumValues.map((v) => (
+                                <NativeSelectOption key={v} value={v}>
+                                  {v}
+                                </NativeSelectOption>
+                              ))}
+                            </NativeSelect>
+                          ) : (
+                            <Input
+                              value={current}
+                              onChange={(e) =>
+                                setVariableSelections((prev) => ({
+                                  ...prev,
+                                  [name]: (e.target as HTMLInputElement).value,
+                                }))
+                              }
+                              className="font-mono text-xs"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ) : (
+                )}
+
+                {selectedServerIndex === -1 ? (
                   <Input
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl((e.target as HTMLInputElement).value)}
+                    value={customBaseUrl}
+                    onChange={(e) => setCustomBaseUrl((e.target as HTMLInputElement).value)}
                     placeholder="https://api.example.com"
                     className="font-mono text-sm"
                   />
+                ) : (
+                  <div className="rounded-md bg-muted/30 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
+                    {resolvedBaseUrl || "\u00A0"}
+                  </div>
                 )}
 
-                {!baseUrl.trim() && (
+                {!resolvedBaseUrl && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400">
                     A base URL is required to make requests.
                   </p>

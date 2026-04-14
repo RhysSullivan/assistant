@@ -3,7 +3,7 @@ import { Schema } from "effect";
 
 import { parse } from "./parse";
 import { extract } from "./extract";
-import { HttpMethod, type ExtractionResult } from "./types";
+import { HttpMethod, ServerInfo, type ExtractionResult } from "./types";
 
 // ---------------------------------------------------------------------------
 // Security scheme — what the spec declares it needs
@@ -66,7 +66,7 @@ export class SpecPreview extends Schema.Class<SpecPreview>("SpecPreview")({
   title: Schema.optionalWith(Schema.String, { as: "Option" }),
   version: Schema.optionalWith(Schema.String, { as: "Option" }),
   /** Reuses ServerInfo from extraction */
-  servers: Schema.Array(Schema.Unknown),
+  servers: Schema.Array(ServerInfo),
   operationCount: Schema.Number,
   /** Lightweight operation list for the add-source UI */
   operations: Schema.Array(PreviewOperation),
@@ -185,7 +185,7 @@ export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (specText:
   return new SpecPreview({
     title: result.title,
     version: result.version,
-    servers: result.servers as unknown as readonly unknown[],
+    servers: result.servers,
     operationCount: result.operations.length,
     operations: result.operations.map(
       (op) =>
