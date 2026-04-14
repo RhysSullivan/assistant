@@ -1,4 +1,5 @@
-export { mcpSourcePlugin } from "./source-plugin";
+export { mcpSourcePlugin, createMcpSourcePlugin } from "./source-plugin";
+export type { McpSourcePluginOptions } from "./source-plugin";
 export { McpClient } from "./client";
 export {
   probeMcpEndpoint,

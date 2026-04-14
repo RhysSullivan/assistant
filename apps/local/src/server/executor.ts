@@ -60,6 +60,7 @@ const createLocalPlugins = (
     }),
     mcpPlugin({
       bindingStore: withMcpConfigFile(makeKvBindingStore(scopedKv, "mcp"), configPath, fsLayer),
+      dangerouslyAllowStdioMCP: true,
     }),
     googleDiscoveryPlugin({
       bindingStore: makeKvGoogleDiscoveryBindingStore(scopedKv, "google-discovery"),

@@ -7,7 +7,9 @@ import { Button } from "@executor/react/components/button";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { CommandPalette } from "@executor/react/components/command-palette";
 import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
+import { createMcpSourcePlugin } from "@executor/plugin-mcp/react";
+
+const mcpSourcePlugin = createMcpSourcePlugin({ allowStdio: true });
 import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
 import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
 

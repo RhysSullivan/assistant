@@ -226,8 +226,20 @@ const mcpDiscoveryError = (message: string) =>
 
 export const mcpPlugin = (options?: {
   readonly bindingStore?: McpBindingStore;
+  /**
+   * Allow configuring stdio-transport MCP sources. Off by default.
+   *
+   * Stdio sources spawn a local subprocess that inherits the parent
+   * `process.env`, and `command`/`args`/`cwd` are attacker-controlled if the
+   * plugin is exposed over an HTTP API. Enabling this in a multi-tenant or
+   * server deployment is equivalent to handing out arbitrary code execution
+   * and secret exfiltration on the host. Only enable for trusted
+   * single-user/local contexts (e.g. the desktop/local app).
+   */
+  readonly dangerouslyAllowStdioMCP?: boolean;
 }): ExecutorPlugin<"mcp", McpPluginExtension> => {
   const bindingStore = options?.bindingStore ?? makeInMemoryBindingStore();
+  const allowStdio = options?.dangerouslyAllowStdioMCP ?? false;
   const addedSources = new Map<string, Source>();
 
   return definePlugin({
@@ -298,6 +310,15 @@ export const mcpPlugin = (options?: {
           sd: McpStoredSourceData,
         ): Effect.Effect<ConnectorInput, Error> => {
           if (sd.transport === "stdio") {
+            if (!allowStdio) {
+              return Effect.fail(
+                new McpConnectionError({
+                  transport: "stdio",
+                  message:
+                    "MCP stdio transport is disabled. Enable it by passing `dangerouslyAllowStdioMCP: true` to mcpPlugin() — only safe for trusted local contexts.",
+                }),
+              );
+            }
             return Effect.succeed({
               transport: "stdio" as const,
               command: sd.command,

@@ -289,12 +289,18 @@ export default function AddMcpSource(props: {
   onCancel: () => void;
   initialUrl?: string;
   initialPreset?: string;
+  /** Whether the stdio transport is enabled on the server. */
+  allowStdio?: boolean;
 }) {
-  const preset = findPreset(props.initialPreset);
+  const allowStdio = props.allowStdio ?? false;
+  const rawPreset = findPreset(props.initialPreset);
+  // Drop stdio presets when stdio is disabled — the caller should have
+  // already filtered these out, but defence-in-depth.
+  const preset = rawPreset?.transport === "stdio" && !allowStdio ? undefined : rawPreset;
   const isStdioPreset = preset?.transport === "stdio";
 
   const [transport, setTransport] = useState<"remote" | "stdio">(
-    isStdioPreset ? "stdio" : "remote",
+    isStdioPreset && allowStdio ? "stdio" : "remote",
   );
 
   // --- Stdio state ---
@@ -573,33 +579,35 @@ export default function AddMcpSource(props: {
         </p>
       </div>
 
-      {/* Transport toggle */}
-      <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
-        <Button
-          variant="ghost"
-          type="button"
-          onClick={() => setTransport("remote")}
-          className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-            transport === "remote"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Remote
-        </Button>
-        <Button
-          variant="ghost"
-          type="button"
-          onClick={() => setTransport("stdio")}
-          className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-            transport === "stdio"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Stdio
-        </Button>
-      </div>
+      {/* Transport toggle — only shown when stdio is enabled server-side */}
+      {allowStdio && (
+        <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() => setTransport("remote")}
+            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              transport === "remote"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Remote
+          </Button>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() => setTransport("stdio")}
+            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              transport === "stdio"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Stdio
+          </Button>
+        </div>
+      )}
 
       {transport === "remote" ? (
         <>
