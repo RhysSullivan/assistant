@@ -8,7 +8,7 @@ import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
 import { authorizeOrganization } from "./authorize-organization";
 import { env } from "cloudflare:workers";
-import { WorkOSError } from "./errors";
+import { UserStoreError, WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
 
 const COOKIE_OPTIONS = {
@@ -156,7 +156,40 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
             ),
             STATE_COOKIE,
           );
-        }),
+        }).pipe(
+          Effect.catchTags({
+            WorkOSError: (error) =>
+              Effect.sync(() => {
+                console.error("[auth] WorkOS callback failed:", error);
+                return HttpServerResponse.text(
+                  [
+                    "Authentication failed during the WorkOS callback.",
+                    error.message ? `WorkOS said: ${error.message}` : "",
+                    "",
+                    "Verify this exact redirect URI is allowed in WorkOS:",
+                    `${env.VITE_PUBLIC_SITE_URL}${AUTH_PATHS.callback}`,
+                    "",
+                    "You should start sign-in from this URL:",
+                    `${env.VITE_PUBLIC_SITE_URL}${AUTH_PATHS.login}`,
+                  ].join("\n"),
+                  { status: 500 },
+                );
+              }),
+            UserStoreError: (error) =>
+              Effect.sync(() => {
+                console.error("[auth] User store callback failed:", error);
+                return HttpServerResponse.text(
+                  [
+                    "Authentication succeeded with WorkOS, but local account setup failed.",
+                    error.message ? `Local error: ${error.message}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
+                  { status: 500 },
+                );
+              }),
+          }),
+        ),
       ),
 );
 
