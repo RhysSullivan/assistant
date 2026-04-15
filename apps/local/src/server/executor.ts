@@ -1,32 +1,23 @@
 import { Effect, Layer, ManagedRuntime, Context } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import * as SqlClient from "@effect/sql/SqlClient";
-import { NodeFileSystem } from "@effect/platform-node";
 import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { createExecutor, scopeKv } from "@executor/sdk";
-import { makeSqliteKv, makeKvConfig, makeScopedKv, migrate } from "@executor/storage-file";
 import {
-  openApiPlugin,
-  makeKvOperationStore,
-  withConfigFile as withOpenApiConfigFile,
-} from "@executor/plugin-openapi";
-import {
-  mcpPlugin,
-  makeKvBindingStore,
-  withConfigFile as withMcpConfigFile,
-} from "@executor/plugin-mcp";
-import {
-  googleDiscoveryPlugin,
-  makeKvBindingStore as makeKvGoogleDiscoveryBindingStore,
-} from "@executor/plugin-google-discovery";
-import {
-  graphqlPlugin,
-  makeKvOperationStore as makeKvGraphqlOperationStore,
-  withConfigFile as withGraphqlConfigFile,
-} from "@executor/plugin-graphql";
+  Scope,
+  ScopeId,
+  collectSchemas,
+  createExecutor,
+  makeInMemoryBlobStore,
+} from "@executor/sdk";
+import { makeSqliteAdapter } from "@executor/storage-file";
+
+import { openApiPlugin } from "@executor/plugin-openapi";
+import { mcpPlugin } from "@executor/plugin-mcp";
+import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
+import { graphqlPlugin } from "@executor/plugin-graphql";
 import { keychainPlugin } from "@executor/plugin-keychain";
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 import { onepasswordPlugin } from "@executor/plugin-onepassword";
@@ -42,47 +33,25 @@ const resolveDbPath = (): string => {
 };
 
 // ---------------------------------------------------------------------------
-// Local plugins — defined once, used for both the layer and type inference
+// Plugin list — one place, used for both the layer and type inference.
+// The plugins themselves take no configuration at construction time in
+// the new SDK shape; storage is injected via the executor's
+// `{ adapter, blobs }` seam instead of per-plugin KV options.
 // ---------------------------------------------------------------------------
 
-const createLocalPlugins = (
-  scopedKv: ReturnType<typeof makeScopedKv>,
-  configPath: string,
-  fsLayer: typeof NodeFileSystem.layer,
-) =>
+const createLocalPlugins = () =>
   [
-    openApiPlugin({
-      operationStore: withOpenApiConfigFile(
-        makeKvOperationStore(scopedKv, "openapi"),
-        configPath,
-        fsLayer,
-      ),
-    }),
-    mcpPlugin({
-      bindingStore: withMcpConfigFile(makeKvBindingStore(scopedKv, "mcp"), configPath, fsLayer),
-      dangerouslyAllowStdioMCP: true,
-    }),
-    googleDiscoveryPlugin({
-      bindingStore: makeKvGoogleDiscoveryBindingStore(scopedKv, "google-discovery"),
-    }),
-    graphqlPlugin({
-      operationStore: withGraphqlConfigFile(
-        makeKvGraphqlOperationStore(scopedKv, "graphql"),
-        configPath,
-        fsLayer,
-      ),
-    }),
+    openApiPlugin(),
+    mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+    googleDiscoveryPlugin(),
+    graphqlPlugin(),
     keychainPlugin(),
     fileSecretsPlugin(),
-    onepasswordPlugin({
-      kv: scopeKv(scopedKv, "onepassword"),
-    }),
+    onepasswordPlugin(),
   ] as const;
 
-// Full typed executor — inferred from plugin list
 type LocalPlugins = ReturnType<typeof createLocalPlugins>;
 
-// Private tag preserving the full plugin type
 class LocalExecutorTag extends Context.Tag("@executor/local/Executor")<
   LocalExecutorTag,
   Effect.Effect.Success<ReturnType<typeof createExecutor<LocalPlugins>>>
@@ -102,18 +71,22 @@ const createLocalExecutorLayer = () => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
+      const plugins = createLocalPlugins();
+      const schema = collectSchemas(plugins);
+      const adapter = yield* makeSqliteAdapter({ sql, schema });
 
       const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
-      const kv = makeSqliteKv(sql);
-      const config = makeKvConfig(kv, { cwd });
-      const scopedKv = makeScopedKv(kv, cwd);
-      const configPath = join(cwd, "executor.jsonc");
-      const fsLayer = NodeFileSystem.layer;
+      const scope = new Scope({
+        id: ScopeId.make(cwd),
+        name: cwd,
+        createdAt: new Date(),
+      });
 
       return yield* createExecutor({
-        ...config,
-        plugins: createLocalPlugins(scopedKv, configPath, fsLayer),
+        scope,
+        adapter,
+        blobs: makeInMemoryBlobStore(),
+        plugins,
       });
     }),
   ).pipe(Layer.provide(SqliteClient.layer({ filename: dbPath })));
