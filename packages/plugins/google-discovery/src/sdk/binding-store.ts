@@ -14,13 +14,7 @@
 
 import { Effect, Schema } from "effect";
 
-import {
-  typedAdapter,
-  type DBAdapter,
-  type DBSchema,
-} from "@executor/sdk";
-
-import type { ScopedBlobStore } from "@executor/sdk";
+import { defineSchema, type StorageDeps } from "@executor/sdk";
 
 import {
   GoogleDiscoveryMethodBinding,
@@ -38,7 +32,7 @@ export const GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
 // Schema — plugin-declared tables merged with coreSchema at executor start.
 // ---------------------------------------------------------------------------
 
-export const googleDiscoverySchema = {
+export const googleDiscoverySchema = defineSchema({
   google_discovery_source: {
     modelName: "google_discovery_source",
     fields: {
@@ -66,7 +60,7 @@ export const googleDiscoverySchema = {
       expires_at: { type: "date", required: true },
     },
   },
-} as const satisfies DBSchema;
+});
 
 export type GoogleDiscoverySchema = typeof googleDiscoverySchema;
 
@@ -78,31 +72,6 @@ export interface GoogleDiscoveryStoredSource {
   readonly namespace: string;
   readonly name: string;
   readonly config: GoogleDiscoveryStoredSourceData;
-}
-
-// ---------------------------------------------------------------------------
-// Row shapes (adapter returns JSON columns as-is; we decode via Schema).
-// ---------------------------------------------------------------------------
-
-interface SourceRow {
-  id: string;
-  name: string;
-  config: unknown;
-  created_at: Date;
-  updated_at: Date;
-}
-
-interface BindingRow {
-  id: string;
-  source_id: string;
-  binding: unknown;
-  created_at: Date;
-}
-
-interface SessionRow {
-  id: string;
-  session: unknown;
-  expires_at: Date;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,21 +145,20 @@ export interface GoogleDiscoveryStore {
 // ---------------------------------------------------------------------------
 
 export const makeGoogleDiscoveryStore = (
-  adapter: DBAdapter,
-  _blobs: ScopedBlobStore,
+  deps: StorageDeps<GoogleDiscoverySchema>,
 ): GoogleDiscoveryStore => {
-  const db = typedAdapter<GoogleDiscoverySchema>(adapter);
+  const db = deps.adapter;
 
   return {
     getBinding: (toolId) =>
       Effect.gen(function* () {
-        const row = (yield* db.findOne({
+        const row = yield* db.findOne({
           model: "google_discovery_binding",
           where: [{ field: "id", value: toolId }],
-        })) as BindingRow | null;
+        });
         if (!row) return null;
         const decoded = decodeBinding(decodeJson(row.binding));
-        return { namespace: row.source_id, binding: decoded };
+        return { namespace: row.source_id as string, binding: decoded };
       }),
 
     putBinding: (toolId, sourceId, binding) =>
@@ -216,11 +184,11 @@ export const makeGoogleDiscoveryStore = (
 
     removeBindingsBySource: (sourceId) =>
       Effect.gen(function* () {
-        const rows = (yield* db.findMany({
+        const rows = yield* db.findMany({
           model: "google_discovery_binding",
           where: [{ field: "source_id", value: sourceId }],
-        })) as readonly BindingRow[];
-        const ids = rows.map((r) => r.id);
+        });
+        const ids = rows.map((r) => r.id as string);
         yield* db.deleteMany({
           model: "google_discovery_binding",
           where: [{ field: "source_id", value: sourceId }],
@@ -230,13 +198,13 @@ export const makeGoogleDiscoveryStore = (
 
     getBindingsForSource: (sourceId) =>
       Effect.gen(function* () {
-        const rows = (yield* db.findMany({
+        const rows = yield* db.findMany({
           model: "google_discovery_binding",
           where: [{ field: "source_id", value: sourceId }],
-        })) as readonly BindingRow[];
+        });
         const out = new Map<string, GoogleDiscoveryMethodBinding>();
         for (const row of rows) {
-          out.set(row.id, decodeBinding(decodeJson(row.binding)));
+          out.set(row.id as string, decodeBinding(decodeJson(row.binding)));
         }
         return out;
       }),
@@ -271,24 +239,24 @@ export const makeGoogleDiscoveryStore = (
 
     getSource: (sourceId) =>
       Effect.gen(function* () {
-        const row = (yield* db.findOne({
+        const row = yield* db.findOne({
           model: "google_discovery_source",
           where: [{ field: "id", value: sourceId }],
-        })) as SourceRow | null;
+        });
         if (!row) return null;
         return {
-          namespace: row.id,
-          name: row.name,
+          namespace: row.id as string,
+          name: row.name as string,
           config: decodeStoredSourceData(decodeJson(row.config)),
         };
       }),
 
     getSourceConfig: (sourceId) =>
       Effect.gen(function* () {
-        const row = (yield* db.findOne({
+        const row = yield* db.findOne({
           model: "google_discovery_source",
           where: [{ field: "id", value: sourceId }],
-        })) as SourceRow | null;
+        });
         if (!row) return null;
         return decodeStoredSourceData(decodeJson(row.config));
       }),
@@ -312,10 +280,10 @@ export const makeGoogleDiscoveryStore = (
 
     getOAuthSession: (sessionId) =>
       Effect.gen(function* () {
-        const row = (yield* db.findOne({
+        const row = yield* db.findOne({
           model: "google_discovery_oauth_session",
           where: [{ field: "id", value: sessionId }],
-        })) as SessionRow | null;
+        });
         if (!row) return null;
         const expiresAt =
           row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at as string);

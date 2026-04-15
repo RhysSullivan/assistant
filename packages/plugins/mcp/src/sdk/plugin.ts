@@ -349,7 +349,7 @@ export const mcpPlugin = definePlugin(
     return {
       id: "mcp" as const,
       schema: mcpSchema,
-      storage: ({ adapter }): McpBindingStore => makeMcpStore(adapter),
+      storage: (deps): McpBindingStore => makeMcpStore(deps),
 
       extension: (ctx) => {
         const probeEndpoint = (endpoint: string) =>

@@ -199,8 +199,7 @@ export const openApiPlugin = definePlugin(
     return {
       id: "openapi" as const,
       schema: openapiSchema,
-      storage: ({ adapter, blobs }): OpenapiStore =>
-        makeDefaultOpenapiStore(adapter, blobs),
+      storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
       extension: (ctx): OpenApiPluginExtension => {
         // Wraps ctx.secrets.set for the oauth2 helper so createSecret

@@ -259,8 +259,7 @@ export const graphqlPlugin = definePlugin(
     return {
       id: "graphql" as const,
       schema: graphqlSchema,
-      storage: ({ adapter, blobs }): GraphqlStore =>
-        makeDefaultGraphqlStore(adapter, blobs),
+      storage: (deps): GraphqlStore => makeDefaultGraphqlStore(deps),
 
       extension: (ctx): GraphqlPluginExtension => {
         const resolveConfigHeaders = (

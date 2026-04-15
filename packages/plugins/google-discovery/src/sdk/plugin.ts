@@ -283,7 +283,7 @@ const createSecretForOAuth = (
 export const googleDiscoveryPlugin = definePlugin(() => ({
   id: "googleDiscovery" as const,
   schema: googleDiscoverySchema,
-  storage: (deps) => makeGoogleDiscoveryStore(deps.adapter, deps.blobs),
+  storage: (deps) => makeGoogleDiscoveryStore(deps),
 
   extension: (ctx): GoogleDiscoveryPluginExtension => ({
     probeDiscovery: (discoveryUrl) =>

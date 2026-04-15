@@ -5,7 +5,7 @@
 
 import { Effect, Schema } from "effect";
 
-import { typedAdapter, type DBAdapter, type DBSchema } from "@executor/sdk";
+import { defineSchema, type StorageDeps } from "@executor/sdk";
 
 import { McpToolBinding, McpStoredSourceData } from "./types";
 import { McpOAuthSession } from "./oauth";
@@ -14,7 +14,7 @@ import { McpOAuthSession } from "./oauth";
 // Schema
 // ---------------------------------------------------------------------------
 
-export const mcpSchema = {
+export const mcpSchema = defineSchema({
   mcp_source: {
     modelName: "mcp_source",
     fields: {
@@ -42,7 +42,7 @@ export const mcpSchema = {
       created_at: { type: "date", required: true },
     },
   },
-} as const satisfies DBSchema;
+});
 
 export type McpSchema = typeof mcpSchema;
 
@@ -128,9 +128,9 @@ export interface McpBindingStore {
 // Factory
 // ---------------------------------------------------------------------------
 
-export const makeMcpStore = (adapter: DBAdapter): McpBindingStore => {
-  const db = typedAdapter<McpSchema>(adapter);
-
+export const makeMcpStore = ({
+  adapter: db,
+}: StorageDeps<McpSchema>): McpBindingStore => {
   return {
     getBinding: (toolId) =>
       Effect.gen(function* () {

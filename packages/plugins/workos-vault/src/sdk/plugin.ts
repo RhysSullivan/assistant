@@ -54,8 +54,7 @@ export const workosVaultPlugin = definePlugin(
   (options?: WorkOSVaultPluginOptions) => ({
     id: "workosVault" as const,
     schema: workosVaultSchema,
-    storage: ({ adapter }): WorkosVaultPluginStore =>
-      makeWorkosVaultStore(adapter),
+    storage: (deps): WorkosVaultPluginStore => makeWorkosVaultStore(deps),
 
     extension: (_ctx): WorkOSVaultExtension => ({
       providerKey: WORKOS_VAULT_PROVIDER_KEY,

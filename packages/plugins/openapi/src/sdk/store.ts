@@ -1,11 +1,6 @@
 import { Effect, Option, Schema } from "effect";
 
-import {
-  type DBAdapter,
-  type DBSchema,
-  type ScopedBlobStore,
-  typedAdapter,
-} from "@executor/sdk";
+import { defineSchema, type StorageDeps } from "@executor/sdk";
 
 import {
   HeaderValue,
@@ -22,7 +17,7 @@ import {
 //   - openapi_oauth_session: transient session rows used during oauth onboarding
 // ---------------------------------------------------------------------------
 
-export const openapiSchema = {
+export const openapiSchema = defineSchema({
   openapi_source: {
     modelName: "openapi_source",
     fields: {
@@ -51,7 +46,7 @@ export const openapiSchema = {
       created_at: { type: "date", required: true },
     },
   },
-} as const satisfies DBSchema;
+});
 
 export type OpenapiSchema = typeof openapiSchema;
 
@@ -161,12 +156,9 @@ export interface OpenapiStore {
 // Default store implementation
 // ---------------------------------------------------------------------------
 
-export const makeDefaultOpenapiStore = (
-  adapter: DBAdapter,
-  _blobs: ScopedBlobStore,
-): OpenapiStore => {
-  const db = typedAdapter<OpenapiSchema>(adapter);
-
+export const makeDefaultOpenapiStore = ({
+  adapter,
+}: StorageDeps<OpenapiSchema>): OpenapiStore => {
   const rowToSource = (row: Record<string, unknown>): StoredSource => {
     const oauth2Raw = row.oauth2;
     const oauth2 =
@@ -200,11 +192,11 @@ export const makeDefaultOpenapiStore = (
 
   const deleteSource = (namespace: string) =>
     Effect.gen(function* () {
-      yield* db.deleteMany({
+      yield* adapter.deleteMany({
         model: "openapi_operation",
         where: [{ field: "source_id", value: namespace }],
       });
-      yield* db.delete({
+      yield* adapter.delete({
         model: "openapi_source",
         where: [{ field: "id", value: namespace }],
       });
@@ -214,7 +206,7 @@ export const makeDefaultOpenapiStore = (
     upsertSource: (input, operations) =>
       Effect.gen(function* () {
         yield* deleteSource(input.namespace);
-        yield* db.create({
+        yield* adapter.create({
           model: "openapi_source",
           data: {
             id: input.namespace,
@@ -232,7 +224,7 @@ export const makeDefaultOpenapiStore = (
           forceAllowId: true,
         });
         if (operations.length > 0) {
-          yield* db.createMany({
+          yield* adapter.createMany({
             model: "openapi_operation",
             data: operations.map((op) => ({
               id: op.toolId,
@@ -246,7 +238,7 @@ export const makeDefaultOpenapiStore = (
 
     updateSourceMeta: (namespace, patch) =>
       Effect.gen(function* () {
-        const existingRow = yield* db.findOne({
+        const existingRow = yield* adapter.findOne({
           model: "openapi_source",
           where: [{ field: "id", value: namespace }],
         });
@@ -267,7 +259,7 @@ export const makeDefaultOpenapiStore = (
           oauth2: nextOAuth2 ? Option.some(nextOAuth2) : Option.none(),
         });
 
-        yield* db.update({
+        yield* adapter.update({
           model: "openapi_source",
           where: [{ field: "id", value: namespace }],
           update: {
@@ -285,7 +277,7 @@ export const makeDefaultOpenapiStore = (
       }),
 
     getSource: (namespace) =>
-      db
+      adapter
         .findOne({
           model: "openapi_source",
           where: [{ field: "id", value: namespace }],
@@ -293,12 +285,12 @@ export const makeDefaultOpenapiStore = (
         .pipe(Effect.map((row) => (row ? rowToSource(row) : null))),
 
     listSources: () =>
-      db
+      adapter
         .findMany({ model: "openapi_source" })
         .pipe(Effect.map((rows) => rows.map(rowToSource))),
 
     getOperationByToolId: (toolId) =>
-      db
+      adapter
         .findOne({
           model: "openapi_operation",
           where: [{ field: "id", value: toolId }],
@@ -306,7 +298,7 @@ export const makeDefaultOpenapiStore = (
         .pipe(Effect.map((row) => (row ? rowToOperation(row) : null))),
 
     listOperationsBySource: (sourceId) =>
-      db
+      adapter
         .findMany({
           model: "openapi_operation",
           where: [{ field: "source_id", value: sourceId }],
@@ -317,11 +309,11 @@ export const makeDefaultOpenapiStore = (
 
     putOAuthSession: (sessionId, session) =>
       Effect.gen(function* () {
-        yield* db.delete({
+        yield* adapter.delete({
           model: "openapi_oauth_session",
           where: [{ field: "id", value: sessionId }],
         });
-        yield* db.create({
+        yield* adapter.create({
           model: "openapi_oauth_session",
           data: {
             id: sessionId,
@@ -333,7 +325,7 @@ export const makeDefaultOpenapiStore = (
       }),
 
     getOAuthSession: (sessionId) =>
-      db
+      adapter
         .findOne({
           model: "openapi_oauth_session",
           where: [{ field: "id", value: sessionId }],
@@ -349,7 +341,7 @@ export const makeDefaultOpenapiStore = (
         ),
 
     deleteOAuthSession: (sessionId) =>
-      db
+      adapter
         .delete({
           model: "openapi_oauth_session",
           where: [{ field: "id", value: sessionId }],

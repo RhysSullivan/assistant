@@ -1,11 +1,6 @@
 import { Effect } from "effect";
 
-import {
-  type DBAdapter,
-  type DBSchema,
-  type ScopedBlobStore,
-  typedAdapter,
-} from "@executor/sdk";
+import { defineSchema, type StorageDeps } from "@executor/sdk";
 
 import { OperationBinding, type HeaderValue } from "./types";
 
@@ -15,7 +10,7 @@ import { OperationBinding, type HeaderValue } from "./types";
 //   - graphql_operation: per-tool OperationBinding blob keyed by tool id
 // ---------------------------------------------------------------------------
 
-export const graphqlSchema = {
+export const graphqlSchema = defineSchema({
   graphql_source: {
     modelName: "graphql_source",
     fields: {
@@ -33,7 +28,7 @@ export const graphqlSchema = {
       binding: { type: "json", required: true },
     },
   },
-} as const satisfies DBSchema;
+});
 
 export type GraphqlSchema = typeof graphqlSchema;
 
@@ -122,12 +117,9 @@ export interface GraphqlStore {
 // Default store implementation
 // ---------------------------------------------------------------------------
 
-export const makeDefaultGraphqlStore = (
-  adapter: DBAdapter,
-  _blobs: ScopedBlobStore,
-): GraphqlStore => {
-  const db = typedAdapter<GraphqlSchema>(adapter);
-
+export const makeDefaultGraphqlStore = ({
+  adapter: db,
+}: StorageDeps<GraphqlSchema>): GraphqlStore => {
   const rowToSource = (row: Record<string, unknown>): StoredGraphqlSource => ({
     namespace: row.id as string,
     name: row.name as string,

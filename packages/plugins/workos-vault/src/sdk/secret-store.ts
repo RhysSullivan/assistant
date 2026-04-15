@@ -2,10 +2,9 @@ import { Effect } from "effect";
 import { GenericServerException, NotFoundException } from "@workos-inc/node/worker";
 
 import {
-  type DBAdapter,
-  type DBSchema,
+  defineSchema,
   type SecretProvider,
-  typedAdapter,
+  type StorageDeps,
 } from "@executor/sdk";
 
 import {
@@ -25,7 +24,7 @@ const MAX_WRITE_ATTEMPTS = 3;
 // table just tracks what we know about and lets us enumerate.
 // ---------------------------------------------------------------------------
 
-export const workosVaultSchema = {
+export const workosVaultSchema = defineSchema({
   workos_vault_metadata: {
     modelName: "workos_vault_metadata",
     fields: {
@@ -35,7 +34,7 @@ export const workosVaultSchema = {
       created_at: { type: "date", required: true },
     },
   },
-} as const satisfies DBSchema;
+});
 
 export type WorkosVaultSchema = typeof workosVaultSchema;
 
@@ -57,8 +56,10 @@ export interface WorkosVaultStore {
   readonly list: () => Effect.Effect<readonly MetadataRow[], Error>;
 }
 
-export const makeWorkosVaultStore = (adapter: DBAdapter): WorkosVaultStore => {
-  const db = typedAdapter<WorkosVaultSchema>(adapter);
+export const makeWorkosVaultStore = (
+  deps: StorageDeps<WorkosVaultSchema>,
+): WorkosVaultStore => {
+  const { adapter: db } = deps;
 
   const findOne = (id: string) =>
     db
@@ -66,7 +67,7 @@ export const makeWorkosVaultStore = (adapter: DBAdapter): WorkosVaultStore => {
         model: "workos_vault_metadata",
         where: [{ field: "id", value: id }],
       })
-      .pipe(Effect.map((row) => (row as MetadataRow | null) ?? null));
+      .pipe(Effect.map((row): MetadataRow | null => row ?? null));
 
   return {
     get: (id) => findOne(id),
@@ -108,8 +109,8 @@ export const makeWorkosVaultStore = (adapter: DBAdapter): WorkosVaultStore => {
       }),
     list: () =>
       db.findMany({ model: "workos_vault_metadata" }).pipe(
-        Effect.map((rows) =>
-          [...(rows as readonly MetadataRow[])].sort(
+        Effect.map((rows): readonly MetadataRow[] =>
+          [...rows].sort(
             (l, r) => l.created_at.getTime() - r.created_at.getTime(),
           ),
         ),
