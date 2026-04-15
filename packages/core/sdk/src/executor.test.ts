@@ -269,6 +269,88 @@ describe("createExecutor", () => {
     }),
   );
 
+  it.effect("handles deeply-namespaced tool names (dots in name)", () =>
+    Effect.gen(function* () {
+      const namespacedPlugin = definePlugin(() => ({
+        id: "nested" as const,
+        storage: () => ({}),
+        extension: (ctx) => ({
+          register: () =>
+            ctx.core.sources.register({
+              id: "cloudflare",
+              kind: "nested",
+              name: "cloudflare",
+              canRemove: true,
+              tools: [
+                { name: "dns.records.create", description: "create DNS record" },
+                { name: "dns.records.list", description: "list DNS records" },
+                { name: "zones.listZones", description: "list zones" },
+              ],
+            }),
+        }),
+        invokeTool: ({ toolRow }) =>
+          // Real plugin would look up by toolRow.id against its own
+          // enrichment table. Here we just echo the structured fields
+          // so the test can assert they came through intact.
+          Effect.succeed({
+            id: toolRow.id,
+            sourceId: toolRow.source_id,
+            name: toolRow.name,
+          }),
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [namespacedPlugin()] as const }),
+      );
+      yield* executor.nested.register();
+
+      const tools = yield* executor.tools.list();
+      const ids = tools.map((t) => t.id).sort();
+      expect(ids).toContain("cloudflare.dns.records.create");
+      expect(ids).toContain("cloudflare.dns.records.list");
+      expect(ids).toContain("cloudflare.zones.listZones");
+
+      // Invoke by the exact id — dots are just characters, never parsed.
+      const result = (yield* executor.tools.invoke(
+        "cloudflare.dns.records.create",
+        {},
+      )) as { id: string; sourceId: string; name: string };
+
+      // Structured fields round-trip cleanly: source_id and name are
+      // the exact strings the plugin registered.
+      expect(result.id).toBe("cloudflare.dns.records.create");
+      expect(result.sourceId).toBe("cloudflare");
+      expect(result.name).toBe("dns.records.create");
+    }),
+  );
+
+  it.effect("rejects dynamic registration that collides with a static id", () =>
+    Effect.gen(function* () {
+      const collidingPlugin = definePlugin(() => ({
+        id: "collide" as const,
+        storage: () => ({}),
+        extension: (ctx) => ({
+          tryRegister: () =>
+            ctx.core.sources.register({
+              id: "test.control", // collides with testPlugin's static source
+              kind: "x",
+              name: "x",
+              tools: [],
+            }),
+        }),
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [testPlugin(), collidingPlugin()] as const,
+        }),
+      );
+
+      const err = yield* executor.collide.tryRegister().pipe(Effect.flip);
+      expect(err.message).toContain("collides with a static source");
+    }),
+  );
+
   it.effect("secrets.set writes to provider and metadata row", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(

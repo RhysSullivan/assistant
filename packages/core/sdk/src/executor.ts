@@ -525,9 +525,33 @@ export const createExecutor = <
         core: {
           sources: {
             register: (input: SourceInput) =>
-              adapter.transaction(() =>
-                writeSourceInput(core, plugin.id, input),
-              ),
+              Effect.gen(function* () {
+                // Guard: reject a dynamic source whose id collides with
+                // a static source id, or any of whose would-be tool ids
+                // collide with a static tool id. Tool ids are
+                // `${source_id}.${tool.name}` — static and dynamic
+                // share the same string space.
+                if (staticSources.has(input.id)) {
+                  return yield* Effect.fail(
+                    new Error(
+                      `Source id "${input.id}" collides with a static source`,
+                    ),
+                  );
+                }
+                for (const tool of input.tools) {
+                  const fqid = `${input.id}.${tool.name}`;
+                  if (staticTools.has(fqid)) {
+                    return yield* Effect.fail(
+                      new Error(
+                        `Tool id "${fqid}" collides with a static tool`,
+                      ),
+                    );
+                  }
+                }
+                yield* adapter.transaction(() =>
+                  writeSourceInput(core, plugin.id, input),
+                );
+              }),
             unregister: (sourceId: string) =>
               adapter.transaction(() => deleteSourceById(core, sourceId)),
           },
