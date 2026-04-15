@@ -1,9 +1,10 @@
 import { Effect, Layer, ManagedRuntime, Context } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import * as SqlClient from "@effect/sql/SqlClient";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   Scope,
@@ -30,6 +31,16 @@ const resolveDbPath = (): string => {
   const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
   fs.mkdirSync(dataDir, { recursive: true });
   return `${dataDir}/data.db`;
+};
+
+// Derive a URL-safe scope id from a folder path. Format:
+// `${basename(cwd)}-${shortSha256}` — same as the pre-rewrite code. The
+// hash suffix makes collisions between folders with the same basename
+// structurally impossible.
+const makeScopeId = (cwd: string): string => {
+  const folder = basename(cwd) || cwd;
+  const hash = createHash("sha256").update(cwd).digest("hex").slice(0, 8);
+  return `${folder}-${hash}`;
 };
 
 // ---------------------------------------------------------------------------
@@ -77,7 +88,7 @@ const createLocalExecutorLayer = () => {
 
       const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
       const scope = new Scope({
-        id: ScopeId.make(cwd),
+        id: ScopeId.make(makeScopeId(cwd)),
         name: cwd,
         createdAt: new Date(),
       });

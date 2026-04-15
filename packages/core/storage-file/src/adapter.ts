@@ -159,13 +159,15 @@ const buildCreateTableSql = (
 ): string => {
   const cols: string[] = [`"id" TEXT PRIMARY KEY NOT NULL`];
   for (const [logical, attr] of Object.entries(fields)) {
+    // `id` is always the primary key and emitted above. Skip any
+    // explicit `id` declaration in the schema's fields map (coreSchema
+    // declares it for type inference; plugin schemas may too) so we
+    // don't produce a duplicate column in the CREATE TABLE statement.
+    if (logical === "id") continue;
     const name = attr.fieldName ?? logical;
+    if (name === "id") continue;
     const type = sqlTypeFor(attr.type);
     const parts: string[] = [`"${name}" ${type}`];
-    if (attr.required !== false && attr.defaultValue === undefined) {
-      // Do not mark NOT NULL — upstream validates, and this keeps us forgiving
-      // against defaults-applied-in-app.
-    }
     if (attr.unique) parts.push("UNIQUE");
     cols.push(parts.join(" "));
   }
@@ -320,11 +322,21 @@ export const makeSqliteAdapter = (
       const physical = def.modelName;
       const ddl = buildCreateTableSql(physical, def.fields);
       yield* sql.unsafe(ddl).pipe(
-        Effect.mapError((e) => new Error(`[storage-file] ${String(e)}`)),
+        Effect.mapError(
+          (e) =>
+            new Error(
+              `[storage-file] DDL failed for table "${physical}": ${String(e)}\n  SQL: ${ddl}`,
+            ),
+        ),
       );
       for (const idx of buildIndexSql(physical, def.fields)) {
         yield* sql.unsafe(idx).pipe(
-          Effect.mapError((e) => new Error(`[storage-file] ${String(e)}`)),
+          Effect.mapError(
+            (e) =>
+              new Error(
+                `[storage-file] index DDL failed for table "${physical}": ${String(e)}\n  SQL: ${idx}`,
+              ),
+          ),
         );
       }
     }
