@@ -92,14 +92,29 @@ const castForType = (type: FieldType): string | null => {
 };
 
 // ---------------------------------------------------------------------------
-// Value encoding (JS -> postgres.js wire). postgres.js handles Date,
-// booleans, arrays, and JSONB on its own — we mostly stringify JSON and
-// let the driver handle everything else.
+// Value encoding (JS -> postgres.js wire). All adapter SQL goes through
+// `sql.unsafe(query, params)` — which is STRICTER than postgres.js's
+// template-literal path: it expects wire-compatible primitives in the
+// params array and does NOT auto-serialize Date or other native types.
+// So we coerce here for every type that needs translation:
+//
+//   - date → ISO-8601 string (postgres parses via the `::timestamptz` cast)
+//   - json → JSON.stringify (and the cast is `::jsonb`)
+//   - bigint → stringified (postgres.js `unsafe` rejects native bigint)
+//   - arrays → JSON.stringify of the whole array for non-primitive
+//     elements; plain arrays go through as-is and the driver handles them
+//
+// Everything else (string/number/boolean/null/undefined) passes through.
 // ---------------------------------------------------------------------------
 
 const encodeValue = (value: unknown, type: FieldType | undefined): unknown => {
   if (value === null || value === undefined) return null;
   if (type === "json") return JSON.stringify(value);
+  if (type === "date") {
+    if (value instanceof Date) return value.toISOString();
+    return value;
+  }
+  if (typeof value === "bigint") return value.toString();
   return value;
 };
 

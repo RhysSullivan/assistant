@@ -62,7 +62,17 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           toolCount: result.toolCount,
           namespace: result.sourceId,
         };
-      }).pipe(Effect.orDie),
+      }).pipe(
+        Effect.tapErrorCause((cause) =>
+          Effect.sync(() => {
+            // TEMP: dump the actual cause to the dev-server console so
+            // the 500 from addSpec stops being opaque. Revert to plain
+            // Effect.orDie once the underlying failure is fixed.
+            console.error("[openapi addSpec] failure cause:", cause);
+          }),
+        ),
+        Effect.orDie,
+      ),
     )
     .handle("getSource", ({ path }) =>
       Effect.gen(function* () {
