@@ -11,7 +11,7 @@ import {
   ScopeId,
   collectSchemas,
   createExecutor,
-  makeInMemoryBlobStore,
+  type BlobStore,
 } from "@executor/sdk";
 import { makeSqliteAdapter } from "@executor/storage-file";
 
@@ -32,6 +32,76 @@ const resolveDbPath = (): string => {
   fs.mkdirSync(dataDir, { recursive: true });
   return `${dataDir}/data.db`;
 };
+
+// ---------------------------------------------------------------------------
+// makeSqliteBlobStore — BlobStore backed by a `blob` table in the same
+// SQLite file the adapter uses. Keeps onepassword config (and any
+// future plugin blobs) persistent across dev-server restarts without
+// needing a second store. Inline here for now; could move to
+// @executor/storage-file if another host needs it.
+// ---------------------------------------------------------------------------
+
+const makeSqliteBlobStore = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<BlobStore, Error> =>
+  Effect.gen(function* () {
+    yield* sql
+      .unsafe(
+        `CREATE TABLE IF NOT EXISTS "blob" (
+          "namespace" TEXT NOT NULL,
+          "key" TEXT NOT NULL,
+          "value" TEXT NOT NULL,
+          PRIMARY KEY ("namespace", "key")
+        )`,
+      )
+      .pipe(
+        Effect.mapError(
+          (e) => new Error(`[apps/local] blob table DDL failed: ${String(e)}`),
+        ),
+      );
+
+    const toErr = <A>(eff: Effect.Effect<A, unknown>) =>
+      eff.pipe(
+        Effect.mapError((e) =>
+          e instanceof Error ? e : new Error(String(e)),
+        ),
+      );
+
+    return {
+      get: (namespace, key) =>
+        toErr(
+          sql<{ value: string }>`
+            SELECT "value" FROM "blob"
+            WHERE "namespace" = ${namespace} AND "key" = ${key}
+            LIMIT 1
+          `.pipe(Effect.map((rows) => rows[0]?.value ?? null)),
+        ),
+      put: (namespace, key, value) =>
+        toErr(
+          sql`
+            INSERT INTO "blob" ("namespace", "key", "value")
+            VALUES (${namespace}, ${key}, ${value})
+            ON CONFLICT ("namespace", "key")
+            DO UPDATE SET "value" = excluded."value"
+          `.pipe(Effect.asVoid),
+        ),
+      delete: (namespace, key) =>
+        toErr(
+          sql`
+            DELETE FROM "blob"
+            WHERE "namespace" = ${namespace} AND "key" = ${key}
+          `.pipe(Effect.asVoid),
+        ),
+      has: (namespace, key) =>
+        toErr(
+          sql<{ one: number }>`
+            SELECT 1 AS "one" FROM "blob"
+            WHERE "namespace" = ${namespace} AND "key" = ${key}
+            LIMIT 1
+          `.pipe(Effect.map((rows) => rows.length > 0)),
+        ),
+    };
+  });
 
 // Derive a URL-safe scope id from a folder path. Format:
 // `${basename(cwd)}-${shortSha256}` — same as the pre-rewrite code. The
@@ -85,6 +155,7 @@ const createLocalExecutorLayer = () => {
       const plugins = createLocalPlugins();
       const schema = collectSchemas(plugins);
       const adapter = yield* makeSqliteAdapter({ sql, schema });
+      const blobs = yield* makeSqliteBlobStore(sql);
 
       const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
       const scope = new Scope({
@@ -96,7 +167,7 @@ const createLocalExecutorLayer = () => {
       return yield* createExecutor({
         scope,
         adapter,
-        blobs: makeInMemoryBlobStore(),
+        blobs,
         plugins,
       });
     }),
