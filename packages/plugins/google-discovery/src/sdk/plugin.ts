@@ -465,7 +465,15 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
           scope: stored.scope,
           scopes: [...session.scopes],
         };
-      }),
+      }).pipe(
+        Effect.mapError((err) =>
+          err instanceof GoogleDiscoveryOAuthError
+            ? err
+            : new GoogleDiscoveryOAuthError({
+                message: err instanceof Error ? err.message : String(err),
+              }),
+        ),
+      ),
 
     getSource: (namespace) => ctx.storage.getSource(namespace),
   }),

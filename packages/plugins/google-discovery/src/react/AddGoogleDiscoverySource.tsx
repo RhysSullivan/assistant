@@ -77,7 +77,6 @@ function InlineCreateSecret(props: {
           id: SecretId.make(secretId.trim()),
           name: secretName.trim() || secretId.trim(),
           value: secretValue.trim(),
-          purpose: `Google OAuth: ${props.headerName}`,
         },
       });
       refreshSecrets();
