@@ -1,5 +1,26 @@
+// ---------------------------------------------------------------------------
+// Google Discovery plugin store — typed adapter over the plugin's own
+// schema. Replaces the old ScopedKv-backed binding store. Operates on
+// three tables:
+//
+//   google_discovery_source         — per-namespace source config blob
+//   google_discovery_binding        — per-tool-id method binding
+//   google_discovery_oauth_session  — short-lived OAuth PKCE sessions
+//
+// All JSON columns are round-tripped via Schema.encode/decode so `Option`
+// shapes inside GoogleDiscoveryStoredSourceData / GoogleDiscoveryMethodBinding
+// survive adapter serialization.
+// ---------------------------------------------------------------------------
+
 import { Effect, Schema } from "effect";
-import { makeInMemoryScopedKv, scopeKv, type Kv, type ScopedKv, type ToolId } from "@executor/sdk";
+
+import {
+  typedAdapter,
+  type DBAdapter,
+  type DBSchema,
+} from "@executor/sdk";
+
+import type { ScopedBlobStore } from "@executor/sdk";
 
 import {
   GoogleDiscoveryMethodBinding,
@@ -8,30 +29,50 @@ import {
 } from "./types";
 
 // ---------------------------------------------------------------------------
-// OAuth session TTL — pending sessions are cleaned up after this many ms
+// OAuth session TTL
 // ---------------------------------------------------------------------------
 
 export const GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// Stored OAuth session — session payload + expiry, serialized via Schema
+// Schema — plugin-declared tables merged with coreSchema at executor start.
 // ---------------------------------------------------------------------------
 
-const StoredOAuthSession = Schema.Struct({
-  session: GoogleDiscoveryOAuthSession,
-  expiresAt: Schema.Number,
-});
+export const googleDiscoverySchema = {
+  google_discovery_source: {
+    modelName: "google_discovery_source",
+    fields: {
+      id: { type: "string", required: true },
+      name: { type: "string", required: true },
+      config: { type: "json", required: true },
+      created_at: { type: "date", required: true },
+      updated_at: { type: "date", required: true },
+    },
+  },
+  google_discovery_binding: {
+    modelName: "google_discovery_binding",
+    fields: {
+      id: { type: "string", required: true },
+      source_id: { type: "string", required: true, index: true },
+      binding: { type: "json", required: true },
+      created_at: { type: "date", required: true },
+    },
+  },
+  google_discovery_oauth_session: {
+    modelName: "google_discovery_oauth_session",
+    fields: {
+      id: { type: "string", required: true },
+      session: { type: "json", required: true },
+      expires_at: { type: "date", required: true },
+    },
+  },
+} as const satisfies DBSchema;
 
-const encodeOAuthSession = Schema.encodeSync(Schema.parseJson(StoredOAuthSession));
-const decodeOAuthSession = Schema.decodeUnknownSync(Schema.parseJson(StoredOAuthSession));
+export type GoogleDiscoverySchema = typeof googleDiscoverySchema;
 
-const StoredBindingEntry = Schema.Struct({
-  namespace: Schema.String,
-  binding: GoogleDiscoveryMethodBinding,
-});
-
-const encodeBindingEntry = Schema.encodeSync(Schema.parseJson(StoredBindingEntry));
-const decodeBindingEntry = Schema.decodeUnknownSync(Schema.parseJson(StoredBindingEntry));
+// ---------------------------------------------------------------------------
+// Stored source projection for the extension API.
+// ---------------------------------------------------------------------------
 
 export interface GoogleDiscoveryStoredSource {
   readonly namespace: string;
@@ -39,145 +80,261 @@ export interface GoogleDiscoveryStoredSource {
   readonly config: GoogleDiscoveryStoredSourceData;
 }
 
-export interface GoogleDiscoveryBindingStore {
-  readonly get: (toolId: ToolId) => Effect.Effect<{
-    namespace: string;
-    binding: GoogleDiscoveryMethodBinding;
-  } | null>;
+// ---------------------------------------------------------------------------
+// Row shapes (adapter returns JSON columns as-is; we decode via Schema).
+// ---------------------------------------------------------------------------
 
-  readonly put: (
-    toolId: ToolId,
-    namespace: string,
+interface SourceRow {
+  id: string;
+  name: string;
+  config: unknown;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface BindingRow {
+  id: string;
+  source_id: string;
+  binding: unknown;
+  created_at: Date;
+}
+
+interface SessionRow {
+  id: string;
+  session: unknown;
+  expires_at: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Schema encode/decode for JSON columns so Option round-trips properly.
+// ---------------------------------------------------------------------------
+
+const encodeStoredSourceData = Schema.encodeSync(GoogleDiscoveryStoredSourceData);
+const decodeStoredSourceData = Schema.decodeUnknownSync(GoogleDiscoveryStoredSourceData);
+
+const encodeBinding = Schema.encodeSync(GoogleDiscoveryMethodBinding);
+const decodeBinding = Schema.decodeUnknownSync(GoogleDiscoveryMethodBinding);
+
+const encodeSession = Schema.encodeSync(GoogleDiscoveryOAuthSession);
+const decodeSession = Schema.decodeUnknownSync(GoogleDiscoveryOAuthSession);
+
+const decodeJson = (value: unknown): unknown => {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Store interface
+// ---------------------------------------------------------------------------
+
+export interface GoogleDiscoveryStore {
+  readonly getBinding: (toolId: string) => Effect.Effect<
+    { readonly namespace: string; readonly binding: GoogleDiscoveryMethodBinding } | null,
+    Error
+  >;
+  readonly putBinding: (
+    toolId: string,
+    sourceId: string,
     binding: GoogleDiscoveryMethodBinding,
-  ) => Effect.Effect<void>;
+  ) => Effect.Effect<void, Error>;
+  readonly removeBindingsBySource: (
+    sourceId: string,
+  ) => Effect.Effect<readonly string[], Error>;
+  readonly getBindingsForSource: (
+    sourceId: string,
+  ) => Effect.Effect<
+    ReadonlyMap<string, GoogleDiscoveryMethodBinding>,
+    Error
+  >;
 
-  readonly listByNamespace: (namespace: string) => Effect.Effect<readonly ToolId[]>;
-
-  readonly removeByNamespace: (namespace: string) => Effect.Effect<readonly ToolId[]>;
-
-  readonly putSource: (source: GoogleDiscoveryStoredSource) => Effect.Effect<void>;
-  readonly removeSource: (namespace: string) => Effect.Effect<void>;
-  readonly listSources: () => Effect.Effect<readonly GoogleDiscoveryStoredSource[]>;
-  readonly getSource: (namespace: string) => Effect.Effect<GoogleDiscoveryStoredSource | null>;
+  readonly putSource: (source: GoogleDiscoveryStoredSource) => Effect.Effect<void, Error>;
+  readonly removeSource: (sourceId: string) => Effect.Effect<void, Error>;
+  readonly getSource: (
+    sourceId: string,
+  ) => Effect.Effect<GoogleDiscoveryStoredSource | null, Error>;
   readonly getSourceConfig: (
-    namespace: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null>;
+    sourceId: string,
+  ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null, Error>;
 
   readonly putOAuthSession: (
     sessionId: string,
     session: GoogleDiscoveryOAuthSession,
-  ) => Effect.Effect<void>;
+  ) => Effect.Effect<void, Error>;
   readonly getOAuthSession: (
     sessionId: string,
-  ) => Effect.Effect<GoogleDiscoveryOAuthSession | null>;
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void>;
+  ) => Effect.Effect<GoogleDiscoveryOAuthSession | null, Error>;
+  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, Error>;
 }
 
-const makeStore = (
-  bindings: ScopedKv,
-  sources: ScopedKv,
-  oauthSessions: ScopedKv,
-): GoogleDiscoveryBindingStore => ({
-  get: (toolId) =>
-    Effect.gen(function* () {
-      const raw = yield* bindings.get(toolId);
-      if (!raw) return null;
-      const entry = decodeBindingEntry(raw);
-      return {
-        namespace: entry.namespace,
-        binding: entry.binding,
-      };
-    }),
+// ---------------------------------------------------------------------------
+// Default store
+// ---------------------------------------------------------------------------
 
-  put: (toolId, namespace, binding) =>
-    bindings.set([{ key: toolId, value: encodeBindingEntry({ namespace, binding }) }]),
+export const makeGoogleDiscoveryStore = (
+  adapter: DBAdapter,
+  _blobs: ScopedBlobStore,
+): GoogleDiscoveryStore => {
+  const db = typedAdapter<GoogleDiscoverySchema>(adapter);
 
-  listByNamespace: (namespace) =>
-    Effect.gen(function* () {
-      const entries = yield* bindings.list();
-      const ids: ToolId[] = [];
-      for (const entry of entries) {
-        const decoded = decodeBindingEntry(entry.value);
-        if (decoded.namespace === namespace) {
-          ids.push(entry.key as ToolId);
+  return {
+    getBinding: (toolId) =>
+      Effect.gen(function* () {
+        const row = (yield* db.findOne({
+          model: "google_discovery_binding",
+          where: [{ field: "id", value: toolId }],
+        })) as BindingRow | null;
+        if (!row) return null;
+        const decoded = decodeBinding(decodeJson(row.binding));
+        return { namespace: row.source_id, binding: decoded };
+      }),
+
+    putBinding: (toolId, sourceId, binding) =>
+      Effect.gen(function* () {
+        // Upsert: delete + insert. The in-memory adapter accepts
+        // overwriting via create; real SQL backends would fail without
+        // the explicit delete.
+        yield* db.delete({
+          model: "google_discovery_binding",
+          where: [{ field: "id", value: toolId }],
+        });
+        yield* db.create({
+          model: "google_discovery_binding",
+          data: {
+            id: toolId,
+            source_id: sourceId,
+            binding: encodeBinding(binding) as unknown as Record<string, unknown>,
+            created_at: new Date(),
+          },
+          forceAllowId: true,
+        });
+      }),
+
+    removeBindingsBySource: (sourceId) =>
+      Effect.gen(function* () {
+        const rows = (yield* db.findMany({
+          model: "google_discovery_binding",
+          where: [{ field: "source_id", value: sourceId }],
+        })) as readonly BindingRow[];
+        const ids = rows.map((r) => r.id);
+        yield* db.deleteMany({
+          model: "google_discovery_binding",
+          where: [{ field: "source_id", value: sourceId }],
+        });
+        return ids;
+      }),
+
+    getBindingsForSource: (sourceId) =>
+      Effect.gen(function* () {
+        const rows = (yield* db.findMany({
+          model: "google_discovery_binding",
+          where: [{ field: "source_id", value: sourceId }],
+        })) as readonly BindingRow[];
+        const out = new Map<string, GoogleDiscoveryMethodBinding>();
+        for (const row of rows) {
+          out.set(row.id, decodeBinding(decodeJson(row.binding)));
         }
-      }
-      return ids;
-    }),
+        return out;
+      }),
 
-  removeByNamespace: (namespace) =>
-    Effect.gen(function* () {
-      const entries = yield* bindings.list();
-      const ids: ToolId[] = [];
-      for (const entry of entries) {
-        const decoded = decodeBindingEntry(entry.value);
-        if (decoded.namespace === namespace) ids.push(entry.key as ToolId);
-      }
-      if (ids.length > 0) yield* bindings.delete(ids);
-      return ids;
-    }),
+    putSource: (source) =>
+      Effect.gen(function* () {
+        const now = new Date();
+        yield* db.delete({
+          model: "google_discovery_source",
+          where: [{ field: "id", value: source.namespace }],
+        });
+        yield* db.create({
+          model: "google_discovery_source",
+          data: {
+            id: source.namespace,
+            name: source.name,
+            config: encodeStoredSourceData(source.config) as unknown as Record<string, unknown>,
+            created_at: now,
+            updated_at: now,
+          },
+          forceAllowId: true,
+        });
+      }),
 
-  putSource: (source) => sources.set([{ key: source.namespace, value: JSON.stringify(source) }]),
+    removeSource: (sourceId) =>
+      db
+        .delete({
+          model: "google_discovery_source",
+          where: [{ field: "id", value: sourceId }],
+        })
+        .pipe(Effect.asVoid),
 
-  removeSource: (namespace) => sources.delete([namespace]).pipe(Effect.asVoid),
+    getSource: (sourceId) =>
+      Effect.gen(function* () {
+        const row = (yield* db.findOne({
+          model: "google_discovery_source",
+          where: [{ field: "id", value: sourceId }],
+        })) as SourceRow | null;
+        if (!row) return null;
+        return {
+          namespace: row.id,
+          name: row.name,
+          config: decodeStoredSourceData(decodeJson(row.config)),
+        };
+      }),
 
-  listSources: () =>
-    Effect.gen(function* () {
-      const entries = yield* sources.list();
-      return entries.map((e) => JSON.parse(e.value) as GoogleDiscoveryStoredSource);
-    }),
+    getSourceConfig: (sourceId) =>
+      Effect.gen(function* () {
+        const row = (yield* db.findOne({
+          model: "google_discovery_source",
+          where: [{ field: "id", value: sourceId }],
+        })) as SourceRow | null;
+        if (!row) return null;
+        return decodeStoredSourceData(decodeJson(row.config));
+      }),
 
-  getSource: (namespace) =>
-    Effect.gen(function* () {
-      const raw = yield* sources.get(namespace);
-      if (!raw) return null;
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      return JSON.parse(raw) as GoogleDiscoveryStoredSource;
-    }),
+    putOAuthSession: (sessionId, session) =>
+      Effect.gen(function* () {
+        yield* db.delete({
+          model: "google_discovery_oauth_session",
+          where: [{ field: "id", value: sessionId }],
+        });
+        yield* db.create({
+          model: "google_discovery_oauth_session",
+          data: {
+            id: sessionId,
+            session: encodeSession(session) as unknown as Record<string, unknown>,
+            expires_at: new Date(Date.now() + GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS),
+          },
+          forceAllowId: true,
+        });
+      }),
 
-  getSourceConfig: (namespace) =>
-    Effect.gen(function* () {
-      const raw = yield* sources.get(namespace);
-      if (!raw) return null;
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      const source = JSON.parse(raw) as GoogleDiscoveryStoredSource;
-      return source.config;
-    }),
+    getOAuthSession: (sessionId) =>
+      Effect.gen(function* () {
+        const row = (yield* db.findOne({
+          model: "google_discovery_oauth_session",
+          where: [{ field: "id", value: sessionId }],
+        })) as SessionRow | null;
+        if (!row) return null;
+        const expiresAt =
+          row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at as string);
+        if (expiresAt.getTime() < Date.now()) {
+          yield* db.delete({
+            model: "google_discovery_oauth_session",
+            where: [{ field: "id", value: sessionId }],
+          });
+          return null;
+        }
+        return decodeSession(decodeJson(row.session));
+      }),
 
-  // ---- Pending OAuth sessions (short-lived, between startOAuth and completeOAuth) ----
-
-  putOAuthSession: (sessionId, session) =>
-    oauthSessions.set([
-      {
-        key: sessionId,
-        value: encodeOAuthSession({
-          session,
-          expiresAt: Date.now() + GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS,
-        }),
-      },
-    ]),
-
-  getOAuthSession: (sessionId) =>
-    Effect.gen(function* () {
-      const raw = yield* oauthSessions.get(sessionId);
-      if (!raw) return null;
-      const entry = decodeOAuthSession(raw);
-      if (entry.expiresAt < Date.now()) {
-        yield* oauthSessions.delete([sessionId]);
-        return null;
-      }
-      return entry.session;
-    }),
-
-  deleteOAuthSession: (sessionId) => oauthSessions.delete([sessionId]).pipe(Effect.asVoid),
-});
-
-export const makeKvBindingStore = (kv: Kv, namespace: string): GoogleDiscoveryBindingStore =>
-  makeStore(
-    scopeKv(kv, `${namespace}.bindings`),
-    scopeKv(kv, `${namespace}.sources`),
-    scopeKv(kv, `${namespace}.oauth-sessions`),
-  );
-
-export const makeInMemoryBindingStore = (): GoogleDiscoveryBindingStore =>
-  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv(), makeInMemoryScopedKv());
+    deleteOAuthSession: (sessionId) =>
+      db
+        .delete({
+          model: "google_discovery_oauth_session",
+          where: [{ field: "id", value: sessionId }],
+        })
+        .pipe(Effect.asVoid),
+  };
+};

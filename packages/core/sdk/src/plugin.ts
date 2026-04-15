@@ -15,7 +15,7 @@ import type {
   ElicitationResponse,
 } from "./elicitation";
 import type { Scope } from "./scope";
-import type { SecretProvider } from "./secrets";
+import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
 // ---------------------------------------------------------------------------
 // StorageDeps — raw backing passed to a plugin's `storage` factory. The
@@ -75,6 +75,15 @@ export interface PluginCtx<TStore = unknown> {
       readonly { readonly id: string; readonly name: string; readonly provider: string }[],
       Error
     >;
+    /** Write a secret value through a provider. Used by plugins that
+     *  mint secrets on behalf of the user (OAuth2 token storage,
+     *  interactive onboarding flows). Normally writes go through
+     *  `executor.secrets.set` on the host surface, but OAuth2 refresh
+     *  and one-shot token capture from plugin-owned flows need it here
+     *  too. Same routing rules as the host-level setter. */
+    readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, Error>;
+    /** Delete a secret from its pinned provider and the core table. */
+    readonly remove: (id: string) => Effect.Effect<void, Error>;
   };
 
   /** Run `effect` inside a database transaction. Wraps the underlying

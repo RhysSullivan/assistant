@@ -9,9 +9,17 @@ export type {
   GoogleDiscoveryProbeResult,
 } from "./plugin";
 export { extractGoogleDiscoveryManifest } from "./document";
-export { makeKvBindingStore, makeInMemoryBindingStore } from "./binding-store";
-export type { GoogleDiscoveryBindingStore } from "./binding-store";
-export { makeGoogleDiscoveryInvoker } from "./invoke";
+export {
+  googleDiscoverySchema,
+  makeGoogleDiscoveryStore,
+  GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS,
+} from "./binding-store";
+export type {
+  GoogleDiscoveryStore,
+  GoogleDiscoveryStoredSource,
+  GoogleDiscoverySchema,
+} from "./binding-store";
+export { invokeGoogleDiscoveryTool, annotationsForOperation } from "./invoke";
 export {
   buildGoogleAuthorizationUrl,
   createPkceCodeVerifier,

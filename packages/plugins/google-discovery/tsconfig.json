@@ -17,5 +17,5 @@
       }
     ]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["src/sdk/**/*.ts"]
 }

@@ -582,6 +582,8 @@ export const createExecutor = <
         secrets: {
           get: secretsGet,
           list: secretsListForCtx,
+          set: secretsSet,
+          remove: secretsRemove,
         },
         transaction: <A, E>(effect: Effect.Effect<A, E>) =>
           adapter.transaction(() => effect),
