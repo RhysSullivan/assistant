@@ -391,16 +391,42 @@ export const makeSqliteAdapter = (
         forceAllowId?: boolean | undefined;
       }) =>
         Effect.gen(function* () {
-          const out: Record<string, unknown>[] = [];
+          if (data.data.length === 0) return [] as unknown as readonly R[];
+          const info = getModelInfo(schema, data.model);
+          const tbl = sql(info.modelName);
+
+          // Encode every row up front, then hand the whole array to
+          // sql.insert(...) which generates a single multi-row VALUES
+          // statement — one round-trip regardless of N. Critical for
+          // large OpenAPI specs (cloudflare: 1000+ operations + 5000+
+          // shared defs) where a per-row INSERT loop hangs the server.
+          //
+          // Chunk at 500 to stay well under SQLite's default
+          // SQLITE_MAX_COMPOUND_SELECT limit (1000) and leave headroom
+          // for schemas with many columns (total parameter count =
+          // rows × columns).
+          const CHUNK = 500;
+          const encodedRows: Record<string, unknown>[] = [];
           for (const input of data.data) {
-            const row = yield* insertRow(
-              data.model,
-              input as Record<string, unknown>,
-              data.forceAllowId === true,
-            );
-            out.push(row);
+            const row: Record<string, unknown> = {
+              ...(input as Record<string, unknown>),
+            };
+            if (row.id === undefined || row.id === null) {
+              row.id = idGen();
+            }
+            const encoded = encodeData(info, row);
+            if (encoded.id === undefined) encoded.id = row.id;
+            encodedRows.push(encoded);
           }
-          return out as unknown as readonly R[];
+
+          for (let i = 0; i < encodedRows.length; i += CHUNK) {
+            const chunk = encodedRows.slice(i, i + CHUNK);
+            yield* toErr(
+              sql`INSERT INTO ${tbl} ${sql.insert(chunk)}`,
+            );
+          }
+
+          return encodedRows.map((r) => decodeRow(info, r)) as unknown as readonly R[];
         }),
 
       findOne: <T>(data: {
