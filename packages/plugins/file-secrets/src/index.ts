@@ -1,7 +1,8 @@
 import { Effect, Schema } from "effect";
-import { definePlugin, type ExecutorPlugin, type SecretProvider } from "@executor/sdk";
 import * as fs from "node:fs";
 import * as path from "node:path";
+
+import { definePlugin, type PluginCtx, type SecretProvider } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // XDG data dir resolution
@@ -12,14 +13,20 @@ const APP_NAME = "executor";
 export const xdgDataHome = (): string => {
   if (process.env.XDG_DATA_HOME?.trim()) return process.env.XDG_DATA_HOME.trim();
   if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA || process.env.APPDATA || path.join(process.env.USERPROFILE || "~", "AppData", "Local");
+    return (
+      process.env.LOCALAPPDATA ||
+      process.env.APPDATA ||
+      path.join(process.env.USERPROFILE || "~", "AppData", "Local")
+    );
   }
   return path.join(process.env.HOME || "~", ".local", "share");
 };
 
-const authDir = (overrideDir?: string): string => overrideDir ?? path.join(xdgDataHome(), APP_NAME);
+const authDir = (overrideDir?: string): string =>
+  overrideDir ?? path.join(xdgDataHome(), APP_NAME);
 
-const authFilePath = (overrideDir?: string): string => path.join(authDir(overrideDir), "auth.json");
+const authFilePath = (overrideDir?: string): string =>
+  path.join(authDir(overrideDir), "auth.json");
 
 // ---------------------------------------------------------------------------
 // Schema for the auth file
@@ -128,23 +135,26 @@ const makeScopedProvider = (filePath: string, scopeId: string): SecretProvider =
 
 // ---------------------------------------------------------------------------
 // Plugin definition
+//
+// Compute the scoped file path identically in `extension` (for `filePath`)
+// and `secretProviders` (for the provider's read/write). Both receive ctx
+// and both are called once per createExecutor.
 // ---------------------------------------------------------------------------
 
-const PLUGIN_KEY = "fileSecrets";
+const resolveFilePath = (config: FileSecretsPluginConfig | undefined): string =>
+  authFilePath(config?.directory);
 
-export const fileSecretsPlugin = (
-  config?: FileSecretsPluginConfig,
-): ExecutorPlugin<typeof PLUGIN_KEY, FileSecretsExtension> =>
-  definePlugin({
-    key: PLUGIN_KEY,
-    init: (ctx) =>
-      Effect.gen(function* () {
-        const filePath = authFilePath(config?.directory);
+export const fileSecretsPlugin = definePlugin(
+  (options?: FileSecretsPluginConfig) => ({
+    id: "fileSecrets" as const,
+    storage: () => ({}),
 
-        yield* ctx.secrets.addProvider(makeScopedProvider(filePath, ctx.scope.id));
+    extension: (_ctx): FileSecretsExtension => ({
+      filePath: resolveFilePath(options),
+    }),
 
-        return {
-          extension: { filePath },
-        };
-      }),
-  });
+    secretProviders: (ctx: PluginCtx<unknown>) => [
+      makeScopedProvider(resolveFilePath(options), ctx.scope.id),
+    ],
+  }),
+);
