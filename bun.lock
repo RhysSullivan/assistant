@@ -63,6 +63,7 @@
         "@executor/runtime-dynamic-worker": "workspace:*",
         "@executor/sdk": "workspace:*",
         "@executor/storage-core": "workspace:*",
+        "@executor/storage-postgres": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@opentelemetry/exporter-logs-otlp-http": "^0.214.0",
         "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
@@ -304,6 +305,7 @@
       "version": "1.4.3",
       "dependencies": {
         "@effect/sql": "catalog:",
+        "@executor/sdk": "workspace:*",
         "@executor/storage-core": "workspace:*",
         "effect": "catalog:",
       },
@@ -331,10 +333,10 @@
       "name": "@executor/storage-postgres",
       "version": "1.4.1",
       "dependencies": {
-        "@effect/sql": "catalog:",
-        "@effect/sql-pg": "^0.28.0",
+        "@executor/sdk": "workspace:*",
         "@executor/storage-core": "workspace:*",
         "effect": "catalog:",
+        "postgres": "^3.4.9",
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
@@ -1027,8 +1029,6 @@
     "@effect/rpc": ["@effect/rpc@0.75.0", "", { "dependencies": { "msgpackr": "^1.11.4" }, "peerDependencies": { "@effect/platform": "^0.96.0", "effect": "^3.21.0" } }, "sha512-VFeJ16cZUXqiIzG9UHOVKGuiBPJ7fV+0lEbJU6xi12JnnxXe/19BQPpOwiRawCUbPOR3/xIURDUgGxU+Ft0pvQ=="],
 
     "@effect/sql": ["@effect/sql@0.51.0", "", { "dependencies": { "uuid": "^11.0.3" }, "peerDependencies": { "@effect/experimental": "^0.60.0", "@effect/platform": "^0.96.0", "effect": "^3.21.0" } }, "sha512-e7hWe46QD15eMCr4kNBMVdItIVK/WLHJG+d8DLL1FjVf5Ra82k2mwUYIXplJewVbHjt3my6GSKPPd1ZrQjVd5A=="],
-
-    "@effect/sql-pg": ["@effect/sql-pg@0.28.0", "", { "dependencies": { "@opentelemetry/semantic-conventions": "^1.25.1", "postgres": "^3.4.4" }, "peerDependencies": { "@effect/experimental": "^0.38.0", "@effect/platform": "^0.74.0", "@effect/sql": "^0.27.0", "effect": "^3.12.5" } }, "sha512-+u60z3evFGqsdUv25My0LAzvM4d8Ao9k4qARYhMsTBY4WsyqsrtXNqkbco7hag3us3LbdwU1ivjieKOzQN0ELg=="],
 
     "@effect/sql-sqlite-bun": ["@effect/sql-sqlite-bun@0.52.0", "", { "peerDependencies": { "@effect/experimental": "^0.60.0", "@effect/platform": "^0.96.0", "@effect/sql": "^0.51.0", "effect": "^3.21.0" } }, "sha512-iqQ7SvSNxq0HLjKW5IQ29FsCTzOD1CuX1wuBEuPLLgPCvuEykEHLn4zDrs2qJ+O3CBEUm4kiCy29tmfHE7uAdw=="],
 

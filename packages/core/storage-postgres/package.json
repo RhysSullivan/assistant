@@ -12,10 +12,10 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/sql": "catalog:",
-    "@effect/sql-pg": "^0.28.0",
+    "@executor/sdk": "workspace:*",
     "@executor/storage-core": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

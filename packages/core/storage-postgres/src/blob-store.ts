@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// apps/cloud pg-blob-store — BlobStore backed by a `blob` table in the
-// same postgres database the adapter uses. Keeps plugin-owned blobs
-// (e.g. workos-vault metadata, onepassword-style config) persistent
-// across Worker invocations without needing a second store.
+// @executor/storage-postgres — BlobStore backed by a `blob` table in the
+// same postgres database as the adapter. Keeps plugin-owned opaque blobs
+// (onepassword config, workos-vault metadata, etc.) persistent across
+// restarts / Worker invocations without needing a second storage seam.
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
@@ -14,10 +14,10 @@ const wrapErr =
   (op: string) =>
   (e: unknown): Error => {
     const msg = e instanceof Error ? e.message : String(e);
-    return new Error(`[pg-blob-store] ${op}: ${msg}`);
+    return new Error(`[storage-postgres] blob ${op}: ${msg}`);
   };
 
-export const makePgBlobStore = (
+export const makePostgresBlobStore = (
   sql: Sql,
 ): Effect.Effect<BlobStore, Error> =>
   Effect.gen(function* () {

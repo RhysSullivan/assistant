@@ -36,6 +36,7 @@
     "@executor/runtime-dynamic-worker": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@executor/storage-core": "workspace:*",
+    "@executor/storage-postgres": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.214.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",

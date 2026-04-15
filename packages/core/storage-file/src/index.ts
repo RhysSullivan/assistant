@@ -21,3 +21,4 @@
 // ---------------------------------------------------------------------------
 
 export { makeSqliteAdapter, type MakeSqliteAdapterOptions } from "./adapter";
+export { makeSqliteBlobStore } from "./blob-store";

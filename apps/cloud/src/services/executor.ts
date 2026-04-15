@@ -16,14 +16,16 @@ import {
   collectSchemas,
   createExecutor,
 } from "@executor/sdk";
+import {
+  makePostgresAdapter,
+  makePostgresBlobStore,
+} from "@executor/storage-postgres";
 import { openApiPlugin } from "@executor/plugin-openapi";
 import { mcpPlugin } from "@executor/plugin-mcp";
 import { graphqlPlugin } from "@executor/plugin-graphql";
 import { workosVaultPlugin } from "@executor/plugin-workos-vault";
 
 import { DbService } from "./db";
-import { makePgAdapter } from "./pg-adapter";
-import { makePgBlobStore } from "./pg-blob-store";
 import { server } from "../env";
 
 // ---------------------------------------------------------------------------
@@ -57,8 +59,8 @@ export const createOrgExecutor = (
 
     const plugins = createOrgPlugins();
     const schema = collectSchemas(plugins);
-    const adapter = yield* makePgAdapter({ sql, schema });
-    const blobs = yield* makePgBlobStore(sql);
+    const adapter = yield* makePostgresAdapter({ sql, schema });
+    const blobs = yield* makePostgresBlobStore(sql);
 
     const scope = new Scope({
       id: ScopeId.make(organizationId),
