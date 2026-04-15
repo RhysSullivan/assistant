@@ -199,74 +199,6 @@ const normalizeCodex = (name: string, raw: RawServer): NormalizedServer | null =
 };
 
 // ---------------------------------------------------------------------------
-// Zed: {context_servers: {name: {source:"custom", type?, url?, command?, args?, env}}}
-// ---------------------------------------------------------------------------
-
-const normalizeZed = (name: string, raw: RawServer): NormalizedServer | null => {
-  const url = str(raw.url);
-  if (url) {
-    return {
-      name,
-      suggestedNamespace: deriveMcpNamespace({ name, endpoint: url }),
-      config: {
-        transport: "remote",
-        endpoint: url,
-        headers: strRecord(raw.headers),
-        remoteTransport: normalizeRemoteTransport(str(raw.type)),
-      },
-    };
-  }
-
-  const command = str(raw.command);
-  if (!command) return null;
-
-  return {
-    name,
-    suggestedNamespace: deriveMcpNamespace({ name, command }),
-    config: {
-      transport: "stdio",
-      command,
-      args: strArray(raw.args),
-      env: strRecord(raw.env),
-    },
-  };
-};
-
-// ---------------------------------------------------------------------------
-// VS Code: {servers: {name: {type:"http"|"stdio", url?, command?, args}}}
-// ---------------------------------------------------------------------------
-
-const normalizeVSCode = (name: string, raw: RawServer): NormalizedServer | null => {
-  const url = str(raw.url);
-  if (url) {
-    return {
-      name,
-      suggestedNamespace: deriveMcpNamespace({ name, endpoint: url }),
-      config: {
-        transport: "remote",
-        endpoint: url,
-        headers: strRecord(raw.headers),
-        remoteTransport: normalizeRemoteTransport(str(raw.type)),
-      },
-    };
-  }
-
-  const command = str(raw.command);
-  if (!command) return null;
-
-  return {
-    name,
-    suggestedNamespace: deriveMcpNamespace({ name, command }),
-    config: {
-      transport: "stdio",
-      command,
-      args: strArray(raw.args),
-      env: strRecord(raw.env),
-    },
-  };
-};
-
-// ---------------------------------------------------------------------------
 // Dispatch by agent key
 // ---------------------------------------------------------------------------
 
@@ -278,10 +210,10 @@ const normalizersByAgent: Record<AgentKey, NormalizeFn> = {
   "claude-desktop": normalizeStandard,
   amp: normalizeStandard,
   cursor: normalizeStandard,
-  vscode: normalizeVSCode,
+  vscode: normalizeStandard,
   cline: normalizeStandard,
   "cline-cli": normalizeStandard,
-  zed: normalizeZed,
+  zed: normalizeStandard,
   goose: normalizeGoose,
   codex: normalizeCodex,
   "gemini-cli": normalizeStandard,

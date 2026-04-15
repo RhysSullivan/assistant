@@ -4,10 +4,7 @@ import { Command, Options, Args } from "@effect/cli";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { BunFileSystem } from "@effect/platform-bun";
-import {
-  findAndReadAgentConfig,
-  detectInstalledAgents,
-} from "@executor/plugin-mcp/agent-import";
+import { findAndReadAgentConfig, detectInstalledAgents } from "@executor/plugin-mcp/agent-import";
 import type { AgentKey, NormalizedServer } from "@executor/plugin-mcp/agent-import";
 import { addSourceToConfig } from "@executor/config";
 import type { SourceConfig } from "@executor/config";
@@ -106,8 +103,7 @@ const printLocalDryRun = (filePath: string, servers: NormalizedServer[]) => {
   console.log(`\n${filename} — ${servers.length} server(s) found (dry run, not imported):`);
   console.log(`  ${filePath}`);
   for (const s of servers) {
-    const detail =
-      s.config.transport === "stdio" ? s.config.command : s.config.endpoint;
+    const detail = s.config.transport === "stdio" ? s.config.command : s.config.endpoint;
     console.log(`  ${s.name.padEnd(24)} [${s.config.transport}]  ${detail ?? ""}`);
   }
 };
@@ -270,7 +266,7 @@ export const importCommand = Command.make(
 
       // ---- agent name provided ----
       if (agentKey) {
-        const resolved = yield* Effect.tryPromise({
+        const resolved = yield* Effect.try({
           try: () => findAndReadAgentConfig(agentKey as AgentKey),
           catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
         });
@@ -289,7 +285,7 @@ export const importCommand = Command.make(
       // ---- auto-detect all agents ----
       console.log("Scanning for agent configs...\n");
 
-      const detectedLocally = yield* Effect.tryPromise({
+      const detectedLocally = yield* Effect.try({
         try: () => detectInstalledAgents(),
         catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
       });
@@ -312,12 +308,7 @@ export const importCommand = Command.make(
 
       console.log("\nImporting all...");
       for (const d of detectedLocally) {
-        if (!existsSync(d.filePath)) continue;
-        const agentServers = yield* Effect.tryPromise({
-          try: () => findAndReadAgentConfig(d.agent),
-          catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
-        });
-        yield* importServersWithFallback(agentServers.servers, d.filePath, d.agent, baseUrl);
+        yield* importServersWithFallback(d.servers, d.filePath, d.agent, baseUrl);
       }
     }),
 ).pipe(

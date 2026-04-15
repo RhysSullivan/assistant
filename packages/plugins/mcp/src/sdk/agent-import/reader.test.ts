@@ -166,15 +166,15 @@ url = "https://api.example.com/mcp"
     expect(servers).toHaveLength(0);
   });
 
-  it("throws AgentImportError when file does not exist", async () => {
-    await expect(
-      readAgentConfigFile(join(tmpDir, "nonexistent.json"), "claude-code"),
-    ).rejects.toThrow("Config file not found");
+  it("throws AgentImportError when file does not exist", () => {
+    expect(() => readAgentConfigFile(join(tmpDir, "nonexistent.json"), "claude-code")).toThrow(
+      "Config file not found",
+    );
   });
 
-  it("throws AgentImportError on malformed JSON", async () => {
+  it("throws AgentImportError on malformed JSON", () => {
     const filePath = write("bad.json", "{ not valid json }");
-    await expect(readAgentConfigFile(filePath, "claude-code")).rejects.toThrow(
+    expect(() => readAgentConfigFile(filePath, "claude-code")).toThrow(
       "Failed to parse config file",
     );
   });
@@ -262,10 +262,10 @@ describe("parseAgentConfigContent", () => {
     expect(servers[0]!.name).toBe("server");
   });
 
-  it("throws on completely invalid JSON", async () => {
-    await expect(
-      parseAgentConfigContent("not json at all", "mcp.json", "claude-code"),
-    ).rejects.toThrow("Failed to parse config file");
+  it("throws on completely invalid JSON", () => {
+    expect(() => parseAgentConfigContent("not json at all", "mcp.json", "claude-code")).toThrow(
+      "Failed to parse config file",
+    );
   });
 
   it("returns empty array for empty mcpServers object", async () => {
@@ -312,11 +312,11 @@ describe("findAndReadAgentConfig", () => {
     expect(result.servers[0]!.name).toBe("context7");
   });
 
-  it("throws AgentImportError when no config found", async () => {
+  it("throws AgentImportError when no config found", () => {
     // Use mcporter — its global path (~/.mcporter/mcporter.json) is
     // extremely unlikely to exist on any dev/CI machine, and its only
     // local path (config/mcporter.json) is not present in tmpDir.
-    await expect(findAndReadAgentConfig("mcporter", { cwd: tmpDir })).rejects.toThrow(
+    expect(() => findAndReadAgentConfig("mcporter", { cwd: tmpDir })).toThrow(
       "No config file found for agent",
     );
   });

@@ -63,4 +63,7 @@ executor.jsonc
 # reference repos (pulled via `bun run pull:references`)
 .reference/
 
+# local source snapshots (pulled via opensrc skill)
+opensrc/
+
 .mcp.json

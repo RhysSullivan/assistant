@@ -267,7 +267,7 @@ describe("JSONC comment stripping", () => {
 }`;
     // We test indirectly via parseAgentConfigContent
     const result = parseAgentConfigContent(jsonc, "test.json", "claude-code");
-    expect(result).resolves.toHaveLength(0); // no mcpServers key
+    expect(result).toHaveLength(0); // no mcpServers key
   });
 
   it("strips block comments", () => {
@@ -277,9 +277,7 @@ describe("JSONC comment stripping", () => {
     "fs": { "command": "node" }
   }
 }`;
-    return expect(parseAgentConfigContent(jsonc, "test.json", "claude-code")).resolves.toHaveLength(
-      1,
-    );
+    expect(parseAgentConfigContent(jsonc, "test.json", "claude-code")).toHaveLength(1);
   });
 
   it("strips trailing commas", () => {
@@ -288,9 +286,7 @@ describe("JSONC comment stripping", () => {
     "fs": { "command": "node", },
   }
 }`;
-    return expect(parseAgentConfigContent(jsonc, "test.json", "claude-code")).resolves.toHaveLength(
-      1,
-    );
+    expect(parseAgentConfigContent(jsonc, "test.json", "claude-code")).toHaveLength(1);
   });
 });
 
@@ -380,10 +376,10 @@ describe("parseAgentConfigContent", () => {
     expect(result).toHaveLength(0);
   });
 
-  it("throws AgentImportError on invalid JSON", async () => {
-    await expect(
-      parseAgentConfigContent("not valid json", "mcp.json", "claude-code"),
-    ).rejects.toThrow("Failed to parse config file");
+  it("throws AgentImportError on invalid JSON", () => {
+    expect(() => parseAgentConfigContent("not valid json", "mcp.json", "claude-code")).toThrow(
+      "Failed to parse config file",
+    );
   });
 
   it("parses goose YAML config", async () => {
