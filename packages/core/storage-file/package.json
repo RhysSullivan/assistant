@@ -15,13 +15,18 @@
     "@effect/sql": "catalog:",
     "@executor/sdk": "workspace:*",
     "@executor/storage-core": "workspace:*",
+    "@executor/storage-drizzle": "workspace:*",
+    "drizzle-orm": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/experimental": "catalog:",
     "@effect/sql-sqlite-node": "catalog:",
     "@effect/vitest": "catalog:",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
+    "better-sqlite3": "^11.8.1",
+    "bun-types": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
