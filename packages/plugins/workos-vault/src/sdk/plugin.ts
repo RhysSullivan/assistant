@@ -1,33 +1,80 @@
 import { Effect } from "effect";
 
-import { definePlugin, type ExecutorPlugin } from "@executor/sdk";
+import { definePlugin } from "@executor/sdk";
 
-import { WORKOS_VAULT_PROVIDER_KEY } from "./secret-store";
+import {
+  makeConfiguredWorkOSVaultClient,
+  type WorkOSVaultClient,
+  type WorkOSVaultCredentials,
+} from "./client";
+import {
+  WORKOS_VAULT_PROVIDER_KEY,
+  makeWorkOSVaultSecretProvider,
+  makeWorkosVaultStore,
+  workosVaultSchema,
+  type WorkosVaultStore,
+} from "./secret-store";
 
-const PLUGIN_KEY = "workosVault";
+// ---------------------------------------------------------------------------
+// Plugin options — either pass a pre-built client (for tests / injection)
+// or the WorkOS credentials to build one at startup. An `objectPrefix`
+// override is available for multi-tenant installations.
+// ---------------------------------------------------------------------------
+
+export interface WorkOSVaultPluginOptions {
+  readonly client?: WorkOSVaultClient;
+  readonly credentials?: WorkOSVaultCredentials;
+  readonly objectPrefix?: string;
+}
 
 export interface WorkOSVaultExtension {
   readonly providerKey: typeof WORKOS_VAULT_PROVIDER_KEY;
 }
 
-export const workosVaultPlugin = (): ExecutorPlugin<typeof PLUGIN_KEY, WorkOSVaultExtension> =>
-  definePlugin({
-    key: PLUGIN_KEY,
-    init: (ctx) =>
-      Effect.gen(function* () {
-        const providers = yield* ctx.secrets.providers();
-        if (!providers.includes(WORKOS_VAULT_PROVIDER_KEY)) {
-          return yield* Effect.fail(
-            new Error(
-              `WorkOS Vault plugin requires the "${WORKOS_VAULT_PROVIDER_KEY}" secret store`,
-            ),
-          );
-        }
+// The plugin's typed store is just its metadata-store wrapper. The
+// secret provider closes over this store plus the resolved WorkOS
+// client + scope id at `secretProviders` time.
+type WorkosVaultPluginStore = WorkosVaultStore;
 
-        return {
-          extension: {
-            providerKey: WORKOS_VAULT_PROVIDER_KEY,
-          },
-        };
-      }),
-  });
+const buildClient = (
+  options: WorkOSVaultPluginOptions | undefined,
+): Effect.Effect<WorkOSVaultClient, Error, never> => {
+  if (options?.client) return Effect.succeed(options.client);
+  if (options?.credentials) {
+    return makeConfiguredWorkOSVaultClient(options.credentials);
+  }
+  return Effect.fail(
+    new Error(
+      "workosVaultPlugin requires either `client` or `credentials` to be provided",
+    ),
+  );
+};
+
+export const workosVaultPlugin = definePlugin(
+  (options?: WorkOSVaultPluginOptions) => ({
+    id: "workosVault" as const,
+    schema: workosVaultSchema,
+    storage: ({ adapter }): WorkosVaultPluginStore =>
+      makeWorkosVaultStore(adapter),
+
+    extension: (_ctx): WorkOSVaultExtension => ({
+      providerKey: WORKOS_VAULT_PROVIDER_KEY,
+    }),
+
+    secretProviders: (ctx) => {
+      // Build (or accept) the WorkOS client once at startup. If
+      // credentials are bad this throws synchronously via Effect.runSync,
+      // which is what we want — the executor fails to start rather
+      // than surfacing bad credentials on first secret access.
+      const client = Effect.runSync(buildClient(options));
+      return [
+        makeWorkOSVaultSecretProvider({
+          client,
+          store: ctx.storage,
+          scopeId: ctx.scope.id,
+          objectPrefix: options?.objectPrefix,
+        }),
+      ];
+    },
+  }),
+);
