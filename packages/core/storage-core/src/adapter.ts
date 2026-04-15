@@ -5,7 +5,7 @@
 
 import type { Effect } from "effect";
 
-import type { DBSchema } from "./schema";
+import type { DBFieldAttribute, DBSchema } from "./schema";
 
 // ---------------------------------------------------------------------------
 // Where clauses
@@ -77,6 +77,22 @@ export type JoinConfig = {
 
 export type DBTransactionAdapter = Omit<DBAdapter, "transaction">;
 
+/**
+ * Result of a `createSchema` call — a chunk of code plus a target path,
+ * matching upstream better-auth. Plugin authors call this when they want
+ * the adapter to generate SQL/migration source for a schema.
+ */
+export type DBAdapterSchemaCreation = {
+  /** Source to write to the file. */
+  code: string;
+  /** Target path (relative to cwd of the developer's project). */
+  path: string;
+  /** Append to the file if it already exists. Ignored when `overwrite` is true. */
+  append?: boolean | undefined;
+  /** Overwrite the file if it already exists. */
+  overwrite?: boolean | undefined;
+};
+
 export type DBAdapter = {
   id: string;
 
@@ -119,7 +135,7 @@ export type DBAdapter = {
       | undefined;
     offset?: number | undefined;
     join?: JoinOption | undefined;
-  }) => Effect.Effect<T[], Error>;
+  }) => Effect.Effect<readonly T[], Error>;
 
   count: (data: {
     model: string;
@@ -153,6 +169,28 @@ export type DBAdapter = {
   transaction: <R, E>(
     callback: (trx: DBTransactionAdapter) => Effect.Effect<R, E>,
   ) => Effect.Effect<R, E | Error>;
+
+  /**
+   * Optional migration-source generator. Forwarded verbatim from the
+   * backend's `CustomAdapter.createSchema`. Plugin authors should guard
+   * with `if (adapter.createSchema)` before calling.
+   */
+  createSchema?:
+    | ((props: {
+        file?: string | undefined;
+        tables: DBSchema;
+      }) => Effect.Effect<DBAdapterSchemaCreation, Error>)
+    | undefined;
+
+  /**
+   * Runtime view of the factory config + the backend adapter's own options.
+   * Upstream uses this so plugins can introspect capability flags (e.g.
+   * "does my adapter support JSON?") without having to thread the config
+   * manually. Populated by `createAdapter`.
+   */
+  options?:
+    | ({ adapterConfig: DBAdapterFactoryConfig } & CustomAdapter["options"])
+    | undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -213,6 +251,18 @@ export interface CustomAdapter {
     where?: CleanedWhere[] | undefined;
   }) => Effect.Effect<number, Error>;
 
+  /**
+   * Optional migration-source generator — plugin authors use this to
+   * produce DDL / SQL for the schema a plugin expects. The factory
+   * forwards this call through to the wrapped `DBAdapter.createSchema`.
+   */
+  createSchema?:
+    | ((props: {
+        file?: string | undefined;
+        tables: DBSchema;
+      }) => Effect.Effect<DBAdapterSchemaCreation, Error>)
+    | undefined;
+
   options?: Record<string, unknown> | undefined;
 }
 
@@ -270,6 +320,51 @@ export interface DBAdapterFactoryConfig {
   mapKeysTransformOutput?: Record<string, string> | undefined;
   /** Override the default id generator (e.g. for backends that need their own scheme). */
   customIdGenerator?: ((props: { model: string }) => string) | undefined;
+  /**
+   * Per-field hook run inside the factory's write-path transform. Called
+   * once per field after the built-in encode step; return value replaces
+   * the field value. Effect-ified from upstream (which returns `any`);
+   * wrap sync values in `Effect.succeed`.
+   */
+  customTransformInput?:
+    | ((props: {
+        data: unknown;
+        fieldAttributes: DBFieldAttribute;
+        field: string;
+        action:
+          | "create"
+          | "update"
+          | "findOne"
+          | "findMany"
+          | "updateMany"
+          | "delete"
+          | "deleteMany"
+          | "count";
+        model: string;
+        schema: DBSchema;
+      }) => Effect.Effect<unknown, Error>)
+    | undefined;
+  /**
+   * Per-field hook run inside the factory's read-path transform. Called
+   * once per returned field after the built-in decode step; return value
+   * replaces the field value.
+   */
+  customTransformOutput?:
+    | ((props: {
+        data: unknown;
+        fieldAttributes: DBFieldAttribute;
+        field: string;
+        select: readonly string[];
+        model: string;
+        schema: DBSchema;
+      }) => Effect.Effect<unknown, Error>)
+    | undefined;
+  /** Escape hatch — skip write-path transform entirely. @default false */
+  disableTransformInput?: boolean | undefined;
+  /** Escape hatch — skip read-path transform entirely. @default false */
+  disableTransformOutput?: boolean | undefined;
+  /** Escape hatch — skip join-path transform entirely. @default false */
+  disableTransformJoin?: boolean | undefined;
 }
 
 // Referenced by some adapter signatures.

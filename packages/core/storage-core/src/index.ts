@@ -13,6 +13,8 @@ export {
 
 export { typedAdapter, type TypedAdapter } from "./typed";
 
+export { createAdapter, type CreateAdapterOptions } from "./factory";
+
 export {
   whereOperators,
   type WhereOperator,
@@ -25,4 +27,5 @@ export {
   type CustomAdapter,
   type DBAdapterDebugLogOption,
   type DBAdapterFactoryConfig,
+  type DBAdapterSchemaCreation,
 } from "./adapter";

@@ -5,6 +5,26 @@ Bereket Engida and contributors, licensed under MIT.
 Modifications were made to remove authentication-specific types and to
 adapt the interfaces to the executor project.
 
+Vendored files:
+  - src/adapter.ts — ported from packages/core/src/db/adapter/index.ts
+    and types.ts (DBAdapter interface, Where DSL, CustomAdapter,
+    DBAdapterFactoryConfig). Promise → Effect conversion, auth-specific
+    model names stripped.
+  - src/schema.ts — ported from packages/core/src/db/type.ts
+    (DBSchema, DBFieldAttribute, InferDB*).
+  - src/factory.ts — ported from packages/core/src/db/adapter/factory.ts
+    (createAdapterFactory). Promise → Effect. Stripped auth-specific
+    concerns: BetterAuthOptions generic, numeric serial ids, joins,
+    telemetry spans, logger, plural model resolution. Matches our
+    simpler CustomAdapter + DBAdapterFactoryConfig shape.
+  - src/testing/memory.ts — ported from
+    packages/memory-adapter/src/memory-adapter.ts (memoryAdapter).
+    Promise → Effect. Piped through our createAdapter.
+  - storage-drizzle/src/adapter.ts — ported from
+    packages/drizzle-adapter/src/drizzle-adapter.ts (drizzleAdapter).
+    Promise → Effect. Takes an explicit tables map instead of reading
+    db._.fullSchema. Piped through our createAdapter.
+
 -------------------------------------------------------------------------------
 
 The MIT License (MIT)
