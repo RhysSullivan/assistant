@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
+import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
+
+import { SecretPicker } from "@executor/react/plugins/secret-picker";
 import { useScope } from "@executor/react/api/scope-context";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import {
@@ -33,12 +36,25 @@ import {
   NativeSelectOption,
 } from "@executor/react/components/native-select";
 import { Textarea } from "@executor/react/components/textarea";
+import { Checkbox } from "@executor/react/components/checkbox";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
-import { previewOpenApiSpec, addOpenApiSpec } from "./atoms";
-import type { SpecPreview, HeaderPreset } from "../sdk/preview";
-import type { HeaderValue, ServerInfo, ServerVariable } from "../sdk/types";
+import {
+  addOpenApiSpec,
+  previewOpenApiSpec,
+  startOpenApiOAuth,
+} from "./atoms";
+import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
+import {
+  OAuth2Auth,
+  type HeaderValue,
+  type ServerInfo,
+  type ServerVariable,
+} from "../sdk/types";
+
+const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
+const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
 
 const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
   let out = url;
@@ -46,6 +62,37 @@ const substituteUrlVariables = (url: string, values: Record<string, string>): st
     out = out.replaceAll(`{${name}}`, value);
   }
   return out;
+};
+
+type StrategySelection =
+  | { readonly kind: "none" }
+  | { readonly kind: "custom" }
+  | { readonly kind: "header"; readonly presetIndex: number }
+  | { readonly kind: "oauth2"; readonly presetIndex: number };
+
+const serializeStrategy = (s: StrategySelection): string => {
+  switch (s.kind) {
+    case "none":
+      return "none";
+    case "custom":
+      return "custom";
+    case "header":
+      return `header:${s.presetIndex}`;
+    case "oauth2":
+      return `oauth2:${s.presetIndex}`;
+  }
+};
+
+const parseStrategy = (value: string): StrategySelection => {
+  if (value === "none") return { kind: "none" };
+  if (value === "custom") return { kind: "custom" };
+  if (value.startsWith("header:")) {
+    return { kind: "header", presetIndex: Number(value.slice("header:".length)) };
+  }
+  if (value.startsWith("oauth2:")) {
+    return { kind: "oauth2", presetIndex: Number(value.slice("oauth2:".length)) };
+  }
+  return { kind: "none" };
 };
 
 // ---------------------------------------------------------------------------
@@ -102,10 +149,19 @@ export default function AddOpenApiSource(props: {
   });
 
   // Auth
-  // `selectedStrategy` is an index into `preview.headerPresets`, or -1 for
-  // "None", or -2 for "Custom" (user-managed headers, no spec preset).
-  const [selectedStrategy, setSelectedStrategy] = useState<number>(-1);
+  const [strategy, setStrategy] = useState<StrategySelection>({ kind: "none" });
   const [customHeaders, setCustomHeaders] = useState<HeaderState[]>([]);
+
+  // OAuth2 state (only populated while an oauth2 preset is selected)
+  const [oauth2ClientIdSecretId, setOauth2ClientIdSecretId] = useState<string | null>(null);
+  const [oauth2ClientSecretSecretId, setOauth2ClientSecretSecretId] = useState<string | null>(
+    null,
+  );
+  const [oauth2SelectedScopes, setOauth2SelectedScopes] = useState<Set<string>>(new Set());
+  const [oauth2Auth, setOauth2Auth] = useState<OAuth2Auth | null>(null);
+  const [startingOAuth, setStartingOAuth] = useState(false);
+  const [oauth2Error, setOauth2Error] = useState<string | null>(null);
+  const oauthCleanup = useRef<(() => void) | null>(null);
 
   // Submit
   const [adding, setAdding] = useState(false);
@@ -114,6 +170,7 @@ export default function AddOpenApiSource(props: {
   const scopeId = useScope();
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
   const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
 
   // Keep the latest handleAnalyze in a ref so the debounced effect doesn't
@@ -197,10 +254,18 @@ export default function AddOpenApiSource(props: {
 
   const customHeadersValid = customHeaders.every((ch) => ch.name.trim() && ch.secretId);
 
+  const oauth2Presets: readonly OAuth2Preset[] = preview?.oauth2Presets ?? [];
+  const selectedOAuth2Preset: OAuth2Preset | null =
+    strategy.kind === "oauth2" ? (oauth2Presets[strategy.presetIndex] ?? null) : null;
+
+  const oauth2Ready =
+    strategy.kind !== "oauth2" || oauth2Auth !== null;
+
   const canAdd =
     preview !== null &&
     resolvedBaseUrl.length > 0 &&
-    (customHeaders.length === 0 || customHeadersValid);
+    (customHeaders.length === 0 || customHeadersValid) &&
+    oauth2Ready;
 
   // ---- Handlers ----
 
@@ -228,10 +293,10 @@ export default function AddOpenApiSource(props: {
 
       const firstPreset = result.headerPresets[0];
       if (firstPreset) {
-        setSelectedStrategy(0);
+        setStrategy({ kind: "header", presetIndex: 0 });
         setCustomHeaders(entriesFromSpecPreset(firstPreset));
       } else {
-        setSelectedStrategy(-1);
+        setStrategy({ kind: "none" });
         setCustomHeaders([]);
       }
     } catch (e) {
@@ -243,32 +308,150 @@ export default function AddOpenApiSource(props: {
 
   handleAnalyzeRef.current = handleAnalyze;
 
-  const selectStrategy = (index: number) => {
-    setSelectedStrategy(index);
-    if (index === -1) {
-      setCustomHeaders([]);
-      return;
+  const selectStrategy = (next: StrategySelection) => {
+    setStrategy(next);
+    // Clear any stale OAuth grant whenever the strategy changes away from oauth2.
+    if (next.kind !== "oauth2") {
+      setOauth2Auth(null);
+      setOauth2Error(null);
     }
-    if (index === -2) {
-      // Drop preset-derived headers, keep user headers (seed one if empty).
-      const userHeaders = customHeaders.filter((h) => !h.fromPreset);
-      setCustomHeaders(userHeaders.length > 0 ? userHeaders : []);
-      return;
+    switch (next.kind) {
+      case "none":
+        setCustomHeaders([]);
+        return;
+      case "custom": {
+        const userHeaders = customHeaders.filter((h) => !h.fromPreset);
+        setCustomHeaders(userHeaders.length > 0 ? userHeaders : []);
+        return;
+      }
+      case "header": {
+        const preset = preview?.headerPresets[next.presetIndex];
+        if (!preset) return;
+        const userHeaders = customHeaders.filter((h) => !h.fromPreset);
+        setCustomHeaders([...entriesFromSpecPreset(preset), ...userHeaders]);
+        return;
+      }
+      case "oauth2": {
+        setCustomHeaders([]);
+        const preset = preview?.oauth2Presets[next.presetIndex];
+        if (preset) {
+          setOauth2SelectedScopes(new Set(Object.keys(preset.scopes)));
+        }
+        return;
+      }
     }
-    const preset = preview?.headerPresets[index];
-    if (!preset) return;
-    const userHeaders = customHeaders.filter((h) => !h.fromPreset);
-    setCustomHeaders([...entriesFromSpecPreset(preset), ...userHeaders]);
   };
 
   const handleHeadersChange = (next: HeaderState[]) => {
     setCustomHeaders(next);
-    // If user drops all preset-derived headers and adds their own, mark as
-    // Custom so the strategy picker reflects it.
-    if (selectedStrategy >= 0 && next.every((h) => !h.fromPreset)) {
-      setSelectedStrategy(next.length === 0 ? -1 : -2);
+    if (strategy.kind === "header" && next.every((h) => !h.fromPreset)) {
+      setStrategy(next.length === 0 ? { kind: "none" } : { kind: "custom" });
     }
   };
+
+  const toggleOAuth2Scope = (scope: string) => {
+    setOauth2SelectedScopes((prev) => {
+      const copy = new Set(prev);
+      if (copy.has(scope)) copy.delete(scope);
+      else copy.add(scope);
+      return copy;
+    });
+    // Changing scopes invalidates any previously-granted token.
+    setOauth2Auth(null);
+  };
+
+  const handleConnectOAuth2 = useCallback(async () => {
+    if (!selectedOAuth2Preset || !oauth2ClientIdSecretId || !preview) return;
+    oauthCleanup.current?.();
+    oauthCleanup.current = null;
+    setStartingOAuth(true);
+    setOauth2Error(null);
+    try {
+      const displayName =
+        identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
+
+      const response = await doStartOAuth({
+        path: { scopeId },
+        payload: {
+          displayName,
+          securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+          flow: "authorizationCode",
+          authorizationUrl: Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+          tokenUrl: selectedOAuth2Preset.tokenUrl,
+          redirectUrl: `${window.location.origin}/api/openapi/oauth/callback`,
+          clientIdSecretId: oauth2ClientIdSecretId,
+          clientSecretSecretId: oauth2ClientSecretSecretId,
+          scopes: [...oauth2SelectedScopes],
+        },
+      });
+
+      oauthCleanup.current = openOAuthPopup<OAuth2Auth>({
+        url: response.authorizationUrl,
+        popupName: OPENAPI_OAUTH_POPUP_NAME,
+        channelName: OPENAPI_OAUTH_CHANNEL,
+        onResult: (result: OAuthPopupResult<OAuth2Auth>) => {
+          oauthCleanup.current = null;
+          setStartingOAuth(false);
+          if (result.ok) {
+            // The popup payload is an OAuthPopupResult wrapping the
+            // backend's OAuth2Auth descriptor; strip the envelope and
+            // reconstruct the OAuth2Auth class instance for type safety.
+            setOauth2Auth(
+              new OAuth2Auth({
+                kind: "oauth2",
+                securitySchemeName: result.securitySchemeName,
+                flow: result.flow,
+                tokenUrl: result.tokenUrl,
+                clientIdSecretId: result.clientIdSecretId,
+                clientSecretSecretId: result.clientSecretSecretId,
+                accessTokenSecretId: result.accessTokenSecretId,
+                refreshTokenSecretId: result.refreshTokenSecretId,
+                tokenType: result.tokenType,
+                expiresAt: result.expiresAt,
+                scope: result.scope,
+                scopes: [...result.scopes],
+              }),
+            );
+            setOauth2Error(null);
+          } else {
+            setOauth2Error(result.error);
+          }
+        },
+        onClosed: () => {
+          // User closed the popup without completing the flow.
+          oauthCleanup.current = null;
+          setStartingOAuth(false);
+          setOauth2Error("OAuth cancelled — popup was closed before completing the flow.");
+        },
+        onOpenFailed: () => {
+          oauthCleanup.current = null;
+          setStartingOAuth(false);
+          setOauth2Error("OAuth popup was blocked by the browser");
+        },
+      });
+    } catch (e) {
+      setStartingOAuth(false);
+      setOauth2Error(e instanceof Error ? e.message : "Failed to start OAuth");
+    }
+  }, [
+    selectedOAuth2Preset,
+    oauth2ClientIdSecretId,
+    oauth2ClientSecretSecretId,
+    oauth2SelectedScopes,
+    preview,
+    doStartOAuth,
+    scopeId,
+    identity.name,
+  ]);
+
+  const handleCancelOAuth2 = useCallback(() => {
+    oauthCleanup.current?.();
+    oauthCleanup.current = null;
+    setStartingOAuth(false);
+    setOauth2Error(null);
+  }, []);
+
+  useEffect(() => () => oauthCleanup.current?.(), []);
 
   const handleAdd = async () => {
     setAdding(true);
@@ -282,6 +465,7 @@ export default function AddOpenApiSource(props: {
           namespace: slugifyNamespace(identity.namespace) || undefined,
           baseUrl: resolvedBaseUrl || undefined,
           ...(hasHeaders ? { headers: allHeaders } : {}),
+          ...(oauth2Auth ? { oauth2: oauth2Auth } : {}),
         },
       });
       props.onComplete();
@@ -315,7 +499,9 @@ export default function AddOpenApiSource(props: {
                     setCustomBaseUrl("");
                     setVariableSelections({});
                     setCustomHeaders([]);
-                    setSelectedStrategy(-1);
+                    setStrategy({ kind: "none" });
+                    setOauth2Auth(null);
+                    setOauth2Error(null);
                   }
                 }}
                 placeholder="https://api.example.com/openapi.json"
@@ -520,60 +706,196 @@ export default function AddOpenApiSource(props: {
 
           <section className="space-y-2.5">
             <FieldLabel>Authentication</FieldLabel>
-            {preview.headerPresets.length > 0 && (
+            {(preview.headerPresets.length > 0 || oauth2Presets.length > 0) && (
               <RadioGroup
-                value={String(selectedStrategy)}
-                onValueChange={(value) => selectStrategy(Number(value))}
+                value={serializeStrategy(strategy)}
+                onValueChange={(value) => selectStrategy(parseStrategy(value))}
                 className="gap-1.5"
               >
-                {preview.headerPresets.map((preset, i) => (
-                  <Label
-                    key={i}
-                    className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                      selectedStrategy === i
-                        ? "border-primary/50 bg-primary/[0.03]"
-                        : "border-border hover:bg-accent/50"
-                    }`}
-                  >
-                    <RadioGroupItem value={String(i)} className="mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium text-foreground">{preset.label}</div>
-                      {preset.secretHeaders.length > 0 && (
-                        <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                          {preset.secretHeaders.join(" · ")}
+                {preview.headerPresets.map((preset, i) => {
+                  const selected =
+                    strategy.kind === "header" && strategy.presetIndex === i;
+                  return (
+                    <Label
+                      key={`header-${i}`}
+                      className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                        selected
+                          ? "border-primary/50 bg-primary/[0.03]"
+                          : "border-border hover:bg-accent/50"
+                      }`}
+                    >
+                      <RadioGroupItem value={`header:${i}`} className="mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium text-foreground">{preset.label}</div>
+                        {preset.secretHeaders.length > 0 && (
+                          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                            {preset.secretHeaders.join(" · ")}
+                          </div>
+                        )}
+                      </div>
+                    </Label>
+                  );
+                })}
+                {oauth2Presets.map((preset, i) => {
+                  const selected =
+                    strategy.kind === "oauth2" && strategy.presetIndex === i;
+                  const scopeCount = Object.keys(preset.scopes).length;
+                  return (
+                    <Label
+                      key={`oauth2-${i}`}
+                      className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                        selected
+                          ? "border-primary/50 bg-primary/[0.03]"
+                          : "border-border hover:bg-accent/50"
+                      }`}
+                    >
+                      <RadioGroupItem value={`oauth2:${i}`} className="mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium text-foreground">{preset.label}</div>
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">
+                          {scopeCount} scope{scopeCount === 1 ? "" : "s"}
                         </div>
-                      )}
-                    </div>
-                  </Label>
-                ))}
+                      </div>
+                    </Label>
+                  );
+                })}
                 <Label
                   className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                    selectedStrategy === -2
+                    strategy.kind === "custom"
                       ? "border-primary/50 bg-primary/[0.03]"
                       : "border-border hover:bg-accent/50"
                   }`}
                 >
-                  <RadioGroupItem value="-2" />
+                  <RadioGroupItem value="custom" />
                   <span className="text-xs font-medium text-foreground">Custom</span>
                 </Label>
                 <Label
                   className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                    selectedStrategy === -1
+                    strategy.kind === "none"
                       ? "border-primary/50 bg-primary/[0.03]"
                       : "border-border hover:bg-accent/50"
                   }`}
                 >
-                  <RadioGroupItem value="-1" />
+                  <RadioGroupItem value="none" />
                   <span className="text-xs font-medium text-foreground">None</span>
                 </Label>
               </RadioGroup>
             )}
-            {(preview.headerPresets.length === 0 || selectedStrategy !== -1) && (
+
+            {/* Header-based auth input */}
+            {strategy.kind !== "none" && strategy.kind !== "oauth2" && (
               <HeadersList
                 headers={customHeaders}
                 onHeadersChange={handleHeadersChange}
                 existingSecrets={secretList}
               />
+            )}
+
+            {/* OAuth2 configuration */}
+            {selectedOAuth2Preset && (
+              <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-3">
+                <div className="space-y-1.5">
+                  <FieldLabel className="text-[11px]">Client ID secret</FieldLabel>
+                  <SecretPicker
+                    value={oauth2ClientIdSecretId}
+                    onSelect={(id: string) => {
+                      setOauth2ClientIdSecretId(id);
+                      setOauth2Auth(null);
+                    }}
+                    secrets={secretList}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <FieldLabel className="text-[11px]">
+                    Client secret{" "}
+                    <span className="text-muted-foreground">
+                      · optional for public clients with PKCE
+                    </span>
+                  </FieldLabel>
+                  <SecretPicker
+                    value={oauth2ClientSecretSecretId}
+                    onSelect={(id: string) => {
+                      setOauth2ClientSecretSecretId(id);
+                      setOauth2Auth(null);
+                    }}
+                    secrets={secretList}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <FieldLabel className="text-[11px]">Scopes</FieldLabel>
+                  <div className="space-y-1 rounded-md border border-border/50 bg-background/50 p-2">
+                    {Object.keys(selectedOAuth2Preset.scopes).length === 0 ? (
+                      <div className="text-[11px] italic text-muted-foreground">
+                        No scopes declared by the spec.
+                      </div>
+                    ) : (
+                      Object.entries(selectedOAuth2Preset.scopes).map(([scope, description]) => (
+                        <Label
+                          key={scope}
+                          className="flex items-start gap-2 cursor-pointer py-1"
+                        >
+                          <Checkbox
+                            checked={oauth2SelectedScopes.has(scope)}
+                            onCheckedChange={() => toggleOAuth2Scope(scope)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-[11px] text-foreground">{scope}</div>
+                            {description && (
+                              <div className="text-[10px] text-muted-foreground">
+                                {description}
+                              </div>
+                            )}
+                          </div>
+                        </Label>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {oauth2Auth ? (
+                  <div className="flex items-center justify-between rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2">
+                    <div className="text-[11px] text-green-700 dark:text-green-400">
+                      Connected · {oauth2Auth.scopes.length} scope
+                      {oauth2Auth.scopes.length === 1 ? "" : "s"} granted
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setOauth2Auth(null)}
+                    >
+                      Disconnect
+                    </Button>
+                  </div>
+                ) : startingOAuth ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-1 items-center gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2 text-[11px] text-muted-foreground">
+                      <Spinner className="size-3.5" />
+                      Waiting for OAuth… complete the flow in the popup, or cancel to retry.
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={handleCancelOAuth2}>
+                      Cancel
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={handleConnectOAuth2}>
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    onClick={handleConnectOAuth2}
+                    disabled={!oauth2ClientIdSecretId || resolvedBaseUrl.length === 0}
+                    className="w-full"
+                  >
+                    Connect via OAuth
+                  </Button>
+                )}
+
+                {oauth2Error && (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+                    <p className="text-[11px] text-destructive">{oauth2Error}</p>
+                  </div>
+                )}
+              </div>
             )}
           </section>
 
