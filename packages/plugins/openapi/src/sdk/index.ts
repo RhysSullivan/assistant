@@ -22,7 +22,12 @@ export {
   PreviewOperation,
   SpecPreview,
 } from "./preview";
-export { DocResolver, resolveBaseUrl, preferredContent } from "./openapi-utils";
+export {
+  DocResolver,
+  resolveBaseUrl,
+  substituteUrlVariables,
+  preferredContent,
+} from "./openapi-utils";
 
 export { OpenApiParseError, OpenApiExtractionError, OpenApiInvocationError } from "./errors";
 
@@ -37,6 +42,7 @@ export {
   OperationParameter,
   OperationRequestBody,
   ServerInfo,
+  ServerVariable,
   OperationId,
   HttpMethod,
   ParameterLocation,

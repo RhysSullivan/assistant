@@ -20,6 +20,7 @@ import {
   OperationRequestBody,
   type ParameterLocation,
   ServerInfo,
+  ServerVariable,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -177,14 +178,31 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
     if (!server.url) return [];
     const vars = server.variables
       ? Object.fromEntries(
-          Object.entries(server.variables).flatMap(([name, v]) =>
-            v.default ? [[name, v.default]] : [],
-          ),
+          Object.entries(server.variables).flatMap(([name, v]) => {
+            if (v.default === undefined || v.default === null) return [];
+            const enumValues = Array.isArray(v.enum)
+              ? v.enum.filter((x): x is string => typeof x === "string")
+              : undefined;
+            return [
+              [
+                name,
+                new ServerVariable({
+                  default: String(v.default),
+                  enum:
+                    enumValues && enumValues.length > 0
+                      ? Option.some(enumValues)
+                      : Option.none(),
+                  description: Option.fromNullable(v.description),
+                }),
+              ],
+            ];
+          }),
         )
       : undefined;
     return [
       new ServerInfo({
         url: server.url,
+        description: Option.fromNullable(server.description),
         variables: vars && Object.keys(vars).length > 0 ? Option.some(vars) : Option.none(),
       }),
     ];

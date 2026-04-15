@@ -63,9 +63,16 @@ export class ExtractedOperation extends Schema.Class<ExtractedOperation>("Extrac
   deprecated: Schema.optionalWith(Schema.Boolean, { default: () => false }),
 }) {}
 
+export class ServerVariable extends Schema.Class<ServerVariable>("ServerVariable")({
+  default: Schema.String,
+  enum: Schema.optionalWith(Schema.Array(Schema.String), { as: "Option" }),
+  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+}) {}
+
 export class ServerInfo extends Schema.Class<ServerInfo>("ServerInfo")({
   url: Schema.String,
-  variables: Schema.optionalWith(Schema.Record({ key: Schema.String, value: Schema.String }), {
+  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  variables: Schema.optionalWith(Schema.Record({ key: Schema.String, value: ServerVariable }), {
     as: "Option",
   }),
 }) {}

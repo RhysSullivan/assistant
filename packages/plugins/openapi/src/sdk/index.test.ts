@@ -160,4 +160,98 @@ describe("OpenAPI plugin", () => {
       expect(paths).toContain("pets.getPet");
     }),
   );
+
+  it.effect("extracts server variables with enum and description", () =>
+    Effect.gen(function* () {
+      const specWithServerVars = {
+        openapi: "3.0.0",
+        info: { title: "Sentry", version: "1.0.0" },
+        servers: [
+          {
+            url: "https://{region}.sentry.io",
+            description: "Regional endpoint",
+            variables: {
+              region: {
+                default: "us",
+                description: "The data-storage-location for an organization",
+                enum: ["us", "de"],
+              },
+            },
+          },
+        ],
+        paths: {
+          "/ping": { get: { responses: { "200": { description: "ok" } } } },
+        },
+      };
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      const doc = yield* parse(JSON.stringify(specWithServerVars));
+      const result = yield* extract(doc);
+
+      expect(result.servers).toHaveLength(1);
+      const server = result.servers[0]!;
+      expect(server.url).toBe("https://{region}.sentry.io");
+      expect(Option.getOrElse(server.description, () => "")).toBe("Regional endpoint");
+
+      const vars = Option.getOrThrow(server.variables);
+      expect(vars.region!.default).toBe("us");
+      expect(
+        Option.getOrElse(vars.region!.enum, () => [] as readonly string[]),
+      ).toEqual(["us", "de"]);
+      expect(Option.getOrElse(vars.region!.description, () => "")).toBe(
+        "The data-storage-location for an organization",
+      );
+    }),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Server variable extraction
+// ---------------------------------------------------------------------------
+
+describe("extract — server variables", () => {
+  const specWithServerVars = {
+    openapi: "3.0.0",
+    info: { title: "Test", version: "1.0.0" },
+    servers: [
+      {
+        url: "https://{region}.example.com/{basePath}",
+        description: "Regional endpoint",
+        variables: {
+          region: {
+            default: "us",
+            enum: ["us", "eu", "ap"],
+            description: "Data region",
+          },
+          basePath: { default: "v1" },
+        },
+      },
+    ],
+    paths: {
+      "/ping": { get: { responses: { "200": { description: "ok" } } } },
+    },
+  };
+
+  it.effect("preserves enum, default, and description for server variables", () =>
+    Effect.gen(function* () {
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      const doc = yield* parse(JSON.stringify(specWithServerVars));
+      const result = yield* extract(doc);
+
+      expect(result.servers).toHaveLength(1);
+      const server = result.servers[0]!;
+      expect(server.url).toBe("https://{region}.example.com/{basePath}");
+      expect(Option.getOrNull(server.description)).toBe("Regional endpoint");
+
+      const vars = Option.getOrNull(server.variables);
+      expect(vars).not.toBeNull();
+      const region = vars!.region!;
+      expect(region.default).toBe("us");
+      expect(Option.getOrNull(region.enum)).toEqual(["us", "eu", "ap"]);
+      expect(Option.getOrNull(region.description)).toBe("Data region");
+
+      const basePath = vars!.basePath!;
+      expect(basePath.default).toBe("v1");
+      expect(Option.isNone(basePath.enum)).toBe(true);
+    }),
+  );
 });

@@ -54,22 +54,36 @@ const isRef = (value: unknown): value is { $ref: string } =>
 // Server URL resolution
 // ---------------------------------------------------------------------------
 
-export const resolveBaseUrl = (
-  servers: readonly {
-    url: string;
-    variables: import("effect/Option").Option<Record<string, string>>;
-  }[],
+/** Substitute `{var}` placeholders in a templated URL using a plain map. */
+export const substituteUrlVariables = (
+  url: string,
+  values: Record<string, string>,
 ): string => {
+  let out = url;
+  for (const [name, value] of Object.entries(values)) {
+    out = out.replaceAll(`{${name}}`, value);
+  }
+  return out;
+};
+
+type ServerLike = {
+  url: string;
+  variables: import("effect/Option").Option<
+    Record<string, { default: string } | string>
+  >;
+};
+
+export const resolveBaseUrl = (servers: readonly ServerLike[]): string => {
   const server = servers[0];
   if (!server) return "";
 
-  let url = server.url;
-  if (Option.isSome(server.variables)) {
-    for (const [name, value] of Object.entries(server.variables.value)) {
-      url = url.replaceAll(`{${name}}`, value);
-    }
+  if (!Option.isSome(server.variables)) return server.url;
+
+  const values: Record<string, string> = {};
+  for (const [name, v] of Object.entries(server.variables.value)) {
+    values[name] = typeof v === "string" ? v : v.default;
   }
-  return url;
+  return substituteUrlVariables(server.url, values);
 };
 
 // ---------------------------------------------------------------------------
