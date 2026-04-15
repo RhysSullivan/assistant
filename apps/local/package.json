@@ -17,8 +17,6 @@
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
-    "@effect/sql": "catalog:",
-    "@effect/sql-sqlite-bun": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/config": "workspace:*",
     "@executor/execution": "workspace:*",
@@ -35,6 +33,7 @@
     "@executor/storage-file": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tanstack/react-router": "catalog:",
+    "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"

@@ -1,6 +1,6 @@
-import { Effect, Layer, ManagedRuntime, Context } from "effect";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
-import * as SqlClient from "@effect/sql/SqlClient";
+import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { homedir } from "node:os";
@@ -25,32 +25,19 @@ import { keychainPlugin } from "@executor/plugin-keychain";
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 import { onepasswordPlugin } from "@executor/plugin-onepassword";
 
-// ---------------------------------------------------------------------------
-// Data directory
-// ---------------------------------------------------------------------------
-
 const resolveDbPath = (): string => {
   const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
   fs.mkdirSync(dataDir, { recursive: true });
   return `${dataDir}/data.db`;
 };
 
-// Derive a URL-safe scope id from a folder path. Format:
-// `${basename(cwd)}-${shortSha256}` — same as the pre-rewrite code. The
-// hash suffix makes collisions between folders with the same basename
-// structurally impossible.
+// Hash suffix disambiguates same-basename folders so two projects with
+// identical directory names can't collide on the same scope id.
 const makeScopeId = (cwd: string): string => {
   const folder = basename(cwd) || cwd;
   const hash = createHash("sha256").update(cwd).digest("hex").slice(0, 8);
   return `${folder}-${hash}`;
 };
-
-// ---------------------------------------------------------------------------
-// Plugin list — one place, used for both the layer and type inference.
-// The plugins themselves take no configuration at construction time in
-// the new SDK shape; storage is injected via the executor's
-// `{ adapter, blobs }` seam instead of per-plugin KV options.
-// ---------------------------------------------------------------------------
 
 const createLocalPlugins = () =>
   [
@@ -72,22 +59,22 @@ class LocalExecutorTag extends Context.Tag("@executor/local/Executor")<
 
 export type LocalExecutor = Context.Tag.Service<typeof LocalExecutorTag>;
 
-// ---------------------------------------------------------------------------
-// Layer — SQLite-backed, keeps connection alive via ManagedRuntime
-// ---------------------------------------------------------------------------
-
 const createLocalExecutorLayer = () => {
   const dbPath = resolveDbPath();
 
-  return Layer.effect(
+  return Layer.scoped(
     LocalExecutorTag,
     Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
+      const sqlite = yield* Effect.acquireRelease(
+        Effect.sync(() => new Database(dbPath)),
+        (conn) => Effect.sync(() => conn.close()),
+      );
+      const db = drizzle(sqlite);
 
       const plugins = createLocalPlugins();
       const schema = collectSchemas(plugins);
-      const adapter = yield* makeSqliteAdapter({ sql, schema });
-      const blobs = yield* makeSqliteBlobStore(sql);
+      const adapter = yield* makeSqliteAdapter({ db, schema });
+      const blobs = yield* makeSqliteBlobStore({ db });
 
       const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
       const scope = new Scope({
@@ -103,12 +90,8 @@ const createLocalExecutorLayer = () => {
         plugins,
       });
     }),
-  ).pipe(Layer.provide(SqliteClient.layer({ filename: dbPath })));
+  );
 };
-
-// ---------------------------------------------------------------------------
-// Handle — keeps runtime alive, returns fully typed executor
-// ---------------------------------------------------------------------------
 
 export const createExecutorHandle = async () => {
   const layer = createLocalExecutorLayer();
