@@ -1,25 +1,11 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 
-import { withRefreshedAccessToken } from "@executor/plugin-oauth2";
-
-import {
-  type ToolId,
-  type ToolInvoker,
-  ToolInvocationResult,
-  ToolInvocationError,
-  type ScopeId,
-  type SecretId,
-} from "@executor/sdk";
-
 import { OpenApiInvocationError } from "./errors";
-import type { OpenApiOperationStore } from "./operation-store";
 import {
   type HeaderValue,
   type OperationBinding,
-  InvocationConfig,
   InvocationResult,
-  OAuth2Auth,
   type OperationParameter,
 } from "./types";
 
@@ -60,7 +46,6 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
 ) {
   let resolved = pathTemplate;
 
-  // Resolve declared path parameters
   for (const param of parameters) {
     if (param.location !== "path") continue;
     const value = readParamValue(args, param);
@@ -76,8 +61,6 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
     resolved = resolved.replaceAll(`{${param.name}}`, encodeURIComponent(String(value)));
   }
 
-  // Resolve remaining placeholders from raw args (handles specs that
-  // don't explicitly list path parameters)
   const remaining = [...resolved.matchAll(/\{([^{}]+)\}/g)]
     .map((m) => m[1])
     .filter((v): v is string => typeof v === "string");
@@ -107,29 +90,24 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
 // Header resolution — resolves secret refs at invocation time
 // ---------------------------------------------------------------------------
 
-const resolveHeaders = (
+export const resolveHeaders = (
   headers: Record<string, HeaderValue>,
-  secrets: {
-    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
-  },
-  scopeId: ScopeId,
-): Effect.Effect<Record<string, string>, ToolInvocationError> =>
+  secrets: { readonly get: (id: string) => Effect.Effect<string | null, Error> },
+): Effect.Effect<Record<string, string>, Error> =>
   Effect.gen(function* () {
     const resolved: Record<string, string> = {};
     for (const [name, value] of Object.entries(headers)) {
       if (typeof value === "string") {
         resolved[name] = value;
       } else {
-        const secret = yield* secrets.resolve(value.secretId as SecretId, scopeId).pipe(
-          Effect.mapError(
-            () =>
-              new ToolInvocationError({
-                toolId: "" as ToolId,
-                message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
-                cause: undefined,
-              }),
-          ),
-        );
+        const secret = yield* secrets.get(value.secretId);
+        if (secret === null) {
+          return yield* Effect.fail(
+            new Error(
+              `Failed to resolve secret "${value.secretId}" for header "${name}"`,
+            ),
+          );
+        }
         resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
       }
     }
@@ -160,16 +138,13 @@ const isJsonContentType = (ct: string | null | undefined): boolean => {
 };
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public API — invoke a single operation
 // ---------------------------------------------------------------------------
 
-/** Invoke an OpenAPI operation binding. Requires HttpClient in the context. */
 export const invoke = Effect.fn("OpenApi.invoke")(function* (
   operation: OperationBinding,
   args: Record<string, unknown>,
-  config: InvocationConfig,
-  /** Pre-resolved headers (secrets already resolved) */
-  resolvedHeaders?: Record<string, string>,
+  resolvedHeaders: Record<string, string>,
 ) {
   const client = yield* HttpClient.HttpClient;
 
@@ -177,10 +152,8 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 
   const path = resolvedPath.startsWith("/") ? resolvedPath : `/${resolvedPath}`;
 
-  // Build the base request — use just the path; baseUrl is applied to the client
   let request = HttpClientRequest.make(operation.method.toUpperCase() as "GET")(path);
 
-  // Query parameters
   for (const param of operation.parameters) {
     if (param.location !== "query") continue;
     const value = readParamValue(args, param);
@@ -188,7 +161,6 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     request = HttpClientRequest.setUrlParam(request, param.name, String(value));
   }
 
-  // Header parameters
   for (const param of operation.parameters) {
     if (param.location !== "header") continue;
     const value = readParamValue(args, param);
@@ -196,7 +168,6 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     request = HttpClientRequest.setHeader(request, param.name, String(value));
   }
 
-  // Request body
   if (Option.isSome(operation.requestBody)) {
     const rb = operation.requestBody.value;
     const bodyValue = args.body ?? args.input;
@@ -209,10 +180,8 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     }
   }
 
-  // Static headers (auth, custom headers, etc.) — use pre-resolved if available
-  request = applyHeaders(request, resolvedHeaders ?? {});
+  request = applyHeaders(request, resolvedHeaders);
 
-  // Execute
   const response = yield* client.execute(request).pipe(
     Effect.mapError(
       (err) =>
@@ -227,7 +196,6 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   const status = response.status;
   const responseHeaders: Record<string, string> = { ...response.headers };
 
-  // Decode body
   const contentType = response.headers["content-type"] ?? null;
   const responseBody: unknown =
     status === 204
@@ -247,212 +215,42 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 });
 
 // ---------------------------------------------------------------------------
-// ToolInvoker — bridges operation store + HTTP client into SDK invoker
+// Invoke with a provided HttpClient layer + optional baseUrl prefix
+// ---------------------------------------------------------------------------
+
+export const invokeWithLayer = (
+  operation: OperationBinding,
+  args: Record<string, unknown>,
+  baseUrl: string,
+  resolvedHeaders: Record<string, string>,
+  httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
+): Effect.Effect<InvocationResult, Error> => {
+  const clientWithBaseUrl = baseUrl
+    ? Layer.effect(
+        HttpClient.HttpClient,
+        Effect.map(
+          HttpClient.HttpClient,
+          HttpClient.mapRequest(HttpClientRequest.prependUrl(baseUrl)),
+        ),
+      ).pipe(Layer.provide(httpClientLayer))
+    : httpClientLayer;
+
+  return invoke(operation, args, resolvedHeaders).pipe(Effect.provide(clientWithBaseUrl));
+};
+
+// ---------------------------------------------------------------------------
+// Derive annotations from HTTP method
 // ---------------------------------------------------------------------------
 
 const SAFE_METHODS = new Set(["get", "head", "options"]);
 
-/**
- * Derive tool annotations from the HTTP method and path.
- */
 export const annotationsForOperation = (
   method: string,
   pathTemplate: string,
-): {
-  requiresApproval?: boolean;
-  approvalDescription?: string;
-} => {
+): { requiresApproval?: boolean; approvalDescription?: string } => {
   if (SAFE_METHODS.has(method.toLowerCase())) return {};
   return {
     requiresApproval: true,
     approvalDescription: `${method.toUpperCase()} ${pathTemplate}`,
   };
 };
-
-type SecretsIO = {
-  readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
-  readonly set: (input: {
-    readonly id: SecretId;
-    readonly scopeId: ScopeId;
-    readonly name: string;
-    readonly value: string;
-    readonly purpose?: string;
-  }) => Effect.Effect<unknown, unknown>;
-};
-
-/**
- * Resolve an OAuth2 auth descriptor to a current access-token string,
- * refreshing via the token endpoint first if it's within the skew window.
- * Persists refreshed tokens + expiry back to the source config in place.
- */
-const resolveOAuthAccessToken = (input: {
-  readonly toolId: ToolId;
-  readonly source: {
-    readonly namespace: string;
-    readonly name: string;
-  };
-  readonly auth: OAuth2Auth;
-  readonly secrets: SecretsIO;
-  readonly scopeId: ScopeId;
-  readonly operationStore: OpenApiOperationStore;
-}): Effect.Effect<string, ToolInvocationError> =>
-  withRefreshedAccessToken({
-    auth: {
-      clientIdSecretId: input.auth.clientIdSecretId,
-      clientSecretSecretId: input.auth.clientSecretSecretId,
-      accessTokenSecretId: input.auth.accessTokenSecretId,
-      refreshTokenSecretId: input.auth.refreshTokenSecretId,
-      tokenType: input.auth.tokenType,
-      expiresAt: input.auth.expiresAt,
-      scopes: input.auth.scopes,
-    },
-    tokenUrl: input.auth.tokenUrl,
-    secrets: {
-      resolve: (id) => input.secrets.resolve(id as SecretId, input.scopeId),
-      setValue: ({ secretId, value, name, purpose }) =>
-        input.secrets
-          .set({
-            id: secretId as SecretId,
-            scopeId: input.scopeId,
-            name,
-            value,
-            purpose,
-          })
-          .pipe(Effect.asVoid),
-    },
-    displayName: input.source.name,
-    accessTokenPurpose: "openapi_oauth_access_token",
-    refreshTokenPurpose: "openapi_oauth_refresh_token",
-    persistAuth: (snapshot) =>
-      Effect.gen(function* () {
-        const existing = yield* input.operationStore.getSource(input.source.namespace);
-        if (!existing) return;
-        const updatedOAuth = new OAuth2Auth({
-          ...input.auth,
-          tokenType: snapshot.tokenType,
-          expiresAt: snapshot.expiresAt,
-          scope: snapshot.scope ?? input.auth.scope,
-        });
-        yield* input.operationStore.putSource({
-          namespace: existing.namespace,
-          name: existing.name,
-          config: {
-            ...existing.config,
-            oauth2: updatedOAuth,
-          },
-          invocationConfig: new InvocationConfig({
-            baseUrl: existing.invocationConfig.baseUrl,
-            headers: existing.invocationConfig.headers,
-            oauth2: Option.some(updatedOAuth),
-          }),
-        });
-      }),
-  }).pipe(
-    Effect.mapError(
-      (error) =>
-        new ToolInvocationError({
-          toolId: input.toolId,
-          message: error.message,
-          cause: error,
-        }),
-    ),
-  );
-
-export const makeOpenApiInvoker = (opts: {
-  readonly operationStore: OpenApiOperationStore;
-  readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient>;
-  readonly secrets: SecretsIO;
-  readonly scopeId: ScopeId;
-}): ToolInvoker => ({
-  resolveAnnotations: (toolId: ToolId) =>
-    Effect.gen(function* () {
-      const entry = yield* opts.operationStore.get(toolId);
-      if (!entry) return undefined;
-      return annotationsForOperation(entry.binding.method, entry.binding.pathTemplate);
-    }),
-
-  invoke: (toolId: ToolId, args: unknown) =>
-    Effect.gen(function* () {
-      const entry = yield* opts.operationStore.get(toolId);
-      if (!entry) {
-        return yield* new ToolInvocationError({
-          toolId,
-          message: `No operation found for tool "${toolId}"`,
-          cause: undefined,
-        });
-      }
-
-      const source = yield* opts.operationStore.getSource(entry.namespace);
-      if (!source) {
-        return yield* new ToolInvocationError({
-          toolId,
-          message: `No source found for namespace "${entry.namespace}"`,
-          cause: undefined,
-        });
-      }
-
-      const { binding } = entry;
-      const { invocationConfig: config } = source;
-      const baseUrl = config.baseUrl;
-
-      // Resolve secret-backed headers
-      const resolvedHeaders = yield* resolveHeaders(config.headers, opts.secrets, opts.scopeId);
-
-      // If the source has OAuth2 auth, resolve/refresh the access token
-      // and inject Authorization: Bearer <token>. A spec-declared header
-      // named "Authorization" in config.headers is overwritten.
-      if (Option.isSome(config.oauth2)) {
-        const auth = config.oauth2.value;
-        const accessToken = yield* resolveOAuthAccessToken({
-          toolId,
-          source: { namespace: source.namespace, name: source.name },
-          auth,
-          secrets: opts.secrets,
-          scopeId: opts.scopeId,
-          operationStore: opts.operationStore,
-        });
-        resolvedHeaders["Authorization"] = `${auth.tokenType || "Bearer"} ${accessToken}`;
-      }
-
-      const clientWithBaseUrl = baseUrl
-        ? Layer.effect(
-            HttpClient.HttpClient,
-            Effect.map(
-              HttpClient.HttpClient,
-              HttpClient.mapRequest(HttpClientRequest.prependUrl(baseUrl)),
-            ),
-          ).pipe(Layer.provide(opts.httpClientLayer))
-        : opts.httpClientLayer;
-
-      const result = yield* invoke(
-        binding,
-        (args ?? {}) as Record<string, unknown>,
-        config,
-        resolvedHeaders,
-      ).pipe(Effect.provide(clientWithBaseUrl));
-
-      return new ToolInvocationResult({
-        data: result.data,
-        error: result.error,
-        status: result.status,
-      });
-    }).pipe(
-      Effect.catchAll((err) => {
-        if (
-          typeof err === "object" &&
-          err !== null &&
-          "_tag" in err &&
-          (err as { _tag: string })._tag === "ToolInvocationError"
-        ) {
-          return Effect.fail(err as ToolInvocationError);
-        }
-        return Effect.fail(
-          new ToolInvocationError({
-            toolId,
-            message: `OpenAPI invocation failed: ${err instanceof Error ? err.message : String(err)}`,
-            cause: err,
-          }),
-        );
-      }),
-    ),
-});

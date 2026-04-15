@@ -9,31 +9,37 @@ import {
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
   storeOAuthTokens,
+  withRefreshedAccessToken,
   type OAuth2TokenResponse,
 } from "@executor/plugin-oauth2";
 
 import {
-  Source,
-  SourceDetectionResult,
-  definePlugin,
-  registerRuntimeTools,
-  runtimeTool,
   SecretId,
-  type ExecutorPlugin,
-  type PluginContext,
-  ToolId,
-  type ToolRegistration,
+  SetSecretInput,
+  definePlugin,
+  type ToolAnnotations,
+  type ToolRow,
 } from "@executor/sdk";
 
 import { OpenApiOAuthError } from "./errors";
 import { parse } from "./parse";
 import { extract } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
-import { makeOpenApiInvoker } from "./invoke";
+import {
+  annotationsForOperation,
+  invokeWithLayer,
+  resolveHeaders,
+} from "./invoke";
 import { resolveBaseUrl } from "./openapi-utils";
-import type { OpenApiOperationStore, StoredSource } from "./operation-store";
-import { makeInMemoryOperationStore } from "./kv-operation-store";
 import { previewSpec, SpecPreview } from "./preview";
+import {
+  makeDefaultOpenapiStore,
+  openapiSchema,
+  type OpenapiStore,
+  type SourceConfig,
+  type StoredOperation,
+  type StoredSource,
+} from "./store";
 import {
   HeaderValue as HeaderValueSchema,
   InvocationConfig,
@@ -47,7 +53,6 @@ import {
 // Plugin config
 // ---------------------------------------------------------------------------
 
-/** A header value — either a static string or a reference to a secret */
 export type HeaderValue = HeaderValueValue;
 
 export interface OpenApiSpecConfig {
@@ -55,15 +60,9 @@ export interface OpenApiSpecConfig {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly namespace?: string;
-  /** Headers applied to every request. Values can reference secrets. */
   readonly headers?: Record<string, HeaderValue>;
-  /** OAuth2 auth descriptor (as returned from completeOAuth). */
   readonly oauth2?: OAuth2Auth;
 }
-
-// ---------------------------------------------------------------------------
-// Plugin extension
-// ---------------------------------------------------------------------------
 
 export interface OpenApiUpdateSourceInput {
   readonly name?: string;
@@ -76,20 +75,14 @@ export interface OpenApiUpdateSourceInput {
 // ---------------------------------------------------------------------------
 
 export interface OpenApiStartOAuthInput {
-  /** Display name used for stored token secret labels. */
   readonly displayName: string;
-  /** Which security scheme in `components.securitySchemes` this flow belongs to. */
   readonly securitySchemeName: string;
   readonly flow: "authorizationCode";
-  /** Authorization endpoint from the spec flow. */
   readonly authorizationUrl: string;
-  /** Token endpoint from the spec flow. */
   readonly tokenUrl: string;
-  /** Public redirect URL the user-agent will return to. */
   readonly redirectUrl: string;
   readonly clientIdSecretId: string;
   readonly clientSecretSecretId?: string | null;
-  /** Scopes the user requested (subset of the flow's declared scopes). */
   readonly scopes: readonly string[];
 }
 
@@ -100,46 +93,32 @@ export interface OpenApiStartOAuthResponse {
 }
 
 export interface OpenApiCompleteOAuthInput {
-  /** sessionId passed via the OAuth `state` param. */
   readonly state: string;
   readonly code?: string;
   readonly error?: string;
 }
 
 export interface OpenApiPluginExtension {
-  /** Preview a spec without registering — returns metadata, auth strategies, header presets */
   readonly previewSpec: (specText: string) => Effect.Effect<SpecPreview, Error>;
-
-  /** Add an OpenAPI spec and register its operations as tools */
   readonly addSpec: (
     config: OpenApiSpecConfig,
-  ) => Effect.Effect<{ readonly toolCount: number }, Error>;
-
-  /** Remove all tools from a previously added spec by namespace */
-  readonly removeSpec: (namespace: string) => Effect.Effect<void>;
-
-  /** Fetch the full stored source by namespace (or null if missing) */
-  readonly getSource: (namespace: string) => Effect.Effect<StoredSource | null>;
-
-  /** Update config (baseUrl, headers) for an existing OpenAPI source */
+  ) => Effect.Effect<{ readonly sourceId: string; readonly toolCount: number }, Error>;
+  readonly removeSpec: (namespace: string) => Effect.Effect<void, Error>;
+  readonly getSource: (namespace: string) => Effect.Effect<StoredSource | null, Error>;
   readonly updateSource: (
     namespace: string,
     input: OpenApiUpdateSourceInput,
-  ) => Effect.Effect<void>;
-
-  /** Begin an OAuth2 authorization-code flow; returns the authorization URL + sessionId. */
+  ) => Effect.Effect<void, Error>;
   readonly startOAuth: (
     input: OpenApiStartOAuthInput,
   ) => Effect.Effect<OpenApiStartOAuthResponse, OpenApiOAuthError>;
-
-  /** Exchange a code for tokens; returns the auth descriptor to pass to addSpec. */
   readonly completeOAuth: (
     input: OpenApiCompleteOAuthInput,
   ) => Effect.Effect<OAuth2Auth, OpenApiOAuthError>;
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Control-tool input/output schemas
 // ---------------------------------------------------------------------------
 
 const PreviewSpecInputSchema = Schema.Struct({
@@ -155,10 +134,9 @@ const AddSourceInputSchema = Schema.Struct({
 });
 type AddSourceInput = typeof AddSourceInputSchema.Type;
 
-const AddSourceOutputSchema = Schema.Struct({
-  sourceId: Schema.String,
-  toolCount: Schema.Number,
-});
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /** Rewrite OpenAPI `#/components/schemas/X` refs to standard `#/$defs/X`. */
 const normalizeOpenApiRefs = (node: unknown): unknown => {
@@ -191,22 +169,6 @@ const normalizeOpenApiRefs = (node: unknown): unknown => {
   return changed ? result : obj;
 };
 
-const toRegistration = (def: ToolDefinition, namespace: string): ToolRegistration => {
-  const op = def.operation;
-  const description = Option.getOrElse(op.description, () =>
-    Option.getOrElse(op.summary, () => `${op.method.toUpperCase()} ${op.pathTemplate}`),
-  );
-  return {
-    id: ToolId.make(`${namespace}.${def.toolPath}`),
-    pluginKey: "openapi",
-    sourceId: namespace,
-    name: def.toolPath,
-    description,
-    inputSchema: normalizeOpenApiRefs(Option.getOrUndefined(op.inputSchema)),
-    outputSchema: normalizeOpenApiRefs(Option.getOrUndefined(op.outputSchema)),
-  };
-};
-
 const toBinding = (def: ToolDefinition): OperationBinding =>
   new OperationBinding({
     method: def.operation.method,
@@ -215,249 +177,165 @@ const toBinding = (def: ToolDefinition): OperationBinding =>
     requestBody: def.operation.requestBody,
   });
 
+const descriptionFor = (def: ToolDefinition): string => {
+  const op = def.operation;
+  return Option.getOrElse(op.description, () =>
+    Option.getOrElse(op.summary, () => `${op.method.toUpperCase()} ${op.pathTemplate}`),
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Plugin factory
 // ---------------------------------------------------------------------------
 
-export const openApiPlugin = (options?: {
+export interface OpenApiPluginOptions {
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
-  readonly operationStore?: OpenApiOperationStore;
-}): ExecutorPlugin<"openapi", OpenApiPluginExtension> => {
-  const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
-  const operationStore = options?.operationStore ?? makeInMemoryOperationStore();
+}
 
-  return definePlugin({
-    key: "openapi",
-    init: (ctx: PluginContext) =>
-      Effect.gen(function* () {
-        yield* ctx.tools.registerInvoker(
-          "openapi",
-          makeOpenApiInvoker({
-            operationStore,
-            httpClientLayer,
-            secrets: ctx.secrets,
-            scopeId: ctx.scope.id,
-          }),
-        );
+export const openApiPlugin = definePlugin(
+  (options?: OpenApiPluginOptions) => {
+    const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
 
-        // Tools are already persisted in the KV tool registry — no need to
-        // re-register them. We only need the source list and the invoker.
-        // Register source manager so the core can list/remove/refresh our sources
-        yield* ctx.sources.addManager({
-          kind: "openapi",
+    return {
+      id: "openapi" as const,
+      schema: openapiSchema,
+      storage: ({ adapter, blobs }): OpenapiStore =>
+        makeDefaultOpenapiStore(adapter, blobs),
 
-          list: () =>
-            operationStore.listSources().pipe(
-              Effect.map((metas) =>
-                metas.map(
-                  (s) =>
-                    new Source({
-                      id: s.namespace,
-                      name: s.name,
-                      kind: "openapi",
-                      url: s.config.baseUrl,
-                      runtime: false,
-                      canRemove: true,
-                      canRefresh: false,
-                      canEdit: true,
-                    }),
-                ),
-              ),
-            ),
-
-          remove: (sourceId: string) =>
-            Effect.gen(function* () {
-              yield* operationStore.removeByNamespace(sourceId);
-              yield* operationStore.removeSource(sourceId);
-              yield* ctx.tools.unregisterBySource(sourceId);
-            }),
-
-          detect: (url: string) =>
-            Effect.gen(function* () {
-              const trimmed = url.trim();
-              if (!trimmed) return null;
-              const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
-              if (parsed._tag === "None") return null;
-
-              // Try fetching the URL and parsing as OpenAPI spec
-              // parse() handles both URLs directly and spec text
-              const doc = yield* parse(trimmed).pipe(Effect.catchAll(() => Effect.succeed(null)));
-              if (!doc) return null;
-
-              const result = yield* extract(doc).pipe(Effect.catchAll(() => Effect.succeed(null)));
-              if (!result) return null;
-
-              const namespace = Option.getOrElse(result.title, () => "api")
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, "_");
-              const name = Option.getOrElse(result.title, () => namespace);
-
-              return new SourceDetectionResult({
-                kind: "openapi",
-                confidence: "high",
-                endpoint: trimmed,
-                name,
-                namespace,
-              });
-            }),
-        });
-
-        const addSpecInternal = (config: OpenApiSpecConfig) =>
-          Effect.gen(function* () {
-            const doc = yield* parse(config.spec);
-            const result = yield* extract(doc);
-
-            const namespace =
-              config.namespace ??
-              Option.getOrElse(result.title, () => "api")
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, "_");
-
-            if (doc.components?.schemas) {
-              // Normalize OpenAPI $ref format to standard JSON Schema $defs
-              const defs: Record<string, unknown> = {};
-              for (const [k, v] of Object.entries(doc.components.schemas)) {
-                defs[k] = normalizeOpenApiRefs(v);
-              }
-              yield* ctx.tools.registerDefinitions(defs);
-            }
-
-            const baseUrl = config.baseUrl ?? resolveBaseUrl(result.servers);
-            const oauth2 = config.oauth2 ?? null;
-            const invocationConfig = new InvocationConfig({
-              baseUrl,
-              headers: config.headers ?? {},
-              oauth2: oauth2 ? Option.some(oauth2) : Option.none(),
-            });
-
-            const definitions = compileToolDefinitions(result.operations);
-
-            const registrations = definitions.map((def) => toRegistration(def, namespace));
-
-            yield* operationStore.put(
-              definitions.map((def) => ({
-                toolId: ToolId.make(`${namespace}.${def.toolPath}`),
-                namespace,
-                binding: toBinding(def),
-              })),
-            );
-
-            yield* ctx.tools.register(registrations);
-
-            const sourceName = config.name ?? Option.getOrElse(result.title, () => namespace);
-            yield* operationStore.putSource({
-              namespace,
-              name: sourceName,
-              config: {
-                spec: config.spec,
-                baseUrl: config.baseUrl,
-                namespace: config.namespace,
-                headers: config.headers,
-                oauth2: oauth2 ?? undefined,
-              },
-              invocationConfig,
-            });
-
-            return { sourceId: namespace, toolCount: registrations.length };
-          });
-
-        const runtimeTools = yield* registerRuntimeTools({
-          registry: ctx.tools,
-          sources: ctx.sources,
-          pluginKey: "openapi",
-          source: {
-            id: "built-in",
-            name: "Built In",
-            kind: "built-in",
-          },
-          tools: [
-            runtimeTool({
-              id: "openapi.previewSpec",
-              name: "openapi.previewSpec",
-              description: "Preview an OpenAPI document before adding it as a source",
-              inputSchema: PreviewSpecInputSchema,
-              outputSchema: SpecPreview,
-              handler: ({ spec }: PreviewSpecInput) => previewSpec(spec),
-            }),
-            runtimeTool({
-              id: "openapi.addSource",
-              name: "openapi.addSource",
-              description: "Add an OpenAPI source and register its operations as tools",
-              inputSchema: AddSourceInputSchema,
-              outputSchema: AddSourceOutputSchema,
-              handler: (input: AddSourceInput) => addSpecInternal(input),
-            }),
-          ],
-        });
-
-        const storeSecretFromTokens = (args: {
+      extension: (ctx): OpenApiPluginExtension => {
+        // Wraps ctx.secrets.set for the oauth2 helper so createSecret
+        // returns the freshly-minted id.
+        const createOAuthSecret = (args: {
           readonly idPrefix: string;
           readonly name: string;
           readonly value: string;
           readonly purpose: string;
         }) =>
           ctx.secrets
-            .set({
-              id: SecretId.make(`${args.idPrefix}_${randomUUID().slice(0, 8)}`),
-              scopeId: ctx.scope.id,
-              name: args.name,
-              value: args.value,
-              purpose: args.purpose,
-            })
+            .set(
+              new SetSecretInput({
+                id: SecretId.make(`${args.idPrefix}_${randomUUID().slice(0, 8)}`),
+                name: args.name,
+                value: args.value,
+              }),
+            )
             .pipe(Effect.map((ref) => ({ id: ref.id as string })));
 
-        return {
-          extension: {
-            previewSpec: (specText: string) => previewSpec(specText),
+        const addSpecInternal = (config: OpenApiSpecConfig) =>
+          ctx.transaction(
+            Effect.gen(function* () {
+              const doc = yield* parse(config.spec);
+              const result = yield* extract(doc);
 
-            addSpec: (config: OpenApiSpecConfig) =>
-              addSpecInternal(config).pipe(Effect.map(({ toolCount }) => ({ toolCount }))),
+              const namespace =
+                config.namespace ??
+                Option.getOrElse(result.title, () => "api")
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "_");
 
-            removeSpec: (namespace: string) =>
-              Effect.gen(function* () {
-                const toolIds = yield* operationStore.removeByNamespace(namespace);
-                if (toolIds.length > 0) {
-                  yield* ctx.tools.unregister(toolIds);
+              const hoistedDefs: Record<string, unknown> = {};
+              if (doc.components?.schemas) {
+                for (const [k, v] of Object.entries(doc.components.schemas)) {
+                  hoistedDefs[k] = normalizeOpenApiRefs(v);
                 }
-                yield* operationStore.removeSource(namespace);
-              }),
+              }
 
-            getSource: (namespace: string) => operationStore.getSource(namespace),
+              const baseUrl = config.baseUrl ?? resolveBaseUrl(result.servers);
+              const oauth2 = config.oauth2 ?? undefined;
+              const invocationConfig = new InvocationConfig({
+                baseUrl,
+                headers: config.headers ?? {},
+                oauth2: oauth2 ? Option.some(oauth2) : Option.none(),
+              });
 
-            updateSource: (namespace: string, input: OpenApiUpdateSourceInput) =>
-              Effect.gen(function* () {
-                const existing = yield* operationStore.getSource(namespace);
-                if (!existing) return;
+              const definitions = compileToolDefinitions(result.operations);
+              const sourceName =
+                config.name ?? Option.getOrElse(result.title, () => namespace);
 
-                const updatedConfig = {
-                  ...existing.config,
-                  ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
-                  ...(input.headers !== undefined
-                    ? { headers: input.headers as Record<string, HeaderValueValue> }
-                    : {}),
-                };
+              const sourceConfig: SourceConfig = {
+                spec: config.spec,
+                baseUrl: config.baseUrl,
+                namespace: config.namespace,
+                headers: config.headers,
+                oauth2,
+              };
 
-                const newInvocationConfig = new InvocationConfig({
-                  baseUrl: updatedConfig.baseUrl ?? existing.invocationConfig.baseUrl,
-                  headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
-                  oauth2: existing.invocationConfig.oauth2,
+              const storedSource: StoredSource = {
+                namespace,
+                name: sourceName,
+                config: sourceConfig,
+                invocationConfig,
+              };
+
+              const storedOps: StoredOperation[] = definitions.map((def) => ({
+                toolId: `${namespace}.${def.toolPath}`,
+                sourceId: namespace,
+                binding: toBinding(def),
+              }));
+
+              yield* ctx.storage.upsertSource(storedSource, storedOps);
+
+              yield* ctx.core.sources.register({
+                id: namespace,
+                kind: "openapi",
+                name: sourceName,
+                url: baseUrl || undefined,
+                canRemove: true,
+                canRefresh: false,
+                canEdit: true,
+                tools: definitions.map((def) => ({
+                  name: def.toolPath,
+                  description: descriptionFor(def),
+                  inputSchema: normalizeOpenApiRefs(
+                    Option.getOrUndefined(def.operation.inputSchema),
+                  ),
+                  outputSchema: normalizeOpenApiRefs(
+                    Option.getOrUndefined(def.operation.outputSchema),
+                  ),
+                })),
+              });
+
+              if (Object.keys(hoistedDefs).length > 0) {
+                yield* ctx.core.definitions.register({
+                  sourceId: namespace,
+                  definitions: hoistedDefs,
                 });
+              }
 
-                yield* operationStore.putSource({
-                  namespace,
-                  name: input.name?.trim() || existing.name,
-                  config: updatedConfig,
-                  invocationConfig: newInvocationConfig,
-                });
-              }),
+              return { sourceId: namespace, toolCount: definitions.length };
+            }),
+          );
 
-            startOAuth: (input: OpenApiStartOAuthInput) =>
+        return {
+          previewSpec: (specText) => previewSpec(specText),
+
+          addSpec: (config) => addSpecInternal(config),
+
+          removeSpec: (namespace) =>
+            ctx.transaction(
               Effect.gen(function* () {
-                const sessionId = randomUUID();
-                const codeVerifier = createPkceCodeVerifier();
-                const scopesArray = [...input.scopes];
+                yield* ctx.storage.removeSource(namespace);
+                yield* ctx.core.sources.unregister(namespace);
+              }),
+            ),
 
-                yield* operationStore.putOAuthSession(
+          getSource: (namespace) => ctx.storage.getSource(namespace),
+
+          updateSource: (namespace, input) =>
+            ctx.storage.updateSourceMeta(namespace, {
+              name: input.name?.trim() || undefined,
+              baseUrl: input.baseUrl,
+              headers: input.headers,
+            }),
+
+          startOAuth: (input) =>
+            Effect.gen(function* () {
+              const sessionId = randomUUID();
+              const codeVerifier = createPkceCodeVerifier();
+              const scopesArray = [...input.scopes];
+
+              yield* ctx.storage
+                .putOAuthSession(
                   sessionId,
                   new OpenApiOAuthSession({
                     displayName: input.displayName,
@@ -470,41 +348,50 @@ export const openApiPlugin = (options?: {
                     scopes: scopesArray,
                     codeVerifier,
                   }),
+                )
+                .pipe(
+                  Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
                 );
 
-                const clientId = yield* ctx.secrets
-                  .resolve(SecretId.make(input.clientIdSecretId), ctx.scope.id)
-                  .pipe(
-                    Effect.mapError(
-                      (error) => new OpenApiOAuthError({ message: error.message }),
-                    ),
-                  );
-
-                const authorizationUrl = buildAuthorizationUrl({
-                  authorizationUrl: input.authorizationUrl,
-                  clientId,
-                  redirectUrl: input.redirectUrl,
-                  scopes: scopesArray,
-                  state: sessionId,
-                  codeVerifier,
+              const clientId = yield* ctx.secrets.get(input.clientIdSecretId).pipe(
+                Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
+              );
+              if (clientId === null) {
+                return yield* new OpenApiOAuthError({
+                  message: `Missing client ID secret: ${input.clientIdSecretId}`,
                 });
+              }
 
-                return {
-                  sessionId,
-                  authorizationUrl,
-                  scopes: scopesArray,
-                };
-              }),
+              const authorizationUrl = buildAuthorizationUrl({
+                authorizationUrl: input.authorizationUrl,
+                clientId,
+                redirectUrl: input.redirectUrl,
+                scopes: scopesArray,
+                state: sessionId,
+                codeVerifier,
+              });
 
-            completeOAuth: (input: OpenApiCompleteOAuthInput) =>
+              return {
+                sessionId,
+                authorizationUrl,
+                scopes: scopesArray,
+              };
+            }),
+
+          completeOAuth: (input) =>
+            ctx.transaction(
               Effect.gen(function* () {
-                const session = yield* operationStore.getOAuthSession(input.state);
+                const session = yield* ctx.storage.getOAuthSession(input.state).pipe(
+                  Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
+                );
                 if (!session) {
                   return yield* new OpenApiOAuthError({
                     message: "OAuth session not found or has expired",
                   });
                 }
-                yield* operationStore.deleteOAuthSession(input.state);
+                yield* ctx.storage.deleteOAuthSession(input.state).pipe(
+                  Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
+                );
 
                 if (input.error) {
                   return yield* new OpenApiOAuthError({ message: input.error });
@@ -515,41 +402,40 @@ export const openApiPlugin = (options?: {
                   });
                 }
 
-                const clientId = yield* ctx.secrets
-                  .resolve(SecretId.make(session.clientIdSecretId), ctx.scope.id)
-                  .pipe(
-                    Effect.mapError(
-                      (error) => new OpenApiOAuthError({ message: error.message }),
-                    ),
-                  );
+                const clientId = yield* ctx.secrets.get(session.clientIdSecretId).pipe(
+                  Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
+                );
+                if (clientId === null) {
+                  return yield* new OpenApiOAuthError({
+                    message: `Missing client ID secret: ${session.clientIdSecretId}`,
+                  });
+                }
 
                 const clientSecret = session.clientSecretSecretId
-                  ? yield* ctx.secrets
-                      .resolve(SecretId.make(session.clientSecretSecretId), ctx.scope.id)
-                      .pipe(
-                        Effect.mapError(
-                          (error) =>
-                            new OpenApiOAuthError({ message: error.message }),
-                        ),
-                      )
+                  ? yield* ctx.secrets.get(session.clientSecretSecretId).pipe(
+                      Effect.mapError(
+                        (err) => new OpenApiOAuthError({ message: err.message }),
+                      ),
+                    )
                   : null;
 
-                const tokenResponse: OAuth2TokenResponse = yield* exchangeAuthorizationCode(
-                  {
+                const tokenResponse: OAuth2TokenResponse =
+                  yield* exchangeAuthorizationCode({
                     tokenUrl: session.tokenUrl,
                     clientId,
                     clientSecret,
                     redirectUrl: session.redirectUrl,
                     codeVerifier: session.codeVerifier,
                     code: input.code,
-                  },
-                ).pipe(
-                  Effect.mapError(
-                    (error) => new OpenApiOAuthError({ message: error.message }),
-                  ),
-                );
+                  }).pipe(
+                    Effect.mapError(
+                      (err) => new OpenApiOAuthError({ message: err.message }),
+                    ),
+                  );
 
-                const slug = session.displayName.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+                const slug = session.displayName
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "_");
 
                 const stored = yield* storeOAuthTokens({
                   tokens: tokenResponse,
@@ -557,10 +443,16 @@ export const openApiPlugin = (options?: {
                   displayName: session.displayName,
                   accessTokenPurpose: "openapi_oauth_access_token",
                   refreshTokenPurpose: "openapi_oauth_refresh_token",
-                  createSecret: storeSecretFromTokens,
+                  createSecret: (args) =>
+                    createOAuthSecret(args).pipe(
+                      Effect.mapError(
+                        (err) =>
+                          new OpenApiOAuthError({ message: err.message }),
+                      ),
+                    ),
                 }).pipe(
                   Effect.mapError(
-                    (error) => new OpenApiOAuthError({ message: error.message }),
+                    (err) => new OpenApiOAuthError({ message: err.message }),
                   ),
                 );
 
@@ -579,10 +471,170 @@ export const openApiPlugin = (options?: {
                   scopes: [...session.scopes],
                 });
               }),
-          },
-
-          close: () => runtimeTools.close(),
+            ).pipe(
+              Effect.mapError((err) =>
+                err instanceof OpenApiOAuthError
+                  ? err
+                  : new OpenApiOAuthError({ message: err.message }),
+              ),
+            ),
         };
-      }),
-  });
-};
+      },
+
+      staticSources: (self) => [
+        {
+          id: "openapi.control",
+          kind: "control",
+          name: "OpenAPI",
+          tools: [
+            {
+              name: "previewSpec",
+              description:
+                "Preview an OpenAPI document before adding it as a source",
+              inputSchema: {
+                type: "object",
+                properties: { spec: { type: "string" } },
+                required: ["spec"],
+              },
+              handler: ({ args }) =>
+                self.previewSpec((args as PreviewSpecInput).spec),
+            },
+            {
+              name: "addSource",
+              description:
+                "Add an OpenAPI source and register its operations as tools",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  spec: { type: "string" },
+                  baseUrl: { type: "string" },
+                  namespace: { type: "string" },
+                  headers: { type: "object" },
+                },
+                required: ["spec"],
+              },
+              outputSchema: {
+                type: "object",
+                properties: {
+                  sourceId: { type: "string" },
+                  toolCount: { type: "number" },
+                },
+                required: ["sourceId", "toolCount"],
+              },
+              handler: ({ args }) =>
+                self.addSpec(args as AddSourceInput),
+            },
+          ],
+        },
+      ],
+
+      invokeTool: ({ ctx, toolRow, args }) =>
+        Effect.gen(function* () {
+          const op = yield* ctx.storage.getOperationByToolId(toolRow.id);
+          if (!op) {
+            return yield* Effect.fail(
+              new Error(`No OpenAPI operation found for tool "${toolRow.id}"`),
+            );
+          }
+          const source = yield* ctx.storage.getSource(op.sourceId);
+          if (!source) {
+            return yield* Effect.fail(
+              new Error(`No OpenAPI source found for "${op.sourceId}"`),
+            );
+          }
+
+          const config = source.invocationConfig;
+          const resolvedHeaders = yield* resolveHeaders(
+            config.headers,
+            { get: ctx.secrets.get },
+          );
+
+          // If the source has OAuth2 auth, resolve/refresh access token and
+          // inject Authorization header (wins over a manually-set one).
+          if (Option.isSome(config.oauth2)) {
+            const auth = config.oauth2.value;
+            const accessToken = yield* withRefreshedAccessToken({
+              auth: {
+                clientIdSecretId: auth.clientIdSecretId,
+                clientSecretSecretId: auth.clientSecretSecretId,
+                accessTokenSecretId: auth.accessTokenSecretId,
+                refreshTokenSecretId: auth.refreshTokenSecretId,
+                tokenType: auth.tokenType,
+                expiresAt: auth.expiresAt,
+                scopes: auth.scopes,
+              },
+              tokenUrl: auth.tokenUrl,
+              secrets: {
+                resolve: (id) =>
+                  ctx.secrets.get(id).pipe(
+                    Effect.flatMap((v) =>
+                      v === null
+                        ? Effect.fail(new Error(`Missing secret: ${id}`))
+                        : Effect.succeed(v),
+                    ),
+                  ),
+                setValue: ({ secretId, value, name }) =>
+                  ctx.secrets
+                    .set(
+                      new SetSecretInput({
+                        id: SecretId.make(secretId),
+                        name,
+                        value,
+                      }),
+                    )
+                    .pipe(Effect.asVoid),
+              },
+              displayName: source.name,
+              accessTokenPurpose: "openapi_oauth_access_token",
+              refreshTokenPurpose: "openapi_oauth_refresh_token",
+              persistAuth: (snapshot) =>
+                Effect.gen(function* () {
+                  const updatedOAuth = new OAuth2Auth({
+                    ...auth,
+                    tokenType: snapshot.tokenType,
+                    expiresAt: snapshot.expiresAt,
+                    scope: snapshot.scope ?? auth.scope,
+                  });
+                  yield* ctx.storage.updateSourceMeta(source.namespace, {
+                    oauth2: updatedOAuth,
+                  });
+                }),
+            }).pipe(
+              Effect.mapError(
+                (err) => new Error(`OAuth token refresh failed: ${err.message}`),
+              ),
+            );
+            resolvedHeaders["Authorization"] = `${auth.tokenType || "Bearer"} ${accessToken}`;
+          }
+
+          const result = yield* invokeWithLayer(
+            op.binding,
+            (args ?? {}) as Record<string, unknown>,
+            config.baseUrl,
+            resolvedHeaders,
+            httpClientLayer,
+          );
+
+          return result;
+        }),
+
+      resolveAnnotations: ({ ctx, sourceId, toolRows }) =>
+        Effect.gen(function* () {
+          const ops = yield* ctx.storage.listOperationsBySource(sourceId);
+          const byId = new Map<string, OperationBinding>();
+          for (const op of ops) byId.set(op.toolId, op.binding);
+
+          const out: Record<string, ToolAnnotations> = {};
+          for (const row of toolRows as readonly ToolRow[]) {
+            const binding = byId.get(row.id);
+            if (binding) {
+              out[row.id] = annotationsForOperation(binding.method, binding.pathTemplate);
+            }
+          }
+          return out;
+        }),
+
+      removeSource: ({ ctx, sourceId }) => ctx.storage.removeSource(sourceId),
+    };
+  },
+);

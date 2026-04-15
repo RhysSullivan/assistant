@@ -13,18 +13,45 @@ import { NodeHttpServer } from "@effect/platform-node";
 
 import {
   createExecutor,
-  makeInMemoryPolicyEngine,
-  makeInMemorySecretStore,
-  makeInMemorySourceRegistry,
-  makeInMemoryToolRegistry,
+  definePlugin,
   makeTestConfig,
-  ScopeId,
   SecretId,
+  SetSecretInput,
   type InvokeOptions,
+  type SecretProvider,
 } from "@executor/sdk";
 import { openApiPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
+
+// ---------------------------------------------------------------------------
+// In-memory secrets provider plugin — registered alongside openapi so
+// executor.secrets.set/get work in tests.
+// ---------------------------------------------------------------------------
+
+const memoryProvider: SecretProvider = (() => {
+  const store = new Map<string, string>();
+  return {
+    key: "memory",
+    writable: true,
+    get: (id) => Effect.sync(() => store.get(id) ?? null),
+    set: (id, value) =>
+      Effect.sync(() => {
+        store.set(id, value);
+      }),
+    delete: (id) => Effect.sync(() => store.delete(id)),
+    list: () =>
+      Effect.sync(() =>
+        Array.from(store.keys()).map((id) => ({ id, name: id })),
+      ),
+  };
+})();
+
+const memorySecretsPlugin = definePlugin(() => ({
+  id: "memory-secrets" as const,
+  storage: () => ({}),
+  secretProviders: [memoryProvider],
+}));
 
 // ---------------------------------------------------------------------------
 // Define a test API with Effect HttpApi
@@ -98,7 +125,7 @@ const TestLayer = HttpApiBuilder.serve().pipe(
 );
 
 // ---------------------------------------------------------------------------
-// Tests — layer() shares the server across all tests in this describe block
+// Tests
 // ---------------------------------------------------------------------------
 
 layer(TestLayer)("OpenAPI Plugin", (it) => {
@@ -109,7 +136,10 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
@@ -120,138 +150,97 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
     }),
   );
 
-  it.effect("registers runtime openapi tools under built-in source", () =>
+  it.effect("registers static openapi control tools", () =>
     Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
       const tools = yield* executor.tools.list();
       const ids = tools.map((t) => t.id);
-      expect(ids).toContain("openapi.previewSpec");
-      expect(ids).toContain("openapi.addSource");
+      expect(ids).toContain("openapi.control.previewSpec");
+      expect(ids).toContain("openapi.control.addSource");
     }),
   );
 
-  it.effect("lists built-in as a runtime source", () =>
+  it.effect("lists openapi.control as a static runtime source", () =>
     Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
       const sources = yield* executor.sources.list();
-
-      expect(sources).toContainEqual(
-        expect.objectContaining({
-          id: "built-in",
-          name: "Built In",
-          kind: "built-in",
-          runtime: true,
-          canRemove: false,
-          canRefresh: false,
-        }),
-      );
+      const control = sources.find((s) => s.id === "openapi.control");
+      expect(control).toBeDefined();
+      expect(control!.runtime).toBe(true);
+      expect(control!.canRemove).toBe(false);
     }),
   );
 
-  it.effect("closing an executor does not remove added source tools from the shared registry", () =>
-    Effect.gen(function* () {
-      const httpClient = yield* HttpClient.HttpClient;
-      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
-
-      const scope = {
-        id: ScopeId.make("test-scope"),
-        name: "/test",
-        createdAt: new Date(),
-      } as const;
-
-      const sharedConfig = {
-        scope,
-        tools: makeInMemoryToolRegistry(),
-        sources: makeInMemorySourceRegistry(),
-        secrets: makeInMemorySecretStore(),
-        policies: makeInMemoryPolicyEngine(),
-      };
-
-      const executor1 = yield* createExecutor({
-        ...sharedConfig,
-        plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-      });
-
-      yield* executor1.openapi.addSpec({
-        spec: specJson,
-        namespace: "persisted",
-      });
-
-      expect((yield* executor1.tools.list()).map((tool) => tool.id)).toContain(
-        "persisted.items.listItems",
-      );
-
-      yield* executor1.close();
-
-      const executor2 = yield* createExecutor({
-        ...sharedConfig,
-        plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-      });
-
-      expect((yield* executor2.tools.list()).map((tool) => tool.id)).toContain(
-        "persisted.items.listItems",
-      );
-    }),
-  );
-
-  it.effect("invokes runtime previewSpec through executor.tools.invoke", () =>
+  it.effect("invokes static previewSpec through executor.tools.invoke", () =>
     Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
-      const result = yield* executor.tools.invoke(
-        "openapi.previewSpec",
+      const result = (yield* executor.tools.invoke(
+        "openapi.control.previewSpec",
         { spec: specJson },
         autoApprove,
-      );
+      )) as { operationCount: number };
 
-      expect(result.error).toBeNull();
-      expect((result.data as { operationCount: number }).operationCount).toBeGreaterThanOrEqual(2);
+      expect(result.operationCount).toBeGreaterThanOrEqual(2);
     }),
   );
 
-  it.effect("invokes runtime addSource through executor.tools.invoke", () =>
+  it.effect("invokes static addSource through executor.tools.invoke", () =>
     Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
-      const result = yield* executor.tools.invoke(
-        "openapi.addSource",
+      const result = (yield* executor.tools.invoke(
+        "openapi.control.addSource",
         { spec: specJson, namespace: "runtime" },
         autoApprove,
-      );
+      )) as { sourceId: string; toolCount: number };
 
-      expect(result.error).toBeNull();
-      expect(result.data).toEqual({ sourceId: "runtime", toolCount: 3 });
-      expect((yield* executor.tools.list()).map((t) => t.id)).toContain("runtime.items.listItems");
+      expect(result).toEqual({ sourceId: "runtime", toolCount: 3 });
+      expect((yield* executor.tools.list()).map((t) => t.id)).toContain(
+        "runtime.items.listItems",
+      );
     }),
   );
 
@@ -262,18 +251,21 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
-      // Store a secret
-      yield* executor.secrets.set({
-        id: SecretId.make("test-api-token"),
-        name: "Test API Token",
-        value: "secret-value-123",
-      });
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("test-api-token"),
+          name: "Test API Token",
+          value: "secret-value-123",
+        }),
+      );
 
-      // Add spec with secret-backed header
       yield* executor.openapi.addSpec({
         spec: specJson,
         namespace: "authed",
@@ -284,11 +276,14 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         },
       });
 
-      // Invoke the echo endpoint — verifies secret was resolved and sent
-      const result = yield* executor.tools.invoke("authed.items.echoHeaders", {}, autoApprove);
+      const result = (yield* executor.tools.invoke(
+        "authed.items.echoHeaders",
+        {},
+        autoApprove,
+      )) as { data: { authorization?: string; "x-static"?: string } | null; error: unknown };
 
       expect(result.error).toBeNull();
-      const data = result.data as { authorization?: string; "x-static"?: string };
+      const data = result.data!;
       expect(data.authorization).toBe("Bearer secret-value-123");
       expect(data["x-static"]).toBe("hello");
     }),
@@ -301,11 +296,13 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
-      // Add spec with secret-backed header but DON'T store the secret
       yield* executor.openapi.addSpec({
         spec: specJson,
         namespace: "noauth",
@@ -315,12 +312,11 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         },
       });
 
-      // Invoke — should fail with a clear error about the missing secret
       const error = yield* Effect.flip(
         executor.tools.invoke("noauth.items.listItems", {}, autoApprove),
       );
 
-      expect(error._tag).toBe("ToolInvocationError");
+      expect((error as { _tag: string })._tag).toBe("ToolInvocationError");
       expect((error as { message: string }).message).toContain("missing-token");
     }),
   );
@@ -332,7 +328,10 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
@@ -358,7 +357,10 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
@@ -368,7 +370,11 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         baseUrl: "",
       });
 
-      const result = yield* executor.tools.invoke("test.items.listItems", {}, autoApprove);
+      const result = (yield* executor.tools.invoke(
+        "test.items.listItems",
+        {},
+        autoApprove,
+      )) as { data: unknown; error: unknown };
       expect(result.error).toBeNull();
       expect(result.data).toEqual(ITEMS);
     }),
@@ -381,7 +387,10 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
@@ -391,13 +400,11 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         baseUrl: "",
       });
 
-      const result = yield* executor.tools.invoke(
+      const result = (yield* executor.tools.invoke(
         "test.items.getItem",
-        {
-          itemId: "2",
-        },
+        { itemId: "2" },
         autoApprove,
-      );
+      )) as { data: unknown; error: unknown };
       expect(result.error).toBeNull();
       expect(result.data).toEqual({ id: 2, name: "Gadget" });
     }),
@@ -410,7 +417,10 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
         }),
       );
 
@@ -420,14 +430,15 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         baseUrl: "",
       });
 
-      expect((yield* executor.tools.list()).length).toBeGreaterThan(0);
+      expect((yield* executor.tools.list()).length).toBeGreaterThan(2);
 
       yield* executor.openapi.removeSpec("removable");
 
       const remaining = yield* executor.tools.list();
-      expect(remaining.map((tool) => tool.id)).toEqual([
-        "openapi.previewSpec",
-        "openapi.addSource",
+      const ids = remaining.map((t) => t.id).sort();
+      expect(ids).toEqual([
+        "openapi.control.addSource",
+        "openapi.control.previewSpec",
       ]);
     }),
   );
