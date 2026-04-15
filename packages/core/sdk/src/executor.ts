@@ -237,6 +237,15 @@ const staticDeclToTool = (
 // never touch these functions.
 // ---------------------------------------------------------------------------
 
+// TODO: register is not idempotent — calling it twice with the same
+// source id will try to `create` a row that already exists. In-memory
+// adapter silently overwrites (Map.set), real SQL backends will fail
+// on a unique constraint. Plugins currently work around this by doing
+// their own delete-then-create (see openapi's upsertSpec). Fix is to
+// make this function upsert-shaped: delete any existing source +
+// tools + definitions for `input.id` before writing the new rows, all
+// inside the caller's transaction. Deferred until we hit the issue in
+// a real backend.
 const writeSourceInput = (
   core: TypedAdapter<CoreSchema>,
   pluginId: string,
