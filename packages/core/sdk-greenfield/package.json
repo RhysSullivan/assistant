@@ -1,0 +1,27 @@
+{
+  "name": "@executor/sdk-greenfield",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@executor/storage-core": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/sql": "catalog:",
+    "@effect/sql-sqlite-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@executor/storage-sql": "workspace:*",
+    "@types/bun": "^1.1.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

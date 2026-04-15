@@ -1,0 +1,26 @@
+{
+  "name": "@executor/storage-sql",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect/sql": "catalog:",
+    "@executor/storage-core": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/sql-sqlite-bun": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/bun": "^1.1.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
