@@ -21,7 +21,7 @@ import {
   runAdapterConformance,
 } from "@executor/storage-core/testing";
 
-import { makePostgresAdapter, runPostgresMigrations } from "./index";
+import { makePostgresAdapter } from "./index";
 
 const url = process.env.TEST_POSTGRES_URL;
 
@@ -40,15 +40,58 @@ if (!url) {
     onnotice: () => undefined,
   });
 
-  // Every test starts from an empty schema. We DROP + re-run migrations
-  // explicitly; the adapter itself no longer issues DDL on construction.
-  const resetTables = Effect.tryPromise({
-    try: () =>
-      sql`DROP TABLE IF EXISTS "source", "tag", "blob" CASCADE`.then(
-        () => undefined,
-      ),
+  // TEST-ONLY DDL. The storage-postgres package no longer ships a runtime
+  // migrator; production consumers run drizzle-kit. The conformance suite
+  // needs a deterministic empty schema before each run, so we issue raw
+  // CREATE TABLE IF NOT EXISTS statements for the two `conformanceSchema`
+  // models here. Keep these in sync with
+  // storage-core/src/testing/conformance.ts.
+  const createConformanceTables = Effect.tryPromise({
+    try: async () => {
+      await sql.unsafe(
+        `CREATE TABLE IF NOT EXISTS "source" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT,
+          "priority" DOUBLE PRECISION,
+          "enabled" BOOLEAN,
+          "createdAt" TIMESTAMPTZ,
+          "metadata" JSONB
+        )`,
+      );
+      await sql.unsafe(
+        `CREATE TABLE IF NOT EXISTS "tag" (
+          "id" TEXT PRIMARY KEY,
+          "label" TEXT
+        )`,
+      );
+      await sql.unsafe(
+        `CREATE TABLE IF NOT EXISTS "source_tag" (
+          "id" TEXT PRIMARY KEY,
+          "sourceId" TEXT REFERENCES "source"("id") ON DELETE CASCADE,
+          "note" TEXT
+        )`,
+      );
+    },
     catch: (cause) =>
-      new Error(`failed to reset postgres conformance tables: ${String(cause)}`),
+      new Error(
+        `failed to create postgres conformance tables: ${String(cause)}`,
+      ),
+  });
+
+  // Every test starts from an empty schema. We DROP + recreate explicitly;
+  // the adapter itself no longer issues DDL on construction.
+  const resetTables = Effect.gen(function* () {
+    yield* Effect.tryPromise({
+      try: () =>
+        sql`DROP TABLE IF EXISTS "source", "tag", "source_tag", "blob" CASCADE`.then(
+          () => undefined,
+        ),
+      catch: (cause) =>
+        new Error(
+          `failed to reset postgres conformance tables: ${String(cause)}`,
+        ),
+    });
+    yield* createConformanceTables;
   });
 
   const withAdapter = <A, E>(
@@ -56,7 +99,6 @@ if (!url) {
   ): Effect.Effect<A, E | Error> =>
     Effect.gen(function* () {
       yield* resetTables;
-      yield* runPostgresMigrations({ sql, schema: conformanceSchema });
       const adapter = yield* makePostgresAdapter({
         sql,
         schema: conformanceSchema,

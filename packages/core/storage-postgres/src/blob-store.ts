@@ -17,9 +17,10 @@ const wrapErr =
     return new Error(`[storage-postgres] blob ${op}: ${msg}`);
   };
 
-// DDL is NOT run here — the `blob` table is created by
-// `runPostgresMigrations` out-of-band. This keeps Cloudflare Workers
-// request paths free of schema-mutation round-trips.
+// DDL is NOT run here — the `blob` table is expected to exist before
+// this runs. Consumers materialize schema via drizzle-kit (or equivalent)
+// out-of-band; Cloudflare Workers request paths stay free of schema
+// round-trips.
 export const makePostgresBlobStore = (
   sql: Sql,
 ): Effect.Effect<BlobStore, Error> =>

@@ -1,28 +1,31 @@
 // ---------------------------------------------------------------------------
 // @executor/storage-postgres
 //
-// Postgres-backed storage primitives for the executor runtime:
+// Postgres-backed storage primitives for the executor runtime. Thin
+// wrapper around @executor/storage-drizzle — all query work lives in
+// storage-drizzle; this package ships:
 //
-//   - makePostgresAdapter(options) — a DBAdapter built on `postgres.js`
-//     (porsager). Works in node/bun servers AND in Cloudflare Workers +
-//     Hyperdrive environments because postgres.js creates a fresh TCP
-//     socket per Effect scope (required for Hyperdrive's per-request
-//     connection model).
+//   - makePostgresAdapter(options) — a DBAdapter built from a postgres.js
+//     Sql client + a DBSchema. Internally compiles drizzle pg tables
+//     and hands them to drizzleAdapter.
+//
+//   - dbSchemaToPgTables(schema) — compile a DBSchema into drizzle pg
+//     tables. Migrations are out of scope: consumers run drizzle-kit
+//     against these tables.
 //
 //   - makePostgresBlobStore(sql) — a BlobStore backed by a `blob` table
-//     in the same database. Used by plugins that persist opaque config
-//     (onepassword config, workos-vault metadata, etc.).
-//
-// Hosts wire them up inside a Layer.scoped / Effect.acquireRelease that
-// creates a postgres.js Sql client per request (or per long-lived scope),
-// then construct both the adapter and blob store against that sql.
+//     in the same database.
 // ---------------------------------------------------------------------------
 
 export {
   makePostgresAdapter,
   type MakePostgresAdapterOptions,
-  runPostgresMigrations,
-  type RunPostgresMigrationsOptions,
 } from "./adapter";
+
+export {
+  dbSchemaToPgTables,
+  dbSchemaToPgCompiled,
+  type CompiledPgSchema,
+} from "./compile";
 
 export { makePostgresBlobStore } from "./blob-store";
