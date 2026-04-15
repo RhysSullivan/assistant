@@ -99,6 +99,14 @@ const ExtractionError = OpenApiExtractionError.annotations(
 );
 const OAuthError = OpenApiOAuthError.annotations(HttpApiSchema.annotations({ status: 400 }));
 
+export class OpenApiInternalError extends Schema.TaggedError<OpenApiInternalError>()(
+  "OpenApiInternalError",
+  {
+    message: Schema.String,
+  },
+  HttpApiSchema.annotations({ status: 500 }),
+) {}
+
 // ---------------------------------------------------------------------------
 // Group
 // ---------------------------------------------------------------------------
@@ -109,26 +117,27 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
       .setPayload(PreviewSpecPayload)
       .addSuccess(SpecPreview)
       .addError(ParseError)
-      .addError(ExtractionError),
+      .addError(ExtractionError)
+      .addError(OpenApiInternalError),
   )
   .add(
     HttpApiEndpoint.post("addSpec")`/scopes/${scopeIdParam}/openapi/specs`
       .setPayload(AddSpecPayload)
       .addSuccess(AddSpecResponse)
       .addError(ParseError)
-      .addError(ExtractionError),
+      .addError(ExtractionError)
+      .addError(OpenApiInternalError),
   )
   .add(
-    HttpApiEndpoint.get(
-      "getSource",
-    )`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`.addSuccess(
-      Schema.NullOr(StoredSourceSchema),
-    ),
+    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
+      .addSuccess(Schema.NullOr(StoredSourceSchema))
+      .addError(OpenApiInternalError),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
-      .addSuccess(UpdateSourceResponse),
+      .addSuccess(UpdateSourceResponse)
+      .addError(OpenApiInternalError),
   )
   .add(
     HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/openapi/oauth/start`
@@ -150,5 +159,6 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
           HttpApiSchema.annotations({ contentType: "text/html" }),
         ),
       )
-      .addError(OAuthError),
+      .addError(OAuthError)
+      .addError(OpenApiInternalError),
   ) {}

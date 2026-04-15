@@ -355,6 +355,82 @@ describe("createExecutor", () => {
     }),
   );
 
+  it.effect("ctx.transaction commits all nested writes on success", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [testPlugin()] as const }),
+      );
+      // addThing wraps storage + sources.register in ctx.transaction.
+      yield* executor.test.addThing("thing1", "hello");
+
+      const sources = yield* executor.sources.list();
+      expect(sources.find((s) => s.id === "thing1")).toBeDefined();
+
+      const tools = (yield* executor.tools.list()).map((t) => t.id);
+      expect(tools).toContain("thing1.read");
+      expect(tools).toContain("thing1.write");
+
+      // plugin storage row committed too
+      expect(yield* executor.tools.invoke("thing1.read", {})).toBe("hello");
+    }),
+  );
+
+  it.effect("ctx.transaction rolls back all nested writes on failure", () =>
+    Effect.gen(function* () {
+      // Plugin that does: storage write -> core.sources.register -> fail.
+      // Every write must roll back.
+      const rollbackPlugin = definePlugin(() => ({
+        id: "rollback" as const,
+        schema: testSchema,
+        storage: ({ adapter }) => ({
+          writeThing: (id: string, value: string) =>
+            adapter
+              .create({
+                model: "test_thing",
+                data: { id, value },
+                forceAllowId: true,
+              })
+              .pipe(Effect.asVoid),
+          countThings: () => adapter.count({ model: "test_thing" }),
+        }),
+        extension: (ctx) => ({
+          doFailingTx: () =>
+            ctx.transaction(
+              Effect.gen(function* () {
+                yield* ctx.storage.writeThing("x1", "v1");
+                yield* ctx.core.sources.register({
+                  id: "rb-source",
+                  kind: "rb",
+                  name: "rb",
+                  canRemove: true,
+                  tools: [{ name: "t", description: "t" }],
+                });
+                return yield* Effect.fail(new Error("boom"));
+              }),
+            ),
+          countThings: () => ctx.storage.countThings(),
+        }),
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [rollbackPlugin()] as const }),
+      );
+
+      const result = yield* executor.rollback
+        .doFailingTx()
+        .pipe(Effect.either);
+      expect(result._tag).toBe("Left");
+
+      // Plugin storage row must not persist.
+      expect(yield* executor.rollback.countThings()).toBe(0);
+      // Core source registration must not persist.
+      const sources = yield* executor.sources.list();
+      expect(sources.find((s) => s.id === "rb-source")).toBeUndefined();
+      const tools = (yield* executor.tools.list()).map((t) => t.id);
+      expect(tools).not.toContain("rb-source.t");
+    }),
+  );
+
   it.effect("secrets.set writes to provider and metadata row", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(

@@ -9,6 +9,7 @@
     "dev:db": "bun run scripts/dev-db.ts",
     "dev:vite": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true op run --env-file=.env.op -- portless run --name executor-cloud vite dev",
     "db:generate": "drizzle-kit generate",
+    "migrate": "op run --env-file=.env.op -- bun scripts/migrate.ts",
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "op run --env-file=.env.production -- bun run build && op run --env-file=.env.production -- wrangler deploy",

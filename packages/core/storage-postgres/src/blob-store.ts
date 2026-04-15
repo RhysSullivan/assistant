@@ -17,23 +17,13 @@ const wrapErr =
     return new Error(`[storage-postgres] blob ${op}: ${msg}`);
   };
 
+// DDL is NOT run here — the `blob` table is created by
+// `runPostgresMigrations` out-of-band. This keeps Cloudflare Workers
+// request paths free of schema-mutation round-trips.
 export const makePostgresBlobStore = (
   sql: Sql,
 ): Effect.Effect<BlobStore, Error> =>
   Effect.gen(function* () {
-    yield* Effect.tryPromise({
-      try: () =>
-        sql.unsafe(
-          `CREATE TABLE IF NOT EXISTS "blob" (
-            "namespace" TEXT NOT NULL,
-            "key" TEXT NOT NULL,
-            "value" TEXT NOT NULL,
-            PRIMARY KEY ("namespace", "key")
-          )`,
-        ),
-      catch: wrapErr("DDL"),
-    });
-
     return {
       get: (namespace, key) =>
         Effect.tryPromise({

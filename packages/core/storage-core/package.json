@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/conformance.ts"
   },
   "scripts": {
     "test": "vitest run",
@@ -12,11 +13,12 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
+    "@effect/vitest": "catalog:",
     "@standard-schema/spec": "^1.0.0",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "vitest": "catalog:"
   },
   "devDependencies": {
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "typescript": "catalog:"
   }
 }

@@ -21,6 +21,8 @@
 export {
   makePostgresAdapter,
   type MakePostgresAdapterOptions,
+  runPostgresMigrations,
+  type RunPostgresMigrationsOptions,
 } from "./adapter";
 
 export { makePostgresBlobStore } from "./blob-store";

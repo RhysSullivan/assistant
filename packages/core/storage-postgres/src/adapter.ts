@@ -291,7 +291,9 @@ const buildModelInfo = (schema: DBSchema): Record<string, ModelInfo> => {
 };
 
 // ---------------------------------------------------------------------------
-// DDL
+// DDL — only used by `runPostgresMigrations`. The per-request adapter
+// construction path deliberately does NOT touch these: migrations are an
+// out-of-band operation (see apps/cloud/scripts/migrate.ts).
 // ---------------------------------------------------------------------------
 
 const buildCreateTableSql = (info: ModelInfo): string => {
@@ -314,6 +316,54 @@ const buildCreateIndexSql = (info: ModelInfo): string[] => {
     )} (${quoteIdent(col)})`;
   });
 };
+
+// ---------------------------------------------------------------------------
+// runPostgresMigrations — opt-in DDL runner. Run from CI / a local dev
+// script / a one-shot admin tool; NEVER call this on a Cloudflare Worker
+// request path. Safe to run repeatedly (CREATE ... IF NOT EXISTS).
+// ---------------------------------------------------------------------------
+
+export interface RunPostgresMigrationsOptions {
+  readonly sql: Sql;
+  readonly schema: DBSchema;
+}
+
+export const runPostgresMigrations = (
+  options: RunPostgresMigrationsOptions,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    const { sql } = options;
+    const models = buildModelInfo(options.schema);
+
+    for (const info of Object.values(models)) {
+      yield* Effect.tryPromise({
+        try: () => sql.unsafe(buildCreateTableSql(info)),
+        catch: wrapErr(`DDL CREATE TABLE ${info.tableName}`),
+      });
+      for (const idxSql of buildCreateIndexSql(info)) {
+        yield* Effect.tryPromise({
+          try: () => sql.unsafe(idxSql),
+          catch: wrapErr(`DDL CREATE INDEX ${info.tableName}`),
+        });
+      }
+    }
+
+    // Blob store lives alongside the model tables and must be present
+    // before any plugin write. Kept here so a single migration call
+    // leaves the database fully ready.
+    yield* Effect.tryPromise({
+      try: () =>
+        sql.unsafe(
+          `CREATE TABLE IF NOT EXISTS "blob" (
+            "namespace" TEXT NOT NULL,
+            "key" TEXT NOT NULL,
+            "value" TEXT NOT NULL,
+            PRIMARY KEY ("namespace", "key")
+          )`,
+        ),
+      catch: wrapErr("DDL CREATE TABLE blob"),
+    });
+  });
 
 // ---------------------------------------------------------------------------
 // Id generation
@@ -374,19 +424,9 @@ export const makePostgresAdapter = (
     const models = buildModelInfo(options.schema);
     const adapterId = options.adapterId ?? "postgres";
 
-    // DDL: CREATE TABLE / CREATE INDEX for each model on the root sql.
-    for (const info of Object.values(models)) {
-      yield* Effect.tryPromise({
-        try: () => rootSql.unsafe(buildCreateTableSql(info)),
-        catch: wrapErr(`DDL CREATE TABLE ${info.tableName}`),
-      });
-      for (const idxSql of buildCreateIndexSql(info)) {
-        yield* Effect.tryPromise({
-          try: () => rootSql.unsafe(idxSql),
-          catch: wrapErr(`DDL CREATE INDEX ${info.tableName}`),
-        });
-      }
-    }
+    // DDL is NOT run here — schema migrations are an out-of-band operation
+    // (see `runPostgresMigrations`). This keeps Cloudflare Workers request
+    // paths free of schema-mutation round-trips.
 
     const getModel = (model: string): ModelInfo => {
       const info = models[model];

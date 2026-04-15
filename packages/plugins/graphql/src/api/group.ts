@@ -63,6 +63,14 @@ const ExtractionError = GraphqlExtractionError.annotations(
   HttpApiSchema.annotations({ status: 400 }),
 );
 
+export class GraphqlInternalError extends Schema.TaggedError<GraphqlInternalError>()(
+  "GraphqlInternalError",
+  {
+    message: Schema.String,
+  },
+  HttpApiSchema.annotations({ status: 500 }),
+) {}
+
 // ---------------------------------------------------------------------------
 // Group
 // ---------------------------------------------------------------------------
@@ -73,17 +81,17 @@ export class GraphqlGroup extends HttpApiGroup.make("graphql")
       .setPayload(AddSourcePayload)
       .addSuccess(AddSourceResponse)
       .addError(IntrospectionError)
-      .addError(ExtractionError),
+      .addError(ExtractionError)
+      .addError(GraphqlInternalError),
   )
   .add(
-    HttpApiEndpoint.get(
-      "getSource",
-    )`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`.addSuccess(
-      Schema.NullOr(StoredSourceSchema),
-    ),
+    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`
+      .addSuccess(Schema.NullOr(StoredSourceSchema))
+      .addError(GraphqlInternalError),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
-      .addSuccess(UpdateSourceResponse),
+      .addSuccess(UpdateSourceResponse)
+      .addError(GraphqlInternalError),
   ) {}

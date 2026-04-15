@@ -1,8 +1,9 @@
-import { Effect } from "effect";
+import { Effect, FiberRef } from "effect";
 import {
   typedAdapter,
   type DBAdapter,
   type DBSchema,
+  type DBTransactionAdapter,
   type TypedAdapter,
 } from "@executor/storage-core";
 
@@ -385,6 +386,59 @@ const toolMatchesFilter = (tool: Tool, filter: ToolListFilter): boolean => {
 };
 
 // ---------------------------------------------------------------------------
+// Active-adapter FiberRef. Nested plugin writes read this ref so that
+// `ctx.transaction` can swap in a tx-bound adapter handle without changing
+// the ctx shape — the root adapter returned by `buildAdapterRouter` below
+// resolves its target per call, so any Effect running inside
+// `Effect.locally(_, activeAdapterRef, trx)` automatically routes every
+// query through the same sql.begin connection. This is what makes nested
+// writes atomic on postgres + Hyperdrive without deadlocking a pool of 1.
+// ---------------------------------------------------------------------------
+const activeAdapterRef = FiberRef.unsafeMake<DBTransactionAdapter | null>(
+  null,
+);
+
+// A `DBAdapter` whose methods dispatch to the active adapter (tx handle or
+// root) on every call. Stable identity for consumers (plugin storage,
+// `typedAdapter`, etc.) — they see one adapter object, but the routing is
+// decided at call time via the FiberRef above.
+const buildAdapterRouter = (root: DBAdapter): DBAdapter => {
+  const pick = <A, E>(
+    use: (active: DBTransactionAdapter) => Effect.Effect<A, E>,
+  ): Effect.Effect<A, E> =>
+    Effect.flatMap(FiberRef.get(activeAdapterRef), (active) =>
+      use((active ?? (root as DBTransactionAdapter))),
+    );
+
+  return {
+    id: root.id,
+    create: (data) => pick((a) => a.create(data)),
+    createMany: (data) => pick((a) => a.createMany(data)),
+    findOne: (data) => pick((a) => a.findOne(data)),
+    findMany: (data) => pick((a) => a.findMany(data)),
+    count: (data) => pick((a) => a.count(data)),
+    update: (data) => pick((a) => a.update(data)),
+    updateMany: (data) => pick((a) => a.updateMany(data)),
+    delete: (data) => pick((a) => a.delete(data)),
+    deleteMany: (data) => pick((a) => a.deleteMany(data)),
+    // transaction() always opens a real boundary on the ROOT adapter so the
+    // tx uses one real connection from the pool. If we're already inside a
+    // parent tx (FiberRef set), skip opening a nested sql.begin — that's
+    // the postgres.js + Hyperdrive deadlock path — and just run the
+    // callback with the existing tx handle. In both cases the callback
+    // sees a FiberRef-substituted adapter so further nested writes thread
+    // through.
+    transaction: (callback) =>
+      Effect.flatMap(FiberRef.get(activeAdapterRef), (active) => {
+        if (active) return callback(active);
+        return root.transaction((trx) =>
+          Effect.locally(callback(trx), activeAdapterRef, trx),
+        );
+      }),
+  } as DBAdapter;
+};
+
+// ---------------------------------------------------------------------------
 // createExecutor
 // ---------------------------------------------------------------------------
 
@@ -414,11 +468,16 @@ export const createExecutor = <
   Effect.gen(function* () {
     const {
       scope,
-      adapter,
+      adapter: rootAdapter,
       blobs,
       plugins = [] as unknown as TPlugins,
     } = config;
 
+    // Router wraps the root adapter so every read/write inside the SDK
+    // (core + plugin storage) resolves its target via the FiberRef.
+    // `ctx.transaction` flips the FiberRef to the tx handle for the
+    // duration of its callback.
+    const adapter = buildAdapterRouter(rootAdapter);
     const core = typedAdapter<CoreSchema>(adapter);
 
     // Populated once, never mutated after startup.
@@ -670,21 +729,24 @@ export const createExecutor = <
                     );
                   }
                 }
-                // Don't wrap in adapter.transaction here. Callers who
-                // need atomicity (e.g. openapi's addSpec) already wrap
-                // their whole operation in ctx.transaction, and a
-                // nested sql.begin inside sql.begin deadlocks on
-                // postgres.js when the connection pool is small.
-                // A single writeSourceInput call is one create + one
-                // createMany — atomic at the statement level regardless.
-                yield* writeSourceInput(core, plugin.id, input);
+                // Wrap in adapter.transaction so a standalone register()
+                // call is atomic (source create + tools createMany group
+                // together). When already inside a parent ctx.transaction,
+                // the router short-circuits to the active tx handle
+                // instead of opening a nested sql.begin — that nested
+                // sql.begin is the postgres.js + pool=1 deadlock path.
+                yield* adapter.transaction(() =>
+                  writeSourceInput(core, plugin.id, input),
+                );
               }),
             unregister: (sourceId: string) =>
-              deleteSourceById(core, sourceId),
+              adapter.transaction(() => deleteSourceById(core, sourceId)),
           },
           definitions: {
             register: (input: DefinitionsInput) =>
-              writeDefinitions(core, plugin.id, input),
+              adapter.transaction(() =>
+                writeDefinitions(core, plugin.id, input),
+              ),
           },
         },
         secrets: {
@@ -693,25 +755,11 @@ export const createExecutor = <
           set: secretsSet,
           remove: secretsRemove,
         },
-        // TODO: ctx.transaction is currently a pass-through — it runs
-        // the effect without opening an actual BEGIN/COMMIT boundary.
-        // The reason: `adapter.transaction(() => effect)` opens a
-        // sql.begin on one connection, but any subsequent adapter
-        // calls inside `effect` route through the ROOT adapter (not
-        // a tx-bound one), which pulls separate connections from the
-        // pool. With postgres.js `max: 1` this deadlocks (the outer
-        // tx holds the connection, the inner writes wait for one to
-        // free). With max > 1 the inner writes just happen outside
-        // the transaction — non-atomic.
-        //
-        // Until we thread the active tx client through the adapter
-        // context (via FiberRef / Layer substitution), skipping the
-        // outer sql.begin is strictly better than holding a connection
-        // for nothing. Writes inside ctx.transaction are currently
-        // atomic only at the individual-statement level — a
-        // multi-statement effect may leave partially-written state on
-        // failure. openapi's addSpec can recover via unregister + retry.
-        transaction: <A, E>(effect: Effect.Effect<A, E>) => effect,
+        // Open one real tx boundary and route every nested write inside
+        // `effect` through that same handle via the activeAdapterRef —
+        // see buildAdapterRouter above for the dispatch logic.
+        transaction: <A, E>(effect: Effect.Effect<A, E>) =>
+          adapter.transaction(() => effect) as Effect.Effect<A, E | Error>,
       };
 
       // Build extension FIRST so it's available as `self` when resolving
@@ -1092,14 +1140,21 @@ export const createExecutor = <
           return yield* new SourceRemovalNotAllowedError({ sourceId });
         }
         const runtime = runtimes.get(sourceRow.plugin_id);
-        // Same pass-through rationale as ctx.transaction above.
-        if (runtime?.plugin.removeSource) {
-          yield* runtime.plugin.removeSource({
-            ctx: runtime.ctx,
-            sourceId,
-          });
-        }
-        yield* deleteSourceById(core, sourceId);
+        // Group the plugin's own cleanup + the core row delete into one
+        // tx so a removeSource never leaves orphan rows on failure. The
+        // router short-circuits on nested calls when the caller is
+        // already inside a parent ctx.transaction.
+        yield* adapter.transaction(() =>
+          Effect.gen(function* () {
+            if (runtime?.plugin.removeSource) {
+              yield* runtime.plugin.removeSource({
+                ctx: runtime.ctx,
+                sourceId,
+              });
+            }
+            yield* deleteSourceById(core, sourceId);
+          }),
+        );
       });
 
     const refreshSource = (sourceId: string) =>

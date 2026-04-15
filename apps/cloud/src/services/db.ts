@@ -41,20 +41,13 @@ const resolveConnectionString = () => {
 
 const makeSql = (): Sql =>
   postgres(resolveConnectionString(), {
-    // max=5: ctx.transaction() opens a sql.begin on one connection
-    // while nested writes (ctx.core.sources.register, plugin storage,
-    // etc.) currently route through the root rootSql reference —
-    // which pulls separate connections from the pool. With max=1 this
-    // deadlocks immediately because the tx holds the only connection
-    // and the nested writes wait forever for one to free up. 5 gives
-    // headroom for openapi addSpec which hits plugin storage + core
-    // sources + core definitions writes inside one logical
-    // "transaction".
-    //
-    // TODO: thread the active tx client through nested adapter writes
-    // (via FiberRef / Context layer substitution) so the writes are
-    // actually atomic AND pool=1 works again. Tracked separately.
-    max: 5,
+    // max=1 is correct for Hyperdrive: one request, one connection. The
+    // earlier deadlock under ctx.transaction (outer sql.begin holding the
+    // only connection while nested writes pulled fresh ones) is fixed in
+    // @executor/sdk — nested writes now thread through the active tx
+    // handle via a FiberRef in buildAdapterRouter, so they reuse the same
+    // connection and never contend with the outer sql.begin.
+    max: 1,
     idle_timeout: 0,
     max_lifetime: 60,
     connect_timeout: 10,

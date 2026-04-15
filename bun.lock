@@ -292,12 +292,13 @@
       "name": "@executor/storage-core",
       "version": "0.0.0",
       "dependencies": {
+        "@effect/vitest": "catalog:",
         "@standard-schema/spec": "^1.0.0",
         "effect": "catalog:",
+        "vitest": "catalog:",
       },
       "devDependencies": {
         "typescript": "catalog:",
-        "vitest": "catalog:",
       },
     },
     "packages/core/storage-file": {
