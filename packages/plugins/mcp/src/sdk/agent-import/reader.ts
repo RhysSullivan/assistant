@@ -139,10 +139,10 @@ export const getGlobalConfigPaths = (agent: AgentKey, env: PlatformEnv): string[
       return [join(home, ".gemini", "settings.json")];
 
     case "copilot": {
-      const copilotDir = process.env.XDG_CONFIG_HOME
-        ? join(process.env.XDG_CONFIG_HOME)
-        : join(home, ".copilot");
-      return [join(copilotDir, "mcp-config.json")];
+      if (platform === "win32") return [join(appData, "copilot", "mcp-config.json")];
+      if (platform === "darwin")
+        return [join(home, "Library", "Application Support", "copilot", "mcp-config.json")];
+      return [join(xdgConfig, "copilot", "mcp-config.json")];
     }
 
     case "antigravity":
@@ -303,7 +303,7 @@ const parseYamlContent = (content: string): unknown => yamlParse(content);
 
 const parseTomlContent = (content: string): unknown => tomlParse(content);
 
-export const parseContent = async (content: string, format: ConfigFormat): Promise<unknown> => {
+export const parseContent = (content: string, format: ConfigFormat): unknown => {
   switch (format) {
     case "json":
       return parseJson(content);
@@ -354,10 +354,7 @@ export const detectAgentFromContent = (parsed: unknown): AgentKey | null => {
 // Read from file path
 // ---------------------------------------------------------------------------
 
-export const readAgentConfigFile = async (
-  filePath: string,
-  agent: AgentKey,
-): Promise<NormalizedServer[]> => {
+export const readAgentConfigFile = (filePath: string, agent: AgentKey): NormalizedServer[] => {
   if (!existsSync(filePath)) {
     throw new AgentImportError(`Config file not found: ${filePath}`);
   }
@@ -370,19 +367,18 @@ export const readAgentConfigFile = async (
 // Parse from raw content (used by web drag-drop and tests)
 // ---------------------------------------------------------------------------
 
-export const parseAgentConfigContent = async (
+export const parseAgentConfigContent = (
   content: string,
   filenameHint: string,
   agentHint?: AgentKey,
-): Promise<NormalizedServer[]> => {
+): NormalizedServer[] => {
   let agent = agentHint;
 
-  // Detect format from filename hint
   const format = detectFormat(filenameHint, agent ?? "claude-code");
 
   let parsed: unknown;
   try {
-    parsed = await parseContent(content, format);
+    parsed = parseContent(content, format);
   } catch (err) {
     throw new AgentImportError(
       `Failed to parse config file: ${err instanceof Error ? err.message : String(err)}`,
@@ -408,10 +404,10 @@ export interface ResolvedAgentConfig {
   readonly servers: NormalizedServer[];
 }
 
-export const findAndReadAgentConfig = async (
+export const findAndReadAgentConfig = (
   agent: AgentKey,
   options?: { cwd?: string },
-): Promise<ResolvedAgentConfig> => {
+): ResolvedAgentConfig => {
   const env = getCurrentPlatformEnv();
   const cwd = options?.cwd ?? process.cwd();
 
@@ -419,7 +415,7 @@ export const findAndReadAgentConfig = async (
   for (const rel of getLocalConfigPaths(agent)) {
     const full = join(cwd, rel);
     if (existsSync(full)) {
-      const servers = await readAgentConfigFile(full, agent);
+      const servers = readAgentConfigFile(full, agent);
       return { filePath: full, agent, servers };
     }
   }
@@ -427,7 +423,7 @@ export const findAndReadAgentConfig = async (
   // Then global paths
   for (const full of getGlobalConfigPaths(agent, env)) {
     if (existsSync(full)) {
-      const servers = await readAgentConfigFile(full, agent);
+      const servers = readAgentConfigFile(full, agent);
       return { filePath: full, agent, servers };
     }
   }
@@ -447,6 +443,7 @@ export const findAndReadAgentConfig = async (
 export interface DetectedAgent {
   readonly agent: AgentKey;
   readonly filePath: string;
+  readonly servers: NormalizedServer[];
   readonly serverCount: number;
 }
 
@@ -468,9 +465,7 @@ const ALL_AGENTS: AgentKey[] = [
   "mcporter",
 ];
 
-export const detectInstalledAgents = async (options?: {
-  cwd?: string;
-}): Promise<DetectedAgent[]> => {
+export const detectInstalledAgents = (options?: { cwd?: string }): DetectedAgent[] => {
   const env = getCurrentPlatformEnv();
   const cwd = options?.cwd ?? process.cwd();
   const results: DetectedAgent[] = [];
@@ -487,9 +482,9 @@ export const detectInstalledAgents = async (options?: {
       if (!existsSync(filePath)) continue;
       seen.add(filePath);
       try {
-        const servers = await readAgentConfigFile(filePath, agent);
+        const servers = readAgentConfigFile(filePath, agent);
         if (servers.length > 0) {
-          results.push({ agent, filePath, serverCount: servers.length });
+          results.push({ agent, filePath, servers, serverCount: servers.length });
         }
       } catch {
         // skip unreadable files

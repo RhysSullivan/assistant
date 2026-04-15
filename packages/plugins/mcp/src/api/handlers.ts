@@ -282,17 +282,14 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
     )
     .handle("importFromAgent", ({ payload }) =>
       Effect.gen(function* () {
-        const servers = yield* Effect.tryPromise({
+        const servers = yield* Effect.try({
           try: () =>
             parseAgentConfigContent(
               payload.content,
               payload.filename,
               payload.agentHint as AgentKey | undefined,
             ),
-          catch: (e) =>
-            new McpApiError({
-              message: e instanceof Error ? e.message : String(e),
-            }),
+          catch: (e) => new McpApiError({ message: e instanceof Error ? e.message : String(e) }),
         });
 
         if (payload.dryRun) {
@@ -304,10 +301,10 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
         const skipped: { name: string; reason: string }[] = [];
 
         for (const server of servers) {
-          const config: McpSourceConfig =
-            server.config.transport === "stdio"
+          const config = toSourceConfig({
+            ...(server.config.transport === "stdio"
               ? {
-                  transport: "stdio",
+                  transport: "stdio" as const,
                   name: server.name,
                   command: server.config.command,
                   args: server.config.args,
@@ -315,13 +312,14 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
                   namespace: server.suggestedNamespace,
                 }
               : {
-                  transport: "remote",
+                  transport: "remote" as const,
                   name: server.name,
                   endpoint: server.config.endpoint,
                   headers: server.config.headers,
                   remoteTransport: server.config.remoteTransport,
                   namespace: server.suggestedNamespace,
-                };
+                }),
+          });
 
           const result = yield* ext.addSource(config).pipe(
             Effect.map((r) => ({ ok: true as const, ...r })),
@@ -349,8 +347,13 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
     )
     .handle("detectAgents", () =>
       Effect.gen(function* () {
-        const agents = yield* Effect.tryPromise({
-          try: () => detectInstalledAgents(),
+        const agents = yield* Effect.try({
+          try: () =>
+            detectInstalledAgents().map(({ agent, filePath, serverCount }) => ({
+              agent,
+              filePath,
+              serverCount,
+            })),
           catch: (e) =>
             new McpInternalError({
               message: e instanceof Error ? e.message : String(e),
