@@ -36,6 +36,8 @@ export {
   ExtractionResult,
   InvocationConfig,
   InvocationResult,
+  OAuth2Auth,
+  OpenApiOAuthSession,
   OperationBinding,
   OperationParameter,
   OperationRequestBody,

@@ -4,8 +4,7 @@ import { Schema } from "effect";
 import { parse, type ParsedDocument } from "./parse";
 import { extract } from "./extract";
 import { DocResolver } from "./openapi-utils";
-import { HttpMethod, ServerInfo, type ExtractionResult } from "./types";
-
+import { HttpMethod, type ExtractionResult } from "./types";
 
 // ---------------------------------------------------------------------------
 // OAuth 2.0 flows — one entry per supported grant type
