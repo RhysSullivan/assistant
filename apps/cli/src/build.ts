@@ -436,8 +436,14 @@ const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
   );
   await writeFile(join(wrapperDir, "postinstall.cjs"), postinstall);
 
-  const osList = Array.from(new Set(ALL_TARGETS.filter((t) => !t.abi).map((t) => t.os)));
-  const cpuList = Array.from(new Set(ALL_TARGETS.filter((t) => !t.abi).map((t) => t.arch)));
+  // Restrict os/cpu to platforms we actually built this run so npm refuses
+  // the install on anything else — a clear error beats a cryptic 404 from
+  // postinstall on an unbuilt platform.
+  const builtTargets = Object.keys(binaries)
+    .map((name) => ALL_TARGETS.find((t) => targetPackageName(t) === name))
+    .filter((t): t is Target => t !== undefined);
+  const osList = Array.from(new Set(builtTargets.map((t) => t.os)));
+  const cpuList = Array.from(new Set(builtTargets.map((t) => t.arch)));
 
   await writeFile(
     join(wrapperDir, "package.json"),
