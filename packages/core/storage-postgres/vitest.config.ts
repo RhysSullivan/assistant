@@ -5,5 +5,6 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     passWithNoTests: true,
     hookTimeout: 30_000,
+    globalSetup: ["./scripts/test-globalsetup.ts"],
   },
 });

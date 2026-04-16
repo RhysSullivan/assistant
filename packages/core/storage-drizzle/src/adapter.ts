@@ -473,13 +473,19 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       }),
   };
 
-  // Transaction: we issue raw BEGIN / COMMIT / ROLLBACK against the
-  // drizzle db using `db.run(sql\`...\`)`. This works identically for
-  // sqlite (sync driver like better-sqlite3) and postgres (async),
-  // sidestepping drizzle's per-dialect `.transaction(cb)` API which
-  // rejects async callbacks on sync drivers. All adapter methods inside
-  // the callback run against the same db (better-sqlite3 has implicit
-  // connection scoping; postgres.js + Workers hands us the same Sql).
+  // Transaction strategy differs by dialect:
+  //
+  //   pg: use drizzle's `db.transaction(cb)`, which delegates to
+  //       postgres.js's `sql.begin()`. postgres.js rejects a plain
+  //       `sql.unsafe("BEGIN")` because its query protocol wraps every
+  //       query in its own implicit autocommit — transaction control
+  //       has to go through `sql.begin()`.
+  //
+  //   sqlite: emit raw BEGIN / COMMIT / ROLLBACK against `db.run(...)`.
+  //       drizzle-sqlite's `.transaction(cb)` rejects async callbacks
+  //       and we need async to bridge Effect.
+  //
+  //   mysql: same raw-statement path as sqlite, untested in-tree.
   const txFn: DBAdapterFactoryConfig["transaction"] = options.supportsTransaction
     ? <R, E>(
         cb: (trx: Parameters<DBAdapter["transaction"]>[0] extends (
@@ -487,11 +493,48 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         ) => unknown
           ? T
           : never) => Effect.Effect<R, E>,
-      ) =>
-        Effect.gen(function* () {
-          // drizzle exposes `run` on sqlite drivers and `execute` on pg/mysql
-          // drivers. Pick whichever the current db has; both accept `sql.raw`.
-          // Bind `this` because the methods read internal state off the db.
+      ) => {
+        if (provider === "pg") {
+          // Wrap drizzle's real transaction. The nested adapter runs
+          // every query through the `tx` handle so all writes stay
+          // inside the `sql.begin()` boundary. Throw from the inner
+          // Promise on Effect failure — that's how drizzle knows to
+          // issue ROLLBACK.
+          type TxShape = Parameters<DBAdapter["transaction"]>[0] extends (t: infer T) => unknown
+            ? T
+            : never;
+          class TxFailure {
+            constructor(public readonly inner: E) {}
+          }
+          return Effect.tryPromise({
+            try: () =>
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (db as any).transaction(async (tx: unknown) => {
+                const nested = drizzleAdapter({
+                  ...options,
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  db: tx as any,
+                  supportsTransaction: false,
+                }) as TxShape;
+                const exit = await Effect.runPromise(
+                  Effect.either(cb(nested)) as Effect.Effect<
+                    { readonly _tag: "Right"; readonly right: R } | { readonly _tag: "Left"; readonly left: E },
+                    never
+                  >,
+                );
+                if (exit._tag === "Left") throw new TxFailure(exit.left);
+                return exit.right;
+              }),
+            catch: (e) => e,
+          }).pipe(
+            Effect.mapError((e) => {
+              if (e instanceof TxFailure) return e.inner;
+              return e instanceof Error ? e : new Error(String(e));
+            }),
+          ) as Effect.Effect<R, E | Error>;
+        }
+
+        return Effect.gen(function* () {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const dbAny = db as any;
           const runner: ((s: unknown) => unknown) | undefined = dbAny.run
@@ -523,8 +566,6 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
               catch: (e) => new Error(String(e)),
             });
           }
-          // Build a nested adapter that shares the same db + tables but
-          // with transaction() disabled (so nested calls become no-ops).
           const nested = drizzleAdapter({
             ...options,
             supportsTransaction: false,
@@ -545,7 +586,8 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
             });
           }
           return result;
-        })
+        });
+      }
     : undefined;
 
   return createAdapter({
