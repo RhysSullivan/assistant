@@ -25,23 +25,15 @@ jobs:
         run: bun run --filter=executor build:preview
 
       - name: Upload preview binaries to R2
-        # Uses the S3-compatible endpoint rather than wrangler's `r2 object put`
-        # because wrangler proxies through the Cloudflare API gateway, which
-        # caps request bodies around 100MB. S3 multipart handles our ~100MB
-        # linux binary without trouble.
+        # Uses Bun.s3 against the R2 S3-compatible endpoint. Avoids aws-cli
+        # endpoint-validation quirks on ubuntu-latest and handles multipart
+        # uploads for tarballs larger than the Cloudflare API gateway limit.
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          S3_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          S3_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          S3_BUCKET: executor-previews
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          for tarball in apps/cli/dist/previews/*.tar.gz; do
-            name=$(basename "$tarball")
-            echo "Uploading $name → s3://executor-previews/$SHA/$name"
-            aws s3 cp "$tarball" "s3://executor-previews/$SHA/$name" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --no-progress
-          done
+        run: bun run apps/cli/scripts/upload-preview.ts
 
       - run: npx pkg-pr-new publish --compact './apps/cli/dist/executor' './packages/core/sdk' './packages/plugins/*'
