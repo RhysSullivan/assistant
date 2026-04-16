@@ -17,6 +17,7 @@
 import { Effect, Layer } from "effect";
 import {
   FetchHttpClient,
+  HttpApi,
   HttpApiBuilder,
   HttpApiClient,
   HttpApiSwagger,
@@ -270,13 +271,18 @@ export const clientLayerForOrg = (orgId: string) =>
 // Constructs an HttpApiClient bound to the given org, hands it to `body`,
 // and provides the org-scoped fetch layer in one step. Keeps per-test
 // Effect blocks focused on the actual assertions.
-type ProtectedClient = Effect.Effect.Success<
-  ReturnType<typeof HttpApiClient.make<typeof ProtectedCloudApi>>
->;
+type ApiShape = typeof ProtectedCloudApi extends HttpApi.HttpApi<
+  infer _Id,
+  infer Groups,
+  infer ApiError,
+  infer _ApiR
+>
+  ? HttpApiClient.Client<Groups, ApiError, never>
+  : never;
 
 export const asOrg = <A, E>(
   orgId: string,
-  body: (client: ProtectedClient) => Effect.Effect<A, E>,
+  body: (client: ApiShape) => Effect.Effect<A, E>,
 ): Effect.Effect<A, E> =>
   Effect.gen(function* () {
     const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
