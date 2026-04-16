@@ -702,7 +702,10 @@ export const createExecutor = <
       const storageDeps: StorageDeps<any> = {
         scope,
         adapter: typedAdapter(adapter) as never,
-        blobs: scopeBlobStore(blobs, plugin.id),
+        // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
+        // sharing a backing BlobStore can't collide or leak on the same
+        // `(plugin, key)` pair. Mirrors the adapter's scope-stamping.
+        blobs: scopeBlobStore(blobs, `${scope.id}/${plugin.id}`),
       };
       const storage = plugin.storage(storageDeps);
 

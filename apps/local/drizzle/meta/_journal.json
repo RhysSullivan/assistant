@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1776324351260,
-      "tag": "0000_quiet_namora",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1776364919843,
-      "tag": "0001_skinny_jetstream",
+      "when": 1776367901699,
+      "tag": "0000_overconfident_sharon_carter",
       "breakpoints": true
     }
   ]

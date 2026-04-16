@@ -122,20 +122,36 @@ export const generateDrizzleSchema: SchemaGenerator = async ({
     const modelName = getModelName(tableKey, tableDef);
     const fields = tableDef.fields;
 
-    const id = `text('id').primaryKey()`;
+    // Scoped tables get a composite `(scope_id, id)` primary key so two
+    // tenants can register rows with the same user-facing id without
+    // colliding on a globally-unique PK. Single-column PK stays for
+    // unscoped tables (conformance fixtures, the blob store, etc.).
+    const hasScopeId = Object.prototype.hasOwnProperty.call(fields, "scope_id");
+    const id = hasScopeId ? `text('id').notNull()` : `text('id').primaryKey()`;
 
-    type Index = { type: "uniqueIndex" | "index"; name: string; on: string };
-    const indexes: Index[] = [];
+    type TableExtra =
+      | { kind: "uniqueIndex" | "index"; name: string; on: string }
+      | { kind: "primaryKey"; columns: readonly string[] };
+    const extras: TableExtra[] = [];
 
-    const assignIndexes = (indexes: Index[]): string => {
-      if (!indexes.length) return "";
+    const assignExtras = (items: TableExtra[]): string => {
+      if (!items.length) return "";
       const lines: string[] = [`, (table) => [`];
-      for (const idx of indexes) {
-        lines.push(`  ${idx.type}("${idx.name}").on(table.${idx.on}),`);
+      for (const item of items) {
+        if (item.kind === "primaryKey") {
+          const cols = item.columns.map((c) => `table.${c}`).join(", ");
+          lines.push(`  primaryKey({ columns: [${cols}] }),`);
+        } else {
+          lines.push(`  ${item.kind}("${item.name}").on(table.${item.on}),`);
+        }
       }
       lines.push(`]`);
       return lines.join("\n");
     };
+
+    if (hasScopeId) {
+      extras.push({ kind: "primaryKey", columns: ["scope_id", "id"] });
+    }
 
     const tableSchema = `export const ${tableKey} = ${dialect}Table("${modelName}", {
   id: ${id},
@@ -145,14 +161,14 @@ export const generateDrizzleSchema: SchemaGenerator = async ({
       const physical = attr.fieldName ?? fieldName;
 
       if (attr.index && !attr.unique) {
-        indexes.push({
-          type: "index",
+        extras.push({
+          kind: "index",
           name: `${tableKey}_${physical}_idx`,
           on: physical,
         });
       } else if (attr.index && attr.unique) {
-        indexes.push({
-          type: "uniqueIndex",
+        extras.push({
+          kind: "uniqueIndex",
           name: `${tableKey}_${physical}_uidx`,
           on: physical,
         });
@@ -199,7 +215,7 @@ export const generateDrizzleSchema: SchemaGenerator = async ({
       }`;
     })
     .join(",\n  ")}
-}${assignIndexes(indexes)});`;
+}${assignExtras(extras)});`;
 
     code += `\n${tableSchema}\n`;
   }
@@ -361,8 +377,9 @@ function generateImport({
   let hasIndex = false;
   let hasUniqueIndex = false;
   let hasReferences = false;
+  let hasCompositePrimaryKey = false;
 
-  for (const table of Object.values(schema)) {
+  for (const [tableKey, table] of Object.entries(schema)) {
     for (const field of Object.values(table.fields)) {
       if (field.bigint) hasBigint = true;
       if (field.type === "json") hasJson = true;
@@ -373,6 +390,14 @@ function generateImport({
       if (field.index && field.unique) hasUniqueIndex = true;
       if (field.references) hasReferences = true;
     }
+    // Scoped tables get a composite (scope_id, id) PK — see generator
+    // body where `primaryKey({ columns: [...] })` is emitted.
+    if (Object.prototype.hasOwnProperty.call(table.fields, "scope_id")) {
+      hasCompositePrimaryKey = true;
+    }
+    // Keep the generator silent about tableKey in this pass — we only
+    // need the existence check above. Referenced here to satisfy lint.
+    void tableKey;
   }
 
   coreImports.push(`${dialect}Table`);
@@ -396,6 +421,7 @@ function generateImport({
   }
   if (hasIndex) coreImports.push("index");
   if (hasUniqueIndex) coreImports.push("uniqueIndex");
+  if (hasCompositePrimaryKey) coreImports.push("primaryKey");
 
   // sqlite needs integer for boolean + date
   if (dialect === "sqlite" && (hasBoolean || hasDate)) {

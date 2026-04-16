@@ -1,5 +1,5 @@
 {
-  "id": "0839c524-eef5-46f3-af57-50e7147a0c66",
+  "id": "93e9f8ef-fe9a-4a8c-b326-329464d876ca",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -175,7 +175,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "source_id": {
@@ -210,6 +216,21 @@
         }
       },
       "indexes": {
+        "definition_scope_id_idx": {
+          "name": "definition_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "definition_source_id_idx": {
           "name": "definition_source_id_idx",
           "columns": [
@@ -242,7 +263,15 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "definition_scope_id_id_pk": {
+          "name": "definition_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -255,7 +284,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "source_id": {
@@ -272,6 +307,21 @@
         }
       },
       "indexes": {
+        "graphql_operation_scope_id_idx": {
+          "name": "graphql_operation_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "graphql_operation_source_id_idx": {
           "name": "graphql_operation_source_id_idx",
           "columns": [
@@ -289,7 +339,15 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "graphql_operation_scope_id_id_pk": {
+          "name": "graphql_operation_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -302,7 +360,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "name": {
@@ -324,9 +388,33 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "graphql_source_scope_id_idx": {
+          "name": "graphql_source_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "graphql_source_scope_id_id_pk": {
+          "name": "graphql_source_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -339,7 +427,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "source_id": {
@@ -362,6 +456,21 @@
         }
       },
       "indexes": {
+        "mcp_binding_scope_id_idx": {
+          "name": "mcp_binding_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "mcp_binding_source_id_idx": {
           "name": "mcp_binding_source_id_idx",
           "columns": [
@@ -379,7 +488,15 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "mcp_binding_scope_id_id_pk": {
+          "name": "mcp_binding_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -392,7 +509,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "session": {
@@ -414,9 +537,33 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "mcp_oauth_session_scope_id_idx": {
+          "name": "mcp_oauth_session_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "mcp_oauth_session_scope_id_id_pk": {
+          "name": "mcp_oauth_session_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -429,7 +576,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "name": {
@@ -451,9 +604,33 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "mcp_source_scope_id_idx": {
+          "name": "mcp_source_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "mcp_source_scope_id_id_pk": {
+          "name": "mcp_source_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -466,7 +643,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "session": {
@@ -482,9 +665,33 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "openapi_oauth_session_scope_id_idx": {
+          "name": "openapi_oauth_session_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "openapi_oauth_session_scope_id_id_pk": {
+          "name": "openapi_oauth_session_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -497,7 +704,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "source_id": {
@@ -514,6 +727,21 @@
         }
       },
       "indexes": {
+        "openapi_operation_scope_id_idx": {
+          "name": "openapi_operation_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "openapi_operation_source_id_idx": {
           "name": "openapi_operation_source_id_idx",
           "columns": [
@@ -531,7 +759,15 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "openapi_operation_scope_id_id_pk": {
+          "name": "openapi_operation_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -544,7 +780,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "name": {
@@ -584,9 +826,33 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "openapi_source_scope_id_idx": {
+          "name": "openapi_source_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "openapi_source_scope_id_id_pk": {
+          "name": "openapi_source_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -599,7 +865,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "name": {
@@ -622,6 +894,21 @@
         }
       },
       "indexes": {
+        "secret_scope_id_idx": {
+          "name": "secret_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "secret_provider_idx": {
           "name": "secret_provider_idx",
           "columns": [
@@ -639,7 +926,15 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "secret_scope_id_id_pk": {
+          "name": "secret_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -652,7 +947,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "plugin_id": {
@@ -714,6 +1015,21 @@
         }
       },
       "indexes": {
+        "source_scope_id_idx": {
+          "name": "source_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "source_plugin_id_idx": {
           "name": "source_plugin_id_idx",
           "columns": [
@@ -731,7 +1047,15 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "source_scope_id_id_pk": {
+          "name": "source_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -744,7 +1068,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "source_id": {
@@ -797,6 +1127,21 @@
         }
       },
       "indexes": {
+        "tool_scope_id_idx": {
+          "name": "tool_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "tool_source_id_idx": {
           "name": "tool_source_id_idx",
           "columns": [
@@ -829,7 +1174,15 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "tool_scope_id_id_pk": {
+          "name": "tool_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -842,7 +1195,13 @@
         "id": {
           "name": "id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "name": {
@@ -864,9 +1223,33 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "workos_vault_metadata_scope_id_idx": {
+          "name": "workos_vault_metadata_scope_id_idx",
+          "columns": [
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "workos_vault_metadata_scope_id_id_pk": {
+          "name": "workos_vault_metadata_scope_id_id_pk",
+          "columns": [
+            "scope_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

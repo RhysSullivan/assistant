@@ -112,11 +112,22 @@ const wrapTxMethods = (
         : inner.count(data),
     update: (data) =>
       isScoped(data.model)
-        ? inner.update({ ...data, where: withScopeRead(data.where, scopes) })
+        ? inner.update({
+            ...data,
+            where: withScopeRead(data.where, scopes),
+            // Force-overwrite any caller-supplied `scope_id` so an update
+            // can't transfer a row to a different scope. Symmetric with
+            // `create`'s `stampScope(data.data)`.
+            update: stampScope(data.update, scopes.write),
+          })
         : inner.update(data),
     updateMany: (data) =>
       isScoped(data.model)
-        ? inner.updateMany({ ...data, where: withScopeRead(data.where, scopes) })
+        ? inner.updateMany({
+            ...data,
+            where: withScopeRead(data.where, scopes),
+            update: stampScope(data.update, scopes.write),
+          })
         : inner.updateMany(data),
     delete: (data) =>
       isScoped(data.model)
