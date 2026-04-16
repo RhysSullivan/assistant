@@ -1,15 +1,14 @@
 import {
+  FetchHttpClient,
   HttpApi,
   HttpApiBuilder,
   HttpApiClient,
   HttpApiEndpoint,
   HttpApiGroup,
-  HttpApp,
   HttpClient,
   HttpServer,
   HttpServerResponse,
 } from "@effect/platform";
-import { NodeHttpServer } from "@effect/platform-node";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 
@@ -144,13 +143,20 @@ const TestApi = HttpApi.make("testApi")
   )
   .add(ProtectedGroup);
 
-const TestServerLayer = HttpServer.serve(HttpApp.fromWebHandler(requestHandler)).pipe(
-  Layer.provideMerge(NodeHttpServer.layerTest),
+// Route HttpClient calls directly through the web handler — no real HTTP
+// server, so the suite runs in any runtime (including workerd, where
+// NodeHttpServer.layerTest crashes the isolate).
+const TEST_BASE_URL = "http://test.local";
+const fetchViaHandler: typeof globalThis.fetch = (input, init) =>
+  requestHandler(input instanceof Request ? input : new Request(input, init));
+
+const TestClientLayer = FetchHttpClient.layer.pipe(
+  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchViaHandler)),
 );
 
-const getClient = () => HttpApiClient.make(TestApi);
+const getClient = () => HttpApiClient.make(TestApi, { baseUrl: TEST_BASE_URL });
 
-layer(TestServerLayer)("handleApiRequest", (it) => {
+layer(TestClientLayer)("handleApiRequest", (it) => {
   it.effect("routes /org/* to the org API handler", () =>
     Effect.gen(function* () {
       resetState();
@@ -192,7 +198,7 @@ layer(TestServerLayer)("handleApiRequest", (it) => {
       resetState();
       testState.mode = "none";
 
-      const response = yield* HttpClient.get("/scope");
+      const response = yield* HttpClient.get(`${TEST_BASE_URL}/scope`);
       expect(response.status).toBe(403);
       const body = yield* response.json;
       expect(body).toEqual({
@@ -216,7 +222,7 @@ layer(TestServerLayer)("handleApiRequest", (it) => {
       resetState();
       testState.mode = "bad-status";
 
-      const response = yield* HttpClient.post("/executions/exec_1/resume");
+      const response = yield* HttpClient.post(`${TEST_BASE_URL}/executions/exec_1/resume`);
       expect(response.status).toBe(400);
     }),
   );
@@ -226,7 +232,7 @@ layer(TestServerLayer)("handleApiRequest", (it) => {
       resetState();
       testState.mode = "error";
 
-      const response = yield* HttpClient.get("/scope");
+      const response = yield* HttpClient.get(`${TEST_BASE_URL}/scope`);
       expect(response.status).toBe(500);
       const body = yield* response.json;
       expect(body).toEqual({ error: "boom" });
