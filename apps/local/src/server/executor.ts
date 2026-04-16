@@ -8,6 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import embeddedMigrations from "./embedded-migrations.gen";
+import { moveAsidePreScopeDb } from "./db-upgrade";
 
 import {
   Scope,
@@ -54,7 +55,19 @@ const MIGRATIONS_FOLDER = resolveMigrationsFolder();
 const resolveDbPath = (): string => {
   const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
   fs.mkdirSync(dataDir, { recursive: true });
-  return `${dataDir}/data.db`;
+  const dbPath = `${dataDir}/data.db`;
+  // DBs written by pre-scope-refactor versions of the CLI have a schema
+  // that the current drizzle migration can't be applied on top of. Move
+  // them aside so migrations create a fresh DB; users keep the backup
+  // if they need to recover anything.
+  const backup = moveAsidePreScopeDb(dbPath);
+  if (backup) {
+    console.warn(
+      `[executor] Pre-scope database detected; moved to ${backup}. ` +
+        `Sources and tool catalogs will need to be re-added.`,
+    );
+  }
+  return dbPath;
 };
 
 // Hash suffix disambiguates same-basename folders so two projects with

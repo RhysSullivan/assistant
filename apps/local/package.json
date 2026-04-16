@@ -13,6 +13,7 @@
     "db:schema": "node --import jiti/register ../../packages/core/cli/src/index.ts generate --config ./executor.config.ts --output ./src/server/executor-schema.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "test": "bunx --bun vitest run",
     "typecheck": "tsgo --noEmit",
     "typecheck:slow": "tsc --noEmit"
   },
@@ -55,6 +56,7 @@
     "portless": "^0.10.1",
     "react-grab": "^0.1.31",
     "typescript": "catalog:",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vitest": "catalog:"
   }
 }

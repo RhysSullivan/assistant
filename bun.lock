@@ -161,6 +161,7 @@
         "react-grab": "^0.1.31",
         "typescript": "catalog:",
         "vite": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "apps/marketing": {
