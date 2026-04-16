@@ -36,6 +36,15 @@ import {
 import { exchangeMcpOAuthCode, startMcpOAuthAuthorization } from "./oauth";
 import { McpToolBinding, type McpConnectionAuth, type McpStoredSourceData } from "./types";
 
+import {
+  SECRET_REF_PREFIX,
+  type ConfigFileSink,
+  type McpAuthConfig,
+  type McpRemoteSourceConfig as McpRemoteConfigEntry,
+  type McpStdioSourceConfig as McpStdioConfigEntry,
+  type SourceConfig,
+} from "@executor/config";
+
 // ---------------------------------------------------------------------------
 // Plugin config — discriminated union on transport
 // ---------------------------------------------------------------------------
@@ -326,7 +335,65 @@ export interface McpPluginOptions {
    * `process.env`. Only enable for trusted single-user contexts.
    */
   readonly dangerouslyAllowStdioMCP?: boolean;
+  /** If provided, source add/remove is mirrored to executor.jsonc
+   *  (best-effort — file errors are logged, not raised). */
+  readonly configFile?: ConfigFileSink;
 }
+
+const secretRef = (id: string): string => `${SECRET_REF_PREFIX}${id}`;
+
+const authToConfig = (auth: McpConnectionAuth | undefined): McpAuthConfig | undefined => {
+  if (!auth) return undefined;
+  if (auth.kind === "none") return { kind: "none" };
+  if (auth.kind === "header") {
+    return {
+      kind: "header",
+      headerName: auth.headerName,
+      secret: secretRef(auth.secretId),
+      prefix: auth.prefix,
+    };
+  }
+  return {
+    kind: "oauth2",
+    accessTokenSecret: secretRef(auth.accessTokenSecretId),
+    refreshTokenSecret: auth.refreshTokenSecretId
+      ? secretRef(auth.refreshTokenSecretId)
+      : null,
+    tokenType: auth.tokenType,
+  };
+};
+
+const toMcpConfigEntry = (
+  namespace: string,
+  sourceName: string,
+  config: McpSourceConfig,
+): SourceConfig => {
+  if (config.transport === "stdio") {
+    const entry: McpStdioConfigEntry = {
+      kind: "mcp",
+      transport: "stdio",
+      name: sourceName,
+      command: config.command,
+      args: config.args,
+      env: config.env,
+      cwd: config.cwd,
+      namespace,
+    };
+    return entry;
+  }
+  const entry: McpRemoteConfigEntry = {
+    kind: "mcp",
+    transport: "remote",
+    name: sourceName,
+    endpoint: config.endpoint,
+    remoteTransport: config.remoteTransport,
+    queryParams: config.queryParams,
+    headers: config.headers,
+    namespace,
+    auth: authToConfig(config.auth),
+  };
+  return entry;
+};
 
 export const mcpPlugin = definePlugin(
   (options?: McpPluginOptions) => {
@@ -417,6 +484,8 @@ export const mcpPlugin = definePlugin(
             );
           });
 
+        const configFile = options?.configFile;
+
         const addSource = (config: McpSourceConfig) =>
           Effect.gen(function* () {
             const namespace = normalizeNamespace(config);
@@ -472,17 +541,28 @@ export const mcpPlugin = definePlugin(
               }),
             );
 
+            if (configFile) {
+              yield* configFile.upsertSource(
+                toMcpConfigEntry(namespace, sourceName, config),
+              );
+            }
+
             return { toolCount: manifest.tools.length, namespace };
           });
 
         const removeSource = (namespace: string) =>
-          ctx.transaction(
-            Effect.gen(function* () {
-              yield* ctx.storage.removeBindingsByNamespace(namespace);
-              yield* ctx.storage.removeSource(namespace);
-              yield* ctx.core.sources.unregister(namespace);
-            }),
-          );
+          Effect.gen(function* () {
+            yield* ctx.transaction(
+              Effect.gen(function* () {
+                yield* ctx.storage.removeBindingsByNamespace(namespace);
+                yield* ctx.storage.removeSource(namespace);
+                yield* ctx.core.sources.unregister(namespace);
+              }),
+            );
+            if (configFile) {
+              yield* configFile.removeSource(namespace);
+            }
+          });
 
         const refreshSource = (namespace: string) =>
           Effect.gen(function* () {

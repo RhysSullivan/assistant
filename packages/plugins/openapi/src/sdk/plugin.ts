@@ -22,6 +22,12 @@ import {
   type ToolRow,
 } from "@executor/sdk";
 
+import {
+  headersToConfigValues,
+  type ConfigFileSink,
+  type OpenApiSourceConfig,
+} from "@executor/config";
+
 import { OpenApiOAuthError } from "./errors";
 import { parse } from "./parse";
 import { extract } from "./extract";
@@ -191,7 +197,21 @@ const descriptionFor = (def: ToolDefinition): string => {
 
 export interface OpenApiPluginOptions {
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
+  /** If provided, source add/remove is mirrored to executor.jsonc
+   *  (best-effort — file errors are logged, not raised). */
+  readonly configFile?: ConfigFileSink;
 }
+
+const toOpenApiSourceConfig = (
+  namespace: string,
+  config: OpenApiSpecConfig,
+): OpenApiSourceConfig => ({
+  kind: "openapi",
+  spec: config.spec,
+  baseUrl: config.baseUrl,
+  namespace,
+  headers: headersToConfigValues(config.headers),
+});
 
 export const openApiPlugin = definePlugin(
   (options?: OpenApiPluginOptions) => {
@@ -306,18 +326,34 @@ export const openApiPlugin = definePlugin(
             }),
           );
 
+        const configFile = options?.configFile;
+
         return {
           previewSpec: (specText) => previewSpec(specText),
 
-          addSpec: (config) => addSpecInternal(config),
+          addSpec: (config) =>
+            Effect.gen(function* () {
+              const result = yield* addSpecInternal(config);
+              if (configFile) {
+                yield* configFile.upsertSource(
+                  toOpenApiSourceConfig(result.sourceId, config),
+                );
+              }
+              return result;
+            }),
 
           removeSpec: (namespace) =>
-            ctx.transaction(
-              Effect.gen(function* () {
-                yield* ctx.storage.removeSource(namespace);
-                yield* ctx.core.sources.unregister(namespace);
-              }),
-            ),
+            Effect.gen(function* () {
+              yield* ctx.transaction(
+                Effect.gen(function* () {
+                  yield* ctx.storage.removeSource(namespace);
+                  yield* ctx.core.sources.unregister(namespace);
+                }),
+              );
+              if (configFile) {
+                yield* configFile.removeSource(namespace);
+              }
+            }),
 
           getSource: (namespace) => ctx.storage.getSource(namespace),
 

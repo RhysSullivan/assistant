@@ -36,6 +36,7 @@
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tanstack/react-router": "catalog:",
     "drizzle-orm": "catalog:",
+    "jsonc-parser": "^3.3.1",
     "effect": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"

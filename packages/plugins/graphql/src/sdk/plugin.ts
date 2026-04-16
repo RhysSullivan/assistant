@@ -10,6 +10,12 @@ import {
 } from "@executor/sdk";
 
 import {
+  headersToConfigValues,
+  type ConfigFileSink,
+  type GraphqlSourceConfig as GraphqlConfigEntry,
+} from "@executor/config";
+
+import {
   introspect,
   parseIntrospectionJson,
   type IntrospectionResult,
@@ -251,7 +257,21 @@ const annotationsFor = (binding: OperationBinding): ToolAnnotations => {
 
 export interface GraphqlPluginOptions {
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
+  /** If provided, source add/remove is mirrored to executor.jsonc
+   *  (best-effort — file errors are logged, not raised). */
+  readonly configFile?: ConfigFileSink;
 }
+
+const toGraphqlConfigEntry = (
+  namespace: string,
+  config: GraphqlSourceConfig,
+): GraphqlConfigEntry => ({
+  kind: "graphql",
+  endpoint: config.endpoint,
+  introspectionJson: config.introspectionJson,
+  namespace,
+  headers: headersToConfigValues(config.headers),
+});
 
 export const graphqlPlugin = definePlugin(
   (options?: GraphqlPluginOptions) => {
@@ -339,9 +359,11 @@ export const graphqlPlugin = definePlugin(
                 });
               }
 
-              return { toolCount: prepared.length };
+              return { toolCount: prepared.length, namespace };
             }),
           );
+
+        const configFile = options?.configFile;
 
         return {
           addSource: (config) =>
@@ -353,15 +375,28 @@ export const graphqlPlugin = definePlugin(
                       message: String(err),
                     }),
               ),
+              Effect.tap((result) =>
+                configFile
+                  ? configFile.upsertSource(
+                      toGraphqlConfigEntry(result.namespace, config),
+                    )
+                  : Effect.void,
+              ),
+              Effect.map(({ toolCount }) => ({ toolCount })),
             ),
 
           removeSource: (namespace) =>
-            ctx.transaction(
-              Effect.gen(function* () {
-                yield* ctx.storage.removeSource(namespace);
-                yield* ctx.core.sources.unregister(namespace);
-              }),
-            ),
+            Effect.gen(function* () {
+              yield* ctx.transaction(
+                Effect.gen(function* () {
+                  yield* ctx.storage.removeSource(namespace);
+                  yield* ctx.core.sources.unregister(namespace);
+                }),
+              );
+              if (configFile) {
+                yield* configFile.removeSource(namespace);
+              }
+            }),
 
           getSource: (namespace) => ctx.storage.getSource(namespace),
 

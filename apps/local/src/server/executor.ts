@@ -17,8 +17,11 @@ import {
   makeSqliteAdapter,
   makeSqliteBlobStore,
 } from "@executor/storage-file";
+import { NodeFileSystem } from "@effect/platform-node";
+import { makeFileConfigSink, type ConfigFileSink } from "@executor/config";
 import * as executorSchema from "./executor-schema";
 
+import { syncFromConfig, resolveConfigPath } from "./config-sync";
 import { openApiPlugin } from "@executor/plugin-openapi";
 import { mcpPlugin } from "@executor/plugin-mcp";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
@@ -43,12 +46,12 @@ const makeScopeId = (cwd: string): string => {
   return `${folder}-${hash}`;
 };
 
-const createLocalPlugins = () =>
+const createLocalPlugins = (configFile: ConfigFileSink) =>
   [
-    openApiPlugin(),
-    mcpPlugin({ dangerouslyAllowStdioMCP: true }),
+    openApiPlugin({ configFile }),
+    mcpPlugin({ dangerouslyAllowStdioMCP: true, configFile }),
     googleDiscoveryPlugin(),
-    graphqlPlugin(),
+    graphqlPlugin({ configFile }),
     keychainPlugin(),
     fileSecretsPlugin(),
     onepasswordPlugin(),
@@ -78,24 +81,38 @@ const createLocalExecutorLayer = () => {
       const db = drizzle(sqlite, { schema: executorSchema });
       migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
 
-      const plugins = createLocalPlugins();
+      const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
+      const configPath = resolveConfigPath(cwd);
+      const configFile = makeFileConfigSink({
+        path: configPath,
+        fsLayer: NodeFileSystem.layer,
+      });
+
+      const plugins = createLocalPlugins(configFile);
       const schema = collectSchemas(plugins);
       const adapter = makeSqliteAdapter({ db, schema });
       const blobs = makeSqliteBlobStore({ db });
 
-      const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
       const scope = new Scope({
         id: ScopeId.make(makeScopeId(cwd)),
         name: cwd,
         createdAt: new Date(),
       });
 
-      return yield* createExecutor({
+      const executor = yield* createExecutor({
         scope,
         adapter,
         blobs,
         plugins,
       });
+
+      // Sync sources from executor.jsonc (idempotent — plugins upsert).
+      // Runs after plugins are wired so sources added here round-trip
+      // back through configFile — harmless because the file already
+      // contains them.
+      yield* syncFromConfig(executor, configPath);
+
+      return executor;
     }),
   );
 };

@@ -142,6 +142,7 @@
         "@tanstack/react-router": "catalog:",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
+        "jsonc-parser": "^3.3.1",
         "react": "catalog:",
         "react-dom": "catalog:",
       },
