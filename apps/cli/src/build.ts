@@ -387,6 +387,76 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
 };
 
 // ---------------------------------------------------------------------------
+// Preview wrapper — a self-contained npm package for pkg.pr.new previews.
+//
+// Differs from the release wrapper in two ways:
+//   1. The platform binary is baked into `bin/runtime/` directly, so the
+//      package works without a GitHub Release to download from.
+//   2. No postinstall script — the NODE_SHIM already prefers an existing
+//      `runtime/` binary over invoking the installer.
+//
+// The package declares `os`/`cpu` matching the built binary, so npm will
+// refuse to install it on an incompatible platform instead of silently
+// shipping a broken binary.
+// ---------------------------------------------------------------------------
+
+const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
+  const meta = await readMetadata();
+  const wrapperDir = join(distDir, meta.name);
+  const binDir = join(wrapperDir, "bin");
+  const runtimeDir = join(binDir, "runtime");
+  await mkdir(runtimeDir, { recursive: true });
+
+  await writeFile(join(binDir, "executor"), NODE_SHIM);
+  await chmod(join(binDir, "executor"), 0o755);
+
+  const [only] = ALL_TARGETS.filter(isCurrentPlatform);
+  if (!only) {
+    throw new Error(
+      `No target matches current platform ${process.platform}-${process.arch} (non-musl)`,
+    );
+  }
+  const platformPkg = targetPackageName(only);
+  const srcBinDir = join(distDir, platformPkg, "bin");
+  await cp(srcBinDir, runtimeDir, { recursive: true });
+
+  await writeFile(
+    join(wrapperDir, "package.json"),
+    JSON.stringify(
+      {
+        name: meta.name,
+        version: meta.version,
+        description: meta.description,
+        keywords: meta.keywords,
+        homepage: meta.homepage,
+        bugs: meta.bugs,
+        repository: meta.repository,
+        license: meta.license,
+        bin: { executor: "bin/executor" },
+        files: ["bin", "README.md"],
+        os: [only.os],
+        cpu: [only.arch],
+        engines: { node: ">=20" },
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+
+  const readmePath = join(repoRoot, "README.md");
+  if (existsSync(readmePath)) {
+    await cp(readmePath, join(wrapperDir, "README.md"));
+  }
+
+  console.log(`\nPreview wrapper: ${wrapperDir}`);
+  console.log(`  ${meta.name}@${meta.version} (${platformPkg}, bundled)`);
+  // Suppress the unused-value hint for `binaries` — we keep the parameter
+  // for parity with buildWrapperPackage even though the preview path only
+  // ever has one entry.
+  void binaries;
+};
+
+// ---------------------------------------------------------------------------
 // Publish
 // ---------------------------------------------------------------------------
 
@@ -675,6 +745,10 @@ if (command === "binary") {
   const targets = values.single ? ALL_TARGETS.filter(isCurrentPlatform) : ALL_TARGETS;
   const binaries = await buildBinaries(targets, mode);
   await buildWrapperPackage(binaries);
+} else if (command === "preview") {
+  const targets = ALL_TARGETS.filter(isCurrentPlatform);
+  const binaries = await buildBinaries(targets, mode);
+  await buildPreviewWrapperPackage(binaries);
 } else if (command === "release-assets") {
   await createReleaseAssets();
 } else if (command === "publish") {
@@ -683,6 +757,7 @@ if (command === "binary") {
 } else {
   console.log(`Usage:
   bun run build.ts binary [--single] [--mode production|development]
+  bun run build.ts preview [--mode production|development]
   bun run build.ts release-assets
   bun run build.ts publish [channel]`);
   process.exit(1);

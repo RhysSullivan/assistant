@@ -12,6 +12,7 @@
   "scripts": {
     "build": "bun run src/build.ts binary --single",
     "build:all": "bun run src/build.ts binary",
+    "build:preview": "bun run src/build.ts preview",
     "build:publish": "bun run src/build.ts publish",
     "release:publish:dry-run": "bun run src/release.ts --dry-run",
     "release:publish": "bun run src/release.ts",

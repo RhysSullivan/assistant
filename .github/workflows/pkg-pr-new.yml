@@ -18,4 +18,7 @@ jobs:
 
       - run: bun run build:packages
 
-      - run: npx pkg-pr-new publish --compact './packages/core/sdk' './packages/plugins/*'
+      - name: Build executor preview wrapper (linux-x64 binary)
+        run: bun run --filter=executor build:preview
+
+      - run: npx pkg-pr-new publish --compact './apps/cli/dist/executor' './packages/core/sdk' './packages/plugins/*'
