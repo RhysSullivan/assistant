@@ -154,6 +154,34 @@ const createEmbeddedWebUISource = async (mode: BuildMode) => {
 };
 
 // ---------------------------------------------------------------------------
+// Embedded drizzle migrations — inlined as text imports so drizzle's
+// `migrate()` (which reads a folder from disk) can be given a tmpdir
+// populated from the inlined contents at runtime.
+// ---------------------------------------------------------------------------
+
+const createEmbeddedMigrationsSource = async () => {
+  const migrationsDir = resolve(webRoot, "drizzle");
+  const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: migrationsDir })))
+    .map((f) => f.replaceAll("\\", "/"))
+    .sort();
+
+  const imports = files.map((file, i) => {
+    const spec = join(migrationsDir, file).replaceAll("\\", "/");
+    return `import file_${i} from ${JSON.stringify(spec)} with { type: "text" };`;
+  });
+
+  const entries = files.map((file, i) => `  ${JSON.stringify(file)}: file_${i},`);
+
+  return [
+    "// Auto-generated — maps migration paths to inlined file contents",
+    ...imports,
+    "export default {",
+    ...entries,
+    "} as Record<string, string>;",
+  ].join("\n");
+};
+
+// ---------------------------------------------------------------------------
 // Bun.build plugin for @secure-exec bundling issues
 // ---------------------------------------------------------------------------
 
@@ -254,17 +282,24 @@ export function getBridgeAttachCode() { return bridgeAttachCode; }
 // ---------------------------------------------------------------------------
 
 const EMBEDDED_WEB_UI_STUB = `const files: Record<string, string> | null = null;\n\nexport default files;\n`;
+const EMBEDDED_MIGRATIONS_STUB = `const migrations: Record<string, string> | null = null;\n\nexport default migrations;\n`;
 
 const buildBinaries = async (targets: Target[], mode: BuildMode) => {
   const meta = await readMetadata();
   const binaries: Record<string, string> = {};
   const embeddedWebUIPath = join(cliRoot, "src/embedded-web-ui.gen.ts");
+  const embeddedMigrationsPath = join(webRoot, "src/server/embedded-migrations.gen.ts");
 
   await rm(distDir, { recursive: true, force: true });
 
   console.log(`Generating embedded web UI bundle (${mode})...`);
   const embeddedWebUI = await createEmbeddedWebUISource(mode);
   await writeFile(embeddedWebUIPath, `${embeddedWebUI}\n`);
+
+  console.log("Generating embedded drizzle migrations...");
+  const embeddedMigrations = await createEmbeddedMigrationsSource();
+  await writeFile(embeddedMigrationsPath, `${embeddedMigrations}\n`);
+
   const quickJsWasmPath = resolveQuickJsWasmPath();
 
   try {
@@ -328,6 +363,7 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
     return binaries;
   } finally {
     await writeFile(embeddedWebUIPath, EMBEDDED_WEB_UI_STUB);
+    await writeFile(embeddedMigrationsPath, EMBEDDED_MIGRATIONS_STUB);
   }
 };
 

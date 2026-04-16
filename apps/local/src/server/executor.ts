@@ -4,8 +4,10 @@ import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
-import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
+
+import embeddedMigrations from "./embedded-migrations.gen";
 
 import {
   Scope,
@@ -30,7 +32,24 @@ import { keychainPlugin } from "@executor/plugin-keychain";
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 import { onepasswordPlugin } from "@executor/plugin-onepassword";
 
-const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
+// In dev mode the drizzle folder sits next to the source tree. In a compiled
+// binary the files are inlined via the build-time gen module below, and we
+// extract them to a tmpdir at boot so drizzle's `migrate()` — which only
+// accepts a folder path — can read them.
+const resolveMigrationsFolder = (): string => {
+  if (!embeddedMigrations) {
+    return join(import.meta.dirname, "../../drizzle");
+  }
+  const dir = fs.mkdtempSync(join(tmpdir(), "executor-migrations-"));
+  for (const [rel, content] of Object.entries(embeddedMigrations)) {
+    const target = join(dir, rel);
+    fs.mkdirSync(dirname(target), { recursive: true });
+    fs.writeFileSync(target, content);
+  }
+  return dir;
+};
+
+const MIGRATIONS_FOLDER = resolveMigrationsFolder();
 
 const resolveDbPath = (): string => {
   const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
