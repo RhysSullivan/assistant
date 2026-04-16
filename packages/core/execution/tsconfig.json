@@ -17,6 +17,5 @@
       }
     ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/tool-invoker.test.ts"]
+  "include": ["src/**/*.ts"]
 }

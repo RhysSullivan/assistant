@@ -2,7 +2,11 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { createExecutor } from "./executor";
-import { ElicitationResponse } from "./elicitation";
+import {
+  ElicitationResponse,
+  FormElicitation,
+  UrlElicitation,
+} from "./elicitation";
 import { defineSchema, definePlugin } from "./plugin";
 import { SetSecretInput } from "./secrets";
 import { makeTestConfig } from "./testing";
@@ -450,6 +454,292 @@ describe("createExecutor", () => {
       expect(list).toHaveLength(1);
       expect(list[0]!.name).toBe("API Token");
       expect(list[0]!.provider).toBe("memory");
+    }),
+  );
+
+  it.effect("invoke fails with ToolNotFoundError for unknown tool", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(makeTestConfig());
+      const err = yield* executor.tools
+        .invoke("does.not.exist", {})
+        .pipe(Effect.flip);
+      expect((err as { _tag: string })._tag).toBe("ToolNotFoundError");
+    }),
+  );
+
+  it.effect("tools.schema renders TypeScript previews for static tools", () =>
+    Effect.gen(function* () {
+      const previewPlugin = definePlugin(() => ({
+        id: "preview" as const,
+        storage: () => ({}),
+        staticSources: () => [
+          {
+            id: "preview.ctl",
+            kind: "control",
+            name: "Preview Ctl",
+            tools: [
+              {
+                name: "createContact",
+                description: "create",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    age: { type: "number" },
+                  },
+                  required: ["name", "age"],
+                  additionalProperties: false,
+                },
+                outputSchema: { type: "string" },
+                handler: ({ args }) => Effect.succeed(args),
+              },
+            ],
+          },
+        ],
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [previewPlugin()] as const }),
+      );
+
+      const schema = yield* executor.tools.schema("preview.ctl.createContact");
+      expect(schema).not.toBeNull();
+      expect(schema!.inputTypeScript).toBe("{ name: string; age: number }");
+      expect(schema!.outputTypeScript).toBe("string");
+    }),
+  );
+
+  it.effect("close calls each plugin's close hook", () =>
+    Effect.gen(function* () {
+      let closed = 0;
+      const closeable = definePlugin(() => ({
+        id: "closeable" as const,
+        storage: () => ({}),
+        close: () => Effect.sync(() => void closed++),
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [closeable()] as const }),
+      );
+
+      yield* executor.close();
+      expect(closed).toBe(1);
+    }),
+  );
+
+  it.effect("static tool can suspend mid-invocation with FormElicitation", () =>
+    Effect.gen(function* () {
+      const loginPlugin = definePlugin(() => ({
+        id: "login" as const,
+        storage: () => ({}),
+        staticSources: () => [
+          {
+            id: "login.ctl",
+            kind: "control",
+            name: "Login",
+            tools: [
+              {
+                name: "signIn",
+                description: "sign in",
+                handler: ({ elicit }) =>
+                  Effect.gen(function* () {
+                    const response = yield* elicit(
+                      new FormElicitation({
+                        message: "Enter credentials",
+                        requestedSchema: {
+                          type: "object",
+                          properties: {
+                            username: { type: "string" },
+                            password: { type: "string" },
+                          },
+                        },
+                      }),
+                    );
+                    return {
+                      user: response.content?.username,
+                      status: "logged_in",
+                    };
+                  }),
+              },
+            ],
+          },
+        ],
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [loginPlugin()] as const }),
+      );
+
+      const result = yield* executor.tools.invoke(
+        "login.ctl.signIn",
+        {},
+        {
+          onElicitation: (ctx) => {
+            expect(ctx.request._tag).toBe("FormElicitation");
+            return Effect.succeed(
+              new ElicitationResponse({
+                action: "accept",
+                content: { username: "alice", password: "s3cret" },
+              }),
+            );
+          },
+        },
+      );
+
+      expect(result).toEqual({ user: "alice", status: "logged_in" });
+    }),
+  );
+
+  it.effect("static tool can request URL visit via UrlElicitation", () =>
+    Effect.gen(function* () {
+      const oauthPlugin = definePlugin(() => ({
+        id: "oauth" as const,
+        storage: () => ({}),
+        staticSources: () => [
+          {
+            id: "oauth.ctl",
+            kind: "control",
+            name: "OAuth",
+            tools: [
+              {
+                name: "connect",
+                description: "oauth connect",
+                handler: ({ elicit }) =>
+                  Effect.gen(function* () {
+                    const response = yield* elicit(
+                      new UrlElicitation({
+                        message: "Authorize the app",
+                        url: "https://oauth.example.com/authorize?state=abc",
+                        elicitationId: "oauth-abc",
+                      }),
+                    );
+                    return {
+                      connected: true,
+                      code: response.content?.code,
+                    };
+                  }),
+              },
+            ],
+          },
+        ],
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [oauthPlugin()] as const }),
+      );
+
+      const result = yield* executor.tools.invoke(
+        "oauth.ctl.connect",
+        {},
+        {
+          onElicitation: (ctx) => {
+            expect(ctx.request._tag).toBe("UrlElicitation");
+            return Effect.succeed(
+              new ElicitationResponse({
+                action: "accept",
+                content: { code: "auth-code-123" },
+              }),
+            );
+          },
+        },
+      );
+
+      expect(result).toEqual({ connected: true, code: "auth-code-123" });
+    }),
+  );
+
+  // NOTE: behavior change vs. main — the SDK used to auto-decline when no
+  // onElicitation handler was provided (yielding ElicitationDeclinedError).
+  // The new resolver falls back to acceptAllHandler instead. Test locks in
+  // the current behavior; flip the assertion if the default is reverted.
+  it.effect("invoke auto-accepts elicitation when no handler is provided", () =>
+    Effect.gen(function* () {
+      const elicitOnly = definePlugin(() => ({
+        id: "elicitOnly" as const,
+        storage: () => ({}),
+        staticSources: () => [
+          {
+            id: "elicit.ctl",
+            kind: "control",
+            name: "Elicit Ctl",
+            tools: [
+              {
+                name: "ask",
+                description: "ask the user",
+                handler: ({ elicit }) =>
+                  Effect.gen(function* () {
+                    const response = yield* elicit(
+                      new FormElicitation({
+                        message: "Anything?",
+                        requestedSchema: {},
+                      }),
+                    );
+                    return response.action;
+                  }),
+              },
+            ],
+          },
+        ],
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [elicitOnly()] as const }),
+      );
+
+      const action = yield* executor.tools.invoke("elicit.ctl.ask", {});
+      expect(action).toBe("accept");
+    }),
+  );
+
+  it.effect("plugin reads and writes secrets via ctx.secrets", () =>
+    Effect.gen(function* () {
+      const rotatePlugin = definePlugin(() => ({
+        id: "rotate" as const,
+        storage: () => ({}),
+        extension: (ctx) => ({
+          rotate: (id: string, newValue: string) =>
+            Effect.gen(function* () {
+              const old = yield* ctx.secrets.get(id);
+              if (old !== null) {
+                yield* ctx.secrets.remove(id);
+              }
+              yield* ctx.secrets.set(
+                new SetSecretInput({
+                  id: SecretId.make(id),
+                  name: id,
+                  value: newValue,
+                }),
+              );
+              return { oldValue: old, newValue };
+            }),
+        }),
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [memorySecretsPlugin(), rotatePlugin()] as const,
+        }),
+      );
+
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("DB_PASSWORD"),
+          name: "DB_PASSWORD",
+          value: "hunter2",
+        }),
+      );
+
+      const result = yield* executor.rotate.rotate(
+        "DB_PASSWORD",
+        "correct-horse-battery-staple",
+      );
+      expect(result).toEqual({
+        oldValue: "hunter2",
+        newValue: "correct-horse-battery-staple",
+      });
+
+      const after = yield* executor.secrets.get("DB_PASSWORD");
+      expect(after).toBe("correct-horse-battery-staple");
     }),
   );
 });

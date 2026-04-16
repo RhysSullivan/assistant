@@ -1,59 +1,50 @@
-// Executor
+// ---------------------------------------------------------------------------
+// @executor/sdk/promise — public surface for Promise-based consumers.
+// ---------------------------------------------------------------------------
+
 export {
   createExecutor,
   type Executor,
   type ExecutorConfig,
-  type AnyPlugin,
+  type Promisified,
 } from "./promise-executor";
 
-// Plugin
+// Identity / projection types that don't carry Effect in their signatures
+// are safe to re-export from the Effect surface. Promise consumers need
+// these to type arguments they pass in (e.g. SetSecretInput, filters).
+export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
+export { Scope } from "./scope";
+export { SecretRef, SetSecretInput } from "./secrets";
 export {
-  definePlugin,
-  type Plugin,
-  type PluginContext,
-  type PluginHandle,
-} from "./promise-executor";
-
-// Plugin context services
-export type { ToolRegistry, SourceRegistry, SecretStore, PolicyEngine } from "./promise-executor";
-
-// Plugin callback types
-export type {
-  ToolInvoker,
-  RuntimeToolHandler,
-  SourceManager,
-  SecretProvider,
-} from "./promise-executor";
-
-// Invocation
-export type { InvokeOptions, ElicitationHandler, ElicitationResponse } from "./promise-executor";
-
-// Re-export data classes from the Effect core that users need
-export {
-  ToolRegistration,
-  ToolInvocationResult,
-  ToolMetadata,
   ToolSchema,
-  ToolAnnotations,
-  ToolListFilter,
-  ToolId,
-  SecretId,
-  ScopeId,
-  PolicyId,
-  Source,
   SourceDetectionResult,
-  SecretRef,
-  Policy,
-  Scope,
+  type Source,
+  type Tool,
+  type ToolListFilter,
+} from "./types";
+export type { ToolAnnotations } from "./core-schema";
+export type { AnyPlugin, PluginExtensions } from "./plugin";
+export type { InvokeOptions } from "./executor";
+
+// Elicitation — Promise invoke returns raw values, but consumers still
+// may want to reference request/response shapes.
+export {
   FormElicitation,
   UrlElicitation,
-  type ElicitationContext,
+  ElicitationAction,
+  ElicitationResponse,
   type ElicitationRequest,
-  // Errors
+} from "./elicitation";
+
+// Error tags — Promise callers handle these via .catch().
+export {
   ToolNotFoundError,
   ToolInvocationError,
+  NoHandlerError,
+  SourceNotFoundError,
+  SourceRemovalNotAllowedError,
+  PluginNotLoadedError,
   SecretNotFoundError,
   SecretResolutionError,
-  PolicyDeniedError,
-  ElicitationDeclinedError,
-} from "./index";
+  type ExecutorError,
+} from "./errors";
