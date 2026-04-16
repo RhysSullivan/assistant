@@ -39,8 +39,7 @@ export const conformanceSchema: DBSchema = {
   },
   // Join-conformance table. `sourceId` carries a foreign key reference
   // to `source.id`, letting the shared suite exercise the `join` option
-  // end-to-end (compile.ts relations → drizzle query builder → nested
-  // decode).
+  // end-to-end (drizzle relations → query builder → nested decode).
   source_tag: {
     fields: {
       sourceId: {

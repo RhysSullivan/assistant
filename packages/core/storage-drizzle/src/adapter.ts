@@ -544,10 +544,8 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
       // Dialect capability flags. We always set these to `true` because
       // drizzle-orm's typed columns (jsonb / timestamp / boolean / array)
       // handle serialization for us — the factory should pass JS-native
-      // values straight through. When a user configures their compile
-      // step with plain text columns instead of typed ones they'd need
-      // different flags, but our built-in compile.ts maps every DBSchema
-      // type onto a typed drizzle column.
+      // values straight through. The CLI-generated schema maps every
+      // DBSchema type onto a typed drizzle column.
       supportsJSON: true,
       supportsArrays: true,
       supportsBooleans: true,

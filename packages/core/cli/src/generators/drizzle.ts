@@ -403,8 +403,8 @@ function generateImport({
   }
   // sqlite needs real for number
   if (dialect === "sqlite" && hasNumber) {
-    // Actually sqlite uses integer for numbers in better-auth, but our
-    // compile.ts uses real(). Follow better-auth convention here.
+    // better-auth uses integer for numbers on sqlite; we use real()
+    // for floating-point fidelity.
   }
 
   // Has any timestamp with defaultNow function?
