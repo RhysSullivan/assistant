@@ -10,6 +10,7 @@
 // re-fetch anyway.
 
 import { Database } from "bun:sqlite";
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 
 /**
@@ -41,7 +42,10 @@ export const isPreScopeSchema = (dbPath: string): boolean => {
  */
 export const moveAsidePreScopeDb = (dbPath: string): string | null => {
   if (!isPreScopeSchema(dbPath)) return null;
-  const backup = `${dbPath}.pre-scopes-${Date.now()}`;
+  // Timestamp alone is near-unique; the random suffix makes it actually
+  // unique even if two moves ever land in the same millisecond.
+  const suffix = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+  const backup = `${dbPath}.pre-scopes-${suffix}`;
   for (const ext of ["", "-wal", "-shm"]) {
     const src = dbPath + ext;
     if (fs.existsSync(src)) fs.renameSync(src, backup + ext);

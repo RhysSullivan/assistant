@@ -109,7 +109,7 @@ describe("moveAsidePreScopeDb", () => {
     writeFileSync(`${path}-shm`, "shm-bytes");
 
     const backup = moveAsidePreScopeDb(path);
-    expect(backup).toMatch(/data\.db\.pre-scopes-\d+$/);
+    expect(backup).toMatch(/data\.db\.pre-scopes-\d+-[0-9a-f]{8}$/);
     expect(existsSync(path)).toBe(false);
     expect(existsSync(`${path}-wal`)).toBe(false);
     expect(existsSync(`${path}-shm`)).toBe(false);
