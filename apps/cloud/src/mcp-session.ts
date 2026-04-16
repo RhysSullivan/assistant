@@ -22,8 +22,7 @@ import { WorkOSAuth } from "./auth/workos";
 import { server } from "./env";
 import { AutumnService } from "./services/autumn";
 import { createScopedExecutor } from "./services/executor";
-import { DbService } from "./services/db";
-import * as cloudSchema from "./services/schema";
+import { DbService, combinedSchema } from "./services/db";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,8 +52,6 @@ const jsonRpcError = (status: number, code: number, message: string) =>
     status,
     headers: { "content-type": "application/json" },
   });
-
-const combinedSchema = { ...cloudSchema };
 
 type DbHandle = DbServiceShape & { end: () => Promise<void> };
 

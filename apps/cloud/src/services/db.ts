@@ -20,7 +20,11 @@ import * as cloudSchema from "./schema";
 import * as executorSchema from "./executor-schema";
 import { server } from "../env";
 
-const schema = { ...cloudSchema, ...executorSchema };
+// Exported so every drizzle() call in the cloud app shares one schema
+// object. Historically `mcp-session.ts` built its own and forgot to spread
+// `executorSchema`, producing runtime "unknown model source" errors that
+// only surfaced in prod. See apps/cloud/src/services/db.schema.test.ts.
+export const combinedSchema = { ...cloudSchema, ...executorSchema };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DrizzleDb = PgDatabase<any, any, any>;
@@ -64,7 +68,7 @@ export class DbService extends Context.Tag("@executor/cloud/DbService")<
     Effect.acquireRelease(
       Effect.sync((): DbServiceShape => {
         const sql = makeSql();
-        return { sql, db: drizzle(sql, { schema }) as DrizzleDb };
+        return { sql, db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb };
       }),
       ({ sql }) =>
         // Fire-and-forget: the Terminate round-trip sometimes hangs, and
