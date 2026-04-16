@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useReducer, useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
@@ -14,18 +14,17 @@ import {
   CardStackEntryMedia,
   CardStackEntryTitle,
 } from "@executor/react/components/card-stack";
-import { FieldError, FieldLabel } from "@executor/react/components/field";
-import { FilterTabs } from "@executor/react/components/filter-tabs";
+import { FieldError } from "@executor/react/components/field";
+import { Tabs, TabsList, TabsTrigger } from "@executor/react/components/tabs";
 import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { Textarea } from "@executor/react/components/textarea";
-import { HeadersList } from "@executor/react/plugins/headers-list";
-import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
+import { SourceConfig, type AuthMode, type OAuthStatus } from "@executor/react/plugins/source-config";
+import type { KeyValueEntry } from "@executor/react/plugins/key-value-list";
 import {
   displayNameFromUrl,
   slugifyNamespace,
@@ -33,8 +32,6 @@ import {
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
-
-type RemoteAuthMode = "none" | "header" | "oauth2";
 import { probeMcpEndpoint, addMcpSource, startMcpOAuth } from "./atoms";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
 
@@ -66,11 +63,6 @@ type ProbeResult = {
   namespace: string;
   toolCount: number | null;
   serverName: string | null;
-};
-
-type PlainHeader = {
-  name: string;
-  value: string;
 };
 
 type State =
@@ -332,19 +324,23 @@ export default function AddMcpSource(props: {
   const doStartOAuth = useAtomSet(startMcpOAuth, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
 
-  const [remoteAuthMode, setRemoteAuthMode] = useState<RemoteAuthMode>("none");
-  const [remoteAuthHeaders, setRemoteAuthHeaders] = useState<HeaderState[]>([
-    {
-      name: "Authorization",
-      prefix: "Bearer ",
-      presetKey: "bearer",
-      secretId: null,
-    },
-  ]);
-  const [remoteHeaders, setRemoteHeaders] = useState<PlainHeader[]>([]);
+  const [authMode, setAuthMode] = useState<AuthMode>("bearer");
+  const [bearerSecretId, setBearerSecretId] = useState<string | null>(null);
+  const [remoteHeaders, setRemoteHeaders] = useState<KeyValueEntry[]>([]);
 
   const probe = "probe" in state ? state.probe : null;
   const tokens = "tokens" in state ? state.tokens : null;
+
+  // Derive OAuthStatus from reducer state
+  const oauthStatus: OAuthStatus = tokens
+    ? { step: "authenticated" }
+    : state.step === "oauth-starting"
+      ? { step: "starting" }
+      : state.step === "oauth-waiting"
+        ? { step: "waiting" }
+        : state.step === "error" && state.probe !== null && !tokens
+          ? { step: "error", message: state.error }
+          : { step: "idle" };
 
   const remoteIdentity = useSourceIdentity({
     fallbackName:
@@ -353,18 +349,14 @@ export default function AddMcpSource(props: {
   const isProbing = state.step === "probing";
   const isAdding = state.step === "adding";
   const isOAuthBusy = state.step === "oauth-starting" || state.step === "oauth-waiting";
-  const canUseNone = probe?.requiresOAuth !== true;
-  const remoteAuthHeader = remoteAuthHeaders[0];
-  const headerAuthComplete = Boolean(remoteAuthHeader?.name.trim() && remoteAuthHeader?.secretId);
+  const headerAuthComplete = Boolean(bearerSecretId);
   const remoteHeadersComplete = remoteHeaders.every(
-    (header) => header.name.trim() && header.value.trim(),
+    (entry) => entry.key.trim() && entry.value.trim(),
   );
   const authReady =
-    remoteAuthMode === "none"
-      ? canUseNone
-      : remoteAuthMode === "header"
-        ? headerAuthComplete
-        : tokens !== null;
+    authMode === "bearer"
+      ? headerAuthComplete
+      : tokens !== null;
   const canAdd = Boolean(probe) && authReady && remoteHeadersComplete && !isAdding && !isOAuthBusy;
   // Probe failures are shown inline on the URL field; other failures
   // (OAuth start, add source) render in the bottom error block.
@@ -380,7 +372,7 @@ export default function AddMcpSource(props: {
         path: { scopeId },
         payload: { endpoint: state.url.trim() },
       });
-      setRemoteAuthMode(result.requiresOAuth ? "oauth2" : "none");
+      setAuthMode(result.requiresOAuth ? "oauth" : "bearer");
       dispatch({ type: "probe-ok", probe: result });
     } catch (e) {
       dispatch({
@@ -463,16 +455,15 @@ export default function AddMcpSource(props: {
     if (!probe) return;
     dispatch({ type: "add-start" });
     try {
-      const headerAuth = remoteAuthHeaders[0];
       const auth =
-        remoteAuthMode === "header" && headerAuth?.secretId
+        authMode === "bearer" && bearerSecretId
           ? {
               kind: "header" as const,
-              headerName: headerAuth.name.trim(),
-              secretId: headerAuth.secretId,
-              ...(headerAuth.prefix ? { prefix: headerAuth.prefix } : {}),
+              headerName: "Authorization",
+              secretId: bearerSecretId,
+              prefix: "Bearer ",
             }
-          : remoteAuthMode === "oauth2" && tokens
+          : authMode === "oauth" && tokens
             ? {
                 kind: "oauth2" as const,
                 accessTokenSecretId: tokens.accessTokenSecretId,
@@ -484,7 +475,7 @@ export default function AddMcpSource(props: {
             : { kind: "none" as const };
       const headers = Object.fromEntries(
         remoteHeaders
-          .map((header) => [header.name.trim(), header.value.trim()] as const)
+          .map((entry) => [entry.key.trim(), entry.value.trim()] as const)
           .filter(([name, value]) => name && value),
       );
 
@@ -508,8 +499,8 @@ export default function AddMcpSource(props: {
     }
   }, [
     probe,
-    remoteAuthMode,
-    remoteAuthHeaders,
+    authMode,
+    bearerSecretId,
     remoteHeaders,
     remoteIdentity,
     tokens,
@@ -579,36 +570,6 @@ export default function AddMcpSource(props: {
         </p>
       </div>
 
-      {/* Transport toggle — only shown when stdio is enabled server-side */}
-      {allowStdio && (
-        <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={() => setTransport("remote")}
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              transport === "remote"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Remote
-          </Button>
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={() => setTransport("stdio")}
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              transport === "stdio"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Stdio
-          </Button>
-        </div>
-      )}
-
       {transport === "remote" ? (
         <>
           {/* Server info card (shown above URL input after probing) */}
@@ -669,6 +630,19 @@ export default function AddMcpSource(props: {
           {/* URL input */}
           <CardStack>
             <CardStackContent className="border-t-0">
+              {allowStdio && (
+                <CardStackEntryField
+                  label="Transport"
+                  labelAction={
+                    <Tabs value={transport} onValueChange={(v) => setTransport(v as "remote" | "stdio")}>
+                      <TabsList>
+                        <TabsTrigger value="remote">Remote HTTP</TabsTrigger>
+                        <TabsTrigger value="stdio">Standard I/O</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  }
+                />
+              )}
               <CardStackEntryField
                 label="Server URL"
                 hint={probeError ? undefined : "Supports Streamable HTTP and SSE transports."}
@@ -704,190 +678,22 @@ export default function AddMcpSource(props: {
             />
           )}
 
-          {/* Authentication */}
+          {/* Authentication & Headers */}
           {probe && (
-            <section className="space-y-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <FieldLabel>Authentication</FieldLabel>
-                <FilterTabs<RemoteAuthMode>
-                  tabs={
-                    probe.requiresOAuth
-                      ? [
-                          { value: "header", label: "Header" },
-                          { value: "oauth2", label: "OAuth" },
-                        ]
-                      : [
-                          { value: "none", label: "None" },
-                          { value: "header", label: "Header" },
-                        ]
-                  }
-                  value={remoteAuthMode}
-                  onChange={setRemoteAuthMode}
-                />
-              </div>
-
-              {remoteAuthMode === "header" && (
-                <HeadersList
-                  headers={remoteAuthHeaders}
-                  onHeadersChange={setRemoteAuthHeaders}
-                  existingSecrets={secretList}
-                  singleHeader
-                />
-              )}
-
-              {remoteAuthMode === "oauth2" && (
-                <>
-                  {!tokens && state.step === "probed" && (
-                    <Button onClick={handleOAuth}  variant="outline">
-                      Sign in
-                    </Button>
-                  )}
-
-                  {!tokens && state.step === "oauth-starting" && (
-                    <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
-                      <Spinner className="size-3.5" />
-                      <span className="text-xs text-muted-foreground">Starting authorization…</span>
-                    </div>
-                  )}
-
-                  {!tokens && state.step === "oauth-waiting" && (
-                    <div className="flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/5 px-3 py-2.5">
-                      <Spinner className="size-3.5 text-blue-500" />
-                      <span className="text-xs text-blue-600 dark:text-blue-400">
-                        Waiting for authorization in popup…
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleCancelOAuth}
-                        className="ml-auto h-7 px-2 text-xs"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  )}
-
-                  {tokens && (
-                    <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
-                      <svg viewBox="0 0 16 16" fill="none" className="size-3.5 text-emerald-500">
-                        <path
-                          d="M3 8.5l3 3 7-7"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                        Authenticated
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-            </section>
-          )}
-
-          {/* Additional headers */}
-          {probe && (
-            <section className="space-y-2.5">
-              <div>
-                <Label>Additional headers</Label>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  Plaintext headers sent with every request. Use authentication for secret-backed
-                  auth headers.
-                </p>
-              </div>
-
-              <CardStack>
-                <CardStackContent>
-                  {remoteHeaders.length === 0 ? (
-                    <AddPlainHeaderRow
-                      leading={<span>No headers</span>}
-                      onClick={() =>
-                        setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
-                      }
-                    />
-                  ) : (
-                    <>
-                      {remoteHeaders.map((header, index) => (
-                        <CardStackEntry key={index} className="flex-col items-stretch gap-2">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                              Header
-                            </Label>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="xs"
-                              className="text-muted-foreground hover:text-destructive"
-                              onClick={() =>
-                                setRemoteHeaders((headers) =>
-                                  headers.filter((_, headerIndex) => headerIndex !== index),
-                                )
-                              }
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Name
-                              </Label>
-                              <Input
-                                value={header.name}
-                                onChange={(event) =>
-                                  setRemoteHeaders((headers) =>
-                                    headers.map((current, headerIndex) =>
-                                      headerIndex === index
-                                        ? {
-                                            ...current,
-                                            name: (event.target as HTMLInputElement).value,
-                                          }
-                                        : current,
-                                    ),
-                                  )
-                                }
-                                placeholder="X-Organization-Id"
-                                className="h-8 text-xs font-mono"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Value
-                              </Label>
-                              <Input
-                                value={header.value}
-                                onChange={(event) =>
-                                  setRemoteHeaders((headers) =>
-                                    headers.map((current, headerIndex) =>
-                                      headerIndex === index
-                                        ? {
-                                            ...current,
-                                            value: (event.target as HTMLInputElement).value,
-                                          }
-                                        : current,
-                                    ),
-                                  )
-                                }
-                                placeholder="workspace-id"
-                                className="h-8 text-xs font-mono"
-                              />
-                            </div>
-                          </div>
-                        </CardStackEntry>
-                      ))}
-                      <AddPlainHeaderRow
-                        onClick={() =>
-                          setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
-                        }
-                      />
-                    </>
-                  )}
-                </CardStackContent>
-              </CardStack>
-            </section>
+            <SourceConfig
+              defaultTab="authorization"
+              defaultAuthMode={probe.requiresOAuth ? "oauth" : "bearer"}
+              authMode={authMode}
+              onAuthModeChange={setAuthMode}
+              bearerSecretId={bearerSecretId}
+              onBearerSecretChange={setBearerSecretId}
+              oauthStatus={oauthStatus}
+              onOAuthSignIn={handleOAuth}
+              onOAuthCancel={handleCancelOAuth}
+              headers={remoteHeaders}
+              onHeadersChange={setRemoteHeaders}
+              existingSecrets={secretList}
+            />
           )}
 
           {/* Error (OAuth / add source). Probe errors show inline on the field. */}
@@ -929,6 +735,19 @@ export default function AddMcpSource(props: {
           {/* Stdio form */}
           <CardStack>
             <CardStackContent className="border-t-0">
+              {allowStdio && (
+                <CardStackEntryField
+                  label="Transport"
+                  labelAction={
+                    <Tabs value={transport} onValueChange={(v) => setTransport(v as "remote" | "stdio")}>
+                      <TabsList>
+                        <TabsTrigger value="remote">Remote HTTP</TabsTrigger>
+                        <TabsTrigger value="stdio">Standard I/O</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  }
+                />
+              )}
               <CardStackEntryField
                 label="Command"
                 description="- The executable to run (e.g. npx, uvx, node)."
@@ -1001,28 +820,3 @@ export default function AddMcpSource(props: {
   );
 }
 
-function AddPlainHeaderRow({
-  onClick,
-  leading,
-}: {
-  readonly onClick: () => void;
-  readonly leading?: ReactNode;
-}) {
-  return (
-    // oxlint-disable-next-line react/forbid-elements
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      aria-label="Add header"
-      className="flex w-full items-center justify-between gap-4 px-4 py-3 text-sm text-muted-foreground outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent/40 focus-visible:bg-accent/40"
-    >
-      <span className="min-w-0 flex-1 text-left">{leading}</span>
-      <svg aria-hidden viewBox="0 0 16 16" fill="none" className="size-4 shrink-0">
-        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    </button>
-  );
-}
