@@ -184,8 +184,8 @@ export default function PolicyManagerCard() {
             <div className="flex items-center bg-muted rounded-lg p-0.5 shrink-0">
               {options.map((opt) => {
                 const selected = values[i] === opt.value;
-                return (
-                  <button
+                // oxlint-disable-next-line react/forbid-elements
+                return (<button
                     key={opt.value}
                     type="button"
                     onClick={() =>

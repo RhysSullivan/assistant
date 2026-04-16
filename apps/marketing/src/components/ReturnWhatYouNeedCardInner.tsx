@@ -181,6 +181,7 @@ export default function ReturnWhatYouNeedCardInner() {
         }}
       />
 
+      {/* oxlint-disable-next-line react/forbid-elements */}
       <button
         onClick={startAnimation}
         className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer p-1.5 rounded-md hover:bg-muted/60 text-muted-foreground hover:text-foreground"
@@ -241,6 +242,7 @@ export default function ReturnWhatYouNeedCardInner() {
               pointerEvents: v(4) ? "auto" : "none",
             }}
           >
+            {/* oxlint-disable-next-line react/forbid-elements */}
             <button
               onClick={handleFix}
               className="cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-full text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shadow-sm shadow-black/10 border border-transparent bg-card ring-1 ring-foreground/10 duration-200 hover:bg-muted/50 h-7 px-3.5 flex w-fit select-none"

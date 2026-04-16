@@ -180,6 +180,7 @@ export default function SourcesWidget() {
         <form onSubmit={handleSubmit} className="border-b border-border/40 px-5 py-3">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
+              {/* oxlint-disable-next-line react/forbid-elements */}
               <input
                 ref={inputRef}
                 type="url"
@@ -227,8 +228,8 @@ export default function SourcesWidget() {
               const alreadyAdded = sources.some(
                 (s) => s.name.toLowerCase().includes(p.label.toLowerCase()),
               );
-              return (
-                <button
+              // oxlint-disable-next-line react/forbid-elements
+              return (<button
                   key={p.label}
                   type="button"
                   disabled={detecting || alreadyAdded}
@@ -273,6 +274,7 @@ export default function SourcesWidget() {
               return (
                 <div key={source.name}>
                   {/* Source entry */}
+                  {/* oxlint-disable-next-line react/forbid-elements */}
                   <button
                     type="button"
                     onClick={() => setExpandedSource(isExpanded ? null : i)}
