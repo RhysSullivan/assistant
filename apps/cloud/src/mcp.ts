@@ -4,6 +4,7 @@
 
 import { env } from "cloudflare:workers";
 import * as Sentry from "@sentry/cloudflare";
+import { trace, type Attributes } from "@opentelemetry/api";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 import { server } from "./env";
@@ -90,6 +91,159 @@ const unauthorized = () =>
       "access-control-allow-origin": "*",
     },
   });
+
+// ---------------------------------------------------------------------------
+// Client-fingerprint capture
+// ---------------------------------------------------------------------------
+// Dumps everything we can learn about a connecting MCP client onto the
+// enclosing fetch span's attributes. Lets us compare what each client
+// (Claude Code, Claude.ai web, Cursor, Windsurf, custom scripts, ...) actually
+// reports over the wire.
+// ---------------------------------------------------------------------------
+
+type CfRequestMetadata = {
+  country?: string;
+  city?: string;
+  region?: string;
+  timezone?: string;
+  asn?: number;
+  asOrganization?: string;
+  tlsVersion?: string;
+  tlsCipher?: string;
+  httpProtocol?: string;
+  colo?: string;
+};
+
+const getCfMeta = (request: Request): CfRequestMetadata =>
+  ((request as unknown as { cf?: CfRequestMetadata }).cf ?? {}) as CfRequestMetadata;
+
+const HEADERS_TO_DUMP = [
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "cache-control",
+  "content-type",
+  "mcp-protocol-version",
+  "origin",
+  "referer",
+  "sec-fetch-dest",
+  "sec-fetch-mode",
+  "sec-fetch-site",
+  "user-agent",
+  "x-client-name",
+  "x-client-version",
+  "x-requested-with",
+] as const;
+
+const dumpHeaders = (request: Request): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const name of HEADERS_TO_DUMP) {
+    const value = request.headers.get(name);
+    if (value !== null) out[`mcp.http.header.${name}`] = value;
+  }
+  const authHeader = request.headers.get("authorization");
+  if (authHeader) {
+    out["mcp.http.header.authorization.scheme"] = authHeader.split(" ", 1)[0] ?? "";
+    out["mcp.http.header.authorization.length"] = String(authHeader.length);
+  }
+  // Record the full header name list too — surfaces anything unexpected
+  // without us having to enumerate every possibility up front.
+  out["mcp.http.header.names"] = Array.from(request.headers.keys()).sort().join(",");
+  return out;
+};
+
+type JsonRpcRequestLike = {
+  method?: string;
+  id?: string | number;
+  params?: Record<string, unknown>;
+};
+
+const safeParseJson = async (request: Request): Promise<JsonRpcRequestLike | null> => {
+  try {
+    const clone = request.clone();
+    const text = await clone.text();
+    if (!text) return null;
+    const parsed = JSON.parse(text) as JsonRpcRequestLike;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const rpcPayloadAttributes = (payload: JsonRpcRequestLike | null): Attributes => {
+  if (!payload) return {};
+  const attrs: Attributes = {};
+  if (typeof payload.method === "string") attrs["mcp.rpc.method"] = payload.method;
+  if (payload.id !== undefined) attrs["mcp.rpc.id"] = String(payload.id);
+
+  const params = (payload.params ?? {}) as Record<string, unknown>;
+
+  if (payload.method === "initialize") {
+    const clientInfo = (params.clientInfo ?? {}) as Record<string, unknown>;
+    const capabilities = (params.capabilities ?? {}) as Record<string, unknown>;
+    if (typeof clientInfo.name === "string") attrs["mcp.client.name"] = clientInfo.name;
+    if (typeof clientInfo.version === "string") attrs["mcp.client.version"] = clientInfo.version;
+    if (typeof clientInfo.title === "string") attrs["mcp.client.title"] = clientInfo.title;
+    if (typeof params.protocolVersion === "string") {
+      attrs["mcp.client.protocol_version"] = params.protocolVersion;
+    }
+    attrs["mcp.client.capability.keys"] = Object.keys(capabilities).sort().join(",");
+    // Capture full clientInfo + capabilities as JSON for ad-hoc inspection.
+    // Keep these bounded so one pathological client can't bloat a span.
+    attrs["mcp.client.info.json"] = JSON.stringify(clientInfo).slice(0, 2000);
+    attrs["mcp.client.capabilities.json"] = JSON.stringify(capabilities).slice(0, 2000);
+  } else if (payload.method === "tools/call") {
+    const name = params.name;
+    if (typeof name === "string") attrs["mcp.tool.name"] = name;
+  } else if (payload.method === "resources/read" || payload.method === "resources/subscribe") {
+    const uri = params.uri;
+    if (typeof uri === "string") attrs["mcp.resource.uri"] = uri;
+  } else if (payload.method === "prompts/get") {
+    const name = params.name;
+    if (typeof name === "string") attrs["mcp.prompt.name"] = name;
+  }
+
+  return attrs;
+};
+
+const annotateMcpClientSpan = async (
+  request: Request,
+  opts: { token: VerifiedToken | null; parseBody: boolean },
+): Promise<void> => {
+  const span = trace.getActiveSpan();
+  if (!span) return;
+
+  const cf = getCfMeta(request);
+  const attrs: Attributes = {
+    "mcp.request.method": request.method,
+    "mcp.request.session_id_present": !!request.headers.get("mcp-session-id"),
+    "mcp.request.session_id": request.headers.get("mcp-session-id") ?? "",
+    "mcp.auth.has_bearer": (request.headers.get("authorization") ?? "").startsWith("Bearer "),
+    "mcp.auth.verified": !!opts.token,
+    "mcp.auth.organization_id": opts.token?.organizationId ?? "",
+    "mcp.auth.account_id": opts.token?.accountId ?? "",
+    "cf.country": cf.country ?? "",
+    "cf.city": cf.city ?? "",
+    "cf.region": cf.region ?? "",
+    "cf.timezone": cf.timezone ?? "",
+    "cf.asn": cf.asn ?? 0,
+    "cf.as_organization": cf.asOrganization ?? "",
+    "cf.tls_version": cf.tlsVersion ?? "",
+    "cf.tls_cipher": cf.tlsCipher ?? "",
+    "cf.http_protocol": cf.httpProtocol ?? "",
+    "cf.colo": cf.colo ?? "",
+  };
+
+  Object.assign(attrs, dumpHeaders(request));
+
+  if (opts.parseBody) {
+    const payload = await safeParseJson(request);
+    Object.assign(attrs, rpcPayloadAttributes(payload));
+  }
+
+  span.setAttributes(attrs);
+};
 
 // ---------------------------------------------------------------------------
 // DO routing
@@ -197,6 +351,14 @@ export const handleMcpRequest = async (request: Request): Promise<Response | nul
 
   // Auth required for all MCP methods
   const token = await verifyBearerToken(request);
+
+  // Capture fingerprint attrs on the enclosing fetch span BEFORE dispatch.
+  // Only POSTs carry a JSON body worth parsing; GET (SSE) and DELETE don't.
+  await annotateMcpClientSpan(request, {
+    token,
+    parseBody: request.method === "POST",
+  });
+
   if (!token) return unauthorized();
 
   switch (request.method) {
