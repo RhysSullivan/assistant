@@ -64,6 +64,48 @@ const mcpRequestMiddleware = createMiddleware({ type: "request" }).server(
 );
 
 // ---------------------------------------------------------------------------
+// Sentry tunnel — the browser SDK POSTs envelopes to /api/sentry-tunnel
+// (configured in routes/__root.tsx) to dodge adblockers and CSP. We parse
+// the envelope header to recover the DSN, validate against our own, and
+// forward the body to Sentry's ingest endpoint. See
+// https://docs.sentry.io/platforms/javascript/troubleshooting/#using-the-tunnel-option
+// ---------------------------------------------------------------------------
+
+const sentryTunnelMiddleware = createMiddleware({ type: "request" }).server(
+  async ({ pathname, request, next }) => {
+    if (pathname !== "/api/sentry-tunnel" || request.method !== "POST") {
+      return next();
+    }
+
+    const configuredDsn = (env as { SENTRY_DSN?: string }).SENTRY_DSN;
+    if (!configuredDsn) return new Response(null, { status: 204 });
+
+    try {
+      const envelope = await request.text();
+      const firstLine = envelope.slice(0, envelope.indexOf("\n"));
+      const header = JSON.parse(firstLine) as { dsn?: string };
+      if (!header.dsn) return new Response("missing dsn", { status: 400 });
+
+      const envelopeDsn = new URL(header.dsn);
+      const ourDsn = new URL(configuredDsn);
+      if (envelopeDsn.host !== ourDsn.host || envelopeDsn.pathname !== ourDsn.pathname) {
+        return new Response("dsn mismatch", { status: 400 });
+      }
+
+      const projectId = envelopeDsn.pathname.replace(/^\//, "");
+      const ingestUrl = `https://${envelopeDsn.host}/api/${projectId}/envelope/`;
+      return fetch(ingestUrl, {
+        method: "POST",
+        body: envelope,
+        headers: { "Content-Type": "application/x-sentry-envelope" },
+      });
+    } catch {
+      return new Response("bad envelope", { status: 400 });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // API middleware — routes /api/* to the Effect HTTP layer
 // ---------------------------------------------------------------------------
 
@@ -79,5 +121,10 @@ const apiRequestMiddleware = createMiddleware({ type: "request" }).server(
 );
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [marketingMiddleware, mcpRequestMiddleware, apiRequestMiddleware],
+  requestMiddleware: [
+    marketingMiddleware,
+    mcpRequestMiddleware,
+    sentryTunnelMiddleware,
+    apiRequestMiddleware,
+  ],
 }));
