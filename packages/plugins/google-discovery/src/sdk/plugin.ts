@@ -9,6 +9,7 @@ import {
   SetSecretInput,
   SourceDetectionResult,
   type PluginCtx,
+  type StorageFailure,
   type ToolAnnotations,
 } from "@executor/sdk";
 
@@ -99,6 +100,23 @@ export interface GoogleDiscoveryOAuthAuthResult {
   readonly scopes: readonly string[];
 }
 
+/**
+ * Errors any Google Discovery extension method may surface. The first
+ * three are plugin-domain tagged errors that flow directly to clients
+ * (4xx, each carrying its own `HttpApiSchema` status once wrapped at the
+ * API edge). `StorageFailure` covers raw backend failures (`StorageError`)
+ * plus `UniqueViolationError`; the HTTP edge (`@executor/api`'s
+ * `withCapture`) translates `StorageError` to the opaque
+ * `InternalError({ traceId })` at Layer composition. `UniqueViolationError`
+ * passes through — plugins can `Effect.catchTag` it if they want a
+ * friendlier user-facing error.
+ */
+export type GoogleDiscoveryExtensionFailure =
+  | GoogleDiscoveryParseError
+  | GoogleDiscoverySourceError
+  | GoogleDiscoveryOAuthError
+  | StorageFailure;
+
 export interface GoogleDiscoveryPluginExtension {
   readonly probeDiscovery: (
     discoveryUrl: string,
@@ -110,21 +128,29 @@ export interface GoogleDiscoveryPluginExtension {
     input: GoogleDiscoveryAddSourceInput,
   ) => Effect.Effect<
     { readonly toolCount: number; readonly namespace: string },
-    GoogleDiscoveryParseError | GoogleDiscoverySourceError | Error
+    GoogleDiscoveryParseError | GoogleDiscoverySourceError | StorageFailure
   >;
-  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
+  readonly removeSource: (
+    namespace: string,
+  ) => Effect.Effect<void, StorageFailure>;
   readonly startOAuth: (
     input: GoogleDiscoveryOAuthStartInput,
   ) => Effect.Effect<
     GoogleDiscoveryOAuthStartResponse,
-    GoogleDiscoveryParseError | GoogleDiscoverySourceError | GoogleDiscoveryOAuthError | Error
+    | GoogleDiscoveryParseError
+    | GoogleDiscoverySourceError
+    | GoogleDiscoveryOAuthError
+    | StorageFailure
   >;
   readonly completeOAuth: (
     input: GoogleDiscoveryOAuthCompleteInput,
-  ) => Effect.Effect<GoogleDiscoveryOAuthAuthResult, GoogleDiscoveryOAuthError>;
+  ) => Effect.Effect<
+    GoogleDiscoveryOAuthAuthResult,
+    GoogleDiscoveryOAuthError | StorageFailure
+  >;
   readonly getSource: (
     namespace: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSource | null, Error>;
+  ) => Effect.Effect<GoogleDiscoveryStoredSource | null, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +312,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
   schema: googleDiscoverySchema,
   storage: (deps) => makeGoogleDiscoveryStore(deps),
 
-  extension: (ctx): GoogleDiscoveryPluginExtension => ({
+  extension: (ctx) => ({
     probeDiscovery: (discoveryUrl) =>
       Effect.gen(function* () {
         const text = yield* fetchDiscoveryDocument(discoveryUrl);
@@ -465,18 +491,10 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
           scope: stored.scope,
           scopes: [...session.scopes],
         };
-      }).pipe(
-        Effect.mapError((err) =>
-          err instanceof GoogleDiscoveryOAuthError
-            ? err
-            : new GoogleDiscoveryOAuthError({
-                message: err instanceof Error ? err.message : String(err),
-              }),
-        ),
-      ),
+      }),
 
     getSource: (namespace) => ctx.storage.getSource(namespace),
-  }),
+  } satisfies GoogleDiscoveryPluginExtension),
 
   invokeTool: ({ ctx, toolRow, args }) =>
     invokeGoogleDiscoveryTool({

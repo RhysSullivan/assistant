@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { defineSchema, type StorageDeps } from "@executor/sdk";
+import { defineSchema, type StorageDeps, type StorageFailure } from "@executor/sdk";
 
 import { OperationBinding, type HeaderValue } from "./types";
 
@@ -89,28 +89,28 @@ export interface GraphqlStore {
   readonly upsertSource: (
     input: StoredGraphqlSource,
     operations: readonly StoredOperation[],
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
 
   readonly updateSourceMeta: (
     namespace: string,
     patch: { readonly name?: string; readonly endpoint?: string; readonly headers?: Record<string, HeaderValue> },
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
 
   readonly getSource: (
     namespace: string,
-  ) => Effect.Effect<StoredGraphqlSource | null, Error>;
+  ) => Effect.Effect<StoredGraphqlSource | null, StorageFailure>;
 
-  readonly listSources: () => Effect.Effect<readonly StoredGraphqlSource[], Error>;
+  readonly listSources: () => Effect.Effect<readonly StoredGraphqlSource[], StorageFailure>;
 
   readonly getOperationByToolId: (
     toolId: string,
-  ) => Effect.Effect<StoredOperation | null, Error>;
+  ) => Effect.Effect<StoredOperation | null, StorageFailure>;
 
   readonly listOperationsBySource: (
     sourceId: string,
-  ) => Effect.Effect<readonly StoredOperation[], Error>;
+  ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
 
-  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
+  readonly removeSource: (namespace: string) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------

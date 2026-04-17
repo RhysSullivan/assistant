@@ -14,8 +14,8 @@ import {
 
 export const resolveHeaders = (
   headers: Record<string, HeaderValue>,
-  secrets: { readonly get: (id: string) => Effect.Effect<string | null, Error> },
-): Effect.Effect<Record<string, string>, Error> =>
+  secrets: { readonly get: (id: string) => Effect.Effect<string | null, unknown> },
+): Effect.Effect<Record<string, string>> =>
   Effect.gen(function* () {
     const entries = Object.entries(headers);
     // Resolve secret-backed headers in parallel. Missing / failing

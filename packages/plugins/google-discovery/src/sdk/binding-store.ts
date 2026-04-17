@@ -14,7 +14,11 @@
 
 import { Effect, Schema } from "effect";
 
-import { defineSchema, type StorageDeps } from "@executor/sdk";
+import {
+  defineSchema,
+  type StorageDeps,
+  type StorageFailure,
+} from "@executor/sdk";
 
 import {
   GoogleDiscoveryMethodBinding,
@@ -101,43 +105,49 @@ const decodeJson = (value: unknown): unknown => {
 // Store interface
 // ---------------------------------------------------------------------------
 
+// Every method routes through the typed adapter (`ctx.storage.adapter`)
+// so the typed error channel is `StorageFailure`. Schema-decode failures
+// inside `Effect.gen` land as defects, not typed errors, and are caught
+// by the HTTP edge's observability middleware.
 export interface GoogleDiscoveryStore {
   readonly getBinding: (toolId: string) => Effect.Effect<
     { readonly namespace: string; readonly binding: GoogleDiscoveryMethodBinding } | null,
-    Error
+    StorageFailure
   >;
   readonly putBinding: (
     toolId: string,
     sourceId: string,
     binding: GoogleDiscoveryMethodBinding,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
   readonly removeBindingsBySource: (
     sourceId: string,
-  ) => Effect.Effect<readonly string[], Error>;
+  ) => Effect.Effect<readonly string[], StorageFailure>;
   readonly getBindingsForSource: (
     sourceId: string,
   ) => Effect.Effect<
     ReadonlyMap<string, GoogleDiscoveryMethodBinding>,
-    Error
+    StorageFailure
   >;
 
-  readonly putSource: (source: GoogleDiscoveryStoredSource) => Effect.Effect<void, Error>;
-  readonly removeSource: (sourceId: string) => Effect.Effect<void, Error>;
+  readonly putSource: (
+    source: GoogleDiscoveryStoredSource,
+  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (sourceId: string) => Effect.Effect<void, StorageFailure>;
   readonly getSource: (
     sourceId: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSource | null, Error>;
+  ) => Effect.Effect<GoogleDiscoveryStoredSource | null, StorageFailure>;
   readonly getSourceConfig: (
     sourceId: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null, Error>;
+  ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null, StorageFailure>;
 
   readonly putOAuthSession: (
     sessionId: string,
     session: GoogleDiscoveryOAuthSession,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
   readonly getOAuthSession: (
     sessionId: string,
-  ) => Effect.Effect<GoogleDiscoveryOAuthSession | null, Error>;
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<GoogleDiscoveryOAuthSession | null, StorageFailure>;
+  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------

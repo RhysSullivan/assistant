@@ -95,18 +95,17 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const engine = createExecutionEngine({ executor });
 
   // `withCapture` wraps the executor once — every Effect-returning
-  // method translates `StorageError` to `InternalError({ traceId })` via
-  // `ErrorCapture`. Service tags that declare `Captured<...>` (MCP
-  // today) pull from `wrapped.*`; tags still on the pre-capture shape
-  // (openapi / graphql / google-discovery / onepassword) pull from the
-  // raw executor until they migrate.
+  // method on core + every plugin extension translates `StorageError`
+  // to `InternalError({ traceId })` via `ErrorCapture`;
+  // `UniqueViolationError` becomes a defect. Handlers see the
+  // already-captured shape.
   const wrapped = withCapture(executor);
   const pluginExtensions = Layer.mergeAll(
-    Layer.succeed(OpenApiExtensionService, executor.openapi),
+    Layer.succeed(OpenApiExtensionService, wrapped.openapi),
     Layer.succeed(McpExtensionService, wrapped.mcp),
-    Layer.succeed(GoogleDiscoveryExtensionService, executor.googleDiscovery),
-    Layer.succeed(OnePasswordExtensionService, executor.onepassword),
-    Layer.succeed(GraphqlExtensionService, executor.graphql),
+    Layer.succeed(GoogleDiscoveryExtensionService, wrapped.googleDiscovery),
+    Layer.succeed(OnePasswordExtensionService, wrapped.onepassword),
+    Layer.succeed(GraphqlExtensionService, wrapped.graphql),
   );
 
   const api = HttpApiBuilder.toWebHandler(

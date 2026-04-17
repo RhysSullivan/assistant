@@ -1,7 +1,13 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
+import { InternalError } from "@executor/api";
 
+import {
+  GoogleDiscoveryOAuthError,
+  GoogleDiscoveryParseError,
+  GoogleDiscoverySourceError,
+} from "../sdk/errors";
 import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
 
 export { HttpApiSchema };
@@ -109,55 +115,61 @@ export class GoogleDiscoveryApiError extends Schema.TaggedError<GoogleDiscoveryA
   HttpApiSchema.annotations({ status: 400 }),
 ) {}
 
-export class GoogleDiscoveryInternalError extends Schema.TaggedError<GoogleDiscoveryInternalError>()(
-  "GoogleDiscoveryInternalError",
-  {
-    message: Schema.String,
-  },
-  HttpApiSchema.annotations({ status: 500 }),
-) {}
+// ---------------------------------------------------------------------------
+// Group
+//
+// Domain errors + the shared opaque 500 (`InternalError`) are declared
+// once at the group level via `.addError(...)` — every endpoint
+// inherits them. The domain error carries its HTTP status via
+// `HttpApiSchema.annotations`; `InternalError` is the public 5xx
+// surface, translated from `StorageError` at the HTTP edge by
+// `withCapture`. No per-endpoint `.addError(...)`, no per-handler
+// InternalError — handlers just `return yield* ext.foo(...)`.
+// ---------------------------------------------------------------------------
 
 export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
   .add(
     HttpApiEndpoint.post("probeDiscovery")`/scopes/${scopeIdParam}/google-discovery/probe`
       .setPayload(ProbePayload)
-      .addSuccess(ProbeResponse)
-      .addError(GoogleDiscoveryApiError)
-      .addError(GoogleDiscoveryInternalError),
+      .addSuccess(ProbeResponse),
   )
   .add(
     HttpApiEndpoint.post("addSource")`/scopes/${scopeIdParam}/google-discovery/sources`
       .setPayload(AddSourcePayload)
-      .addSuccess(AddSourceResponse)
-      .addError(GoogleDiscoveryApiError)
-      .addError(GoogleDiscoveryInternalError),
+      .addSuccess(AddSourceResponse),
   )
   .add(
     HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/google-discovery/oauth/start`
       .setPayload(StartOAuthPayload)
-      .addSuccess(StartOAuthResponse)
-      .addError(GoogleDiscoveryApiError)
-      .addError(GoogleDiscoveryInternalError),
+      .addSuccess(StartOAuthResponse),
   )
   .add(
     HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/google-discovery/oauth/complete`
       .setPayload(CompleteOAuthPayload)
-      .addSuccess(CompleteOAuthResponse)
-      .addError(GoogleDiscoveryApiError)
-      .addError(GoogleDiscoveryInternalError),
+      .addSuccess(CompleteOAuthResponse),
   )
   .add(
     HttpApiEndpoint.get("oauthCallback")`/google-discovery/oauth/callback`
       .setUrlParams(OAuthCallbackParams)
-      .addSuccess(HtmlResponse)
-      .addError(GoogleDiscoveryApiError)
-      .addError(GoogleDiscoveryInternalError),
+      .addSuccess(HtmlResponse),
   )
   .add(
     HttpApiEndpoint.get(
       "getSource",
     )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
-      .addSuccess(Schema.NullOr(GoogleDiscoveryStoredSourceSchema))
-      .addError(GoogleDiscoveryApiError)
-      .addError(GoogleDiscoveryInternalError),
-  ) {}
+      .addSuccess(Schema.NullOr(GoogleDiscoveryStoredSourceSchema)),
+  )
+  // Errors declared once at the group level — every endpoint inherits.
+  // `InternalError` is the shared opaque 500 translated at the HTTP edge
+  // by `withCapture`. The others are 4xx domain errors carrying their
+  // status via `HttpApiSchema.annotations`; handlers return them through
+  // the typed channel and HttpApi encodes them directly. We only list
+  // errors a Google Discovery *group* endpoint can surface —
+  // `GoogleDiscoveryInvocationError` is thrown inside `invokeTool` which
+  // is reached via the core `tools.invoke` endpoint, not any Google
+  // Discovery-group endpoint, so it doesn't belong here.
+  .addError(InternalError)
+  .addError(GoogleDiscoveryApiError)
+  .addError(GoogleDiscoveryOAuthError)
+  .addError(GoogleDiscoveryParseError)
+  .addError(GoogleDiscoverySourceError) {}

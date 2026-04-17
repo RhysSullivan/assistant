@@ -221,9 +221,9 @@ const buildAppForScope = (scopeId: string, scopeName: string) =>
     const services = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
       Layer.succeed(ExecutionEngineService, engine),
-      Layer.succeed(OpenApiExtensionService, executor.openapi),
+      Layer.succeed(OpenApiExtensionService, wrapped.openapi),
       Layer.succeed(McpExtensionService, wrapped.mcp),
-      Layer.succeed(GraphqlExtensionService, executor.graphql),
+      Layer.succeed(GraphqlExtensionService, wrapped.graphql),
     );
     return yield* HttpApiBuilder.httpApp.pipe(
       Effect.provide(

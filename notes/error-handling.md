@@ -94,33 +94,33 @@ Owns the translation, the opaque wire schema, and the capture service.
   Optional — resolved via `Effect.serviceOption`; missing service =
   empty trace ids. Nothing breaks if it's not wired.
 
-- `captureStorage(eff)` — single-Effect wrapper. Catches `StorageError`
+- `capture(eff)` — single-Effect wrapper. Catches `StorageError`
   on the typed channel, captures the cause via `ErrorCapture`, fails
   with `InternalError({ traceId })`. Every other typed failure
   (`UniqueViolationError`, plugin-domain errors) passes through.
 
-- `withStorageCapture(obj)` — proxy wrapper for a whole extension
+- `withCapture(obj)` — proxy wrapper for a whole extension
   surface. Walks methods (recursing into nested plain-object shapes)
-  and applies `captureStorage` to each Effect-returning method. Lets
+  and applies `capture` to each Effect-returning method. Lets
   the cloud app wire translation once at Layer composition instead of
   per handler.
 
   ```ts
   Layer.succeed(
     McpExtensionService,
-    withStorageCapture(executor.mcp),
+    withCapture(executor.mcp),
   )
   ```
 
-- `StorageCaptured<T>` — the type-level mirror of
-  `withStorageCapture`. Service tags declare this post-wrap shape so
+- `Captured<T>` — the type-level mirror of
+  `withCapture`. Service tags declare this post-wrap shape so
   handlers see `InternalError` in the method's error union (matching
   the group's `.addError(InternalError)`). Example:
 
   ```ts
   class McpExtensionService extends Context.Tag("McpExtensionService")<
     McpExtensionService,
-    StorageCaptured<McpPluginExtension>
+    Captured<McpPluginExtension>
   >() {}
   ```
 
@@ -170,18 +170,18 @@ its annotated status.
 ### Hosts
 
 - **Cloud Worker** (`apps/cloud/src/observability.ts`) — provides
-  `ErrorCaptureLive`, a Sentry-backed implementation. Wired into the
-  protected API layer composition (`protected-layers.ts`) where it's
-  available both to `observabilityMiddleware` and to the method
-  wrappers produced by `withStorageCapture`. `protected.ts` wraps
-  per-request: `Layer.succeed(McpExtensionService, withStorageCapture(executor.mcp))`.
-  (Distinct from `apps/cloud/src/services/telemetry.ts`, which is the
-  OTEL→Axiom span bridge — "telemetry" in the tracing sense.)
-- **CLI** (`apps/local/src/server/main.ts`) — also wraps via
-  `withStorageCapture` at Layer composition. No `ErrorCaptureLive`
-  provided, so trace ids come back empty; storage failures still
-  surface as `InternalError(traceId="")`. Drop-in an `ErrorCapture`
-  layer when we want a console or file sink.
+  `ErrorCaptureLive`, a Sentry-backed implementation. Wired at the API
+  layer in `protected-layers.ts` so it's available to both
+  `observabilityMiddleware` (defect catchall) AND to `withCapture`'s
+  typed-channel translation. `protected.ts` wraps once per-request:
+  `const wrapped = withCapture(executor)` → every extension service
+  pulls from `wrapped.X`. (Distinct from `apps/cloud/src/services/telemetry.ts`,
+  which is the OTEL→Axiom span bridge — "telemetry" in the tracing
+  sense.)
+- **CLI** (`apps/local/src/server/main.ts`) — same pattern. Provides a
+  console-based `ErrorCaptureLive` (`apps/local/src/server/observability.ts`)
+  that prints the squashed cause + pretty cause to stderr and returns a
+  short correlation id.
 - **Tests / Promise SDK / examples** — non-HTTP consumers see raw
   `StorageError` / `StorageFailure` in the SDK's typed channel and
   can match on it directly.
@@ -195,7 +195,7 @@ its annotated status.
   emitted a 500 anyway. Use the shared `InternalError`.
 - `sanitize*` helpers in handler files that `catchAllCause` + map to a
   generic 500 — same swallowing problem in disguise. Prefer
-  `withStorageCapture` at Layer composition.
+  `withCapture` at Layer composition.
 - SDK code importing `Sentry.captureException` or referencing
   `InternalError` / `ErrorCapture` — translation lives strictly in
   `@executor/api`. If the SDK imports it, the layering is wrong.

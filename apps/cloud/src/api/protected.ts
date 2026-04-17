@@ -49,18 +49,17 @@ const createProtectedApp = (organizationId: string, organizationName: string) =>
     );
 
     // `withCapture` wraps the executor once — every Effect-returning
-    // method translates `StorageError` → `InternalError({ traceId })`
-    // via `ErrorCapture`. Service tags that declare `Captured<...>`
-    // (MCP today) pull from `wrapped.*`; tags still on the pre-capture
-    // shape (openapi / graphql) pull from the raw executor until they
-    // migrate. See notes/error-handling.md.
+    // method on core + every plugin extension translates `StorageError`
+    // → `InternalError({ traceId })` via `ErrorCapture`;
+    // `UniqueViolationError` becomes a defect. Handlers see the
+    // already-captured shape. See notes/error-handling.md.
     const wrapped = withCapture(executor);
     const requestServices = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
       Layer.succeed(ExecutionEngineService, engine),
-      Layer.succeed(OpenApiExtensionService, executor.openapi),
+      Layer.succeed(OpenApiExtensionService, wrapped.openapi),
       Layer.succeed(McpExtensionService, wrapped.mcp),
-      Layer.succeed(GraphqlExtensionService, executor.graphql),
+      Layer.succeed(GraphqlExtensionService, wrapped.graphql),
     );
 
     return yield* HttpApiBuilder.httpApp.pipe(

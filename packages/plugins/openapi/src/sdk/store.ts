@@ -1,6 +1,10 @@
 import { Effect, Option, Schema } from "effect";
 
-import { defineSchema, type StorageDeps } from "@executor/sdk";
+import {
+  defineSchema,
+  type StorageDeps,
+  type StorageFailure,
+} from "@executor/sdk";
 
 import {
   HeaderValue,
@@ -134,11 +138,15 @@ const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
 // Store interface
 // ---------------------------------------------------------------------------
 
+// Every method routes through the typed adapter (`ctx.storage.adapter`)
+// so the typed error channel is `StorageFailure`. Schema-decode failures
+// inside `Effect.gen` land as defects, not typed errors, and are caught
+// by the HTTP edge's observability middleware.
 export interface OpenapiStore {
   readonly upsertSource: (
     input: StoredSource,
     operations: readonly StoredOperation[],
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
 
   readonly updateSourceMeta: (
     namespace: string,
@@ -148,34 +156,34 @@ export interface OpenapiStore {
       readonly headers?: Record<string, HeaderValue>;
       readonly oauth2?: OAuth2Auth;
     },
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
 
   readonly getSource: (
     namespace: string,
-  ) => Effect.Effect<StoredSource | null, Error>;
+  ) => Effect.Effect<StoredSource | null, StorageFailure>;
 
-  readonly listSources: () => Effect.Effect<readonly StoredSource[], Error>;
+  readonly listSources: () => Effect.Effect<readonly StoredSource[], StorageFailure>;
 
   readonly getOperationByToolId: (
     toolId: string,
-  ) => Effect.Effect<StoredOperation | null, Error>;
+  ) => Effect.Effect<StoredOperation | null, StorageFailure>;
 
   readonly listOperationsBySource: (
     sourceId: string,
-  ) => Effect.Effect<readonly StoredOperation[], Error>;
+  ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
 
-  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
+  readonly removeSource: (namespace: string) => Effect.Effect<void, StorageFailure>;
 
   readonly putOAuthSession: (
     sessionId: string,
     session: OpenApiOAuthSession,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
 
   readonly getOAuthSession: (
     sessionId: string,
-  ) => Effect.Effect<OpenApiOAuthSession | null, Error>;
+  ) => Effect.Effect<OpenApiOAuthSession | null, StorageFailure>;
 
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, Error>;
+  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
