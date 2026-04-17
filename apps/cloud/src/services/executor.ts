@@ -26,6 +26,7 @@ import { graphqlPlugin } from "@executor/plugin-graphql";
 import { workosVaultPlugin } from "@executor/plugin-workos-vault";
 
 import { DbService } from "./db";
+import { ErrorCaptureLive } from "../observability";
 import { server } from "../env";
 
 // ---------------------------------------------------------------------------
@@ -78,5 +79,9 @@ export const createScopedExecutor = (
       createdAt: new Date(),
     });
 
-    return yield* createExecutor({ scope, adapter, blobs, plugins });
+    // ErrorCapture → Sentry. Storage failures captured here surface as
+    // `InternalError(traceId)` to plugin code and to handlers.
+    return yield* createExecutor({ scope, adapter, blobs, plugins }).pipe(
+      Effect.provide(ErrorCaptureLive),
+    );
   });

@@ -354,8 +354,12 @@ describe("createExecutor", () => {
         }),
       );
 
+      // The collision is treated as an internal/programmer error: it
+      // gets captured to ErrorCapture and surfaced as `InternalError` with
+      // a trace id (NoOp telemetry returns ""). The original message
+      // is in the captured cause, not on the public error.
       const err = yield* executor.collide.tryRegister().pipe(Effect.flip);
-      expect(err.message).toContain("collides with a static source");
+      expect(err._tag).toBe("InternalError");
     }),
   );
 

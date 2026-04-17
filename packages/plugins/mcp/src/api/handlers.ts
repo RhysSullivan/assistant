@@ -3,13 +3,8 @@ import { Cause, Context, Effect } from "effect";
 
 import { addGroup } from "@executor/api";
 import type { McpPluginExtension, McpSourceConfig, McpUpdateSourceInput } from "../sdk/plugin";
-import {
-  McpConnectionError,
-  McpInvocationError,
-  McpOAuthError,
-  McpToolDiscoveryError,
-} from "../sdk/errors";
-import { McpApiError, McpGroup, McpInternalError } from "./group";
+import { McpOAuthError } from "../sdk/errors";
+import { McpGroup } from "./group";
 
 // ---------------------------------------------------------------------------
 // Service tag
@@ -85,32 +80,10 @@ const popupDocument = (payload: OAuthPopupResult): string => {
 </body></html>`;
 };
 
-const toPopupErrorMessage = (error: unknown): string => {
-  if (error instanceof McpOAuthError) {
-    return error.message;
-  }
-  return "Authentication failed";
+const toPopupErrorMessage = (cause: Cause.Cause<unknown>): string => {
+  const err = Cause.squash(cause);
+  return err instanceof McpOAuthError ? err.message : "Authentication failed";
 };
-
-const toMcpApiError = (error: unknown): McpApiError | McpInternalError => {
-  if (error instanceof McpApiError || error instanceof McpInternalError) {
-    return error;
-  }
-  if (
-    error instanceof McpConnectionError ||
-    error instanceof McpToolDiscoveryError ||
-    error instanceof McpInvocationError ||
-    error instanceof McpOAuthError
-  ) {
-    return new McpApiError({ message: error.message });
-  }
-  return new McpInternalError({ message: "Internal server error" });
-};
-
-const sanitizeMcpFailure = <A, R>(
-  effect: Effect.Effect<A, unknown, R>,
-): Effect.Effect<A, McpApiError | McpInternalError, R> =>
-  Effect.catchAllCause(effect, (cause) => Effect.fail(toMcpApiError(Cause.squash(cause))));
 
 // ---------------------------------------------------------------------------
 // Convert API payload → McpSourceConfig
@@ -151,7 +124,6 @@ const toSourceConfig = (
     auth?: { kind: string } & Record<string, unknown>;
   };
 
-  // Normalize oauth2 tokenType default
   const auth = p.auth
     ? p.auth.kind === "oauth2"
       ? {
@@ -175,6 +147,15 @@ const toSourceConfig = (
 
 // ---------------------------------------------------------------------------
 // Handlers
+//
+// Each handler is exactly: yield the extension service, call the method,
+// return. Plugin SDK errors flow through the typed channel and are
+// schema-encoded to 4xx by HttpApi (see group.ts `.addError(...)` calls).
+// Defects bubble up and are captured + downgraded to `InternalError(traceId)`
+// by the API-level observability middleware (see apps/cloud/src/observability.ts).
+//
+// No `sanitize*`, no `liftDomainErrors`, no `withObservability` per handler.
+// If you find yourself adding error-handling here you're in the wrong layer.
 // ---------------------------------------------------------------------------
 
 export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (handlers) =>
@@ -183,7 +164,7 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
       Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.probeEndpoint(payload.endpoint);
-      }).pipe(sanitizeMcpFailure),
+      }),
     )
     .handle("addSource", ({ payload }) =>
       Effect.gen(function* () {
@@ -191,20 +172,20 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
         return yield* ext.addSource(
           toSourceConfig(payload as Parameters<typeof toSourceConfig>[0]),
         );
-      }).pipe(sanitizeMcpFailure),
+      }),
     )
     .handle("removeSource", ({ payload }) =>
       Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         yield* ext.removeSource(payload.namespace);
         return { removed: true };
-      }).pipe(sanitizeMcpFailure),
+      }),
     )
     .handle("refreshSource", ({ payload }) =>
       Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.refreshSource(payload.namespace);
-      }).pipe(sanitizeMcpFailure),
+      }),
     )
     .handle("startOAuth", ({ payload }) =>
       Effect.gen(function* () {
@@ -214,7 +195,7 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           redirectUrl: payload.redirectUrl,
           queryParams: payload.queryParams,
         });
-      }).pipe(sanitizeMcpFailure),
+      }),
     )
     .handle("completeOAuth", ({ payload }) =>
       Effect.gen(function* () {
@@ -224,13 +205,13 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           code: payload.code,
           error: payload.error,
         });
-      }).pipe(sanitizeMcpFailure),
+      }),
     )
     .handle("getSource", ({ path }) =>
       Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.getSource(path.namespace);
-      }).pipe(sanitizeMcpFailure),
+      }),
     )
     .handle("updateSource", ({ path, payload }) =>
       Effect.gen(function* () {
@@ -243,20 +224,23 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           auth: payload.auth as McpUpdateSourceInput["auth"],
         });
         return { updated: true };
-      }).pipe(sanitizeMcpFailure),
+      }),
     )
     .handle("oauthCallback", ({ urlParams }) =>
+      // OAuth popup is special: it always returns 200 HTML and renders the
+      // failure into the popup body so the parent window's listener gets a
+      // structured result. Catching here is intentional, not a leak.
       Effect.gen(function* () {
         const ext = yield* McpExtensionService;
-        const result = yield* ext
-          .completeOAuth({
+        const result = yield* Effect.matchCauseEffect(
+          ext.completeOAuth({
             state: urlParams.state,
             code: urlParams.code,
             error: urlParams.error ?? urlParams.error_description,
-          })
-          .pipe(
-            Effect.map(
-              (c): OAuthPopupResult => ({
+          }),
+          {
+            onSuccess: (c) =>
+              Effect.succeed<OAuthPopupResult>({
                 type: "executor:oauth-result",
                 ok: true,
                 sessionId: urlParams.state,
@@ -266,17 +250,16 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
                 expiresAt: c.expiresAt,
                 scope: c.scope,
               }),
-            ),
-            Effect.catchAllCause((cause) =>
+            onFailure: (cause) =>
               Effect.succeed<OAuthPopupResult>({
                 type: "executor:oauth-result",
                 ok: false,
                 sessionId: null,
-                error: toPopupErrorMessage(Cause.squash(cause)),
+                error: toPopupErrorMessage(cause),
               }),
-            ),
-          );
+          },
+        );
         return yield* HttpServerResponse.html(popupDocument(result));
-      }).pipe(sanitizeMcpFailure),
+      }),
     ),
 );

@@ -17,6 +17,16 @@ export type {
 
 export { typedAdapter } from "@executor/storage-core";
 
+// Storage-layer typed errors (re-exported so plugin code can catchTag
+// `UniqueViolationError` without importing storage-core directly).
+export { StorageError, UniqueViolationError } from "@executor/storage-core";
+
+// Observability primitives (ErrorCapture tag + InternalError schema).
+// Plugin code never imports these — they're for the host (cloud Worker,
+// CLI, tests) to wire up a ErrorCapture implementation, and for the
+// PluginCtx wrapper in executor.ts to translate StorageError → InternalError.
+export { InternalError, ErrorCapture, type ErrorCaptureShape } from "./observability";
+
 // IDs (branded)
 export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
 

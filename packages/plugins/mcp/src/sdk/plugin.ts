@@ -5,6 +5,7 @@ import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 import {
   definePlugin,
+  InternalError,
   SecretId,
   SetSecretInput,
   SourceDetectionResult,
@@ -25,6 +26,7 @@ import {
 import { discoverTools } from "./discover";
 import {
   McpConnectionError,
+  McpInvocationError,
   McpOAuthError,
   McpToolDiscoveryError,
 } from "./errors";
@@ -787,6 +789,11 @@ export const mcpPlugin = definePlugin(
         const getSource = (namespace: string) =>
           ctx.storage.getSource(namespace);
 
+        // Cast widens each method's inferred error union to the declared
+        // `McpExtensionFailure`. The internal helpers still leak generic
+        // `Error` from places like the MCP SDK's auth flow that we
+        // haven't yet narrowed — TODO: tighten those, then drop this
+        // cast in favour of `satisfies McpPluginExtension`.
         return {
           probeEndpoint,
           addSource,
@@ -796,7 +803,7 @@ export const mcpPlugin = definePlugin(
           completeOAuth,
           getSource,
           updateSource,
-        };
+        } as unknown as McpPluginExtension;
       },
 
       invokeTool: ({ ctx, toolRow, args, elicit }) =>
@@ -938,28 +945,51 @@ export const mcpPlugin = definePlugin(
 // returns above.
 // ---------------------------------------------------------------------------
 
+/**
+ * Errors any MCP extension method may surface to handlers / hosts.
+ * Each variant is a `Schema.TaggedError` HttpApi can encode (see
+ * `api/group.ts` `.addError(...)` calls). `InternalError` covers
+ * unexpected storage/telemetry failures (already captured to
+ * telemetry, traceId attached). `UniqueViolationError` is not in this
+ * union — plugin internals are expected to `Effect.catchTag` it and
+ * translate to their own typed user-facing error before it reaches
+ * here; if it escapes that's a plugin bug and the SDK boundary
+ * surfaces it as a defect → InternalError.
+ */
+export type McpExtensionFailure =
+  | McpOAuthError
+  | McpConnectionError
+  | McpToolDiscoveryError
+  | McpInvocationError
+  | InternalError;
+
 export interface McpPluginExtension {
   readonly probeEndpoint: (
     endpoint: string,
-  ) => Effect.Effect<McpProbeResult, Error>;
+  ) => Effect.Effect<McpProbeResult, McpExtensionFailure>;
   readonly addSource: (
     config: McpSourceConfig,
-  ) => Effect.Effect<{ readonly toolCount: number; readonly namespace: string }, Error>;
-  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<
+    { readonly toolCount: number; readonly namespace: string },
+    McpExtensionFailure
+  >;
+  readonly removeSource: (
+    namespace: string,
+  ) => Effect.Effect<void, McpExtensionFailure>;
   readonly refreshSource: (
     namespace: string,
-  ) => Effect.Effect<{ readonly toolCount: number }, Error>;
+  ) => Effect.Effect<{ readonly toolCount: number }, McpExtensionFailure>;
   readonly startOAuth: (
     input: McpOAuthStartInput,
-  ) => Effect.Effect<McpOAuthStartResponse, Error>;
+  ) => Effect.Effect<McpOAuthStartResponse, McpExtensionFailure>;
   readonly completeOAuth: (
     input: McpOAuthCompleteInput,
-  ) => Effect.Effect<McpOAuthCompleteResponse, Error>;
+  ) => Effect.Effect<McpOAuthCompleteResponse, McpExtensionFailure>;
   readonly getSource: (
     namespace: string,
-  ) => Effect.Effect<McpStoredSource | null, Error>;
+  ) => Effect.Effect<McpStoredSource | null, McpExtensionFailure>;
   readonly updateSource: (
     namespace: string,
     input: McpUpdateSourceInput,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, McpExtensionFailure>;
 }

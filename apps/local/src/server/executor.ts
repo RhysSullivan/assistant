@@ -153,6 +153,10 @@ const createLocalExecutorLayer = () => {
         createdAt: new Date(),
       });
 
+      // Local app doesn't wire `ErrorCapture` — storage failures still
+      // surface as `InternalError(traceId="")` in the typed channel,
+      // they just aren't recorded anywhere external. Wire an
+      // ErrorCapture layer here if/when we want a console / file sink.
       const executor = yield* createExecutor({
         scope,
         adapter,

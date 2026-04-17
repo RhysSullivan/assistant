@@ -3,6 +3,7 @@ import type {
   DBAdapter,
   DBSchema,
   TypedAdapter,
+  UniqueViolationError,
 } from "@executor/storage-core";
 
 import type { ScopedBlobStore } from "./blob";
@@ -19,8 +20,18 @@ import type {
   ElicitationRequest,
   ElicitationResponse,
 } from "./elicitation";
+import type { InternalError } from "./observability";
 import type { Scope } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
+
+/**
+ * Plugin-facing storage failure union. `StorageError` from the raw
+ * backend has already been captured to telemetry and translated to
+ * `InternalError(traceId)` by the SDK boundary; `UniqueViolationError`
+ * passes through so plugins can `Effect.catchTag` and translate to
+ * their own user-facing errors.
+ */
+export type PluginStorageFailure = InternalError | UniqueViolationError;
 
 // ---------------------------------------------------------------------------
 // StorageDeps — backing passed to a plugin's `storage` factory. The only
@@ -36,7 +47,16 @@ import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
 export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
   readonly scope: Scope;
-  readonly adapter: TSchema extends DBSchema ? TypedAdapter<TSchema> : DBAdapter;
+  /**
+   * Plugin-facing typed adapter. Failures already routed through
+   * ErrorCapture — `StorageError` has been captured + translated, so the
+   * error channel here is `InternalError | UniqueViolationError`.
+   * Plugins call methods normally and never see raw storage Errors or
+   * touch a ErrorCapture tag.
+   */
+  readonly adapter: TSchema extends DBSchema
+    ? TypedAdapter<TSchema, PluginStorageFailure>
+    : DBAdapter;
   readonly blobs: ScopedBlobStore;
 }
 
@@ -72,8 +92,12 @@ export interface PluginCtx<TStore = unknown> {
 
   readonly core: {
     readonly sources: {
-      readonly register: (input: SourceInput) => Effect.Effect<void, Error>;
-      readonly unregister: (sourceId: string) => Effect.Effect<void, Error>;
+      readonly register: (
+        input: SourceInput,
+      ) => Effect.Effect<void, PluginStorageFailure>;
+      readonly unregister: (
+        sourceId: string,
+      ) => Effect.Effect<void, PluginStorageFailure>;
     };
     /** Register shared JSON-schema `$defs` for a source. Tool
      *  input/output schemas registered via `sources.register` can carry
@@ -84,15 +108,17 @@ export interface PluginCtx<TStore = unknown> {
     readonly definitions: {
       readonly register: (
         input: DefinitionsInput,
-      ) => Effect.Effect<void, Error>;
+      ) => Effect.Effect<void, PluginStorageFailure>;
     };
   };
 
   readonly secrets: {
-    readonly get: (id: string) => Effect.Effect<string | null, Error>;
+    readonly get: (
+      id: string,
+    ) => Effect.Effect<string | null, PluginStorageFailure>;
     readonly list: () => Effect.Effect<
       readonly { readonly id: string; readonly name: string; readonly provider: string }[],
-      Error
+      PluginStorageFailure
     >;
     /** Write a secret value through a provider. Used by plugins that
      *  mint secrets on behalf of the user (OAuth2 token storage,
@@ -100,9 +126,11 @@ export interface PluginCtx<TStore = unknown> {
      *  `executor.secrets.set` on the host surface, but OAuth2 refresh
      *  and one-shot token capture from plugin-owned flows need it here
      *  too. Same routing rules as the host-level setter. */
-    readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, Error>;
+    readonly set: (
+      input: SetSecretInput,
+    ) => Effect.Effect<SecretRef, PluginStorageFailure>;
     /** Delete a secret from its pinned provider and the core table. */
-    readonly remove: (id: string) => Effect.Effect<void, Error>;
+    readonly remove: (id: string) => Effect.Effect<void, PluginStorageFailure>;
   };
 
   /** Run `effect` inside a database transaction. Wraps the underlying
@@ -111,7 +139,7 @@ export interface PluginCtx<TStore = unknown> {
    *  registration. */
   readonly transaction: <A, E>(
     effect: Effect.Effect<A, E>,
-  ) => Effect.Effect<A, E | Error>;
+  ) => Effect.Effect<A, E | PluginStorageFailure>;
 }
 
 // ---------------------------------------------------------------------------

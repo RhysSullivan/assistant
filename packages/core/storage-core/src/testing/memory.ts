@@ -22,6 +22,7 @@ import type {
   DBAdapter,
   DBAdapterFactoryConfig,
   JoinConfig,
+  StorageFailure,
 } from "../adapter";
 import type { DBSchema } from "../schema";
 import { createAdapter } from "../factory";
@@ -266,7 +267,7 @@ export const makeMemoryAdapter = (
         }),
       );
       return result;
-    }) as Effect.Effect<R, E | Error>;
+    }) as Effect.Effect<R, E | StorageFailure>;
 
   const adapter: DBAdapter = createAdapter({
     schema: options.schema,

@@ -125,6 +125,13 @@ export const createExecutor = async <
     plugins,
   };
 
+  // ErrorCapture is optional from createExecutor's perspective, so the
+  // Promise SDK doesn't have to wire one. Storage failures still get
+  // routed through `liftStorage` and surface as `InternalError(traceId="")`
+  // in the typed channel; consumers see them as a Promise rejection
+  // with a typed `InternalError` instance. See
+  // notes/promise-sdk-typed-errors.md for the planned `runPromiseExit`
+  // revisit that exposes the full error union to consumers.
   const effectExecutor = await Effect.runPromise(
     createEffectExecutor(effectConfig),
   );

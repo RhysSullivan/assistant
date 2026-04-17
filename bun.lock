@@ -302,6 +302,7 @@
       "name": "@executor/sdk",
       "version": "0.0.1",
       "dependencies": {
+        "@effect/platform": "catalog:",
         "@executor/storage-core": "workspace:*",
         "effect": "catalog:",
       },
