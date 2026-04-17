@@ -3,8 +3,10 @@ import { GenericServerException, NotFoundException } from "@workos-inc/node/work
 
 import {
   defineSchema,
+  StorageError,
   type SecretProvider,
   type StorageDeps,
+  type StorageFailure,
 } from "@executor/sdk";
 
 import {
@@ -50,10 +52,10 @@ interface MetadataRow {
 // ---------------------------------------------------------------------------
 
 export interface WorkosVaultStore {
-  readonly get: (id: string) => Effect.Effect<MetadataRow | null, Error>;
-  readonly upsert: (row: MetadataRow) => Effect.Effect<void, Error>;
-  readonly remove: (id: string) => Effect.Effect<boolean, Error>;
-  readonly list: () => Effect.Effect<readonly MetadataRow[], Error>;
+  readonly get: (id: string) => Effect.Effect<MetadataRow | null, StorageFailure>;
+  readonly upsert: (row: MetadataRow) => Effect.Effect<void, StorageFailure>;
+  readonly remove: (id: string) => Effect.Effect<boolean, StorageFailure>;
+  readonly list: () => Effect.Effect<readonly MetadataRow[], StorageFailure>;
 }
 
 export const makeWorkosVaultStore = (
@@ -215,9 +217,10 @@ const deleteSecretValue = (
     return true;
   });
 
-const formatVaultError = (error: unknown): Error => {
+const formatVaultError = (error: unknown): StorageError => {
   const cause = unwrapVaultError(error);
-  return cause instanceof Error ? cause : new Error(String(cause));
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return new StorageError({ message, cause });
 };
 
 // ---------------------------------------------------------------------------

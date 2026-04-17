@@ -944,7 +944,7 @@ export const mcpPlugin = definePlugin(
  * plugin-domain tagged errors that flow directly to clients (4xx, each
  * carrying its own `HttpApiSchema` status). `StorageFailure` covers
  * raw backend failures (`StorageError`) plus `UniqueViolationError`;
- * the HTTP edge (`@executor/api`'s `withStorageCapture`) translates
+ * the HTTP edge (`@executor/api`'s `withCapture`) translates
  * `StorageError` to the opaque `InternalError({ traceId })` at Layer
  * composition. `UniqueViolationError` passes through — plugins can
  * `Effect.catchTag` it if they want a friendlier user-facing error.

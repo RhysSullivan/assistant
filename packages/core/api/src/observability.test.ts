@@ -4,8 +4,8 @@
 // SDK code (@executor/sdk) emits raw `StorageError` in its typed
 // channel. The HTTP edge has two primitives that translate it:
 //
-//   - `captureStorage(eff)` — single-Effect wrapper
-//   - `withStorageCapture(obj)` — proxy wrapper for whole extensions
+//   - `capture(eff)` — single-Effect wrapper
+//   - `withCapture(obj)` — proxy wrapper for whole extensions
 //
 // Both route through the `ErrorCapture` tag to generate a trace id.
 // ErrorCapture is optional — absent hosts just get empty trace ids.
@@ -16,10 +16,10 @@ import { Cause, Effect, Layer, Ref } from "effect";
 import { StorageError, UniqueViolationError } from "@executor/storage-core";
 
 import {
-  captureStorage,
+  capture,
   ErrorCapture,
   InternalError,
-  withStorageCapture,
+  withCapture,
 } from "./observability";
 
 // Recording ErrorCapture — returns a fixed trace id and accumulates
@@ -39,13 +39,13 @@ const makeRecorder = (traceId = "trace-xyz") =>
     return { layer, seen };
   });
 
-describe("captureStorage", () => {
+describe("capture", () => {
   it.effect("translates StorageError to InternalError with ErrorCapture trace id", () =>
     Effect.gen(function* () {
       const { layer, seen } = yield* makeRecorder("trace-abc");
       const err = new StorageError({ message: "db down", cause: new Error("x") });
 
-      const eff = captureStorage(Effect.fail(err));
+      const eff = capture(Effect.fail(err));
       const result = yield* Effect.flip(eff).pipe(Effect.provide(layer));
 
       expect(result).toBeInstanceOf(InternalError);
@@ -63,7 +63,7 @@ describe("captureStorage", () => {
   it.effect("empty traceId when no ErrorCapture is wired", () =>
     Effect.gen(function* () {
       const err = new StorageError({ message: "nope", cause: undefined });
-      const result = yield* Effect.flip(captureStorage(Effect.fail(err)));
+      const result = yield* Effect.flip(capture(Effect.fail(err)));
       expect(result).toBeInstanceOf(InternalError);
       expect(result.traceId).toBe("");
     }),
@@ -72,7 +72,7 @@ describe("captureStorage", () => {
   it.effect("UniqueViolationError dies (becomes a defect — plugins should catchTag before returning)", () =>
     Effect.gen(function* () {
       const err = new UniqueViolationError({ model: "thing" });
-      const exit = yield* Effect.exit(captureStorage(Effect.fail(err)));
+      const exit = yield* Effect.exit(capture(Effect.fail(err)));
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
         const defects = Cause.defects(exit.cause);
@@ -90,13 +90,13 @@ describe("captureStorage", () => {
         never,
         DomainError
       >;
-      const result = yield* Effect.flip(captureStorage(eff));
+      const result = yield* Effect.flip(capture(eff));
       expect(result._tag).toBe("DomainError");
     }),
   );
 });
 
-describe("withStorageCapture", () => {
+describe("withCapture", () => {
   it.effect("wraps every Effect-returning method on the extension", () =>
     Effect.gen(function* () {
       const { layer } = yield* makeRecorder("trace-ext");
@@ -111,7 +111,7 @@ describe("withStorageCapture", () => {
           ),
         ok: () => Effect.succeed("fine"),
       };
-      const wrapped = withStorageCapture(ext);
+      const wrapped = withCapture(ext);
 
       const boomResult = yield* Effect.flip(wrapped.boom()).pipe(
         Effect.provide(layer),
@@ -134,7 +134,7 @@ describe("withStorageCapture", () => {
             ),
         },
       };
-      const wrapped = withStorageCapture(ext);
+      const wrapped = withCapture(ext);
       const result = yield* Effect.flip(wrapped.nested.boom());
       expect(result).toBeInstanceOf(InternalError);
     }),
@@ -146,7 +146,7 @@ describe("withStorageCapture", () => {
         conflict: () =>
           Effect.fail(new UniqueViolationError({ model: "thing" })),
       };
-      const wrapped = withStorageCapture(ext);
+      const wrapped = withCapture(ext);
       const exit = yield* Effect.exit(wrapped.conflict());
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {

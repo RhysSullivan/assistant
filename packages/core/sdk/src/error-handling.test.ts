@@ -7,7 +7,7 @@
 //
 //   1. `StorageError` from a backend surfaces *raw* in the typed error
 //      channel — no telemetry, no InternalError translation. The HTTP
-//      edge (`@executor/api` `withStorageCapture`) is the one layer
+//      edge (`@executor/api` `withCapture`) is the one layer
 //      that translates to the opaque InternalError; non-HTTP consumers
 //      (CLI, Promise SDK, tests, plugins) can react to the raw tag.
 //   2. `UniqueViolationError` also passes through raw — plugin code

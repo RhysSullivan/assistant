@@ -3,7 +3,7 @@
 //
 // Both are `Data.TaggedError` — runtime values, not wire schemas.
 // Storage-core stays out of HTTP / serialisation / telemetry concerns;
-// the HTTP edge (`@executor/api` `withStorageCapture`) is the one place
+// the HTTP edge (`@executor/api` `withCapture`) is the one place
 // that translates `StorageError` into the opaque public
 // `InternalError({ traceId })`. Plugins `Effect.catchTag("UniqueViolationError")`
 // and re-fail with their own schema'd error (e.g. `McpSourceAlreadyExistsError`).

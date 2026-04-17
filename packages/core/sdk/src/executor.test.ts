@@ -356,7 +356,7 @@ describe("createExecutor", () => {
 
       // The collision is treated as an internal/programmer error and
       // surfaces as raw `StorageError` in the typed channel. The HTTP
-      // edge (`@executor/api` `withStorageCapture`) is responsible for
+      // edge (`@executor/api` `withCapture`) is responsible for
       // translating it to the opaque `InternalError({ traceId })` when
       // crossing the wire; here, at the SDK layer, we expect the raw tag.
       const err = yield* executor.collide.tryRegister().pipe(Effect.flip);

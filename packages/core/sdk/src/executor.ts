@@ -511,19 +511,6 @@ export const createExecutor = <
     // without a list() implementation (keychain) never hit the fallback
     // walk because their secrets must be registered through set() to
     // be known at all.
-    // ------------------------------------------------------------------
-    // Wraps a provider's `Effect<X, Error>` so its failures land as
-    // `StorageError` — the SDK boundary then captures + translates to
-    // `InternalError(traceId)`. Keeps the provider interface generic
-    // while the executor surface stays in the typed taxonomy.
-    const wrapProviderError = <A, R>(
-      eff: Effect.Effect<A, Error, R>,
-    ): Effect.Effect<A, StorageError, R> =>
-      Effect.mapError(
-        eff,
-        (err) => new StorageError({ message: err.message, cause: err }),
-      );
-
     const secretsGet = (
       id: string,
     ): Effect.Effect<string | null, StorageFailure> =>
@@ -536,7 +523,7 @@ export const createExecutor = <
         if (row) {
           const provider = secretProviders.get(row.provider);
           if (!provider) return null;
-          return yield* wrapProviderError(provider.get(id));
+          return yield* provider.get(id);
         }
 
         // Fallback: ask every enumerating provider in parallel. First
@@ -600,7 +587,7 @@ export const createExecutor = <
           );
         }
 
-        yield* wrapProviderError(target.set(input.id, input.value));
+        yield* target.set(input.id, input.value);
 
         // Upsert metadata row in the core `secret` table.
         const now = new Date();
@@ -638,7 +625,7 @@ export const createExecutor = <
             !!(p.writable && p.delete),
         );
         yield* Effect.all(
-          deleters.map((p) => wrapProviderError(p.delete(id))),
+          deleters.map((p) => p.delete(id)),
           { concurrency: "unbounded" },
         );
         yield* core.delete({
@@ -749,7 +736,7 @@ export const createExecutor = <
       // flow through the typed channel unchanged — plugins can
       // `catchTag("UniqueViolationError", …)` to translate to their own
       // user-facing errors; the HTTP edge (see @executor/api
-      // `withStorageCapture`) is responsible for translating any
+      // `withCapture`) is responsible for translating any
       // `StorageError` that still escapes into the opaque InternalError.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const storageDeps: StorageDeps<any> = {
@@ -1306,7 +1293,7 @@ export const createExecutor = <
 
     // Public Executor surface — storage-backed methods surface
     // `StorageFailure` (StorageError | UniqueViolationError) raw. The
-    // HTTP edge wraps this surface with `withStorageCapture` to
+    // HTTP edge wraps this surface with `withCapture` to
     // translate `StorageError` → `InternalError({ traceId })`; non-HTTP
     // consumers (CLI, Promise SDK, tests) see the raw typed channel.
     const base = {

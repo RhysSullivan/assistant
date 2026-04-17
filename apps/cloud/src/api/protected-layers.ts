@@ -30,9 +30,7 @@ export const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
   .addError(InternalError)
   .middleware(OrgAuth);
 
-const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi).pipe(
-  Layer.provide(ErrorCaptureLive),
-);
+const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
 
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
@@ -57,8 +55,13 @@ export const ProtectedCloudApiHandlers = Layer.mergeAll(
   GraphqlHandlers,
 );
 
+// `ErrorCaptureLive` is provided above the handler + middleware layers
+// so the `withCapture` translation path (typed-channel `StorageError →
+// InternalError(traceId)`) AND the observability middleware's defect
+// catchall both see the same Sentry-backed implementation.
 export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
   Layer.provide(
     Layer.mergeAll(ProtectedCloudApiHandlers, OrgAuthLive, ObservabilityLive),
   ),
+  Layer.provide(ErrorCaptureLive),
 );

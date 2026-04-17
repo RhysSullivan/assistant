@@ -1,5 +1,7 @@
 import { Effect, Schema } from "effect";
 
+import type { StorageFailure } from "@executor/storage-core";
+
 import { SecretId, ScopeId } from "./ids";
 
 // ---------------------------------------------------------------------------
@@ -20,19 +22,25 @@ export interface SecretProvider {
    *  honours this before routing writes — trying to write to a
    *  read-only provider is an error, not a silent drop. */
   readonly writable: boolean;
-  /** Get a secret value by id. Returns null if not found. Errors are
-   *  real failures (provider unreachable, decryption failed, etc.). */
-  readonly get: (id: string) => Effect.Effect<string | null, Error>;
+  /** Get a secret value by id. Returns null if not found. Failures
+   *  (provider unreachable, decryption failed, etc.) surface as
+   *  `StorageFailure` — the executor treats a provider call the same
+   *  as a DB call; `StorageError` is captured at the HTTP edge to
+   *  `InternalError`, `UniqueViolationError` dies. */
+  readonly get: (id: string) => Effect.Effect<string | null, StorageFailure>;
   /** Set a secret value. Only called on writable providers. */
-  readonly set?: (id: string, value: string) => Effect.Effect<void, Error>;
+  readonly set?: (
+    id: string,
+    value: string,
+  ) => Effect.Effect<void, StorageFailure>;
   /** Delete a secret. Only called on writable providers. Returns true
    *  if something was deleted. */
-  readonly delete?: (id: string) => Effect.Effect<boolean, Error>;
+  readonly delete?: (id: string) => Effect.Effect<boolean, StorageFailure>;
   /** Enumerate known secret entries. Optional — not all backends can
    *  enumerate (env-backed providers, for example). */
   readonly list?: () => Effect.Effect<
     readonly { readonly id: string; readonly name: string }[],
-    Error
+    StorageFailure
   >;
 }
 

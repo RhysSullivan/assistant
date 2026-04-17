@@ -39,7 +39,7 @@ type RowOutput<S extends DBSchema, M extends keyof S> = InferDBFieldsOutput<
  * defaults to `StorageFailure` (`StorageError | UniqueViolationError`) —
  * that's what backends emit and what plugin code sees. Translation
  * to the opaque public `InternalError({ traceId })` is done only at
- * the HTTP edge (`@executor/api` `withStorageCapture`); everyone else
+ * the HTTP edge (`@executor/api` `withCapture`); everyone else
  * works with the raw tag.
  */
 export interface TypedAdapter<S extends DBSchema, E = StorageFailure> {

@@ -14,7 +14,7 @@ import { Effect, Layer } from "effect";
 import {
   addGroup,
   observabilityMiddleware,
-  withStorageCapture,
+  withCapture,
 } from "@executor/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor/api/server";
 import type { McpPluginExtension } from "../sdk/plugin";
@@ -53,7 +53,7 @@ const WebHandler = Effect.acquireRelease(
         Layer.provide(
           Layer.succeed(
             McpExtensionService,
-            withStorageCapture(failingExtension),
+            withCapture(failingExtension),
           ),
         ),
         Layer.provideMerge(HttpServer.layerContext),

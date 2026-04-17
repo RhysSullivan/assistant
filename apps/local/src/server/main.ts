@@ -7,7 +7,11 @@ import {
 } from "@effect/platform";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
-import { addGroup, withStorageCapture } from "@executor/api";
+import {
+  addGroup,
+  observabilityMiddleware,
+  withCapture,
+} from "@executor/api";
 import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
 import {
@@ -33,6 +37,7 @@ import {
 } from "@executor/plugin-graphql/api";
 import { getExecutor } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
+import { ErrorCaptureLive } from "./observability";
 
 // ---------------------------------------------------------------------------
 // Local server API — core + all plugin groups
@@ -43,6 +48,13 @@ const LocalApi = addGroup(OpenApiGroup)
   .add(GoogleDiscoveryGroup)
   .add(OnePasswordGroup)
   .add(GraphqlGroup);
+
+// `ErrorCaptureLive` logs causes to the console and returns a short
+// correlation id. Provided above the handler + middleware layers so
+// both the `withCapture` typed-channel translation AND the
+// `observabilityMiddleware` defect catchall see the same
+// implementation.
+const LocalObservability = observabilityMiddleware(LocalApi);
 
 const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
   Layer.provide(CoreHandlers),
@@ -55,6 +67,8 @@ const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
       GraphqlHandlers,
     ),
   ),
+  Layer.provide(LocalObservability),
+  Layer.provide(ErrorCaptureLive),
 );
 
 // ---------------------------------------------------------------------------
@@ -80,9 +94,16 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const executor = await getExecutor();
   const engine = createExecutionEngine({ executor });
 
+  // `withCapture` wraps the executor once — every Effect-returning
+  // method translates `StorageError` to `InternalError({ traceId })` via
+  // `ErrorCapture`. Service tags that declare `Captured<...>` (MCP
+  // today) pull from `wrapped.*`; tags still on the pre-capture shape
+  // (openapi / graphql / google-discovery / onepassword) pull from the
+  // raw executor until they migrate.
+  const wrapped = withCapture(executor);
   const pluginExtensions = Layer.mergeAll(
     Layer.succeed(OpenApiExtensionService, executor.openapi),
-    Layer.succeed(McpExtensionService, withStorageCapture(executor.mcp)),
+    Layer.succeed(McpExtensionService, wrapped.mcp),
     Layer.succeed(GoogleDiscoveryExtensionService, executor.googleDiscovery),
     Layer.succeed(OnePasswordExtensionService, executor.onepassword),
     Layer.succeed(GraphqlExtensionService, executor.graphql),

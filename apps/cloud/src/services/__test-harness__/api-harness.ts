@@ -30,7 +30,7 @@ import {
   ExecutionEngineService,
   ExecutorService,
 } from "@executor/api/server";
-import { withStorageCapture } from "@executor/api";
+import { withCapture } from "@executor/api";
 import { createExecutionEngine } from "@executor/execution";
 import {
   Scope,
@@ -217,11 +217,12 @@ const buildAppForScope = (scopeId: string, scopeName: string) =>
   Effect.gen(function* () {
     const executor = yield* createTestScopedExecutor(scopeId, scopeName);
     const engine = createExecutionEngine({ executor });
+    const wrapped = withCapture(executor);
     const services = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
       Layer.succeed(ExecutionEngineService, engine),
       Layer.succeed(OpenApiExtensionService, executor.openapi),
-      Layer.succeed(McpExtensionService, withStorageCapture(executor.mcp)),
+      Layer.succeed(McpExtensionService, wrapped.mcp),
       Layer.succeed(GraphqlExtensionService, executor.graphql),
     );
     return yield* HttpApiBuilder.httpApp.pipe(
