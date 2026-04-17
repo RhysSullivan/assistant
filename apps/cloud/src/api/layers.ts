@@ -18,6 +18,7 @@ import {
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
+import { TelemetryLive } from "../services/telemetry";
 import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
 
@@ -35,6 +36,7 @@ export const SharedServices = Layer.mergeAll(
   WorkOSAuth.Default,
   AutumnService.Default,
   HttpServer.layerContext,
+  TelemetryLive,
 );
 
 export const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
