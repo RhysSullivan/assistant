@@ -3,7 +3,7 @@ import { Context, Effect } from "effect";
 
 import { runOAuthCallback } from "@executor/plugin-oauth2/http";
 
-import { addGroup, type Captured } from "@executor/api";
+import { addGroup, capture } from "@executor/api";
 import type {
   GoogleDiscoveryAddSourceInput,
   GoogleDiscoveryOAuthAuthResult,
@@ -25,7 +25,7 @@ import { GoogleDiscoveryGroup } from "./group";
 
 export class GoogleDiscoveryExtensionService extends Context.Tag("GoogleDiscoveryExtensionService")<
   GoogleDiscoveryExtensionService,
-  Captured<GoogleDiscoveryPluginExtension>
+  GoogleDiscoveryPluginExtension
 >() {}
 
 // ---------------------------------------------------------------------------
@@ -60,19 +60,19 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("probeDiscovery", ({ payload }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.probeDiscovery(payload.discoveryUrl);
-        }),
+        })),
       )
       .handle("addSource", ({ payload }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.addSource(payload as GoogleDiscoveryAddSourceInput);
-        }),
+        })),
       )
       .handle("startOAuth", ({ payload }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.startOAuth({
             name: payload.name,
@@ -82,26 +82,26 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
             redirectUrl: payload.redirectUrl,
             scopes: payload.scopes,
           });
-        }),
+        })),
       )
       .handle("completeOAuth", ({ payload }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.completeOAuth({
             state: payload.state,
             code: payload.code,
             error: payload.error,
           });
-        }),
+        })),
       )
       .handle("getSource", ({ path }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.getSource(path.namespace);
-        }),
+        })),
       )
       .handle("oauthCallback", ({ urlParams }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           const html = yield* runOAuthCallback<
             GoogleDiscoveryOAuthAuthResult,
@@ -119,6 +119,6 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
             channelName: GOOGLE_DISCOVERY_OAUTH_CHANNEL,
           });
           return yield* HttpServerResponse.html(html);
-        }),
+        })),
       ),
 );

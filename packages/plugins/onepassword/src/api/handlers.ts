@@ -1,7 +1,7 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { addGroup, type Captured } from "@executor/api";
+import { addGroup, capture } from "@executor/api";
 import type { OnePasswordExtension } from "../sdk/plugin";
 import { OnePasswordGroup } from "./group";
 
@@ -18,7 +18,7 @@ import { OnePasswordGroup } from "./group";
 
 export class OnePasswordExtensionService extends Context.Tag("OnePasswordExtensionService")<
   OnePasswordExtensionService,
-  Captured<OnePasswordExtension>
+  OnePasswordExtension
 >() {}
 
 // ---------------------------------------------------------------------------
@@ -43,31 +43,31 @@ export const OnePasswordHandlers = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("getConfig", () =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           return yield* ext.getConfig();
-        }),
+        })),
       )
       .handle("configure", ({ payload }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           yield* ext.configure(payload);
-        }),
+        })),
       )
       .handle("removeConfig", () =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           yield* ext.removeConfig();
-        }),
+        })),
       )
       .handle("status", () =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           return yield* ext.status();
-        }),
+        })),
       )
       .handle("listVaults", ({ urlParams }) =>
-        Effect.gen(function* () {
+        capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           const auth =
             urlParams.authKind === "desktop-app"
@@ -75,6 +75,6 @@ export const OnePasswordHandlers = HttpApiBuilder.group(
               : { kind: "service-account" as const, tokenSecretId: urlParams.account };
           const vaults = yield* ext.listVaults(auth);
           return { vaults: [...vaults] };
-        }),
+        })),
       ),
 );

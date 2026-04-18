@@ -94,35 +94,28 @@ Owns the translation, the opaque wire schema, and the capture service.
   Optional — resolved via `Effect.serviceOption`; missing service =
   empty trace ids. Nothing breaks if it's not wired.
 
-- `capture(eff)` — single-Effect wrapper. Catches `StorageError`
-  on the typed channel, captures the cause via `ErrorCapture`, fails
-  with `InternalError({ traceId })`. Every other typed failure
-  (`UniqueViolationError`, plugin-domain errors) passes through.
+- `capture(eff)` — the single translator. Catches `StorageError` on
+  the typed channel, captures the cause via `ErrorCapture`, fails with
+  `InternalError({ traceId })`. Catches `UniqueViolationError` and
+  dies (plugins that want to surface it as a typed domain error should
+  `Effect.catchTag` inside their own method first). Every other typed
+  failure passes through.
 
-- `withCapture(obj)` — proxy wrapper for a whole extension
-  surface. Walks methods (recursing into nested plain-object shapes)
-  and applies `capture` to each Effect-returning method. Lets
-  the cloud app wire translation once at Layer composition instead of
-  per handler.
+  Every handler wraps its generator body with `capture(...)`:
 
   ```ts
-  Layer.succeed(
-    McpExtensionService,
-    withCapture(executor.mcp),
+  .handle("probeEndpoint", ({ payload }) =>
+    capture(Effect.gen(function* () {
+      const ext = yield* McpExtensionService;
+      return yield* ext.probeEndpoint(payload.endpoint);
+    })),
   )
   ```
 
-- `Captured<T>` — the type-level mirror of
-  `withCapture`. Service tags declare this post-wrap shape so
-  handlers see `InternalError` in the method's error union (matching
-  the group's `.addError(InternalError)`). Example:
-
-  ```ts
-  class McpExtensionService extends Context.Tag("McpExtensionService")<
-    McpExtensionService,
-    Captured<McpPluginExtension>
-  >() {}
-  ```
+  One line at the top of each handler. No service-level proxy, no
+  `Captured<T>` type gymnastics — the translation is visible right
+  where it happens, and TypeScript rejects handlers that forget
+  (because `StorageError` isn't in the group's `.addError` list).
 
 - `observabilityMiddleware(Api)` — defect safety net. An
   `HttpApiBuilder.middleware` layer that wraps the HttpApp once and
@@ -172,12 +165,13 @@ its annotated status.
 - **Cloud Worker** (`apps/cloud/src/observability.ts`) — provides
   `ErrorCaptureLive`, a Sentry-backed implementation. Wired at the API
   layer in `protected-layers.ts` so it's available to both
-  `observabilityMiddleware` (defect catchall) AND to `withCapture`'s
-  typed-channel translation. `protected.ts` wraps once per-request:
-  `const wrapped = withCapture(executor)` → every extension service
-  pulls from `wrapped.X`. (Distinct from `apps/cloud/src/services/telemetry.ts`,
-  which is the OTEL→Axiom span bridge — "telemetry" in the tracing
-  sense.)
+  `observabilityMiddleware` (defect catchall) AND the per-handler
+  `capture(...)` translation. Service tags (`ExecutorService`,
+  `McpExtensionService`, etc.) hold the raw SDK shapes; the cloud app
+  just does `Layer.succeed(McpExtensionService, executor.mcp)` —
+  handlers do the translation themselves. (Distinct from
+  `apps/cloud/src/services/telemetry.ts`, which is the OTEL→Axiom span
+  bridge — "telemetry" in the tracing sense.)
 - **CLI** (`apps/local/src/server/main.ts`) — same pattern. Provides a
   console-based `ErrorCaptureLive` (`apps/local/src/server/observability.ts`)
   that prints the squashed cause + pretty cause to stderr and returns a
@@ -194,8 +188,8 @@ its annotated status.
 - Per-plugin `*InternalError` types — clients can't tell which plugin
   emitted a 500 anyway. Use the shared `InternalError`.
 - `sanitize*` helpers in handler files that `catchAllCause` + map to a
-  generic 500 — same swallowing problem in disguise. Prefer
-  `withCapture` at Layer composition.
+  generic 500 — same swallowing problem in disguise. Prefer wrapping
+  the handler's `Effect.gen` body with `capture(...)`.
 - SDK code importing `Sentry.captureException` or referencing
   `InternalError` / `ErrorCapture` — translation lives strictly in
   `@executor/api`. If the SDK imports it, the layering is wrong.

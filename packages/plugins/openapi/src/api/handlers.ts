@@ -3,7 +3,7 @@ import { Context, Effect } from "effect";
 
 import { runOAuthCallback } from "@executor/plugin-oauth2/http";
 
-import { addGroup, InternalError, type Captured } from "@executor/api";
+import { addGroup, capture, InternalError } from "@executor/api";
 import { OpenApiOAuthError } from "../sdk/errors";
 import type {
   OpenApiPluginExtension,
@@ -33,7 +33,7 @@ const toPopupErrorMessage = (error: unknown): string => {
 
 export class OpenApiExtensionService extends Context.Tag("OpenApiExtensionService")<
   OpenApiExtensionService,
-  Captured<OpenApiPluginExtension>
+  OpenApiPluginExtension
 >() {}
 
 // ---------------------------------------------------------------------------
@@ -55,13 +55,13 @@ const ExecutorApiWithOpenApi = addGroup(OpenApiGroup);
 export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "openapi", (handlers) =>
   handlers
     .handle("previewSpec", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         return yield* ext.previewSpec(payload.spec);
-      }),
+      })),
     )
     .handle("addSpec", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         const result = yield* ext.addSpec({
           spec: payload.spec,
@@ -75,16 +75,16 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           toolCount: result.toolCount,
           namespace: result.sourceId,
         };
-      }),
+      })),
     )
     .handle("getSource", ({ path }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         return yield* ext.getSource(path.namespace);
-      }),
+      })),
     )
     .handle("updateSource", ({ path, payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         yield* ext.updateSource(path.namespace, {
           name: payload.name,
@@ -92,10 +92,10 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           headers: payload.headers as Record<string, HeaderValue> | undefined,
         } as OpenApiUpdateSourceInput);
         return { updated: true };
-      }),
+      })),
     )
     .handle("startOAuth", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         return yield* ext.startOAuth({
           displayName: payload.displayName,
@@ -108,23 +108,23 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           clientSecretSecretId: payload.clientSecretSecretId ?? null,
           scopes: [...payload.scopes],
         });
-      }),
+      })),
     )
     .handle("completeOAuth", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         return yield* ext.completeOAuth({
           state: payload.state,
           code: payload.code,
           error: payload.error,
         });
-      }),
+      })),
     )
     .handle("oauthCallback", ({ urlParams }) =>
       // OAuth popup is special: it always returns 200 HTML and renders the
       // failure into the popup body so the parent window's listener gets a
       // structured result.
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         const html = yield* runOAuthCallback<OAuth2Auth, OpenApiOAuthError | InternalError, never>({
           complete: ({ state, code, error }) =>
@@ -138,6 +138,6 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           channelName: OPENAPI_OAUTH_CHANNEL,
         });
         return yield* HttpServerResponse.html(html);
-      }),
+      })),
     ),
 );

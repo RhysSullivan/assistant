@@ -1,25 +1,22 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Cause, Context, Effect } from "effect";
 
-import { addGroup, type Captured } from "@executor/api";
+import { addGroup, capture } from "@executor/api";
 import type { McpPluginExtension, McpSourceConfig, McpUpdateSourceInput } from "../sdk/plugin";
 import { McpOAuthError } from "../sdk/errors";
 import { McpGroup } from "./group";
 
 // ---------------------------------------------------------------------------
-// Service tag
-//
-// Holds the `Captured` shape — every method's `StorageError`
-// channel has been swapped for `InternalError({ traceId })`. The cloud
-// app provides an already-wrapped extension via
-// `Layer.succeed(McpExtensionService, withCapture(executor.mcp))`.
-// Handlers see `InternalError` in the error union, which matches
-// `.addError(InternalError)` on the group — no per-handler translation.
+// Service tag — holds the raw extension shape the executor produces.
+// Handlers wrap their generator bodies with `capture(...)` from
+// `@executor/api`, which translates `StorageError` to `InternalError`
+// at the edge; that's why the tag type matches the SDK shape directly
+// (no `Captured<>` inversion).
 // ---------------------------------------------------------------------------
 
 export class McpExtensionService extends Context.Tag("McpExtensionService")<
   McpExtensionService,
-  Captured<McpPluginExtension>
+  McpPluginExtension
 >() {}
 
 // ---------------------------------------------------------------------------
@@ -168,60 +165,60 @@ const toSourceConfig = (
 export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (handlers) =>
   handlers
     .handle("probeEndpoint", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.probeEndpoint(payload.endpoint);
-      }),
+      })),
     )
     .handle("addSource", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.addSource(
           toSourceConfig(payload as Parameters<typeof toSourceConfig>[0]),
         );
-      }),
+      })),
     )
     .handle("removeSource", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         yield* ext.removeSource(payload.namespace);
         return { removed: true };
-      }),
+      })),
     )
     .handle("refreshSource", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.refreshSource(payload.namespace);
-      }),
+      })),
     )
     .handle("startOAuth", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.startOAuth({
           endpoint: payload.endpoint,
           redirectUrl: payload.redirectUrl,
           queryParams: payload.queryParams,
         });
-      }),
+      })),
     )
     .handle("completeOAuth", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.completeOAuth({
           state: payload.state,
           code: payload.code,
           error: payload.error,
         });
-      }),
+      })),
     )
     .handle("getSource", ({ path }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.getSource(path.namespace);
-      }),
+      })),
     )
     .handle("updateSource", ({ path, payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         yield* ext.updateSource(path.namespace, {
           name: payload.name,
@@ -231,13 +228,13 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           auth: payload.auth as McpUpdateSourceInput["auth"],
         });
         return { updated: true };
-      }),
+      })),
     )
     .handle("oauthCallback", ({ urlParams }) =>
       // OAuth popup is special: it always returns 200 HTML and renders the
       // failure into the popup body so the parent window's listener gets a
       // structured result. Catching here is intentional, not a leak.
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         const result = yield* Effect.matchCauseEffect(
           ext.completeOAuth({
@@ -267,6 +264,6 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           },
         );
         return yield* HttpServerResponse.html(popupDocument(result));
-      }),
+      })),
     ),
 );

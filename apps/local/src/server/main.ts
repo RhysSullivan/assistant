@@ -7,11 +7,7 @@ import {
 } from "@effect/platform";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
-import {
-  addGroup,
-  observabilityMiddleware,
-  withCapture,
-} from "@executor/api";
+import { addGroup, observabilityMiddleware } from "@executor/api";
 import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
 import {
@@ -94,18 +90,14 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const executor = await getExecutor();
   const engine = createExecutionEngine({ executor });
 
-  // `withCapture` wraps the executor once — every Effect-returning
-  // method on core + every plugin extension translates `StorageError`
-  // to `InternalError({ traceId })` via `ErrorCapture`;
-  // `UniqueViolationError` becomes a defect. Handlers see the
-  // already-captured shape.
-  const wrapped = withCapture(executor);
+  // Handlers wrap their own bodies with `capture(...)` — the edge
+  // translation lives per-handler, not at service construction.
   const pluginExtensions = Layer.mergeAll(
-    Layer.succeed(OpenApiExtensionService, wrapped.openapi),
-    Layer.succeed(McpExtensionService, wrapped.mcp),
-    Layer.succeed(GoogleDiscoveryExtensionService, wrapped.googleDiscovery),
-    Layer.succeed(OnePasswordExtensionService, wrapped.onepassword),
-    Layer.succeed(GraphqlExtensionService, wrapped.graphql),
+    Layer.succeed(OpenApiExtensionService, executor.openapi),
+    Layer.succeed(McpExtensionService, executor.mcp),
+    Layer.succeed(GoogleDiscoveryExtensionService, executor.googleDiscovery),
+    Layer.succeed(OnePasswordExtensionService, executor.onepassword),
+    Layer.succeed(GraphqlExtensionService, executor.graphql),
   );
 
   const api = HttpApiBuilder.toWebHandler(
@@ -113,7 +105,7 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
       Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
       Layer.provideMerge(LocalApiBase),
       Layer.provideMerge(pluginExtensions),
-      Layer.provideMerge(Layer.succeed(ExecutorService, wrapped)),
+      Layer.provideMerge(Layer.succeed(ExecutorService, executor)),
       Layer.provideMerge(Layer.succeed(ExecutionEngineService, engine)),
       Layer.provideMerge(HttpServer.layerContext),
       Layer.provideMerge(HttpRouter.setRouterConfig({ maxParamLength: 1000 })),

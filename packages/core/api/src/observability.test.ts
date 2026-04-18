@@ -1,13 +1,7 @@
 // ---------------------------------------------------------------------------
-// Edge translation — `StorageError → InternalError(traceId)` behaviour.
-//
-// SDK code (@executor/sdk) emits raw `StorageError` in its typed
-// channel. The HTTP edge has two primitives that translate it:
-//
-//   - `capture(eff)` — single-Effect wrapper
-//   - `withCapture(obj)` — proxy wrapper for whole extensions
-//
-// Both route through the `ErrorCapture` tag to generate a trace id.
+// Edge translation — `StorageError → InternalError(traceId)` behaviour
+// via `capture(eff)`. Handlers wrap their generator bodies with
+// `capture(...)`; this file exercises the translator in isolation.
 // ErrorCapture is optional — absent hosts just get empty trace ids.
 // ---------------------------------------------------------------------------
 
@@ -15,12 +9,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Layer, Ref } from "effect";
 import { StorageError, UniqueViolationError } from "@executor/storage-core";
 
-import {
-  capture,
-  ErrorCapture,
-  InternalError,
-  withCapture,
-} from "./observability";
+import { capture, ErrorCapture, InternalError } from "./observability";
 
 // Recording ErrorCapture — returns a fixed trace id and accumulates
 // every cause it sees in a Ref.
@@ -96,63 +85,3 @@ describe("capture", () => {
   );
 });
 
-describe("withCapture", () => {
-  it.effect("wraps every Effect-returning method on the extension", () =>
-    Effect.gen(function* () {
-      const { layer } = yield* makeRecorder("trace-ext");
-
-      // Stand-in extension with one failing method and one succeeding
-      // method. Walk the proxy to prove translation is structural, not
-      // per-method.
-      const ext = {
-        boom: () =>
-          Effect.fail(
-            new StorageError({ message: "boom", cause: undefined }),
-          ),
-        ok: () => Effect.succeed("fine"),
-      };
-      const wrapped = withCapture(ext);
-
-      const boomResult = yield* Effect.flip(wrapped.boom()).pipe(
-        Effect.provide(layer),
-      );
-      expect(boomResult).toBeInstanceOf(InternalError);
-      expect(boomResult.traceId).toBe("trace-ext");
-
-      const okResult = yield* wrapped.ok();
-      expect(okResult).toBe("fine");
-    }),
-  );
-
-  it.effect("recurses into nested plain-object surfaces", () =>
-    Effect.gen(function* () {
-      const ext = {
-        nested: {
-          boom: () =>
-            Effect.fail(
-              new StorageError({ message: "boom", cause: undefined }),
-            ),
-        },
-      };
-      const wrapped = withCapture(ext);
-      const result = yield* Effect.flip(wrapped.nested.boom());
-      expect(result).toBeInstanceOf(InternalError);
-    }),
-  );
-
-  it.effect("UniqueViolationError becomes a defect through the wrapper", () =>
-    Effect.gen(function* () {
-      const ext = {
-        conflict: () =>
-          Effect.fail(new UniqueViolationError({ model: "thing" })),
-      };
-      const wrapped = withCapture(ext);
-      const exit = yield* Effect.exit(wrapped.conflict());
-      expect(exit._tag).toBe("Failure");
-      if (exit._tag === "Failure") {
-        const defects = Cause.defects(exit.cause);
-        expect(Array.from(defects)[0]).toBeInstanceOf(UniqueViolationError);
-      }
-    }),
-  );
-});

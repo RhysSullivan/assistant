@@ -1,7 +1,7 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { addGroup, type Captured } from "@executor/api";
+import { addGroup, capture } from "@executor/api";
 import type {
   GraphqlPluginExtension,
   HeaderValue,
@@ -22,7 +22,7 @@ import { GraphqlGroup } from "./group";
 
 export class GraphqlExtensionService extends Context.Tag("GraphqlExtensionService")<
   GraphqlExtensionService,
-  Captured<GraphqlPluginExtension>
+  GraphqlPluginExtension
 >() {}
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ const ExecutorApiWithGraphql = addGroup(GraphqlGroup);
 export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "graphql", (handlers) =>
   handlers
     .handle("addSource", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* GraphqlExtensionService;
         const result = yield* ext.addSource({
           endpoint: payload.endpoint,
@@ -57,16 +57,16 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
           toolCount: result.toolCount,
           namespace: payload.namespace ?? "graphql",
         };
-      }),
+      })),
     )
     .handle("getSource", ({ path }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* GraphqlExtensionService;
         return yield* ext.getSource(path.namespace);
-      }),
+      })),
     )
     .handle("updateSource", ({ path, payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* GraphqlExtensionService;
         yield* ext.updateSource(path.namespace, {
           name: payload.name,
@@ -74,6 +74,6 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
           headers: payload.headers as Record<string, HeaderValue> | undefined,
         } as GraphqlUpdateSourceInput);
         return { updated: true };
-      }),
+      })),
     ),
 );

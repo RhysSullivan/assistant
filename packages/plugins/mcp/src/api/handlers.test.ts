@@ -11,11 +11,7 @@ import { HttpApiBuilder, HttpServer } from "@effect/platform";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
-import {
-  addGroup,
-  observabilityMiddleware,
-  withCapture,
-} from "@executor/api";
+import { addGroup, observabilityMiddleware } from "@executor/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor/api/server";
 import type { McpPluginExtension } from "../sdk/plugin";
 import { McpExtensionService, McpHandlers } from "./handlers";
@@ -50,12 +46,7 @@ const WebHandler = Effect.acquireRelease(
         Layer.provide(observabilityMiddleware(Api)),
         Layer.provide(Layer.succeed(ExecutorService, {} as never)),
         Layer.provide(Layer.succeed(ExecutionEngineService, {} as never)),
-        Layer.provide(
-          Layer.succeed(
-            McpExtensionService,
-            withCapture(failingExtension),
-          ),
-        ),
+        Layer.provide(Layer.succeed(McpExtensionService, failingExtension)),
         Layer.provideMerge(HttpServer.layerContext),
         Layer.provideMerge(HttpApiBuilder.Router.Live),
         Layer.provideMerge(HttpApiBuilder.Middleware.layer),

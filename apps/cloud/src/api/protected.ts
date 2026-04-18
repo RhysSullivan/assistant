@@ -3,7 +3,6 @@ import { HttpApiBuilder, HttpApiSwagger, HttpServerRequest } from "@effect/platf
 import { Effect, Layer } from "effect";
 
 import { ExecutorService, ExecutionEngineService } from "@executor/api/server";
-import { withCapture } from "@executor/api";
 import { createExecutionEngine } from "@executor/execution";
 import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
 import { OpenApiExtensionService } from "@executor/plugin-openapi/api";
@@ -48,18 +47,15 @@ const createProtectedApp = (organizationId: string, organizationName: string) =>
       makeTrackExecutionUsage(autumn),
     );
 
-    // `withCapture` wraps the executor once — every Effect-returning
-    // method on core + every plugin extension translates `StorageError`
-    // → `InternalError({ traceId })` via `ErrorCapture`;
-    // `UniqueViolationError` becomes a defect. Handlers see the
-    // already-captured shape. See notes/error-handling.md.
-    const wrapped = withCapture(executor);
+    // Handlers wrap their own bodies with `capture(...)` — the edge
+    // translation lives per-handler, not at service construction. See
+    // notes/error-handling.md.
     const requestServices = Layer.mergeAll(
-      Layer.succeed(ExecutorService, wrapped),
+      Layer.succeed(ExecutorService, executor),
       Layer.succeed(ExecutionEngineService, engine),
-      Layer.succeed(OpenApiExtensionService, wrapped.openapi),
-      Layer.succeed(McpExtensionService, wrapped.mcp),
-      Layer.succeed(GraphqlExtensionService, wrapped.graphql),
+      Layer.succeed(OpenApiExtensionService, executor.openapi),
+      Layer.succeed(McpExtensionService, executor.mcp),
+      Layer.succeed(GraphqlExtensionService, executor.graphql),
     );
 
     return yield* HttpApiBuilder.httpApp.pipe(

@@ -2,6 +2,8 @@ import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 
+import { InternalError } from "../observability";
+
 // ---------------------------------------------------------------------------
 // Response schemas
 // ---------------------------------------------------------------------------
@@ -16,6 +18,6 @@ const ScopeInfoResponse = Schema.Struct({
 // Group
 // ---------------------------------------------------------------------------
 
-export class ScopeApi extends HttpApiGroup.make("scope").add(
-  HttpApiEndpoint.get("info")`/scope`.addSuccess(ScopeInfoResponse),
-) {}
+export class ScopeApi extends HttpApiGroup.make("scope")
+  .add(HttpApiEndpoint.get("info")`/scope`.addSuccess(ScopeInfoResponse))
+  .addError(InternalError) {}

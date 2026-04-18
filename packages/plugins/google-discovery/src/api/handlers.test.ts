@@ -11,11 +11,7 @@ import { HttpApiBuilder, HttpServer } from "@effect/platform";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
-import {
-  addGroup,
-  observabilityMiddleware,
-  withCapture,
-} from "@executor/api";
+import { addGroup, observabilityMiddleware } from "@executor/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor/api/server";
 import type { GoogleDiscoveryPluginExtension } from "../sdk/plugin";
 import { GoogleDiscoveryExtensionService, GoogleDiscoveryHandlers } from "./handlers";
@@ -47,10 +43,7 @@ const WebHandler = Effect.acquireRelease(
         Layer.provide(Layer.succeed(ExecutorService, {} as never)),
         Layer.provide(Layer.succeed(ExecutionEngineService, {} as never)),
         Layer.provide(
-          Layer.succeed(
-            GoogleDiscoveryExtensionService,
-            withCapture(failingExtension),
-          ),
+          Layer.succeed(GoogleDiscoveryExtensionService, failingExtension),
         ),
         Layer.provideMerge(HttpServer.layerContext),
         Layer.provideMerge(HttpApiBuilder.Router.Live),
