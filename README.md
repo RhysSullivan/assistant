@@ -83,9 +83,12 @@ Run code via the CLI:
 ```bash
 executor call --file script.ts
 executor call 'return await tools.discover({ query: "send email" })'
+executor tools search "send email"
+executor tools run "send email" --input '{"to":"alice@example.com","subject":"Hi"}'
+executor tools invoke gmail.send --input '{"to":"alice@example.com","subject":"Hi"}'
 ```
 
-`executor call` and `executor resume` auto-start a local daemon if needed.
+`executor call`, `executor resume`, and `executor tools ...` commands auto-start a local daemon if needed.
 
 If an execution pauses for auth or approval, resume it:
 
@@ -106,6 +109,11 @@ executor call --file script.ts      # execute a file
 executor call '<code>'              # execute inline code
 executor call --stdin               # execute from stdin
 executor resume --execution-id <id> # resume paused execution
+executor tools search "<query>"     # search tools by intent
+executor tools sources              # list configured sources + tool counts
+executor tools describe <path>      # show tool TypeScript/JSON schema
+executor tools invoke <path> --input '{"k":"v"}' # invoke a tool directly
+executor tools run "<query>" --input '{"k":"v"}' # search + invoke top match
 ```
 
 ## Developing locally

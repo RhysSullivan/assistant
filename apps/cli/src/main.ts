@@ -57,6 +57,16 @@ import {
   terminatePid,
   writeDaemonRecord,
 } from "./daemon-state";
+import {
+  buildDescribeToolCode,
+  buildInvokeToolCode,
+  buildListSourcesCode,
+  buildRunToolQueryCode,
+  buildSearchToolsCode,
+  extractExecutionId,
+  extractExecutionResult,
+  parseJsonObjectInput,
+} from "./tooling";
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
 import embeddedWebUI from "./embedded-web-ui.gen";
@@ -229,6 +239,71 @@ const stopDaemon = (baseUrl: string) =>
 
     yield* removeDaemonRecord({ hostname: host, port: parsed.port });
     console.log(`Daemon stopped at ${baseUrl}.`);
+  });
+
+type ExecuteCodeOutcome =
+  | {
+      readonly status: "completed";
+      readonly result: unknown;
+    }
+  | {
+      readonly status: "paused";
+      readonly text: string;
+      readonly executionId: string | undefined;
+    };
+
+const toError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+const executeCode = (input: {
+  baseUrl: string;
+  code: string;
+}): Effect.Effect<ExecuteCodeOutcome, Error> =>
+  Effect.gen(function* () {
+    yield* ensureDaemon(input.baseUrl);
+    const client = yield* makeApiClient(input.baseUrl);
+    const response = yield* client.executions.execute({
+      payload: {
+        code: input.code,
+      },
+    });
+
+    if (response.status === "paused") {
+      return {
+        status: "paused" as const,
+        text: response.text,
+        executionId: extractExecutionId(response.structured),
+      };
+    }
+
+    if (response.isError) {
+      return yield* Effect.fail(new Error(response.text));
+    }
+
+    return {
+      status: "completed" as const,
+      result: extractExecutionResult(response.structured),
+    };
+  }).pipe(Effect.mapError(toError));
+
+const printExecutionOutcome = (input: { baseUrl: string; outcome: ExecuteCodeOutcome }) =>
+  Effect.sync(() => {
+    if (input.outcome.status === "paused") {
+      console.log(input.outcome.text);
+      if (input.outcome.executionId) {
+        console.log(
+          `\nTo resume:\n  ${cliPrefix} resume --execution-id ${input.outcome.executionId} --action accept --base-url ${input.baseUrl}`,
+        );
+      }
+      return;
+    }
+
+    if (typeof input.outcome.result === "string") {
+      console.log(input.outcome.result);
+      return;
+    }
+
+    console.log(JSON.stringify(input.outcome.result, null, 2));
   });
 
 // ---------------------------------------------------------------------------
@@ -453,6 +528,136 @@ const resumeCommand = Command.make(
     }),
 ).pipe(Command.withDescription("Resume a paused execution"));
 
+const toolsSearchCommand = Command.make(
+  "search",
+  {
+    query: Args.text({ name: "query" }),
+    namespace: Options.text("namespace").pipe(Options.optional),
+    limit: Options.integer("limit").pipe(Options.withDefault(12)),
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
+    scope,
+  },
+  ({ query, namespace, limit, baseUrl, scope }) =>
+    Effect.gen(function* () {
+      applyScope(scope);
+      const code = buildSearchToolsCode({
+        query,
+        namespace: Option.getOrUndefined(namespace),
+        limit,
+      });
+
+      const outcome = yield* executeCode({ baseUrl, code });
+      yield* printExecutionOutcome({ baseUrl, outcome });
+    }),
+).pipe(Command.withDescription("Search tools by natural-language query"));
+
+const toolsSourcesCommand = Command.make(
+  "sources",
+  {
+    query: Options.text("query").pipe(Options.optional),
+    limit: Options.integer("limit").pipe(Options.withDefault(50)),
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
+    scope,
+  },
+  ({ query, limit, baseUrl, scope }) =>
+    Effect.gen(function* () {
+      applyScope(scope);
+      const code = buildListSourcesCode({
+        query: Option.getOrUndefined(query),
+        limit,
+      });
+
+      const outcome = yield* executeCode({ baseUrl, code });
+      yield* printExecutionOutcome({ baseUrl, outcome });
+    }),
+).pipe(Command.withDescription("List configured sources and tool counts"));
+
+const toolsDescribeCommand = Command.make(
+  "describe",
+  {
+    path: Args.text({ name: "path" }),
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
+    scope,
+  },
+  ({ path, baseUrl, scope }) =>
+    Effect.gen(function* () {
+      applyScope(scope);
+      const code = buildDescribeToolCode(path);
+      const outcome = yield* executeCode({ baseUrl, code });
+      yield* printExecutionOutcome({ baseUrl, outcome });
+    }),
+).pipe(Command.withDescription("Describe a tool's TypeScript and JSON schema"));
+
+const toolsInvokeCommand = Command.make(
+  "invoke",
+  {
+    path: Args.text({ name: "path" }),
+    input: Options.text("input")
+      .pipe(Options.optional)
+      .pipe(Options.withDescription("JSON object arguments for the tool")),
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
+    scope,
+  },
+  ({ path, input, baseUrl, scope }) =>
+    Effect.gen(function* () {
+      applyScope(scope);
+      const args = yield* parseJsonObjectInput(Option.getOrUndefined(input));
+      const code = yield* Effect.try({
+        try: () => buildInvokeToolCode(path, args),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(`Invalid tool path: ${String(cause)}`),
+      });
+
+      const outcome = yield* executeCode({ baseUrl, code });
+      yield* printExecutionOutcome({ baseUrl, outcome });
+    }),
+).pipe(Command.withDescription("Invoke a tool by path (e.g. github.listIssues)"));
+
+const toolsRunCommand = Command.make(
+  "run",
+  {
+    query: Args.text({ name: "query" }),
+    namespace: Options.text("namespace").pipe(Options.optional),
+    limit: Options.integer("limit").pipe(Options.withDefault(12)),
+    input: Options.text("input")
+      .pipe(Options.optional)
+      .pipe(Options.withDescription("JSON object arguments for the selected tool")),
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
+    scope,
+  },
+  ({ query, namespace, limit, input, baseUrl, scope }) =>
+    Effect.gen(function* () {
+      applyScope(scope);
+      const args = yield* parseJsonObjectInput(Option.getOrUndefined(input));
+      const code = buildRunToolQueryCode({
+        query,
+        namespace: Option.getOrUndefined(namespace),
+        args,
+        limit,
+      });
+
+      const outcome = yield* executeCode({ baseUrl, code });
+      yield* printExecutionOutcome({ baseUrl, outcome });
+    }),
+).pipe(
+  Command.withDescription(
+    "Search by query, pick the best tool match, and invoke it with JSON input",
+  ),
+);
+
+const toolsCommand = Command.make("tools").pipe(
+  Command.withSubcommands(
+    [
+      toolsSearchCommand,
+      toolsSourcesCommand,
+      toolsDescribeCommand,
+      toolsInvokeCommand,
+      toolsRunCommand,
+    ] as const,
+  ),
+  Command.withDescription("Discover and invoke tools without writing JavaScript"),
+);
+
 const webCommand = Command.make(
   "web",
   {
@@ -589,7 +794,9 @@ const mcpCommand = Command.make("mcp", { scope }, ({ scope }) =>
 // ---------------------------------------------------------------------------
 
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([callCommand, resumeCommand, webCommand, daemonCommand, mcpCommand] as const),
+  Command.withSubcommands(
+    [callCommand, resumeCommand, toolsCommand, webCommand, daemonCommand, mcpCommand] as const,
+  ),
   Command.withDescription("Executor local CLI"),
 );
 
