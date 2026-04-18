@@ -4,7 +4,6 @@ import { autumnHandler } from "autumn-js/backend";
 
 import { WorkOSAuth } from "../auth/workos";
 import { server } from "../env";
-import { AutumnService } from "../services/autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { SharedServices } from "./layers";
 

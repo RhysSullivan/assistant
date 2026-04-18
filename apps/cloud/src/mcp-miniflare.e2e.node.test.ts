@@ -19,7 +19,7 @@
 // round-trips back to the SDK Client's `ElicitRequestSchema` handler.
 // ---------------------------------------------------------------------------
 
-import { describe, expect, it, layer } from "@effect/vitest";
+import { expect, layer } from "@effect/vitest";
 import { resolve } from "node:path";
 import { createServer } from "node:http";
 
