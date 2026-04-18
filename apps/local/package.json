@@ -28,6 +28,7 @@
     "@executor/plugin-graphql": "workspace:*",
     "@executor/plugin-keychain": "workspace:*",
     "@executor/plugin-mcp": "workspace:*",
+    "@executor/plugin-oauth2": "workspace:*",
     "@executor/plugin-onepassword": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
     "@executor/react": "workspace:*",
