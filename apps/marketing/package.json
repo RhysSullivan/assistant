@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "portless run --no-tls --name executor-marketing astro dev",
-    "build": "astro build",
+    "build": "astro build && bun run scripts/wrap-worker.ts",
     "preview": "astro preview",
-    "deploy": "astro build && npx wrangler deploy --config dist/server/wrangler.json",
+    "deploy": "astro build && bun run scripts/wrap-worker.ts && npx wrangler deploy --config dist/server/wrangler.json",
     "astro": "astro",
     "typecheck": "tsgo --noEmit",
     "typecheck:slow": "tsc --noEmit"
@@ -17,6 +17,9 @@
     "@executor/plugin-graphql": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
     "@executor/sdk": "workspace:*",
+    "@microlabs/otel-cf-workers": "^1.0.0-rc.52",
+    "@opentelemetry/api": "~1.9.0",
+    "@sentry/cloudflare": "^10.49.0",
     "@tailwindcss/vite": "^4.2.2",
     "astro": "^6.1.3",
     "effect": "^3.14.16",
