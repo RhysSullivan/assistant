@@ -5,25 +5,21 @@ import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import {
-  headerValueToState,
-  headersFromState,
-  type HeaderState,
-} from "@executor/react/plugins/secret-header-auth";
-import { HeadersList } from "@executor/react/plugins/headers-list";
-import {
   SourceIdentityFields,
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
+import { SourceConfig, type AuthMode } from "@executor/react/plugins/source-config";
+import type { KeyValueEntry } from "@executor/react/plugins/key-value-list";
 import { Button } from "@executor/react/components/button";
 import {
   CardStack,
   CardStackContent,
   CardStackEntryField,
 } from "@executor/react/components/card-stack";
-import { FieldLabel } from "@executor/react/components/field";
 import { Input } from "@executor/react/components/input";
 import { Badge } from "@executor/react/components/badge";
 import type { StoredGraphqlSource } from "../sdk/store";
+import { headersFromAuth, parseAuthFromHeaders } from "./headers";
 
 // ---------------------------------------------------------------------------
 // Edit form
@@ -43,18 +39,33 @@ function EditForm(props: {
     fallbackNamespace: props.initial.namespace,
   });
   const [endpoint, setEndpoint] = useState(props.initial.endpoint);
-  const [headers, setHeaders] = useState<HeaderState[]>(() =>
-    Object.entries(props.initial.headers ?? {}).map(([name, value]) =>
-      headerValueToState(name, value),
-    ),
+
+  const initialAuth = parseAuthFromHeaders(props.initial.headers ?? {});
+  const [authMode, setAuthMode] = useState<AuthMode>(initialAuth.mode);
+  const [bearerSecretId, setBearerSecretId] = useState<string | null>(
+    initialAuth.bearerSecretId,
   );
+  const [headers, setHeaders] = useState<readonly KeyValueEntry[]>(
+    initialAuth.otherHeaders,
+  );
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
   const identityDirty = identity.name.trim() !== props.initial.name.trim();
 
-  const handleHeadersChange = (next: HeaderState[]) => {
+  const handleAuthModeChange = (mode: AuthMode) => {
+    setAuthMode(mode);
+    setDirty(true);
+  };
+
+  const handleBearerSecretChange = (secretId: string) => {
+    setBearerSecretId(secretId);
+    setDirty(true);
+  };
+
+  const handleHeadersChange = (next: readonly KeyValueEntry[]) => {
     setHeaders(next);
     setDirty(true);
   };
@@ -63,12 +74,13 @@ function EditForm(props: {
     setSaving(true);
     setError(null);
     try {
+      const effectiveBearer = authMode === "bearer" ? bearerSecretId : null;
       await doUpdate({
         path: { scopeId, namespace: props.sourceId },
         payload: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
-          headers: headersFromState(headers),
+          headers: headersFromAuth(effectiveBearer, headers),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -117,15 +129,16 @@ function EditForm(props: {
         </CardStackContent>
       </CardStack>
 
-      <section className="space-y-2.5">
-        <FieldLabel>Headers</FieldLabel>
-        <HeadersList
-          headers={headers}
-          onHeadersChange={handleHeadersChange}
-          existingSecrets={secretList}
-          sourceName={identity.name}
-        />
-      </section>
+      <SourceConfig
+        authMode={authMode}
+        onAuthModeChange={handleAuthModeChange}
+        allowedAuthModes={["none", "bearer"]}
+        bearerSecretId={bearerSecretId}
+        onBearerSecretChange={handleBearerSecretChange}
+        headers={headers}
+        onHeadersChange={handleHeadersChange}
+        secrets={secretList}
+      />
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">

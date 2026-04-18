@@ -1,11 +1,25 @@
 import { useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
+import { Link } from "@tanstack/react-router";
 
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
-import { HeadersList } from "@executor/react/plugins/headers-list";
-import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@executor/react/components/breadcrumb";
+import { Button } from "@executor/react/components/button";
+import { FloatActions } from "@executor/react/components/float-actions";
+import { SourceHeader } from "@executor/react/components/source-header";
+import { Spinner } from "@executor/react/components/spinner";
+import { FilterTabs } from "@executor/react/components/filter-tabs";
+import { SourceConfig } from "@executor/react/plugins/source-config";
+import type { KeyValueEntry } from "@executor/react/plugins/key-value-list";
 import {
   displayNameFromUrl,
   slugifyNamespace,
@@ -13,25 +27,12 @@ import {
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
-import { Button } from "@executor/react/components/button";
-import {
-  CardStack,
-  CardStackContent,
-  CardStackEntryField,
-} from "@executor/react/components/card-stack";
-import { FieldLabel } from "@executor/react/components/field";
-import { FloatActions } from "@executor/react/components/float-actions";
-import { Input } from "@executor/react/components/input";
-import { Spinner } from "@executor/react/components/spinner";
 import { addGraphqlSource } from "./atoms";
-import type { HeaderValue } from "../sdk/types";
+import { headersFromAuth } from "./headers";
 
-const initialHeader = (): HeaderState => ({
-  name: "Authorization",
-  prefix: "Bearer ",
-  presetKey: "bearer",
-  secretId: null,
-});
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export default function AddGraphqlSource(props: {
   onComplete: () => void;
@@ -42,31 +43,26 @@ export default function AddGraphqlSource(props: {
   const identity = useSourceIdentity({
     fallbackName: displayNameFromUrl(endpoint) ?? "",
   });
-  const [headers, setHeaders] = useState<HeaderState[]>([initialHeader()]);
+
+  // Auth state
+  const [bearerSecretId, setBearerSecretId] = useState<string | null>(null);
+  const [headers, setHeaders] = useState<readonly KeyValueEntry[]>([]);
+
+  const [activeTab, setActiveTab] = useState<"settings" | "operations">("settings");
   const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const scopeId = useScope();
   const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
-  const headersValid = headers.every((header) => header.name.trim() && header.secretId);
-  const canAdd = endpoint.trim().length > 0 && (headers.length === 0 || headersValid);
+  const canAdd = endpoint.trim().length > 0;
 
   const handleAdd = async () => {
     setAdding(true);
-    setAddError(null);
-    const headerMap: Record<string, HeaderValue> = {};
-    for (const header of headers) {
-      const name = header.name.trim();
-      if (name && header.secretId) {
-        headerMap[name] = {
-          secretId: header.secretId,
-          ...(header.prefix ? { prefix: header.prefix } : {}),
-        };
-      }
-    }
+    setError(null);
+    const headerMap = headersFromAuth(bearerSecretId, headers);
 
     const trimmedEndpoint = endpoint.trim();
     const namespace =
@@ -94,52 +90,77 @@ export default function AddGraphqlSource(props: {
       });
       props.onComplete();
     } catch (e) {
-      setAddError(e instanceof Error ? e.message : "Failed to add source");
+      setError(e instanceof Error ? e.message : "Failed to add source");
       setAdding(false);
     } finally {
       placeholder.done();
     }
   };
 
+  const hasEndpoint = endpoint.trim().length > 0;
+
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <h1 className="text-xl font-semibold text-foreground">Add GraphQL Source</h1>
+      {/* Breadcrumb */}
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to="/">Sources</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Add GraphQL</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
-      <CardStack>
-        <CardStackContent className="border-t-0">
-          <CardStackEntryField
-            label="Endpoint"
-            hint="The endpoint will be introspected to discover available queries and mutations."
-          >
-            <Input
-              value={endpoint}
-              onChange={(e) => setEndpoint((e.target as HTMLInputElement).value)}
-              placeholder="https://api.example.com/graphql"
-              className="font-mono text-sm"
-            />
-          </CardStackEntryField>
-        </CardStackContent>
-      </CardStack>
+      {/* Source Header */}
+      {hasEndpoint && (
+        <SourceHeader
+          url={endpoint}
+          title={identity.name || displayNameFromUrl(endpoint) || "GraphQL API"}
+        />
+      )}
 
-      <SourceIdentityFields
-        identity={identity}
-        namePlaceholder="e.g. Shopify API"
+      <FilterTabs
+        tabs={[
+          { label: "Settings", value: "settings" },
+          { label: "Operations", value: "operations" },
+        ]}
+        value={activeTab}
+        onChange={setActiveTab}
       />
 
-      <section className="space-y-2.5">
-        <FieldLabel>Headers</FieldLabel>
-        <HeadersList
-          headers={headers}
-          onHeadersChange={setHeaders}
-          existingSecrets={secretList}
-          sourceName={identity.name}
-        />
-      </section>
+      {activeTab === "settings" && (
+        <div className="space-y-6">
+          <SourceIdentityFields
+            identity={identity}
+            namePlaceholder="e.g. Shopify API"
+            endpoint={endpoint}
+            onEndpointChange={setEndpoint}
+            endpointLabel="URL"
+            endpointPlaceholder="https://api.example.com/graphql"
+          />
+
+          <SourceConfig
+            authMode="bearer"
+            onAuthModeChange={() => {}}
+            allowedAuthModes={["bearer"]}
+            bearerSecretId={bearerSecretId}
+            onBearerSecretChange={setBearerSecretId}
+            headers={headers}
+            onHeadersChange={setHeaders}
+            secrets={secretList}
+          />
+        </div>
+      )}
 
       {/* Error */}
-      {addError && (
+      {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-[12px] text-destructive">{addError}</p>
+          <p className="text-[12px] text-destructive">{error}</p>
         </div>
       )}
 
