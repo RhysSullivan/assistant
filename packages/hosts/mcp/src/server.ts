@@ -8,11 +8,11 @@ import type {
 import { Validator } from "@cfworker/json-schema";
 import { z } from "zod/v4";
 
-import type {
+import {
   ElicitationResponse,
-  ElicitationHandler,
-  ElicitationContext,
-  ElicitationRequest,
+  type ElicitationHandler,
+  type ElicitationContext,
+  type ElicitationRequest,
 } from "@executor/sdk";
 import {
   createExecutionEngine,
@@ -21,6 +21,12 @@ import {
   type ExecutionEngine,
   type ExecutionEngineConfig,
 } from "@executor/execution";
+import {
+  registerAppTool,
+  registerAppResource,
+  getUiCapability,
+  RESOURCE_MIME_TYPE,
+} from "@modelcontextprotocol/ext-apps/server";
 
 // ---------------------------------------------------------------------------
 // Workers-compatible JSON Schema validator (replaces Ajv which uses new Function())
@@ -150,6 +156,69 @@ const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>):
 });
 
 // ---------------------------------------------------------------------------
+// Generative UI — JSX detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect whether code contains JSX (React component code) that should be
+ * routed to the generative UI shell instead of executed in the kernel.
+ *
+ * Checks for:
+ * - Capitalized JSX tags: <Card>, <App>, <Button />
+ * - className= attribute (JSX-specific, not used in plain JS)
+ * - onClick/onChange/onSubmit handlers (JSX event syntax)
+ * - JSX fragment syntax: <> or </>
+ */
+const isReactCode = (code: string): boolean =>
+  /<[A-Z]\w*[\s/>]/.test(code) ||
+  /<\/[A-Z]/.test(code) ||
+  /\bclassName\s*=/.test(code) ||
+  /\bon[A-Z]\w*\s*=\s*\{/.test(code) ||
+  /<>|<\/>/.test(code);
+
+const SHELL_RESOURCE_URI = "ui://executor/shell.html";
+
+// ---------------------------------------------------------------------------
+// Shell HTML loading
+// ---------------------------------------------------------------------------
+
+let _shellHtmlCache: string | undefined;
+
+/**
+ * Load the pre-built shell HTML. Tries the built dist artifact first,
+ * then falls back to a minimal placeholder for development.
+ */
+async function loadShellHtml(): Promise<string> {
+  if (_shellHtmlCache) return _shellHtmlCache;
+
+  try {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    // Try multiple possible locations for the built shell
+    const candidates = [
+      path.join(import.meta.dirname, "../dist/mcp-app.html"),
+      path.join(import.meta.dirname, "../../dist/mcp-app.html"),
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        _shellHtmlCache = await fs.readFile(candidate, "utf-8");
+        return _shellHtmlCache;
+      } catch {
+        // Try next candidate
+      }
+    }
+  } catch {
+    // fs/path not available (e.g., Workers runtime)
+  }
+
+  // Fallback placeholder
+  _shellHtmlCache = `<!doctype html><html><body><p>Shell not built. Run: bun run --cwd packages/hosts/mcp build:shell</p></body></html>`;
+  return _shellHtmlCache;
+}
+
+// ---------------------------------------------------------------------------
 // Server factory
 // ---------------------------------------------------------------------------
 
@@ -161,7 +230,10 @@ export const createExecutorMcpServer = async (
 
   const server = new McpServer(
     { name: "executor", version: "1.0.0" },
-    { capabilities: { tools: {} }, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
+    {
+      capabilities: { tools: {}, resources: {} },
+      jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
+    },
   );
 
   const executeCode = async (code: string): Promise<McpToolResult> => {
@@ -193,13 +265,26 @@ export const createExecutorMcpServer = async (
 
   // --- tools ---
 
-  const executeTool = server.registerTool(
+  const executeTool = registerAppTool(
+    server,
     "execute",
     {
       description,
       inputSchema: { code: z.string().trim().min(1) },
+      _meta: {
+        ui: { resourceUri: SHELL_RESOURCE_URI },
+      },
     },
-    async ({ code }) => executeCode(code),
+    async ({ code }: { code: string }) => {
+      // If code contains JSX, route to UI shell
+      if (isReactCode(code)) {
+        return {
+          content: [{ type: "text", text: "Rendered interactive UI component." }],
+          structuredContent: { code },
+        };
+      }
+      return executeCode(code);
+    },
   );
 
   const resumeTool = server.registerTool(
@@ -237,7 +322,54 @@ export const createExecutorMcpServer = async (
     },
   );
 
+  // --- execute-action: app-only tool for iframe → kernel calls ---
+  // Auto-approve elicitations for UI-initiated actions — the user already
+  // consented by interacting with the component (clicking a button, etc.).
+
+  const autoApproveHandler: ElicitationHandler = () =>
+    Effect.succeed(new ElicitationResponse({ action: "accept" }));
+
+  const executeCodeAutoApprove = async (code: string): Promise<McpToolResult> => {
+    const result = await engine.execute(code, {
+      onElicitation: autoApproveHandler,
+    });
+    return toMcpResult(formatExecuteResult(result));
+  };
+
+  const executeActionTool = registerAppTool(
+    server,
+    "execute-action",
+    {
+      description: "Execute code from the UI shell. Used by interactive components to call tools and run mutations.",
+      inputSchema: { code: z.string().trim().min(1) },
+      _meta: {
+        ui: {
+          resourceUri: SHELL_RESOURCE_URI,
+          visibility: ["app"],
+        },
+      },
+    },
+    async ({ code }: { code: string }) => executeCodeAutoApprove(code),
+  );
+
+  // --- ui:// resource for the generative UI shell ---
+
+  registerAppResource(
+    server,
+    "Executor Shell",
+    SHELL_RESOURCE_URI,
+    { mimeType: RESOURCE_MIME_TYPE },
+    async () => {
+      const html = await loadShellHtml();
+      return {
+        contents: [{ uri: SHELL_RESOURCE_URI, mimeType: RESOURCE_MIME_TYPE, text: html }],
+      };
+    },
+  );
+
   // --- capability-based tool visibility ---
+
+  let clientSupportsApps = false;
 
   const syncToolAvailability = () => {
     executeTool.enable();
@@ -245,6 +377,25 @@ export const createExecutorMcpServer = async (
       resumeTool.disable();
     } else {
       resumeTool.enable();
+    }
+
+    // Check if client supports MCP Apps
+    const capabilities = server.server.getClientCapabilities() as
+      | (Record<string, unknown> & { extensions?: Record<string, unknown> })
+      | undefined;
+    const uiCap = getUiCapability(capabilities ?? null);
+    clientSupportsApps = Boolean(uiCap?.mimeTypes?.includes(RESOURCE_MIME_TYPE));
+    console.log("[executor] syncToolAvailability:", {
+      clientSupportsApps,
+      uiCap,
+      RESOURCE_MIME_TYPE,
+      capabilities: JSON.stringify(capabilities),
+    });
+
+    if (clientSupportsApps) {
+      executeActionTool.enable();
+    } else {
+      executeActionTool.disable();
     }
   };
 
