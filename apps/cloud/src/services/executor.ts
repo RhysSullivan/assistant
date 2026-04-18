@@ -78,5 +78,9 @@ export const createScopedExecutor = (
       createdAt: new Date(),
     });
 
+    // The executor surface returns raw `StorageFailure`; translation to
+    // the opaque `InternalError({ traceId })` happens at the HTTP edge
+    // via `withCapture` (see `api/protected-layers.ts`). That's
+    // where `ErrorCaptureLive` (Sentry) gets wired in.
     return yield* createExecutor({ scope, adapter, blobs, plugins });
   });

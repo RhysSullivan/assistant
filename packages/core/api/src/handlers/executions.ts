@@ -4,11 +4,12 @@ import { Effect } from "effect";
 import { ExecutorApi } from "../api";
 import { formatExecuteResult, formatPausedExecution } from "@executor/execution";
 import { ExecutionEngineService } from "../services";
+import { capture } from "@executor/api";
 
 export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions", (handlers) =>
   handlers
     .handle("execute", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
         const outcome = yield* Effect.promise(() => engine.executeWithPause(payload.code));
 
@@ -28,10 +29,10 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
           text: formatted.text,
           structured: formatted.structured,
         };
-      }),
+      })),
     )
     .handle("resume", ({ path, payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
         const result = yield* Effect.promise(() =>
           engine.resume(path.executionId, {
@@ -62,6 +63,6 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
           structured: formatted.structured,
           isError: false,
         };
-      }),
+      })),
     ),
 );

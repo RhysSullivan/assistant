@@ -10,12 +10,17 @@ export type {
   DBSchema,
   DBFieldAttribute,
   DBFieldType,
+  StorageFailure,
   TypedAdapter,
   Where,
   WhereOperator,
 } from "@executor/storage-core";
 
 export { typedAdapter } from "@executor/storage-core";
+
+// Storage-layer typed errors (re-exported so plugin code can catchTag
+// `UniqueViolationError` without importing storage-core directly).
+export { StorageError, UniqueViolationError } from "@executor/storage-core";
 
 // IDs (branded)
 export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";

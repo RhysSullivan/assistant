@@ -2,7 +2,12 @@ import { Effect, Schema } from "effect";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { definePlugin, type PluginCtx, type SecretProvider } from "@executor/sdk";
+import {
+  definePlugin,
+  StorageError,
+  type PluginCtx,
+  type SecretProvider,
+} from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // XDG data dir resolution
@@ -43,16 +48,28 @@ const decodeScopedAuthFile = Schema.decodeUnknownSync(ScopedAuthFile);
 
 // ---------------------------------------------------------------------------
 // File I/O with restricted permissions
+//
+// These helpers throw on real I/O or decode failures — the provider wraps
+// every call in `Effect.try` so those throws surface as typed
+// `StorageError` on the Effect error channel. Previously `readFullFile`
+// used a blanket `try { ... } catch { return {}; }` which masked JSON
+// parse errors, schema decode failures, and permission errors as
+// "empty file", making misconfigured installs silently return null from
+// every `get`.
 // ---------------------------------------------------------------------------
 
 const readFullFile = (filePath: string): Record<string, Record<string, string>> => {
+  if (!fs.existsSync(filePath)) return {};
+  let raw: string;
   try {
-    if (!fs.existsSync(filePath)) return {};
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return decodeScopedAuthFile(JSON.parse(raw));
-  } catch {
-    return {};
+    raw = fs.readFileSync(filePath, "utf-8");
+  } catch (cause) {
+    // Treat "file disappeared between existsSync and readFileSync" as
+    // absence — anything else (EACCES, EISDIR, …) propagates.
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw cause;
   }
+  return decodeScopedAuthFile(JSON.parse(raw));
 };
 
 const readScopeSecrets = (filePath: string, scopeId: string): Record<string, string> =>
@@ -100,36 +117,54 @@ export interface FileSecretsExtension {
 // Provider factory (internal)
 // ---------------------------------------------------------------------------
 
+const toStorageError = (cause: unknown) =>
+  new StorageError({
+    message: cause instanceof Error ? cause.message : String(cause),
+    cause,
+  });
+
 const makeScopedProvider = (filePath: string, scopeId: string): SecretProvider => ({
   key: "file",
   writable: true,
 
   get: (secretId) =>
-    Effect.sync(() => {
-      const data = readScopeSecrets(filePath, scopeId);
-      return data[secretId] ?? null;
+    Effect.try({
+      try: () => {
+        const data = readScopeSecrets(filePath, scopeId);
+        return data[secretId] ?? null;
+      },
+      catch: toStorageError,
     }),
 
   set: (secretId, value) =>
-    Effect.sync(() => {
-      const data = readScopeSecrets(filePath, scopeId);
-      data[secretId] = value;
-      writeScopeSecrets(filePath, scopeId, data);
+    Effect.try({
+      try: () => {
+        const data = readScopeSecrets(filePath, scopeId);
+        data[secretId] = value;
+        writeScopeSecrets(filePath, scopeId, data);
+      },
+      catch: toStorageError,
     }),
 
   delete: (secretId) =>
-    Effect.sync(() => {
-      const data = readScopeSecrets(filePath, scopeId);
-      const had = secretId in data;
-      delete data[secretId];
-      if (had) writeScopeSecrets(filePath, scopeId, data);
-      return had;
+    Effect.try({
+      try: () => {
+        const data = readScopeSecrets(filePath, scopeId);
+        const had = secretId in data;
+        delete data[secretId];
+        if (had) writeScopeSecrets(filePath, scopeId, data);
+        return had;
+      },
+      catch: toStorageError,
     }),
 
   list: () =>
-    Effect.sync(() => {
-      const data = readScopeSecrets(filePath, scopeId);
-      return Object.keys(data).map((k) => ({ id: k, name: k }));
+    Effect.try({
+      try: () => {
+        const data = readScopeSecrets(filePath, scopeId);
+        return Object.keys(data).map((k) => ({ id: k, name: k }));
+      },
+      catch: toStorageError,
     }),
 });
 

@@ -229,12 +229,15 @@
         "@effect/platform": "catalog:",
         "@executor/execution": "workspace:*",
         "@executor/sdk": "workspace:*",
+        "@executor/storage-core": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
         "typescript": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/core/cli": {
@@ -307,6 +310,7 @@
       "name": "@executor/sdk",
       "version": "0.0.1",
       "dependencies": {
+        "@effect/platform": "catalog:",
         "@executor/storage-core": "workspace:*",
         "effect": "catalog:",
       },

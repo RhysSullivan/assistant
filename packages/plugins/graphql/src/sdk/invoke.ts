@@ -14,8 +14,8 @@ import {
 
 export const resolveHeaders = (
   headers: Record<string, HeaderValue>,
-  secrets: { readonly get: (id: string) => Effect.Effect<string | null, Error> },
-): Effect.Effect<Record<string, string>, Error> =>
+  secrets: { readonly get: (id: string) => Effect.Effect<string | null, unknown> },
+): Effect.Effect<Record<string, string>> =>
   Effect.gen(function* () {
     const entries = Object.entries(headers);
     // Resolve secret-backed headers in parallel. Missing / failing
@@ -138,14 +138,14 @@ export const invokeWithLayer = (
   endpoint: string,
   resolvedHeaders: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
-): Effect.Effect<InvocationResult, Error> =>
+) =>
   invoke(operation, args, endpoint, resolvedHeaders).pipe(
     Effect.provide(httpClientLayer),
     Effect.mapError((err) =>
-      err instanceof Error
+      err instanceof GraphqlInvocationError
         ? err
         : new GraphqlInvocationError({
-            message: String(err),
+            message: err instanceof Error ? err.message : String(err),
             statusCode: Option.none(),
             cause: err,
           }),

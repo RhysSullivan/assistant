@@ -34,6 +34,9 @@ const createProtectedApp = (organizationId: string, organizationName: string) =>
   Effect.gen(function* () {
     const { executor, engine } = yield* makeExecutionStack(organizationId, organizationName);
 
+    // Handlers wrap their own bodies with `capture(...)` — the edge
+    // translation lives per-handler, not at service construction. See
+    // notes/error-handling.md.
     const requestServices = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
       Layer.succeed(ExecutionEngineService, engine),

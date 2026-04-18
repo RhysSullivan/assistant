@@ -1,7 +1,13 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
+import { InternalError } from "@executor/api";
 
+import {
+  McpConnectionError,
+  McpOAuthError,
+  McpToolDiscoveryError,
+} from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
 
 // Re-export for handler use
@@ -150,89 +156,74 @@ const CompleteOAuthResponse = Schema.Struct({
 });
 
 // ---------------------------------------------------------------------------
-// Error
-// ---------------------------------------------------------------------------
-
-export class McpApiError extends Schema.TaggedError<McpApiError>()(
-  "McpApiError",
-  {
-    message: Schema.String,
-  },
-  HttpApiSchema.annotations({ status: 400 }),
-) {}
-
-export class McpInternalError extends Schema.TaggedError<McpInternalError>()(
-  "McpInternalError",
-  {
-    message: Schema.String,
-  },
-  HttpApiSchema.annotations({ status: 500 }),
-) {}
-
-// ---------------------------------------------------------------------------
 // Group
+//
+// Plugin SDK errors (McpOAuthError etc.) are declared once at the group
+// level via `.addError(...)` — every endpoint inherits them. The errors
+// themselves carry their HTTP status via `HttpApiSchema.annotations`
+// in errors.ts, so handlers just `return yield* ext.foo(...)` and the
+// schema encodes whatever it gets.
+//
+// 5xx is handled at the API level: `CoreExecutorApi.addError(InternalError)`
+// adds a single shared opaque-by-schema 500 surface to every endpoint in
+// the entire API. Defects are captured + downgraded to it by an
+// HttpApiBuilder middleware (see apps/cloud/src/observability.ts).
+// No per-handler wrapping, no per-plugin InternalError.
 // ---------------------------------------------------------------------------
 
 export class McpGroup extends HttpApiGroup.make("mcp")
   .add(
     HttpApiEndpoint.post("probeEndpoint")`/scopes/${scopeIdParam}/mcp/probe`
       .setPayload(ProbeEndpointPayload)
-      .addSuccess(ProbeEndpointResponse)
-      .addError(McpApiError)
-      .addError(McpInternalError),
+      .addSuccess(ProbeEndpointResponse),
   )
   .add(
     HttpApiEndpoint.post("addSource")`/scopes/${scopeIdParam}/mcp/sources`
       .setPayload(AddSourcePayload)
-      .addSuccess(AddSourceResponse)
-      .addError(McpApiError)
-      .addError(McpInternalError),
+      .addSuccess(AddSourceResponse),
   )
   .add(
     HttpApiEndpoint.post("removeSource")`/scopes/${scopeIdParam}/mcp/sources/remove`
       .setPayload(NamespacePayload)
-      .addSuccess(RemoveSourceResponse)
-      .addError(McpApiError)
-      .addError(McpInternalError),
+      .addSuccess(RemoveSourceResponse),
   )
   .add(
     HttpApiEndpoint.post("refreshSource")`/scopes/${scopeIdParam}/mcp/sources/refresh`
       .setPayload(NamespacePayload)
-      .addSuccess(RefreshSourceResponse)
-      .addError(McpApiError)
-      .addError(McpInternalError),
+      .addSuccess(RefreshSourceResponse),
   )
   .add(
     HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/mcp/oauth/start`
       .setPayload(StartOAuthPayload)
-      .addSuccess(StartOAuthResponse)
-      .addError(McpApiError)
-      .addError(McpInternalError),
+      .addSuccess(StartOAuthResponse),
   )
   .add(
     HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/mcp/oauth/complete`
       .setPayload(CompleteOAuthPayload)
-      .addSuccess(CompleteOAuthResponse)
-      .addError(McpApiError)
-      .addError(McpInternalError),
+      .addSuccess(CompleteOAuthResponse),
   )
   .add(
     HttpApiEndpoint.get("oauthCallback")`/mcp/oauth/callback`
       .setUrlParams(OAuthCallbackParams)
-      .addSuccess(HtmlResponse)
-      .addError(McpApiError)
-      .addError(McpInternalError),
+      .addSuccess(HtmlResponse),
   )
   .add(
     HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
-      .addSuccess(Schema.NullOr(McpStoredSourceSchema))
-      .addError(McpApiError)
-      .addError(McpInternalError),
+      .addSuccess(Schema.NullOr(McpStoredSourceSchema)),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
-      .addSuccess(UpdateSourceResponse)
-      .addError(McpApiError)
-      .addError(McpInternalError),
-  ) {}
+      .addSuccess(UpdateSourceResponse),
+  )
+  // Errors declared once at the group level — every endpoint inherits.
+  // Plugin domain errors carry their own HttpApiSchema status (4xx);
+  // `InternalError` is the shared opaque 500 translated at the HTTP
+  // edge by `withCapture`. We only list errors an MCP *group*
+  // endpoint can surface: `McpInvocationError` is thrown inside
+  // `invokeTool` which is reached via the core `tools.invoke`
+  // endpoint, not any MCP-group endpoint, so it doesn't belong here.
+  .addError(InternalError)
+  .addError(McpOAuthError)
+  .addError(McpConnectionError)
+  .addError(McpToolDiscoveryError) {}

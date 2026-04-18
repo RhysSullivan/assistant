@@ -5,6 +5,7 @@ import type { Layer } from "effect";
 import {
   definePlugin,
   SourceDetectionResult,
+  type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
 } from "@executor/sdk";
@@ -24,7 +25,7 @@ import {
   type IntrospectionTypeRef,
 } from "./introspect";
 import { extract } from "./extract";
-import { GraphqlExtractionError } from "./errors";
+import { GraphqlExtractionError, GraphqlIntrospectionError } from "./errors";
 import { invokeWithLayer, resolveHeaders } from "./invoke";
 import {
   graphqlSchema,
@@ -69,19 +70,35 @@ export interface GraphqlUpdateSourceInput {
   readonly headers?: Record<string, HeaderValue>;
 }
 
+/**
+ * Errors any GraphQL extension method may surface. `GraphqlIntrospectionError`
+ * and `GraphqlExtractionError` are plugin-domain tagged errors that flow
+ * directly to clients (4xx, each carrying its own `HttpApiSchema` status).
+ * `StorageFailure` covers raw backend failures (`StorageError` plus
+ * `UniqueViolationError`); the HTTP edge (`@executor/api`'s `withCapture`)
+ * translates `StorageError` to the opaque `InternalError({ traceId })` at
+ * Layer composition.
+ */
+export type GraphqlExtensionFailure =
+  | GraphqlIntrospectionError
+  | GraphqlExtractionError
+  | StorageFailure;
+
 export interface GraphqlPluginExtension {
   /** Add a GraphQL endpoint and register its operations as tools */
   readonly addSource: (
     config: GraphqlSourceConfig,
-  ) => Effect.Effect<{ readonly toolCount: number }, Error>;
+  ) => Effect.Effect<{ readonly toolCount: number }, GraphqlExtensionFailure>;
 
   /** Remove all tools from a previously added GraphQL source by namespace */
-  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
+  readonly removeSource: (
+    namespace: string,
+  ) => Effect.Effect<void, StorageFailure>;
 
   /** Fetch the full stored source by namespace (or null if missing) */
   readonly getSource: (
     namespace: string,
-  ) => Effect.Effect<StoredGraphqlSource | null, Error>;
+  ) => Effect.Effect<StoredGraphqlSource | null, StorageFailure>;
 
   /** Update config (endpoint, headers) for an existing GraphQL source.
    *  Does NOT re-introspect or re-register tools — just patches the
@@ -89,7 +106,7 @@ export interface GraphqlPluginExtension {
   readonly updateSource: (
     namespace: string,
     input: GraphqlUpdateSourceInput,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +299,7 @@ export const graphqlPlugin = definePlugin(
       schema: graphqlSchema,
       storage: (deps): GraphqlStore => makeDefaultGraphqlStore(deps),
 
-      extension: (ctx): GraphqlPluginExtension => {
+      extension: (ctx) => {
         const resolveConfigHeaders = (
           headers: Record<string, HeaderValue> | undefined,
         ) =>
@@ -368,13 +385,6 @@ export const graphqlPlugin = definePlugin(
         return {
           addSource: (config) =>
             addSourceInternal(config).pipe(
-              Effect.mapError((err) =>
-                err instanceof Error
-                  ? err
-                  : new GraphqlExtractionError({
-                      message: String(err),
-                    }),
-              ),
               Effect.tap((result) =>
                 configFile
                   ? configFile.upsertSource(
@@ -406,7 +416,7 @@ export const graphqlPlugin = definePlugin(
               endpoint: input.endpoint,
               headers: input.headers,
             }),
-        };
+        } satisfies GraphqlPluginExtension;
       },
 
       staticSources: (self) => [

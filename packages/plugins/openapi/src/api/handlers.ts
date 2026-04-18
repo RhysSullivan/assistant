@@ -1,21 +1,17 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
-import { Cause, Context, Effect } from "effect";
+import { Context, Effect } from "effect";
 
 import { runOAuthCallback } from "@executor/plugin-oauth2/http";
 
-import { addGroup } from "@executor/api";
-import {
-  OpenApiExtractionError,
-  OpenApiOAuthError,
-  OpenApiParseError,
-} from "../sdk/errors";
+import { addGroup, capture, InternalError } from "@executor/api";
+import { OpenApiOAuthError } from "../sdk/errors";
 import type {
   OpenApiPluginExtension,
   HeaderValue,
   OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
 import { OAuth2Auth } from "../sdk/types";
-import { OpenApiGroup, OpenApiInternalError } from "./group";
+import { OpenApiGroup } from "./group";
 
 const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
 
@@ -25,49 +21,20 @@ const toPopupErrorMessage = (error: unknown): string => {
 };
 
 // ---------------------------------------------------------------------------
-// Service tag — the server provides the OpenAPI extension
+// Service tag
+//
+// Holds the `Captured` shape — every method's `StorageFailure`
+// channel has been swapped for `InternalError({ traceId })`. The cloud
+// app provides an already-wrapped extension via
+// `Layer.succeed(OpenApiExtensionService, withCapture(executor.openapi))`.
+// Handlers see `InternalError` in the error union, which matches
+// `.addError(InternalError)` on the group — no per-handler translation.
 // ---------------------------------------------------------------------------
 
 export class OpenApiExtensionService extends Context.Tag("OpenApiExtensionService")<
   OpenApiExtensionService,
   OpenApiPluginExtension
 >() {}
-
-// ---------------------------------------------------------------------------
-// Failure mapping
-// ---------------------------------------------------------------------------
-
-type OpenApiSpecFailure = OpenApiParseError | OpenApiExtractionError | OpenApiInternalError;
-
-const toOpenApiSpecFailure = (error: unknown): OpenApiSpecFailure => {
-  if (
-    error instanceof OpenApiParseError ||
-    error instanceof OpenApiExtractionError ||
-    error instanceof OpenApiInternalError
-  ) {
-    return error;
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  return new OpenApiInternalError({ message });
-};
-
-const sanitizeSpecFailure = <A, R>(
-  effect: Effect.Effect<A, unknown, R>,
-): Effect.Effect<A, OpenApiSpecFailure, R> =>
-  Effect.catchAllCause(effect, (cause) => Effect.fail(toOpenApiSpecFailure(Cause.squash(cause))));
-
-const toOpenApiInternalError = (error: unknown): OpenApiInternalError => {
-  if (error instanceof OpenApiInternalError) return error;
-  const message = error instanceof Error ? error.message : String(error);
-  return new OpenApiInternalError({ message });
-};
-
-const sanitizeInternalFailure = <A, R>(
-  effect: Effect.Effect<A, unknown, R>,
-): Effect.Effect<A, OpenApiInternalError, R> =>
-  Effect.catchAllCause(effect, (cause) =>
-    Effect.fail(toOpenApiInternalError(Cause.squash(cause))),
-  );
 
 // ---------------------------------------------------------------------------
 // Composed API — core + openapi group
@@ -77,18 +44,24 @@ const ExecutorApiWithOpenApi = addGroup(OpenApiGroup);
 
 // ---------------------------------------------------------------------------
 // Handlers
+//
+// Each handler is exactly: yield the extension service, call the method,
+// return. Plugin SDK errors flow through the typed channel and are
+// schema-encoded to 4xx by HttpApi (see group.ts `.addError(...)` calls).
+// Defects bubble up and are captured + downgraded to `InternalError(traceId)`
+// by the API-level observability middleware.
 // ---------------------------------------------------------------------------
 
 export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "openapi", (handlers) =>
   handlers
     .handle("previewSpec", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         return yield* ext.previewSpec(payload.spec);
-      }).pipe(sanitizeSpecFailure),
+      })),
     )
     .handle("addSpec", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         const result = yield* ext.addSpec({
           spec: payload.spec,
@@ -102,16 +75,16 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           toolCount: result.toolCount,
           namespace: result.sourceId,
         };
-      }).pipe(sanitizeSpecFailure),
+      })),
     )
     .handle("getSource", ({ path }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         return yield* ext.getSource(path.namespace);
-      }).pipe(sanitizeInternalFailure),
+      })),
     )
     .handle("updateSource", ({ path, payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         yield* ext.updateSource(path.namespace, {
           name: payload.name,
@@ -119,10 +92,10 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           headers: payload.headers as Record<string, HeaderValue> | undefined,
         } as OpenApiUpdateSourceInput);
         return { updated: true };
-      }).pipe(sanitizeInternalFailure),
+      })),
     )
     .handle("startOAuth", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         return yield* ext.startOAuth({
           displayName: payload.displayName,
@@ -135,22 +108,25 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           clientSecretSecretId: payload.clientSecretSecretId ?? null,
           scopes: [...payload.scopes],
         });
-      }),
+      })),
     )
     .handle("completeOAuth", ({ payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         return yield* ext.completeOAuth({
           state: payload.state,
           code: payload.code,
           error: payload.error,
         });
-      }),
+      })),
     )
     .handle("oauthCallback", ({ urlParams }) =>
-      Effect.gen(function* () {
+      // OAuth popup is special: it always returns 200 HTML and renders the
+      // failure into the popup body so the parent window's listener gets a
+      // structured result.
+      capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
-        const html = yield* runOAuthCallback<OAuth2Auth, OpenApiOAuthError, never>({
+        const html = yield* runOAuthCallback<OAuth2Auth, OpenApiOAuthError | InternalError, never>({
           complete: ({ state, code, error }) =>
             ext.completeOAuth({
               state,
@@ -162,6 +138,6 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           channelName: OPENAPI_OAUTH_CHANNEL,
         });
         return yield* HttpServerResponse.html(html);
-      }).pipe(sanitizeInternalFailure),
+      })),
     ),
 );

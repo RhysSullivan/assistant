@@ -125,6 +125,12 @@ export const createExecutor = async <
     plugins,
   };
 
+  // The SDK has no observability requirement; storage failures surface
+  // as raw `StorageError` / `UniqueViolationError` in the typed channel.
+  // `Effect.runPromise` turns them into Promise rejections — consumers
+  // get the tagged error as the rejected value. See
+  // notes/promise-sdk-typed-errors.md for the planned `runPromiseExit`
+  // rewrite that exposes the full error union to consumers.
   const effectExecutor = await Effect.runPromise(
     createEffectExecutor(effectConfig),
   );

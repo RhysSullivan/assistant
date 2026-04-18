@@ -6,35 +6,44 @@
 //
 // Plugins see a `ScopedBlobStore` that's already namespaced to the plugin
 // id, so key collisions across plugins are structurally impossible.
+//
+// Error channel is `StorageError` — blobs only do read/write/delete, so
+// they never produce `UniqueViolationError`. The HTTP edge translates
+// `StorageError` to the opaque public `InternalError({ traceId })`.
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
+
+import { StorageError } from "@executor/storage-core";
 
 export interface BlobStore {
   readonly get: (
     namespace: string,
     key: string,
-  ) => Effect.Effect<string | null, Error>;
+  ) => Effect.Effect<string | null, StorageError>;
   readonly put: (
     namespace: string,
     key: string,
     value: string,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageError>;
   readonly delete: (
     namespace: string,
     key: string,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageError>;
   readonly has: (
     namespace: string,
     key: string,
-  ) => Effect.Effect<boolean, Error>;
+  ) => Effect.Effect<boolean, StorageError>;
 }
 
 export interface ScopedBlobStore {
-  readonly get: (key: string) => Effect.Effect<string | null, Error>;
-  readonly put: (key: string, value: string) => Effect.Effect<void, Error>;
-  readonly delete: (key: string) => Effect.Effect<void, Error>;
-  readonly has: (key: string) => Effect.Effect<boolean, Error>;
+  readonly get: (key: string) => Effect.Effect<string | null, StorageError>;
+  readonly put: (
+    key: string,
+    value: string,
+  ) => Effect.Effect<void, StorageError>;
+  readonly delete: (key: string) => Effect.Effect<void, StorageError>;
+  readonly has: (key: string) => Effect.Effect<boolean, StorageError>;
 }
 
 export const scopeBlobStore = (
@@ -51,6 +60,10 @@ export const scopeBlobStore = (
  * Minimal in-memory BlobStore — good for tests and trivial hosts. Real
  * backends (filesystem, S3/R2, SQLite-table-backed) implement the same
  * interface.
+ *
+ * Every method is `Effect<_, never>` — a pure in-memory Map can't fail.
+ * `never` is assignable to `StorageError`, so the result still fits the
+ * `BlobStore` interface.
  */
 export const makeInMemoryBlobStore = (): BlobStore => {
   const store = new Map<string, string>();

@@ -3,7 +3,7 @@
 //
 // Vendored from better-auth (packages/core/src/db/adapter/factory.ts) under
 // MIT. Adapted for executor:
-//   - Promise/async → Effect.Effect<T, Error>
+//   - Promise/async → Effect.Effect<T, StorageFailure>
 //   - Stripped auth-specific concerns (numeric serial ids, joins, telemetry
 //     spans, logger, plural model name resolution, BetterAuthOptions)
 //   - Contract matches our CustomAdapter + DBAdapterFactoryConfig in
@@ -35,8 +35,10 @@ import type {
   DBTransactionAdapter,
   JoinConfig,
   JoinOption,
+  StorageFailure,
   Where,
 } from "./adapter";
+import { StorageError } from "./errors";
 import type { DBFieldAttribute, DBSchema, DBPrimitive } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -124,12 +126,17 @@ export const createAdapter = (
     return defaultGenerateId();
   };
 
-  const getModelDef = (model: string): Effect.Effect<DBSchema[string], Error> =>
+  const getModelDef = (
+    model: string,
+  ): Effect.Effect<DBSchema[string], StorageError> =>
     Effect.gen(function* () {
       const def = schema[model];
       if (!def) {
         return yield* Effect.fail(
-          new Error(`[storage-core] unknown model "${model}"`),
+          new StorageError({
+            message: `[storage-core] unknown model "${model}"`,
+            cause: undefined,
+          }),
         );
       }
       return def;
@@ -258,7 +265,7 @@ export const createAdapter = (
     data: Record<string, unknown>,
     action: "create" | "update",
     forceAllowId: boolean,
-  ): Effect.Effect<Record<string, unknown>, Error> =>
+  ): Effect.Effect<Record<string, unknown>, StorageFailure> =>
     Effect.gen(function* () {
       const def = yield* getModelDef(model);
       const out: Record<string, unknown> = {};
@@ -303,10 +310,11 @@ export const createAdapter = (
           if (res && typeof (res as { then?: unknown }).then === "function") {
             value = yield* Effect.tryPromise({
               try: () => res as Promise<DBPrimitive>,
-              catch: (e) =>
-                new Error(
-                  `[storage-core] transform.input for "${model}.${logical}" failed: ${String(e)}`,
-                ),
+              catch: (cause) =>
+                new StorageError({
+                  message: `[storage-core] transform.input for "${model}.${logical}" failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+                  cause,
+                }),
             });
           } else {
             value = res;
@@ -347,7 +355,7 @@ export const createAdapter = (
     model: string,
     row: Record<string, unknown> | null,
     select?: string[],
-  ): Effect.Effect<Record<string, unknown> | null, Error> =>
+  ): Effect.Effect<Record<string, unknown> | null, StorageFailure> =>
     Effect.gen(function* () {
       if (row === null || row === undefined) return null;
       const def = yield* getModelDef(model);
@@ -377,10 +385,11 @@ export const createAdapter = (
           if (res && typeof (res as { then?: unknown }).then === "function") {
             value = yield* Effect.tryPromise({
               try: () => res as Promise<DBPrimitive>,
-              catch: (e) =>
-                new Error(
-                  `[storage-core] transform.output for "${model}.${logical}" failed: ${String(e)}`,
-                ),
+              catch: (cause) =>
+                new StorageError({
+                  message: `[storage-core] transform.output for "${model}.${logical}" failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+                  cause,
+                }),
             });
           } else {
             value = res;
@@ -532,7 +541,7 @@ export const createAdapter = (
     data: Record<string, unknown>,
     action: "create" | "update",
     forceAllowId: boolean,
-  ): Effect.Effect<Record<string, unknown>, Error> =>
+  ): Effect.Effect<Record<string, unknown>, StorageFailure> =>
     config.disableTransformInput
       ? Effect.succeed(data)
       : transformInput(model, data, action, forceAllowId);
@@ -551,7 +560,7 @@ export const createAdapter = (
     base: Record<string, unknown> | null,
     raw: Record<string, unknown> | null,
     join: JoinOption | undefined,
-  ): Effect.Effect<Record<string, unknown> | null, Error> =>
+  ): Effect.Effect<Record<string, unknown> | null, StorageFailure> =>
     Effect.gen(function* () {
       if (!base || !raw || !join) return base;
       const merged: Record<string, unknown> = { ...base };
@@ -593,7 +602,7 @@ export const createAdapter = (
     model: string,
     row: Record<string, unknown> | null,
     select?: string[],
-  ): Effect.Effect<Record<string, unknown> | null, Error> =>
+  ): Effect.Effect<Record<string, unknown> | null, StorageFailure> =>
     config.disableTransformOutput
       ? Effect.succeed(row)
       : transformOutput(model, row, select);

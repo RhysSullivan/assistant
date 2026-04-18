@@ -2,6 +2,8 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId, SecretId, SecretNotFoundError, SecretResolutionError } from "@executor/sdk";
 
+import { InternalError } from "../observability";
+
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
@@ -78,4 +80,5 @@ export class SecretsApi extends HttpApiGroup.make("secrets")
     HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/secrets/${secretIdParam}`
       .addSuccess(Schema.Struct({ removed: Schema.Boolean }))
       .addError(SecretNotFound),
-  ) {}
+  )
+  .addError(InternalError) {}

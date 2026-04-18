@@ -1,6 +1,8 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 
+import type { StorageFailure } from "@executor/sdk";
+
 import { OpenApiInvocationError } from "./errors";
 import {
   type HeaderValue,
@@ -92,8 +94,15 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
 
 export const resolveHeaders = (
   headers: Record<string, HeaderValue>,
-  secrets: { readonly get: (id: string) => Effect.Effect<string | null, Error> },
-): Effect.Effect<Record<string, string>, Error> =>
+  secrets: {
+    readonly get: (
+      id: string,
+    ) => Effect.Effect<string | null, StorageFailure>;
+  },
+): Effect.Effect<
+  Record<string, string>,
+  OpenApiInvocationError | StorageFailure
+> =>
   Effect.gen(function* () {
     const entries = Object.entries(headers);
     // Fan out secret lookups: on every invocation, one or two headers
@@ -108,9 +117,10 @@ export const resolveHeaders = (
               Effect.flatMap((secret) =>
                 secret === null
                   ? Effect.fail(
-                      new Error(
-                        `Failed to resolve secret "${value.secretId}" for header "${name}"`,
-                      ),
+                      new OpenApiInvocationError({
+                        message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
+                        statusCode: Option.none(),
+                      }),
                     )
                   : Effect.succeed({
                       name,
@@ -209,12 +219,23 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   const responseHeaders: Record<string, string> = { ...response.headers };
 
   const contentType = response.headers["content-type"] ?? null;
+  const mapBodyError = Effect.mapError(
+    (err: { readonly message?: string }) =>
+      new OpenApiInvocationError({
+        message: `Failed to read response body: ${err.message ?? String(err)}`,
+        statusCode: Option.some(status),
+        cause: err,
+      }),
+  );
   const responseBody: unknown =
     status === 204
       ? null
       : isJsonContentType(contentType)
-        ? yield* response.json.pipe(Effect.catchAll(() => response.text))
-        : yield* response.text;
+        ? yield* response.json.pipe(
+            Effect.catchAll(() => response.text),
+            mapBodyError,
+          )
+        : yield* response.text.pipe(mapBodyError);
 
   const ok = status >= 200 && status < 300;
 
@@ -236,7 +257,7 @@ export const invokeWithLayer = (
   baseUrl: string,
   resolvedHeaders: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
-): Effect.Effect<InvocationResult, Error> => {
+) => {
   const clientWithBaseUrl = baseUrl
     ? Layer.effect(
         HttpClient.HttpClient,

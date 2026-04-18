@@ -21,7 +21,7 @@ import {
   type ElicitationRequest,
 } from "@executor/sdk";
 
-import { McpConnectionError } from "./errors";
+import { McpConnectionError, McpInvocationError } from "./errors";
 import type { McpConnection } from "./connection";
 import type { McpStoredSourceData } from "./types";
 
@@ -124,17 +124,18 @@ const useConnection = (
   toolName: string,
   args: Record<string, unknown>,
   elicit: Elicit,
-): Effect.Effect<unknown, Error> =>
+): Effect.Effect<unknown, McpInvocationError> =>
   Effect.gen(function* () {
     installElicitationHandler(connection.client, elicit);
     return yield* Effect.tryPromise({
       try: () => connection.client.callTool({ name: toolName, arguments: args }),
       catch: (cause) =>
-        new Error(
-          `MCP tool call failed for ${toolName}: ${
+        new McpInvocationError({
+          toolName,
+          message: `MCP tool call failed for ${toolName}: ${
             cause instanceof Error ? cause.message : String(cause)
           }`,
-        ),
+        }),
     });
   });
 
@@ -162,7 +163,7 @@ export interface InvokeMcpToolInput {
 
 export const invokeMcpTool = (
   input: InvokeMcpToolInput,
-): Effect.Effect<unknown, Error> =>
+): Effect.Effect<unknown, McpConnectionError | McpInvocationError> =>
   Effect.gen(function* () {
     const cacheKey = connectionCacheKey(input.sourceData);
     const args = asRecord(input.args);
@@ -172,16 +173,7 @@ export const invokeMcpTool = (
     const connector = input.resolveConnector();
     input.pendingConnectors.set(cacheKey, connector);
 
-    const firstConnection = yield* input.connectionCache.get(cacheKey).pipe(
-      Effect.mapError(
-        (err) =>
-          new Error(
-            `Failed connecting to MCP server: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          ),
-      ),
-    );
+    const firstConnection = yield* input.connectionCache.get(cacheKey);
 
     return yield* useConnection(
       firstConnection,
@@ -195,16 +187,7 @@ export const invokeMcpTool = (
         Effect.gen(function* () {
           yield* input.connectionCache.invalidate(cacheKey);
           input.pendingConnectors.set(cacheKey, connector);
-          const fresh = yield* input.connectionCache.get(cacheKey).pipe(
-            Effect.mapError(
-              (err) =>
-                new Error(
-                  `Failed reconnecting to MCP server: ${
-                    err instanceof Error ? err.message : String(err)
-                  }`,
-                ),
-            ),
-          );
+          const fresh = yield* input.connectionCache.get(cacheKey);
           return yield* useConnection(
             fresh,
             input.toolName,

@@ -6,12 +6,15 @@ import {
   type OAuth2SecretsIO,
 } from "@executor/plugin-oauth2";
 
-import type { PluginCtx } from "@executor/sdk";
+import type { PluginCtx, StorageFailure } from "@executor/sdk";
 import { SetSecretInput } from "@executor/sdk";
 
 import { GOOGLE_TOKEN_URL } from "./oauth";
 
-import { GoogleDiscoveryInvocationError } from "./errors";
+import {
+  GoogleDiscoveryInvocationError,
+  GoogleDiscoveryOAuthError,
+} from "./errors";
 import type { GoogleDiscoveryStore } from "./binding-store";
 import {
   GoogleDiscoveryInvocationResult,
@@ -115,7 +118,7 @@ const resolveOAuthAccessToken = (input: {
   ctx: PluginCtx<GoogleDiscoveryStore>;
   sourceId: string;
   source: GoogleDiscoveryStoredSourceData;
-}): Effect.Effect<string, Error> =>
+}): Effect.Effect<string, GoogleDiscoveryOAuthError> =>
   Effect.gen(function* () {
     if (input.source.auth.kind !== "oauth2") return "";
     const auth = input.source.auth;
@@ -158,7 +161,9 @@ const resolveOAuthAccessToken = (input: {
           });
         }),
     }).pipe(
-      Effect.mapError((error) => new Error(error.message)),
+      Effect.mapError(
+        (error) => new GoogleDiscoveryOAuthError({ message: error.message }),
+      ),
     );
   });
 
@@ -236,12 +241,23 @@ const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
   );
 
   const contentType = response.headers["content-type"] ?? null;
+  const mapBodyError = Effect.mapError(
+    (err: { readonly message?: string }) =>
+      new GoogleDiscoveryInvocationError({
+        message: `Failed to read response body: ${err.message ?? String(err)}`,
+        statusCode: Option.some(response.status),
+        cause: err,
+      }),
+  );
   const body =
     response.status === 204
       ? null
       : isJsonContentType(contentType)
-        ? yield* response.json.pipe(Effect.catchAll(() => response.text))
-        : yield* response.text;
+        ? yield* response.json.pipe(
+            Effect.catchAll(() => response.text),
+            mapBodyError,
+          )
+        : yield* response.text.pipe(mapBodyError);
 
   const ok = response.status >= 200 && response.status < 300;
   return new GoogleDiscoveryInvocationResult({
@@ -261,18 +277,29 @@ export const invokeGoogleDiscoveryTool = (input: {
   toolId: string;
   args: unknown;
   httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
-}): Effect.Effect<GoogleDiscoveryInvocationResult, Error> =>
+}): Effect.Effect<
+  GoogleDiscoveryInvocationResult,
+  | GoogleDiscoveryInvocationError
+  | GoogleDiscoveryOAuthError
+  | StorageFailure
+> =>
   Effect.gen(function* () {
     const entry = yield* input.ctx.storage.getBinding(input.toolId);
     if (!entry) {
       return yield* Effect.fail(
-        new Error(`No Google Discovery operation found for tool "${input.toolId}"`),
+        new GoogleDiscoveryInvocationError({
+          message: `No Google Discovery operation found for tool "${input.toolId}"`,
+          statusCode: Option.none(),
+        }),
       );
     }
     const source = yield* input.ctx.storage.getSourceConfig(entry.namespace);
     if (!source) {
       return yield* Effect.fail(
-        new Error(`No Google Discovery source found for "${entry.namespace}"`),
+        new GoogleDiscoveryInvocationError({
+          message: `No Google Discovery source found for "${entry.namespace}"`,
+          statusCode: Option.none(),
+        }),
       );
     }
 
@@ -298,8 +325,5 @@ export const invokeGoogleDiscoveryTool = (input: {
       source,
       args: (input.args ?? {}) as Record<string, unknown>,
       authorizationHeader: authHeader,
-    }).pipe(
-      Effect.provide(layer),
-      Effect.mapError((err) => (err instanceof Error ? err : new Error(String(err)))),
-    );
+    }).pipe(Effect.provide(layer));
   });

@@ -18,6 +18,7 @@ import {
   SetSecretInput,
   SourceDetectionResult,
   definePlugin,
+  type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
 } from "@executor/sdk";
@@ -28,7 +29,11 @@ import {
   type OpenApiSourceConfig,
 } from "@executor/config";
 
-import { OpenApiOAuthError } from "./errors";
+import {
+  OpenApiExtractionError,
+  OpenApiOAuthError,
+  OpenApiParseError,
+} from "./errors";
 import { parse, resolveSpecText } from "./parse";
 import { extract } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
@@ -105,17 +110,40 @@ export interface OpenApiCompleteOAuthInput {
   readonly error?: string;
 }
 
+/**
+ * Errors any OpenAPI extension method may surface. The first three are
+ * plugin-domain tagged errors that flow directly to clients (4xx, each
+ * carrying its own `HttpApiSchema` status). `StorageFailure` covers
+ * raw backend failures (`StorageError`) plus `UniqueViolationError`;
+ * the HTTP edge (`@executor/api`'s `withCapture`) translates
+ * `StorageError` to the opaque `InternalError({ traceId })` at Layer
+ * composition. `UniqueViolationError` passes through — plugins can
+ * `Effect.catchTag` it if they want a friendlier user-facing error.
+ */
+export type OpenApiExtensionFailure =
+  | OpenApiParseError
+  | OpenApiExtractionError
+  | OpenApiOAuthError
+  | StorageFailure;
+
 export interface OpenApiPluginExtension {
-  readonly previewSpec: (specText: string) => Effect.Effect<SpecPreview, Error>;
+  readonly previewSpec: (
+    specText: string,
+  ) => Effect.Effect<SpecPreview, OpenApiParseError | OpenApiExtractionError>;
   readonly addSpec: (
     config: OpenApiSpecConfig,
-  ) => Effect.Effect<{ readonly sourceId: string; readonly toolCount: number }, Error>;
-  readonly removeSpec: (namespace: string) => Effect.Effect<void, Error>;
-  readonly getSource: (namespace: string) => Effect.Effect<StoredSource | null, Error>;
+  ) => Effect.Effect<
+    { readonly sourceId: string; readonly toolCount: number },
+    OpenApiParseError | OpenApiExtractionError | StorageFailure
+  >;
+  readonly removeSpec: (namespace: string) => Effect.Effect<void, StorageFailure>;
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<StoredSource | null, StorageFailure>;
   readonly updateSource: (
     namespace: string,
     input: OpenApiUpdateSourceInput,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
   readonly startOAuth: (
     input: OpenApiStartOAuthInput,
   ) => Effect.Effect<OpenApiStartOAuthResponse, OpenApiOAuthError>;
@@ -222,7 +250,7 @@ export const openApiPlugin = definePlugin(
       schema: openapiSchema,
       storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
-      extension: (ctx): OpenApiPluginExtension => {
+      extension: (ctx) => {
         // Wraps ctx.secrets.set for the oauth2 helper so createSecret
         // returns the freshly-minted id.
         const createOAuthSecret = (args: {
@@ -523,7 +551,7 @@ export const openApiPlugin = definePlugin(
                   : new OpenApiOAuthError({ message: err.message }),
               ),
             ),
-        };
+        } satisfies OpenApiPluginExtension;
       },
 
       staticSources: (self) => [

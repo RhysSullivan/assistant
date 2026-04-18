@@ -2,6 +2,7 @@ import type { Effect } from "effect";
 import type {
   DBAdapter,
   DBSchema,
+  StorageFailure,
   TypedAdapter,
 } from "@executor/storage-core";
 
@@ -36,7 +37,17 @@ import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
 export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
   readonly scope: Scope;
-  readonly adapter: TSchema extends DBSchema ? TypedAdapter<TSchema> : DBAdapter;
+  /**
+   * Plugin-facing typed adapter. Failures surface as raw `StorageFailure`
+   * (`StorageError` | `UniqueViolationError`). Plugins can
+   * `catchTag("UniqueViolationError", …)` to translate to their own
+   * user-facing errors. `StorageError` bubbles up; the HTTP edge (see
+   * `@executor/api` `withCapture`) is the one place that
+   * translates it to the opaque `InternalError({ traceId })`.
+   */
+  readonly adapter: TSchema extends DBSchema
+    ? TypedAdapter<TSchema, StorageFailure>
+    : DBAdapter;
   readonly blobs: ScopedBlobStore;
 }
 
@@ -72,8 +83,12 @@ export interface PluginCtx<TStore = unknown> {
 
   readonly core: {
     readonly sources: {
-      readonly register: (input: SourceInput) => Effect.Effect<void, Error>;
-      readonly unregister: (sourceId: string) => Effect.Effect<void, Error>;
+      readonly register: (
+        input: SourceInput,
+      ) => Effect.Effect<void, StorageFailure>;
+      readonly unregister: (
+        sourceId: string,
+      ) => Effect.Effect<void, StorageFailure>;
     };
     /** Register shared JSON-schema `$defs` for a source. Tool
      *  input/output schemas registered via `sources.register` can carry
@@ -84,15 +99,17 @@ export interface PluginCtx<TStore = unknown> {
     readonly definitions: {
       readonly register: (
         input: DefinitionsInput,
-      ) => Effect.Effect<void, Error>;
+      ) => Effect.Effect<void, StorageFailure>;
     };
   };
 
   readonly secrets: {
-    readonly get: (id: string) => Effect.Effect<string | null, Error>;
+    readonly get: (
+      id: string,
+    ) => Effect.Effect<string | null, StorageFailure>;
     readonly list: () => Effect.Effect<
       readonly { readonly id: string; readonly name: string; readonly provider: string }[],
-      Error
+      StorageFailure
     >;
     /** Write a secret value through a provider. Used by plugins that
      *  mint secrets on behalf of the user (OAuth2 token storage,
@@ -100,9 +117,11 @@ export interface PluginCtx<TStore = unknown> {
      *  `executor.secrets.set` on the host surface, but OAuth2 refresh
      *  and one-shot token capture from plugin-owned flows need it here
      *  too. Same routing rules as the host-level setter. */
-    readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, Error>;
+    readonly set: (
+      input: SetSecretInput,
+    ) => Effect.Effect<SecretRef, StorageFailure>;
     /** Delete a secret from its pinned provider and the core table. */
-    readonly remove: (id: string) => Effect.Effect<void, Error>;
+    readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
   };
 
   /** Run `effect` inside a database transaction. Wraps the underlying
@@ -111,7 +130,7 @@ export interface PluginCtx<TStore = unknown> {
    *  registration. */
   readonly transaction: <A, E>(
     effect: Effect.Effect<A, E>,
-  ) => Effect.Effect<A, E | Error>;
+  ) => Effect.Effect<A, E | StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +165,7 @@ export interface StaticToolDecl<TStore = unknown> {
   readonly annotations?: ToolAnnotations;
   readonly handler: (
     input: StaticToolHandlerInput<TStore>,
-  ) => Effect.Effect<unknown, Error>;
+  ) => Effect.Effect<unknown, unknown>;
 }
 
 export interface StaticSourceDecl<TStore = unknown> {
@@ -228,7 +247,7 @@ export interface PluginSpec<
    *  only static tools can omit it. */
   readonly invokeTool?: (
     input: InvokeToolInput<TStore>,
-  ) => Effect.Effect<unknown, Error>;
+  ) => Effect.Effect<unknown, unknown>;
 
   /** Bulk resolve annotations (requiresApproval, approvalDescription,
    *  mayElicit) for a set of tool rows under a single source. Called
@@ -251,7 +270,7 @@ export interface PluginSpec<
     readonly ctx: PluginCtx<TStore>;
     readonly sourceId: string;
     readonly toolRows: readonly ToolRow[];
-  }) => Effect.Effect<Record<string, ToolAnnotations>, Error>;
+  }) => Effect.Effect<Record<string, ToolAnnotations>, unknown>;
 
   /** Called when `executor.sources.remove(id)` targets a source owned
    *  by this plugin. Plugin-side cleanup only; the executor deletes
@@ -259,11 +278,11 @@ export interface PluginSpec<
    *  the same transaction. */
   readonly removeSource?: (
     input: SourceLifecycleInput<TStore>,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, unknown>;
 
   readonly refreshSource?: (
     input: SourceLifecycleInput<TStore>,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, unknown>;
 
   /** URL autodetection hook. When the user pastes a URL in the
    *  onboarding UI, `executor.sources.detect(url)` fans out to every
@@ -274,7 +293,7 @@ export interface PluginSpec<
   readonly detect?: (input: {
     readonly ctx: PluginCtx<TStore>;
     readonly url: string;
-  }) => Effect.Effect<SourceDetectionResult | null, Error>;
+  }) => Effect.Effect<SourceDetectionResult | null, unknown>;
 
   /** Secret providers contributed by this plugin. Either a static
    *  array or a function of ctx (for providers that need per-instance
@@ -285,7 +304,7 @@ export interface PluginSpec<
     | readonly SecretProvider[]
     | ((ctx: PluginCtx<TStore>) => readonly SecretProvider[]);
 
-  readonly close?: () => Effect.Effect<void, Error>;
+  readonly close?: () => Effect.Effect<void, unknown>;
 }
 
 export interface Plugin<

@@ -1,6 +1,7 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
+import { InternalError } from "@executor/api";
 
 import {
   OpenApiParseError,
@@ -99,57 +100,52 @@ const ExtractionError = OpenApiExtractionError.annotations(
 );
 const OAuthError = OpenApiOAuthError.annotations(HttpApiSchema.annotations({ status: 400 }));
 
-export class OpenApiInternalError extends Schema.TaggedError<OpenApiInternalError>()(
-  "OpenApiInternalError",
-  {
-    message: Schema.String,
-  },
-  HttpApiSchema.annotations({ status: 500 }),
-) {}
-
 // ---------------------------------------------------------------------------
 // Group
+//
+// Plugin SDK errors (OpenApiParseError, OpenApiExtractionError,
+// OpenApiOAuthError) are declared once at the group level via
+// `.addError(...)` — every endpoint inherits them. The errors themselves
+// carry their HTTP status via `HttpApiSchema.annotations` above, so
+// handlers just `return yield* ext.foo(...)` and the schema encodes
+// whatever comes out.
+//
+// 5xx is handled at the API level: `.addError(InternalError)` adds the
+// shared opaque 500 surface. Defects are captured + downgraded to it by
+// an HttpApiBuilder middleware (see apps/cloud/src/observability.ts).
+// StorageError → InternalError translation happens at service wiring
+// time via `withCapture(executor)`.
 // ---------------------------------------------------------------------------
 
 export class OpenApiGroup extends HttpApiGroup.make("openapi")
   .add(
     HttpApiEndpoint.post("previewSpec")`/scopes/${scopeIdParam}/openapi/preview`
       .setPayload(PreviewSpecPayload)
-      .addSuccess(SpecPreview)
-      .addError(ParseError)
-      .addError(ExtractionError)
-      .addError(OpenApiInternalError),
+      .addSuccess(SpecPreview),
   )
   .add(
     HttpApiEndpoint.post("addSpec")`/scopes/${scopeIdParam}/openapi/specs`
       .setPayload(AddSpecPayload)
-      .addSuccess(AddSpecResponse)
-      .addError(ParseError)
-      .addError(ExtractionError)
-      .addError(OpenApiInternalError),
+      .addSuccess(AddSpecResponse),
   )
   .add(
     HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
-      .addSuccess(Schema.NullOr(StoredSourceSchema))
-      .addError(OpenApiInternalError),
+      .addSuccess(Schema.NullOr(StoredSourceSchema)),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
-      .addSuccess(UpdateSourceResponse)
-      .addError(OpenApiInternalError),
+      .addSuccess(UpdateSourceResponse),
   )
   .add(
     HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/openapi/oauth/start`
       .setPayload(StartOAuthPayload)
-      .addSuccess(StartOAuthResponse)
-      .addError(OAuthError),
+      .addSuccess(StartOAuthResponse),
   )
   .add(
     HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/openapi/oauth/complete`
       .setPayload(CompleteOAuthPayload)
-      .addSuccess(OAuth2Auth)
-      .addError(OAuthError),
+      .addSuccess(OAuth2Auth),
   )
   .add(
     HttpApiEndpoint.get("oauthCallback", "/openapi/oauth/callback")
@@ -158,7 +154,13 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
         Schema.Unknown.annotations(
           HttpApiSchema.annotations({ contentType: "text/html" }),
         ),
-      )
-      .addError(OAuthError)
-      .addError(OpenApiInternalError),
-  ) {}
+      ),
+  )
+  // Errors declared once at the group level — every endpoint inherits.
+  // Plugin domain errors carry their own HttpApiSchema status (4xx);
+  // `InternalError` is the shared opaque 500 translated at the HTTP
+  // edge by `withCapture`.
+  .addError(InternalError)
+  .addError(ParseError)
+  .addError(ExtractionError)
+  .addError(OAuthError) {}

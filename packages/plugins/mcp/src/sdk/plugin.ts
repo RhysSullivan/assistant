@@ -9,6 +9,7 @@ import {
   SetSecretInput,
   SourceDetectionResult,
   type PluginCtx,
+  type StorageFailure,
 } from "@executor/sdk";
 
 import {
@@ -211,7 +212,7 @@ const resolveConnectorInput = (
   sd: McpStoredSourceData,
   ctx: PluginCtx<McpBindingStore>,
   allowStdio: boolean,
-): Effect.Effect<ConnectorInput, Error> => {
+): Effect.Effect<ConnectorInput, McpConnectionError | StorageFailure> => {
   if (sd.transport === "stdio") {
     if (!allowStdio) {
       return Effect.fail(
@@ -291,7 +292,7 @@ interface McpRuntime {
   readonly cacheScope: Scope.CloseableScope;
 }
 
-const makeRuntime = (): Effect.Effect<McpRuntime, Error> =>
+const makeRuntime = (): Effect.Effect<McpRuntime, never> =>
   Effect.gen(function* () {
     const cacheScope = yield* Scope.make();
     const pendingConnectors = new Map<
@@ -403,7 +404,7 @@ export const mcpPlugin = definePlugin(
     // connection cache across a single createExecutor lifecycle.
     const runtimeRef: { current: McpRuntime | null } = { current: null };
 
-    const ensureRuntime = (): Effect.Effect<McpRuntime, Error> =>
+    const ensureRuntime = (): Effect.Effect<McpRuntime, never> =>
       runtimeRef.current
         ? Effect.succeed(runtimeRef.current)
         : makeRuntime().pipe(
@@ -796,7 +797,7 @@ export const mcpPlugin = definePlugin(
           completeOAuth,
           getSource,
           updateSource,
-        };
+        } satisfies McpPluginExtension;
       },
 
       invokeTool: ({ ctx, toolRow, args, elicit }) =>
@@ -938,28 +939,49 @@ export const mcpPlugin = definePlugin(
 // returns above.
 // ---------------------------------------------------------------------------
 
+/**
+ * Errors any MCP extension method may surface. The first four are
+ * plugin-domain tagged errors that flow directly to clients (4xx, each
+ * carrying its own `HttpApiSchema` status). `StorageFailure` covers
+ * raw backend failures (`StorageError`) plus `UniqueViolationError`;
+ * the HTTP edge (`@executor/api`'s `withCapture`) translates
+ * `StorageError` to the opaque `InternalError({ traceId })` at Layer
+ * composition. `UniqueViolationError` passes through — plugins can
+ * `Effect.catchTag` it if they want a friendlier user-facing error.
+ */
+export type McpExtensionFailure =
+  | McpOAuthError
+  | McpConnectionError
+  | McpToolDiscoveryError
+  | StorageFailure;
+
 export interface McpPluginExtension {
   readonly probeEndpoint: (
     endpoint: string,
-  ) => Effect.Effect<McpProbeResult, Error>;
+  ) => Effect.Effect<McpProbeResult, McpExtensionFailure>;
   readonly addSource: (
     config: McpSourceConfig,
-  ) => Effect.Effect<{ readonly toolCount: number; readonly namespace: string }, Error>;
-  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<
+    { readonly toolCount: number; readonly namespace: string },
+    McpExtensionFailure
+  >;
+  readonly removeSource: (
+    namespace: string,
+  ) => Effect.Effect<void, McpExtensionFailure>;
   readonly refreshSource: (
     namespace: string,
-  ) => Effect.Effect<{ readonly toolCount: number }, Error>;
+  ) => Effect.Effect<{ readonly toolCount: number }, McpExtensionFailure>;
   readonly startOAuth: (
     input: McpOAuthStartInput,
-  ) => Effect.Effect<McpOAuthStartResponse, Error>;
+  ) => Effect.Effect<McpOAuthStartResponse, McpExtensionFailure>;
   readonly completeOAuth: (
     input: McpOAuthCompleteInput,
-  ) => Effect.Effect<McpOAuthCompleteResponse, Error>;
+  ) => Effect.Effect<McpOAuthCompleteResponse, McpExtensionFailure>;
   readonly getSource: (
     namespace: string,
-  ) => Effect.Effect<McpStoredSource | null, Error>;
+  ) => Effect.Effect<McpStoredSource | null, McpExtensionFailure>;
   readonly updateSource: (
     namespace: string,
     input: McpUpdateSourceInput,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, McpExtensionFailure>;
 }

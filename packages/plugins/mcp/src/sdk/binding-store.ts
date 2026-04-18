@@ -5,7 +5,11 @@
 
 import { Effect, Schema } from "effect";
 
-import { defineSchema, type StorageDeps } from "@executor/sdk";
+import {
+  defineSchema,
+  type StorageDeps,
+  type StorageFailure,
+} from "@executor/sdk";
 
 import { McpToolBinding, McpStoredSourceData } from "./types";
 import { McpOAuthSession } from "./oauth";
@@ -91,37 +95,45 @@ export interface McpStoredSource {
 // Store interface
 // ---------------------------------------------------------------------------
 
+// Every method routes through the typed adapter (`ctx.storage.adapter`)
+// so the typed error channel is `StorageFailure`. Schema-decode failures
+// inside `Effect.gen` land as defects, not typed errors, and are caught
+// by the HTTP edge's observability middleware.
 export interface McpBindingStore {
   readonly getBinding: (
     toolId: string,
   ) => Effect.Effect<
     { readonly binding: McpToolBinding; readonly namespace: string } | null,
-    Error
+    StorageFailure
   >;
 
   readonly putBindings: (
     namespace: string,
     entries: ReadonlyArray<{ readonly toolId: string; readonly binding: McpToolBinding }>,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
 
-  readonly removeBindingsByNamespace: (namespace: string) => Effect.Effect<void, Error>;
+  readonly removeBindingsByNamespace: (
+    namespace: string,
+  ) => Effect.Effect<void, StorageFailure>;
 
-  readonly listSources: () => Effect.Effect<readonly McpStoredSource[], Error>;
-  readonly getSource: (namespace: string) => Effect.Effect<McpStoredSource | null, Error>;
+  readonly listSources: () => Effect.Effect<readonly McpStoredSource[], StorageFailure>;
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<McpStoredSource | null, StorageFailure>;
   readonly getSourceConfig: (
     namespace: string,
-  ) => Effect.Effect<McpStoredSourceData | null, Error>;
-  readonly putSource: (source: McpStoredSource) => Effect.Effect<void, Error>;
-  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<McpStoredSourceData | null, StorageFailure>;
+  readonly putSource: (source: McpStoredSource) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (namespace: string) => Effect.Effect<void, StorageFailure>;
 
   readonly putOAuthSession: (
     sessionId: string,
     session: McpOAuthSession,
-  ) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<void, StorageFailure>;
   readonly getOAuthSession: (
     sessionId: string,
-  ) => Effect.Effect<McpOAuthSession | null, Error>;
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, Error>;
+  ) => Effect.Effect<McpOAuthSession | null, StorageFailure>;
+  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
