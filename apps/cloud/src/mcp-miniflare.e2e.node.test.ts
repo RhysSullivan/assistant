@@ -22,6 +22,7 @@
 import { expect, layer } from "@effect/vitest";
 import { resolve } from "node:path";
 import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 
 import {
   HttpApi,
@@ -90,6 +91,23 @@ class Worker extends Context.Tag("MiniflareE2E/Worker")<
   }
 >() {}
 
+type CapturedSpan = {
+  readonly name: string;
+  readonly attributes: Record<string, unknown>;
+};
+
+class TelemetryReceiver extends Context.Tag("MiniflareE2E/TelemetryReceiver")<
+  TelemetryReceiver,
+  {
+    readonly tracesUrl: string;
+    readonly spans: () => ReadonlyArray<CapturedSpan>;
+    readonly waitForSpan: (
+      predicate: (span: CapturedSpan) => boolean,
+      timeoutMs?: number,
+    ) => Promise<CapturedSpan>;
+  }
+>() {}
+
 const UpstreamLive = Layer.effect(
   Upstream,
   Effect.gen(function* () {
@@ -107,36 +125,160 @@ const UpstreamLive = Layer.effect(
   }),
 ).pipe(Layer.provide(UpstreamServeLayer));
 
-const WorkerLive = Layer.scoped(
-  Worker,
+// ---------------------------------------------------------------------------
+// Telemetry receiver — a node HTTP server on a random port that speaks
+// OTLP/JSON. The Effect OTLPTraceExporter in `services/telemetry.ts`
+// posts JSON bodies to it (confirmed via
+// `@opentelemetry/exporter-trace-otlp-http` — `Content-Type:
+// application/json` + `JsonTraceSerializer`). We parse resourceSpans →
+// scopeSpans → spans → attributes so tests can assert the DO actually
+// reported the expected spans, not just that the exporter was called.
+// ---------------------------------------------------------------------------
+
+type OtlpAttributeValue = {
+  readonly stringValue?: string;
+  readonly intValue?: string | number;
+  readonly doubleValue?: number;
+  readonly boolValue?: boolean;
+};
+type OtlpAttribute = { readonly key: string; readonly value?: OtlpAttributeValue };
+type OtlpSpan = { readonly name: string; readonly attributes?: ReadonlyArray<OtlpAttribute> };
+type OtlpPayload = {
+  readonly resourceSpans?: ReadonlyArray<{
+    readonly scopeSpans?: ReadonlyArray<{ readonly spans?: ReadonlyArray<OtlpSpan> }>;
+  }>;
+};
+
+const unwrapAttrValue = (v?: OtlpAttributeValue): unknown => {
+  if (!v) return undefined;
+  if (v.stringValue !== undefined) return v.stringValue;
+  if (v.intValue !== undefined) return Number(v.intValue);
+  if (v.doubleValue !== undefined) return v.doubleValue;
+  if (v.boolValue !== undefined) return v.boolValue;
+  return undefined;
+};
+
+const TelemetryReceiverLive = Layer.scoped(
+  TelemetryReceiver,
   Effect.acquireRelease(
-    Effect.promise(() =>
-      unstable_dev(resolve(__dirname, "./test-worker.ts"), {
-        config: resolve(__dirname, "../wrangler.miniflare.jsonc"),
-        experimental: { disableExperimentalWarning: true },
-        ip: "127.0.0.1",
-        logLevel: "info",
-      }),
-    ),
-    (w) => Effect.promise(() => w.stop()),
-  ).pipe(
-    Effect.map((w: Unstable_DevWorker) => ({
-      baseUrl: new URL(`http://${w.address}:${w.port}`),
-      seedOrg: async (id: string, name: string) => {
-        const res = await w.fetch("/__test__/seed-org", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id, name }),
+    Effect.async<
+      {
+        readonly tracesUrl: string;
+        readonly spans: ReadonlyArray<CapturedSpan>;
+        readonly store: Array<CapturedSpan>;
+        readonly close: () => Promise<void>;
+      },
+      never
+    >((resume) => {
+      const store: Array<CapturedSpan> = [];
+      const server = createServer((req, res) => {
+        if (req.method !== "POST" || !req.url?.endsWith("/v1/traces")) {
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        let body = "";
+        req.on("data", (chunk) => { body += chunk; });
+        req.on("end", () => {
+          try {
+            const payload = JSON.parse(body) as OtlpPayload;
+            for (const rs of payload.resourceSpans ?? []) {
+              for (const ss of rs.scopeSpans ?? []) {
+                for (const sp of ss.spans ?? []) {
+                  const attrs: Record<string, unknown> = {};
+                  for (const a of sp.attributes ?? []) {
+                    attrs[a.key] = unwrapAttrValue(a.value);
+                  }
+                  store.push({ name: sp.name, attributes: attrs });
+                }
+              }
+            }
+          } catch {
+            // ignore malformed payloads
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end("{}");
         });
-        if (res.status !== 204) {
-          throw new Error(`seed-org failed: ${res.status} ${await res.text()}`);
+      });
+      server.listen(0, "127.0.0.1", () => {
+        const addr = server.address() as AddressInfo;
+        resume(
+          Effect.succeed({
+            tracesUrl: `http://127.0.0.1:${addr.port}/v1/traces`,
+            spans: store,
+            store,
+            close: () => new Promise<void>((r) => server.close(() => r())),
+          }),
+        );
+      });
+    }),
+    (t) => Effect.promise(() => t.close()),
+  ).pipe(
+    Effect.map((t) => ({
+      tracesUrl: t.tracesUrl,
+      spans: () => [...t.store],
+      waitForSpan: async (
+        predicate: (s: CapturedSpan) => boolean,
+        timeoutMs = 5_000,
+      ) => {
+        const deadline = Date.now() + timeoutMs;
+        for (;;) {
+          const hit = t.store.find(predicate);
+          if (hit) return hit;
+          if (Date.now() > deadline) {
+            throw new Error(
+              `Timed out waiting for span. Captured ${t.store.length}: ${t.store.map((s) => s.name).join(", ") || "<none>"}`,
+            );
+          }
+          await new Promise((r) => setTimeout(r, 50));
         }
       },
     })),
   ),
 );
 
-const TestEnv = Layer.mergeAll(UpstreamLive, WorkerLive);
+const WorkerLive = Layer.scoped(
+  Worker,
+  Effect.gen(function* () {
+    const receiver = yield* TelemetryReceiver;
+    // AXIOM_TOKEN activates DoTelemetryLive inside the worker; AXIOM_TRACES_URL
+    // redirects the exporter at our in-process OTLP/JSON receiver so spans
+    // become observable in the test process.
+    return yield* Effect.acquireRelease(
+      Effect.promise(() =>
+        unstable_dev(resolve(__dirname, "./test-worker.ts"), {
+          config: resolve(__dirname, "../wrangler.miniflare.jsonc"),
+          experimental: { disableExperimentalWarning: true },
+          ip: "127.0.0.1",
+          logLevel: "info",
+          vars: {
+            AXIOM_TOKEN: "test-token",
+            AXIOM_TRACES_URL: receiver.tracesUrl,
+          },
+        }),
+      ),
+      (w) => Effect.promise(() => w.stop()),
+    ).pipe(
+      Effect.map((w: Unstable_DevWorker) => ({
+        baseUrl: new URL(`http://${w.address}:${w.port}`),
+        seedOrg: async (id: string, name: string) => {
+          const res = await w.fetch("/__test__/seed-org", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id, name }),
+          });
+          if (res.status !== 204) {
+            throw new Error(`seed-org failed: ${res.status} ${await res.text()}`);
+          }
+        },
+      })),
+    );
+  }),
+);
+
+const TestEnv = Layer.mergeAll(UpstreamLive, WorkerLive).pipe(
+  Layer.provideMerge(TelemetryReceiverLive),
+);
 
 // ---------------------------------------------------------------------------
 // Client helpers
@@ -256,6 +398,44 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
       expect(text).toContain("approved");
 
       yield* Effect.promise(() => client.close());
+    }), 30_000,
+  );
+
+  it.effect("reports the McpSessionDO.handleRequest span via the OTLP exporter", () =>
+    Effect.gen(function* () {
+      const { baseUrl, seedOrg } = yield* Worker;
+      const receiver = yield* TelemetryReceiver;
+      const orgId = nextOrgId();
+      yield* Effect.promise(() => seedOrg(orgId, "Telemetry Org"));
+      const client = yield* Effect.promise(() =>
+        connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
+      );
+      // Trigger the DO through a multi-step flow so we can assert that
+      // handleRequest spans are reported for every DO hit, not just init.
+      yield* Effect.promise(() => client.listTools());
+      yield* Effect.promise(() =>
+        client.callTool({ name: "execute", arguments: { code: "return 1 + 2" } }),
+      );
+      yield* Effect.promise(() => client.close());
+
+      // The initialize POST carries no session-id; subsequent requests do.
+      // Assert on one of the session-id'd handleRequest spans so we verify
+      // attribute propagation beyond the degenerate init case.
+      const handleSpan = yield* Effect.promise(() =>
+        receiver.waitForSpan(
+          (s) =>
+            s.name === "McpSessionDO.handleRequest" &&
+            s.attributes["mcp.request.session_id_present"] === true,
+        ),
+      );
+      expect(handleSpan.attributes["mcp.request.method"]).toBeDefined();
+      // 200 for normal POSTs, 202 for notifications/initialized.
+      expect([200, 202]).toContain(handleSpan.attributes["mcp.response.status_code"]);
+
+      // init runs once per new session and should appear on the initialize POST.
+      yield* Effect.promise(() =>
+        receiver.waitForSpan((s) => s.name === "McpSessionDO.init"),
+      );
     }), 30_000,
   );
 });

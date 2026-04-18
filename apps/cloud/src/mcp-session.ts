@@ -207,7 +207,23 @@ export class McpSessionDO extends DurableObject {
 
   async init(token: McpSessionInit): Promise<void> {
     if (this.initialized) return;
+    // Outer `McpSessionDO.init` span wraps the full session-bootstrap cost
+    // (resolveSessionMeta + createRuntime + alarm setup) so the MCP DO
+    // dashboard's "new sessions" / "init p95" panels have one uniform span
+    // to filter on, regardless of whether the DO is running the long-lived
+    // or request-scoped variant.
+    const program = Effect.promise(() => this.doInit(token)).pipe(
+      Effect.withSpan("McpSessionDO.init", {
+        attributes: {
+          "mcp.auth.organization_id": token.organizationId,
+        },
+      }),
+      Effect.provide(DoTelemetryLive),
+    );
+    return Effect.runPromise(program);
+  }
 
+  private async doInit(token: McpSessionInit): Promise<void> {
     try {
       const sessionMeta = await this.resolveAndStoreSessionMeta(token);
 
@@ -274,6 +290,29 @@ export class McpSessionDO extends DurableObject {
   }
 
   async handleRequest(request: Request): Promise<Response> {
+    // Wrap the dispatch in an Effect span so every DO request — not just
+    // the rare new-session `init()` — shows up in Axiom. Basic attributes
+    // only (method, session-id presence, response status); rich client
+    // fingerprint stays on the edge `mcp.request` span, which shares a
+    // trace_id with this one.
+    const program = Effect.promise(() => this.dispatchRequest(request)).pipe(
+      Effect.tap((response) =>
+        Effect.annotateCurrentSpan({
+          "mcp.response.status_code": response.status,
+        }),
+      ),
+      Effect.withSpan("McpSessionDO.handleRequest", {
+        attributes: {
+          "mcp.request.method": request.method,
+          "mcp.request.session_id_present": !!request.headers.get("mcp-session-id"),
+        },
+      }),
+      Effect.provide(DoTelemetryLive),
+    );
+    return Effect.runPromise(program);
+  }
+
+  private async dispatchRequest(request: Request): Promise<Response> {
     if (requestScopedRuntimeEnabled) {
       return this.handleRequestWithRequestScopedRuntime(request);
     }
@@ -297,6 +336,14 @@ export class McpSessionDO extends DurableObject {
   }
 
   async alarm(): Promise<void> {
+    const program = Effect.promise(() => this.runAlarm()).pipe(
+      Effect.withSpan("McpSessionDO.alarm"),
+      Effect.provide(DoTelemetryLive),
+    );
+    return Effect.runPromise(program);
+  }
+
+  private async runAlarm(): Promise<void> {
     const idleMs = Date.now() - this.lastActivityMs;
     if (idleMs >= SESSION_TIMEOUT_MS) {
       await this.cleanup();

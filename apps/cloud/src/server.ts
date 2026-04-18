@@ -18,7 +18,7 @@ import { server } from "./env";
 const otelConfig: TraceConfig = {
   service: { name: "executor-cloud", version: "1.0.0" },
   exporter: {
-    url: "https://api.axiom.co/v1/traces",
+    url: server.AXIOM_TRACES_URL,
     headers: {
       Authorization: `Bearer ${server.AXIOM_TOKEN}`,
       "X-Axiom-Dataset": server.AXIOM_DATASET,

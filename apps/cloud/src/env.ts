@@ -22,6 +22,7 @@ const serverShape = {
   SENTRY_DSN: Env.stringOr("SENTRY_DSN", ""),
   AXIOM_TOKEN: Env.stringOr("AXIOM_TOKEN", ""),
   AXIOM_DATASET: Env.stringOr("AXIOM_DATASET", "executor-cloud"),
+  AXIOM_TRACES_URL: Env.stringOr("AXIOM_TRACES_URL", "https://api.axiom.co/v1/traces"),
 };
 
 type SharedEnv = Readonly<{
@@ -42,6 +43,7 @@ type ServerEnv = SharedEnv &
     SENTRY_DSN: string;
     AXIOM_TOKEN: string;
     AXIOM_DATASET: string;
+    AXIOM_TRACES_URL: string;
   }>;
 
 type WebEnv = Readonly<Record<string, never>>;

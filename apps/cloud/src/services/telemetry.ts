@@ -37,7 +37,7 @@ export const TelemetryLive: Layer.Layer<never> = OtelTracer.layerGlobal.pipe(
 
 const makeDoOtelExporter = () =>
   new OTLPTraceExporter({
-    url: "https://api.axiom.co/v1/traces",
+    url: server.AXIOM_TRACES_URL,
     headers: {
       Authorization: `Bearer ${server.AXIOM_TOKEN}`,
       "X-Axiom-Dataset": server.AXIOM_DATASET,
