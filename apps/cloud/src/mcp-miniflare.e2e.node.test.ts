@@ -93,6 +93,9 @@ class Worker extends Context.Tag("MiniflareE2E/Worker")<
 
 type CapturedSpan = {
   readonly name: string;
+  readonly traceId: string;
+  readonly spanId: string;
+  readonly parentSpanId: string | null;
   readonly attributes: Record<string, unknown>;
 };
 
@@ -142,7 +145,13 @@ type OtlpAttributeValue = {
   readonly boolValue?: boolean;
 };
 type OtlpAttribute = { readonly key: string; readonly value?: OtlpAttributeValue };
-type OtlpSpan = { readonly name: string; readonly attributes?: ReadonlyArray<OtlpAttribute> };
+type OtlpSpan = {
+  readonly name: string;
+  readonly traceId?: string;
+  readonly spanId?: string;
+  readonly parentSpanId?: string;
+  readonly attributes?: ReadonlyArray<OtlpAttribute>;
+};
 type OtlpPayload = {
   readonly resourceSpans?: ReadonlyArray<{
     readonly scopeSpans?: ReadonlyArray<{ readonly spans?: ReadonlyArray<OtlpSpan> }>;
@@ -189,7 +198,13 @@ const TelemetryReceiverLive = Layer.scoped(
                   for (const a of sp.attributes ?? []) {
                     attrs[a.key] = unwrapAttrValue(a.value);
                   }
-                  store.push({ name: sp.name, attributes: attrs });
+                  store.push({
+                    name: sp.name,
+                    traceId: sp.traceId ?? "",
+                    spanId: sp.spanId ?? "",
+                    parentSpanId: sp.parentSpanId ? sp.parentSpanId : null,
+                    attributes: attrs,
+                  });
                 }
               }
             }
@@ -436,6 +451,74 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
       yield* Effect.promise(() =>
         receiver.waitForSpan((s) => s.name === "McpSessionDO.init"),
       );
+    }), 30_000,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Worker→DO trace propagation.
+  //
+  // Worker and DO run in separate isolates with independent WebSdk tracer
+  // providers. The worker's `mcp.request` span's SpanContext is ferried to
+  // the DO as a W3C `traceparent` header (and a second arg to `init()`), and
+  // the DO anchors its root span under it via `OtelTracer.withSpanContext`.
+  // Regression guard: `mcp.request` and `McpSessionDO.init` must share a
+  // trace_id, and the init span's parent_span_id must match the mcp.request
+  // span_id.
+  // ---------------------------------------------------------------------------
+  it.effect("propagates trace context from worker mcp.request into DO init", () =>
+    Effect.gen(function* () {
+      const { baseUrl, seedOrg } = yield* Worker;
+      const receiver = yield* TelemetryReceiver;
+      const orgId = nextOrgId();
+      yield* Effect.promise(() => seedOrg(orgId, "Trace Propagation Org"));
+
+      const client = yield* Effect.promise(() =>
+        connectClient(baseUrl, makeTestBearer(nextAccountId(), orgId)),
+      );
+      // Drive a second request through handleRequest so we can assert the
+      // header-borne propagation path too, not just init's out-of-band arg.
+      yield* Effect.promise(() => client.listTools());
+      yield* Effect.promise(() => client.close());
+
+      // `initialize` is the first POST and is the one that triggers `init()`
+      // on a freshly minted DO stub — so mcp.request + MCPSessionDO.init
+      // should be in the same trace for that request.
+      const mcpRequestInitialize = yield* Effect.promise(() =>
+        receiver.waitForSpan(
+          (s) =>
+            s.name === "mcp.request" &&
+            s.attributes["mcp.rpc.method"] === "initialize",
+        ),
+      );
+      const doInit = yield* Effect.promise(() =>
+        receiver.waitForSpan((s) => s.name === "McpSessionDO.init"),
+      );
+
+      expect(mcpRequestInitialize.traceId).not.toBe("");
+      expect(doInit.traceId).not.toBe("");
+      expect(doInit.traceId).toBe(mcpRequestInitialize.traceId);
+      expect(doInit.parentSpanId).toBe(mcpRequestInitialize.spanId);
+
+      // A subsequent POST (e.g. tools/list) traverses handleRequest, which
+      // reads the `traceparent` header off the forwarded Request.
+      const mcpRequestToolsList = yield* Effect.promise(() =>
+        receiver.waitForSpan(
+          (s) =>
+            s.name === "mcp.request" &&
+            s.attributes["mcp.rpc.method"] === "tools/list",
+        ),
+      );
+      // Correlate by parent — several handleRequest spans land per session
+      // (initialize, notifications/initialized, SSE GET, ...). We want the
+      // one that actually corresponds to this tools/list mcp.request.
+      const doHandle = yield* Effect.promise(() =>
+        receiver.waitForSpan(
+          (s) =>
+            s.name === "McpSessionDO.handleRequest" &&
+            s.parentSpanId === mcpRequestToolsList.spanId,
+        ),
+      );
+      expect(doHandle.traceId).toBe(mcpRequestToolsList.traceId);
     }), 30_000,
   );
 });

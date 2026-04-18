@@ -4,6 +4,7 @@
 
 import { DurableObject, env } from "cloudflare:workers";
 import { Data, Effect, Layer } from "effect";
+import * as OtelTracer from "@effect/opentelemetry/Tracer";
 import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WorkerTransport, type TransportState } from "agents/mcp";
@@ -57,6 +58,34 @@ const jsonRpcError = (status: number, code: number, message: string) =>
     status,
     headers: { "content-type": "application/json" },
   });
+
+// W3C traceparent propagation across the worker→DO boundary. mcp.ts injects
+// the worker-side `mcp.request` SpanContext as a `traceparent` header on
+// forwarded requests (and as a second arg to `init()`). We parse it here and
+// use `OtelTracer.withSpanContext` to stitch the DO's root span under the
+// worker span so the entire logical request lives in one Axiom trace.
+const TRACEPARENT_PATTERN = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+
+type IncomingSpanContext = {
+  readonly traceId: string;
+  readonly spanId: string;
+  readonly traceFlags: number;
+};
+
+const parseTraceparent = (value: string | null | undefined): IncomingSpanContext | null => {
+  if (!value) return null;
+  const match = TRACEPARENT_PATTERN.exec(value);
+  if (!match) return null;
+  return { traceId: match[2]!, spanId: match[3]!, traceFlags: parseInt(match[4]!, 16) };
+};
+
+const withIncomingParent = <A, E, R>(
+  traceparent: string | null | undefined,
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> => {
+  const parsed = parseTraceparent(traceparent);
+  return parsed ? OtelTracer.withSpanContext(effect, parsed) : effect;
+};
 
 type DbHandle = DbServiceShape & { end: () => Promise<void> };
 type SessionMeta = {
@@ -221,13 +250,14 @@ export class McpSessionDO extends DurableObject {
     });
   }
 
-  async init(token: McpSessionInit): Promise<void> {
+  async init(token: McpSessionInit, traceparent?: string): Promise<void> {
     if (this.initialized) return;
     return Effect.runPromise(
       this.doInitEffect(token).pipe(
         Effect.withSpan("McpSessionDO.init", {
           attributes: { "mcp.auth.organization_id": token.organizationId },
         }),
+        (eff) => withIncomingParent(traceparent, eff),
         Effect.provide(DoTelemetryLive),
       ),
     );
@@ -325,6 +355,7 @@ export class McpSessionDO extends DurableObject {
     // only (method, session-id presence, response status); rich client
     // fingerprint stays on the edge `mcp.request` span, which shares a
     // trace_id with this one.
+    const traceparent = request.headers.get("traceparent");
     const program = Effect.promise(() => this.dispatchRequest(request)).pipe(
       Effect.tap((response) =>
         Effect.annotateCurrentSpan({
@@ -337,6 +368,7 @@ export class McpSessionDO extends DurableObject {
           "mcp.request.session_id_present": !!request.headers.get("mcp-session-id"),
         },
       }),
+      (eff) => withIncomingParent(traceparent, eff),
       Effect.provide(DoTelemetryLive),
     );
     return Effect.runPromise(program);

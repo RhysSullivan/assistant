@@ -438,6 +438,26 @@ const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
 // DO dispatch
 // ---------------------------------------------------------------------------
 
+// Worker and DO run in separate isolates with independent WebSdk tracer
+// providers. Neither one can see the other's OTEL context, so the DO used
+// to emit a brand-new root trace on every stub call. Ferry the current
+// `mcp.request` span's SpanContext across as a W3C `traceparent` string —
+// the DO parses it and anchors its own spans under the same trace via
+// `OtelTracer.withSpanContext`.
+const currentTraceparent = Effect.map(Effect.currentSpan, (span) => {
+  if (!span || !span.traceId || !span.spanId) return undefined;
+  const flags = span.sampled ? "01" : "00";
+  return `00-${span.traceId}-${span.spanId}-${flags}`;
+}).pipe(Effect.orElseSucceed(() => undefined));
+
+const withTraceparentHeader = (request: Request) =>
+  Effect.map(currentTraceparent, (traceparent) => {
+    if (!traceparent) return request;
+    const headers = new Headers(request.headers);
+    headers.set("traceparent", traceparent);
+    return new Request(request, { headers });
+  });
+
 /**
  * Forward a request to an existing session DO. Wrapping the DO's `Response`
  * with `HttpServerResponse.raw` lets streaming bodies (SSE) pass through
@@ -447,7 +467,10 @@ const forwardToExistingSession = (request: Request, sessionId: string, peek: boo
   Effect.gen(function* () {
     const ns = env.MCP_SESSION;
     const stub = ns.get(ns.idFromString(sessionId));
-    const raw = yield* Effect.promise(() => stub.handleRequest(request) as Promise<Response>);
+    const propagated = yield* withTraceparentHeader(request);
+    const raw = yield* Effect.promise(
+      () => stub.handleRequest(propagated) as Promise<Response>,
+    );
     const annotated = peek ? yield* peekAndAnnotate(raw) : raw;
     return HttpServerResponse.raw(annotated);
   });
@@ -464,8 +487,12 @@ const dispatchPost = (request: Request, token: VerifiedToken) =>
 
     const ns = env.MCP_SESSION;
     const stub = ns.get(ns.newUniqueId());
-    yield* Effect.promise(() => stub.init({ organizationId }));
-    const raw = yield* Effect.promise(() => stub.handleRequest(request) as Promise<Response>);
+    const traceparent = yield* currentTraceparent;
+    yield* Effect.promise(() => stub.init({ organizationId }, traceparent));
+    const propagated = yield* withTraceparentHeader(request);
+    const raw = yield* Effect.promise(
+      () => stub.handleRequest(propagated) as Promise<Response>,
+    );
     const annotated = yield* peekAndAnnotate(raw);
     return HttpServerResponse.raw(annotated);
   });
