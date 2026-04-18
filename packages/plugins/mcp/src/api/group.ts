@@ -27,6 +27,11 @@ const AuthPayload = Schema.Union(
     prefix: Schema.optional(Schema.String),
   }),
   Schema.Struct({
+    kind: Schema.Literal("query"),
+    paramName: Schema.String,
+    secretId: Schema.String,
+  }),
+  Schema.Struct({
     kind: Schema.Literal("oauth2"),
     accessTokenSecretId: Schema.String,
     refreshTokenSecretId: Schema.NullOr(Schema.String),
@@ -92,6 +97,15 @@ const ProbeEndpointResponse = Schema.Struct({
   namespace: Schema.String,
   toolCount: Schema.NullOr(Schema.Number),
   serverName: Schema.NullOr(Schema.String),
+  tools: Schema.optionalWith(
+    Schema.Array(
+      Schema.Struct({
+        name: Schema.String,
+        description: Schema.optional(Schema.String),
+      }),
+    ),
+    { default: () => [] },
+  ),
 });
 
 const NamespacePayload = Schema.Struct({

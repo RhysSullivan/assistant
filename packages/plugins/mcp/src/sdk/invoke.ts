@@ -154,6 +154,7 @@ const resolveConnectorInput = (
 
   return Effect.gen(function* () {
     const headers: Record<string, string> = { ...sourceData.headers };
+    const queryParams: Record<string, string> = { ...sourceData.queryParams };
     let authProvider: OAuthClientProvider | undefined;
 
     const auth = sourceData.auth;
@@ -169,6 +170,18 @@ const resolveConnectorInput = (
         ),
       );
       headers[auth.headerName] = auth.prefix ? `${auth.prefix}${secretValue}` : secretValue;
+    } else if (auth.kind === "query") {
+      const secretValue = yield* secrets.resolve(auth.secretId as SecretId, scopeId).pipe(
+        Effect.mapError(
+          () =>
+            new ToolInvocationError({
+              toolId: "" as ToolId,
+              message: `Failed to resolve secret "${auth.secretId}" for MCP auth`,
+              cause: undefined,
+            }),
+        ),
+      );
+      queryParams[auth.paramName] = secretValue;
     } else if (auth.kind === "oauth2") {
       const accessToken = yield* secrets
         .resolve(auth.accessTokenSecretId as SecretId, scopeId)
@@ -198,7 +211,7 @@ const resolveConnectorInput = (
       transport: "remote" as const,
       endpoint: sourceData.endpoint,
       remoteTransport: sourceData.remoteTransport,
-      queryParams: sourceData.queryParams,
+      queryParams: Object.keys(queryParams).length > 0 ? queryParams : undefined,
       headers: Object.keys(headers).length > 0 ? headers : undefined,
       authProvider,
     };
