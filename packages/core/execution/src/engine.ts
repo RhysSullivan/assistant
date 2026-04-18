@@ -320,78 +320,102 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
    * The sandbox is forked as a daemon because paused executions can outlive the
    * caller scope that returned the first pause, such as an HTTP request handler.
    */
-  const startPausableExecution = (code: string): Effect.Effect<ExecutionResult> =>
-    Effect.gen(function* () {
-      // Ref holds the current pause signal. The elicitation handler reads
-      // it each time it fires, so resume() can swap in a fresh Deferred
-      // before unblocking the fiber.
-      const pauseSignalRef = yield* Ref.make(yield* Deferred.make<InternalPausedExecution>());
-
-      // Will be set once the fiber is forked.
-      let fiber: Fiber.Fiber<ExecuteResult, unknown>;
-
-      const elicitationHandler: ElicitationHandler = (ctx) =>
-        Effect.gen(function* () {
-          const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
-          const id = `exec_${++nextId}`;
-
-          const paused: InternalPausedExecution = {
-            id,
-            elicitationContext: ctx,
-            response: responseDeferred,
-            fiber: fiber!,
-            pauseSignalRef,
-          };
-          pausedExecutions.set(id, paused);
-
-          const currentSignal = yield* Ref.get(pauseSignalRef);
-          yield* Deferred.succeed(currentSignal, paused);
-
-          // Suspend until resume() completes responseDeferred.
-          return yield* Deferred.await(responseDeferred);
-        });
-
-      const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
-      fiber = yield* Effect.forkDaemon(codeExecutor.execute(code, invoker));
-
-      const initialSignal = yield* Ref.get(pauseSignalRef);
-      return yield* awaitCompletionOrPause(fiber, initialSignal);
+  const startPausableExecution = Effect.fn("mcp.execute")(function* (code: string) {
+    yield* Effect.annotateCurrentSpan({
+      "mcp.execute.mode": "pausable",
+      "mcp.execute.code_length": code.length,
     });
+
+    // Ref holds the current pause signal. The elicitation handler reads
+    // it each time it fires, so resume() can swap in a fresh Deferred
+    // before unblocking the fiber.
+    const pauseSignalRef = yield* Ref.make(yield* Deferred.make<InternalPausedExecution>());
+
+    // Will be set once the fiber is forked.
+    let fiber: Fiber.Fiber<ExecuteResult, unknown>;
+
+    const elicitationHandler: ElicitationHandler = (ctx) =>
+      Effect.gen(function* () {
+        const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
+        const id = `exec_${++nextId}`;
+
+        const paused: InternalPausedExecution = {
+          id,
+          elicitationContext: ctx,
+          response: responseDeferred,
+          fiber: fiber!,
+          pauseSignalRef,
+        };
+        pausedExecutions.set(id, paused);
+
+        const currentSignal = yield* Ref.get(pauseSignalRef);
+        yield* Deferred.succeed(currentSignal, paused);
+
+        // Suspend until resume() completes responseDeferred.
+        return yield* Deferred.await(responseDeferred);
+      });
+
+    const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
+    fiber = yield* Effect.forkDaemon(
+      codeExecutor.execute(code, invoker).pipe(Effect.withSpan("executor.code.exec")),
+    );
+
+    const initialSignal = yield* Ref.get(pauseSignalRef);
+    return (yield* awaitCompletionOrPause(fiber, initialSignal)) as ExecutionResult;
+  });
 
   /**
    * Resume a paused execution. Swaps in a fresh pause signal, completes
    * the response Deferred to unblock the fiber, then races completion
    * against the next pause.
    */
-  const resumeExecution = (
+  const resumeExecution = Effect.fn("mcp.execute.resume")(function* (
     executionId: string,
     response: ResumeResponse,
-  ): Effect.Effect<ExecutionResult | null> =>
-    Effect.gen(function* () {
-      const paused = pausedExecutions.get(executionId);
-      if (!paused) return null;
-      pausedExecutions.delete(executionId);
-
-      // Swap in a fresh pause signal BEFORE unblocking the fiber, so the
-      // next elicitation handler call signals this new Deferred.
-      const nextSignal = yield* Deferred.make<InternalPausedExecution>();
-      yield* Ref.set(paused.pauseSignalRef, nextSignal);
-
-      yield* Deferred.succeed(paused.response, {
-        action: response.action,
-        content: response.content,
-      });
-
-      return yield* awaitCompletionOrPause(paused.fiber, nextSignal);
+  ) {
+    yield* Effect.annotateCurrentSpan({
+      "mcp.execute.resume.action": response.action,
     });
 
+    const paused = pausedExecutions.get(executionId);
+    if (!paused) return null;
+    pausedExecutions.delete(executionId);
+
+    // Swap in a fresh pause signal BEFORE unblocking the fiber, so the
+    // next elicitation handler call signals this new Deferred.
+    const nextSignal = yield* Deferred.make<InternalPausedExecution>();
+    yield* Ref.set(paused.pauseSignalRef, nextSignal);
+
+    yield* Deferred.succeed(paused.response, {
+      action: response.action,
+      content: response.content,
+    });
+
+    return (yield* awaitCompletionOrPause(paused.fiber, nextSignal)) as ExecutionResult;
+  });
+
+  /**
+   * Inline-elicitation execute path. Wrapped so every call produces an
+   * `mcp.execute` span with the inner `executor.code.exec` as a child.
+   */
+  const runInlineExecution = Effect.fn("mcp.execute")(function* (
+    code: string,
+    options: { readonly onElicitation: ElicitationHandler },
+  ) {
+    yield* Effect.annotateCurrentSpan({
+      "mcp.execute.mode": "inline",
+      "mcp.execute.code_length": code.length,
+    });
+    const invoker = makeFullInvoker(executor, {
+      onElicitation: options.onElicitation,
+    });
+    return yield* codeExecutor
+      .execute(code, invoker)
+      .pipe(Effect.withSpan("executor.code.exec"));
+  });
+
   return {
-    execute: async (code, options) => {
-      const invoker = makeFullInvoker(executor, {
-        onElicitation: options.onElicitation,
-      });
-      return runEffect(codeExecutor.execute(code, invoker));
-    },
+    execute: (code, options) => runEffect(runInlineExecution(code, options)),
 
     executeWithPause: (code) => runEffect(startPausableExecution(code)),
 

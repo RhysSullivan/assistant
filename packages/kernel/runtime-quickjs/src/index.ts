@@ -390,7 +390,11 @@ const runInQuickJs = (
   Effect.tryPromise({
     try: () => evaluateInQuickJs(options, code, toolInvoker),
     catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),
-  });
+  }).pipe(
+    Effect.withSpan("executor.code.exec.quickjs", {
+      attributes: { "executor.runtime": "quickjs" },
+    }),
+  );
 
 export const makeQuickJsExecutor = (options: QuickJsExecutorOptions = {}): CodeExecutor => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>

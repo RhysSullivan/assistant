@@ -313,7 +313,11 @@ const runInDynamicWorker = (
       new DynamicWorkerExecutionError({
         message: renderTransportMessage(serializeWorkerErrorValue(cause)),
       }),
-  });
+  }).pipe(
+    Effect.withSpan("executor.code.exec.dynamic_worker", {
+      attributes: { "executor.runtime": "dynamic-worker" },
+    }),
+  );
 
 // ---------------------------------------------------------------------------
 // Public API
