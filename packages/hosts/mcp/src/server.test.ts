@@ -34,7 +34,7 @@ const withClient = async (
   capabilities: ClientCapabilities,
   fn: (client: Client) => Promise<void>,
 ) => {
-  const mcpServer = await createExecutorMcpServer({ engine });
+  const mcpServer = await Effect.runPromise(createExecutorMcpServer({ engine }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities });
   await mcpServer.connect(serverTransport);

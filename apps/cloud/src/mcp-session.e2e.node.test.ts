@@ -136,7 +136,7 @@ const openSession = (
     Effect.gen(function* () {
       const executor = yield* buildScopedExecutor(orgId, `Org ${orgId}`, options);
       const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
-      const mcpServer = yield* Effect.promise(() => createExecutorMcpServer({ engine }));
+      const mcpServer = yield* createExecutorMcpServer({ engine });
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
       const client = new Client(
         { name: "cloud-e2e-test", version: "1.0.0" },

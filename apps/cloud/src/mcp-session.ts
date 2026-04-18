@@ -6,6 +6,7 @@ import { DurableObject, env } from "cloudflare:workers";
 import { createTraceState } from "@opentelemetry/api";
 import { Data, Effect, Layer } from "effect";
 import * as OtelTracer from "@effect/opentelemetry/Tracer";
+import type * as Tracer from "effect/Tracer";
 import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WorkerTransport, type TransportState } from "agents/mcp";
@@ -182,6 +183,15 @@ export class McpSessionDO extends DurableObject {
   private lastActivityMs = 0;
   private dbHandle: DbHandle | null = null;
   private sessionMeta: SessionMeta | null = null;
+  // Updated at the start of each `handleRequest` so the host-mcp server's
+  // `parentSpan` getter — invoked by the MCP SDK's deferred tool callbacks
+  // after `transport.handleRequest()` has already returned its streaming
+  // Response — can hand back the request-scoped span. The server is
+  // session-scoped (a fresh server-per-request would lose the elicitation
+  // request → reply correlation that the SDK keeps in-memory on the
+  // `Server` instance), so we have to bridge a per-request value through
+  // a per-session reference.
+  private currentRequestSpan: Tracer.AnySpan | null = null;
 
   private makeStorage() {
     return {
@@ -233,9 +243,11 @@ export class McpSessionDO extends DurableObject {
       // `Effect.runPromise(engine.getDescription)` at its async
       // MCP-SDK boundary and orphan the sub-span.
       const description = yield* buildExecuteDescription(executor);
-      const mcpServer = yield* Effect.promise(() =>
-        createExecutorMcpServer({ engine, description }),
-      ).pipe(Effect.withSpan("McpSessionDO.createExecutorMcpServer"));
+      const mcpServer = yield* createExecutorMcpServer({
+        engine,
+        description,
+        parentSpan: () => self.currentRequestSpan ?? undefined,
+      }).pipe(Effect.withSpan("McpSessionDO.createExecutorMcpServer"));
       const transport = new WorkerTransport({
         sessionIdGenerator: () => self.ctx.id.toString(),
         storage: self.makeStorage(),
@@ -294,8 +306,16 @@ export class McpSessionDO extends DurableObject {
 
       if (!requestScopedRuntimeEnabled) {
         self.dbHandle = makeLongLivedDb();
+        // POST responses go out as JSON so `transport.handleRequest()` awaits
+        // every MCP tool callback before resolving — keeps engine spans inside
+        // the outer `handleRequest` Effect's fiber so `currentRequestSpan` is
+        // still set when the host-mcp `parentSpan` getter reads it. With SSE
+        // POSTs the callback fires after `Effect.ensuring` clears the field
+        // and engine spans orphan into new root traces. GET still streams
+        // (the GET handler doesn't consult `enableJsonResponse`).
         const runtime = yield* self.createConnectedRuntimeEffect(sessionMeta, {
           dbHandle: self.dbHandle,
+          enableJsonResponse: true,
         });
         self.mcpServer = runtime.mcpServer;
         self.transport = runtime.transport;
@@ -323,47 +343,50 @@ export class McpSessionDO extends DurableObject {
     );
   }
 
-  private async handleRequestWithRequestScopedRuntime(request: Request): Promise<Response> {
-    const sessionMeta = await this.loadSessionMeta();
-    if (!sessionMeta) {
-      return jsonRpcError(404, -32001, "Session timed out due to inactivity — please reconnect");
-    }
+  private handleRequestWithRequestScopedRuntimeEffect(request: Request) {
+    const self = this;
+    return Effect.gen(function* () {
+      const sessionMeta = yield* Effect.promise(() => self.loadSessionMeta());
+      if (!sessionMeta) {
+        return jsonRpcError(404, -32001, "Session timed out due to inactivity — please reconnect");
+      }
 
-    this.initialized = true;
-    this.lastActivityMs = Date.now();
+      self.initialized = true;
+      self.lastActivityMs = Date.now();
 
-    let dbHandle: DbHandle | null = null;
-    let mcpServer: McpServer | null = null;
-    let transport: WorkerTransport | null = null;
-
-    try {
-      dbHandle = makeRequestScopedDb();
-      const runtime = await Effect.runPromise(
-        this.createConnectedRuntimeEffect(sessionMeta, {
+      const dbHandle = makeRequestScopedDb();
+      const cleanupDb = Effect.promise(() => dbHandle.end());
+      return yield* Effect.acquireUseRelease(
+        self.createConnectedRuntimeEffect(sessionMeta, {
           dbHandle,
           enableJsonResponse: request.method !== "GET",
-        }).pipe(Effect.provide(DoTelemetryLive)),
+        }),
+        ({ transport }) =>
+          Effect.gen(function* () {
+            const response = yield* Effect.promise(() => transport.handleRequest(request)).pipe(
+              Effect.withSpan("McpSessionDO.transport.handleRequest"),
+            );
+            if (request.method === "DELETE") {
+              yield* Effect.promise(() => self.clearSessionState());
+            }
+            return response;
+          }),
+        ({ mcpServer, transport }) =>
+          Effect.gen(function* () {
+            yield* Effect.promise(() => transport.close().catch(() => undefined));
+            yield* Effect.promise(() => mcpServer.close().catch(() => undefined));
+            yield* cleanupDb;
+          }),
       );
-      mcpServer = runtime.mcpServer;
-      transport = runtime.transport;
-
-      const response = await transport.handleRequest(request);
-      if (request.method === "DELETE") {
-        await this.clearSessionState();
-      }
-      return response;
-    } catch (err) {
-      console.error(
-        "[mcp-session] request-scoped handleRequest error:",
-        err instanceof Error ? err.stack : err,
-      );
-      Sentry.captureException(err);
-      return jsonRpcError(500, -32603, "Internal error");
-    } finally {
-      await transport?.close().catch(() => undefined);
-      await mcpServer?.close().catch(() => undefined);
-      await dbHandle?.end();
-    }
+    }).pipe(
+      Effect.catchAllCause((cause) =>
+        Effect.sync(() => {
+          console.error("[mcp-session] request-scoped handleRequest error:", cause);
+          Sentry.captureException(cause);
+          return jsonRpcError(500, -32603, "Internal error");
+        }),
+      ),
+    );
   }
 
   async handleRequest(request: Request): Promise<Response> {
@@ -377,12 +400,29 @@ export class McpSessionDO extends DurableObject {
       tracestate: request.headers.get("tracestate") ?? undefined,
       baggage: request.headers.get("baggage") ?? undefined,
     } satisfies IncomingTraceHeaders;
-    const program = Effect.promise(() => this.dispatchRequest(request)).pipe(
-      Effect.tap((response) =>
-        Effect.annotateCurrentSpan({
-          "mcp.response.status_code": response.status,
-        }),
-      ),
+    const self = this;
+    const program = Effect.gen(function* () {
+      // Capture the request-entry span so the host-mcp `parentSpan` getter
+      // — fired by deferred MCP SDK callbacks after this Effect has already
+      // returned — anchors engine spans under the same trace. Cleared in a
+      // finalizer so a future request that arrives without a fresh span
+      // doesn't accidentally inherit a stale one.
+      const span = yield* Effect.currentSpan;
+      self.currentRequestSpan = span;
+
+      return yield* self.dispatchRequestEffect(request).pipe(
+        Effect.tap((response) =>
+          Effect.annotateCurrentSpan({
+            "mcp.response.status_code": response.status,
+          }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            self.currentRequestSpan = null;
+          }),
+        ),
+      );
+    }).pipe(
       Effect.withSpan("McpSessionDO.handleRequest", {
         attributes: {
           "mcp.request.method": request.method,
@@ -395,28 +435,37 @@ export class McpSessionDO extends DurableObject {
     return Effect.runPromise(program);
   }
 
-  private async dispatchRequest(request: Request): Promise<Response> {
+  private dispatchRequestEffect(request: Request): Effect.Effect<Response> {
     if (requestScopedRuntimeEnabled) {
-      return this.handleRequestWithRequestScopedRuntime(request);
+      return this.handleRequestWithRequestScopedRuntimeEffect(request);
     }
 
     if (!this.initialized || !this.transport) {
-      return jsonRpcError(404, -32001, "Session timed out due to inactivity — please reconnect");
+      return Effect.succeed(
+        jsonRpcError(404, -32001, "Session timed out due to inactivity — please reconnect"),
+      );
     }
 
     this.lastActivityMs = Date.now();
-
-    try {
-      const response = await this.transport.handleRequest(request);
+    const transport = this.transport;
+    const self = this;
+    return Effect.gen(function* () {
+      const response = yield* Effect.promise(() => transport.handleRequest(request)).pipe(
+        Effect.withSpan("McpSessionDO.transport.handleRequest"),
+      );
       if (request.method === "DELETE") {
-        await this.cleanup();
+        yield* Effect.promise(() => self.cleanup());
       }
       return response;
-    } catch (err) {
-      console.error("[mcp-session] handleRequest error:", err instanceof Error ? err.stack : err);
-      Sentry.captureException(err);
-      return jsonRpcError(500, -32603, "Internal error");
-    }
+    }).pipe(
+      Effect.catchAllCause((cause) =>
+        Effect.sync(() => {
+          console.error("[mcp-session] handleRequest error:", cause);
+          Sentry.captureException(cause);
+          return jsonRpcError(500, -32603, "Internal error");
+        }),
+      ),
+    );
   }
 
   async alarm(): Promise<void> {

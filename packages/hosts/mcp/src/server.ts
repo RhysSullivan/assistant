@@ -1,4 +1,4 @@
-import { Effect, Match } from "effect";
+import { Effect, Match, Runtime } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
   jsonSchemaValidator,
@@ -15,6 +15,7 @@ import type {
   ElicitationRequest,
 } from "@executor/sdk";
 import type * as Cause from "effect/Cause";
+import type * as Tracer from "effect/Tracer";
 import {
   createExecutionEngine,
   formatExecuteResult,
@@ -48,13 +49,23 @@ class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
 type SharedMcpServerConfig = {
   /**
    * Pre-built `execute` tool description. When provided, the factory skips
-   * its internal `engine.getDescription()` call. Useful when the caller
+   * its internal `engine.getDescription` yield. Useful when the caller
    * wants to compute the description inside its own Effect tracer context
    * so sub-spans (`executor.sources.list`, `executor.tools.list`) nest as
-   * children of the caller's root span instead of being orphaned by the
-   * `Effect.runPromise` that `engine.getDescription()` runs internally.
+   * children of the caller's root span.
    */
   readonly description?: string;
+  /**
+   * Parent span override for engine calls. The factory captures the
+   * caller's `Runtime` at construction time, but `Runtime.runPromise`
+   * starts a fresh fiber per SDK callback — so the `currentSpan`
+   * FiberRef resets to root unless explicitly anchored.
+   *
+   * Accepts either a fixed span (per-request McpServer instances) or a
+   * getter (session-scoped instances that need to anchor each callback
+   * under whichever request triggered it; see the Cloud DO).
+   */
+  readonly parentSpan?: Tracer.AnySpan | (() => Tracer.AnySpan | undefined);
 };
 
 export type ExecutorMcpServerConfig<E extends Cause.YieldableError = Cause.YieldableError> =
@@ -162,109 +173,129 @@ const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>):
   structuredContent: formatted.structured,
 });
 
+const parseJsonContent = (raw: string): Record<string, unknown> | undefined => {
+  if (raw === "{}") return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : undefined;
+};
+
 // ---------------------------------------------------------------------------
 // Server factory
 // ---------------------------------------------------------------------------
 
-export const createExecutorMcpServer = async <E extends Cause.YieldableError>(
+export const createExecutorMcpServer = <E extends Cause.YieldableError>(
   config: ExecutorMcpServerConfig<E>,
-): Promise<McpServer> => {
-  const engine = "engine" in config ? config.engine : createExecutionEngine(config);
-  const description = config.description ?? (await Effect.runPromise(engine.getDescription));
+): Effect.Effect<McpServer> =>
+  Effect.gen(function* () {
+    const engine = "engine" in config ? config.engine : createExecutionEngine(config);
+    const description = config.description ?? (yield* engine.getDescription);
 
-  const server = new McpServer(
-    { name: "executor", version: "1.0.0" },
-    { capabilities: { tools: {} }, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
-  );
+    // Captured at construction time. SDK callbacks fire later (often
+    // deferred past the outer Effect's await), so we use the runtime to
+    // re-enter Effect-land at each callback edge.
+    const runtime = yield* Effect.runtime<never>();
 
-  const executeCode = async (code: string): Promise<McpToolResult> => {
-    if (supportsManagedElicitation(server)) {
-      const result = await Effect.runPromise(
-        engine.execute(code, {
-          onElicitation: makeMcpElicitationHandler(server),
-        }),
-      );
-      return toMcpResult(formatExecuteResult(result));
-    }
+    const resolveParentSpan = (): Tracer.AnySpan | undefined => {
+      const ps = config.parentSpan;
+      return typeof ps === "function" ? ps() : ps;
+    };
+    const anchor = <A, EffE>(effect: Effect.Effect<A, EffE>): Effect.Effect<A, EffE> => {
+      const parent = resolveParentSpan();
+      return parent ? Effect.withParentSpan(effect, parent) : effect;
+    };
 
-    const outcome = await Effect.runPromise(engine.executeWithPause(code));
-    return outcome.status === "completed"
-      ? toMcpResult(formatExecuteResult(outcome.result))
-      : toMcpPausedResult(formatPausedExecution(outcome.execution));
-  };
+    const server = new McpServer(
+      { name: "executor", version: "1.0.0" },
+      { capabilities: { tools: {} }, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
+    );
 
-  const parseJsonContent = (raw: string): Record<string, unknown> | undefined => {
-    if (raw === "{}") return undefined;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return undefined;
-    }
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : undefined;
-  };
+    const executeCode = (code: string): Effect.Effect<McpToolResult, E> =>
+      Effect.gen(function* () {
+        if (supportsManagedElicitation(server)) {
+          const result = yield* engine.execute(code, {
+            onElicitation: makeMcpElicitationHandler(server),
+          });
+          return toMcpResult(formatExecuteResult(result));
+        }
+        const outcome = yield* engine.executeWithPause(code);
+        return outcome.status === "completed"
+          ? toMcpResult(formatExecuteResult(outcome.result))
+          : toMcpPausedResult(formatPausedExecution(outcome.execution));
+      });
 
-  // --- tools ---
+    const resumeExecution = (
+      executionId: string,
+      action: "accept" | "decline" | "cancel",
+      content: Record<string, unknown> | undefined,
+    ): Effect.Effect<McpToolResult, E> =>
+      Effect.gen(function* () {
+        const outcome = yield* engine.resume(executionId, { action, content });
+        if (!outcome) {
+          return {
+            content: [{ type: "text", text: `No paused execution: ${executionId}` }],
+            isError: true,
+          };
+        }
+        return outcome.status === "completed"
+          ? toMcpResult(formatExecuteResult(outcome.result))
+          : toMcpPausedResult(formatPausedExecution(outcome.execution));
+      });
 
-  const executeTool = server.registerTool(
-    "execute",
-    {
-      description,
-      inputSchema: { code: z.string().trim().min(1) },
-    },
-    async ({ code }) => executeCode(code),
-  );
+    // --- tools ---
 
-  const resumeTool = server.registerTool(
-    "resume",
-    {
-      description: [
-        "Resume a paused execution using the executionId returned by execute.",
-        "Never call this without user approval unless they explicitly state otherwise.",
-      ].join("\n"),
-      inputSchema: {
-        executionId: z.string().describe("The execution ID from the paused result"),
-        action: z
-          .enum(["accept", "decline", "cancel"])
-          .describe("How to respond to the interaction"),
-        content: z
-          .string()
-          .describe("Optional JSON-encoded response content for form elicitations")
-          .default("{}"),
+    const executeTool = server.registerTool(
+      "execute",
+      {
+        description,
+        inputSchema: { code: z.string().trim().min(1) },
       },
-    },
-    async ({ executionId, action, content: rawContent }) => {
-      const content = parseJsonContent(rawContent);
-      const outcome = await Effect.runPromise(engine.resume(executionId, { action, content }));
+      ({ code }) => Runtime.runPromise(runtime)(anchor(executeCode(code))),
+    );
 
-      if (!outcome) {
-        return {
-          content: [{ type: "text", text: `No paused execution: ${executionId}` }],
-          isError: true,
-        };
+    const resumeTool = server.registerTool(
+      "resume",
+      {
+        description: [
+          "Resume a paused execution using the executionId returned by execute.",
+          "Never call this without user approval unless they explicitly state otherwise.",
+        ].join("\n"),
+        inputSchema: {
+          executionId: z.string().describe("The execution ID from the paused result"),
+          action: z
+            .enum(["accept", "decline", "cancel"])
+            .describe("How to respond to the interaction"),
+          content: z
+            .string()
+            .describe("Optional JSON-encoded response content for form elicitations")
+            .default("{}"),
+        },
+      },
+      ({ executionId, action, content: rawContent }) =>
+        Runtime.runPromise(runtime)(
+          anchor(resumeExecution(executionId, action, parseJsonContent(rawContent))),
+        ),
+    );
+
+    // --- capability-based tool visibility ---
+
+    const syncToolAvailability = () => {
+      executeTool.enable();
+      if (supportsManagedElicitation(server)) {
+        resumeTool.disable();
+      } else {
+        resumeTool.enable();
       }
+    };
 
-      return outcome.status === "completed"
-        ? toMcpResult(formatExecuteResult(outcome.result))
-        : toMcpPausedResult(formatPausedExecution(outcome.execution));
-    },
-  );
+    syncToolAvailability();
+    server.server.oninitialized = syncToolAvailability;
 
-  // --- capability-based tool visibility ---
-
-  const syncToolAvailability = () => {
-    executeTool.enable();
-    if (supportsManagedElicitation(server)) {
-      resumeTool.disable();
-    } else {
-      resumeTool.enable();
-    }
-  };
-
-  syncToolAvailability();
-  server.server.oninitialized = syncToolAvailability;
-
-  return server;
-};
+    return server;
+  });

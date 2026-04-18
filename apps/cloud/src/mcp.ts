@@ -411,7 +411,20 @@ const rpcResponseAttrs = (payload: JsonRpcErrorBody | null): Record<string, unkn
 const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
   Effect.gen(function* () {
     if (!response.body) return response;
-    const text = yield* Effect.promise(() => response.text());
+    // The DO returns a streaming SSE Response (POST responses aren't
+    // `enableJsonResponse`'d in prod), so `response.text()` blocks on the
+    // entire downstream execution — RPC into the dynamic Worker, tool
+    // invocations back to the host, result serialisation. Carving this
+    // into its own span pins "worker drain time" on the trace so you can
+    // tell worker-side waiting apart from any pre/post work on the edge.
+    const text = yield* Effect.promise(() => response.text()).pipe(
+      Effect.withSpan("mcp.peek_response", {
+        attributes: {
+          "http.response.content_type": response.headers.get("content-type") ?? "",
+          "http.response.status_code": response.status,
+        },
+      }),
+    );
     const payload = parseFirstJsonRpc(response.headers.get("content-type") ?? "", text);
     const attrs = rpcResponseAttrs(payload);
     if (Object.keys(attrs).length > 0) {
