@@ -865,10 +865,11 @@ export const createExecutor = <
       runtimes.set(plugin.id, { plugin, storage, ctx });
 
       if (plugin.secretProviders) {
-        const providers =
+        const raw =
           typeof plugin.secretProviders === "function"
             ? plugin.secretProviders(ctx)
             : plugin.secretProviders;
+        const providers = Effect.isEffect(raw) ? yield* raw : raw;
         for (const provider of providers) {
           if (secretProviders.has(provider.key)) {
             return yield* Effect.fail(

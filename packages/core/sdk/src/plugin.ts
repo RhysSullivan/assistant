@@ -296,13 +296,18 @@ export interface PluginSpec<
   }) => Effect.Effect<SourceDetectionResult | null, unknown>;
 
   /** Secret providers contributed by this plugin. Either a static
-   *  array or a function of ctx (for providers that need per-instance
-   *  state like the keychain's scope-derived service name). Called
-   *  once at executor startup after `storage` and `extension` have
-   *  been built. */
+   *  array, a function of ctx (for providers that need per-instance
+   *  state like the keychain's scope-derived service name), or a
+   *  function returning an Effect so plugins can probe for backend
+   *  availability at startup and register conditionally. Called once
+   *  at executor startup after `storage` and `extension` have been
+   *  built. */
   readonly secretProviders?:
     | readonly SecretProvider[]
-    | ((ctx: PluginCtx<TStore>) => readonly SecretProvider[]);
+    | ((ctx: PluginCtx<TStore>) => readonly SecretProvider[])
+    | ((
+        ctx: PluginCtx<TStore>,
+      ) => Effect.Effect<readonly SecretProvider[]>);
 
   readonly close?: () => Effect.Effect<void, unknown>;
 }

@@ -2,9 +2,24 @@ import { Effect } from "effect";
 
 import { definePlugin, type PluginCtx } from "@executor/sdk";
 
-import { displayName, isSupportedPlatform, resolveServiceName } from "./keyring";
-import { getPassword } from "./keyring";
+import {
+  deletePassword,
+  displayName,
+  getPassword,
+  isSupportedPlatform,
+  resolveServiceName,
+  setPassword,
+} from "./keyring";
 import { makeKeychainProvider } from "./provider";
+
+// Probe the keychain by writing and then deleting a sentinel entry. A
+// read-only probe isn't enough — on some Linux environments (WSL2,
+// headless CI) `getPassword` for a missing key returns null without
+// error, but `setPassword` fails because the secret-service backend
+// isn't actually reachable. Writing is the capability the executor
+// cares about, so test it directly.
+const PROBE_ACCOUNT = "__executor_keychain_probe__";
+const PROBE_VALUE = "probe";
 
 // ---------------------------------------------------------------------------
 // Re-exports
@@ -70,8 +85,27 @@ export const keychainPlugin = definePlugin(
       };
     },
 
-    secretProviders: (ctx) => [
-      makeKeychainProvider(scopedServiceName(ctx, options)),
-    ],
+    secretProviders: (ctx) =>
+      Effect.gen(function* () {
+        const serviceName = scopedServiceName(ctx, options);
+        const reachable = yield* setPassword(
+          serviceName,
+          PROBE_ACCOUNT,
+          PROBE_VALUE,
+        ).pipe(
+          Effect.andThen(
+            deletePassword(serviceName, PROBE_ACCOUNT).pipe(
+              Effect.catchAll(() => Effect.void),
+            ),
+          ),
+          Effect.as(true),
+          Effect.catchAll((cause) =>
+            Effect.logWarning(
+              `keychain unavailable, skipping provider registration: ${cause.message}`,
+            ).pipe(Effect.as(false)),
+          ),
+        );
+        return reachable ? [makeKeychainProvider(serviceName)] : [];
+      }),
   }),
 );
