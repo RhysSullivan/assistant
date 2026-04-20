@@ -286,6 +286,9 @@ const remoteConnectionError = (message: string) =>
 
 const mcpOAuthError = (message: string) => new McpOAuthError({ message });
 
+const toMcpErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 const mcpDiscoveryError = (message: string) =>
   new McpToolDiscoveryError({ stage: "list_tools", message });
 
@@ -892,7 +895,10 @@ export const mcpPlugin = definePlugin(
                 accessTokenSecretId: input.accessTokenSecretId,
                 refreshTokenSecretId: input.refreshTokenSecretId ?? null,
               })
-              .pipe(Effect.withSpan("mcp.plugin.oauth.persist_session"));
+              .pipe(
+                Effect.mapError((err) => mcpOAuthError(toMcpErrorMessage(err))),
+                Effect.withSpan("mcp.plugin.oauth.persist_session"),
+              );
 
             return {
               sessionId,
@@ -913,7 +919,13 @@ export const mcpPlugin = definePlugin(
               );
             }
 
-            const session = yield* ctx.storage.getOAuthSession(input.state);
+            const session = yield* ctx.storage
+              .getOAuthSession(input.state)
+              .pipe(
+                Effect.mapError((err) =>
+                  mcpOAuthError(toMcpErrorMessage(err)),
+                ),
+              );
             if (!session) {
               return yield* Effect.fail(
                 mcpOAuthError(`OAuth session not found: ${input.state}`),
@@ -975,7 +987,13 @@ export const mcpPlugin = definePlugin(
               refreshTokenSecretId = refreshId;
             }
 
-            yield* ctx.storage.deleteOAuthSession(input.state);
+            yield* ctx.storage
+              .deleteOAuthSession(input.state)
+              .pipe(
+                Effect.mapError((err) =>
+                  mcpOAuthError(toMcpErrorMessage(err)),
+                ),
+              );
 
             const expiresAt =
               typeof exchanged.tokens.expires_in === "number"
