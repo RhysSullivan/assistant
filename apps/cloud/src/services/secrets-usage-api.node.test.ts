@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 import { ScopeId, SecretId } from "@executor/sdk";
 
-import { asOrg } from "./__test-harness__/api-harness";
+import { asOrg, asUser } from "./__test-harness__/api-harness";
 
 describe("secrets usage api (HTTP)", () => {
   it.effect("lists source usage for secrets referenced by source config", () =>
@@ -91,6 +91,58 @@ describe("secrets usage api (HTTP)", () => {
       );
 
       expect(usage).toEqual([]);
+    }),
+  );
+
+  it.effect("includes inherited org-scoped source usage for a member's user scope", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const userId = `user_${crypto.randomUUID().slice(0, 8)}`;
+      const secretId = `sec_${crypto.randomUUID().slice(0, 8)}`;
+      const namespace = `api_${crypto.randomUUID().slice(0, 8)}`;
+
+      yield* asOrg(org, (client) =>
+        client.secrets.set({
+          path: { scopeId: ScopeId.make(org) },
+          payload: { id: SecretId.make(secretId), name: "Org shared token", value: "sk-shared" },
+        }),
+      );
+
+      yield* asOrg(org, (client) =>
+        client.openapi.addSpec({
+          path: { scopeId: ScopeId.make(org) },
+          payload: {
+            spec: "https://openapi.vercel.sh",
+            namespace,
+            baseUrl: "https://api.vercel.com",
+            headers: {
+              Authorization: {
+                secretId,
+                prefix: "Bearer ",
+              },
+            },
+          },
+        }),
+      );
+
+      const usage = yield* asUser(userId, org, (client) =>
+        client.secretsUsage.list({
+          path: { scopeId: ScopeId.make(`user-org:${userId}:${org}`) },
+        }),
+      );
+
+      expect(usage).toEqual([
+        {
+          secretId,
+          usedBy: [
+            {
+              sourceId: namespace,
+              sourceName: "Vercel API",
+              sourceKind: "openapi",
+            },
+          ],
+        },
+      ]);
     }),
   );
 });

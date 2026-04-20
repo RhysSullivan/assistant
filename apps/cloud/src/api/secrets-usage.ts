@@ -39,26 +39,41 @@ const addUsage = (
 
 const resolveSecretIdsForSource = (
   source: UsageSource,
-  scopeId: string,
+  scopeIds: readonly string[],
   deps: {
     readonly openapi: OpenApiPluginExtension;
     readonly mcp: McpPluginExtension;
     readonly graphql: GraphqlPluginExtension;
   },
-) => {
+): Effect.Effect<readonly string[], unknown> => {
+  const resolveAcrossScopes = <A, E>(
+    load: (scopeId: string) => Effect.Effect<A | null, E>,
+    collect: (stored: A) => readonly string[],
+  ): Effect.Effect<readonly string[], E> =>
+    Effect.gen(function* () {
+      for (const scopeId of scopeIds) {
+        const stored = yield* load(scopeId);
+        if (stored) return collect(stored);
+      }
+      return [] as readonly string[];
+    });
+
   switch (source.pluginId) {
     case "openapi":
-      return deps.openapi
-        .getSource(source.id, scopeId)
-        .pipe(Effect.map((stored) => (stored ? collectOpenApiSecretIds(stored) : [])));
+      return resolveAcrossScopes(
+        (scopeId) => deps.openapi.getSource(source.id, scopeId),
+        collectOpenApiSecretIds,
+      );
     case "mcp":
-      return deps.mcp
-        .getSource(source.id, scopeId)
-        .pipe(Effect.map((stored) => (stored ? collectMcpSecretIds(stored) : [])));
+      return resolveAcrossScopes(
+        (scopeId) => deps.mcp.getSource(source.id, scopeId),
+        collectMcpSecretIds,
+      );
     case "graphql":
-      return deps.graphql
-        .getSource(source.id, scopeId)
-        .pipe(Effect.map((stored) => (stored ? collectGraphqlSecretIds(stored) : [])));
+      return resolveAcrossScopes(
+        (scopeId) => deps.graphql.getSource(source.id, scopeId),
+        collectGraphqlSecretIds,
+      );
     default:
       return Effect.succeed([] as readonly string[]);
   }
@@ -80,10 +95,11 @@ export const SecretsUsageHandlers = HttpApiBuilder.group(
       const sources = (yield* executor.sources.list().pipe(
         Effect.catchAll(() => Effect.succeed([])),
       )) as readonly UsageSource[];
+      const scopeIds = executor.scopes.map((scope) => scope.id);
       const usageIndex = new Map<string, Map<string, SecretUsage>>();
 
       for (const source of sources) {
-        const secretIds = yield* resolveSecretIdsForSource(source, path.scopeId, {
+        const secretIds = yield* resolveSecretIdsForSource(source, scopeIds, {
           openapi,
           mcp,
           graphql,
