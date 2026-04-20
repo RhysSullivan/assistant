@@ -26,6 +26,7 @@ import { OpenApiInvocationError } from "./errors";
 import {
   type HeaderValue,
   type OperationBinding,
+  type OperationResponse,
   InvocationResult,
   type OperationParameter,
 } from "./types";
@@ -389,6 +390,28 @@ const isFormUrlEncoded = (ct: string | null | undefined): boolean =>
 const isMultipartFormData = (ct: string | null | undefined): boolean =>
   normalizeContentType(ct).startsWith("multipart/form-data");
 
+// Pick the spec-declared response that best fits the runtime status:
+// exact code, then NXX wildcard, then `default`. Returns null when the
+// map is absent or nothing applies, so "no responses map" stays
+// distinguishable from "unmatched status" at the call site.
+const matchResponseStatus = (
+  status: number,
+  responses: Record<string, OperationResponse> | undefined,
+): string | null => {
+  if (!responses) return null;
+  const exact = String(status);
+  if (responses[exact]) return exact;
+
+  const hundreds = Math.floor(status / 100);
+  const wildcardUpper = `${hundreds}XX`;
+  const wildcardLower = `${hundreds}xx`;
+  if (responses[wildcardUpper]) return wildcardUpper;
+  if (responses[wildcardLower]) return wildcardLower;
+
+  if (responses["default"]) return "default";
+  return null;
+};
+
 // ---------------------------------------------------------------------------
 // Public API — invoke a single operation
 // ---------------------------------------------------------------------------
@@ -397,6 +420,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   operation: OperationBinding,
   args: Record<string, unknown>,
   resolvedHeaders: Record<string, string>,
+  responses?: Record<string, OperationResponse>,
 ) {
   const client = yield* HttpClient.HttpClient;
 
@@ -551,12 +575,19 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
         : yield* response.text.pipe(mapBodyError);
 
   const ok = status >= 200 && status < 300;
+  const matchedResponseStatus = matchResponseStatus(status, responses);
+  if (matchedResponseStatus !== null) {
+    yield* Effect.annotateCurrentSpan({
+      "plugin.openapi.response.matched_status": matchedResponseStatus,
+    });
+  }
 
   return new InvocationResult({
     status,
     headers: responseHeaders,
     data: ok ? responseBody : null,
     error: ok ? null : responseBody,
+    matchedResponseStatus,
   });
 });
 
@@ -570,6 +601,7 @@ export const invokeWithLayer = (
   baseUrl: string,
   resolvedHeaders: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
+  responses?: Record<string, OperationResponse>,
 ) => {
   const clientWithBaseUrl = baseUrl
     ? Layer.effect(
@@ -581,7 +613,7 @@ export const invokeWithLayer = (
       ).pipe(Layer.provide(httpClientLayer))
     : httpClientLayer;
 
-  return invoke(operation, args, resolvedHeaders).pipe(
+  return invoke(operation, args, resolvedHeaders, responses).pipe(
     Effect.provide(clientWithBaseUrl),
     Effect.withSpan("plugin.openapi.invoke", {
       attributes: {

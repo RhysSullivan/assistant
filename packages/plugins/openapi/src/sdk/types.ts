@@ -49,6 +49,33 @@ export class OperationRequestBody extends Schema.Class<OperationRequestBody>(
   schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
 }) {}
 
+/**
+ * A documented response header — when a spec declares
+ * `responses.200.headers.X-RateLimit-Limit.schema`, we surface it here so
+ * downstream consumers (LLM tool definitions, span annotations) know which
+ * headers are part of the API contract vs which are just transport-level.
+ */
+export class OperationResponseHeader extends Schema.Class<OperationResponseHeader>(
+  "OperationResponseHeader",
+)({
+  name: Schema.String,
+  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+}) {}
+
+/**
+ * A single declared response for an operation, keyed by status code. Holds
+ * the media-type-specific body schema plus any documented headers. Schemas
+ * are already filtered for `writeOnly` in extract.ts before they land here.
+ */
+export class OperationResponse extends Schema.Class<OperationResponse>("OperationResponse")({
+  statusCode: Schema.String,
+  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  contentType: Schema.optionalWith(Schema.String, { as: "Option" }),
+  schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  headers: Schema.Array(OperationResponseHeader),
+}) {}
+
 export class ExtractedOperation extends Schema.Class<ExtractedOperation>("ExtractedOperation")({
   operationId: OperationId,
   method: HttpMethod,
@@ -59,7 +86,21 @@ export class ExtractedOperation extends Schema.Class<ExtractedOperation>("Extrac
   parameters: Schema.Array(OperationParameter),
   requestBody: Schema.optionalWith(OperationRequestBody, { as: "Option" }),
   inputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  /**
+   * Preferred output schema for the LLM's view of this tool — the first
+   * 2xx response's body schema, or the `default` response as a fallback.
+   * This is what `compileToolDefinitions` surfaces to callers that can
+   * only carry one schema per tool. For full fidelity use `responses`.
+   *
+   * Already filtered for `writeOnly: true` fields.
+   */
   outputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  /**
+   * All declared responses, keyed by status code (or "default"). Use this
+   * when you care about 201 vs 200 body shape differences, error envelopes,
+   * or documented response headers.
+   */
+  responses: Schema.Record({ key: Schema.String, value: OperationResponse }),
   deprecated: Schema.optionalWith(Schema.Boolean, { default: () => false }),
 }) {}
 
@@ -212,4 +253,11 @@ export class InvocationResult extends Schema.Class<InvocationResult>("Invocation
   headers: Schema.Record({ key: Schema.String, value: Schema.String }),
   data: Schema.NullOr(Schema.Unknown),
   error: Schema.NullOr(Schema.Unknown),
+  /**
+   * The spec status-code key (e.g. "200", "201", "default") whose schema
+   * applied to this response, if the invoker was given a responses map at
+   * call time. `null` when no match was found (or when the invoker was
+   * called without a responses map — its original minimal signature).
+   */
+  matchedResponseStatus: Schema.NullOr(Schema.String),
 }) {}

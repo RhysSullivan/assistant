@@ -4,6 +4,27 @@
  * Ported from the v3 executor's `definitions.ts`. Turns flat operation IDs like
  * `zones_listZones` into nested paths like `zones.listZones` that the tree UI
  * can render with proper nesting.
+ *
+ * ## Schema selection for LLM tool definitions
+ *
+ * Tool callers (LLMs) take a single input schema and a single output schema
+ * per tool. OpenAPI operations can declare many responses per status code
+ * — `200`, `201`, `default`, per-error schemas — plus request bodies with
+ * their own rules about which fields are server-managed vs. client-settable.
+ *
+ * We resolve that down to a single pair here:
+ *   - Input schema: `operation.inputSchema` — already filtered for
+ *     `readOnly: true` fields in `extract.ts`, so the LLM won't try to
+ *     set server-managed fields like `id` or `created_at` on POSTs.
+ *   - Output schema: `operation.outputSchema` — already filtered for
+ *     `writeOnly: true` fields in `extract.ts`, so the LLM doesn't expect
+ *     `password`-class fields to be present on GETs. The chosen schema
+ *     comes from the first 2xx response that has a body, with `default`
+ *     as a final fallback (see `pickPreferredOutputSchema` in extract.ts).
+ *
+ * Callers that need the full response map (201 vs 200 shape differences,
+ * documented response headers, error-envelope schemas) should read
+ * `operation.responses` directly instead of going through tool definitions.
  */
 
 import type { ExtractedOperation } from "./types";

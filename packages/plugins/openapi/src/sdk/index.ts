@@ -61,6 +61,8 @@ export {
   OperationBinding,
   OperationParameter,
   OperationRequestBody,
+  OperationResponse,
+  OperationResponseHeader,
   ServerInfo,
   ServerVariable,
   OperationId,
