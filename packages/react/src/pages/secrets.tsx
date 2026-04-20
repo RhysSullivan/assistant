@@ -5,6 +5,7 @@ import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import { useSecretProviderPlugins } from "@executor-js/sdk/client";
 import { SecretId } from "@executor-js/sdk";
+import { useUniqueSecretIdInput } from "../plugins/secret-id";
 import { useScope } from "../hooks/use-scope";
 import {
   Dialog,
@@ -42,6 +43,7 @@ import {
   CardStackHeader,
 } from "../components/card-stack";
 import { Badge } from "../components/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/tooltip";
 
 type SecretStorageOption = {
   readonly label: string;
@@ -63,9 +65,9 @@ function AddSecretDialog(props: {
   onOpenChange: (v: boolean) => void;
   description: string;
   storageOptions: readonly SecretStorageOption[];
+  existingSecretIds: readonly string[];
 }) {
   const initialProvider = props.storageOptions[0]?.value ?? "auto";
-  const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [provider, setProvider] = useState(initialProvider);
@@ -74,9 +76,19 @@ function AddSecretDialog(props: {
 
   const scopeId = useScope();
   const doSet = useAtomSet(setSecret, { mode: "promise" });
+  const {
+    secretId: id,
+    duplicateError,
+    setSecretIdOverride,
+    resetSecretIdOverride,
+  } = useUniqueSecretIdInput({
+    baseName: name,
+    existingSecretIds: props.existingSecretIds,
+    fallbackId: "",
+  });
 
   const reset = () => {
-    setId("");
+    resetSecretIdOverride();
     setName("");
     setValue("");
     setProvider(initialProvider);
@@ -85,7 +97,7 @@ function AddSecretDialog(props: {
   };
 
   const handleSave = async () => {
-    if (!id.trim() || !name.trim() || !value.trim()) return;
+    if (!id.trim() || !name.trim() || !value.trim() || duplicateError) return;
     setSaving(true);
     setError(null);
     try {
@@ -136,9 +148,12 @@ function AddSecretDialog(props: {
                 id="secret-id"
                 placeholder="github-token"
                 value={id}
-                onChange={(e) => setId((e.target as HTMLInputElement).value)}
+                onChange={(e) => setSecretIdOverride((e.target as HTMLInputElement).value)}
                 className="font-mono text-xs h-9"
               />
+              {duplicateError && (
+                <p className="text-xs text-destructive">{duplicateError}</p>
+              )}
             </div>
             <div className="grid gap-1.5">
               <Label
@@ -215,7 +230,7 @@ function AddSecretDialog(props: {
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={!id.trim() || !name.trim() || !value.trim() || saving}
+            disabled={!id.trim() || !name.trim() || !value.trim() || !!duplicateError || saving}
           >
             {saving ? "Saving…" : "Save secret"}
           </Button>
@@ -239,8 +254,26 @@ function SecretRow(props: {
   return (
     <CardStackEntry>
       <CardStackEntryContent>
-        <CardStackEntryTitle className="flex items-center gap-2">
-          <span className="truncate">{secret.name}</span>
+        <CardStackEntryTitle className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 shrink truncate" title={secret.name}>
+            {secret.name}
+          </span>
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="max-w-40 shrink truncate font-mono text-xs text-muted-foreground">
+                  {secret.id}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                sideOffset={6}
+                hideArrow
+                className="border border-emerald-500/60 bg-black font-mono text-foreground shadow-none"
+              >
+                {secret.id}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </CardStackEntryTitle>
       </CardStackEntryContent>
       <CardStackEntryActions>
@@ -291,6 +324,11 @@ export function SecretsPage(props: {
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
   const secrets = useAtomValue(secretsAtom(scopeId));
+  const existingSecretIds = AsyncResult.match(secrets, {
+    onInitial: () => [] as string[],
+    onFailure: () => [] as string[],
+    onSuccess: ({ value }) => value.map((secret) => secret.id),
+  });
   const doRemove = useAtomSet(removeSecret, { mode: "promise" });
 
   const handleRemove = async (secretId: string) => {
@@ -413,6 +451,7 @@ export function SecretsPage(props: {
           onOpenChange={setAddOpen}
           description={addSecretDescription}
           storageOptions={storageOptions}
+          existingSecretIds={existingSecretIds}
         />
       </div>
     </div>
