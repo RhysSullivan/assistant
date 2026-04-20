@@ -1,9 +1,11 @@
 import { useState, Suspense } from "react";
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
-import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
+import { Link } from "@tanstack/react-router";
+import { useAtomSet } from "@effect-atom/atom-react";
+import { setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
 import { SecretId } from "@executor/sdk";
+import { ChevronDownIcon } from "lucide-react";
 import { useScope } from "../hooks/use-scope";
 import {
   Dialog,
@@ -230,10 +232,21 @@ function AddSecretDialog(props: {
 
 function SecretRow(props: {
   showProvider: boolean;
-  secret: { id: string; name: string; provider?: string };
+  secret: {
+    id: string;
+    name: string;
+    provider?: string;
+    usedBy: readonly {
+      sourceId: string;
+      sourceName: string;
+      sourceKind: string;
+    }[];
+  };
   onRemove: () => void;
 }) {
   const { secret, showProvider } = props;
+  const usageLabel =
+    secret.usedBy.length === 1 ? "Used by 1 source" : `Used by ${secret.usedBy.length} sources`;
 
   return (
     <CardStackEntry>
@@ -244,6 +257,33 @@ function SecretRow(props: {
       </CardStackEntryContent>
       <CardStackEntryActions>
         {showProvider && secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
+        {secret.usedBy.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="xs" className="gap-1.5">
+                In use
+                <ChevronDownIcon className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">{usageLabel}</div>
+              {secret.usedBy.map((usage) => (
+                <DropdownMenuItem
+                  key={usage.sourceId}
+                  asChild
+                  className="flex items-center justify-between"
+                >
+                  <Link to="/sources/$namespace" params={{ namespace: usage.sourceId }}>
+                    <span className="truncate">{usage.sourceName}</span>
+                    <Badge variant="outline" className="ml-2 capitalize">
+                      {usage.sourceKind}
+                    </Badge>
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -276,8 +316,23 @@ function SecretRow(props: {
 // Page
 // ---------------------------------------------------------------------------
 
+export type SecretsPageUsage = {
+  readonly sourceId: string;
+  readonly sourceName: string;
+  readonly sourceKind: string;
+};
+
+export type SecretsPageSecret = {
+  readonly id: string;
+  readonly name: string;
+  readonly provider?: string;
+  readonly usedBy: readonly SecretsPageUsage[];
+};
+
 export function SecretsPage(props: {
   addSecretDescription?: string;
+  secretsLoadState: "loading" | "error" | "ready";
+  secrets: readonly SecretsPageSecret[];
   showProviderInfo?: boolean;
   secretProviderPlugins: readonly SecretProviderPlugin[];
   storageOptions?: readonly SecretStorageOption[];
@@ -290,7 +345,6 @@ export function SecretsPage(props: {
   const { secretProviderPlugins } = props;
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
-  const secrets = useAtomValue(secretsAtom(scopeId));
   const doRemove = useAtomSet(removeSecret, { mode: "promise" });
 
   const handleRemove = async (secretId: string) => {
@@ -304,6 +358,67 @@ export function SecretsPage(props: {
       });
     } catch {
       // TODO: toast
+    }
+  };
+
+  const renderSecretsList = () => {
+    switch (props.secretsLoadState) {
+      case "loading":
+        return (
+          <div className="flex items-center gap-2 py-8">
+            <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
+            <p className="text-sm text-muted-foreground">Loading secrets…</p>
+          </div>
+        );
+
+      case "error":
+        return (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+            <p className="text-sm text-destructive">Failed to load secrets</p>
+          </div>
+        );
+
+      case "ready":
+        return (
+          <CardStack>
+            <CardStackHeader>Secrets</CardStackHeader>
+            <CardStackContent>
+              {props.secrets.length === 0 ? (
+                <CardStackEntry>
+                  <CardStackEntryContent>
+                    <CardStackEntryDescription>
+                      Add API keys and credentials to authenticate your sources.
+                    </CardStackEntryDescription>
+                  </CardStackEntryContent>
+                  <CardStackEntryActions>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-7 px-0 text-xs"
+                      onClick={() => setAddOpen(true)}
+                    >
+                      Add your first secret
+                    </Button>
+                  </CardStackEntryActions>
+                </CardStackEntry>
+              ) : (
+                props.secrets.map((s) => (
+                  <SecretRow
+                    key={s.id}
+                    showProvider={showProviderInfo}
+                    secret={{
+                      id: s.id,
+                      name: s.name,
+                      provider: s.provider,
+                      usedBy: s.usedBy,
+                    }}
+                    onRemove={() => handleRemove(s.id)}
+                  />
+                ))
+              )}
+            </CardStackContent>
+          </CardStack>
+        );
     }
   };
 
@@ -349,58 +464,7 @@ export function SecretsPage(props: {
         )}
 
         {/* Secrets list */}
-        {Result.match(secrets, {
-          onInitial: () => (
-            <div className="flex items-center gap-2 py-8">
-              <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <p className="text-sm text-muted-foreground">Loading secrets…</p>
-            </div>
-          ),
-          onFailure: () => (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load secrets</p>
-            </div>
-          ),
-          onSuccess: ({ value }) => (
-            <CardStack>
-              <CardStackHeader>Secrets</CardStackHeader>
-              <CardStackContent>
-                {value.length === 0 ? (
-                  <CardStackEntry>
-                    <CardStackEntryContent>
-                      <CardStackEntryDescription>
-                        Add API keys and credentials to authenticate your sources.
-                      </CardStackEntryDescription>
-                    </CardStackEntryContent>
-                    <CardStackEntryActions>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="h-7 px-0 text-xs"
-                        onClick={() => setAddOpen(true)}
-                      >
-                        Add your first secret
-                      </Button>
-                    </CardStackEntryActions>
-                  </CardStackEntry>
-                ) : (
-                  value.map((s) => (
-                    <SecretRow
-                      key={s.id}
-                      showProvider={showProviderInfo}
-                      secret={{
-                        id: s.id,
-                        name: s.name,
-                        provider: s.provider ? String(s.provider) : undefined,
-                      }}
-                      onRemove={() => handleRemove(s.id)}
-                    />
-                  ))
-                )}
-              </CardStackContent>
-            </CardStack>
-          ),
-        })}
+        {renderSecretsList()}
 
         <AddSecretDialog
           open={addOpen}

@@ -1377,11 +1377,10 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
   );
 
   it.effect(
-    "sources.list dedupes by id, keeping the innermost row",
-    () =>
-      Effect.gen(function* () {
-        const { execOuter, execInner, innerId } =
-          yield* makeMarkerExecutors();
+      "sources.list dedupes by id, keeping the innermost row",
+      () =>
+        Effect.gen(function* () {
+        const { execOuter, execInner } = yield* makeMarkerExecutors();
 
         yield* execOuter.marker.register("shared", "outer-name");
         yield* execInner.marker.register("shared", "inner-name");

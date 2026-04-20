@@ -27,6 +27,7 @@ describe("secrets api (HTTP)", () => {
         client.secrets.list({ path: { scopeId: ScopeId.make(org) } }),
       );
       expect(list.find((s) => s.id === id)?.name).toBe("My API Token");
+      expect(list.find((s) => s.id === id)).not.toHaveProperty("usedBy");
 
       const resolved = yield* asOrg(org, (client) =>
         client.secrets.resolve({

@@ -20,7 +20,7 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         const refs = yield* executor.secrets.list();
-        return refs.map(refToResponse);
+        return refs.map((ref) => refToResponse(ref));
       })),
     )
     .handle("status", ({ path }) =>
@@ -50,7 +50,7 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
         const executor = yield* ExecutorService;
         const value = yield* executor.secrets.get(path.secretId);
         if (value === null) {
-          return yield* Effect.fail(new SecretNotFoundError({ secretId: path.secretId }));
+          return yield* new SecretNotFoundError({ secretId: path.secretId });
         }
         return { secretId: path.secretId, value };
       })),
