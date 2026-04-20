@@ -1,7 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { createExecutor, makeTestConfig, Scope, ScopeId } from "@executor/sdk";
+import {
+  createExecutor,
+  makeTestConfig,
+  Scope,
+  ScopeId,
+  StorageError,
+  type DBAdapter,
+} from "@executor/sdk";
 
 import { mcpPlugin } from "./plugin";
 import {
@@ -9,6 +16,7 @@ import {
   deriveMcpNamespace,
   joinToolPath,
 } from "./manifest";
+import { McpOAuthError } from "./errors";
 
 // ---------------------------------------------------------------------------
 // Manifest extraction
@@ -129,6 +137,22 @@ describe("joinToolPath", () => {
 // ---------------------------------------------------------------------------
 
 describe("mcpPlugin", () => {
+  const makeMcpSessionLookupFailingAdapter = (): DBAdapter => {
+    const inner = makeTestConfig({ plugins: [mcpPlugin()] as const }).adapter;
+    const failure = new StorageError({
+      message: "session store unavailable",
+      cause: new Error("db down"),
+    });
+
+    return {
+      ...inner,
+      findOne: ((input) =>
+        input.model === "mcp_oauth_session"
+          ? Effect.fail(failure)
+          : inner.findOne(input)) as DBAdapter["findOne"],
+    };
+  };
+
   it.effect("creates executor with mcp plugin", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
@@ -144,6 +168,33 @@ describe("mcpPlugin", () => {
       expect(executor.mcp.probeEndpoint).toBeTypeOf("function");
       expect(executor.mcp.startOAuth).toBeTypeOf("function");
       expect(executor.mcp.completeOAuth).toBeTypeOf("function");
+    }),
+  );
+
+  it.effect("maps oauth session lookup storage failures to McpOAuthError", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor({
+        scopes: [
+          new Scope({
+            id: ScopeId.make("test-scope"),
+            name: "test",
+            createdAt: new Date(),
+          }),
+        ],
+        adapter: makeMcpSessionLookupFailingAdapter(),
+        blobs: makeTestConfig().blobs,
+        plugins: [mcpPlugin()] as const,
+      });
+
+      const result = yield* executor.mcp
+        .completeOAuth({
+          state: "mcp_oauth_test",
+          code: "code",
+        })
+        .pipe(Effect.flip);
+
+      expect(result).toBeInstanceOf(McpOAuthError);
+      expect(result.message).toContain("session store unavailable");
     }),
   );
 
