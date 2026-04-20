@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Result, useAtomValue } from "@effect-atom/atom-react";
 import { secretsAtom } from "@executor/react/api/atoms";
+import { ReactivityKey } from "@executor/react/api/reactivity-keys";
 import { useScope } from "@executor/react/api/scope-context";
 import {
   SecretsPage,
@@ -15,6 +16,7 @@ const secretsUsageAtom = (scopeId: ReturnType<typeof useScope>) =>
   LocalApiClient.query("secretsUsage", "list", {
     path: { scopeId },
     timeToLive: "30 seconds",
+    reactivityKeys: [ReactivityKey.sources],
   });
 
 const mergeSecrets = (
