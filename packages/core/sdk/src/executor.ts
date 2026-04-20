@@ -537,31 +537,40 @@ export const createExecutor = <
     // walk because their secrets must be registered through set() to
     // be known at all.
     //
-    // Multi-scope behavior: the routing-table lookup walks the scope
-    // stack explicitly, innermost first, so that a secret registered
-    // in a deeper scope shadows one with the same id at a shallower
-    // scope (e.g. a user's personal OAuth token wins over an org-wide
-    // one). The provider-enumeration fallback is scope-agnostic —
-    // providers like env or 1password don't partition their inventory
-    // by executor scope.
+    // Multi-scope behavior: the routing-table lookup pulls every row
+    // for this id across the scope stack in a single `IN (...)` query,
+    // then sorts innermost-first so a secret registered in a deeper
+    // scope shadows one with the same id at a shallower scope (e.g. a
+    // user's personal OAuth token wins over an org-wide one). Provider
+    // calls stay sequential — scope-partitioning providers (workos-vault,
+    // 1password-per-vault) have to be asked per scope because the object
+    // name includes the scope — but they're bounded by the number of
+    // registered rows for this id, not by scope-stack depth. The
+    // provider-enumeration fallback is scope-agnostic: providers like
+    // env or 1password don't partition their inventory by executor scope.
+    const scopePrecedence = new Map<string, number>();
+    scopeIds.forEach((s, i) => scopePrecedence.set(s, i));
+
     const secretsGet = (
       id: string,
     ): Effect.Effect<string | null, StorageFailure> =>
       Effect.gen(function* () {
-        for (const scopeId of scopeIds) {
-          const row = yield* core.findOne({
-            model: "secret",
-            where: [
-              { field: "id", value: id },
-              { field: "scope_id", value: scopeId },
-            ],
-          });
-          if (row) {
-            const provider = secretProviders.get(row.provider);
-            if (!provider) continue;
-            const value = yield* provider.get(id, scopeId);
-            if (value !== null) return value;
-          }
+        // The scope-wrapped adapter injects `scope_id IN (scopeIds)`
+        // automatically, so we only filter by id here.
+        const rows = yield* core.findMany({
+          model: "secret",
+          where: [{ field: "id", value: id }],
+        });
+        const ordered = [...rows].sort(
+          (a, b) =>
+            (scopePrecedence.get(a.scope_id as string) ?? Infinity) -
+            (scopePrecedence.get(b.scope_id as string) ?? Infinity),
+        );
+        for (const row of ordered) {
+          const provider = secretProviders.get(row.provider as string);
+          if (!provider) continue;
+          const value = yield* provider.get(id, row.scope_id as string);
+          if (value !== null) return value;
         }
 
         // Fallback: ask every enumerating provider in parallel. First

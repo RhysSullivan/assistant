@@ -933,4 +933,46 @@ describe("tenant isolation (SDK)", () => {
       expect(value).toBeNull();
     }),
   );
+
+  it.effect("secrets.get — innermost scope shadows outer on same id", () =>
+    Effect.gen(function* () {
+      const plugins = [tenantPlugin()] as const;
+      const schema = collectSchemas(plugins);
+      const adapter = makeMemoryAdapter({ schema });
+      const blobs = makeInMemoryBlobStore();
+
+      const innerScope = ScopeId.make("user-org:u1:o1");
+      const outerScope = ScopeId.make("o1");
+
+      const exec = yield* createExecutor({
+        scopes: [
+          new Scope({ id: innerScope, name: "inner", createdAt: new Date() }),
+          new Scope({ id: outerScope, name: "outer", createdAt: new Date() }),
+        ],
+        adapter,
+        blobs,
+        plugins,
+      });
+
+      yield* exec.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("token"),
+          scope: outerScope,
+          name: "org token",
+          value: "org-value",
+        }),
+      );
+      yield* exec.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("token"),
+          scope: innerScope,
+          name: "user token",
+          value: "user-value",
+        }),
+      );
+
+      const value = yield* exec.secrets.get("token");
+      expect(value).toBe("user-value");
+    }),
+  );
 });
