@@ -45,6 +45,10 @@ import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
+import {
+  ApprovalPolicyToggles,
+  HTTP_METHOD_TOKENS,
+} from "@executor/react/plugins/approval-policy-field";
 import { addGoogleDiscoverySource, probeGoogleDiscovery, startGoogleDiscoveryOAuth } from "./atoms";
 
 type GoogleAuthKind = "none" | "oauth2";
@@ -412,6 +416,9 @@ export default function AddGoogleDiscoverySource(props: {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showScopes, setShowScopes] = useState(false);
+  const [annotationPolicy, setAnnotationPolicy] = useState<readonly string[] | undefined>(
+    undefined,
+  );
 
   const scopeId = useScope();
   const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
@@ -576,6 +583,21 @@ export default function AddGoogleDiscoverySource(props: {
             authKind === "oauth2"
               ? (oauthAuth ?? { kind: "none" as const })
               : { kind: "none" as const },
+          ...(annotationPolicy !== undefined
+            ? {
+                annotationPolicy: {
+                  requireApprovalFor: annotationPolicy as readonly (
+                    | "get"
+                    | "put"
+                    | "post"
+                    | "delete"
+                    | "patch"
+                    | "head"
+                    | "options"
+                  )[],
+                },
+              }
+            : {}),
         },
         reactivityKeys: [...sourceWriteKeys],
       });
@@ -586,7 +608,18 @@ export default function AddGoogleDiscoverySource(props: {
     } finally {
       placeholder.done();
     }
-  }, [probe, doAdd, identity, discoveryUrl, authKind, oauthAuth, props, scopeId, beginAdd]);
+  }, [
+    probe,
+    doAdd,
+    identity,
+    discoveryUrl,
+    authKind,
+    oauthAuth,
+    props,
+    scopeId,
+    beginAdd,
+    annotationPolicy,
+  ]);
 
   const addDisabled =
     !probe || adding || (authKind === "oauth2" && (!canUseOAuth || oauthAuth === null));
@@ -796,6 +829,15 @@ export default function AddGoogleDiscoverySource(props: {
           </div>
         )}
       </section>
+
+      {probe && (
+        <ApprovalPolicyToggles
+          tokens={HTTP_METHOD_TOKENS}
+          value={annotationPolicy}
+          onChange={setAnnotationPolicy}
+          description="Choose which HTTP methods require approval before a tool call from this source runs. Defaults: write methods (POST / PUT / PATCH / DELETE) require approval."
+        />
+      )}
 
       {error && (
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">

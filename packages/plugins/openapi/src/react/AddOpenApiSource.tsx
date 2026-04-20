@@ -9,6 +9,10 @@ import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import {
+  ApprovalPolicyToggles,
+  HTTP_METHOD_TOKENS,
+} from "@executor/react/plugins/approval-policy-field";
+import {
   CreatableSecretPicker,
   matchPresetKey,
   type HeaderState,
@@ -187,6 +191,11 @@ export default function AddOpenApiSource(props: {
   const [startingOAuth, setStartingOAuth] = useState(false);
   const [oauth2Error, setOauth2Error] = useState<string | null>(null);
   const oauthCleanup = useRef<(() => void) | null>(null);
+
+  // Annotation policy override — `undefined` means "use plugin defaults".
+  const [annotationPolicy, setAnnotationPolicy] = useState<readonly string[] | undefined>(
+    undefined,
+  );
 
   // Submit
   const [adding, setAdding] = useState(false);
@@ -501,6 +510,9 @@ export default function AddOpenApiSource(props: {
           baseUrl: resolvedBaseUrl || undefined,
           ...(hasHeaders ? { headers: allHeaders } : {}),
           ...(oauth2Auth ? { oauth2: oauth2Auth } : {}),
+          ...(annotationPolicy !== undefined
+            ? { annotationPolicy: { requireApprovalFor: annotationPolicy } }
+            : {}),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -946,6 +958,13 @@ export default function AddOpenApiSource(props: {
               </div>
             )}
           </section>
+
+          <ApprovalPolicyToggles
+            tokens={HTTP_METHOD_TOKENS}
+            value={annotationPolicy}
+            onChange={setAnnotationPolicy}
+            description="Choose which HTTP methods require approval before a tool call runs. By default, write methods (POST, PUT, PATCH, DELETE) require approval."
+          />
 
           {/* Add error */}
           {addError && (

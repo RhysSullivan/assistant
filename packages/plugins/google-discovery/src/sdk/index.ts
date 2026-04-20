@@ -7,6 +7,7 @@ export type {
   GoogleDiscoveryOAuthStartResponse,
   GoogleDiscoveryPluginExtension,
   GoogleDiscoveryProbeResult,
+  GoogleDiscoveryUpdateSourceInput,
 } from "./plugin";
 export { extractGoogleDiscoveryManifest } from "./document";
 export {
@@ -26,6 +27,7 @@ export {
   exchangeAuthorizationCode,
 } from "./oauth";
 export {
+  GoogleDiscoveryAnnotationPolicy,
   GoogleDiscoveryAuth,
   GoogleDiscoveryHttpMethod,
   GoogleDiscoveryInvocationResult,

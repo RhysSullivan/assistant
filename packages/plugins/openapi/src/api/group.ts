@@ -10,7 +10,7 @@ import {
 } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
 import { StoredSourceSchema } from "../sdk/store";
-import { OAuth2Auth } from "../sdk/types";
+import { AnnotationPolicy, OAuth2Auth } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -30,6 +30,7 @@ const AddSpecPayload = Schema.Struct({
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
   oauth2: Schema.optional(OAuth2Auth),
+  annotationPolicy: Schema.optional(AnnotationPolicy),
 });
 
 const PreviewSpecPayload = Schema.Struct({
@@ -40,6 +41,8 @@ const UpdateSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  // `null` clears a previously-set override; `undefined` leaves as-is.
+  annotationPolicy: Schema.optional(Schema.NullOr(AnnotationPolicy)),
 });
 
 const UpdateSourceResponse = Schema.Struct({

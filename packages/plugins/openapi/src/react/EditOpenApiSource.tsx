@@ -33,6 +33,10 @@ import {
 } from "@executor/react/plugins/secret-header-auth";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import {
+  ApprovalPolicyToggles,
+  HTTP_METHOD_TOKENS,
+} from "@executor/react/plugins/approval-policy-field";
+import {
   SourceIdentityFields,
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
@@ -368,6 +372,13 @@ function EditForm(props: {
       headerValueToState(name, value),
     ),
   );
+  // `undefined` = using plugin defaults; any array (even empty) = explicit override.
+  const [annotationPolicy, setAnnotationPolicy] = useState<readonly string[] | undefined>(
+    () => {
+      const stored = props.initial.config.annotationPolicy?.requireApprovalFor;
+      return stored ? [...stored] : undefined;
+    },
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -396,6 +407,10 @@ function EditForm(props: {
           name: identity.name.trim() || undefined,
           baseUrl: baseUrl.trim() || undefined,
           headers: headersFromState(headers),
+          annotationPolicy:
+            annotationPolicy === undefined
+              ? null
+              : { requireApprovalFor: annotationPolicy },
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -461,6 +476,16 @@ function EditForm(props: {
           oauth2Entries={oauth2Entries}
         />
       )}
+
+      <ApprovalPolicyToggles
+        tokens={HTTP_METHOD_TOKENS}
+        value={annotationPolicy}
+        onChange={(next) => {
+          setAnnotationPolicy(next);
+          setDirty(true);
+        }}
+        description="Choose which HTTP methods require approval before a tool call runs."
+      />
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">

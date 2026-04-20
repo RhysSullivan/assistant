@@ -8,6 +8,18 @@ export const GraphqlOperationKind = Schema.Literal("query", "mutation");
 export type GraphqlOperationKind = typeof GraphqlOperationKind.Type;
 
 // ---------------------------------------------------------------------------
+// Annotation policy — per-source override for which operation kinds
+// require approval before a tool call runs. Undefined means "use plugin
+// defaults" (mutations require approval, queries don't).
+// ---------------------------------------------------------------------------
+
+export class AnnotationPolicy extends Schema.Class<AnnotationPolicy>(
+  "GraphqlAnnotationPolicy",
+)({
+  requireApprovalFor: Schema.optional(Schema.Array(GraphqlOperationKind)),
+}) {}
+
+// ---------------------------------------------------------------------------
 // Extracted field (becomes a tool)
 // ---------------------------------------------------------------------------
 

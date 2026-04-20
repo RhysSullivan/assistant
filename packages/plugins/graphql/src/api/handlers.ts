@@ -53,6 +53,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
           introspectionJson: payload.introspectionJson,
           namespace: payload.namespace,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
+          annotationPolicy: payload.annotationPolicy,
         });
         return {
           toolCount: result.toolCount,
@@ -73,6 +74,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "gra
           name: payload.name,
           endpoint: payload.endpoint,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
+          annotationPolicy: payload.annotationPolicy,
         } as GraphqlUpdateSourceInput);
         return { updated: true };
       })),

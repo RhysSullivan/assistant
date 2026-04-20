@@ -97,6 +97,8 @@ const toSourceConfig = (
   payload: { transport: "remote" | "stdio" } & Record<string, unknown>,
   scope: string,
 ): McpSourceConfig => {
+  const annotationPolicy = (payload as { annotationPolicy?: McpSourceConfig["annotationPolicy"] })
+    .annotationPolicy;
   if (payload.transport === "stdio") {
     const p = payload as {
       transport: "stdio";
@@ -116,6 +118,7 @@ const toSourceConfig = (
       env: p.env,
       cwd: p.cwd,
       namespace: p.namespace,
+      annotationPolicy,
     };
   }
 
@@ -149,6 +152,7 @@ const toSourceConfig = (
     headers: p.headers,
     namespace: p.namespace,
     auth: auth as McpSourceConfig extends { auth?: infer A } ? A : never,
+    annotationPolicy,
   };
 };
 
@@ -237,6 +241,7 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           headers: payload.headers,
           queryParams: payload.queryParams,
           auth: payload.auth as McpUpdateSourceInput["auth"],
+          annotationPolicy: payload.annotationPolicy,
         });
         return { updated: true };
       })),

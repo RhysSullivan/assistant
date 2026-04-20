@@ -25,3 +25,7 @@ export const completeGoogleDiscoveryOAuth = GoogleDiscoveryClient.mutation(
   "googleDiscovery",
   "completeOAuth",
 );
+export const updateGoogleDiscoverySource = GoogleDiscoveryClient.mutation(
+  "googleDiscovery",
+  "updateSource",
+);

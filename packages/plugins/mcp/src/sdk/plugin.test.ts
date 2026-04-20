@@ -1,5 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import * as http from "node:http";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
 
 import { createExecutor, makeTestConfig, Scope, ScopeId } from "@executor/sdk";
 
@@ -355,5 +359,266 @@ describe("mcpPlugin", () => {
         expect(orgView.config.endpoint).toBe("http://127.0.0.1:1/org-mcp");
       }
     }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Annotation policy override — per-source `requireApprovalForAll` toggle.
+  //
+  // MCP tools default to `requiresApproval: false` because the server
+  // handles approval mid-invocation via elicitation. When an admin flips
+  // `{ requireApprovalForAll: true }` on the source, every tool from
+  // that source picks up a pre-call approval gate instead.
+  //
+  // We spin up a real in-process MCP server so `executor.tools.list()`
+  // returns actual tool rows — that's what `resolveAnnotations` is keyed
+  // on. The server is intentionally minimal: two tools, no elicitation,
+  // no auth.
+  // -------------------------------------------------------------------------
+
+  type AnnotationTestServer = {
+    readonly url: string;
+    readonly httpServer: http.Server;
+  };
+
+  const makeAnnotationTestServer = (): Effect.Effect<
+    AnnotationTestServer,
+    Error,
+    never
+  > =>
+    Effect.async<AnnotationTestServer, Error>((resume) => {
+      const transports = new Map<string, StreamableHTTPServerTransport>();
+
+      const buildServer = () => {
+        const server = new McpServer(
+          { name: "annotation-test-server", version: "1.0.0" },
+          { capabilities: {} },
+        );
+        server.registerTool(
+          "echo_a",
+          { description: "echo a", inputSchema: { value: z.string() } },
+          async ({ value }: { value: string }) => ({
+            content: [{ type: "text" as const, text: value }],
+          }),
+        );
+        server.registerTool(
+          "echo_b",
+          { description: "echo b", inputSchema: { value: z.string() } },
+          async ({ value }: { value: string }) => ({
+            content: [{ type: "text" as const, text: value }],
+          }),
+        );
+        return server;
+      };
+
+      const httpServer = http.createServer(async (req, res) => {
+        const sessionId = req.headers["mcp-session-id"] as string | undefined;
+        if (sessionId) {
+          const transport = transports.get(sessionId);
+          if (!transport) {
+            res.writeHead(404);
+            res.end("Session not found");
+            return;
+          }
+          await transport.handleRequest(req, res);
+          return;
+        }
+        const mcpServer = buildServer();
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => crypto.randomUUID(),
+          onsessioninitialized: (sid) => {
+            transports.set(sid, transport);
+          },
+        });
+        await mcpServer.connect(transport);
+        await transport.handleRequest(req, res);
+      });
+
+      httpServer.listen(0, () => {
+        const addr = httpServer.address();
+        const port = typeof addr === "object" && addr ? addr.port : 0;
+        resume(
+          Effect.succeed({
+            url: `http://127.0.0.1:${port}`,
+            httpServer,
+          }),
+        );
+      });
+    });
+
+  const withAnnotationServer = Effect.acquireRelease(
+    makeAnnotationTestServer(),
+    ({ httpServer }) =>
+      Effect.sync(() => {
+        httpServer.close();
+      }),
+  );
+
+  it.scoped("default — no annotationPolicy leaves tools auto-approved", () =>
+    Effect.gen(function* () {
+      const server = yield* withAnnotationServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [mcpPlugin()] as const }),
+      );
+
+      yield* executor.mcp.addSource({
+        transport: "remote",
+        scope: "test-scope",
+        name: "annot-default",
+        endpoint: server.url,
+        namespace: "annot_default",
+      });
+
+      const tools = yield* executor.tools.list();
+      const fromSource = tools.filter((t) => t.sourceId === "annot_default");
+      expect(fromSource.length).toBeGreaterThanOrEqual(2);
+      for (const t of fromSource) {
+        expect(t.annotations?.requiresApproval ?? false).toBe(false);
+      }
+
+      const stored = yield* executor.mcp.getSource("annot_default", "test-scope");
+      expect(stored?.annotationPolicy).toBeUndefined();
+    }),
+  );
+
+  it.scoped(
+    "override on — requireApprovalForAll:true forces approval on every tool",
+    () =>
+      Effect.gen(function* () {
+        const server = yield* withAnnotationServer;
+        const executor = yield* createExecutor(
+          makeTestConfig({ plugins: [mcpPlugin()] as const }),
+        );
+
+        yield* executor.mcp.addSource({
+          transport: "remote",
+          scope: "test-scope",
+          name: "annot-on",
+          endpoint: server.url,
+          namespace: "annot_on",
+          annotationPolicy: { requireApprovalForAll: true },
+        });
+
+        const tools = yield* executor.tools.list();
+        const fromSource = tools.filter((t) => t.sourceId === "annot_on");
+        expect(fromSource.length).toBeGreaterThanOrEqual(2);
+        for (const t of fromSource) {
+          expect(t.annotations?.requiresApproval).toBe(true);
+          expect(t.annotations?.approvalDescription).toBeTypeOf("string");
+          expect(t.annotations?.approvalDescription?.length ?? 0).toBeGreaterThan(
+            0,
+          );
+        }
+
+        const stored = yield* executor.mcp.getSource("annot_on", "test-scope");
+        expect(stored?.annotationPolicy?.requireApprovalForAll).toBe(true);
+      }),
+  );
+
+  it.scoped(
+    "override off (explicit false) — same approval shape as default but persists",
+    () =>
+      Effect.gen(function* () {
+        const server = yield* withAnnotationServer;
+        const executor = yield* createExecutor(
+          makeTestConfig({ plugins: [mcpPlugin()] as const }),
+        );
+
+        yield* executor.mcp.addSource({
+          transport: "remote",
+          scope: "test-scope",
+          name: "annot-off",
+          endpoint: server.url,
+          namespace: "annot_off",
+          annotationPolicy: { requireApprovalForAll: false },
+        });
+
+        const tools = yield* executor.tools.list();
+        const fromSource = tools.filter((t) => t.sourceId === "annot_off");
+        expect(fromSource.length).toBeGreaterThanOrEqual(2);
+        for (const t of fromSource) {
+          expect(t.annotations?.requiresApproval ?? false).toBe(false);
+        }
+
+        // Round-trip distinguishes an explicit-off from absent.
+        const stored = yield* executor.mcp.getSource("annot_off", "test-scope");
+        expect(stored?.annotationPolicy).toBeDefined();
+        expect(stored?.annotationPolicy?.requireApprovalForAll).toBe(false);
+      }),
+  );
+
+  it.scoped(
+    "updateSource(annotationPolicy: null) clears the override",
+    () =>
+      Effect.gen(function* () {
+        const server = yield* withAnnotationServer;
+        const executor = yield* createExecutor(
+          makeTestConfig({ plugins: [mcpPlugin()] as const }),
+        );
+
+        yield* executor.mcp.addSource({
+          transport: "remote",
+          scope: "test-scope",
+          name: "annot-clear",
+          endpoint: server.url,
+          namespace: "annot_clear",
+          annotationPolicy: { requireApprovalForAll: true },
+        });
+
+        // Sanity — before the clear, every tool requires approval.
+        let tools = yield* executor.tools.list();
+        let fromSource = tools.filter((t) => t.sourceId === "annot_clear");
+        for (const t of fromSource) {
+          expect(t.annotations?.requiresApproval).toBe(true);
+        }
+
+        yield* executor.mcp.updateSource("annot_clear", "test-scope", {
+          annotationPolicy: null,
+        });
+
+        tools = yield* executor.tools.list();
+        fromSource = tools.filter((t) => t.sourceId === "annot_clear");
+        for (const t of fromSource) {
+          expect(t.annotations?.requiresApproval ?? false).toBe(false);
+        }
+
+        const stored = yield* executor.mcp.getSource("annot_clear", "test-scope");
+        expect(stored?.annotationPolicy).toBeUndefined();
+      }),
+  );
+
+  it.scoped(
+    "updateSource without annotationPolicy key leaves the override alone",
+    () =>
+      Effect.gen(function* () {
+        const server = yield* withAnnotationServer;
+        const executor = yield* createExecutor(
+          makeTestConfig({ plugins: [mcpPlugin()] as const }),
+        );
+
+        yield* executor.mcp.addSource({
+          transport: "remote",
+          scope: "test-scope",
+          name: "annot-keep",
+          endpoint: server.url,
+          namespace: "annot_keep",
+          annotationPolicy: { requireApprovalForAll: true },
+        });
+
+        // Update a sibling field only — policy must survive unchanged.
+        yield* executor.mcp.updateSource("annot_keep", "test-scope", {
+          name: "annot-keep-renamed",
+        });
+
+        const stored = yield* executor.mcp.getSource("annot_keep", "test-scope");
+        expect(stored?.name).toBe("annot-keep-renamed");
+        expect(stored?.annotationPolicy?.requireApprovalForAll).toBe(true);
+
+        const tools = yield* executor.tools.list();
+        const fromSource = tools.filter((t) => t.sourceId === "annot_keep");
+        expect(fromSource.length).toBeGreaterThanOrEqual(2);
+        for (const t of fromSource) {
+          expect(t.annotations?.requiresApproval).toBe(true);
+        }
+      }),
   );
 });

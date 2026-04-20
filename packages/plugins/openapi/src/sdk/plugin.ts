@@ -54,6 +54,7 @@ import {
   type StoredSource,
 } from "./store";
 import {
+  AnnotationPolicy,
   HeaderValue as HeaderValueSchema,
   InvocationConfig,
   OAuth2Auth,
@@ -82,12 +83,18 @@ export interface OpenApiSpecConfig {
   readonly namespace?: string;
   readonly headers?: Record<string, HeaderValue>;
   readonly oauth2?: OAuth2Auth;
+  /** Per-source override for the default HTTP-method-based annotation
+   *  policy. Omit to use the default (POST/PUT/PATCH/DELETE require
+   *  approval). */
+  readonly annotationPolicy?: AnnotationPolicy;
 }
 
 export interface OpenApiUpdateSourceInput {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, HeaderValue>;
+  /** `null` clears a previously-set override; `undefined` leaves as-is. */
+  readonly annotationPolicy?: AnnotationPolicy | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +294,7 @@ export const openApiPlugin = definePlugin(
       readonly namespace?: string;
       readonly headers?: Record<string, HeaderValue>;
       readonly oauth2?: OAuth2Auth;
+      readonly annotationPolicy?: AnnotationPolicy;
     };
 
     // ctx comes from the plugin runtime — the same instance is passed to
@@ -332,6 +340,7 @@ export const openApiPlugin = definePlugin(
           namespace: input.namespace,
           headers: input.headers,
           oauth2,
+          annotationPolicy: input.annotationPolicy,
         };
 
         const storedSource: StoredSource = {
@@ -464,6 +473,7 @@ export const openApiPlugin = definePlugin(
               namespace: config.namespace,
               headers: config.headers,
               oauth2: config.oauth2,
+              annotationPolicy: config.annotationPolicy,
             });
           });
 
@@ -504,6 +514,7 @@ export const openApiPlugin = definePlugin(
               name: input.name?.trim() || undefined,
               baseUrl: input.baseUrl,
               headers: input.headers,
+              annotationPolicy: input.annotationPolicy,
             }),
 
           startOAuth: (input) =>
@@ -851,18 +862,29 @@ export const openApiPlugin = definePlugin(
             scopes.add(row.scope_id as string);
           }
           const byScope = new Map<string, Map<string, OperationBinding>>();
+          const policyByScope = new Map<
+            string,
+            { readonly requireApprovalFor?: readonly string[] } | null | undefined
+          >();
           for (const scope of scopes) {
             const ops = yield* ctx.storage.listOperationsBySource(sourceId, scope);
             const byId = new Map<string, OperationBinding>();
             for (const op of ops) byId.set(op.toolId, op.binding);
             byScope.set(scope, byId);
+            const source = yield* ctx.storage.getSource(sourceId, scope);
+            policyByScope.set(scope, source?.config.annotationPolicy ?? null);
           }
 
           const out: Record<string, ToolAnnotations> = {};
           for (const row of toolRows as readonly ToolRow[]) {
-            const binding = byScope.get(row.scope_id as string)?.get(row.id);
+            const scope = row.scope_id as string;
+            const binding = byScope.get(scope)?.get(row.id);
             if (binding) {
-              out[row.id] = annotationsForOperation(binding.method, binding.pathTemplate);
+              out[row.id] = annotationsForOperation(
+                binding.method,
+                binding.pathTemplate,
+                policyByScope.get(scope) ?? null,
+              );
             }
           }
           return out;

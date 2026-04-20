@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { McpStoredSourceData } from "./types";
+import { AnnotationPolicy, McpStoredSourceData } from "./types";
 
 // ---------------------------------------------------------------------------
 // Stored source — the shape persisted by the binding store and exposed
@@ -11,6 +11,7 @@ export class McpStoredSourceSchema extends Schema.Class<McpStoredSourceSchema>("
   namespace: Schema.String,
   name: Schema.String,
   config: McpStoredSourceData,
+  annotationPolicy: Schema.optional(AnnotationPolicy),
 }) {}
 
 export type McpStoredSourceSchemaType = typeof McpStoredSourceSchema.Type;

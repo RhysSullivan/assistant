@@ -32,6 +32,7 @@ import {
   exchangeAuthorizationCode,
 } from "./oauth";
 import type {
+  GoogleDiscoveryAnnotationPolicy,
   GoogleDiscoveryAuth,
   GoogleDiscoveryManifest,
   GoogleDiscoveryManifestMethod,
@@ -67,6 +68,16 @@ export interface GoogleDiscoveryAddSourceInput {
   readonly discoveryUrl: string;
   readonly namespace?: string;
   readonly auth: GoogleDiscoveryAuth;
+  /** Per-source override for the default HTTP-method-based annotation
+   *  policy. Omit to use the default (POST / PUT / PATCH / DELETE require
+   *  approval). */
+  readonly annotationPolicy?: GoogleDiscoveryAnnotationPolicy;
+}
+
+export interface GoogleDiscoveryUpdateSourceInput {
+  readonly name?: string;
+  /** `null` clears a previously-set override; `undefined` leaves as-is. */
+  readonly annotationPolicy?: GoogleDiscoveryAnnotationPolicy | null;
 }
 
 export interface GoogleDiscoveryOAuthStartInput {
@@ -155,6 +166,10 @@ export interface GoogleDiscoveryPluginExtension {
     namespace: string,
     scope: string,
   ) => Effect.Effect<GoogleDiscoveryStoredSource | null, StorageFailure>;
+  readonly updateSource: (
+    namespace: string,
+    input: GoogleDiscoveryUpdateSourceInput,
+  ) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +246,7 @@ const registerManifest = (
   scope: string,
   manifest: GoogleDiscoveryManifest,
   sourceData: GoogleDiscoveryStoredSourceData,
+  annotationPolicy?: GoogleDiscoveryAnnotationPolicy,
 ) =>
   Effect.gen(function* () {
     // 1. Clear any previous manifest for this namespace at this scope.
@@ -286,6 +302,7 @@ const registerManifest = (
       scope,
       name: sourceData.name,
       config: sourceData,
+      ...(annotationPolicy !== undefined ? { annotationPolicy } : {}),
     });
 
     return manifest.methods.length;
@@ -381,6 +398,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
             input.scope,
             manifest,
             sourceData,
+            input.annotationPolicy,
           );
           return { toolCount, namespace };
         }),
@@ -514,6 +532,12 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       }),
 
     getSource: (namespace, scope) => ctx.storage.getSource(namespace, scope),
+
+    updateSource: (namespace, input) =>
+      ctx.storage.updateSourceMeta(namespace, {
+        name: input.name?.trim() || undefined,
+        annotationPolicy: input.annotationPolicy,
+      }),
   } satisfies GoogleDiscoveryPluginExtension),
 
   invokeTool: ({ ctx, toolRow, args }) =>
@@ -534,22 +558,28 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       // toolRows for a single (plugin_id, source_id) group can still
       // straddle multiple scopes when the source is shadowed (e.g. an
       // org-level source plus a per-user override that re-registers
-      // the same tool ids). Run one getBindingsForSource per distinct
-      // scope so each lookup pins {source_id, scope_id} and we don't
-      // fall through to the wrong scope's bindings.
+      // the same tool ids). Run one getBindingsForSource + getSource
+      // per distinct scope so each lookup pins {source_id, scope_id}
+      // and we don't fall through to the wrong scope's bindings or
+      // annotation policy.
       const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
       const scopes = new Set<string>();
       for (const row of toolRows) scopes.add(row.scope_id as string);
       const byScope = new Map<string, ReadonlyMap<string, GoogleDiscoveryMethodBinding>>();
+      const policyByScope = new Map<string, GoogleDiscoveryAnnotationPolicy | undefined>();
       for (const scope of scopes) {
         const bindings = yield* typedCtx.storage.getBindingsForSource(sourceId, scope);
         byScope.set(scope, bindings);
+        const source = yield* typedCtx.storage.getSource(sourceId, scope);
+        policyByScope.set(scope, source?.annotationPolicy);
       }
       const out: Record<string, ToolAnnotations> = {};
       for (const row of toolRows) {
-        const binding = byScope.get(row.scope_id as string)?.get(row.id);
+        const scope = row.scope_id as string;
+        const binding = byScope.get(scope)?.get(row.id);
         if (binding) {
-          out[row.id] = annotationsForOperation(binding.method, binding.pathTemplate);
+          const policy = policyByScope.get(scope);
+          out[row.id] = annotationsForOperation(binding.method, binding.pathTemplate, policy);
         }
       }
       return out;

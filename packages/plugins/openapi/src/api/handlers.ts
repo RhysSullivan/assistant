@@ -71,6 +71,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           namespace: payload.namespace,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
           oauth2: payload.oauth2,
+          annotationPolicy: payload.annotationPolicy,
         });
         return {
           toolCount: result.toolCount,
@@ -91,6 +92,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           name: payload.name,
           baseUrl: payload.baseUrl,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
+          annotationPolicy: payload.annotationPolicy,
         } as OpenApiUpdateSourceInput);
         return { updated: true };
       })),

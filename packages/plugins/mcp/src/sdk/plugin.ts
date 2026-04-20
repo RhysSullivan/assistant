@@ -42,7 +42,12 @@ import {
   type McpToolManifestEntry,
 } from "./manifest";
 import { exchangeMcpOAuthCode, startMcpOAuthAuthorization } from "./oauth";
-import { McpToolBinding, type McpConnectionAuth, type McpStoredSourceData } from "./types";
+import {
+  AnnotationPolicy,
+  McpToolBinding,
+  type McpConnectionAuth,
+  type McpStoredSourceData,
+} from "./types";
 
 import {
   SECRET_REF_PREFIX,
@@ -74,6 +79,9 @@ export interface McpRemoteSourceConfig extends McpSourceScopeField {
   readonly headers?: Record<string, string>;
   readonly namespace?: string;
   readonly auth?: McpConnectionAuth;
+  /** Per-source override for the default annotation policy. Omit to
+   *  leave MCP tools auto-approved (the plugin default). */
+  readonly annotationPolicy?: AnnotationPolicy;
 }
 
 export interface McpStdioSourceConfig extends McpSourceScopeField {
@@ -84,6 +92,9 @@ export interface McpStdioSourceConfig extends McpSourceScopeField {
   readonly env?: Record<string, string>;
   readonly cwd?: string;
   readonly namespace?: string;
+  /** Per-source override for the default annotation policy. Omit to
+   *  leave MCP tools auto-approved (the plugin default). */
+  readonly annotationPolicy?: AnnotationPolicy;
 }
 
 export type McpSourceConfig = McpRemoteSourceConfig | McpStdioSourceConfig;
@@ -162,6 +173,9 @@ export interface McpUpdateSourceInput {
   readonly headers?: Record<string, string>;
   readonly queryParams?: Record<string, string>;
   readonly auth?: McpConnectionAuth;
+  /** `null` clears a previously-set override; `undefined` leaves as-is;
+   *  a concrete policy replaces the stored policy. */
+  readonly annotationPolicy?: AnnotationPolicy | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -678,6 +692,7 @@ export const mcpPlugin = definePlugin(
                     scope: config.scope,
                     name: sourceName,
                     config: sd,
+                    annotationPolicy: config.annotationPolicy,
                   });
 
                   yield* ctx.storage.putBindings(
@@ -1007,24 +1022,40 @@ export const mcpPlugin = definePlugin(
         ) =>
           Effect.gen(function* () {
             const existing = yield* ctx.storage.getSource(namespace, scope);
-            if (!existing || existing.config.transport !== "remote") return;
+            if (!existing) return;
 
-            const remote = existing.config;
-            const updatedConfig: McpStoredSourceData = {
-              ...remote,
-              ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
-              ...(input.headers !== undefined ? { headers: input.headers } : {}),
-              ...(input.auth !== undefined ? { auth: input.auth } : {}),
-              ...(input.queryParams !== undefined
-                ? { queryParams: input.queryParams }
-                : {}),
-            };
+            // Only the config portion is transport-specific; annotation
+            // policy applies to every source kind and is patched even
+            // when no transport-level fields change.
+            let updatedConfig: McpStoredSourceData | undefined;
+            if (existing.config.transport === "remote") {
+              const remote = existing.config;
+              const touchesConfig =
+                input.endpoint !== undefined ||
+                input.headers !== undefined ||
+                input.auth !== undefined ||
+                input.queryParams !== undefined;
+              if (touchesConfig) {
+                updatedConfig = {
+                  ...remote,
+                  ...(input.endpoint !== undefined
+                    ? { endpoint: input.endpoint }
+                    : {}),
+                  ...(input.headers !== undefined
+                    ? { headers: input.headers }
+                    : {}),
+                  ...(input.auth !== undefined ? { auth: input.auth } : {}),
+                  ...(input.queryParams !== undefined
+                    ? { queryParams: input.queryParams }
+                    : {}),
+                };
+              }
+            }
 
-            yield* ctx.storage.putSource({
-              namespace,
-              scope,
-              name: input.name?.trim() || existing.name,
+            yield* ctx.storage.updateSourceMeta(namespace, scope, {
+              name: input.name?.trim() || undefined,
               config: updatedConfig,
+              annotationPolicy: input.annotationPolicy,
             });
           }).pipe(
             Effect.withSpan("mcp.plugin.update_source", {
@@ -1186,13 +1217,52 @@ export const mcpPlugin = definePlugin(
           }),
         ),
 
-      // MCP tools never require approval at the tool level — elicitation is
+      // MCP tools default to no tool-level approval — elicitation is
       // handled mid-invocation by the server via the elicit capability.
-      resolveAnnotations: ({ toolRows }) =>
-        Effect.sync(() => {
-          const out: Record<string, { requiresApproval: boolean }> = {};
+      // Per-source admins can flip `annotationPolicy.requireApprovalForAll`
+      // to re-introduce a pre-call approval gate for every tool.
+      resolveAnnotations: ({ ctx, sourceId, toolRows }) =>
+        Effect.gen(function* () {
+          // toolRows for a single (plugin_id, source_id) group can still
+          // straddle multiple scopes when the source is shadowed (e.g.
+          // an org-level MCP source plus a per-user override that
+          // re-registers the same tool ids). Per-source annotation
+          // policy is scope-owned — pin the source lookup per distinct
+          // scope so a user-scope override doesn't leak onto org-scope
+          // tools (and vice versa).
+          const scopes = new Set<string>();
           for (const row of toolRows) {
-            out[row.id] = { requiresApproval: false };
+            scopes.add(row.scope_id as string);
+          }
+          const byScope = new Map<
+            string,
+            { name: string; policy: AnnotationPolicy | undefined }
+          >();
+          for (const scope of scopes) {
+            const source = yield* ctx.storage.getSource(sourceId, scope);
+            byScope.set(scope, {
+              name: source?.name ?? sourceId,
+              policy: source?.annotationPolicy,
+            });
+          }
+
+          const out: Record<
+            string,
+            {
+              readonly requiresApproval: boolean;
+              readonly approvalDescription?: string;
+            }
+          > = {};
+          for (const row of toolRows) {
+            const entry = byScope.get(row.scope_id as string);
+            const requireAll =
+              entry?.policy?.requireApprovalForAll === true;
+            out[row.id] = requireAll
+              ? {
+                  requiresApproval: true,
+                  approvalDescription: `Source "${entry?.name ?? sourceId}" requires approval for every MCP tool call`,
+                }
+              : { requiresApproval: false };
           }
           return out;
         }),

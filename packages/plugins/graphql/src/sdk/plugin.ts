@@ -35,6 +35,7 @@ import {
   type StoredOperation,
 } from "./store";
 import {
+  AnnotationPolicy,
   ExtractedField,
   OperationBinding,
   type HeaderValue as HeaderValueValue,
@@ -54,9 +55,10 @@ export interface GraphqlSourceConfig {
    * Executor scope id that owns this source row. Must be one of the
    * executor's configured scopes. Typical shape: an admin adds the
    * source at the outermost (organization) scope so it's visible to
-   * every inner (per-user) scope via fall-through reads.
+   * every inner (per-user) scope via fall-through reads. When omitted,
+   * the plugin defaults to the innermost scope (`ctx.scopes[0].id`).
    */
-  readonly scope: string;
+  readonly scope?: string;
   /** Display name for the source. Falls back to namespace if not provided. */
   readonly name?: string;
   /** Optional: introspection JSON text (if endpoint doesn't support introspection) */
@@ -65,6 +67,8 @@ export interface GraphqlSourceConfig {
   readonly namespace?: string;
   /** Headers applied to every request. Values can reference secrets. */
   readonly headers?: Record<string, HeaderValue>;
+  /** Per-source annotation policy override. Omitted = plugin defaults. */
+  readonly annotationPolicy?: AnnotationPolicy;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +79,8 @@ export interface GraphqlUpdateSourceInput {
   readonly name?: string;
   readonly endpoint?: string;
   readonly headers?: Record<string, HeaderValue>;
+  /** `null` clears a previously-set override; `undefined` leaves as-is. */
+  readonly annotationPolicy?: AnnotationPolicy | null;
 }
 
 /**
@@ -106,23 +112,37 @@ export interface GraphqlPluginExtension {
   ) => Effect.Effect<void, StorageFailure>;
 
   /** Fetch the full stored source by namespace (or null if missing).
-   *  `scope` returns the exact row at that scope. For fall-through
-   *  reads across the executor's scope stack, use `executor.sources.*`. */
-  readonly getSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<StoredGraphqlSource | null, StorageFailure>;
+   *  When `scope` is provided it returns the exact row at that scope;
+   *  when omitted the plugin defaults to the innermost scope
+   *  (`ctx.scopes[0].id`). For fall-through reads across the executor's
+   *  scope stack, use `executor.sources.*`. */
+  readonly getSource: {
+    (
+      namespace: string,
+      scope: string,
+    ): Effect.Effect<StoredGraphqlSource | null, StorageFailure>;
+    (
+      namespace: string,
+    ): Effect.Effect<StoredGraphqlSource | null, StorageFailure>;
+  };
 
-  /** Update config (endpoint, headers) for an existing GraphQL source.
-   *  Does NOT re-introspect or re-register tools — just patches the
-   *  stored endpoint/headers used at invoke time. `scope` pins the
-   *  mutation to a single row so shadowed rows at other scopes are
-   *  untouched. */
-  readonly updateSource: (
-    namespace: string,
-    scope: string,
-    input: GraphqlUpdateSourceInput,
-  ) => Effect.Effect<void, StorageFailure>;
+  /** Update config (endpoint, headers, annotation policy) for an
+   *  existing GraphQL source. Does NOT re-introspect or re-register
+   *  tools — just patches the stored values used at invoke time.
+   *  When `scope` is provided it pins the mutation to a single row so
+   *  shadowed rows at other scopes are untouched; when omitted the
+   *  plugin defaults to the innermost scope (`ctx.scopes[0].id`). */
+  readonly updateSource: {
+    (
+      namespace: string,
+      scope: string,
+      input: GraphqlUpdateSourceInput,
+    ): Effect.Effect<void, StorageFailure>;
+    (
+      namespace: string,
+      input: GraphqlUpdateSourceInput,
+    ): Effect.Effect<void, StorageFailure>;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -274,14 +294,20 @@ const prepareOperations = (
   });
 };
 
-const annotationsFor = (binding: OperationBinding): ToolAnnotations => {
-  if (binding.kind === "mutation") {
-    return {
-      requiresApproval: true,
-      approvalDescription: `mutation ${binding.fieldName}`,
-    };
-  }
-  return {};
+const DEFAULT_REQUIRE_APPROVAL_KINDS = new Set<GraphqlOperationKind>(["mutation"]);
+
+const annotationsFor = (
+  binding: OperationBinding,
+  policy?: AnnotationPolicy | undefined,
+): ToolAnnotations => {
+  const requireSet = policy?.requireApprovalFor
+    ? new Set<string>(policy.requireApprovalFor)
+    : DEFAULT_REQUIRE_APPROVAL_KINDS;
+  if (!requireSet.has(binding.kind)) return {};
+  return {
+    requiresApproval: true,
+    approvalDescription: `${binding.kind} ${binding.fieldName}`,
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -352,15 +378,20 @@ export const graphqlPlugin = definePlugin(
               );
 
               const displayName = config.name?.trim() || namespace;
+              const resolvedScope =
+                config.scope ?? (ctx.scopes[0]!.id as string);
 
               // Persist the source + per-operation bindings first so any
               // subsequent core-source register collision rolls back both.
               const storedSource: StoredGraphqlSource = {
                 namespace,
-                scope: config.scope,
+                scope: resolvedScope,
                 name: displayName,
                 endpoint: config.endpoint,
                 headers: config.headers ?? {},
+                ...(config.annotationPolicy
+                  ? { annotationPolicy: config.annotationPolicy }
+                  : {}),
               };
 
               const storedOps: StoredOperation[] = prepared.map((p) => ({
@@ -373,7 +404,7 @@ export const graphqlPlugin = definePlugin(
 
               yield* ctx.core.sources.register({
                 id: namespace,
-                scope: config.scope,
+                scope: resolvedScope,
                 kind: "graphql",
                 name: displayName,
                 url: config.endpoint,
@@ -390,7 +421,7 @@ export const graphqlPlugin = definePlugin(
               if (Object.keys(definitions).length > 0) {
                 yield* ctx.core.definitions.register({
                   sourceId: namespace,
-                  scope: config.scope,
+                  scope: resolvedScope,
                   definitions,
                 });
               }
@@ -427,15 +458,31 @@ export const graphqlPlugin = definePlugin(
               }
             }),
 
-          getSource: (namespace, scope) =>
-            ctx.storage.getSource(namespace, scope),
+          getSource: ((
+            namespace: string,
+            scope?: string,
+          ) =>
+            ctx.storage.getSource(
+              namespace,
+              scope ?? (ctx.scopes[0]!.id as string),
+            )) as GraphqlPluginExtension["getSource"],
 
-          updateSource: (namespace, scope, input) =>
-            ctx.storage.updateSourceMeta(namespace, scope, {
+          updateSource: ((
+            namespace: string,
+            scopeOrInput: string | GraphqlUpdateSourceInput,
+            maybeInput?: GraphqlUpdateSourceInput,
+          ) => {
+            const [resolvedScope, input] =
+              typeof scopeOrInput === "string"
+                ? [scopeOrInput, maybeInput!]
+                : [ctx.scopes[0]!.id as string, scopeOrInput];
+            return ctx.storage.updateSourceMeta(namespace, resolvedScope, {
               name: input.name?.trim() || undefined,
               endpoint: input.endpoint,
               headers: input.headers,
-            }),
+              annotationPolicy: input.annotationPolicy,
+            });
+          }) as GraphqlPluginExtension["updateSource"],
         } satisfies GraphqlPluginExtension;
       },
 
@@ -529,26 +576,40 @@ export const graphqlPlugin = definePlugin(
           // org-level GraphQL source plus a per-user override that
           // re-registers the same tool ids). Run one listOperationsBySource
           // per distinct scope so each lookup pins {source_id, scope_id}
-          // and we don't fall through to the wrong scope's bindings.
+          // and we don't fall through to the wrong scope's bindings. The
+          // per-source annotation policy is also scope-owned — pin it the
+          // same way so a user-scope override doesn't leak onto org-scope
+          // tools (and vice versa).
           const scopes = new Set<string>();
           for (const row of toolRows as readonly ToolRow[]) {
             scopes.add(row.scope_id as string);
           }
-          const byScope = new Map<string, Map<string, OperationBinding>>();
+          const byScope = new Map<
+            string,
+            {
+              bindings: Map<string, OperationBinding>;
+              policy: AnnotationPolicy | undefined;
+            }
+          >();
           for (const scope of scopes) {
             const ops = yield* ctx.storage.listOperationsBySource(
               sourceId,
               scope,
             );
-            const byId = new Map<string, OperationBinding>();
-            for (const op of ops) byId.set(op.toolId, op.binding);
-            byScope.set(scope, byId);
+            const bindings = new Map<string, OperationBinding>();
+            for (const op of ops) bindings.set(op.toolId, op.binding);
+            const source = yield* ctx.storage.getSource(sourceId, scope);
+            byScope.set(scope, {
+              bindings,
+              policy: source?.annotationPolicy,
+            });
           }
 
           const out: Record<string, ToolAnnotations> = {};
           for (const row of toolRows as readonly ToolRow[]) {
-            const binding = byScope.get(row.scope_id as string)?.get(row.id);
-            if (binding) out[row.id] = annotationsFor(binding);
+            const entry = byScope.get(row.scope_id as string);
+            const binding = entry?.bindings.get(row.id);
+            if (binding) out[row.id] = annotationsFor(binding, entry?.policy);
           }
           return out;
         }),

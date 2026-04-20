@@ -16,6 +16,7 @@ import {
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
+import { ApprovalPolicySwitch } from "@executor/react/plugins/approval-policy-field";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,9 @@ function RemoteEditForm(props: {
       name,
       value,
     })),
+  );
+  const [annotationPolicy, setAnnotationPolicy] = useState<boolean | undefined>(
+    props.initial.annotationPolicy?.requireApprovalForAll,
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +93,10 @@ function RemoteEditForm(props: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
           headers: headersObj,
+          annotationPolicy:
+            annotationPolicy === undefined
+              ? null
+              : { requireApprovalForAll: annotationPolicy },
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -170,6 +178,18 @@ function RemoteEditForm(props: {
         </Button>
       </section>
 
+      <ApprovalPolicySwitch
+        description="MCP servers usually handle approval themselves with elicitation mid-call. Flip this on to require approval before any tool from this source runs."
+        switchLabel="Require approval for every tool call"
+        switchDescription="Each tool call from this source will ask for confirmation."
+        defaultValue={false}
+        value={annotationPolicy}
+        onChange={(next) => {
+          setAnnotationPolicy(next);
+          setDirty(true);
+        }}
+      />
+
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
           <p className="text-sm text-destructive">{error}</p>
@@ -198,13 +218,45 @@ function StdioReadOnly(props: {
   onSave: () => void;
 }) {
   const { command, args } = props.initial.config;
+  const scopeId = useScope();
+  const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
+  const [annotationPolicy, setAnnotationPolicy] = useState<boolean | undefined>(
+    props.initial.annotationPolicy?.requireApprovalForAll,
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await doUpdate({
+        path: { scopeId, namespace: props.sourceId },
+        payload: {
+          annotationPolicy:
+            annotationPolicy === undefined
+              ? null
+              : { requireApprovalForAll: annotationPolicy },
+        },
+        reactivityKeys: sourceWriteKeys,
+      });
+      setDirty(false);
+      props.onSave();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update source");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Stdio MCP sources cannot be edited in the UI. Modify the executor.jsonc config file
-          directly.
+          Stdio command and arguments are managed via the executor.jsonc config file. Approval
+          policy can be changed here.
         </p>
       </div>
 
@@ -220,8 +272,31 @@ function StdioReadOnly(props: {
         </Badge>
       </div>
 
-      <div className="flex items-center justify-end border-t border-border pt-4">
-        <Button onClick={props.onSave}>Done</Button>
+      <ApprovalPolicySwitch
+        description="MCP servers usually handle approval themselves with elicitation mid-call. Flip this on to require approval before any tool from this source runs."
+        switchLabel="Require approval for every tool call"
+        switchDescription="Each tool call from this source will ask for confirmation."
+        defaultValue={false}
+        value={annotationPolicy}
+        onChange={(next) => {
+          setAnnotationPolicy(next);
+          setDirty(true);
+        }}
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between border-t border-border pt-4">
+        <Button variant="ghost" onClick={props.onSave}>
+          Cancel
+        </Button>
+        <Button onClick={handleSave} disabled={!dirty || saving}>
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ import {
   type StorageFailure,
 } from "@executor/sdk";
 
-import { McpToolBinding, McpStoredSourceData } from "./types";
+import { AnnotationPolicy, McpToolBinding, McpStoredSourceData } from "./types";
 import { McpOAuthSession } from "./oauth";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +25,7 @@ export const mcpSchema = defineSchema({
       scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       config: { type: "json", required: true },
+      annotation_policy: { type: "json", required: false },
       created_at: { type: "date", required: true },
     },
   },
@@ -69,6 +70,9 @@ const encodeSourceData = Schema.encodeSync(McpStoredSourceData);
 const decodeBinding = Schema.decodeUnknownSync(McpToolBinding);
 const encodeBinding = Schema.encodeSync(McpToolBinding);
 
+const decodeAnnotationPolicy = Schema.decodeUnknownSync(AnnotationPolicy);
+const encodeAnnotationPolicy = Schema.encodeSync(AnnotationPolicy);
+
 const decodeSession = Schema.decodeUnknownSync(McpOAuthSession);
 const encodeSession = Schema.encodeSync(McpOAuthSession);
 
@@ -93,6 +97,9 @@ export interface McpStoredSource {
   readonly scope: string;
   readonly name: string;
   readonly config: McpStoredSourceData;
+  /** Per-source override of the default approval policy. Undefined means
+   *  "use the plugin default" (no forced approval). */
+  readonly annotationPolicy?: AnnotationPolicy;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +155,23 @@ export interface McpBindingStore {
   readonly removeSource: (
     namespace: string,
     scope: string,
+  ) => Effect.Effect<void, StorageFailure>;
+
+  /**
+   * Patch sibling fields of an existing source without touching its tool
+   * bindings. `name` is renamed when a non-empty string is supplied.
+   * `annotationPolicy` follows the three-way null/undefined convention:
+   * `undefined` leaves it alone, `null` clears the override, a concrete
+   * value writes the override.
+   */
+  readonly updateSourceMeta: (
+    namespace: string,
+    scope: string,
+    patch: {
+      readonly name?: string;
+      readonly config?: McpStoredSourceData;
+      readonly annotationPolicy?: AnnotationPolicy | null;
+    },
   ) => Effect.Effect<void, StorageFailure>;
 
   readonly putOAuthSession: (
@@ -214,12 +238,19 @@ export const makeMcpStore = ({
     listSources: () =>
       Effect.gen(function* () {
         const rows = yield* db.findMany({ model: "mcp_source" });
-        return rows.map((row) => ({
-          namespace: row.id,
-          scope: row.scope_id,
-          name: row.name,
-          config: decodeSourceData(coerceJson(row.config)),
-        }));
+        return rows.map((row) => {
+          const policyRaw = row.annotation_policy;
+          return {
+            namespace: row.id,
+            scope: row.scope_id,
+            name: row.name,
+            config: decodeSourceData(coerceJson(row.config)),
+            annotationPolicy:
+              policyRaw == null
+                ? undefined
+                : decodeAnnotationPolicy(coerceJson(policyRaw)),
+          };
+        });
       }),
 
     getSource: (namespace, scope) =>
@@ -232,11 +263,16 @@ export const makeMcpStore = ({
           ],
         });
         if (!row) return null;
+        const policyRaw = row.annotation_policy;
         return {
           namespace: row.id,
           scope: row.scope_id,
           name: row.name,
           config: decodeSourceData(coerceJson(row.config)),
+          annotationPolicy:
+            policyRaw == null
+              ? undefined
+              : decodeAnnotationPolicy(coerceJson(policyRaw)),
         };
       }),
 
@@ -270,9 +306,64 @@ export const makeMcpStore = ({
             scope_id: source.scope,
             name: source.name,
             config: encodeSourceData(source.config),
+            annotation_policy: source.annotationPolicy
+              ? (encodeAnnotationPolicy(source.annotationPolicy) as unknown as Record<
+                  string,
+                  unknown
+                >)
+              : undefined,
             created_at: now,
           },
           forceAllowId: true,
+        });
+      }),
+
+    updateSourceMeta: (namespace, scope, patch) =>
+      Effect.gen(function* () {
+        const existing = yield* db.findOne({
+          model: "mcp_source",
+          where: [
+            { field: "id", value: namespace },
+            { field: "scope_id", value: scope },
+          ],
+        });
+        if (!existing) return;
+
+        const name =
+          patch.name !== undefined && patch.name.trim().length > 0
+            ? patch.name
+            : existing.name;
+        const config =
+          patch.config !== undefined
+            ? encodeSourceData(patch.config)
+            : existing.config;
+
+        // Three-way null/undefined: `undefined` in the patch means
+        // "leave the existing column alone"; `null` clears the column
+        // explicitly; a concrete value writes the new policy.
+        const annotationPolicyUpdate =
+          patch.annotationPolicy === undefined
+            ? undefined
+            : patch.annotationPolicy === null
+              ? null
+              : (encodeAnnotationPolicy(patch.annotationPolicy) as unknown as Record<
+                  string,
+                  unknown
+                >);
+
+        yield* db.update({
+          model: "mcp_source",
+          where: [
+            { field: "id", value: namespace },
+            { field: "scope_id", value: scope },
+          ],
+          update: {
+            name,
+            config,
+            ...(annotationPolicyUpdate !== undefined
+              ? { annotation_policy: annotationPolicyUpdate }
+              : {}),
+          },
         });
       }),
 
