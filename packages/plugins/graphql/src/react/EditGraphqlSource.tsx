@@ -11,6 +11,10 @@ import {
 } from "@executor/react/plugins/secret-header-auth";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import {
+  ApprovalPolicyToggles,
+  GRAPHQL_OPERATION_TOKENS,
+} from "@executor/react/plugins/approval-policy-field";
+import {
   SourceIdentityFields,
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
@@ -52,6 +56,12 @@ function EditForm(props: {
       headerValueToState(name, value),
     ),
   );
+  const [annotationPolicy, setAnnotationPolicy] = useState<readonly string[] | undefined>(
+    () => {
+      const stored = props.initial.annotationPolicy?.requireApprovalFor;
+      return stored ? [...stored] : undefined;
+    },
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -73,6 +83,15 @@ function EditForm(props: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
           headers: headersFromState(headers),
+          annotationPolicy:
+            annotationPolicy === undefined
+              ? null
+              : {
+                  requireApprovalFor: annotationPolicy as readonly (
+                    | "query"
+                    | "mutation"
+                  )[],
+                },
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -130,6 +149,17 @@ function EditForm(props: {
           sourceName={identity.name}
         />
       </section>
+
+      <ApprovalPolicyToggles
+        tokens={GRAPHQL_OPERATION_TOKENS}
+        value={annotationPolicy}
+        onChange={(next) => {
+          setAnnotationPolicy(next);
+          setDirty(true);
+        }}
+        layout="list"
+        description="Choose which operation kinds require approval before a tool call runs."
+      />
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">

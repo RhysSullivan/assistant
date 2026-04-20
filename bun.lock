@@ -534,6 +534,7 @@
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/vitest": "catalog:",
         "@executor/react": "workspace:*",
+        "@executor/storage-core": "workspace:*",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "bun-types": "catalog:",

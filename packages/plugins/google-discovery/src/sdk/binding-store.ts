@@ -21,6 +21,7 @@ import {
 } from "@executor/sdk";
 
 import {
+  GoogleDiscoveryAnnotationPolicy,
   GoogleDiscoveryMethodBinding,
   GoogleDiscoveryOAuthSession,
   GoogleDiscoveryStoredSourceData,
@@ -43,6 +44,7 @@ export const googleDiscoverySchema = defineSchema({
       scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       config: { type: "json", required: true },
+      annotation_policy: { type: "json", required: false },
       created_at: { type: "date", required: true },
       updated_at: { type: "date", required: true },
     },
@@ -80,6 +82,7 @@ export interface GoogleDiscoveryStoredSource {
   readonly scope: string;
   readonly name: string;
   readonly config: GoogleDiscoveryStoredSourceData;
+  readonly annotationPolicy?: GoogleDiscoveryAnnotationPolicy;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +97,9 @@ const decodeBinding = Schema.decodeUnknownSync(GoogleDiscoveryMethodBinding);
 
 const encodeSession = Schema.encodeSync(GoogleDiscoveryOAuthSession);
 const decodeSession = Schema.decodeUnknownSync(GoogleDiscoveryOAuthSession);
+
+const encodeAnnotationPolicy = Schema.encodeSync(GoogleDiscoveryAnnotationPolicy);
+const decodeAnnotationPolicy = Schema.decodeUnknownSync(GoogleDiscoveryAnnotationPolicy);
 
 const decodeJson = (value: unknown): unknown => {
   if (value === null || value === undefined) return value;
@@ -166,6 +172,15 @@ export interface GoogleDiscoveryStore {
     sourceId: string,
     scope: string,
   ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null, StorageFailure>;
+  /** Update mutable source metadata. `annotationPolicy: null` clears the
+   *  override; `undefined` leaves it as-is; a concrete value sets it. */
+  readonly updateSourceMeta: (
+    sourceId: string,
+    input: {
+      readonly name?: string;
+      readonly annotationPolicy?: GoogleDiscoveryAnnotationPolicy | null;
+    },
+  ) => Effect.Effect<void, StorageFailure>;
 
   readonly putOAuthSession: (
     sessionId: string,
@@ -267,6 +282,21 @@ export const makeGoogleDiscoveryStore = (
     putSource: (source) =>
       Effect.gen(function* () {
         const now = new Date();
+        // Preserve any existing annotationPolicy unless the caller supplies one.
+        // Only `updateSourceMeta` and explicit inputs should touch it. Pin to
+        // the target scope so a shadowed row at another scope can't leak its
+        // policy onto this write.
+        const existing = yield* db.findOne({
+          model: "google_discovery_source",
+          where: [
+            { field: "id", value: source.namespace },
+            { field: "scope_id", value: source.scope },
+          ],
+        });
+        const existingPolicy =
+          existing?.annotation_policy !== undefined
+            ? existing.annotation_policy
+            : null;
         yield* db.delete({
           model: "google_discovery_source",
           where: [
@@ -274,6 +304,13 @@ export const makeGoogleDiscoveryStore = (
             { field: "scope_id", value: source.scope },
           ],
         });
+        const nextPolicy =
+          source.annotationPolicy !== undefined
+            ? (encodeAnnotationPolicy(source.annotationPolicy) as unknown as Record<
+                string,
+                unknown
+              >)
+            : existingPolicy;
         yield* db.create({
           model: "google_discovery_source",
           data: {
@@ -281,10 +318,35 @@ export const makeGoogleDiscoveryStore = (
             scope_id: source.scope,
             name: source.name,
             config: encodeStoredSourceData(source.config) as unknown as Record<string, unknown>,
+            ...(nextPolicy !== null
+              ? { annotation_policy: nextPolicy as Record<string, unknown> }
+              : {}),
             created_at: now,
             updated_at: now,
           },
           forceAllowId: true,
+        });
+      }),
+
+    updateSourceMeta: (sourceId, input) =>
+      Effect.gen(function* () {
+        const updates: Record<string, unknown> = {};
+        if (input.name !== undefined) updates.name = input.name;
+        if (input.annotationPolicy !== undefined) {
+          updates.annotation_policy =
+            input.annotationPolicy === null
+              ? null
+              : (encodeAnnotationPolicy(input.annotationPolicy) as unknown as Record<
+                  string,
+                  unknown
+                >);
+        }
+        if (Object.keys(updates).length === 0) return;
+        updates.updated_at = new Date();
+        yield* db.update({
+          model: "google_discovery_source",
+          where: [{ field: "id", value: sourceId }],
+          update: updates,
         });
       }),
 
@@ -309,11 +371,17 @@ export const makeGoogleDiscoveryStore = (
           ],
         });
         if (!row) return null;
+        const rawPolicy = row.annotation_policy;
+        const annotationPolicy =
+          rawPolicy === undefined || rawPolicy === null
+            ? undefined
+            : decodeAnnotationPolicy(decodeJson(rawPolicy));
         return {
           namespace: row.id as string,
           scope: row.scope_id as string,
           name: row.name as string,
           config: decodeStoredSourceData(decodeJson(row.config)),
+          ...(annotationPolicy !== undefined ? { annotationPolicy } : {}),
         };
       }),
 

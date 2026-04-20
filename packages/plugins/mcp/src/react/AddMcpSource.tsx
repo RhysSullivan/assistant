@@ -25,6 +25,7 @@ import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { Textarea } from "@executor/react/components/textarea";
 import { HeadersList } from "@executor/react/plugins/headers-list";
+import { ApprovalPolicySwitch } from "@executor/react/plugins/approval-policy-field";
 import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
 import {
   displayNameFromUrl,
@@ -367,6 +368,7 @@ export default function AddMcpSource(props: {
     },
   ]);
   const [remoteHeaders, setRemoteHeaders] = useState<PlainHeader[]>([]);
+  const [annotationPolicy, setAnnotationPolicy] = useState<boolean | undefined>(undefined);
 
   const probe = "probe" in state ? state.probe : null;
   const tokens = "tokens" in state ? state.tokens : null;
@@ -546,6 +548,9 @@ export default function AddMcpSource(props: {
           endpoint: state.url.trim(),
           auth,
           ...(Object.keys(headers).length > 0 ? { headers } : {}),
+          ...(annotationPolicy !== undefined
+            ? { annotationPolicy: { requireApprovalForAll: annotationPolicy } }
+            : {}),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -570,6 +575,7 @@ export default function AddMcpSource(props: {
     props,
     scopeId,
     beginAdd,
+    annotationPolicy,
   ]);
 
   // ---- Stdio actions ----
@@ -620,6 +626,9 @@ export default function AddMcpSource(props: {
           command: cmd,
           args: parseStdioArgs(stdioArgs),
           env: parseStdioEnv(stdioEnv),
+          ...(annotationPolicy !== undefined
+            ? { annotationPolicy: { requireApprovalForAll: annotationPolicy } }
+            : {}),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -630,7 +639,17 @@ export default function AddMcpSource(props: {
     } finally {
       placeholder.done();
     }
-  }, [stdioCommand, stdioArgs, stdioEnv, stdioIdentity, doAdd, scopeId, props, beginAdd]);
+  }, [
+    stdioCommand,
+    stdioArgs,
+    stdioEnv,
+    stdioIdentity,
+    doAdd,
+    scopeId,
+    props,
+    beginAdd,
+    annotationPolicy,
+  ]);
 
   // ---- Render ----
 
@@ -955,6 +974,18 @@ export default function AddMcpSource(props: {
             </section>
           )}
 
+          {/* Approval policy override */}
+          {probe && (
+            <ApprovalPolicySwitch
+              description="MCP servers usually handle approval themselves with elicitation mid-call. Flip this on to require approval before any tool from this source runs."
+              switchLabel="Require approval for every tool call"
+              switchDescription="Each tool call from this source will ask for confirmation."
+              defaultValue={false}
+              value={annotationPolicy}
+              onChange={setAnnotationPolicy}
+            />
+          )}
+
           {/* Error (OAuth / add source). Probe errors show inline on the field. */}
           {otherError && (
             <div className="space-y-2">
@@ -1037,6 +1068,15 @@ export default function AddMcpSource(props: {
           <SourceIdentityFields
             identity={stdioIdentity}
             namePlaceholder="My MCP Server"
+          />
+
+          <ApprovalPolicySwitch
+            description="MCP servers usually handle approval themselves with elicitation mid-call. Flip this on to require approval before any tool from this source runs."
+            switchLabel="Require approval for every tool call"
+            switchDescription="Each tool call from this source will ask for confirmation."
+            defaultValue={false}
+            value={annotationPolicy}
+            onChange={setAnnotationPolicy}
           />
 
           {/* Stdio error */}

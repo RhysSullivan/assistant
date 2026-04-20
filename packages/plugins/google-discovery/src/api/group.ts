@@ -9,6 +9,7 @@ import {
   GoogleDiscoverySourceError,
 } from "../sdk/errors";
 import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
+import { GoogleDiscoveryAnnotationPolicy } from "../sdk/types";
 
 export { HttpApiSchema };
 
@@ -58,11 +59,22 @@ const AddSourcePayload = Schema.Struct({
   discoveryUrl: Schema.String,
   namespace: Schema.optional(Schema.String),
   auth: AuthPayload,
+  annotationPolicy: Schema.optional(GoogleDiscoveryAnnotationPolicy),
 });
 
 const AddSourceResponse = Schema.Struct({
   toolCount: Schema.Number,
   namespace: Schema.String,
+});
+
+const UpdateSourcePayload = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  // `null` clears a previously-set override; `undefined` leaves as-is.
+  annotationPolicy: Schema.optional(Schema.NullOr(GoogleDiscoveryAnnotationPolicy)),
+});
+
+const UpdateSourceResponse = Schema.Struct({
+  updated: Schema.Boolean,
 });
 
 const StartOAuthPayload = Schema.Struct({
@@ -158,6 +170,13 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
       "getSource",
     )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
       .addSuccess(Schema.NullOr(GoogleDiscoveryStoredSourceSchema)),
+  )
+  .add(
+    HttpApiEndpoint.patch(
+      "updateSource",
+    )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
+      .setPayload(UpdateSourcePayload)
+      .addSuccess(UpdateSourceResponse),
   )
   // Errors declared once at the group level — every endpoint inherits.
   // `InternalError` is the shared opaque 500 translated at the HTTP edge

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 
 import { defineSchema, type StorageDeps, type StorageFailure } from "@executor/sdk";
 
-import { OperationBinding, type HeaderValue } from "./types";
+import { AnnotationPolicy, OperationBinding, type HeaderValue } from "./types";
 
 // ---------------------------------------------------------------------------
 // Schema — two tables:
@@ -18,6 +18,7 @@ export const graphqlSchema = defineSchema({
       name: { type: "string", required: true },
       endpoint: { type: "string", required: true },
       headers: { type: "json", required: false },
+      annotation_policy: { type: "json", required: false },
     },
   },
   graphql_operation: {
@@ -45,6 +46,7 @@ export interface StoredGraphqlSource {
   readonly name: string;
   readonly endpoint: string;
   readonly headers: Record<string, HeaderValue>;
+  readonly annotationPolicy?: AnnotationPolicy;
 }
 
 export interface StoredOperation {
@@ -85,6 +87,25 @@ const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
   return value as Record<string, HeaderValue>;
 };
 
+const decodeAnnotationPolicy = (value: unknown): AnnotationPolicy | undefined => {
+  if (value == null) return undefined;
+  const data =
+    typeof value === "string"
+      ? (JSON.parse(value) as { requireApprovalFor?: readonly string[] })
+      : (value as { requireApprovalFor?: readonly string[] });
+  return new AnnotationPolicy({
+    requireApprovalFor: data.requireApprovalFor
+      ? ([...data.requireApprovalFor] as ReadonlyArray<"query" | "mutation">)
+      : undefined,
+  });
+};
+
+const encodeAnnotationPolicy = (policy: AnnotationPolicy): Record<string, unknown> => ({
+  ...(policy.requireApprovalFor
+    ? { requireApprovalFor: [...policy.requireApprovalFor] }
+    : {}),
+});
+
 // ---------------------------------------------------------------------------
 // Store interface
 // ---------------------------------------------------------------------------
@@ -109,7 +130,13 @@ export interface GraphqlStore {
   readonly updateSourceMeta: (
     namespace: string,
     scope: string,
-    patch: { readonly name?: string; readonly endpoint?: string; readonly headers?: Record<string, HeaderValue> },
+    patch: {
+      readonly name?: string;
+      readonly endpoint?: string;
+      readonly headers?: Record<string, HeaderValue>;
+      /** `null` clears the override; `undefined` leaves as-is. */
+      readonly annotationPolicy?: AnnotationPolicy | null;
+    },
   ) => Effect.Effect<void, StorageFailure>;
 
   readonly getSource: (
@@ -142,13 +169,17 @@ export interface GraphqlStore {
 export const makeDefaultGraphqlStore = ({
   adapter: db,
 }: StorageDeps<GraphqlSchema>): GraphqlStore => {
-  const rowToSource = (row: Record<string, unknown>): StoredGraphqlSource => ({
-    namespace: row.id as string,
-    scope: row.scope_id as string,
-    name: row.name as string,
-    endpoint: row.endpoint as string,
-    headers: decodeHeaders(row.headers),
-  });
+  const rowToSource = (row: Record<string, unknown>): StoredGraphqlSource => {
+    const policy = decodeAnnotationPolicy(row.annotation_policy);
+    return {
+      namespace: row.id as string,
+      scope: row.scope_id as string,
+      name: row.name as string,
+      endpoint: row.endpoint as string,
+      headers: decodeHeaders(row.headers),
+      ...(policy ? { annotationPolicy: policy } : {}),
+    };
+  };
 
   const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
     toolId: row.id as string,
@@ -186,6 +217,9 @@ export const makeDefaultGraphqlStore = ({
             name: input.name,
             endpoint: input.endpoint,
             headers: input.headers as unknown as Record<string, unknown>,
+            ...(input.annotationPolicy
+              ? { annotation_policy: encodeAnnotationPolicy(input.annotationPolicy) }
+              : {}),
           },
           forceAllowId: true,
         });
@@ -218,6 +252,12 @@ export const makeDefaultGraphqlStore = ({
         if (patch.endpoint !== undefined) update.endpoint = patch.endpoint;
         if (patch.headers !== undefined) {
           update.headers = patch.headers as unknown as Record<string, unknown>;
+        }
+        if (patch.annotationPolicy !== undefined) {
+          update.annotation_policy =
+            patch.annotationPolicy === null
+              ? null
+              : encodeAnnotationPolicy(patch.annotationPolicy);
         }
         if (Object.keys(update).length === 0) return;
         yield* db.update({

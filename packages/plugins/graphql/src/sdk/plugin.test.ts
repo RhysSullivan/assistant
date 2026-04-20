@@ -207,6 +207,134 @@ describe("graphqlPlugin", () => {
     }),
   );
 
+  it.effect("annotation policy override: queries also require approval", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        introspectionJson,
+        namespace: "policy_queries",
+        annotationPolicy: { requireApprovalFor: ["query", "mutation"] },
+      });
+
+      const tools = yield* executor.tools.list();
+      const queryTool = tools.find(
+        (t) => t.id === "policy_queries.query.hello",
+      );
+      expect(queryTool).toBeDefined();
+      expect(queryTool!.annotations?.requiresApproval).toBe(true);
+      expect(queryTool!.annotations?.approvalDescription).toBe("query hello");
+    }),
+  );
+
+  it.effect("annotation policy override: mutations skip approval", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        introspectionJson,
+        namespace: "policy_muts_off",
+        annotationPolicy: { requireApprovalFor: ["query"] },
+      });
+
+      const tools = yield* executor.tools.list();
+      const mutationTool = tools.find(
+        (t) => t.id === "policy_muts_off.mutation.setGreeting",
+      );
+      expect(mutationTool).toBeDefined();
+      expect(mutationTool!.annotations?.requiresApproval).toBeFalsy();
+    }),
+  );
+
+  it.effect("annotation policy override: empty array skips approval for all kinds", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        introspectionJson,
+        namespace: "policy_none",
+        annotationPolicy: { requireApprovalFor: [] },
+      });
+
+      const tools = yield* executor.tools.list();
+      const queryTool = tools.find((t) => t.id === "policy_none.query.hello");
+      const mutationTool = tools.find(
+        (t) => t.id === "policy_none.mutation.setGreeting",
+      );
+      expect(queryTool!.annotations?.requiresApproval).toBeFalsy();
+      expect(mutationTool!.annotations?.requiresApproval).toBeFalsy();
+    }),
+  );
+
+  it.effect("updateSource with annotationPolicy: null clears the override", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        introspectionJson,
+        namespace: "policy_clear",
+        annotationPolicy: { requireApprovalFor: ["query"] },
+      });
+
+      let tools = yield* executor.tools.list();
+      let mutationTool = tools.find(
+        (t) => t.id === "policy_clear.mutation.setGreeting",
+      );
+      expect(mutationTool!.annotations?.requiresApproval).toBeFalsy();
+
+      yield* executor.graphql.updateSource("policy_clear", {
+        annotationPolicy: null,
+      });
+
+      tools = yield* executor.tools.list();
+      mutationTool = tools.find(
+        (t) => t.id === "policy_clear.mutation.setGreeting",
+      );
+      expect(mutationTool!.annotations?.requiresApproval).toBe(true);
+    }),
+  );
+
+  it.effect("updateSource leaves annotationPolicy untouched when key omitted", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        introspectionJson,
+        namespace: "policy_keep",
+        annotationPolicy: { requireApprovalFor: ["query"] },
+      });
+
+      yield* executor.graphql.updateSource("policy_keep", {
+        endpoint: "http://localhost:5000/graphql",
+      });
+
+      const tools = yield* executor.tools.list();
+      const mutationTool = tools.find(
+        (t) => t.id === "policy_keep.mutation.setGreeting",
+      );
+      expect(mutationTool!.annotations?.requiresApproval).toBeFalsy();
+
+      const source = yield* executor.graphql.getSource("policy_keep");
+      expect(source?.endpoint).toBe("http://localhost:5000/graphql");
+      expect(source?.annotationPolicy?.requireApprovalFor).toEqual(["query"]);
+    }),
+  );
+
   it.effect("updateSource patches endpoint/headers without re-registering", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(

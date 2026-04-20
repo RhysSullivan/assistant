@@ -107,3 +107,16 @@ export class McpToolBinding extends Schema.Class<McpToolBinding>("McpToolBinding
   inputSchema: Schema.optional(Schema.Unknown),
   outputSchema: Schema.optional(Schema.Unknown),
 }) {}
+
+// ---------------------------------------------------------------------------
+// Annotation policy — per-source override for whether MCP tool calls from
+// this source require approval. MCP tools default to no approval because
+// servers handle elicitation mid-invocation; flipping this to `true`
+// reintroduces a pre-call gate for every tool from the source.
+// ---------------------------------------------------------------------------
+
+export class AnnotationPolicy extends Schema.Class<AnnotationPolicy>(
+  "McpAnnotationPolicy",
+)({
+  requireApprovalForAll: Schema.optional(Schema.Boolean),
+}) {}

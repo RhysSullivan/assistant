@@ -299,7 +299,7 @@ export const invokeWithLayer = (
 };
 
 // ---------------------------------------------------------------------------
-// Derive annotations from HTTP method
+// Derive annotations from HTTP method — with per-source policy override.
 // ---------------------------------------------------------------------------
 
 const DEFAULT_REQUIRE_APPROVAL = new Set(["post", "put", "patch", "delete"]);
@@ -307,7 +307,7 @@ const DEFAULT_REQUIRE_APPROVAL = new Set(["post", "put", "patch", "delete"]);
 export const annotationsForOperation = (
   method: string,
   pathTemplate: string,
-  policy?: { readonly requireApprovalFor?: readonly string[] },
+  policy?: { readonly requireApprovalFor?: readonly string[] } | null,
 ): { requiresApproval?: boolean; approvalDescription?: string } => {
   const m = method.toLowerCase();
   const requireSet = policy?.requireApprovalFor

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { GoogleDiscoveryStoredSourceData } from "./types";
+import { GoogleDiscoveryAnnotationPolicy, GoogleDiscoveryStoredSourceData } from "./types";
 
 // ---------------------------------------------------------------------------
 // Stored source — the shape persisted by the binding store and exposed
@@ -13,6 +13,7 @@ export class GoogleDiscoveryStoredSourceSchema extends Schema.Class<GoogleDiscov
   namespace: Schema.String,
   name: Schema.String,
   config: GoogleDiscoveryStoredSourceData,
+  annotationPolicy: Schema.optional(GoogleDiscoveryAnnotationPolicy),
 }) {}
 
 export type GoogleDiscoveryStoredSourceSchemaType = typeof GoogleDiscoveryStoredSourceSchema.Type;

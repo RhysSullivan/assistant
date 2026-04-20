@@ -104,6 +104,19 @@ export interface GoogleDiscoverySourceMeta {
   readonly name: string;
 }
 
+// ---------------------------------------------------------------------------
+// Per-source override for the default HTTP-method-based annotation
+// policy. Omitting `requireApprovalFor` keeps the plugin default
+// (POST / PUT / PATCH / DELETE require approval). Any method listed
+// explicitly requires approval, any method absent does not.
+// ---------------------------------------------------------------------------
+
+export class GoogleDiscoveryAnnotationPolicy extends Schema.Class<GoogleDiscoveryAnnotationPolicy>(
+  "GoogleDiscoveryAnnotationPolicy",
+)({
+  requireApprovalFor: Schema.optional(Schema.Array(GoogleDiscoveryHttpMethod)),
+}) {}
+
 /** Pending OAuth session persisted between startOAuth and completeOAuth */
 export const GoogleDiscoveryOAuthSession = Schema.Struct({
   discoveryUrl: Schema.String,

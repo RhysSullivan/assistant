@@ -9,6 +9,7 @@ import {
   McpToolDiscoveryError,
 } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
+import { AnnotationPolicy } from "../sdk/types";
 
 // Re-export for handler use
 export { HttpApiSchema };
@@ -62,6 +63,7 @@ const AddRemoteSourcePayload = Schema.Struct({
   queryParams: Schema.optional(StringMap),
   headers: Schema.optional(StringMap),
   auth: Schema.optional(AuthPayload),
+  annotationPolicy: Schema.optional(AnnotationPolicy),
 });
 
 const AddStdioSourcePayload = Schema.Struct({
@@ -72,6 +74,7 @@ const AddStdioSourcePayload = Schema.Struct({
   env: Schema.optional(StringMap),
   cwd: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
+  annotationPolicy: Schema.optional(AnnotationPolicy),
 });
 
 const AddSourcePayload = Schema.Union(AddRemoteSourcePayload, AddStdioSourcePayload);
@@ -86,6 +89,8 @@ const UpdateSourcePayload = Schema.Struct({
   headers: Schema.optional(StringMap),
   queryParams: Schema.optional(StringMap),
   auth: Schema.optional(AuthPayload),
+  // `null` clears a previously-set override; `undefined` leaves as-is.
+  annotationPolicy: Schema.optional(Schema.NullOr(AnnotationPolicy)),
 });
 
 const UpdateSourceResponse = Schema.Struct({

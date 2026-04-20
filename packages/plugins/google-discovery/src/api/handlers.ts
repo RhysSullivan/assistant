@@ -8,6 +8,7 @@ import type {
   GoogleDiscoveryAddSourceInput,
   GoogleDiscoveryOAuthAuthResult,
   GoogleDiscoveryPluginExtension,
+  GoogleDiscoveryUpdateSourceInput,
 } from "../sdk/plugin";
 import { GoogleDiscoveryOAuthError } from "../sdk/errors";
 import { GoogleDiscoveryGroup } from "./group";
@@ -101,6 +102,16 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
         capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.getSource(path.namespace, path.scopeId);
+        })),
+      )
+      .handle("updateSource", ({ path, payload }) =>
+        capture(Effect.gen(function* () {
+          const ext = yield* GoogleDiscoveryExtensionService;
+          yield* ext.updateSource(path.namespace, {
+            name: payload.name,
+            annotationPolicy: payload.annotationPolicy,
+          } satisfies GoogleDiscoveryUpdateSourceInput);
+          return { updated: true };
         })),
       )
       .handle("oauthCallback", ({ urlParams }) =>

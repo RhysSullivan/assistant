@@ -5,6 +5,10 @@ import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { HeadersList } from "@executor/react/plugins/headers-list";
+import {
+  ApprovalPolicyToggles,
+  GRAPHQL_OPERATION_TOKENS,
+} from "@executor/react/plugins/approval-policy-field";
 import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
 import {
   displayNameFromUrl,
@@ -43,6 +47,9 @@ export default function AddGraphqlSource(props: {
     fallbackName: displayNameFromUrl(endpoint) ?? "",
   });
   const [headers, setHeaders] = useState<HeaderState[]>([initialHeader()]);
+  const [annotationPolicy, setAnnotationPolicy] = useState<readonly string[] | undefined>(
+    undefined,
+  );
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -89,6 +96,16 @@ export default function AddGraphqlSource(props: {
           name: identity.name.trim() || undefined,
           namespace: slugifyNamespace(identity.namespace) || undefined,
           ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
+          ...(annotationPolicy !== undefined
+            ? {
+                annotationPolicy: {
+                  requireApprovalFor: annotationPolicy as readonly (
+                    | "query"
+                    | "mutation"
+                  )[],
+                },
+              }
+            : {}),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -135,6 +152,14 @@ export default function AddGraphqlSource(props: {
           sourceName={identity.name}
         />
       </section>
+
+      <ApprovalPolicyToggles
+        tokens={GRAPHQL_OPERATION_TOKENS}
+        value={annotationPolicy}
+        onChange={setAnnotationPolicy}
+        layout="list"
+        description="Choose which operation kinds require approval before a tool call runs. By default, mutations require approval; queries and subscriptions do not."
+      />
 
       {/* Error */}
       {addError && (

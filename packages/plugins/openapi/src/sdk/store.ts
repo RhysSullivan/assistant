@@ -110,6 +110,7 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
     // sources onboarded with an OAuth2 preset — one OAuth2Auth per
     // securitySchemeName, with the secret ids that back its tokens.
     oauth2: Schema.optional(OAuth2Auth),
+    annotationPolicy: Schema.optional(AnnotationPolicy),
   }),
   // TODO(migration): make required once all rows have been migrated to
   // carry invocationConfig. Left optional for decode compat with rows
@@ -138,6 +139,9 @@ const decodeInvocationConfig = Schema.decodeUnknownSync(InvocationConfig);
 
 const encodeOAuth2 = Schema.encodeSync(OAuth2Auth);
 const decodeOAuth2 = Schema.decodeUnknownSync(OAuth2Auth);
+
+const encodeAnnotationPolicy = Schema.encodeSync(AnnotationPolicy);
+const decodeAnnotationPolicy = Schema.decodeUnknownSync(AnnotationPolicy);
 
 const encodeOAuthSession = Schema.encodeSync(OpenApiOAuthSession);
 const decodeOAuthSession = Schema.decodeUnknownSync(OpenApiOAuthSession);
@@ -188,6 +192,7 @@ export interface OpenapiStore {
       readonly baseUrl?: string;
       readonly headers?: Record<string, HeaderValue>;
       readonly oauth2?: OAuth2Auth;
+      readonly annotationPolicy?: AnnotationPolicy | null;
     },
   ) => Effect.Effect<void, StorageFailure>;
 
@@ -238,6 +243,13 @@ export const makeDefaultOpenapiStore = ({
       oauth2Raw == null
         ? undefined
         : decodeOAuth2(typeof oauth2Raw === "string" ? JSON.parse(oauth2Raw) : oauth2Raw);
+    const policyRaw = row.annotation_policy;
+    const annotationPolicy =
+      policyRaw == null
+        ? undefined
+        : decodeAnnotationPolicy(
+            typeof policyRaw === "string" ? JSON.parse(policyRaw) : policyRaw,
+          );
     const headers = decodeHeaders(row.headers);
     const invocationConfig = decodeInvocationConfig(
       asJsonObject(row.invocation_config),
@@ -252,6 +264,7 @@ export const makeDefaultOpenapiStore = ({
         baseUrl: (row.base_url as string | null | undefined) ?? undefined,
         headers,
         oauth2,
+        annotationPolicy,
       },
       invocationConfig,
     };
@@ -300,6 +313,12 @@ export const makeDefaultOpenapiStore = ({
             oauth2: input.config.oauth2
               ? (encodeOAuth2(input.config.oauth2) as unknown as Record<string, unknown>)
               : undefined,
+            annotation_policy: input.config.annotationPolicy
+              ? (encodeAnnotationPolicy(input.config.annotationPolicy) as unknown as Record<
+                  string,
+                  unknown
+                >)
+              : undefined,
             invocation_config: encodeInvocationConfig(
               input.invocationConfig,
             ) as unknown as Record<string, unknown>,
@@ -339,6 +358,10 @@ export const makeDefaultOpenapiStore = ({
           patch.headers !== undefined ? patch.headers : existing.config.headers ?? {};
         const nextOAuth2 =
           patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
+        const nextAnnotationPolicy =
+          patch.annotationPolicy !== undefined
+            ? patch.annotationPolicy ?? undefined
+            : existing.config.annotationPolicy;
 
         const nextInvocationConfig = new InvocationConfig({
           baseUrl: nextBaseUrl ?? existing.invocationConfig.baseUrl,
@@ -346,6 +369,11 @@ export const makeDefaultOpenapiStore = ({
           oauth2: nextOAuth2 ? Option.some(nextOAuth2) : Option.none(),
         });
 
+        // `null` explicitly clears an optional JSON column — the
+        // transformer pipeline drops `undefined` update values (treating
+        // them as "leave the existing column alone"), so a clear-override
+        // request (`patch.annotationPolicy === null`) must surface as
+        // `null` in the update payload, not `undefined`.
         yield* adapter.update({
           model: "openapi_source",
           where: [
@@ -359,6 +387,14 @@ export const makeDefaultOpenapiStore = ({
             oauth2: nextOAuth2
               ? (encodeOAuth2(nextOAuth2) as unknown as Record<string, unknown>)
               : undefined,
+            annotation_policy: nextAnnotationPolicy
+              ? (encodeAnnotationPolicy(nextAnnotationPolicy) as unknown as Record<
+                  string,
+                  unknown
+                >)
+              : patch.annotationPolicy === null
+                ? null
+                : undefined,
             invocation_config: encodeInvocationConfig(
               nextInvocationConfig,
             ) as unknown as Record<string, unknown>,
