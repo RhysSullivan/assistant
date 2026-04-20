@@ -16,7 +16,7 @@ const refToResponse = (ref: SecretRef) => ({
 
 export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (handlers) =>
   handlers
-    .handle("list", ({ path }) =>
+    .handle("list", () =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         const refs = yield* executor.secrets.list();
