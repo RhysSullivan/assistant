@@ -56,15 +56,13 @@ function LocalSecretsRoute() {
   const merged: SecretsRouteState = Result.match(secrets, {
     onInitial: () => ({ state: "loading", secrets: [] as readonly SecretsPageSecret[] }),
     onFailure: () => ({ state: "error", secrets: [] as readonly SecretsPageSecret[] }),
-    onSuccess: ({ value }) =>
-      Result.match(usage, {
-        onInitial: () => ({ state: "loading", secrets: [] as readonly SecretsPageSecret[] }),
-        onFailure: () => ({ state: "error", secrets: [] as readonly SecretsPageSecret[] }),
-        onSuccess: ({ value: usageValue }) => ({
-          state: "ready" as const,
-          secrets: mergeSecrets(value, usageValue),
-        }),
-      }),
+    onSuccess: ({ value }) => {
+      const usageValue = Result.isSuccess(usage) ? usage.value : [];
+      return {
+        state: "ready" as const,
+        secrets: mergeSecrets(value, usageValue),
+      };
+    },
   });
 
   return (
