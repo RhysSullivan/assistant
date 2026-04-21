@@ -30,13 +30,14 @@ import { makeFileConfigSink, type ConfigFileSink } from "@executor/config";
 import * as executorSchema from "./executor-schema";
 
 import { syncFromConfig, resolveConfigPath } from "./config-sync";
-import { openApiPlugin } from "@executor/plugin-openapi";
+import { openApiPlugin, openapiSkills } from "@executor/plugin-openapi";
 import { mcpPlugin } from "@executor/plugin-mcp";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
 import { graphqlPlugin } from "@executor/plugin-graphql";
 import { keychainPlugin } from "@executor/plugin-keychain";
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 import { onepasswordPlugin } from "@executor/plugin-onepassword";
+import { skillsPlugin } from "@executor/plugin-skills";
 
 // In dev mode the drizzle folder sits next to the source tree. In a compiled
 // binary the files are inlined via the build-time gen module below, and we
@@ -101,6 +102,7 @@ const createLocalPlugins = (configFile: ConfigFileSink) =>
     keychainPlugin(),
     fileSecretsPlugin(),
     onepasswordPlugin(),
+    skillsPlugin({ skills: [...openapiSkills] }),
   ] as const;
 
 type LocalPlugins = ReturnType<typeof createLocalPlugins>;

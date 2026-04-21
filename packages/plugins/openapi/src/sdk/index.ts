@@ -51,6 +51,8 @@ export {
   OpenApiOAuthError,
 } from "./errors";
 
+export { openapiSkills } from "./skills";
+
 export {
   ExtractedOperation,
   ExtractionResult,
