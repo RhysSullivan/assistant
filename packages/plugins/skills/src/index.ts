@@ -24,7 +24,14 @@ export interface SkillsPluginOptions {
 
 const SKILL_DESCRIPTION_PREFIX = "Skill: ";
 
-const toStaticTool = (skill: Skill): StaticToolDecl => ({
+// Shared by the global plugin below AND by plugins that want to ship
+// skills alongside their own tools — see `openApiPlugin` for an
+// example. Exported so every skill has identical on-the-wire shape:
+// `Skill:` prefix, empty-object input schema, handler that returns the
+// markdown body. When MCP's Skills Extension SEP stabilizes we'll
+// replace this with a dedicated StaticSkillDecl (see notes/skills.md),
+// and the only callers to update are the ones that use this helper.
+export const toStaticSkill = (skill: Skill): StaticToolDecl => ({
   name: skill.id,
   description: `${SKILL_DESCRIPTION_PREFIX}${skill.description}`,
   inputSchema: {
@@ -63,7 +70,7 @@ export const skillsPlugin = definePlugin(
           id: "skills",
           kind: "control",
           name: "Skills",
-          tools: skills.map(toStaticTool),
+          tools: skills.map(toStaticSkill),
         },
       ],
     };

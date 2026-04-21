@@ -2,107 +2,79 @@ import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { createExecutor, makeTestConfig } from "@executor/sdk";
-import { skillsPlugin } from "@executor/plugin-skills";
 
 import { openApiPlugin } from "./plugin";
-import { openapiSkills } from "./skills";
 
-// These tests demonstrate the naming-as-attachment convention: the
-// openapi plugin's skill lives under id `openapi.adding-a-source`, so a
-// query like `"openapi adding"` surfaces it right next to the real
-// openapi static tools. No `appliesTo` field, no special linking — just
-// the tool catalog doing substring matching across name + description.
+// The openapi plugin ships its own skills under its own sourceId —
+// NOT via the global skillsPlugin. These tests pin that attachment:
+// `tools.list({ sourceId: "openapi" })` returns the playbook
+// alongside the operations, no naming-convention substring trick
+// needed. See notes/skills.md for why.
 
-describe("openapiSkills wired into skillsPlugin", () => {
-  it.effect("shows up next to openapi static tools when queried by name", () =>
+describe("openapi-owned skills", () => {
+  it.effect("the playbook lives under sourceId `openapi`, next to previewSpec/addSource", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin(),
-            skillsPlugin({ skills: [...openapiSkills] }),
-          ] as const,
-        }),
+        makeTestConfig({ plugins: [openApiPlugin()] as const }),
       );
 
-      const tools = yield* executor.tools.list({ query: "openapi" });
-      const ids = tools.map((t) => t.id);
+      const tools = yield* executor.tools.list({ sourceId: "openapi" });
+      const ids = tools.map((t) => t.id).sort();
 
-      // The skill lands in the same result set as openapi.previewSpec /
-      // openapi.addSource — that's the whole point of the naming convention.
-      expect(ids).toContain("skills.openapi.adding-a-source");
-      expect(ids).toContain("openapi.previewSpec");
-      expect(ids).toContain("openapi.addSource");
+      // ASCII order: uppercase S in `addSource` sorts before lowercase
+      // i in `adding-a-source`.
+      expect(ids).toEqual([
+        "openapi.addSource",
+        "openapi.adding-a-source",
+        "openapi.previewSpec",
+      ]);
     }),
   );
 
-  it.effect("more specific queries still find the skill", () =>
+  it.effect("skill description uses the `Skill:` prefix shared across skill helpers", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin(),
-            skillsPlugin({ skills: [...openapiSkills] }),
-          ] as const,
-        }),
+        makeTestConfig({ plugins: [openApiPlugin()] as const }),
       );
 
-      const tools = yield* executor.tools.list({ query: "adding" });
-      expect(tools.map((t) => t.id)).toContain(
-        "skills.openapi.adding-a-source",
-      );
+      const tools = yield* executor.tools.list({ sourceId: "openapi" });
+      const skill = tools.find((t) => t.id === "openapi.adding-a-source");
+      expect(skill?.description.startsWith("Skill: ")).toBe(true);
     }),
   );
 
   it.effect("invoking the skill returns markdown that references the real tools", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin(),
-            skillsPlugin({ skills: [...openapiSkills] }),
-          ] as const,
-        }),
+        makeTestConfig({ plugins: [openApiPlugin()] as const }),
       );
 
       const body = (yield* executor.tools.invoke(
-        "skills.openapi.adding-a-source",
+        "openapi.adding-a-source",
         {},
       )) as string;
 
-      // The skill is useless if it doesn't name the tools an agent is
-      // supposed to chain. These assertions pin the body to the public
-      // API surface — if a tool gets renamed, this test catches the
-      // skill going stale.
+      // If a tool gets renamed, the skill goes stale — catch it here.
       expect(body).toContain("openapi.previewSpec");
       expect(body).toContain("openapi.addSource");
     }),
   );
 
   // Pins the "no secret values in chat" policy. If a future edit
-  // reintroduces `secrets.set` in the skill body, this fails — that
-  // pattern routes user-typed secrets through the LLM context, which
-  // is the leak we're trying to avoid.
+  // reintroduces the old `secrets.set` instruction, this fails —
+  // that pattern routes user-typed secrets through the LLM context.
   it.effect("skill body never tells the agent to secrets.set a user-typed value", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [
-            openApiPlugin(),
-            skillsPlugin({ skills: [...openapiSkills] }),
-          ] as const,
-        }),
+        makeTestConfig({ plugins: [openApiPlugin()] as const }),
       );
 
       const body = (yield* executor.tools.invoke(
-        "skills.openapi.adding-a-source",
+        "openapi.adding-a-source",
         {},
       )) as string;
 
-      // The original text read "store it via `secrets.set`" — removed
-      // because it meant the agent would receive the value first.
       expect(body).not.toContain("store it via `secrets.set`");
-      // The replacement rule must be present verbatim.
       expect(body).toContain("Never accept a secret value in-chat");
     }),
   );

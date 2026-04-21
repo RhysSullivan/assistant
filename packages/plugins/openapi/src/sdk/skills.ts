@@ -1,12 +1,14 @@
 import type { Skill } from "@executor/plugin-skills";
 
-// Skills shipped alongside the OpenAPI plugin. Consumers wire them in by
-// passing this array to `skillsPlugin({ skills: [...openapiSkills] })`.
-// Every skill id is prefixed `openapi.` so a catch-all `tools.list({ query: "openapi" })`
-// surfaces it next to the real openapi tools.
+// Skills shipped by the OpenAPI plugin. Registered into the plugin's
+// own `staticSources` (see `plugin.ts`) — NOT passed to the global
+// `skillsPlugin`. Living under sourceId `openapi` means the full tool
+// id is `openapi.<skill-id>`, right next to `openapi.previewSpec` etc.
+// Skill ids therefore omit any `openapi.` prefix; the source id is the
+// attachment point.
 export const openapiSkills: readonly Skill[] = [
   {
-    id: "openapi.adding-a-source",
+    id: "adding-a-source",
     description:
       "How to add an OpenAPI spec as a source — preview, resolve auth, then addSpec",
     body: `# Adding an OpenAPI source

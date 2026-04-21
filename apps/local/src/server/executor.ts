@@ -30,7 +30,7 @@ import { makeFileConfigSink, type ConfigFileSink } from "@executor/config";
 import * as executorSchema from "./executor-schema";
 
 import { syncFromConfig, resolveConfigPath } from "./config-sync";
-import { openApiPlugin, openapiSkills } from "@executor/plugin-openapi";
+import { openApiPlugin } from "@executor/plugin-openapi";
 import { mcpPlugin } from "@executor/plugin-mcp";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
 import { graphqlPlugin } from "@executor/plugin-graphql";
@@ -102,7 +102,10 @@ const createLocalPlugins = (configFile: ConfigFileSink) =>
     keychainPlugin(),
     fileSecretsPlugin(),
     onepasswordPlugin(),
-    skillsPlugin({ skills: [...openapiSkills] }),
+    // Global / cross-cutting skills slot. Per-source skills (like the
+    // openapi playbook) are declared by their owning plugin under its
+    // own sourceId — see notes/skills.md.
+    skillsPlugin(),
   ] as const;
 
 type LocalPlugins = ReturnType<typeof createLocalPlugins>;
