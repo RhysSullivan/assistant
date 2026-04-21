@@ -111,9 +111,6 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
     // securitySchemeName, with the secret ids that back its tokens.
     oauth2: Schema.optional(OAuth2Auth),
   }),
-  // TODO(migration): make required once all rows have been migrated to
-  // carry invocationConfig. Left optional for decode compat with rows
-  // written before the source-level invocationConfig refactor.
   invocationConfig: Schema.optional(InvocationConfig),
 }) {}
 
@@ -239,9 +236,7 @@ export const makeDefaultOpenapiStore = ({
         ? undefined
         : decodeOAuth2(typeof oauth2Raw === "string" ? JSON.parse(oauth2Raw) : oauth2Raw);
     const headers = decodeHeaders(row.headers);
-    const invocationConfig = decodeInvocationConfig(
-      asJsonObject(row.invocation_config),
-    );
+    const invocationConfig = decodeInvocationConfig(asJsonObject(row.invocation_config));
     return {
       namespace: row.id as string,
       scope: row.scope_id as string,
