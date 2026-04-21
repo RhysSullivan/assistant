@@ -14,6 +14,7 @@ import {
   readLegacySecrets,
   type LegacySecret,
 } from "./db-upgrade";
+import { migrateOpenApiOAuthConnections } from "./migrate-connections";
 
 import {
   Scope,
@@ -136,6 +137,9 @@ const createLocalExecutorLayer = () => {
       if (legacySecrets.length > 0) {
         importLegacySecrets(sqlite, scopeId, legacySecrets);
       }
+      // Upgrade pre-connection OpenAPI OAuth rows onto the new Connection
+      // pointer shape. Idempotent + no-op when there's nothing to migrate.
+      yield* Effect.promise(() => migrateOpenApiOAuthConnections(sqlite));
       const configPath = resolveConfigPath(cwd);
       const configFile = makeFileConfigSink({
         path: configPath,

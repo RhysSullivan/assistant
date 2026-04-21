@@ -1,4 +1,4 @@
-export { parse } from "./parse";
+export { parse, resolveSpecText, fetchSpecText } from "./parse";
 export { extract } from "./extract";
 export {
   invoke,

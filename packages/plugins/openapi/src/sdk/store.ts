@@ -134,16 +134,7 @@ const encodeInvocationConfig = Schema.encodeSync(InvocationConfig);
 const decodeInvocationConfig = Schema.decodeUnknownSync(InvocationConfig);
 
 const encodeOAuth2 = Schema.encodeSync(OAuth2Auth);
-
-// Tolerant decode for the stored `oauth2` column: the schema was widened
-// (flow, tokenUrl, authorizationUrl, scopes, ...) after rows were first
-// written as thin `{kind, connectionId}` pointers. Legacy rows must not
-// crash the source list — they're surfaced with no stored OAuth config,
-// and the user can re-sign-in from the source detail page to repopulate
-// the new fields.
-const decodeOAuth2Option = Schema.decodeUnknownOption(OAuth2Auth);
-const decodeOAuth2 = (value: unknown): OAuth2Auth | undefined =>
-  Option.getOrUndefined(decodeOAuth2Option(value));
+const decodeOAuth2 = Schema.decodeUnknownSync(OAuth2Auth);
 
 const encodeOAuthSession = Schema.encodeSync(OpenApiOAuthSession);
 const decodeOAuthSession = Schema.decodeUnknownSync(OpenApiOAuthSession);
@@ -245,22 +236,7 @@ export const makeDefaultOpenapiStore = ({
         ? undefined
         : decodeOAuth2(typeof oauth2Raw === "string" ? JSON.parse(oauth2Raw) : oauth2Raw);
     const headers = decodeHeaders(row.headers);
-    // Strip a legacy `oauth2` blob from invocation_config before decoding.
-    // The schema inside InvocationConfig embeds OAuth2Auth, which was
-    // widened after some rows were written; the tolerant per-field decode
-    // we already have for `row.oauth2` doesn't reach the nested copy, so
-    // we drop it here if it fails to decode against the current schema.
-    // The legit copy lives on `config.oauth2`; the user re-signs-in from
-    // the source detail page to repopulate both.
-    const rawInvocation = asJsonObject(row.invocation_config);
-    const rawNestedOAuth2 = rawInvocation.oauth2;
-    const nestedOAuth2Valid =
-      rawNestedOAuth2 != null && decodeOAuth2(rawNestedOAuth2) !== undefined;
-    const invocationConfig = decodeInvocationConfig(
-      nestedOAuth2Valid
-        ? rawInvocation
-        : { ...rawInvocation, oauth2: undefined },
-    );
+    const invocationConfig = decodeInvocationConfig(asJsonObject(row.invocation_config));
     return {
       namespace: row.id as string,
       scope: row.scope_id as string,
