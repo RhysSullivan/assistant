@@ -78,4 +78,32 @@ describe("openapiSkills wired into skillsPlugin", () => {
       expect(body).toContain("openapi.addSource");
     }),
   );
+
+  // Pins the "no secret values in chat" policy. If a future edit
+  // reintroduces `secrets.set` in the skill body, this fails — that
+  // pattern routes user-typed secrets through the LLM context, which
+  // is the leak we're trying to avoid.
+  it.effect("skill body never tells the agent to secrets.set a user-typed value", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin(),
+            skillsPlugin({ skills: [...openapiSkills] }),
+          ] as const,
+        }),
+      );
+
+      const body = (yield* executor.tools.invoke(
+        "skills.openapi.adding-a-source",
+        {},
+      )) as string;
+
+      // The original text read "store it via `secrets.set`" — removed
+      // because it meant the agent would receive the value first.
+      expect(body).not.toContain("store it via `secrets.set`");
+      // The replacement rule must be present verbatim.
+      expect(body).toContain("Never accept a secret value in-chat");
+    }),
+  );
 });
