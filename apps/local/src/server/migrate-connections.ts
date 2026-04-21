@@ -128,6 +128,15 @@ export const migrateOpenApiOAuthConnections = async (sqlite: Database): Promise<
   const selectSecret = sqlite.prepare(
     "SELECT id, owned_by_connection_id FROM secret WHERE scope_id = ? AND id = ?",
   );
+  const selectAnySecretProvider = sqlite.prepare(
+    "SELECT provider FROM secret WHERE scope_id = ? LIMIT 1",
+  );
+  const insertSecret = sqlite.prepare(
+    `INSERT INTO secret (
+       id, scope_id, provider, name,
+       owned_by_connection_id, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  );
   const updateSource = sqlite.prepare(
     "UPDATE openapi_source SET oauth2 = ?, invocation_config = ? WHERE scope_id = ? AND id = ?",
   );
@@ -199,13 +208,6 @@ export const migrateOpenApiOAuthConnections = async (sqlite: Database): Promise<
           | { id: string; owned_by_connection_id: string | null }
           | undefined,
     );
-    const missing = secretIds.filter((_, i) => secretRows[i] === undefined);
-    if (missing.length > 0) {
-      console.warn(
-        `[migrate-connections] skip ${row.scope_id}/${row.id}: missing secret(s) ${missing.join(", ")}`,
-      );
-      continue;
-    }
     const alreadyOwned = secretRows
       .filter((s): s is { id: string; owned_by_connection_id: string | null } => !!s)
       .filter(
@@ -218,6 +220,21 @@ export const migrateOpenApiOAuthConnections = async (sqlite: Database): Promise<
         `[migrate-connections] skip ${row.scope_id}/${row.id}: secret(s) already owned`,
       );
       continue;
+    }
+    // Early-onboarded OpenAPI OAuth tokens never got a `secret` routing
+    // row — pre-refactor `secretsGet` resolved them via provider
+    // enumeration. Pick the provider already in use at this scope (or
+    // fall back to keychain) so the new id-indexed fast path resolves;
+    // if we guess wrong the SDK's enumerate-fallback still works.
+    const missingIndexes = secretIds
+      .map((_, i) => i)
+      .filter((i) => secretRows[i] === undefined);
+    let fallbackProvider: string | null = null;
+    if (missingIndexes.length > 0) {
+      const existing = selectAnySecretProvider.get(row.scope_id) as
+        | { provider: string }
+        | undefined;
+      fallbackProvider = existing?.provider ?? "keychain";
     }
 
     const now = Date.now();
@@ -236,8 +253,24 @@ export const migrateOpenApiOAuthConnections = async (sqlite: Database): Promise<
         now,
         now,
       );
-      for (const sid of secretIds) {
-        updateSecretOwner.run(connectionId, row.scope_id, sid);
+      for (let i = 0; i < secretIds.length; i++) {
+        const sid = secretIds[i]!;
+        if (secretRows[i] === undefined) {
+          const name =
+            sid === legacy.accessTokenSecretId
+              ? `Connection ${connectionId} access token`
+              : `Connection ${connectionId} refresh token`;
+          insertSecret.run(
+            sid,
+            row.scope_id,
+            fallbackProvider!,
+            name,
+            connectionId,
+            now,
+          );
+        } else {
+          updateSecretOwner.run(connectionId, row.scope_id, sid);
+        }
       }
       const nextInvocation = { ...invocation, oauth2: oauth2Pointer };
       updateSource.run(

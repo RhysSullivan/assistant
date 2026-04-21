@@ -305,6 +305,7 @@ function SidebarContent(props: {
 }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
+  const isConnections = props.pathname === "/connections";
 
   return (
     <>
@@ -319,6 +320,7 @@ function SidebarContent(props: {
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <ScopeLabel />
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+        <NavItem to="/connections" label="Connections" active={isConnections} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
 
         {/* Sources list */}

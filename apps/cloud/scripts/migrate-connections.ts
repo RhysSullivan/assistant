@@ -335,12 +335,6 @@ const main = async () => {
             from secret
             where scope_id = ${b.row.scope_id} and id = any(${secretIds})
           `) as SecretRow[];
-          const missing = secretIds.filter(
-            (id) => !existing.some((r) => r.id === id),
-          );
-          if (missing.length > 0) {
-            throw new Error(`secret row(s) missing: ${missing.join(", ")}`);
-          }
           const alreadyOwned = existing.filter(
             (r) =>
               r.owned_by_connection_id !== null &&
@@ -351,11 +345,36 @@ const main = async () => {
               `secret(s) already owned: ${alreadyOwned.map((r) => `${r.id}(owner=${r.owned_by_connection_id})`).join(", ")}`,
             );
           }
-          await tx`
-            update secret
-            set owned_by_connection_id = ${connectionId}
-            where scope_id = ${b.row.scope_id} and id = any(${secretIds})
-          `;
+          // Some early-onboarded OpenAPI OAuth tokens never got a `secret`
+          // routing row — the pre-refactor `secretsGet` fallback resolved
+          // them via provider enumeration. Backfill the missing rows
+          // pointing at `workos-vault` (the only writable provider on
+          // cloud) so the new SDK's id-indexed fast path finds them.
+          const missing = secretIds.filter(
+            (id) => !existing.some((r) => r.id === id),
+          );
+          for (const id of missing) {
+            const name =
+              id === l.accessTokenSecretId
+                ? `Connection ${connectionId} access token`
+                : `Connection ${connectionId} refresh token`;
+            await tx`
+              insert into secret (
+                id, scope_id, provider, name,
+                owned_by_connection_id, created_at
+              ) values (
+                ${id}, ${b.row.scope_id}, ${"workos-vault"}, ${name},
+                ${connectionId}, now()
+              )
+            `;
+          }
+          if (existing.length > 0) {
+            await tx`
+              update secret
+              set owned_by_connection_id = ${connectionId}
+              where scope_id = ${b.row.scope_id} and id = any(${secretIds})
+            `;
+          }
 
           const nextInvocation = {
             ...(isRecord(b.row.invocation_config) ? b.row.invocation_config : {}),
