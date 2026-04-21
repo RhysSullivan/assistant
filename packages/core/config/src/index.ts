@@ -6,6 +6,7 @@ export {
   McpRemoteSourceConfig,
   McpStdioSourceConfig,
   McpAuthConfig,
+  McpConnectionAuth,
   SecretMetadata,
   ConfigHeaderValue,
   SECRET_REF_PREFIX,
