@@ -17,6 +17,7 @@ import {
   AutumnRequestHandlerService,
   NonProtectedRequestHandlerService,
   ProtectedRequestHandlerService,
+  ProvisionRequestHandlerService,
   OrgRequestHandlerService,
 } from "./api/router";
 
@@ -127,6 +128,9 @@ const TestRequestHandlersLive = Layer.mergeAll(
   Layer.succeed(NonProtectedRequestHandlerService, { app: AuthTestApp }),
   Layer.succeed(AutumnRequestHandlerService, {
     app: Effect.succeed(HttpServerResponse.unsafeJson({ source: "autumn" })),
+  }),
+  Layer.succeed(ProvisionRequestHandlerService, {
+    app: Effect.succeed(HttpServerResponse.unsafeJson({ source: "provision" })),
   }),
   Layer.succeed(ProtectedRequestHandlerService, { app: ProtectedTestApp }),
 );

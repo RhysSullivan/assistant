@@ -12,6 +12,7 @@ export const env: Record<string, unknown> = {
   WORKOS_API_KEY: process.env.WORKOS_API_KEY,
   WORKOS_CLIENT_ID: process.env.WORKOS_CLIENT_ID,
   WORKOS_COOKIE_PASSWORD: process.env.WORKOS_COOKIE_PASSWORD,
+  PROVISION_API_TOKEN: process.env.PROVISION_API_TOKEN,
 };
 export class WorkerEntrypoint {}
 export class DurableObject {}

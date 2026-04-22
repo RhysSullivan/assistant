@@ -24,6 +24,11 @@ declare global {
       MCP_AUTHKIT_DOMAIN?: string;
       MCP_RESOURCE_ORIGIN?: string;
 
+      // Programmatic provisioning API operator bearer. Absent ⇒ the
+      // provisioning API rejects every request. See
+      // apps/cloud/src/api/provision/middleware.ts.
+      PROVISION_API_TOKEN?: string;
+
       // Shared with frontend
       VITE_PUBLIC_SITE_URL?: string;
     }

@@ -21,16 +21,22 @@ export class ProtectedRequestHandlerService extends Context.Tag(
   "@executor/cloud/ProtectedRequestHandlerService",
 )<ProtectedRequestHandlerService, RequestAppService>() {}
 
+export class ProvisionRequestHandlerService extends Context.Tag(
+  "@executor/cloud/ProvisionRequestHandlerService",
+)<ProvisionRequestHandlerService, RequestAppService>() {}
+
 export const ApiRouterApp = Effect.gen(function* () {
   const org = yield* OrgRequestHandlerService;
   const nonProtected = yield* NonProtectedRequestHandlerService;
   const autumn = yield* AutumnRequestHandlerService;
+  const provision = yield* ProvisionRequestHandlerService;
   const protectedHandler = yield* ProtectedRequestHandlerService;
 
   return yield* HttpRouter.empty.pipe(
     HttpRouter.mountApp("/org", org.app, { includePrefix: true }),
     HttpRouter.mountApp("/auth", nonProtected.app, { includePrefix: true }),
     HttpRouter.mountApp("/autumn", autumn.app, { includePrefix: true }),
+    HttpRouter.mountApp("/provision", provision.app, { includePrefix: true }),
     HttpRouter.mountApp("/", protectedHandler.app),
     HttpRouter.toHttpApp,
   );

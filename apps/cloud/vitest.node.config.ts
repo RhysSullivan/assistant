@@ -24,6 +24,7 @@ export default defineConfig({
       WORKOS_API_KEY: "test_api_key",
       WORKOS_CLIENT_ID: "test_client_id",
       WORKOS_COOKIE_PASSWORD: "test_cookie_password_at_least_32_chars!",
+      PROVISION_API_TOKEN: "test_provision_token",
       NODE_ENV: "test",
     },
   },
