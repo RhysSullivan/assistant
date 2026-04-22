@@ -214,7 +214,7 @@ export interface PluginCtx<TStore = unknown> {
    *  stamped onto the source row during `oauth.start` → `oauth.complete`.
    *  The canonical `"oauth2"` ConnectionProvider (registered by the
    *  same service) runs refresh automatically. */
-  readonly oauth: OAuthService | undefined;
+  readonly oauth: OAuthService;
 
   /** Run `effect` inside a database transaction. Wraps the underlying
    *  adapter's transaction method. Use this in extension methods that

@@ -153,6 +153,38 @@ const asFromTokenUrl = (tokenUrl: string): oauth.AuthorizationServer => {
   };
 };
 
+const isLoopbackHttpUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:") return false;
+    const hostname = url.hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "0.0.0.0" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+};
+
+const oauth4webapiRequestOptions = (
+  targetUrl: string,
+  timeoutMs: number | undefined,
+): Record<string, unknown> => {
+  const options: Record<string, unknown> = {
+    signal: AbortSignal.timeout(timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS),
+  };
+  if (isLoopbackHttpUrl(targetUrl)) {
+    (options as { [oauth.allowInsecureRequests]?: boolean })[
+      oauth.allowInsecureRequests
+    ] = true;
+  }
+  return options;
+};
+
 const pickClientAuth = (
   clientSecret: string | null | undefined,
   method: ClientAuthMethod,
@@ -215,7 +247,7 @@ export const exchangeAuthorizationCode = (
         clientAuth,
         "authorization_code",
         params,
-        { signal: AbortSignal.timeout(input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS) },
+        oauth4webapiRequestOptions(input.tokenUrl, input.timeoutMs),
       );
       const result = await oauth.processGenericTokenEndpointResponse(
         as,
@@ -261,7 +293,7 @@ export const exchangeClientCredentials = (
         client,
         clientAuth,
         params,
-        { signal: AbortSignal.timeout(input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS) },
+        oauth4webapiRequestOptions(input.tokenUrl, input.timeoutMs),
       );
       const result = await oauth.processClientCredentialsResponse(
         as,
@@ -311,7 +343,7 @@ export const refreshAccessToken = (
         clientAuth,
         input.refreshToken,
         {
-          signal: AbortSignal.timeout(input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS),
+          ...oauth4webapiRequestOptions(input.tokenUrl, input.timeoutMs),
           additionalParameters,
         },
       );

@@ -499,22 +499,11 @@ export const graphqlPlugin = definePlugin(
 
         const configFile = options?.configFile;
 
-        // Guard: surface a concrete error at sign-in time when the host
-        // didn't wire OAuth — better than a NullPointer at token refresh.
-        const requireOAuth = () =>
-          ctx.oauth ??
-          (() => {
-            throw new Error(
-              "Graphql plugin called ctx.oauth.* but the executor was built without OAuth wiring. " +
-                "This should be impossible — `makeOAuth2Service` is always constructed by `createExecutor`.",
-            );
-          })();
-
         return {
-          probeEndpoint: (endpoint) => requireOAuth().probe({ endpoint }),
+          probeEndpoint: (endpoint) => ctx.oauth.probe({ endpoint }),
 
           startOAuth: (input) =>
-            requireOAuth().start({
+            ctx.oauth.start({
               endpoint: input.endpoint,
               redirectUrl: input.redirectUrl,
               connectionId: input.connectionId,
@@ -524,7 +513,7 @@ export const graphqlPlugin = definePlugin(
             }),
 
           completeOAuth: (input) =>
-            requireOAuth().complete({
+            ctx.oauth.complete({
               state: input.state,
               code: input.code,
               error: input.error,

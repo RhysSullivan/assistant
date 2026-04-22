@@ -1,6 +1,11 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import {
+  OAuthCompleteError,
+  OAuthSessionNotFoundError,
+  OAuthStartError,
+  ScopeId,
+} from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
 import {
@@ -203,4 +208,7 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
   .addError(InternalError)
   .addError(OpenApiParseError)
   .addError(OpenApiExtractionError)
-  .addError(OpenApiOAuthError) {}
+  .addError(OpenApiOAuthError)
+  .addError(OAuthStartError)
+  .addError(OAuthCompleteError)
+  .addError(OAuthSessionNotFoundError) {}

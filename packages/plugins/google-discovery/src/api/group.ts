@@ -1,6 +1,11 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import {
+  OAuthCompleteError,
+  OAuthSessionNotFoundError,
+  OAuthStartError,
+  ScopeId,
+} from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
 import {
@@ -181,4 +186,7 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
   .addError(GoogleDiscoveryApiError)
   .addError(GoogleDiscoveryOAuthError)
   .addError(GoogleDiscoveryParseError)
-  .addError(GoogleDiscoverySourceError) {}
+  .addError(GoogleDiscoverySourceError)
+  .addError(OAuthStartError)
+  .addError(OAuthCompleteError)
+  .addError(OAuthSessionNotFoundError) {}

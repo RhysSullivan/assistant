@@ -61,6 +61,7 @@ import type {
   StorageDeps,
 } from "./plugin";
 import { makeOAuth2Service } from "./oauth-service";
+import type { OAuthService } from "./oauth";
 import type { Scope } from "./scope";
 import {
   SecretRef,
@@ -228,6 +229,12 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
     readonly providers: () => Effect.Effect<readonly string[]>;
   };
+
+  /** OAuth 2.1 service — the same shape plugins see at `ctx.oauth`,
+   *  hoisted to the host surface so the core HTTP `/oauth/*` group can
+   *  probe/start/complete/cancel flows without going through any
+   *  plugin's extension methods. */
+  readonly oauth: OAuthService;
 
   readonly close: () => Effect.Effect<void, StorageFailure>;
 } & PluginExtensions<TPlugins>;
@@ -2401,6 +2408,7 @@ export const createExecutor = <
               Array.from(connectionProviders.keys()) as readonly string[],
           ),
       },
+      oauth: oauthBundle.service,
       close,
     };
 

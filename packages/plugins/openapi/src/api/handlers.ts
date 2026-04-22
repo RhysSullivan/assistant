@@ -4,6 +4,11 @@ import { Context, Effect } from "effect";
 import { runOAuthCallback } from "@executor/plugin-oauth2/http";
 
 import { addGroup, capture, InternalError } from "@executor/api";
+import type {
+  OAuthCompleteError,
+  OAuthSessionNotFoundError,
+  StorageFailure,
+} from "@executor/sdk";
 import { OpenApiOAuthError } from "../sdk/errors";
 import type {
   OpenApiPluginExtension,
@@ -16,6 +21,9 @@ const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
 
 const toPopupErrorMessage = (error: unknown): string => {
   if (error instanceof OpenApiOAuthError) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
   return "Authentication failed";
 };
 
@@ -149,7 +157,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         const ext = yield* OpenApiExtensionService;
         const html = yield* runOAuthCallback<
           { connectionId: string; expiresAt: number | null; scope: string | null },
-          OpenApiOAuthError | InternalError,
+          OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure | InternalError,
           never
         >({
           complete: ({ state, code, error }) =>

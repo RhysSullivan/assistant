@@ -111,7 +111,6 @@ export const openapi_source = sqliteTable("openapi_source", {
   base_url: text('base_url'),
   headers: text('headers', { mode: "json" }),
   oauth2: text('oauth2', { mode: "json" }),
-  annotation_policy: text('annotation_policy', { mode: "json" }),
   invocation_config: text('invocation_config', { mode: "json" }).notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),

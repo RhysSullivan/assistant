@@ -145,8 +145,9 @@ export const coreSchema = {
        *  don't mint a refresh token (client_credentials, etc.). */
       refresh_token_secret_id: { type: "string", required: false },
       /** Epoch ms when the access token expires. Null if the provider
-       *  didn't declare an expiry. Used as the refresh trigger. */
-      expires_at: { type: "number", required: false },
+       *  didn't declare an expiry. Used as the refresh trigger. Stored as
+       *  `bigint` because `Date.now()` (~1.7e12 in 2026) overflows int32. */
+      expires_at: { type: "number", required: false, bigint: true },
       /** Scope string as returned by the token endpoint. */
       scope: { type: "string", required: false },
       /** Opaque plugin-owned JSON — token endpoint URL, scopes list,

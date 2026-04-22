@@ -5,6 +5,9 @@ import { Effect, Option } from "effect";
 import {
   SourceDetectionResult,
   definePlugin,
+  type OAuthCompleteError,
+  type OAuthSessionNotFoundError,
+  type OAuthStartError,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -150,13 +153,14 @@ export interface GoogleDiscoveryPluginExtension {
     | GoogleDiscoveryParseError
     | GoogleDiscoverySourceError
     | GoogleDiscoveryOAuthError
+    | OAuthStartError
     | StorageFailure
   >;
   readonly completeOAuth: (
     input: GoogleDiscoveryOAuthCompleteInput,
   ) => Effect.Effect<
     GoogleDiscoveryOAuthAuthResult,
-    GoogleDiscoveryOAuthError | StorageFailure
+    OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure
   >;
   readonly getSource: (
     namespace: string,
@@ -385,12 +389,6 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
     // extras — into the core OAuth strategy config.
     startOAuth: (input) =>
       Effect.gen(function* () {
-        const oauthService = ctx.oauth;
-        if (!oauthService) {
-          return yield* new GoogleDiscoveryOAuthError({
-            message: "ctx.oauth not wired",
-          });
-        }
         const text = yield* fetchDiscoveryDocument(input.discoveryUrl);
         const manifest = yield* extractGoogleDiscoveryManifest(text);
         const scopes =
@@ -406,34 +404,22 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
         }
         const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
         const connectionId = `google-discovery-oauth2-${randomUUID()}`;
-        const result = yield* oauthService
-          .start({
-            endpoint: normalizeDiscoveryUrl(input.discoveryUrl),
-            redirectUrl: input.redirectUrl,
-            connectionId,
-            tokenScope,
-            strategy: {
-              kind: "authorization-code" as const,
-              authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
-              tokenEndpoint: GOOGLE_TOKEN_URL,
-              clientIdSecretId: input.clientIdSecretId,
-              clientSecretSecretId: input.clientSecretSecretId ?? null,
-              scopes,
-              extraAuthorizationParams: GOOGLE_EXTRA_AUTHORIZATION_PARAMS,
-            },
-            pluginId: "google-discovery",
-          })
-          .pipe(
-            Effect.mapError(
-              (err) =>
-                new GoogleDiscoveryOAuthError({
-                  message:
-                    "message" in err
-                      ? (err as { message: string }).message
-                      : String(err),
-                }),
-            ),
-          );
+        const result = yield* ctx.oauth.start({
+          endpoint: normalizeDiscoveryUrl(input.discoveryUrl),
+          redirectUrl: input.redirectUrl,
+          connectionId,
+          tokenScope,
+          strategy: {
+            kind: "authorization-code" as const,
+            authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
+            tokenEndpoint: GOOGLE_TOKEN_URL,
+            clientIdSecretId: input.clientIdSecretId,
+            clientSecretSecretId: input.clientSecretSecretId ?? null,
+            scopes,
+            extraAuthorizationParams: GOOGLE_EXTRA_AUTHORIZATION_PARAMS,
+          },
+          pluginId: "google-discovery",
+        });
         if (result.authorizationUrl === null) {
           return yield* new GoogleDiscoveryOAuthError({
             message:
@@ -448,37 +434,18 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       }),
 
     completeOAuth: (input) =>
-      Effect.gen(function* () {
-        const oauthService = ctx.oauth;
-        if (!oauthService) {
-          return yield* new GoogleDiscoveryOAuthError({
-            message: "ctx.oauth not wired",
-          });
-        }
-        const completed = yield* oauthService
-          .complete({
-            state: input.state,
-            code: input.code,
-            error: input.error,
-          })
-          .pipe(
-            Effect.mapError(
-              (err) =>
-                new GoogleDiscoveryOAuthError({
-                  message:
-                    err._tag === "OAuthSessionNotFoundError"
-                      ? "OAuth session not found or has expired"
-                      : "message" in err
-                      ? (err as { message: string }).message
-                      : String(err),
-                }),
-            ),
-          );
-        return {
-          kind: "oauth2" as const,
-          connectionId: completed.connectionId,
-        };
-      }),
+      ctx.oauth
+        .complete({
+          state: input.state,
+          code: input.code,
+          error: input.error,
+        })
+        .pipe(
+          Effect.map((completed) => ({
+            kind: "oauth2" as const,
+            connectionId: completed.connectionId,
+          })),
+        ),
 
     getSource: (namespace, scope) => ctx.storage.getSource(namespace, scope),
 

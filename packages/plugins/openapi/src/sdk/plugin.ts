@@ -5,6 +5,9 @@ import type { Layer } from "effect";
 import {
   SourceDetectionResult,
   definePlugin,
+  type OAuthCompleteError,
+  type OAuthSessionNotFoundError,
+  type OAuthStartError,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -229,10 +232,16 @@ export interface OpenApiPluginExtension {
   ) => Effect.Effect<void, StorageFailure>;
   readonly startOAuth: (
     input: OpenApiStartOAuthInput,
-  ) => Effect.Effect<OpenApiStartOAuthResponse, OpenApiOAuthError>;
+  ) => Effect.Effect<
+    OpenApiStartOAuthResponse,
+    OpenApiOAuthError | OAuthStartError | StorageFailure
+  >;
   readonly completeOAuth: (
     input: OpenApiCompleteOAuthInput,
-  ) => Effect.Effect<OpenApiCompleteOAuthResponse, OpenApiOAuthError>;
+  ) => Effect.Effect<
+    OpenApiCompleteOAuthResponse,
+    OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure
+  >;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,12 +572,6 @@ export const openApiPlugin = definePlugin(
               const connectionId =
                 input.connectionId ??
                 defaultOAuthConnectionId(input.flow, input.sourceId);
-              const oauthService = ctx.oauth;
-              if (!oauthService) {
-                return yield* new OpenApiOAuthError({
-                  message: "ctx.oauth not wired",
-                });
-              }
 
               const strategy =
                 input.flow === "clientCredentials"
@@ -588,34 +591,21 @@ export const openApiPlugin = definePlugin(
                       scopes: scopesArray,
                     });
 
-              const result = yield* oauthService
-                .start({
-                  endpoint: input.tokenUrl,
-                  // client-credentials doesn't redirect — pass the
-                  // plugin's own placeholder URL so the service can
-                  // still persist + surface it. For authorizationCode
-                  // we use the caller-supplied value.
-                  redirectUrl:
-                    input.flow === "authorizationCode"
-                      ? input.redirectUrl
-                      : input.tokenUrl,
-                  connectionId,
-                  tokenScope,
-                  strategy,
-                  pluginId: "openapi",
-                })
-                .pipe(
-                  Effect.mapError((err) =>
-                    err._tag === "OAuthStartError"
-                      ? new OpenApiOAuthError({ message: err.message })
-                      : new OpenApiOAuthError({
-                          message:
-                            "message" in err
-                              ? (err as { message: string }).message
-                              : String(err),
-                        }),
-                  ),
-                );
+              const result = yield* ctx.oauth.start({
+                endpoint: input.tokenUrl,
+                // client-credentials doesn't redirect — pass the
+                // plugin's own placeholder URL so the service can
+                // still persist + surface it. For authorizationCode
+                // we use the caller-supplied value.
+                redirectUrl:
+                  input.flow === "authorizationCode"
+                    ? input.redirectUrl
+                    : input.tokenUrl,
+                connectionId,
+                tokenScope,
+                strategy,
+                pluginId: "openapi",
+              });
 
               if (input.flow === "clientCredentials") {
                 // `client-credentials` mints the Connection inline — no
@@ -656,30 +646,11 @@ export const openApiPlugin = definePlugin(
 
           completeOAuth: (input) =>
             Effect.gen(function* () {
-              const oauthService = ctx.oauth;
-              if (!oauthService) {
-                return yield* new OpenApiOAuthError({
-                  message: "ctx.oauth not wired",
-                });
-              }
-              const completed = yield* oauthService
-                .complete({
-                  state: input.state,
-                  code: input.code,
-                  error: input.error,
-                })
-                .pipe(
-                  Effect.mapError((err) =>
-                    new OpenApiOAuthError({
-                      message:
-                        err._tag === "OAuthSessionNotFoundError"
-                          ? "OAuth session not found or has expired"
-                          : "message" in err
-                          ? (err as { message: string }).message
-                          : String(err),
-                    }),
-                  ),
-                );
+              const completed = yield* ctx.oauth.complete({
+                state: input.state,
+                code: input.code,
+                error: input.error,
+              });
               return {
                 connectionId: completed.connectionId,
                 expiresAt: completed.expiresAt,

@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, integer, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const source = pgTable("source", {
   id: text('id').notNull(),
@@ -73,7 +73,7 @@ export const connection = pgTable("connection", {
   identity_label: text('identity_label'),
   access_token_secret_id: text('access_token_secret_id').notNull(),
   refresh_token_secret_id: text('refresh_token_secret_id'),
-  expires_at: integer('expires_at'),
+  expires_at: bigint('expires_at', { mode: 'number' }),
   scope: text('scope'),
   provider_state: jsonb('provider_state'),
   created_at: timestamp('created_at').notNull(),
@@ -111,7 +111,6 @@ export const openapi_source = pgTable("openapi_source", {
   base_url: text('base_url'),
   headers: jsonb('headers'),
   oauth2: jsonb('oauth2'),
-  annotation_policy: jsonb('annotation_policy'),
   invocation_config: jsonb('invocation_config').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),

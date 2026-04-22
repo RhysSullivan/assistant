@@ -379,12 +379,17 @@ function generateImport({
   let hasReferences = false;
   let hasCompositePrimaryKey = false;
 
+  let hasNonBigintNumber = false;
+
   for (const [tableKey, table] of Object.entries(schema)) {
     for (const field of Object.values(table.fields)) {
       if (field.bigint) hasBigint = true;
       if (field.type === "json") hasJson = true;
       if (field.type === "boolean") hasBoolean = true;
-      if (field.type === "number" || field.type === "number[]") hasNumber = true;
+      if (field.type === "number" || field.type === "number[]") {
+        hasNumber = true;
+        if (!field.bigint) hasNonBigintNumber = true;
+      }
       if (field.type === "date") hasDate = true;
       if (field.index && !field.unique) hasIndex = true;
       if (field.index && field.unique) hasUniqueIndex = true;
@@ -409,9 +414,13 @@ function generateImport({
     // sqlite uses integer for timestamps, pg uses timestamp
   }
   if (hasNumber || dialect === "sqlite") {
-    if (dialect === "pg") coreImports.push("integer");
-    else if (dialect === "mysql") coreImports.push("int");
-    else coreImports.push("integer");
+    // PG + MySQL use integer/int only for non-bigint number fields; when
+    // every `type: "number"` field is `bigint: true` the int import is
+    // unused and trips `noUnusedImports`. SQLite always imports integer
+    // because it's the common type for booleans and timestamps too.
+    if (dialect === "pg" && hasNonBigintNumber) coreImports.push("integer");
+    else if (dialect === "mysql" && hasNonBigintNumber) coreImports.push("int");
+    else if (dialect === "sqlite") coreImports.push("integer");
   }
   if (hasBigint && dialect !== "sqlite") coreImports.push("bigint");
   if (hasJson) {

@@ -148,11 +148,34 @@ export interface DiscoveryRequestOptions {
 
 const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
 
+const isLoopbackHttpUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:") return false;
+    const hostname = url.hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "0.0.0.0" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+};
+
 const oauth4webapiOptions = (
   options: DiscoveryRequestOptions,
+  targetUrl?: string,
 ): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
   if (options.fetch) (out as { [customFetch]?: typeof fetch })[customFetch] = options.fetch;
+  if (targetUrl && isLoopbackHttpUrl(targetUrl)) {
+    (out as { [oauth.allowInsecureRequests]?: boolean })[
+      oauth.allowInsecureRequests
+    ] = true;
+  }
   const signal = AbortSignal.timeout(options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS);
   out.signal = signal;
   if (options.mcpProtocolVersion) {
@@ -292,7 +315,7 @@ export const discoverAuthorizationServerMetadata = (
         try: async () => {
           const response = await oauth.discoveryRequest(issuerUrl, {
             algorithm,
-            ...oauth4webapiOptions(options),
+            ...oauth4webapiOptions(options, issuer),
           });
           if (response.status === 404 || response.status === 405) {
             return null;
@@ -387,6 +410,11 @@ export const registerDynamicClient = (
       if (m.extra) for (const [k, v] of Object.entries(m.extra)) clientMetadata[k] = v;
 
       const reqOptions: Record<string, unknown> = oauth4webapiOptions(options);
+      if (isLoopbackHttpUrl(input.registrationEndpoint)) {
+        (reqOptions as { [oauth.allowInsecureRequests]?: boolean })[
+          oauth.allowInsecureRequests
+        ] = true;
+      }
       if (input.initialAccessToken) {
         reqOptions.initialAccessToken = input.initialAccessToken;
       }

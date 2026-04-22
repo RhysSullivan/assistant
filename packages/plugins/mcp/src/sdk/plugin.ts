@@ -525,16 +525,7 @@ export const mcpPlugin = definePlugin(
               );
             }
 
-            const oauthService = ctx.oauth;
-            if (!oauthService) {
-              return yield* Effect.fail(
-                remoteConnectionError(
-                  "MCP server requires authentication but ctx.oauth is unavailable",
-                ),
-              );
-            }
-
-            const probeResult = yield* oauthService
+            const probeResult = yield* ctx.oauth
               .probe({ endpoint: trimmed })
               .pipe(
                 Effect.map(() => true),
@@ -801,18 +792,6 @@ export const mcpPlugin = definePlugin(
         //   - appends MCP-specific `queryParams` to the endpoint URL
         //     before handing it off, and
         //   - sets `pluginId: "mcp"` so completion routes back to us.
-        const requireOAuth = () => {
-          const svc = ctx.oauth;
-          if (!svc) {
-            throw new Error(
-              "MCP plugin called ctx.oauth but the executor was built without one. " +
-                "`makeOAuth2Service` is always constructed by `createExecutor`; " +
-                "this should be impossible.",
-            );
-          }
-          return svc;
-        };
-
         const startOAuth = (input: McpOAuthStartInput) =>
           Effect.gen(function* () {
             const endpoint = input.endpoint.trim();
@@ -830,7 +809,7 @@ export const mcpPlugin = definePlugin(
               fullEndpoint = u.toString();
             }
             const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
-            return yield* requireOAuth().start({
+            return yield* ctx.oauth.start({
               endpoint: fullEndpoint,
               redirectUrl: input.redirectUrl,
               connectionId: input.connectionId,
@@ -841,7 +820,7 @@ export const mcpPlugin = definePlugin(
           }).pipe(Effect.withSpan("mcp.plugin.start_oauth"));
 
         const completeOAuth = (input: McpOAuthCompleteInput) =>
-          requireOAuth()
+          ctx.oauth
             .complete({
               state: input.state,
               code: input.code,
@@ -1016,9 +995,7 @@ export const mcpPlugin = definePlugin(
           // service's probe verifies the AS metadata resolves so we
           // don't classify endpoints that challenge but have no
           // discovery.
-          const oauthService = ctx.oauth;
-          if (!oauthService) return null;
-          const probeOk = yield* oauthService
+          const probeOk = yield* ctx.oauth
             .probe({ endpoint: trimmed })
             .pipe(
               Effect.map(() => true),
