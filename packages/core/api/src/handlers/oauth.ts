@@ -7,7 +7,7 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Cause, Effect } from "effect";
 
-import { runOAuthCallback } from "@executor/plugin-oauth2/http";
+import { runOAuthCallback } from "../oauth-popup";
 import {
   OAuthCompleteError,
   OAuthProbeError,

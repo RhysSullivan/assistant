@@ -165,6 +165,16 @@ export {
   type RefreshAccessTokenInput,
 } from "./oauth-helpers";
 
+// OAuth popup message shape — shared between the server-side HTML
+// generator (`@executor/api/oauth-popup`) and the browser-side popup
+// opener (`@executor/react/api/oauth-popup`) so success/failure
+// messages round-trip reliably via `postMessage` / `BroadcastChannel`.
+export {
+  OAUTH_POPUP_MESSAGE_TYPE,
+  isOAuthPopupResult,
+  type OAuthPopupResult,
+} from "./oauth-popup-types";
+
 // OAuth service factory — exposed for tests / non-default hosts that
 // want to construct the service against a custom adapter. `createExecutor`
 // uses this internally to build the `ctx.oauth` service and the
