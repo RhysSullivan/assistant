@@ -152,6 +152,35 @@ export const coreSchema = {
       updated_at: { type: "date", required: true },
     },
   },
+  // Skills — short runbook notes keyed to a source (an integration the
+  // user hooked up). Captured primarily by the model during / after a
+  // first test-run against a freshly-added source; surfaced back to
+  // agents on subsequent invocations via `executor.skills.listForSource`
+  // and via the static `executor.skills.record` tool. Persisting this
+  // knowledge means the next agent doesn't have to re-learn the same
+  // API quirks. See `skills.ts` for the design note.
+  skill: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      /** Source (integration) this skill applies to — matches `source.id`.
+       *  Indexed because the hot read path is "all skills for source X". */
+      source_id: { type: "string", required: true, index: true },
+      title: { type: "string", required: true },
+      /** Markdown body. Size-bounded at write time (see `skills.ts`)
+       *  so a runaway model can't blow up the tool manifest. */
+      body: { type: "string", required: true },
+      /** Who authored the skill — "model" for agent-recorded notes,
+       *  "user" for manually-authored ones. UI / policy may treat them
+       *  differently. */
+      created_by: { type: "string", required: true },
+      /** Monotonic integer bumped on every overwrite of the same id.
+       *  Lets consumers spot stale cached copies. */
+      version: { type: "number", required: true },
+      created_at: { type: "date", required: true },
+      updated_at: { type: "date", required: true },
+    },
+  },
 } as const satisfies DBSchema;
 
 export type CoreSchema = typeof coreSchema;
@@ -178,6 +207,9 @@ export type SecretRow = InferDBFieldsOutput<CoreSchema["secret"]["fields"]> &
 export type ConnectionRow = InferDBFieldsOutput<
   CoreSchema["connection"]["fields"]
 > &
+  Record<string, unknown>;
+
+export type SkillRow = InferDBFieldsOutput<CoreSchema["skill"]["fields"]> &
   Record<string, unknown>;
 
 // ---------------------------------------------------------------------------

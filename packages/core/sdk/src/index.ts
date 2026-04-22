@@ -65,6 +65,7 @@ export {
   type DefinitionRow,
   type SecretRow,
   type ConnectionRow,
+  type SkillRow,
   type DefinitionsInput,
   type ToolAnnotations,
 } from "./core-schema";
@@ -138,6 +139,15 @@ export {
   createExecutor,
   collectSchemas,
 } from "./executor";
+
+// Skills — runbook notes keyed to a source.
+export {
+  Skill,
+  MAX_SKILL_BODY_BYTES,
+  MAX_SKILLS_PER_SOURCE,
+  type RecordSkillInput,
+} from "./skills";
+export { skillsPlugin } from "./skills-plugin";
 
 // CLI config
 export {

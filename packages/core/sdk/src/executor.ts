@@ -74,6 +74,13 @@ import {
 } from "./types";
 import { buildToolTypeScriptPreview } from "./schema-types";
 import { scopeAdapter } from "./scoped-adapter";
+import {
+  makeSkillsStore,
+  type RecordSkillInput,
+  type Skill,
+  type SkillsStore,
+} from "./skills";
+import { skillsPlugin } from "./skills-plugin";
 
 // ---------------------------------------------------------------------------
 // InvokeOptions — passed to `executor.tools.invoke(id, args, options)`.
@@ -224,6 +231,24 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     >;
     readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
     readonly providers: () => Effect.Effect<readonly string[]>;
+  };
+
+  /** Skills — durable runbook notes keyed to a source. See `skills.ts`
+   *  for the design note. Typical consume path at agent-invoke time:
+   *    `const skills = yield* executor.skills.listForSource(src.id)`
+   *  then prepend the rendered bodies to the system prompt near the
+   *  tool manifest. */
+  readonly skills: {
+    readonly record: (
+      input: RecordSkillInput,
+    ) => Effect.Effect<Skill, StorageFailure>;
+    readonly list: (
+      sourceId?: string,
+    ) => Effect.Effect<readonly Skill[], StorageFailure>;
+    readonly listForSource: (
+      sourceId: string,
+    ) => Effect.Effect<readonly Skill[], StorageFailure>;
+    readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
   };
 
   readonly close: () => Effect.Effect<void, StorageFailure>;
@@ -566,7 +591,7 @@ export const createExecutor = <
       scopes,
       adapter: rootAdapter,
       blobs,
-      plugins = [] as unknown as TPlugins,
+      plugins: userPlugins = [] as unknown as TPlugins,
     } = config;
 
     if (scopes.length === 0) {
@@ -574,6 +599,15 @@ export const createExecutor = <
         new Error("createExecutor requires a non-empty scopes array"),
       );
     }
+
+    // Auto-prepend the built-in skills plugin so every executor exposes
+    // the `executor.skills.*` static tools without the host having to
+    // register them. Skipped if the host already opted in explicitly
+    // (e.g. in tests that want to assert against a bare executor).
+    const hasSkillsPlugin = userPlugins.some((p) => p.id === "executor-skills");
+    const plugins = (
+      hasSkillsPlugin ? userPlugins : [skillsPlugin(), ...userPlugins]
+    ) as unknown as TPlugins;
 
     // Scope-wrap the root adapter so every read on a tenant-scoped
     // table filters by `scope_id IN (scopes)` and every write's
@@ -658,6 +692,16 @@ export const createExecutor = <
       }
       return winner ?? null;
     };
+
+    // Skills store — plain DB-backed helper shared between the executor
+    // surface (`executor.skills.*`) and ctx (`ctx.core.skills.*`). The
+    // store is scope-aware via `scopeRank`, but record() requires the
+    // caller to pick a target scope explicitly, same rule as every
+    // other scoped write in the SDK.
+    const skillsStore: SkillsStore = makeSkillsStore(core, scopeRank);
+    const defaultSkillScope = scopeIds[0]!;
+    const recordSkill = (input: RecordSkillInput) =>
+      skillsStore.record({ ...input, scope: input.scope ?? defaultSkillScope });
 
     const secretsGet = (
       id: string,
@@ -1577,6 +1621,12 @@ export const createExecutor = <
                 writeDefinitions(core, plugin.id, input),
               ),
           },
+          skills: {
+            record: (input) => recordSkill(input),
+            listForSource: (sourceId) => skillsStore.listForSource(sourceId),
+            list: () => skillsStore.list(),
+            remove: (id) => skillsStore.remove(id),
+          },
         },
         secrets: {
           get: (id) => secretsGet(id),
@@ -2276,6 +2326,13 @@ export const createExecutor = <
             () =>
               Array.from(connectionProviders.keys()) as readonly string[],
           ),
+      },
+      skills: {
+        record: recordSkill,
+        list: (sourceId?: string) =>
+          sourceId ? skillsStore.listForSource(sourceId) : skillsStore.list(),
+        listForSource: skillsStore.listForSource,
+        remove: skillsStore.remove,
       },
       close,
     };

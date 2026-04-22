@@ -21,6 +21,7 @@ import type {
   ToolRow,
 } from "./core-schema";
 import type { SourceDetectionResult } from "./types";
+import type { RecordSkillInput, Skill } from "./skills";
 import type {
   ElicitationDeclinedError,
   ElicitationHandler,
@@ -125,6 +126,20 @@ export interface PluginCtx<TStore = unknown> {
       readonly register: (
         input: DefinitionsInput,
       ) => Effect.Effect<void, StorageFailure>;
+    };
+    /** Skills — runbook notes keyed to a source. Plugin-owned tool
+     *  handlers (notably the built-in skills plugin's `record` tool)
+     *  write here; external consumers go through `executor.skills.*`
+     *  directly. See `skills.ts` for the design note. */
+    readonly skills: {
+      readonly record: (
+        input: RecordSkillInput,
+      ) => Effect.Effect<Skill, StorageFailure>;
+      readonly listForSource: (
+        sourceId: string,
+      ) => Effect.Effect<readonly Skill[], StorageFailure>;
+      readonly list: () => Effect.Effect<readonly Skill[], StorageFailure>;
+      readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
     };
   };
 

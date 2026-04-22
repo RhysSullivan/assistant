@@ -91,9 +91,12 @@ describe("buildExecuteDescription", () => {
   );
 
   it.effect(
-    "omits the Available namespaces section when no plugins register sources",
+    "always renders the built-in executor.skills namespace so agents can record runbooks",
     () =>
       Effect.gen(function* () {
+        // With no user-supplied plugins, the built-in skills plugin is
+        // still auto-prepended — we want every agent to see the skills
+        // surface by default. This test locks in that contract.
         const executor = yield* createExecutor(
           makeTestConfig({ plugins: [] as const }),
         );
@@ -103,7 +106,8 @@ describe("buildExecuteDescription", () => {
         expect(description).toContain(
           "Execute TypeScript in a sandboxed runtime",
         );
-        expect(description).not.toContain("## Available namespaces");
+        expect(description).toContain("## Available namespaces");
+        expect(description).toContain("`executor.skills`");
       }),
   );
 });

@@ -147,23 +147,26 @@ describe("mcpPlugin", () => {
     }),
   );
 
-  it.effect("sources list is initially empty", () =>
+  it.effect("sources list has no MCP sources initially", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({ plugins: [mcpPlugin()] as const }),
       );
       const sources = yield* executor.sources.list();
-      expect(sources).toHaveLength(0);
+      // Only the built-in skills static source should be present.
+      expect(sources.filter((s) => s.pluginId === "mcp")).toHaveLength(0);
     }),
   );
 
-  it.effect("tools list is initially empty", () =>
+  it.effect("tools list has no MCP tools initially", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({ plugins: [mcpPlugin()] as const }),
       );
       const tools = yield* executor.tools.list();
-      expect(tools).toHaveLength(0);
+      // Built-in executor.skills.* tools are always registered; MCP
+      // itself contributes nothing until addSource() runs.
+      expect(tools.filter((t) => t.pluginId === "mcp")).toHaveLength(0);
     }),
   );
 
