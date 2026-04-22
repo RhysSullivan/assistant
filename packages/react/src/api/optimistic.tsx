@@ -2,7 +2,7 @@ import * as React from "react";
 import { Atom, Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 import type { ScopeId } from "@executor/sdk";
 
-import { sourcesAtom } from "./atoms";
+import { connectionsAtom, sourcesAtom } from "./atoms";
 
 /**
  * Client-only optimistic-update layer.
@@ -21,6 +21,7 @@ import { sourcesAtom } from "./atoms";
 
 export const PendingResource = {
   sources: "sources",
+  connectionRemovals: "connection-removals",
 } as const;
 
 export interface PendingEntry<T> {
@@ -44,7 +45,12 @@ export const usePendingResource = <T,>(resource: string) => {
 
   const add = React.useCallback(
     (entry: PendingEntry<T>) =>
-      setPending((prev) => [...(prev as ReadonlyArray<PendingEntry<T>>), entry]),
+      setPending((prev) => [
+        ...(prev as ReadonlyArray<PendingEntry<T>>).filter(
+          (p) => p.id !== entry.id,
+        ),
+        entry,
+      ]),
     [setPending],
   );
 
@@ -138,6 +144,60 @@ export const usePendingSources = () => {
       beginAdd: (entry: { id: string } & PendingSource) => {
         add({ id: entry.id, value: { name: entry.name, kind: entry.kind, url: entry.url } });
         return { done: () => remove(entry.id) };
+      },
+    }),
+    [add, remove],
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Connections — optimistic removals.
+// ---------------------------------------------------------------------------
+
+interface PendingConnectionRemoval {
+  readonly id: string;
+}
+
+export const useConnectionsWithPendingRemovals = (scopeId: ScopeId) => {
+  const result = useAtomValue(connectionsAtom(scopeId));
+  const { pending, remove } = usePendingResource<PendingConnectionRemoval>(
+    PendingResource.connectionRemovals,
+  );
+
+  React.useEffect(() => {
+    if (!Result.isSuccess(result) || pending.length === 0) return;
+
+    const serverIds = new Set(
+      result.value.map((connection) => connection.id as string),
+    );
+    for (const entry of pending) {
+      if (!serverIds.has(entry.id)) remove(entry.id);
+    }
+  }, [result, pending, remove]);
+
+  return React.useMemo(
+    () =>
+      Result.map(result, (connections) => {
+        if (pending.length === 0) return connections;
+        const hiddenIds = new Set(pending.map((entry) => entry.id));
+        return connections.filter(
+          (connection) => !hiddenIds.has(connection.id as string),
+        );
+      }),
+    [result, pending],
+  );
+};
+
+export const usePendingConnectionRemovals = () => {
+  const { add, remove } = usePendingResource<PendingConnectionRemoval>(
+    PendingResource.connectionRemovals,
+  );
+
+  return React.useMemo(
+    () => ({
+      beginRemove: (id: string) => {
+        add({ id, value: { id } });
+        return { undo: () => remove(id) };
       },
     }),
     [add, remove],

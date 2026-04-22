@@ -1,7 +1,11 @@
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
+import { useAtomSet, Result } from "@effect-atom/atom-react";
 import { ConnectionId } from "@executor/sdk";
 
-import { connectionsAtom, removeConnection } from "../api/atoms";
+import { removeConnection } from "../api/atoms";
+import {
+  useConnectionsWithPendingRemovals,
+  usePendingConnectionRemovals,
+} from "../api/optimistic";
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { useScope } from "../hooks/use-scope";
 import { Badge } from "../components/badge";
@@ -103,16 +107,19 @@ function ConnectionRow(props: {
 
 export function ConnectionsPage() {
   const scopeId = useScope();
-  const connections = useAtomValue(connectionsAtom(scopeId));
+  const connections = useConnectionsWithPendingRemovals(scopeId);
+  const { beginRemove } = usePendingConnectionRemovals();
   const doRemove = useAtomSet(removeConnection, { mode: "promise" });
 
   const handleRemove = async (connectionId: string) => {
+    const pending = beginRemove(connectionId);
     try {
       await doRemove({
         path: { scopeId, connectionId: ConnectionId.make(connectionId) },
         reactivityKeys: connectionWriteKeys,
       });
     } catch {
+      pending.undo();
       // TODO: toast
     }
   };
