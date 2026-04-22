@@ -135,7 +135,6 @@ export interface McpBindingStore {
     scope: string,
   ) => Effect.Effect<void, StorageFailure>;
 
-  readonly listSources: () => Effect.Effect<readonly McpStoredSource[], StorageFailure>;
   readonly getSource: (
     namespace: string,
     scope: string,
@@ -210,17 +209,6 @@ export const makeMcpStore = ({
           ],
         })
         .pipe(Effect.asVoid),
-
-    listSources: () =>
-      Effect.gen(function* () {
-        const rows = yield* db.findMany({ model: "mcp_source" });
-        return rows.map((row) => ({
-          namespace: row.id,
-          scope: row.scope_id,
-          name: row.name,
-          config: decodeSourceData(coerceJson(row.config)),
-        }));
-      }),
 
     getSource: (namespace, scope) =>
       Effect.gen(function* () {
