@@ -7,7 +7,7 @@
 // a random port). Every layer between the test and the plugin is real:
 //
 //   test → HttpApiClient → in-process webHandler → ProtectedCloudApi
-//        → McpHandlers → mcpPlugin.startOAuth / completeOAuth
+//        → OAuthHandlers → mcpPlugin.startOAuth / completeOAuth
 //        → MCP SDK `auth()`
 //        → fake OAuth server (DCR, /authorize → 302, /token, AS metadata,
 //          protected resource metadata)
@@ -15,16 +15,10 @@
 // Two scenarios:
 //
 //   1. Single user: startOAuth → follow redirect → completeOAuth. Asserts
-//      the response carries the Connection id the exchange minted and
-//      that source-level OAuth state (clientInfo, AS URL) is echoed back
-//      so subsequent users can skip DCR.
+//      the response carries the Connection id the exchange minted.
 //
-//   2. Two users, same source: second user's startOAuth passes the
-//      clientInformation the first user's completeOAuth returned. The
-//      DCR endpoint counter on the fake server must NOT tick — proof
-//      the DCR-hoist code path re-uses the existing client. Both users
-//      end up with their own Connection (same id, different scope) via
-//      the SDK's innermost-wins shadowing.
+//   2. Two users, same source: both users mint their own Connection
+//      under the same stable id at different user-org scopes.
 // ---------------------------------------------------------------------------
 
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
@@ -286,40 +280,41 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
         const redirectUrl = "http://test.local/api/mcp/oauth/callback";
 
         const started = yield* asUser(userId, orgId, (client) =>
-          client.mcp.startOAuth({
+          client.oauth.start({
             path: { scopeId: userScope },
             payload: {
               endpoint: `${fake.url}/mcp`,
               redirectUrl,
               connectionId,
+              strategy: { kind: "dynamic-dcr" },
+              pluginId: "mcp",
             },
           }),
         );
-        expect(started.sessionId).toMatch(/^mcp_oauth_/);
+        expect(started.sessionId).toMatch(/^oauth2_session_/);
+        if (started.authorizationUrl === null) {
+          throw new Error("expected OAuth start to return an authorization URL");
+        }
+        const authorizationUrl = started.authorizationUrl;
 
         const { code, state } = yield* Effect.promise(() =>
-          followAuthorize(started.authorizationUrl),
+          followAuthorize(authorizationUrl),
         );
         expect(state).toBe(started.sessionId);
 
         const completed = yield* asUser(userId, orgId, (client) =>
-          client.mcp.completeOAuth({
+          client.oauth.complete({
             path: { scopeId: userScope },
             payload: { state, code },
           }),
         );
         expect(completed.connectionId).toBe(connectionId);
-        expect(completed.tokenType).toBe("Bearer");
-        // DCR hoist: the source-level state the UI will persist on the
-        // source's auth config, so the next user skips DCR entirely.
-        expect(completed.clientInformation).not.toBeNull();
-        expect(completed.authorizationServerUrl).not.toBeNull();
       }),
     30_000,
   );
 
   it.effect(
-    "second user on same source re-uses DCR client: registration endpoint is not re-hit",
+    "second user on same source gets a separate scoped token under the same connection id",
     () =>
       Effect.gen(function* () {
         const orgId = `org_${crypto.randomUUID()}`;
@@ -336,53 +331,61 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
 
         // --- User A: full OAuth round-trip, fresh DCR. ---
         const startedA = yield* asUser(userA, orgId, (client) =>
-          client.mcp.startOAuth({
+          client.oauth.start({
             path: { scopeId: scopeA },
             payload: {
               endpoint,
               redirectUrl,
               connectionId,
+              strategy: { kind: "dynamic-dcr" },
+              pluginId: "mcp",
             },
           }),
         );
+        if (startedA.authorizationUrl === null) {
+          throw new Error("expected OAuth start to return an authorization URL");
+        }
+        const authorizationUrlA = startedA.authorizationUrl;
         const redirA = yield* Effect.promise(() =>
-          followAuthorize(startedA.authorizationUrl),
+          followAuthorize(authorizationUrlA),
         );
         const completedA = yield* asUser(userA, orgId, (client) =>
-          client.mcp.completeOAuth({
+          client.oauth.complete({
             path: { scopeId: scopeA },
             payload: { state: redirA.state, code: redirA.code },
           }),
         );
         expect(completedA.connectionId).toBe(connectionId);
-        expect(completedA.clientInformation).not.toBeNull();
         expect(fake.registrations()).toBe(regsBefore + 1);
 
-        // --- User B: re-uses A's client info; DCR must NOT fire again. ---
+        // --- User B: same logical source id, separate user-scoped grant. ---
         const startedB = yield* asUser(userB, orgId, (client) =>
-          client.mcp.startOAuth({
+          client.oauth.start({
             path: { scopeId: scopeB },
             payload: {
               endpoint,
               redirectUrl,
               connectionId,
-              clientInformation: completedA.clientInformation,
-              authorizationServerUrl: completedA.authorizationServerUrl,
-              resourceMetadataUrl: completedA.resourceMetadataUrl,
+              strategy: { kind: "dynamic-dcr" },
+              pluginId: "mcp",
             },
           }),
         );
+        if (startedB.authorizationUrl === null) {
+          throw new Error("expected OAuth start to return an authorization URL");
+        }
+        const authorizationUrlB = startedB.authorizationUrl;
         const redirB = yield* Effect.promise(() =>
-          followAuthorize(startedB.authorizationUrl),
+          followAuthorize(authorizationUrlB),
         );
         const completedB = yield* asUser(userB, orgId, (client) =>
-          client.mcp.completeOAuth({
+          client.oauth.complete({
             path: { scopeId: scopeB },
             payload: { state: redirB.state, code: redirB.code },
           }),
         );
         expect(completedB.connectionId).toBe(connectionId);
-        expect(fake.registrations()).toBe(regsBefore + 1);
+        expect(fake.registrations()).toBe(regsBefore + 2);
       }),
     30_000,
   );

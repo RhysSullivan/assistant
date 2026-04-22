@@ -46,11 +46,13 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
       capture(
         Effect.gen(function* () {
           const executor = yield* ExecutorService;
+          const tokenScope =
+            payload.tokenScope ?? (executor.scopes[0]!.id as unknown as string);
           return yield* executor.oauth.start({
             endpoint: payload.endpoint,
             redirectUrl: payload.redirectUrl,
             connectionId: payload.connectionId,
-            tokenScope: payload.tokenScope,
+            tokenScope,
             strategy: payload.strategy as OAuthStrategy,
             pluginId: payload.pluginId,
           });

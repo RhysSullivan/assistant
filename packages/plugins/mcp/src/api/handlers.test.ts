@@ -24,8 +24,6 @@ const failingExtension: McpPluginExtension = {
   addSource: () => unused,
   removeSource: () => unused,
   refreshSource: () => unused,
-  startOAuth: () => unused,
-  completeOAuth: () => Effect.die(new Error("Not implemented")),
   getSource: () => Effect.succeed(null),
   updateSource: () => unused,
 };

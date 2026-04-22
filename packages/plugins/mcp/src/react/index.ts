@@ -6,6 +6,4 @@ export {
   addMcpSource,
   removeMcpSource,
   refreshMcpSource,
-  startMcpOAuth,
-  completeMcpOAuth,
 } from "./atoms";

@@ -5,12 +5,6 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.
 import {
   SourceDetectionResult,
   definePlugin,
-  type OAuthCompleteError,
-  type OAuthCompleteResult,
-  type OAuthProbeError,
-  type OAuthSessionNotFoundError,
-  type OAuthStartError,
-  type OAuthStartResult,
   type PluginCtx,
   type StorageFailure,
 } from "@executor/sdk";
@@ -91,62 +85,9 @@ export type McpSourceConfig = McpRemoteSourceConfig | McpStdioSourceConfig;
 // Extension types
 // ---------------------------------------------------------------------------
 
-export interface McpOAuthStartInput {
-  readonly endpoint: string;
-  readonly redirectUrl: string;
-  readonly queryParams?: Record<string, string> | null;
-  /**
-   * Executor scope id where the minted Connection will land. Defaults
-   * to `ctx.scopes[0].id` (innermost) — for a per-user stack
-   * `[user, org]` that pins the connection to the user scope so the
-   * source's stored `connectionId` resolves per-user via shadowing.
-   */
-  readonly tokenScope?: string;
-  /**
-   * Pre-decided SDK connection id the exchange will mint. Stable per
-   * source (typically `mcp-oauth2-${namespace}`) so multiple users
-   * signing in against the same MCP source all write to the same id at
-   * their own scope — `ctx.connections.accessToken(id)` then resolves
-   * innermost-first.
-   */
-  readonly connectionId: string;
-  /**
-   * Source-level OAuth state captured by a previous user's flow. Pass
-   * the values stored on the source's auth config to skip Dynamic
-   * Client Registration — the new user's flow re-uses the same
-   * client_id and discovery results.
-   */
-  readonly clientInformation?: Record<string, unknown> | null;
-  readonly authorizationServerUrl?: string | null;
-  readonly resourceMetadataUrl?: string | null;
-}
-
-export interface McpOAuthStartResponse {
-  readonly sessionId: string;
-  readonly authorizationUrl: string;
-}
-
-export interface McpOAuthCompleteInput {
-  readonly state: string;
-  readonly code?: string;
-  readonly error?: string;
-}
-
-export interface McpOAuthCompleteResponse {
-  /** Id of the SDK Connection the exchange minted. The caller stores it
-   *  on the source's `oauth2` auth field and resolves tokens via
-   *  `ctx.connections`. */
-  readonly connectionId: string;
-  readonly tokenType: string;
-  readonly expiresAt: number | null;
-  readonly scope: string | null;
-  /** DCR client + discovery URLs captured during the flow. The UI
-   *  stores them on the source's auth config so subsequent users can
-   *  skip DCR and re-discovery. */
-  readonly clientInformation: Record<string, unknown> | null;
-  readonly authorizationServerUrl: string | null;
-  readonly resourceMetadataUrl: string | null;
-}
+// OAuth start/complete/callback moved to the shared
+// `/scopes/:scopeId/oauth/*` surface in `@executor/api` — no
+// plugin-specific types needed here.
 
 export interface McpProbeResult {
   readonly connected: boolean;
@@ -786,48 +727,6 @@ export const mcpPlugin = definePlugin(
             }),
           );
 
-        // Thin forwarders around `ctx.oauth`. The core service owns the
-        // state machine (session storage, DCR, exchange, connection
-        // minting, refresh). The plugin only:
-        //   - appends MCP-specific `queryParams` to the endpoint URL
-        //     before handing it off, and
-        //   - sets `pluginId: "mcp"` so completion routes back to us.
-        const startOAuth = (input: McpOAuthStartInput) =>
-          Effect.gen(function* () {
-            const endpoint = input.endpoint.trim();
-            if (!endpoint) {
-              return yield* Effect.fail(
-                remoteConnectionError("MCP OAuth requires an endpoint"),
-              );
-            }
-            let fullEndpoint = endpoint;
-            if (input.queryParams && Object.keys(input.queryParams).length > 0) {
-              const u = new URL(endpoint);
-              for (const [k, v] of Object.entries(input.queryParams)) {
-                u.searchParams.set(k, v);
-              }
-              fullEndpoint = u.toString();
-            }
-            const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
-            return yield* ctx.oauth.start({
-              endpoint: fullEndpoint,
-              redirectUrl: input.redirectUrl,
-              connectionId: input.connectionId,
-              tokenScope,
-              strategy: { kind: "dynamic-dcr" },
-              pluginId: "mcp",
-            });
-          }).pipe(Effect.withSpan("mcp.plugin.start_oauth"));
-
-        const completeOAuth = (input: McpOAuthCompleteInput) =>
-          ctx.oauth
-            .complete({
-              state: input.state,
-              code: input.code,
-              error: input.error,
-            })
-            .pipe(Effect.withSpan("mcp.plugin.complete_oauth"));
-
         const updateSource = (
           namespace: string,
           scope: string,
@@ -872,8 +771,6 @@ export const mcpPlugin = definePlugin(
           addSource,
           removeSource,
           refreshSource,
-          startOAuth,
-          completeOAuth,
           getSource,
           updateSource,
         } satisfies McpPluginExtension;
@@ -1074,10 +971,6 @@ export const mcpPlugin = definePlugin(
 export type McpExtensionFailure =
   | McpConnectionError
   | McpToolDiscoveryError
-  | OAuthStartError
-  | OAuthCompleteError
-  | OAuthProbeError
-  | OAuthSessionNotFoundError
   | StorageFailure;
 
 export interface McpPluginExtension {
@@ -1098,12 +991,6 @@ export interface McpPluginExtension {
     namespace: string,
     scope: string,
   ) => Effect.Effect<{ readonly toolCount: number }, McpExtensionFailure>;
-  readonly startOAuth: (
-    input: McpOAuthStartInput,
-  ) => Effect.Effect<OAuthStartResult, McpExtensionFailure>;
-  readonly completeOAuth: (
-    input: McpOAuthCompleteInput,
-  ) => Effect.Effect<OAuthCompleteResult, McpExtensionFailure>;
   readonly getSource: (
     namespace: string,
     scope: string,

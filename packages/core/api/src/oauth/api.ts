@@ -63,8 +63,9 @@ const StartPayload = Schema.Struct({
    *  derives this as `${pluginId}-oauth2-${namespace}` so the source
    *  row can be stamped atomically with the flow start. */
   connectionId: Schema.String,
-  /** Scope where the resulting Connection + its backing secrets land. */
-  tokenScope: Schema.String,
+  /** Scope where the resulting Connection + its backing secrets land.
+   *  Defaults server-side to the current executor's innermost scope. */
+  tokenScope: Schema.optional(Schema.String),
   strategy: OAuthStrategySchema,
   /** Which plugin is initiating the flow. Persisted on the session +
    *  stamped on the minted Connection's identity-label prefix. */
