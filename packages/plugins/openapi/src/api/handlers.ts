@@ -99,13 +99,13 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
     .handle("startOAuth", ({ payload }) =>
       capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
-        // No tokenScope → plugin defaults to ctx.scopes[0].id (innermost).
-        // Single-scope executors: only scope in stack.
-        // Stacked executors: per-user scope, so tokens shadow by id.
+        // No tokenScope -> plugin defaults to ctx.scopes[0].id
+        // (innermost) for both OAuth flows.
         const tokenScope = payload.tokenScope as string | undefined;
         if (payload.flow === "clientCredentials") {
           return yield* ext.startOAuth({
             flow: "clientCredentials",
+            sourceId: payload.sourceId,
             displayName: payload.displayName,
             securitySchemeName: payload.securitySchemeName,
             tokenUrl: payload.tokenUrl,
@@ -113,10 +113,12 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
             clientSecretSecretId: payload.clientSecretSecretId,
             scopes: [...payload.scopes],
             tokenScope,
+            connectionId: payload.connectionId,
           });
         }
         return yield* ext.startOAuth({
           flow: "authorizationCode",
+          sourceId: payload.sourceId,
           displayName: payload.displayName,
           securitySchemeName: payload.securitySchemeName,
           authorizationUrl: payload.authorizationUrl,
@@ -126,6 +128,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           clientSecretSecretId: payload.clientSecretSecretId ?? null,
           scopes: [...payload.scopes],
           tokenScope,
+          connectionId: payload.connectionId,
         });
       })),
     )

@@ -5,7 +5,20 @@ import { Option } from "effect";
 import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 
 import { useScope } from "@executor/react/api/scope-context";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import {
+  connectionWriteKeys,
+  sourceWriteKeys,
+} from "@executor/react/api/reactivity-keys";
+
+// `addSpec` with an oauth2 payload persists a source row AND (for
+// clientCredentials) a freshly-minted Connection + owned secrets,
+// because the inline token exchange happens during `startOAuth`.
+// Invalidate both so the source-detail page opens into its connected
+// state without a refresh.
+const addSpecWriteKeys = [
+  ...sourceWriteKeys,
+  ...connectionWriteKeys,
+] as const;
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import {
@@ -69,15 +82,13 @@ const substituteUrlVariables = (url: string, values: Record<string, string>): st
   return out;
 };
 
-/**
- * Stable placeholder connection id used when saving a source without
- * completing the OAuth flow. OpenApiSignInButton rewrites `oauth2.connectionId`
- * to a freshly minted id on first sign-in, so this only needs to be
- * deterministic per-namespace and distinct from any real connection id
- * (real ids are `openapi-oauth2-${uuid}`).
- */
-const openApiOAuthConnectionId = (namespaceSlug: string): string =>
-  `openapi-oauth2-pending-${namespaceSlug || "default"}`;
+const openApiOAuthConnectionId = (
+  namespaceSlug: string,
+  flow: OAuth2Preset["flow"],
+): string =>
+  flow === "clientCredentials"
+    ? `openapi-oauth2-app-${namespaceSlug || "default"}`
+    : `openapi-oauth2-user-${namespaceSlug || "default"}`;
 
 /**
  * OpenAPI 3.x requires OAuth2 tokenUrl/authorizationUrl to be absolute,
@@ -195,7 +206,10 @@ export default function AddOpenApiSource(props: {
     null,
   );
   const [oauth2SelectedScopes, setOauth2SelectedScopes] = useState<Set<string>>(new Set());
-  const [oauth2Auth, setOauth2Auth] = useState<OAuth2Auth | null>(null);
+  const [oauth2AuthState, setOauth2AuthState] = useState<{
+    readonly fingerprint: string;
+    readonly auth: OAuth2Auth;
+  } | null>(null);
   const [startingOAuth, setStartingOAuth] = useState(false);
   const [oauth2Error, setOauth2Error] = useState<string | null>(null);
   const oauthCleanup = useRef<(() => void) | null>(null);
@@ -277,8 +291,28 @@ export default function AddOpenApiSource(props: {
     typeof window !== "undefined"
       ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
       : OPENAPI_OAUTH_CALLBACK_PATH;
+  // Stable source id derivation. Matches the value `handleAdd` sends as
+  // `namespace`, and is also the default credential key when the user
+  // does not provide a more explicit shared connection id.
+  const resolvedSourceId =
+    slugifyNamespace(identity.namespace) ||
+    (preview ? Option.getOrElse(preview.title, () => "openapi") : "openapi");
   const selectedOAuth2Preset: OAuth2Preset | null =
     strategy.kind === "oauth2" ? (oauth2Presets[strategy.presetIndex] ?? null) : null;
+  const selectedOAuth2Fingerprint = selectedOAuth2Preset
+    ? [
+        resolvedSourceId,
+        resolvedBaseUrl,
+        selectedOAuth2Preset.securitySchemeName,
+        selectedOAuth2Preset.flow,
+        selectedOAuth2Preset.tokenUrl,
+        Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+      ].join("\n")
+    : "";
+  const oauth2Auth =
+    oauth2AuthState?.fingerprint === selectedOAuth2Fingerprint
+      ? oauth2AuthState.auth
+      : null;
 
   // OAuth is "ready to save" without completing the flow as long as we have
   // enough metadata to run sign-in later: a preset, a client id secret, and —
@@ -344,7 +378,7 @@ export default function AddOpenApiSource(props: {
     setStrategy(next);
     // Clear any stale OAuth grant whenever the strategy changes away from oauth2.
     if (next.kind !== "oauth2") {
-      setOauth2Auth(null);
+      setOauth2AuthState(null);
       setOauth2Error(null);
     }
     switch (next.kind) {
@@ -389,7 +423,7 @@ export default function AddOpenApiSource(props: {
       return copy;
     });
     // Changing scopes invalidates any previously-granted token.
-    setOauth2Auth(null);
+    setOauth2AuthState(null);
   };
 
   const handleConnectOAuth2 = useCallback(async () => {
@@ -419,6 +453,11 @@ export default function AddOpenApiSource(props: {
         const response = await doStartOAuth({
           path: { scopeId },
           payload: {
+            sourceId: resolvedSourceId,
+            connectionId: openApiOAuthConnectionId(
+              resolvedSourceId,
+              selectedOAuth2Preset.flow,
+            ),
             displayName,
             securitySchemeName: selectedOAuth2Preset.securitySchemeName,
             flow: "clientCredentials",
@@ -433,7 +472,10 @@ export default function AddOpenApiSource(props: {
           setOauth2Error("Unexpected response flow from server");
           return;
         }
-        setOauth2Auth(response.auth);
+        setOauth2AuthState({
+          fingerprint: selectedOAuth2Fingerprint,
+          auth: response.auth,
+        });
         setOauth2Error(null);
         return;
       }
@@ -446,6 +488,11 @@ export default function AddOpenApiSource(props: {
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
+          sourceId: resolvedSourceId,
+          connectionId: openApiOAuthConnectionId(
+            resolvedSourceId,
+            selectedOAuth2Preset.flow,
+          ),
           displayName,
           securitySchemeName: selectedOAuth2Preset.securitySchemeName,
           flow: "authorizationCode",
@@ -472,8 +519,9 @@ export default function AddOpenApiSource(props: {
           oauthCleanup.current = null;
           setStartingOAuth(false);
           if (result.ok) {
-            setOauth2Auth(
-              new OAuth2Auth({
+            setOauth2AuthState({
+              fingerprint: selectedOAuth2Fingerprint,
+              auth: new OAuth2Auth({
                 kind: "oauth2",
                 connectionId: result.connectionId,
                 securitySchemeName: result.securitySchemeName,
@@ -484,7 +532,7 @@ export default function AddOpenApiSource(props: {
                 clientSecretSecretId: result.clientSecretSecretId,
                 scopes: result.scopes,
               }),
-            );
+            });
             setOauth2Error(null);
           } else {
             setOauth2Error(result.error);
@@ -517,6 +565,8 @@ export default function AddOpenApiSource(props: {
     doStartOAuth,
     scopeId,
     identity.name,
+    resolvedSourceId,
+    selectedOAuth2Fingerprint,
   ]);
 
   const handleCancelOAuth2 = useCallback(() => {
@@ -531,9 +581,7 @@ export default function AddOpenApiSource(props: {
   const handleAdd = async () => {
     setAdding(true);
     setAddError(null);
-    const namespace =
-      slugifyNamespace(identity.namespace) ||
-      (preview ? Option.getOrElse(preview.title, () => "openapi") : "openapi");
+    const namespace = resolvedSourceId;
     const displayName =
       identity.name.trim() ||
       (preview ? Option.getOrElse(preview.title, () => namespace) : namespace);
@@ -544,9 +592,8 @@ export default function AddOpenApiSource(props: {
       url: resolvedBaseUrl || undefined,
     });
     // If the user picked oauth2 but didn't complete sign-in, persist a
-    // deferred OAuth2Auth with a stable placeholder connectionId so the
-    // source lands with its OAuth config intact. OpenApiSignInButton
-    // rewrites the pointer once a user actually signs in.
+    // deferred OAuth2Auth with the same stable connection id sign-in will
+    // later create. The source config stays stable before and after auth.
     let oauth2ToSave: OAuth2Auth | null = oauth2Auth;
     if (
       !oauth2ToSave &&
@@ -567,7 +614,10 @@ export default function AddOpenApiSource(props: {
           : null;
       oauth2ToSave = new OAuth2Auth({
         kind: "oauth2",
-        connectionId: openApiOAuthConnectionId(namespace),
+        connectionId: openApiOAuthConnectionId(
+          namespace,
+          selectedOAuth2Preset.flow,
+        ),
         securitySchemeName: selectedOAuth2Preset.securitySchemeName,
         flow: selectedOAuth2Preset.flow,
         tokenUrl,
@@ -588,7 +638,7 @@ export default function AddOpenApiSource(props: {
           ...(hasHeaders ? { headers: allHeaders } : {}),
           ...(oauth2ToSave ? { oauth2: oauth2ToSave } : {}),
         },
-        reactivityKeys: sourceWriteKeys,
+        reactivityKeys: addSpecWriteKeys,
       });
       props.onComplete();
     } catch (e) {
@@ -624,7 +674,7 @@ export default function AddOpenApiSource(props: {
                     setVariableSelections({});
                     setCustomHeaders([]);
                     setStrategy({ kind: "none" });
-                    setOauth2Auth(null);
+                    setOauth2AuthState(null);
                     setOauth2Error(null);
                   }
                 }}
@@ -930,7 +980,7 @@ export default function AddOpenApiSource(props: {
                     value={oauth2ClientIdSecretId}
                     onSelect={(id: string) => {
                       setOauth2ClientIdSecretId(id);
-                      setOauth2Auth(null);
+                      setOauth2AuthState(null);
                     }}
                     secrets={secretList}
                     sourceName={identity.name}
@@ -948,7 +998,7 @@ export default function AddOpenApiSource(props: {
                     value={oauth2ClientSecretSecretId}
                     onSelect={(id: string) => {
                       setOauth2ClientSecretSecretId(id);
-                      setOauth2Auth(null);
+                      setOauth2AuthState(null);
                     }}
                     secrets={secretList}
                     sourceName={identity.name}
@@ -995,7 +1045,7 @@ export default function AddOpenApiSource(props: {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setOauth2Auth(null)}
+                      onClick={() => setOauth2AuthState(null)}
                     >
                       Disconnect
                     </Button>

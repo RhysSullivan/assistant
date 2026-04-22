@@ -3,9 +3,22 @@ import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
 import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import { useScope } from "@executor/react/api/scope-context";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import {
+  connectionWriteKeys,
+  sourceWriteKeys,
+} from "@executor/react/api/reactivity-keys";
 import { connectionsAtom } from "@executor/react/api/atoms";
 import { Button } from "@executor/react/components/button";
+
+// A successful sign-in mutates BOTH the source row (oauth2 pointer) and
+// the Connections primitive (new/refreshed row + possibly new owned
+// secrets). Passing only `sourceWriteKeys` leaves `connectionsAtom`
+// stale, so `isConnected` keeps returning false and the button sticks
+// on "Sign in" until a reload.
+const signInWriteKeys = [
+  ...sourceWriteKeys,
+  ...connectionWriteKeys,
+] as const;
 
 import {
   openApiSourceAtom,
@@ -24,7 +37,7 @@ import { OAuth2Auth } from "../sdk/types";
 //
 // Reads the source's stored OAuth2Auth, runs the same OAuth flow as Add
 // (authorizationCode via popup, clientCredentials inline), and on success
-// rewrites the source's OAuth2Auth pointer to the freshly minted
+// refreshes the source's stored OAuth2Auth while preserving its logical
 // connection id. Works whether or not the previous connection still
 // exists — source-owned OAuth config is the source of truth.
 // ---------------------------------------------------------------------------
@@ -78,6 +91,8 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
         const response = await doStartOAuth({
           path: { scopeId },
           payload: {
+            sourceId: props.sourceId,
+            connectionId: oauth2.connectionId,
             displayName,
             securitySchemeName: oauth2.securitySchemeName,
             flow: "clientCredentials",
@@ -95,7 +110,7 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
         await doUpdate({
           path: { scopeId, namespace: props.sourceId },
           payload: { oauth2: response.auth },
-          reactivityKeys: sourceWriteKeys,
+          reactivityKeys: signInWriteKeys,
         });
         setBusy(false);
         return;
@@ -110,6 +125,8 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
+          sourceId: props.sourceId,
+          connectionId: oauth2.connectionId,
           displayName,
           securitySchemeName: oauth2.securitySchemeName,
           flow: "authorizationCode",
@@ -154,7 +171,7 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
             await doUpdate({
               path: { scopeId, namespace: props.sourceId },
               payload: { oauth2: nextAuth },
-              reactivityKeys: sourceWriteKeys,
+              reactivityKeys: signInWriteKeys,
             });
             setBusy(false);
           } catch (e) {

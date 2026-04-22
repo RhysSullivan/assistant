@@ -96,8 +96,8 @@ export interface OpenApiUpdateSourceInput {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, HeaderValue>;
-  /** Rewrite the source's OAuth2Auth — typically after a successful
-   *  re-authenticate, to point at a freshly minted connection. */
+  /** Refresh the source's stored OAuth2 metadata after a successful
+   *  re-authenticate. */
   readonly oauth2?: OAuth2Auth;
 }
 
@@ -113,10 +113,43 @@ interface StartOAuthIdentity {
   readonly securitySchemeName: string;
   readonly clientIdSecretId: string;
   readonly scopes: readonly string[];
+  /** Stable logical Connection id this source should resolve at invoke time.
+   *  Physical ownership still comes from `tokenScope`; the same id can
+   *  have separate rows at user/org scopes. Defaults to the legacy
+   *  source-derived id for compatibility. */
+  readonly connectionId?: string;
+  /**
+   * Source (namespace) the resulting Connection will back. Used as the
+   * compatibility default for the stable Connection *name* so repeat
+   * sign-ins refresh a single row per scope instead of spawning a
+   * fresh UUID every click:
+   *
+   *   clientCredentials → `openapi-oauth2-app-${sourceId}`
+   *   authorizationCode → `openapi-oauth2-user-${sourceId}`
+   *
+   * The resulting Connection is written at the innermost executor
+   * scope so per-user credentials (secrets shadowed at user scope via
+   * `ctx.secrets.get`'s scope-stacked resolution) and per-user consent
+   * (authorizationCode) both produce per-user rows. Because
+   * `findInnermostConnectionRow` resolves by id across the caller's
+   * stack, the single `source.oauth2.connectionId` string on a shared
+   * org source still lets every user reach their own physical row.
+   */
+  readonly sourceId: string;
   /** Executor scope that will own the resulting Connection (and its
-   *  backing token secrets). Defaults to `ctx.scopes[0].id`. */
+   *  backing token secrets). Defaults to `ctx.scopes[0].id`. Callers
+   *  can override to write at a different stack scope (e.g. an admin
+   *  writing an org-wide shared connection). */
   readonly tokenScope?: string;
 }
+
+const defaultOAuthConnectionId = (
+  flow: "authorizationCode" | "clientCredentials",
+  sourceId: string,
+): string =>
+  flow === "clientCredentials"
+    ? `openapi-oauth2-app-${sourceId}`
+    : `openapi-oauth2-user-${sourceId}`;
 
 export interface StartAuthorizationCodeOAuthInput extends StartOAuthIdentity {
   readonly flow: "authorizationCode";
@@ -551,7 +584,14 @@ export const openApiPlugin = definePlugin(
           startOAuth: (input) =>
             Effect.gen(function* () {
               const scopesArray = [...input.scopes];
-              const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
+              // Innermost = user scope in a stacked [user, org] executor.
+              // Both flows write at the innermost scope so per-user
+              // credentials (secrets shadowed at user scope) and per-user
+              // authorization codes each produce a per-user connection
+              // row. `source.oauth2.connectionId` is a single *name* —
+              // `findInnermostConnectionRow` walks each caller's stack
+              // to resolve the right physical row.
+              const innermostScope = ctx.scopes[0]!.id as string;
 
               const clientId = yield* ctx.secrets.get(input.clientIdSecretId).pipe(
                 Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
@@ -590,7 +630,21 @@ export const openApiPlugin = definePlugin(
                   ),
                 );
 
-                const connectionId = `openapi-oauth2-${randomUUID()}`;
+                // Stable id, per-user scope. The id is a *name* — the
+                // same string across every user — and each user's stack
+                // resolves it to their own physical row via
+                // `findInnermostConnectionRow`. That's what lets the
+                // shared org-scoped source carry a single
+                // `oauth2.connectionId` string while still supporting
+                // per-user credentials (via scope-stacked secret
+                // shadowing) and per-user tokens. `connections.create`
+                // is delete-then-insert on `(id, scope_id)`, so each
+                // user's repeat sign-ins refresh a single row rather
+                // than accumulate UUIDs.
+                const connectionId =
+                  input.connectionId ??
+                  defaultOAuthConnectionId("clientCredentials", input.sourceId);
+                const connectionScope = input.tokenScope ?? innermostScope;
                 const expiresAt =
                   typeof tokenResponse.expires_in === "number"
                     ? Date.now() + tokenResponse.expires_in * 1000
@@ -608,7 +662,7 @@ export const openApiPlugin = definePlugin(
                   .create(
                     new CreateConnectionInput({
                       id: ConnectionId.make(connectionId),
-                      scope: ScopeId.make(tokenScope),
+                      scope: ScopeId.make(connectionScope),
                       provider: OPENAPI_OAUTH2_PROVIDER_KEY,
                       kind: "app",
                       identityLabel: input.displayName,
@@ -655,10 +709,17 @@ export const openApiPlugin = definePlugin(
                 };
               }
 
-              // authorizationCode path.
+              // authorizationCode path. The source's logical connection
+              // id is stable, so repeated "Sign in" clicks refresh one
+              // row per target scope instead of creating UUID churn. By
+              // default this grant writes per-user because it carries user
+              // identity.
+              const tokenScope = input.tokenScope ?? innermostScope;
               const sessionId = randomUUID();
               const codeVerifier = createPkceCodeVerifier();
-              const connectionId = `openapi-oauth2-${randomUUID()}`;
+              const connectionId =
+                input.connectionId ??
+                defaultOAuthConnectionId("authorizationCode", input.sourceId);
 
               yield* ctx.storage
                 .putOAuthSession(
