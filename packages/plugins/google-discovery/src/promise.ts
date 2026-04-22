@@ -3,8 +3,5 @@ export type {
   GoogleDiscoveryPluginExtension,
   GoogleDiscoveryAddSourceInput,
   GoogleDiscoveryProbeResult,
-  GoogleDiscoveryOAuthStartInput,
-  GoogleDiscoveryOAuthStartResponse,
-  GoogleDiscoveryOAuthCompleteInput,
-  GoogleDiscoveryOAuthAuthResult,
+  GoogleDiscoveryUpdateSourceInput,
 } from "./sdk/plugin";

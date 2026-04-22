@@ -1,15 +1,11 @@
-import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
+import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
-
-import { runOAuthCallback } from "@executor/plugin-oauth2/http";
 
 import { addGroup, capture } from "@executor/api";
 import type {
   GoogleDiscoveryAddSourceInput,
-  GoogleDiscoveryOAuthAuthResult,
   GoogleDiscoveryPluginExtension,
 } from "../sdk/plugin";
-import { GoogleDiscoveryOAuthError } from "../sdk/errors";
 import { GoogleDiscoveryGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -34,11 +30,6 @@ export class GoogleDiscoveryExtensionService extends Context.Tag("GoogleDiscover
 
 const ExecutorApiWithGoogleDiscovery = addGroup(GoogleDiscoveryGroup);
 
-const GOOGLE_DISCOVERY_OAUTH_CHANNEL = "executor:google-discovery-oauth-result";
-
-const toPopupErrorMessage = (error: unknown): string =>
-  error instanceof GoogleDiscoveryOAuthError ? error.message : "Authentication failed";
-
 // ---------------------------------------------------------------------------
 // Handlers
 //
@@ -50,8 +41,8 @@ const toPopupErrorMessage = (error: unknown): string =>
 // captured + downgraded to `InternalError(traceId)` by the API-level
 // observability middleware.
 //
-// No `sanitize*`, no `liftDomainErrors`, no per-handler error mapping.
-// If you find yourself adding error-handling here you're in the wrong layer.
+// OAuth start/complete/callback live on the shared `/scopes/:scopeId/oauth/*`
+// group in `@executor/api` now — the plugin has no OAuth-specific handlers.
 // ---------------------------------------------------------------------------
 
 export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
@@ -74,30 +65,6 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
           });
         })),
       )
-      .handle("startOAuth", ({ payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.startOAuth({
-            name: payload.name,
-            discoveryUrl: payload.discoveryUrl,
-            clientIdSecretId: payload.clientIdSecretId,
-            clientSecretSecretId: payload.clientSecretSecretId,
-            redirectUrl: payload.redirectUrl,
-            scopes: payload.scopes,
-            tokenScope: payload.tokenScope,
-          });
-        })),
-      )
-      .handle("completeOAuth", ({ payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.completeOAuth({
-            state: payload.state,
-            code: payload.code,
-            error: payload.error,
-          });
-        })),
-      )
       .handle("getSource", ({ path }) =>
         capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
@@ -112,27 +79,6 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
             auth: payload.auth,
           });
           return { updated: true };
-        })),
-      )
-      .handle("oauthCallback", ({ urlParams }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          const html = yield* runOAuthCallback<
-            GoogleDiscoveryOAuthAuthResult,
-            unknown,
-            never
-          >({
-            complete: ({ state, code, error }) =>
-              ext.completeOAuth({
-                state,
-                code: code ?? undefined,
-                error: error ?? undefined,
-              }),
-            urlParams,
-            toErrorMessage: toPopupErrorMessage,
-            channelName: GOOGLE_DISCOVERY_OAUTH_CHANNEL,
-          });
-          return yield* HttpServerResponse.html(html);
         })),
       ),
 );

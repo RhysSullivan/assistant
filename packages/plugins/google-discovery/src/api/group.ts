@@ -9,7 +9,6 @@ import {
 import { InternalError } from "@executor/api";
 
 import {
-  GoogleDiscoveryOAuthError,
   GoogleDiscoveryParseError,
   GoogleDiscoverySourceError,
 } from "../sdk/errors";
@@ -75,44 +74,9 @@ const UpdateSourceResponse = Schema.Struct({
   updated: Schema.Boolean,
 });
 
-const StartOAuthPayload = Schema.Struct({
-  name: Schema.String,
-  discoveryUrl: Schema.String,
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
-  redirectUrl: Schema.String,
-  scopes: Schema.optional(Schema.Array(Schema.String)),
-  /** Optional executor scope that will own the resulting Connection. */
-  tokenScope: Schema.optional(Schema.String),
-});
-
-const StartOAuthResponse = Schema.Struct({
-  sessionId: Schema.String,
-  authorizationUrl: Schema.String,
-  scopes: Schema.Array(Schema.String),
-});
-
-const CompleteOAuthPayload = Schema.Struct({
-  state: Schema.String,
-  code: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-});
-
-const CompleteOAuthResponse = Schema.Struct({
-  kind: Schema.Literal("oauth2"),
-  /** Id of the Connection the SDK minted. The caller stores it on the
-   *  source's `oauth2` field and resolves tokens via `ctx.connections`. */
-  connectionId: Schema.String,
-});
-
-const OAuthCallbackParams = Schema.Struct({
-  state: Schema.String,
-  code: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-  error_description: Schema.optional(Schema.String),
-});
-
-const HtmlResponse = HttpApiSchema.Text({ contentType: "text/html" });
+// OAuth start/complete/callback payloads/responses live on the shared
+// `/scopes/:scopeId/oauth/*` group in `@executor/api` now — no
+// plugin-specific OAuth schemas needed here.
 
 export class GoogleDiscoveryApiError extends Schema.TaggedError<GoogleDiscoveryApiError>()(
   "GoogleDiscoveryApiError",
@@ -153,21 +117,6 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
       .addSuccess(UpdateSourceResponse),
   )
   .add(
-    HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/google-discovery/oauth/start`
-      .setPayload(StartOAuthPayload)
-      .addSuccess(StartOAuthResponse),
-  )
-  .add(
-    HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/google-discovery/oauth/complete`
-      .setPayload(CompleteOAuthPayload)
-      .addSuccess(CompleteOAuthResponse),
-  )
-  .add(
-    HttpApiEndpoint.get("oauthCallback")`/google-discovery/oauth/callback`
-      .setUrlParams(OAuthCallbackParams)
-      .addSuccess(HtmlResponse),
-  )
-  .add(
     HttpApiEndpoint.get(
       "getSource",
     )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
@@ -176,15 +125,9 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
   // Errors declared once at the group level — every endpoint inherits.
   // `InternalError` is the shared opaque 500 translated at the HTTP edge
   // by `withCapture`. The others are 4xx domain errors carrying their
-  // status via `HttpApiSchema.annotations`; handlers return them through
-  // the typed channel and HttpApi encodes them directly. We only list
-  // errors a Google Discovery *group* endpoint can surface —
-  // `GoogleDiscoveryInvocationError` is thrown inside `invokeTool` which
-  // is reached via the core `tools.invoke` endpoint, not any Google
-  // Discovery-group endpoint, so it doesn't belong here.
+  // status via `HttpApiSchema.annotations`.
   .addError(InternalError)
   .addError(GoogleDiscoveryApiError)
-  .addError(GoogleDiscoveryOAuthError)
   .addError(GoogleDiscoveryParseError)
   .addError(GoogleDiscoverySourceError)
   .addError(OAuthStartError)

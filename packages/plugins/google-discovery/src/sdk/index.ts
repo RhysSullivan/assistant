@@ -1,12 +1,9 @@
 export { googleDiscoveryPlugin } from "./plugin";
 export type {
   GoogleDiscoveryAddSourceInput,
-  GoogleDiscoveryOAuthAuthResult,
-  GoogleDiscoveryOAuthCompleteInput,
-  GoogleDiscoveryOAuthStartInput,
-  GoogleDiscoveryOAuthStartResponse,
   GoogleDiscoveryPluginExtension,
   GoogleDiscoveryProbeResult,
+  GoogleDiscoveryUpdateSourceInput,
 } from "./plugin";
 export { extractGoogleDiscoveryManifest } from "./document";
 export {
@@ -31,7 +28,6 @@ export {
   GoogleDiscoveryParameterLocation,
   GoogleDiscoveryStoredSourceData,
 } from "./types";
-export type { GoogleDiscoveryOAuthSession } from "./types";
 export {
   GoogleDiscoveryInvocationError,
   GoogleDiscoveryOAuthError,

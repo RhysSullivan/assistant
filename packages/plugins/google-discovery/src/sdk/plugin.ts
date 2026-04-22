@@ -1,13 +1,8 @@
-import { randomUUID } from "node:crypto";
-
 import { Effect, Option } from "effect";
 
 import {
   SourceDetectionResult,
   definePlugin,
-  type OAuthCompleteError,
-  type OAuthSessionNotFoundError,
-  type OAuthStartError,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -22,23 +17,9 @@ import {
 import { extractGoogleDiscoveryManifest } from "./document";
 import { annotationsForOperation, invokeGoogleDiscoveryTool } from "./invoke";
 import {
-  GoogleDiscoveryOAuthError,
   GoogleDiscoveryParseError,
   GoogleDiscoverySourceError,
 } from "./errors";
-// Google-specific OAuth constants — copied here so the plugin is
-// self-contained (no more per-plugin `oauth.ts` helper file). Token
-// endpoint + authorize endpoint live on the connection's providerState
-// after sign-in, so refresh routes through the core handler unchanged.
-const GOOGLE_AUTHORIZATION_URL =
-  "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-
-const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
-  access_type: "offline",
-  include_granted_scopes: "true",
-  prompt: "consent",
-} as const;
 import type {
   GoogleDiscoveryAuth,
   GoogleDiscoveryManifest,
@@ -84,49 +65,12 @@ export interface GoogleDiscoveryUpdateSourceInput {
   readonly auth?: GoogleDiscoveryAuth;
 }
 
-export interface GoogleDiscoveryOAuthStartInput {
-  readonly name: string;
-  readonly discoveryUrl: string;
-  readonly clientIdSecretId: string;
-  readonly clientSecretSecretId?: string | null;
-  readonly redirectUrl: string;
-  readonly scopes?: readonly string[];
-  /** Executor scope that will own the resulting Connection + its backing
-   *  secrets. Defaults to `ctx.scopes[0].id` (innermost / per-user). */
-  readonly tokenScope?: string;
-}
-
-export interface GoogleDiscoveryOAuthStartResponse {
-  readonly sessionId: string;
-  readonly authorizationUrl: string;
-  readonly scopes: readonly string[];
-}
-
-export interface GoogleDiscoveryOAuthCompleteInput {
-  readonly state: string;
-  readonly code?: string;
-  readonly error?: string;
-}
-
-/**
- * Completed OAuth auth handed back to the caller (either an HTTP client or
- * a static-tool handler). Carries the full API-level OAuth config so the
- * caller can stamp it onto the source's `GoogleDiscoveryAuth` — that makes
- * sign-in reproducible from the source detail page without depending on
- * the prior Connection still existing.
- */
-export interface GoogleDiscoveryOAuthAuthResult {
-  readonly kind: "oauth2";
-  readonly connectionId: string;
-}
-
 /**
  * Errors any Google Discovery extension method may surface.
  */
 export type GoogleDiscoveryExtensionFailure =
   | GoogleDiscoveryParseError
   | GoogleDiscoverySourceError
-  | GoogleDiscoveryOAuthError
   | StorageFailure;
 
 export interface GoogleDiscoveryPluginExtension {
@@ -146,22 +90,6 @@ export interface GoogleDiscoveryPluginExtension {
     namespace: string,
     scope: string,
   ) => Effect.Effect<void, StorageFailure>;
-  readonly startOAuth: (
-    input: GoogleDiscoveryOAuthStartInput,
-  ) => Effect.Effect<
-    GoogleDiscoveryOAuthStartResponse,
-    | GoogleDiscoveryParseError
-    | GoogleDiscoverySourceError
-    | GoogleDiscoveryOAuthError
-    | OAuthStartError
-    | StorageFailure
-  >;
-  readonly completeOAuth: (
-    input: GoogleDiscoveryOAuthCompleteInput,
-  ) => Effect.Effect<
-    GoogleDiscoveryOAuthAuthResult,
-    OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure
-  >;
   readonly getSource: (
     namespace: string,
     scope: string,
@@ -382,70 +310,10 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
         }),
       ),
 
-    // Thin forwarders over `ctx.oauth.*`. Core owns the session table,
-    // the PKCE machinery, and the refresh handler. The plugin only
-    // carries Google-specific knobs — scope discovery from the
-    // discovery document and the `access_type=offline`/`prompt=consent`
-    // extras — into the core OAuth strategy config.
-    startOAuth: (input) =>
-      Effect.gen(function* () {
-        const text = yield* fetchDiscoveryDocument(input.discoveryUrl);
-        const manifest = yield* extractGoogleDiscoveryManifest(text);
-        const scopes =
-          input.scopes && input.scopes.length > 0
-            ? [...input.scopes]
-            : Object.keys(
-                manifest.oauthScopes._tag === "Some" ? manifest.oauthScopes.value : {},
-              ).sort();
-        if (scopes.length === 0) {
-          return yield* new GoogleDiscoveryOAuthError({
-            message: "This Google Discovery document does not declare any OAuth scopes",
-          });
-        }
-        const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
-        const connectionId = `google-discovery-oauth2-${randomUUID()}`;
-        const result = yield* ctx.oauth.start({
-          endpoint: normalizeDiscoveryUrl(input.discoveryUrl),
-          redirectUrl: input.redirectUrl,
-          connectionId,
-          tokenScope,
-          strategy: {
-            kind: "authorization-code" as const,
-            authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
-            tokenEndpoint: GOOGLE_TOKEN_URL,
-            clientIdSecretId: input.clientIdSecretId,
-            clientSecretSecretId: input.clientSecretSecretId ?? null,
-            scopes,
-            extraAuthorizationParams: GOOGLE_EXTRA_AUTHORIZATION_PARAMS,
-          },
-          pluginId: "google-discovery",
-        });
-        if (result.authorizationUrl === null) {
-          return yield* new GoogleDiscoveryOAuthError({
-            message:
-              "OAuth service did not emit an authorization URL — authorizationCode flow requires one",
-          });
-        }
-        return {
-          sessionId: result.sessionId,
-          authorizationUrl: result.authorizationUrl,
-          scopes,
-        };
-      }),
-
-    completeOAuth: (input) =>
-      ctx.oauth
-        .complete({
-          state: input.state,
-          code: input.code,
-          error: input.error,
-        })
-        .pipe(
-          Effect.map((completed) => ({
-            kind: "oauth2" as const,
-            connectionId: completed.connectionId,
-          })),
-        ),
+    // OAuth start/complete live on `ctx.oauth` now — the UI calls
+    // the shared `/scopes/:scopeId/oauth/*` endpoints directly with a
+    // Google-specific `authorization-code` strategy and writes the
+    // resulting connection back via `updateSource`.
 
     getSource: (namespace, scope) => ctx.storage.getSource(namespace, scope),
 
