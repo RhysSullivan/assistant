@@ -70,6 +70,16 @@ const substituteUrlVariables = (url: string, values: Record<string, string>): st
 };
 
 /**
+ * Stable placeholder connection id used when saving a source without
+ * completing the OAuth flow. OpenApiSignInButton rewrites `oauth2.connectionId`
+ * to a freshly minted id on first sign-in, so this only needs to be
+ * deterministic per-namespace and distinct from any real connection id
+ * (real ids are `openapi-oauth2-${uuid}`).
+ */
+const openApiOAuthConnectionId = (namespaceSlug: string): string =>
+  `openapi-oauth2-pending-${namespaceSlug || "default"}`;
+
+/**
  * OpenAPI 3.x requires OAuth2 tokenUrl/authorizationUrl to be absolute,
  * but some specs ship relative paths like `/api/rest/v1/oauth/token`.
  * Resolve them against the source's chosen baseUrl so the backend can
@@ -270,8 +280,18 @@ export default function AddOpenApiSource(props: {
   const selectedOAuth2Preset: OAuth2Preset | null =
     strategy.kind === "oauth2" ? (oauth2Presets[strategy.presetIndex] ?? null) : null;
 
+  // OAuth is "ready to save" without completing the flow as long as we have
+  // enough metadata to run sign-in later: a preset, a client id secret, and —
+  // for clientCredentials — a client secret. Each user signs in via
+  // OpenApiSignInButton on the source detail page; innermost-wins scope
+  // shadowing resolves tokens per-user at invoke time.
+  const oauth2DeferrableReady =
+    selectedOAuth2Preset !== null &&
+    oauth2ClientIdSecretId !== null &&
+    (selectedOAuth2Preset.flow !== "clientCredentials" ||
+      oauth2ClientSecretSecretId !== null);
   const oauth2Ready =
-    strategy.kind !== "oauth2" || oauth2Auth !== null;
+    strategy.kind !== "oauth2" || oauth2Auth !== null || oauth2DeferrableReady;
 
   const canAdd =
     preview !== null &&
@@ -523,6 +543,40 @@ export default function AddOpenApiSource(props: {
       kind: "openapi",
       url: resolvedBaseUrl || undefined,
     });
+    // If the user picked oauth2 but didn't complete sign-in, persist a
+    // deferred OAuth2Auth with a stable placeholder connectionId so the
+    // source lands with its OAuth config intact. OpenApiSignInButton
+    // rewrites the pointer once a user actually signs in.
+    let oauth2ToSave: OAuth2Auth | null = oauth2Auth;
+    if (
+      !oauth2ToSave &&
+      strategy.kind === "oauth2" &&
+      selectedOAuth2Preset &&
+      oauth2ClientIdSecretId
+    ) {
+      const tokenUrl = resolveOAuthUrl(
+        selectedOAuth2Preset.tokenUrl,
+        resolvedBaseUrl,
+      );
+      const authorizationUrl =
+        selectedOAuth2Preset.flow === "authorizationCode"
+          ? resolveOAuthUrl(
+              Option.getOrElse(selectedOAuth2Preset.authorizationUrl, () => ""),
+              resolvedBaseUrl,
+            ) || null
+          : null;
+      oauth2ToSave = new OAuth2Auth({
+        kind: "oauth2",
+        connectionId: openApiOAuthConnectionId(namespace),
+        securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+        flow: selectedOAuth2Preset.flow,
+        tokenUrl,
+        authorizationUrl,
+        clientIdSecretId: oauth2ClientIdSecretId,
+        clientSecretSecretId: oauth2ClientSecretSecretId,
+        scopes: [...oauth2SelectedScopes],
+      });
+    }
     try {
       await doAdd({
         path: { scopeId },
@@ -532,7 +586,7 @@ export default function AddOpenApiSource(props: {
           namespace: slugifyNamespace(identity.namespace) || undefined,
           baseUrl: resolvedBaseUrl || undefined,
           ...(hasHeaders ? { headers: allHeaders } : {}),
-          ...(oauth2Auth ? { oauth2: oauth2Auth } : {}),
+          ...(oauth2ToSave ? { oauth2: oauth2ToSave } : {}),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -960,14 +1014,20 @@ export default function AddOpenApiSource(props: {
                     </Button>
                   </div>
                 ) : (
-                  <Button
-                    variant="secondary"
-                    onClick={handleConnectOAuth2}
-                    disabled={!oauth2ClientIdSecretId || resolvedBaseUrl.length === 0}
-                    className="w-full"
-                  >
-                    Connect via OAuth
-                  </Button>
+                  <div className="flex flex-col gap-1.5">
+                    <Button
+                      variant="secondary"
+                      onClick={handleConnectOAuth2}
+                      disabled={!oauth2ClientIdSecretId || resolvedBaseUrl.length === 0}
+                      className="w-full"
+                    >
+                      Connect via OAuth
+                    </Button>
+                    <p className="text-[11px] text-muted-foreground">
+                      Optional — you can save the source now and each user can sign
+                      in from the source detail page later.
+                    </p>
+                  </div>
                 )}
 
                 {oauth2Error && (

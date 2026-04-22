@@ -25,6 +25,7 @@ import {
 
 const TEST_SCOPE = "test-scope";
 import { openApiPlugin } from "./plugin";
+import { OAuth2Auth } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -602,5 +603,70 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       expect(orgView?.name).toBe("Org Source");
       expect(orgView?.config.baseUrl).toBe("https://org.example.com");
     }),
+  );
+
+  it.effect(
+    "addSpec persists a source with deferred OAuth2Auth (no live connection yet)",
+    () =>
+      Effect.gen(function* () {
+        const httpClient = yield* HttpClient.HttpClient;
+        const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              openApiPlugin({ httpClientLayer: clientLayer }),
+              memorySecretsPlugin(),
+            ] as const,
+          }),
+        );
+
+        // A team-shared client id secret, but no live connection for this
+        // scope — the admin is saving the source and deferring sign-in
+        // to individual users.
+        yield* executor.secrets.set(
+          new SetSecretInput({
+            id: SecretId.make("acme-client-id"),
+            scope: ScopeId.make(TEST_SCOPE),
+            name: "Acme Client ID",
+            value: "client-abc",
+          }),
+        );
+
+        const deferredAuth = new OAuth2Auth({
+          kind: "oauth2",
+          connectionId: "openapi-oauth2-pending-deferred",
+          securitySchemeName: "oauth2",
+          flow: "authorizationCode",
+          tokenUrl: "https://auth.example.com/token",
+          authorizationUrl: "https://auth.example.com/authorize",
+          clientIdSecretId: "acme-client-id",
+          clientSecretSecretId: null,
+          scopes: ["read:items"],
+        });
+
+        const result = yield* executor.openapi.addSpec({
+          spec: specJson,
+          scope: TEST_SCOPE,
+          namespace: "deferred",
+          baseUrl: "https://api.example.com",
+          oauth2: deferredAuth,
+        });
+
+        expect(result.toolCount).toBeGreaterThan(0);
+
+        const stored = yield* executor.openapi.getSource("deferred", TEST_SCOPE);
+        expect(stored).not.toBeNull();
+        expect(stored?.config.oauth2?.connectionId).toBe(
+          "openapi-oauth2-pending-deferred",
+        );
+        expect(stored?.config.oauth2?.clientIdSecretId).toBe("acme-client-id");
+        expect(stored?.config.oauth2?.flow).toBe("authorizationCode");
+
+        // Tools should be listed even without a live connection; invocation
+        // is what requires the token, not registration.
+        const tools = yield* executor.tools.list();
+        expect(tools.some((t) => t.id.startsWith("deferred."))).toBe(true);
+      }),
   );
 });
