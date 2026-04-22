@@ -2,7 +2,7 @@
 // End-to-end test for the OAuth2 `client_credentials` grant on the OpenAPI
 // plugin. A spec that declares ONLY a `clientCredentials` flow (no
 // authorizationCode, no user-interactive popup, no PKCE) must produce a
-// completed Connection at `startOAuth` time — `ctx.connections.accessToken`
+// completed Connection at `ctx.oauth.start` time — `ctx.connections.accessToken`
 // then resolves the bearer at invoke time.
 // ---------------------------------------------------------------------------
 
@@ -35,6 +35,7 @@ import {
 import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
+import { OAuth2Auth } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -216,30 +217,31 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         });
 
         // ------------------------------------------------------------
-        // startOAuth for clientCredentials: no authorizationUrl, no
-        // popup, no completeOAuth. The plugin exchanges tokens inline,
-        // creates a Connection, and returns a completed OAuth2Auth
-        // that points at it.
+        // ctx.oauth.start with a client-credentials strategy: no
+        // authorizationUrl, no popup, no complete. Core exchanges
+        // tokens inline and mints a Connection surfaced via
+        // completedConnection. The UI stitches OAuth2Auth locally.
         // ------------------------------------------------------------
-        const started = yield* userExec.openapi.startOAuth({
-          sourceId: "petstore",
-          displayName: "Petstore",
-          securitySchemeName: "oauth2",
-          flow: "clientCredentials",
-          tokenUrl: "https://token.example.com/token",
-          clientIdSecretId: "petstore_client_id",
-          clientSecretSecretId: "petstore_client_secret",
-          scopes: ["data"],
-          // tokenScope is intentionally omitted; clientCredentials
-          // writes at the innermost user scope by default.
+        const connectionId = "openapi-oauth2-app-petstore";
+        const started = yield* userExec.oauth.start({
+          endpoint: "https://token.example.com/token",
+          redirectUrl: "https://token.example.com/token",
+          connectionId,
+          tokenScope: userScope.id as unknown as string,
+          strategy: {
+            kind: "client-credentials" as const,
+            tokenEndpoint: "https://token.example.com/token",
+            clientIdSecretId: "petstore_client_id",
+            clientSecretSecretId: "petstore_client_secret",
+            scopes: ["data"],
+          },
+          pluginId: "openapi",
         });
 
-        if (started.flow !== "clientCredentials") {
-          throw new Error("expected clientCredentials flow");
+        if (started.completedConnection === null) {
+          throw new Error("expected client_credentials to mint a Connection inline");
         }
-        expect(started.auth.kind).toBe("oauth2");
-        expect(started.auth.securitySchemeName).toBe("oauth2");
-        expect(started.auth.connectionId).toMatch(/^openapi-oauth2-/);
+        expect(started.completedConnection.connectionId).toBe(connectionId);
 
         // Token endpoint call is RFC 6749 §4.4 compliant.
         expect(calls).toHaveLength(1);
@@ -248,13 +250,25 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         expect(calls[0]!.clientSecret).toBe("secret-xyz");
         expect(calls[0]!.scope).toBe("data");
 
-        // Add the source with the OAuth2Auth returned by startOAuth.
+        const auth = new OAuth2Auth({
+          kind: "oauth2",
+          connectionId,
+          securitySchemeName: "oauth2",
+          flow: "clientCredentials",
+          tokenUrl: "https://token.example.com/token",
+          authorizationUrl: null,
+          clientIdSecretId: "petstore_client_id",
+          clientSecretSecretId: "petstore_client_secret",
+          scopes: ["data"],
+        });
+
+        // Add the source with the locally-stitched OAuth2Auth.
         yield* userExec.openapi.addSpec({
           spec: specJson,
           scope: userScope.id as string,
           namespace: "petstore",
           baseUrl: "",
-          oauth2: started.auth,
+          oauth2: auth,
         });
 
         // Invoking the tool injects the freshly-minted bearer via
@@ -279,14 +293,14 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         // `findInnermostConnectionRow`.
         const userConnections = yield* userExec.connections.list();
         const connection = userConnections.find(
-          (c) => c.id === started.auth.connectionId,
+          (c) => c.id === connectionId,
         );
         expect(connection).toBeDefined();
         expect(connection?.scopeId as unknown as string).toBe("user-alice");
         expect(connection?.provider).toBe("oauth2");
         expect(connection?.kind).toBe("app");
         // Stable id derived from sourceId — no UUID-per-click churn.
-        expect(started.auth.connectionId).toBe("openapi-oauth2-app-petstore");
+        expect(connectionId).toBe("openapi-oauth2-app-petstore");
 
         // Access-token secret is owned by the connection and filtered
         // out of the user-facing secret list.
@@ -298,7 +312,7 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         expect(userSecretIds).toContain("petstore_client_id");
         expect(userSecretIds).toContain("petstore_client_secret");
         expect(userSecretIds).not.toContain(
-          `${started.auth.connectionId}.access_token`,
+          `${connectionId}.access_token`,
         );
 
         // Admin scope sees neither alice's connection nor her token.
@@ -308,7 +322,7 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
           ),
         );
         expect(adminSecretIds).not.toContain(
-          `${started.auth.connectionId}.access_token`,
+          `${connectionId}.access_token`,
         );
       }),
   );

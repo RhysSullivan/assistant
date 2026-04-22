@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
-
 import { useScope } from "@executor/react/api/scope-context";
 import {
   connectionWriteKeys,
@@ -60,8 +58,13 @@ import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import {
   addOpenApiSpec,
   previewOpenApiSpec,
-  startOpenApiOAuth,
 } from "./atoms";
+import { startOAuth } from "@executor/react/api/atoms";
+import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/react/api/oauth-popup";
+import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
 import {
   OAuth2Auth,
@@ -70,9 +73,9 @@ import {
   type ServerVariable,
 } from "../sdk/types";
 
-export const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
+export const OPENAPI_OAUTH_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
 export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
-export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/openapi/oauth/callback";
+export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 
 const substituteUrlVariables = (url: string, values: Record<string, string>): string => {
   let out = url;
@@ -221,7 +224,7 @@ export default function AddOpenApiSource(props: {
   const scopeId = useScope();
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
   const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
@@ -433,18 +436,21 @@ export default function AddOpenApiSource(props: {
     setStartingOAuth(true);
     setOauth2Error(null);
     try {
-      const displayName =
-        identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
-
       const tokenUrl = resolveOAuthUrl(
         selectedOAuth2Preset.tokenUrl,
         resolvedBaseUrl,
       );
+      const connectionId = openApiOAuthConnectionId(
+        resolvedSourceId,
+        selectedOAuth2Preset.flow,
+      );
+      const scopes = [...oauth2SelectedScopes];
 
       if (selectedOAuth2Preset.flow === "clientCredentials") {
-        // RFC 6749 §4.4: no user-interactive consent step. The client_secret
-        // is mandatory; the backend exchanges tokens inline and returns a
-        // completed OAuth2Auth we can attach to the source directly.
+        // RFC 6749 §4.4: no user-interactive consent step. The
+        // shared `/oauth/start` mints the Connection inline and
+        // surfaces it under `completedConnection`; we stitch the
+        // full OAuth2Auth from the preset's known metadata.
         if (!oauth2ClientSecretSecretId) {
           setStartingOAuth(false);
           setOauth2Error("client_credentials requires a client secret");
@@ -453,28 +459,37 @@ export default function AddOpenApiSource(props: {
         const response = await doStartOAuth({
           path: { scopeId },
           payload: {
-            sourceId: resolvedSourceId,
-            connectionId: openApiOAuthConnectionId(
-              resolvedSourceId,
-              selectedOAuth2Preset.flow,
-            ),
-            displayName,
-            securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-            flow: "clientCredentials",
-            tokenUrl,
-            clientIdSecretId: oauth2ClientIdSecretId,
-            clientSecretSecretId: oauth2ClientSecretSecretId,
-            scopes: [...oauth2SelectedScopes],
+            endpoint: tokenUrl,
+            redirectUrl: tokenUrl,
+            connectionId,
+            strategy: {
+              kind: "client-credentials",
+              tokenEndpoint: tokenUrl,
+              clientIdSecretId: oauth2ClientIdSecretId,
+              clientSecretSecretId: oauth2ClientSecretSecretId,
+              scopes,
+            },
+            pluginId: "openapi",
           },
         });
         setStartingOAuth(false);
-        if (response.flow !== "clientCredentials") {
-          setOauth2Error("Unexpected response flow from server");
+        if (response.completedConnection === null) {
+          setOauth2Error("client_credentials flow did not mint a connection");
           return;
         }
         setOauth2AuthState({
           fingerprint: selectedOAuth2Fingerprint,
-          auth: response.auth,
+          auth: new OAuth2Auth({
+            kind: "oauth2",
+            connectionId: response.completedConnection.connectionId,
+            securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+            flow: "clientCredentials",
+            tokenUrl,
+            authorizationUrl: null,
+            clientIdSecretId: oauth2ClientIdSecretId,
+            clientSecretSecretId: oauth2ClientSecretSecretId,
+            scopes,
+          }),
         });
         setOauth2Error(null);
         return;
@@ -488,34 +503,42 @@ export default function AddOpenApiSource(props: {
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
-          sourceId: resolvedSourceId,
-          connectionId: openApiOAuthConnectionId(
-            resolvedSourceId,
-            selectedOAuth2Preset.flow,
-          ),
-          displayName,
-          securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-          flow: "authorizationCode",
-          authorizationUrl,
-          tokenUrl,
+          endpoint: tokenUrl,
           redirectUrl: oauth2RedirectUrl,
-          clientIdSecretId: oauth2ClientIdSecretId,
-          clientSecretSecretId: oauth2ClientSecretSecretId,
-          scopes: [...oauth2SelectedScopes],
+          connectionId,
+          strategy: {
+            kind: "authorization-code",
+            authorizationEndpoint: authorizationUrl,
+            tokenEndpoint: tokenUrl,
+            clientIdSecretId: oauth2ClientIdSecretId,
+            clientSecretSecretId: oauth2ClientSecretSecretId,
+            scopes,
+          },
+          pluginId: "openapi",
         },
       });
 
-      if (response.flow !== "authorizationCode") {
+      if (response.authorizationUrl === null) {
         setStartingOAuth(false);
-        setOauth2Error("Unexpected response flow from server");
+        setOauth2Error(
+          "OAuth start did not produce an authorization URL",
+        );
         return;
       }
 
-      oauthCleanup.current = openOAuthPopup<OAuth2Auth>({
+      oauthCleanup.current = openOAuthPopup<{
+        connectionId: string;
+        expiresAt: number | null;
+        scope: string | null;
+      }>({
         url: response.authorizationUrl,
         popupName: OPENAPI_OAUTH_POPUP_NAME,
         channelName: OPENAPI_OAUTH_CHANNEL,
-        onResult: (result: OAuthPopupResult<OAuth2Auth>) => {
+        onResult: (result: OAuthPopupResult<{
+          connectionId: string;
+          expiresAt: number | null;
+          scope: string | null;
+        }>) => {
           oauthCleanup.current = null;
           setStartingOAuth(false);
           if (result.ok) {
@@ -524,13 +547,13 @@ export default function AddOpenApiSource(props: {
               auth: new OAuth2Auth({
                 kind: "oauth2",
                 connectionId: result.connectionId,
-                securitySchemeName: result.securitySchemeName,
-                flow: result.flow,
-                tokenUrl: result.tokenUrl,
-                authorizationUrl: result.authorizationUrl,
-                clientIdSecretId: result.clientIdSecretId,
-                clientSecretSecretId: result.clientSecretSecretId,
-                scopes: result.scopes,
+                securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+                flow: "authorizationCode",
+                tokenUrl,
+                authorizationUrl,
+                clientIdSecretId: oauth2ClientIdSecretId,
+                clientSecretSecretId: oauth2ClientSecretSecretId,
+                scopes,
               }),
             });
             setOauth2Error(null);
@@ -539,7 +562,6 @@ export default function AddOpenApiSource(props: {
           }
         },
         onClosed: () => {
-          // User closed the popup without completing the flow.
           oauthCleanup.current = null;
           setStartingOAuth(false);
           setOauth2Error("OAuth cancelled — popup was closed before completing the flow.");

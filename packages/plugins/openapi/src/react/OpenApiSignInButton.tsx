@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import { useScope } from "@executor/react/api/scope-context";
 import {
   connectionWriteKeys,
   sourceWriteKeys,
 } from "@executor/react/api/reactivity-keys";
-import { connectionsAtom } from "@executor/react/api/atoms";
+import { connectionsAtom, startOAuth } from "@executor/react/api/atoms";
+import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/react/api/oauth-popup";
+import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
 import { Button } from "@executor/react/components/button";
+
+import { openApiSourceAtom, updateOpenApiSource } from "./atoms";
+import {
+  OPENAPI_OAUTH_CALLBACK_PATH,
+  OPENAPI_OAUTH_POPUP_NAME,
+} from "./AddOpenApiSource";
+import { OAuth2Auth } from "../sdk/types";
 
 // A successful sign-in mutates BOTH the source row (oauth2 pointer) and
 // the Connections primitive (new/refreshed row + possibly new owned
@@ -20,33 +31,27 @@ const signInWriteKeys = [
   ...connectionWriteKeys,
 ] as const;
 
-import {
-  openApiSourceAtom,
-  startOpenApiOAuth,
-  updateOpenApiSource,
-} from "./atoms";
-import {
-  OPENAPI_OAUTH_CALLBACK_PATH,
-  OPENAPI_OAUTH_CHANNEL,
-  OPENAPI_OAUTH_POPUP_NAME,
-} from "./AddOpenApiSource";
-import { OAuth2Auth } from "../sdk/types";
-
 // ---------------------------------------------------------------------------
 // OpenApiSignInButton — top-bar action on the source detail page
 //
-// Reads the source's stored OAuth2Auth, runs the same OAuth flow as Add
-// (authorizationCode via popup, clientCredentials inline), and on success
-// refreshes the source's stored OAuth2Auth while preserving its logical
-// connection id. Works whether or not the previous connection still
-// exists — source-owned OAuth config is the source of truth.
+// Reads the source's stored OAuth2Auth, runs the same shared OAuth flow
+// as Add (authorizationCode via popup, clientCredentials inline through
+// `/oauth/start`), and on success refreshes the source OAuth2Auth while
+// preserving its logical connection id. Works whether or not the previous
+// connection still exists — source-owned OAuth config is the source of truth.
 // ---------------------------------------------------------------------------
+
+type CompletionPayload = {
+  connectionId: string;
+  expiresAt: number | null;
+  scope: string | null;
+};
 
 export default function OpenApiSignInButton(props: { sourceId: string }) {
   const scopeId = useScope();
   const sourceResult = useAtomValue(openApiSourceAtom(scopeId, props.sourceId));
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
-  const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
 
   const [busy, setBusy] = useState(false);
@@ -80,7 +85,8 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const displayName = source?.name ?? oauth2.securitySchemeName;
+      const connectionId = oauth2.connectionId;
+      const scopes = [...oauth2.scopes];
 
       if (oauth2.flow === "clientCredentials") {
         if (!oauth2.clientSecretSecretId) {
@@ -91,25 +97,38 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
         const response = await doStartOAuth({
           path: { scopeId },
           payload: {
-            sourceId: props.sourceId,
-            connectionId: oauth2.connectionId,
-            displayName,
-            securitySchemeName: oauth2.securitySchemeName,
-            flow: "clientCredentials",
-            tokenUrl: oauth2.tokenUrl,
-            clientIdSecretId: oauth2.clientIdSecretId,
-            clientSecretSecretId: oauth2.clientSecretSecretId,
-            scopes: [...oauth2.scopes],
+            endpoint: oauth2.tokenUrl,
+            redirectUrl: oauth2.tokenUrl,
+            connectionId,
+            strategy: {
+              kind: "client-credentials",
+              tokenEndpoint: oauth2.tokenUrl,
+              clientIdSecretId: oauth2.clientIdSecretId,
+              clientSecretSecretId: oauth2.clientSecretSecretId,
+              scopes,
+            },
+            pluginId: "openapi",
           },
         });
-        if (response.flow !== "clientCredentials") {
+        if (response.completedConnection === null) {
           setBusy(false);
-          setError("Unexpected response flow from server");
+          setError("client_credentials flow did not mint a connection");
           return;
         }
+        const nextAuth = new OAuth2Auth({
+          kind: "oauth2",
+          connectionId: response.completedConnection.connectionId,
+          securitySchemeName: oauth2.securitySchemeName,
+          flow: "clientCredentials",
+          tokenUrl: oauth2.tokenUrl,
+          authorizationUrl: null,
+          clientIdSecretId: oauth2.clientIdSecretId,
+          clientSecretSecretId: oauth2.clientSecretSecretId,
+          scopes,
+        });
         await doUpdate({
           path: { scopeId, namespace: props.sourceId },
-          payload: { oauth2: response.auth },
+          payload: { oauth2: nextAuth },
           reactivityKeys: signInWriteKeys,
         });
         setBusy(false);
@@ -125,31 +144,32 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
-          sourceId: props.sourceId,
-          connectionId: oauth2.connectionId,
-          displayName,
-          securitySchemeName: oauth2.securitySchemeName,
-          flow: "authorizationCode",
-          authorizationUrl: oauth2.authorizationUrl,
-          tokenUrl: oauth2.tokenUrl,
+          endpoint: oauth2.tokenUrl,
           redirectUrl,
-          clientIdSecretId: oauth2.clientIdSecretId,
-          clientSecretSecretId: oauth2.clientSecretSecretId ?? undefined,
-          scopes: [...oauth2.scopes],
+          connectionId,
+          strategy: {
+            kind: "authorization-code",
+            authorizationEndpoint: oauth2.authorizationUrl,
+            tokenEndpoint: oauth2.tokenUrl,
+            clientIdSecretId: oauth2.clientIdSecretId,
+            clientSecretSecretId: oauth2.clientSecretSecretId,
+            scopes,
+          },
+          pluginId: "openapi",
         },
       });
 
-      if (response.flow !== "authorizationCode") {
+      if (response.authorizationUrl === null) {
         setBusy(false);
-        setError("Unexpected response flow from server");
+        setError("OAuth start did not produce an authorization URL");
         return;
       }
 
-      cleanupRef.current = openOAuthPopup<OAuth2Auth>({
+      cleanupRef.current = openOAuthPopup<CompletionPayload>({
         url: response.authorizationUrl,
         popupName: OPENAPI_OAUTH_POPUP_NAME,
-        channelName: OPENAPI_OAUTH_CHANNEL,
-        onResult: async (result: OAuthPopupResult<OAuth2Auth>) => {
+        channelName: OAUTH_POPUP_MESSAGE_TYPE,
+        onResult: async (result: OAuthPopupResult<CompletionPayload>) => {
           cleanupRef.current = null;
           if (!result.ok) {
             setBusy(false);
@@ -160,13 +180,13 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
             const nextAuth = new OAuth2Auth({
               kind: "oauth2",
               connectionId: result.connectionId,
-              securitySchemeName: result.securitySchemeName,
-              flow: result.flow,
-              tokenUrl: result.tokenUrl,
-              authorizationUrl: result.authorizationUrl,
-              clientIdSecretId: result.clientIdSecretId,
-              clientSecretSecretId: result.clientSecretSecretId,
-              scopes: result.scopes,
+              securitySchemeName: oauth2.securitySchemeName,
+              flow: "authorizationCode",
+              tokenUrl: oauth2.tokenUrl,
+              authorizationUrl: oauth2.authorizationUrl,
+              clientIdSecretId: oauth2.clientIdSecretId,
+              clientSecretSecretId: oauth2.clientSecretSecretId,
+              scopes,
             });
             await doUpdate({
               path: { scopeId, namespace: props.sourceId },
@@ -198,7 +218,6 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
     }
   }, [
     oauth2,
-    source?.name,
     scopeId,
     props.sourceId,
     redirectUrl,

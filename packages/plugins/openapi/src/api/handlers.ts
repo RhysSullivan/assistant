@@ -1,31 +1,13 @@
-import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
+import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { runOAuthCallback } from "@executor/plugin-oauth2/http";
-
-import { addGroup, capture, InternalError } from "@executor/api";
-import type {
-  OAuthCompleteError,
-  OAuthSessionNotFoundError,
-  StorageFailure,
-} from "@executor/sdk";
-import { OpenApiOAuthError } from "../sdk/errors";
+import { addGroup, capture } from "@executor/api";
 import type {
   OpenApiPluginExtension,
   HeaderValue,
   OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
 import { OpenApiGroup } from "./group";
-
-const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
-
-const toPopupErrorMessage = (error: unknown): string => {
-  if (error instanceof OpenApiOAuthError) return error.message;
-  if (error && typeof error === "object" && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return "Authentication failed";
-};
 
 // ---------------------------------------------------------------------------
 // Service tag
@@ -57,6 +39,9 @@ const ExecutorApiWithOpenApi = addGroup(OpenApiGroup);
 // schema-encoded to 4xx by HttpApi (see group.ts `.addError(...)` calls).
 // Defects bubble up and are captured + downgraded to `InternalError(traceId)`
 // by the API-level observability middleware.
+//
+// OAuth start/complete/callback live on the shared `/scopes/:scopeId/oauth/*`
+// group in `@executor/api` now — the plugin has no OAuth-specific handlers.
 // ---------------------------------------------------------------------------
 
 export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "openapi", (handlers) =>
@@ -101,76 +86,6 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           oauth2: payload.oauth2,
         } as OpenApiUpdateSourceInput);
         return { updated: true };
-      })),
-    )
-    .handle("startOAuth", ({ payload }) =>
-      capture(Effect.gen(function* () {
-        const ext = yield* OpenApiExtensionService;
-        // No tokenScope -> plugin defaults to ctx.scopes[0].id
-        // (innermost) for both OAuth flows.
-        const tokenScope = payload.tokenScope as string | undefined;
-        if (payload.flow === "clientCredentials") {
-          return yield* ext.startOAuth({
-            flow: "clientCredentials",
-            sourceId: payload.sourceId,
-            displayName: payload.displayName,
-            securitySchemeName: payload.securitySchemeName,
-            tokenUrl: payload.tokenUrl,
-            clientIdSecretId: payload.clientIdSecretId,
-            clientSecretSecretId: payload.clientSecretSecretId,
-            scopes: [...payload.scopes],
-            tokenScope,
-            connectionId: payload.connectionId,
-          });
-        }
-        return yield* ext.startOAuth({
-          flow: "authorizationCode",
-          sourceId: payload.sourceId,
-          displayName: payload.displayName,
-          securitySchemeName: payload.securitySchemeName,
-          authorizationUrl: payload.authorizationUrl,
-          tokenUrl: payload.tokenUrl,
-          redirectUrl: payload.redirectUrl,
-          clientIdSecretId: payload.clientIdSecretId,
-          clientSecretSecretId: payload.clientSecretSecretId ?? null,
-          scopes: [...payload.scopes],
-          tokenScope,
-          connectionId: payload.connectionId,
-        });
-      })),
-    )
-    .handle("completeOAuth", ({ payload }) =>
-      capture(Effect.gen(function* () {
-        const ext = yield* OpenApiExtensionService;
-        return yield* ext.completeOAuth({
-          state: payload.state,
-          code: payload.code,
-          error: payload.error,
-        });
-      })),
-    )
-    .handle("oauthCallback", ({ urlParams }) =>
-      // OAuth popup is special: it always returns 200 HTML and renders the
-      // failure into the popup body so the parent window's listener gets a
-      // structured result.
-      capture(Effect.gen(function* () {
-        const ext = yield* OpenApiExtensionService;
-        const html = yield* runOAuthCallback<
-          { connectionId: string; expiresAt: number | null; scope: string | null },
-          OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure | InternalError,
-          never
-        >({
-          complete: ({ state, code, error }) =>
-            ext.completeOAuth({
-              state,
-              code: code ?? undefined,
-              error: error ?? undefined,
-            }),
-          urlParams,
-          toErrorMessage: toPopupErrorMessage,
-          channelName: OPENAPI_OAUTH_CHANNEL,
-        });
-        return yield* HttpServerResponse.html(html);
       })),
     ),
 );

@@ -212,46 +212,40 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         );
 
         // -------------------------------------------------------------
-        // 2. Each user runs startOAuth + completeOAuth to mint a
-        //    per-user Connection.
+        // 2. Each user runs ctx.oauth.start + complete to mint a
+        //    per-user Connection. The UI stamps connectionId into the
+        //    start payload; core mints the Connection on completion.
         // -------------------------------------------------------------
         mockTokenFetch({
           "code-alice": "alice-token",
           "code-bob": "bob-token",
         });
 
-        const startInputFor = (user: string, scope: ScopeId) => ({
-          sourceId: "petstore",
-          displayName: `Petstore (${user})`,
-          securitySchemeName: "oauth2",
-          flow: "authorizationCode" as const,
-          authorizationUrl: "https://auth.example.com/authorize",
-          tokenUrl: "https://token.example.com/token",
+        const connectionId = "openapi-oauth2-user-petstore";
+        const startInputFor = (scope: ScopeId) => ({
+          endpoint: "https://token.example.com/token",
           redirectUrl: "https://app.example.com/oauth/callback",
-          clientIdSecretId: "petstore_client_id",
-          clientSecretSecretId: "petstore_client_secret",
-          scopes: ["read"],
+          connectionId,
           tokenScope: scope as unknown as string,
+          strategy: {
+            kind: "authorization-code" as const,
+            authorizationEndpoint: "https://auth.example.com/authorize",
+            tokenEndpoint: "https://token.example.com/token",
+            clientIdSecretId: "petstore_client_id",
+            clientSecretSecretId: "petstore_client_secret",
+            scopes: ["read"],
+          },
+          pluginId: "openapi",
         });
 
-        const aliceStart = yield* aliceExec.openapi.startOAuth(
-          startInputFor("alice", aliceScope.id),
-        );
-        const bobStart = yield* bobExec.openapi.startOAuth(
-          startInputFor("bob", bobScope.id),
-        );
-        if (aliceStart.flow !== "authorizationCode") {
-          throw new Error("expected authorizationCode flow for alice");
-        }
-        if (bobStart.flow !== "authorizationCode") {
-          throw new Error("expected authorizationCode flow for bob");
-        }
+        const aliceStart = yield* aliceExec.oauth.start(startInputFor(aliceScope.id));
+        const bobStart = yield* bobExec.oauth.start(startInputFor(bobScope.id));
 
-        const aliceCompleted = yield* aliceExec.openapi.completeOAuth({
+        const aliceCompleted = yield* aliceExec.oauth.complete({
           state: aliceStart.sessionId,
           code: "code-alice",
         });
-        const bobCompleted = yield* bobExec.openapi.completeOAuth({
+        const bobCompleted = yield* bobExec.oauth.complete({
           state: bobStart.sessionId,
           code: "code-bob",
         });
@@ -518,46 +512,65 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
           );
         }) as unknown as typeof fetch;
 
-        const startInput = {
-          sourceId: "petstore",
-          connectionId: "shared-petstore-oauth",
-          displayName: "Petstore",
-          securitySchemeName: "oauth2",
-          flow: "clientCredentials" as const,
-          tokenUrl: "https://token.example.com/token",
-          clientIdSecretId: "client_id",
-          clientSecretSecretId: "client_secret",
-          scopes: ["read"],
-        };
+        const stableId = "shared-petstore-oauth";
+        const makeAuth = () =>
+          new OAuth2Auth({
+            kind: "oauth2",
+            connectionId: stableId,
+            securitySchemeName: "oauth2",
+            flow: "clientCredentials",
+            tokenUrl: "https://token.example.com/token",
+            authorizationUrl: null,
+            clientIdSecretId: "client_id",
+            clientSecretSecretId: "client_secret",
+            scopes: ["read"],
+          });
+        const startInputFor = (tokenScope: ScopeId) => ({
+          endpoint: "https://token.example.com/token",
+          redirectUrl: "https://token.example.com/token",
+          connectionId: stableId,
+          tokenScope: tokenScope as unknown as string,
+          strategy: {
+            kind: "client-credentials" as const,
+            tokenEndpoint: "https://token.example.com/token",
+            clientIdSecretId: "client_id",
+            clientSecretSecretId: "client_secret",
+            scopes: ["read"],
+          },
+          pluginId: "openapi",
+        });
 
         // Admin adds the org-scoped source with an initial oauth2
         // pointer — same shape the onboarding UI writes via `addSpec`.
         // Admin's scope stack is [org] so their sign-in resolves the
         // org-level creds and writes the connection at org.
-        const adminAuth = yield* adminExec.openapi.startOAuth(startInput);
-        if (adminAuth.flow !== "clientCredentials") {
-          throw new Error("expected clientCredentials flow");
+        const adminStart = yield* adminExec.oauth.start(startInputFor(orgScope.id));
+        if (adminStart.completedConnection === null) {
+          throw new Error("expected clientCredentials to mint a connection");
         }
+        const adminAuth = makeAuth();
         yield* adminExec.openapi.addSpec({
           spec: specJson,
           scope: orgScope.id as string,
           namespace: "petstore",
           baseUrl: "",
-          oauth2: adminAuth.auth,
+          oauth2: adminAuth,
         });
 
         // Alice signs in → resolves her shadowed user-scope creds
         // (`alice-client`), mints her own token, writes at user-alice.
-        const aliceStart = yield* aliceExec.openapi.startOAuth(startInput);
-        if (aliceStart.flow !== "clientCredentials") {
-          throw new Error("expected clientCredentials flow for alice");
+        const aliceStart = yield* aliceExec.oauth.start(startInputFor(aliceScope.id));
+        if (aliceStart.completedConnection === null) {
+          throw new Error("expected clientCredentials to mint a connection for alice");
         }
+        const aliceAuth = makeAuth();
         // Bob signs in → no user-scope shadow, falls through to the
         // org defaults (`org-client`), writes at user-bob.
-        const bobStart = yield* bobExec.openapi.startOAuth(startInput);
-        if (bobStart.flow !== "clientCredentials") {
-          throw new Error("expected clientCredentials flow for bob");
+        const bobStart = yield* bobExec.oauth.start(startInputFor(bobScope.id));
+        if (bobStart.completedConnection === null) {
+          throw new Error("expected clientCredentials to mint a connection for bob");
         }
+        const bobAuth = makeAuth();
 
         // ---- Regression assertions ----
 
@@ -565,10 +578,12 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         // id — it's a stable *name* carried by the source config. No
         // UUID-per-click churn, and the id does not have to be tied to
         // the source namespace.
-        const stableId = startInput.connectionId;
-        expect(adminAuth.auth.connectionId).toBe(stableId);
-        expect(aliceStart.auth.connectionId).toBe(stableId);
-        expect(bobStart.auth.connectionId).toBe(stableId);
+        expect(adminStart.completedConnection.connectionId).toBe(stableId);
+        expect(aliceStart.completedConnection.connectionId).toBe(stableId);
+        expect(bobStart.completedConnection.connectionId).toBe(stableId);
+        expect(adminAuth.connectionId).toBe(stableId);
+        expect(aliceAuth.connectionId).toBe(stableId);
+        expect(bobAuth.connectionId).toBe(stableId);
 
         // (2) Each user's physical row lives at their own scope. The
         // id *string* collides across scopes intentionally — that's
@@ -602,7 +617,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         yield* aliceExec.openapi.updateSource(
           "petstore",
           orgScope.id as string,
-          { oauth2: aliceStart.auth },
+          { oauth2: aliceAuth },
         );
         const aliceResult = (yield* aliceExec.tools.invoke(
           "petstore.items.echoHeaders",
@@ -625,7 +640,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         const countBefore = (yield* aliceExec.connections.list()).filter(
           (c) => c.id === stableId,
         ).length;
-        yield* aliceExec.openapi.startOAuth(startInput);
+        yield* aliceExec.oauth.start(startInputFor(aliceScope.id));
         const countAfter = (yield* aliceExec.connections.list()).filter(
           (c) => c.id === stableId,
         ).length;

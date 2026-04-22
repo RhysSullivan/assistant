@@ -215,44 +215,6 @@ export class InvocationConfig extends Schema.Class<InvocationConfig>("Invocation
   oauth2: Schema.optionalWith(OAuth2Auth, { as: "Option" }),
 }) {}
 
-// ---------------------------------------------------------------------------
-// Pending OAuth session — persisted between startOAuth and completeOAuth.
-// All the fields the exchange needs (token endpoint, client credential
-// secret ids, redirect URL, PKCE verifier) plus the pre-decided Connection
-// / secret ids the SDK stamps when the user returns.
-// ---------------------------------------------------------------------------
-
-export class OpenApiOAuthSession extends Schema.Class<OpenApiOAuthSession>(
-  "OpenApiOAuthSession",
-)({
-  /** Display name used for the resulting Connection's identity label. */
-  displayName: Schema.String,
-  securitySchemeName: Schema.String,
-  /** Only authorizationCode reaches this session type. client_credentials
-   *  has no user-interactive step so it creates the Connection inline in
-   *  `startOAuth` without persisting a session. */
-  flow: Schema.Literal("authorizationCode"),
-  tokenUrl: Schema.String,
-  /** Absolute authorization endpoint — persisted so completeOAuth can
-   *  stamp it onto the resulting `OAuth2Auth` for future sign-ins. */
-  authorizationUrl: Schema.String,
-  redirectUrl: Schema.String,
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.NullOr(Schema.String),
-  /** Executor scope that will own the resulting Connection (and its
-   *  backing secret rows). Typically the innermost (per-user) scope. */
-  tokenScope: Schema.String,
-  /** Pre-decided Connection id stamped at `completeOAuth` time. */
-  connectionId: Schema.String,
-  /** Pre-decided secret ids for the Connection's access + refresh
-   *  tokens. Fixed at session creation so a retried callback lands
-   *  on the same ids. */
-  accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.String,
-  scopes: Schema.Array(Schema.String),
-  codeVerifier: Schema.String,
-}) {}
-
 export class InvocationResult extends Schema.Class<InvocationResult>("InvocationResult")({
   status: Schema.Number,
   headers: Schema.Record({ key: Schema.String, value: Schema.String }),

@@ -5,9 +5,6 @@ import type { Layer } from "effect";
 import {
   SourceDetectionResult,
   definePlugin,
-  type OAuthCompleteError,
-  type OAuthSessionNotFoundError,
-  type OAuthStartError,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -82,115 +79,6 @@ export interface OpenApiUpdateSourceInput {
   readonly oauth2?: OAuth2Auth;
 }
 
-// ---------------------------------------------------------------------------
-// OAuth2 onboarding inputs / outputs — callers pre-decide identity knobs
-// (display name, scheme name, scopes, target scope) and the SDK mints a
-// Connection when the flow completes. The caller receives an OAuth2Auth
-// carrying just the resulting connection id.
-// ---------------------------------------------------------------------------
-
-interface StartOAuthIdentity {
-  readonly displayName: string;
-  readonly securitySchemeName: string;
-  readonly clientIdSecretId: string;
-  readonly scopes: readonly string[];
-  /** Stable logical Connection id this source should resolve at invoke time.
-   *  Physical ownership still comes from `tokenScope`; the same id can
-   *  have separate rows at user/org scopes. Defaults to the legacy
-   *  source-derived id for compatibility. */
-  readonly connectionId?: string;
-  /**
-   * Source (namespace) the resulting Connection will back. Used as the
-   * compatibility default for the stable Connection *name* so repeat
-   * sign-ins refresh a single row per scope instead of spawning a
-   * fresh UUID every click:
-   *
-   *   clientCredentials → `openapi-oauth2-app-${sourceId}`
-   *   authorizationCode → `openapi-oauth2-user-${sourceId}`
-   *
-   * The resulting Connection is written at the innermost executor
-   * scope so per-user credentials (secrets shadowed at user scope via
-   * `ctx.secrets.get`'s scope-stacked resolution) and per-user consent
-   * (authorizationCode) both produce per-user rows. Because
-   * `findInnermostConnectionRow` resolves by id across the caller's
-   * stack, the single `source.oauth2.connectionId` string on a shared
-   * org source still lets every user reach their own physical row.
-   */
-  readonly sourceId: string;
-  /** Executor scope that will own the resulting Connection (and its
-   *  backing token secrets). Defaults to `ctx.scopes[0].id`. Callers
-   *  can override to write at a different stack scope (e.g. an admin
-   *  writing an org-wide shared connection). */
-  readonly tokenScope?: string;
-}
-
-const defaultOAuthConnectionId = (
-  flow: "authorizationCode" | "clientCredentials",
-  sourceId: string,
-): string =>
-  flow === "clientCredentials"
-    ? `openapi-oauth2-app-${sourceId}`
-    : `openapi-oauth2-user-${sourceId}`;
-
-export interface StartAuthorizationCodeOAuthInput extends StartOAuthIdentity {
-  readonly flow: "authorizationCode";
-  readonly authorizationUrl: string;
-  readonly tokenUrl: string;
-  readonly redirectUrl: string;
-  readonly clientSecretSecretId?: string | null;
-}
-
-/**
- * RFC 6749 §4.4 has no user-interactive step. `startOAuth` exchanges
- * tokens inline, creates the Connection, and returns a completed
- * `OAuth2Auth` pointing at it. No `authorizationUrl`, no session row,
- * no `completeOAuth`.
- */
-export interface StartClientCredentialsOAuthInput extends StartOAuthIdentity {
-  readonly flow: "clientCredentials";
-  readonly tokenUrl: string;
-  /** RFC 6749 §2.3.1 — client_credentials is unusable without the secret. */
-  readonly clientSecretSecretId: string;
-}
-
-export type OpenApiStartOAuthInput =
-  | StartAuthorizationCodeOAuthInput
-  | StartClientCredentialsOAuthInput;
-
-export interface StartAuthorizationCodeOAuthResponse {
-  readonly flow: "authorizationCode";
-  readonly sessionId: string;
-  readonly authorizationUrl: string;
-  readonly scopes: readonly string[];
-}
-
-export interface StartClientCredentialsOAuthResponse {
-  readonly flow: "clientCredentials";
-  /** Completed auth ready to attach to the source's `OAuth2Auth`. */
-  readonly auth: OAuth2Auth;
-  readonly scopes: readonly string[];
-}
-
-export type OpenApiStartOAuthResponse =
-  | StartAuthorizationCodeOAuthResponse
-  | StartClientCredentialsOAuthResponse;
-
-export interface OpenApiCompleteOAuthInput {
-  readonly state: string;
-  readonly code?: string;
-  readonly error?: string;
-}
-
-/** Shape returned by `completeOAuth`. The minted Connection's id is
- *  all the caller needs to stitch together an `OAuth2Auth` value — the
- *  UI already has the securityScheme metadata from the matching
- *  `startOAuth` call. */
-export interface OpenApiCompleteOAuthResponse {
-  readonly connectionId: string;
-  readonly expiresAt: number | null;
-  readonly scope: string | null;
-}
-
 /**
  * Errors any OpenAPI extension method may surface. The first three are
  * plugin-domain tagged errors that flow directly to clients (4xx, each
@@ -230,18 +118,6 @@ export interface OpenApiPluginExtension {
     scope: string,
     input: OpenApiUpdateSourceInput,
   ) => Effect.Effect<void, StorageFailure>;
-  readonly startOAuth: (
-    input: OpenApiStartOAuthInput,
-  ) => Effect.Effect<
-    OpenApiStartOAuthResponse,
-    OpenApiOAuthError | OAuthStartError | StorageFailure
-  >;
-  readonly completeOAuth: (
-    input: OpenApiCompleteOAuthInput,
-  ) => Effect.Effect<
-    OpenApiCompleteOAuthResponse,
-    OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure
-  >;
 }
 
 // ---------------------------------------------------------------------------
@@ -552,111 +428,9 @@ export const openApiPlugin = definePlugin(
               oauth2: input.oauth2,
             }),
 
-          // Thin forwarders over `ctx.oauth.*`. The core service owns
-          // session storage, the code exchange, the Connection mint,
-          // and refresh via the canonical `"oauth2"` ConnectionProvider.
-          // The plugin maps OpenAPI's `flow` string + secret refs onto
-          // the strategy discriminated union the service accepts.
-          startOAuth: (input) =>
-            Effect.gen(function* () {
-              const scopesArray = [...input.scopes];
-              // Innermost = user scope in a stacked [user, org] executor.
-              // Both flows write at the innermost scope so per-user
-              // credentials (secrets shadowed at user scope) and per-user
-              // authorization codes each produce a per-user connection
-              // row. `source.oauth2.connectionId` is a single *name* —
-              // `findInnermostConnectionRow` walks each caller's stack
-              // to resolve the right physical row.
-              const innermostScope = ctx.scopes[0]!.id as string;
-              const tokenScope = input.tokenScope ?? innermostScope;
-              const connectionId =
-                input.connectionId ??
-                defaultOAuthConnectionId(input.flow, input.sourceId);
-
-              const strategy =
-                input.flow === "clientCredentials"
-                  ? ({
-                      kind: "client-credentials" as const,
-                      tokenEndpoint: input.tokenUrl,
-                      clientIdSecretId: input.clientIdSecretId,
-                      clientSecretSecretId: input.clientSecretSecretId,
-                      scopes: scopesArray,
-                    })
-                  : ({
-                      kind: "authorization-code" as const,
-                      authorizationEndpoint: input.authorizationUrl,
-                      tokenEndpoint: input.tokenUrl,
-                      clientIdSecretId: input.clientIdSecretId,
-                      clientSecretSecretId: input.clientSecretSecretId ?? null,
-                      scopes: scopesArray,
-                    });
-
-              const result = yield* ctx.oauth.start({
-                endpoint: input.tokenUrl,
-                // client-credentials doesn't redirect — pass the
-                // plugin's own placeholder URL so the service can
-                // still persist + surface it. For authorizationCode
-                // we use the caller-supplied value.
-                redirectUrl:
-                  input.flow === "authorizationCode"
-                    ? input.redirectUrl
-                    : input.tokenUrl,
-                connectionId,
-                tokenScope,
-                strategy,
-                pluginId: "openapi",
-              });
-
-              if (input.flow === "clientCredentials") {
-                // `client-credentials` mints the Connection inline — no
-                // session row, no browser step. Return the same
-                // `OAuth2Auth` shape the UI expects so it can stamp the
-                // source atomically.
-                const auth = new OAuth2Auth({
-                  kind: "oauth2",
-                  connectionId,
-                  securitySchemeName: input.securitySchemeName,
-                  flow: "clientCredentials",
-                  tokenUrl: input.tokenUrl,
-                  authorizationUrl: null,
-                  clientIdSecretId: input.clientIdSecretId,
-                  clientSecretSecretId: input.clientSecretSecretId ?? null,
-                  scopes: scopesArray,
-                });
-                return {
-                  flow: "clientCredentials" as const,
-                  auth,
-                  scopes: scopesArray,
-                };
-              }
-
-              if (result.authorizationUrl === null) {
-                return yield* new OpenApiOAuthError({
-                  message:
-                    "OAuth service did not emit an authorization URL for the authorizationCode flow",
-                });
-              }
-              return {
-                flow: "authorizationCode" as const,
-                sessionId: result.sessionId,
-                authorizationUrl: result.authorizationUrl,
-                scopes: scopesArray,
-              };
-            }),
-
-          completeOAuth: (input) =>
-            Effect.gen(function* () {
-              const completed = yield* ctx.oauth.complete({
-                state: input.state,
-                code: input.code,
-                error: input.error,
-              });
-              return {
-                connectionId: completed.connectionId,
-                expiresAt: completed.expiresAt,
-                scope: completed.scope,
-              } satisfies OpenApiCompleteOAuthResponse;
-            }),
+          // OAuth start/complete live on `ctx.oauth` now — the UI calls
+          // the shared `/scopes/:scopeId/oauth/*` endpoints directly and
+          // writes the resulting connection back via `updateSource`.
         } satisfies OpenApiPluginExtension;
       },
 
