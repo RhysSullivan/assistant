@@ -495,6 +495,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
 
         const startInput = {
           sourceId: "petstore",
+          connectionId: "shared-petstore-oauth",
           displayName: "Petstore",
           securitySchemeName: "oauth2",
           flow: "clientCredentials" as const,
@@ -536,9 +537,10 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         // ---- Regression assertions ----
 
         // (1) All three startOAuth calls return the SAME connection
-        // id — it's a stable *name* derived from sourceId. No
-        // UUID-per-click churn.
-        const stableId = `openapi-oauth2-app-${startInput.sourceId}`;
+        // id — it's a stable *name* carried by the source config. No
+        // UUID-per-click churn, and the id does not have to be tied to
+        // the source namespace.
+        const stableId = startInput.connectionId;
         expect(adminAuth.auth.connectionId).toBe(stableId);
         expect(aliceStart.auth.connectionId).toBe(stableId);
         expect(bobStart.auth.connectionId).toBe(stableId);

@@ -96,8 +96,8 @@ export interface OpenApiUpdateSourceInput {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, HeaderValue>;
-  /** Rewrite the source's OAuth2Auth — typically after a successful
-   *  re-authenticate, to point at a freshly minted connection. */
+  /** Refresh the source's stored OAuth2 metadata after a successful
+   *  re-authenticate. */
   readonly oauth2?: OAuth2Auth;
 }
 
@@ -113,10 +113,16 @@ interface StartOAuthIdentity {
   readonly securitySchemeName: string;
   readonly clientIdSecretId: string;
   readonly scopes: readonly string[];
+  /** Stable logical Connection id this source should resolve at invoke time.
+   *  Physical ownership still comes from `tokenScope`; the same id can
+   *  have separate rows at user/org scopes. Defaults to the legacy
+   *  source-derived id for compatibility. */
+  readonly connectionId?: string;
   /**
-   * Source (namespace) the resulting Connection will back. Used to
-   * mint a stable Connection *name* so repeat sign-ins refresh a
-   * single row per scope instead of spawning a fresh UUID every click:
+   * Source (namespace) the resulting Connection will back. Used as the
+   * compatibility default for the stable Connection *name* so repeat
+   * sign-ins refresh a single row per scope instead of spawning a
+   * fresh UUID every click:
    *
    *   clientCredentials → `openapi-oauth2-app-${sourceId}`
    *   authorizationCode → `openapi-oauth2-user-${sourceId}`
@@ -136,6 +142,14 @@ interface StartOAuthIdentity {
    *  writing an org-wide shared connection). */
   readonly tokenScope?: string;
 }
+
+const defaultOAuthConnectionId = (
+  flow: "authorizationCode" | "clientCredentials",
+  sourceId: string,
+): string =>
+  flow === "clientCredentials"
+    ? `openapi-oauth2-app-${sourceId}`
+    : `openapi-oauth2-user-${sourceId}`;
 
 export interface StartAuthorizationCodeOAuthInput extends StartOAuthIdentity {
   readonly flow: "authorizationCode";
@@ -627,7 +641,9 @@ export const openApiPlugin = definePlugin(
                 // is delete-then-insert on `(id, scope_id)`, so each
                 // user's repeat sign-ins refresh a single row rather
                 // than accumulate UUIDs.
-                const connectionId = `openapi-oauth2-app-${input.sourceId}`;
+                const connectionId =
+                  input.connectionId ??
+                  defaultOAuthConnectionId("clientCredentials", input.sourceId);
                 const connectionScope = input.tokenScope ?? innermostScope;
                 const expiresAt =
                   typeof tokenResponse.expires_in === "number"
@@ -693,14 +709,17 @@ export const openApiPlugin = definePlugin(
                 };
               }
 
-              // authorizationCode path. Stable id per (user, source) so
-              // repeated "Sign in" clicks refresh one row instead of
-              // creating a new UUID each time. Still per-user scope —
-              // this grant carries user identity.
+              // authorizationCode path. The source's logical connection
+              // id is stable, so repeated "Sign in" clicks refresh one
+              // row per target scope instead of creating UUID churn. By
+              // default this grant writes per-user because it carries user
+              // identity.
               const tokenScope = input.tokenScope ?? innermostScope;
               const sessionId = randomUUID();
               const codeVerifier = createPkceCodeVerifier();
-              const connectionId = `openapi-oauth2-user-${input.sourceId}`;
+              const connectionId =
+                input.connectionId ??
+                defaultOAuthConnectionId("authorizationCode", input.sourceId);
 
               yield* ctx.storage
                 .putOAuthSession(

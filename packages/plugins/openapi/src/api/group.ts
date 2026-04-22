@@ -40,8 +40,8 @@ const UpdateSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-  // Set after a successful re-authenticate to rewrite the source's
-  // OAuth2Auth pointer to the freshly minted connection.
+  // Set after a successful re-authenticate to refresh the source's
+  // stored OAuth2 metadata.
   oauth2: Schema.optional(OAuth2Auth),
 });
 
@@ -81,6 +81,7 @@ const StartOAuthIdentityFields = {
   clientIdSecretId: Schema.String,
   scopes: Schema.Array(Schema.String),
   tokenScope: Schema.optional(ScopeId),
+  connectionId: Schema.optional(Schema.String),
   sourceId: Schema.String,
 } as const;
 

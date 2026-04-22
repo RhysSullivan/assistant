@@ -37,7 +37,7 @@ import { OAuth2Auth } from "../sdk/types";
 //
 // Reads the source's stored OAuth2Auth, runs the same OAuth flow as Add
 // (authorizationCode via popup, clientCredentials inline), and on success
-// rewrites the source's OAuth2Auth pointer to the freshly minted
+// refreshes the source's stored OAuth2Auth while preserving its logical
 // connection id. Works whether or not the previous connection still
 // exists — source-owned OAuth config is the source of truth.
 // ---------------------------------------------------------------------------
@@ -92,6 +92,7 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
           path: { scopeId },
           payload: {
             sourceId: props.sourceId,
+            connectionId: oauth2.connectionId,
             displayName,
             securitySchemeName: oauth2.securitySchemeName,
             flow: "clientCredentials",
@@ -125,6 +126,7 @@ export default function OpenApiSignInButton(props: { sourceId: string }) {
         path: { scopeId },
         payload: {
           sourceId: props.sourceId,
+          connectionId: oauth2.connectionId,
           displayName,
           securitySchemeName: oauth2.securitySchemeName,
           flow: "authorizationCode",
