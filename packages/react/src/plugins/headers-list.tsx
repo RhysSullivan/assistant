@@ -36,8 +36,6 @@ export interface HeadersListProps {
   readonly targetScope?: ScopeId;
   /** Alias for `targetScope`, used by source flows that choose a write scope. */
   readonly writeScope?: ScopeId;
-  /** Allow configuring a secret id reference without creating a value yet. */
-  readonly allowReferenceOnly?: boolean;
 }
 
 export function HeadersList({
@@ -50,7 +48,6 @@ export function HeadersList({
   sourceName,
   targetScope,
   writeScope,
-  allowReferenceOnly = true,
 }: HeadersListProps) {
   const [picking, setPicking] = useState(false);
   const canAddMore = !singleHeader || headers.length === 0;
@@ -118,7 +115,6 @@ export function HeadersList({
                 existingSecrets={existingSecrets}
                 sourceName={sourceName}
                 targetScope={targetScope ?? writeScope}
-                allowReferenceOnly={allowReferenceOnly}
               />
             ))}
             {canAddMore && <AddHeaderRow onClick={() => setPicking(true)} />}
