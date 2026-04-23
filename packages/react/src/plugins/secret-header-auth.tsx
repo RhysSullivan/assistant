@@ -75,7 +75,6 @@ export function InlineCreateSecret(props: {
   onCancel: () => void;
   targetScope?: ScopeId;
   writeScope?: ScopeId;
-  allowReferenceOnly?: boolean;
 }) {
   const [nameOverride, setNameOverride] = useState<string | null>(null);
   const [idOverride, setIdOverride] = useState<string | null>(null);
@@ -112,11 +111,6 @@ export function InlineCreateSecret(props: {
       setError(e instanceof Error ? e.message : "Failed to save secret");
       setSaving(false);
     }
-  };
-
-  const handleUseReferenceOnly = () => {
-    if (!secretId.trim()) return;
-    props.onCreated(secretId.trim());
   };
 
   return (
@@ -176,16 +170,6 @@ export function InlineCreateSecret(props: {
         <Button variant="outline" size="xs" onClick={props.onCancel}>
           Cancel
         </Button>
-        {props.allowReferenceOnly && (
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={handleUseReferenceOnly}
-            disabled={!secretId.trim() || saving}
-          >
-            Use ID only
-          </Button>
-        )}
         <Button
           size="xs"
           onClick={handleSave}
@@ -334,7 +318,6 @@ export function SecretHeaderAuthRow(props: {
   sourceName?: string;
   targetScope?: ScopeId;
   writeScope?: ScopeId;
-  allowReferenceOnly?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
   const nameInputId = useId();
@@ -353,7 +336,6 @@ export function SecretHeaderAuthRow(props: {
     sourceName,
     targetScope,
     writeScope,
-    allowReferenceOnly = true,
   } = props;
 
   const isCustom = presetKey === "custom" || presetKey === undefined;
@@ -372,7 +354,6 @@ export function SecretHeaderAuthRow(props: {
         }}
         onCancel={() => setCreating(false)}
         targetScope={targetScope ?? writeScope}
-        allowReferenceOnly={allowReferenceOnly}
       />
     );
   }
@@ -455,7 +436,6 @@ export function CreatableSecretPicker(props: {
   readonly placeholder?: string;
   readonly targetScope?: ScopeId;
   readonly suggestedId?: string;
-  readonly allowReferenceOnly?: boolean;
   /**
    * Display name of the source the secret belongs to (e.g. "Stripe").
    * Combined with `secretLabel` to produce a suggested name/ID.
@@ -474,7 +454,6 @@ export function CreatableSecretPicker(props: {
     secretLabel,
     targetScope,
     suggestedId: suggestedIdProp,
-    allowReferenceOnly = true,
     writeScope,
   } = props;
   const [creating, setCreating] = useState(false);
@@ -493,7 +472,6 @@ export function CreatableSecretPicker(props: {
         }}
         onCancel={() => setCreating(false)}
         targetScope={targetScope ?? writeScope}
-        allowReferenceOnly={allowReferenceOnly}
       />
     );
   }
