@@ -125,6 +125,17 @@ function NeedsCredentialsBadge() {
   );
 }
 
+function CheckingCredentialsBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="border-border bg-muted/50 text-[10px] text-muted-foreground"
+    >
+      Checking credentials
+    </Badge>
+  );
+}
+
 // The entry row already renders name + id + kind, so this summary
 // component only contributes extras — specifically, an OAuth status
 // badge when the source has OAuth2 configured. Non-OAuth sources
@@ -156,6 +167,12 @@ export default function OpenApiSourceSummary(props: {
 
   if (!source) return null;
   const oauth2 = source.config.oauth2;
+  const bindingsLoaded = Result.isSuccess(bindingsResult);
+  const connectionsLoaded = Result.isSuccess(connectionsResult);
+  if (!bindingsLoaded) {
+    return props.variant === "panel" ? null : <CheckingCredentialsBadge />;
+  }
+
   const bindings = Result.isSuccess(bindingsResult) ? bindingsResult.value : [];
   const scopeRanks = new Map(
     scopeStack.map((scope, index) => [scope.id as string, index] as const),
@@ -193,7 +210,8 @@ export default function OpenApiSourceSummary(props: {
   if (missing.length > 0) return <NeedsCredentialsBadge />;
 
   if (!oauth2) return null;
-  const connections = Result.isSuccess(connectionsResult) ? connectionsResult.value : [];
+  if (!connectionsLoaded) return <CheckingCredentialsBadge />;
+  const connections = connectionsResult.value;
   const connectionBinding = bindings.find(
     (binding) =>
       binding.slot === oauth2.connectionSlot &&
