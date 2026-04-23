@@ -350,6 +350,7 @@ describe("Google Discovery plugin", () => {
               id: connectionId,
               scope: ScopeId.make("test-scope"),
               provider: "google-discovery:oauth2",
+              kind: "user",
               identityLabel: "Drive Test",
               accessToken: new TokenMaterial({
                 secretId: SecretId.make(`${connectionId}.access_token`),

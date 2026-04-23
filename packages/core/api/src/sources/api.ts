@@ -1,10 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import {
-  ScopeId,
-  SourceRemovalNotAllowedError,
-  ToolId,
-} from "@executor/sdk";
+import { ScopeId, SourceRemovalNotAllowedError, ToolId } from "@executor/sdk";
 
 import { InternalError } from "../observability";
 
@@ -21,7 +17,6 @@ const sourceIdParam = HttpApiSchema.param("sourceId", Schema.String);
 
 const SourceResponse = Schema.Struct({
   id: Schema.String,
-  scopeId: Schema.optional(ScopeId),
   name: Schema.String,
   kind: Schema.String,
   url: Schema.optional(Schema.String),

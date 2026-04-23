@@ -1,6 +1,6 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
-import { ScopeId, ToolId } from "@executor/sdk";
+import { ToolId } from "@executor/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
@@ -14,7 +14,6 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
         const sources = yield* executor.sources.list();
         return sources.map((s) => ({
           id: s.id,
-          scopeId: s.scopeId ? ScopeId.make(s.scopeId) : undefined,
           name: s.name,
           kind: s.kind,
           url: s.url,

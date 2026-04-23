@@ -11,6 +11,7 @@ const refToResponse = (ref: ConnectionRef) => ({
   id: ref.id,
   scopeId: ref.scopeId,
   provider: ref.provider,
+  kind: ref.kind,
   identityLabel: ref.identityLabel,
   accessTokenSecretId: ref.accessTokenSecretId,
   refreshTokenSecretId: ref.refreshTokenSecretId,

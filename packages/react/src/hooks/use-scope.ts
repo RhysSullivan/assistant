@@ -1,1 +1,1 @@
-export { useScope, useScopeInfo, useScopeStack, useUserScope } from "../api/scope-context";
+export { useScope } from "../api/scope-context";

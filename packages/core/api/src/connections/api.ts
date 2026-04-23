@@ -3,6 +3,7 @@ import { Schema } from "effect";
 
 import {
   ConnectionId,
+  ConnectionKind,
   ScopeId,
   SecretId,
 } from "@executor/sdk";
@@ -24,6 +25,7 @@ const ConnectionRefResponse = Schema.Struct({
   id: ConnectionId,
   scopeId: ScopeId,
   provider: Schema.String,
+  kind: ConnectionKind,
   identityLabel: Schema.NullOr(Schema.String),
   accessTokenSecretId: SecretId,
   refreshTokenSecretId: Schema.NullOr(SecretId),
