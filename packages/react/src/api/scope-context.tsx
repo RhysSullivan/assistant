@@ -4,10 +4,16 @@ import { useAtomValue, Result } from "@effect-atom/atom-react";
 import type { ScopeId } from "@executor/sdk";
 import { scopeAtom } from "./atoms";
 
+export interface ScopeStackEntry {
+  readonly id: ScopeId;
+  readonly name: string;
+}
+
 export interface ScopeInfo {
   readonly id: ScopeId;
   readonly name: string;
   readonly dir: string;
+  readonly stack: readonly ScopeStackEntry[];
 }
 
 const ScopeContext = React.createContext<ScopeInfo | null>(null);
@@ -50,4 +56,13 @@ export function useScopeInfo(): ScopeInfo {
     throw new Error("useScopeInfo must be used inside a ScopeProvider");
   }
   return scope;
+}
+
+export function useScopeStack(): readonly ScopeStackEntry[] {
+  return useScopeInfo().stack;
+}
+
+export function useUserScope(): ScopeId {
+  const info = useScopeInfo();
+  return info.stack[0]?.id ?? info.id;
 }
