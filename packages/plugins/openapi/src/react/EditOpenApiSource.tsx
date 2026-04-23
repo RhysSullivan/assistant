@@ -686,52 +686,60 @@ export default function EditOpenApiSource(props: {
                 </div>
               </CardStackEntryField>
               <CardStackEntryField label="OAuth Connection">
-                <div className="space-y-2">
-                  <div className="text-sm text-muted-foreground">
-                    {(() => {
-                      const exact = exactBindingForScope(
-                        bindingRows,
-                        source.config.oauth2!.connectionSlot,
-                        activeCredentialScopeId,
-                      );
-                      const binding =
-                        exact ??
-                        effectiveBindingForScope(
-                          bindingRows,
-                          source.config.oauth2!.connectionSlot,
-                          activeCredentialScopeId,
-                          scopeRanks,
-                        );
-                      if (binding && isConnectionBindingValue(binding.value)) {
-                        const connectionId = binding.value.connectionId;
-                        const connection = connections.find((entry) => entry.id === connectionId);
-                        return connection
-                          ? binding.scopeId === activeCredentialScopeId
-                            ? `Connected in ${activeCredentialScopeLabel.toLowerCase()} as ${
-                                connection.identityLabel ?? connection.id
-                              }`
-                            : `Using organization connection ${
-                                connection.identityLabel ?? connection.id
-                              }`
-                          : binding.scopeId === activeCredentialScopeId
-                            ? `Connection saved in ${activeCredentialScopeLabel.toLowerCase()}`
-                            : "Using organization connection"
-                      }
-                      return `No ${activeCredentialScopeLabel.toLowerCase()} connection`;
-                    })()}
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => void connectOAuth(activeCredentialScopeId)}
-                    disabled={
-                      busyKey === `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`
-                    }
-                  >
-                    {busyKey === `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`
-                      ? "Connecting…"
-                      : "Connect"}
-                  </Button>
-                </div>
+                {(() => {
+                  const exact = exactBindingForScope(
+                    bindingRows,
+                    source.config.oauth2!.connectionSlot,
+                    activeCredentialScopeId,
+                  );
+                  const binding =
+                    exact ??
+                    effectiveBindingForScope(
+                      bindingRows,
+                      source.config.oauth2!.connectionSlot,
+                      activeCredentialScopeId,
+                      scopeRanks,
+                    );
+                  const connectionBinding =
+                    binding && isConnectionBindingValue(binding.value)
+                      ? binding.value
+                      : null;
+                  const connection = connectionBinding
+                    ? connections.find((entry) => entry.id === connectionBinding.connectionId)
+                    : null;
+                  const bindingScopeId = connectionBinding && binding ? binding.scopeId : null;
+                  const isConnecting =
+                    busyKey ===
+                    `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`;
+                  const isConnected = connection !== null && connection !== undefined;
+                  const statusText =
+                    connectionBinding && bindingScopeId
+                      ? connection
+                        ? bindingScopeId === activeCredentialScopeId
+                          ? `Connected in ${activeCredentialScopeLabel.toLowerCase()} as ${
+                              connection.identityLabel ?? connection.id
+                            }`
+                          : `Using organization connection ${
+                              connection.identityLabel ?? connection.id
+                            }`
+                        : bindingScopeId === activeCredentialScopeId
+                          ? `Connection saved in ${activeCredentialScopeLabel.toLowerCase()}`
+                          : "Using organization connection"
+                      : `No ${activeCredentialScopeLabel.toLowerCase()} connection`;
+
+                  return (
+                    <div className="space-y-2">
+                      <div className="text-sm text-muted-foreground">{statusText}</div>
+                      <Button
+                        size="sm"
+                        onClick={() => void connectOAuth(activeCredentialScopeId)}
+                        disabled={isConnecting}
+                      >
+                        {isConnecting ? "Connecting…" : isConnected ? "Reconnect" : "Connect"}
+                      </Button>
+                    </div>
+                  );
+                })()}
               </CardStackEntryField>
             </>
           )}
