@@ -3,101 +3,14 @@ import { Result, useAtomValue } from "@effect-atom/atom-react";
 import { connectionsAtom, sourceAtom } from "@executor/react/api/atoms";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
-import { useScope, useScopeStack } from "@executor/react/api/scope-context";
+import { useScope, useScopeStack, useUserScope } from "@executor/react/api/scope-context";
 import { ScopeId } from "@executor/sdk";
 
 import { openApiSourceAtom, openApiSourceBindingsAtom } from "./atoms";
-import { oauth2ClientSecretSlot } from "../sdk/store";
-import type { OpenApiSourceBindingValue } from "../sdk/types";
-
-type BindingRow = {
-  readonly slot: string;
-  readonly scopeId: ScopeId;
-  readonly value: OpenApiSourceBindingValue;
-};
-
-type SourceForStatus = {
-  readonly config: {
-    readonly headers?: Record<string, string | { readonly slot: string; readonly prefix?: string }>;
-    readonly oauth2?: {
-      readonly securitySchemeName: string;
-      readonly flow: "authorizationCode" | "clientCredentials";
-      readonly clientIdSlot: string;
-      readonly clientSecretSlot: string | null;
-      readonly connectionSlot: string;
-    };
-  };
-};
-
-const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: ScopeId): number =>
-  ranks.get(scopeId as string) ?? Number.MAX_SAFE_INTEGER;
-
-const effectiveBindingForScope = (
-  rows: readonly BindingRow[],
-  slot: string,
-  targetScope: ScopeId,
-  ranks: ReadonlyMap<string, number>,
-) =>
-  rows.find(
-    (row) =>
-      row.slot === slot &&
-      scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
-  ) ?? null;
-
-const hasSecretBinding = (
-  rows: readonly BindingRow[],
-  slot: string,
-  targetScope: ScopeId,
-  ranks: ReadonlyMap<string, number>,
-) => effectiveBindingForScope(rows, slot, targetScope, ranks)?.value.kind === "secret";
-
-const hasConnectionBinding = (
-  rows: readonly BindingRow[],
-  slot: string,
-  targetScope: ScopeId,
-  ranks: ReadonlyMap<string, number>,
-) => effectiveBindingForScope(rows, slot, targetScope, ranks)?.value.kind === "connection";
-
-const effectiveClientSecretSlot = (oauth2: {
-  readonly securitySchemeName: string;
-  readonly clientSecretSlot: string | null;
-}): string => oauth2.clientSecretSlot ?? oauth2ClientSecretSlot(oauth2.securitySchemeName);
-
-function missingCredentialLabels(
-  source: SourceForStatus,
-  bindings: readonly BindingRow[],
-  targetScope: ScopeId,
-  ranks: ReadonlyMap<string, number>,
-): string[] {
-  const missing: string[] = [];
-
-  for (const [headerName, value] of Object.entries(source.config.headers ?? {})) {
-    if (typeof value === "string") continue;
-    if (!hasSecretBinding(bindings, value.slot, targetScope, ranks)) {
-      missing.push(headerName);
-    }
-  }
-
-  const oauth2 = source.config.oauth2;
-  if (!oauth2) return missing;
-
-  if (!hasSecretBinding(bindings, oauth2.clientIdSlot, targetScope, ranks)) {
-    missing.push("Client ID");
-  }
-
-  const clientSecretSlot = effectiveClientSecretSlot(oauth2);
-  if (!hasSecretBinding(bindings, clientSecretSlot, targetScope, ranks)) {
-    missing.push("Client Secret");
-  }
-
-  if (!hasConnectionBinding(bindings, oauth2.connectionSlot, targetScope, ranks)) {
-    missing.push(
-      oauth2.flow === "clientCredentials" ? "OAuth client connection" : "OAuth sign-in",
-    );
-  }
-
-  return missing;
-}
+import {
+  effectiveBindingForScope,
+  missingCredentialLabels,
+} from "../sdk/credential-status";
 
 function ConnectedBadge() {
   return (
@@ -146,6 +59,7 @@ export default function OpenApiSourceSummary(props: {
   onAction?: () => void;
 }) {
   const displayScope = useScope();
+  const userScope = useUserScope();
   const scopeStack = useScopeStack();
   const summaryResult = useAtomValue(sourceAtom(props.sourceId, displayScope));
   const sourceScopeId =
@@ -177,10 +91,11 @@ export default function OpenApiSourceSummary(props: {
   const scopeRanks = new Map(
     scopeStack.map((scope, index) => [scope.id as string, index] as const),
   );
+  const credentialTargetScope = userScope;
   const missing = missingCredentialLabels(
     source,
     bindings,
-    ScopeId.make(displayScope),
+    credentialTargetScope,
     scopeRanks,
   );
 
@@ -212,13 +127,14 @@ export default function OpenApiSourceSummary(props: {
   if (!oauth2) return null;
   if (!connectionsLoaded) return <CheckingCredentialsBadge />;
   const connections = connectionsResult.value;
-  const connectionBinding = bindings.find(
-    (binding) =>
-      binding.slot === oauth2.connectionSlot &&
-      binding.value.kind === "connection",
+  const connectionBinding = effectiveBindingForScope(
+    bindings,
+    oauth2.connectionSlot,
+    credentialTargetScope,
+    scopeRanks,
   );
   const connectionId =
-    connectionBinding?.value.kind === "connection"
+    connectionBinding && connectionBinding.value.kind === "connection"
       ? connectionBinding.value.connectionId
       : null;
 
