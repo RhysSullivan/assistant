@@ -16,6 +16,7 @@ const ScopeInfoResponse = Schema.Struct({
     Schema.Struct({
       id: ScopeId,
       name: Schema.String,
+      dir: Schema.String,
     }),
   ),
 });

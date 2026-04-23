@@ -29,6 +29,13 @@
       "when": 1776728656793,
       "tag": "0003_add_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776997871000,
+      "tag": "0004_openapi_source_bindings",
+      "breakpoints": true
     }
   ]
 }

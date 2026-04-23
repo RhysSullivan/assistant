@@ -7,6 +7,7 @@ import { scopeAtom } from "./atoms";
 export interface ScopeStackEntry {
   readonly id: ScopeId;
   readonly name: string;
+  readonly dir: string;
 }
 
 export interface ScopeInfo {
@@ -63,6 +64,10 @@ export function useScopeStack(): readonly ScopeStackEntry[] {
 }
 
 export function useUserScope(): ScopeId {
-  const info = useScopeInfo();
-  return info.stack[0]?.id ?? info.id;
+  const stack = useScopeStack();
+  const innermost = stack[0];
+  if (!innermost) {
+    throw new Error("useUserScope requires a non-empty scope stack");
+  }
+  return innermost.id;
 }

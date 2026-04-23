@@ -279,6 +279,7 @@ export const collectSchemas = (
 
 const rowToSource = (row: SourceRow): Source => ({
   id: row.id,
+  scopeId: row.scope_id,
   kind: row.kind,
   name: row.name,
   url: row.url ?? undefined,
@@ -294,6 +295,7 @@ const staticDeclToSource = (
   pluginId: string,
 ): Source => ({
   id: decl.id,
+  scopeId: undefined,
   kind: decl.kind,
   name: decl.name,
   url: decl.url,

@@ -21,6 +21,7 @@ export const ScopeHandlers = HttpApiBuilder.group(ExecutorApi, "scope", (handler
         stack: executor.scopes.map((entry) => ({
           id: entry.id,
           name: entry.name,
+          dir: entry.name,
         })),
       };
     })),

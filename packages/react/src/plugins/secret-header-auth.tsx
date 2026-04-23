@@ -4,13 +4,12 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { setSecret, resolveSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import { useScope } from "../api/scope-context";
-import type { ScopeId } from "@executor/sdk";
+import { SecretId, type ScopeId } from "@executor/sdk";
 import { Button } from "../components/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "../components/field";
 import { Input } from "../components/input";
 import { Spinner } from "../components/spinner";
 import { SecretPicker, type SecretPickerSecret } from "./secret-picker";
-import { SecretId } from "@executor/sdk";
 
 export interface HeaderAuthPreset {
   readonly key: string;
@@ -75,6 +74,7 @@ export function InlineCreateSecret(props: {
   onCreated: (secretId: string) => void;
   onCancel: () => void;
   targetScope?: ScopeId;
+  writeScope?: ScopeId;
   allowReferenceOnly?: boolean;
 }) {
   const [nameOverride, setNameOverride] = useState<string | null>(null);
@@ -84,7 +84,7 @@ export function InlineCreateSecret(props: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const defaultScope = useScope();
-  const scopeId = props.targetScope ?? defaultScope;
+  const scopeId = props.targetScope ?? props.writeScope ?? defaultScope;
   const doSet = useAtomSet(setSecret, { mode: "promise" });
   const secretIdInputId = useId();
   const secretNameInputId = useId();
@@ -333,6 +333,7 @@ export function SecretHeaderAuthRow(props: {
    */
   sourceName?: string;
   targetScope?: ScopeId;
+  writeScope?: ScopeId;
   allowReferenceOnly?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
@@ -351,6 +352,7 @@ export function SecretHeaderAuthRow(props: {
     label = "Header",
     sourceName,
     targetScope,
+    writeScope,
     allowReferenceOnly = true,
   } = props;
 
@@ -369,7 +371,7 @@ export function SecretHeaderAuthRow(props: {
           setCreating(false);
         }}
         onCancel={() => setCreating(false)}
-        targetScope={targetScope}
+        targetScope={targetScope ?? writeScope}
         allowReferenceOnly={allowReferenceOnly}
       />
     );
@@ -461,6 +463,7 @@ export function CreatableSecretPicker(props: {
   readonly sourceName?: string;
   /** Role of this secret (e.g. "Client ID", "API Token"). */
   readonly secretLabel: string;
+  readonly writeScope?: ScopeId;
 }) {
   const {
     value,
@@ -472,6 +475,7 @@ export function CreatableSecretPicker(props: {
     targetScope,
     suggestedId: suggestedIdProp,
     allowReferenceOnly = true,
+    writeScope,
   } = props;
   const [creating, setCreating] = useState(false);
 
@@ -488,7 +492,7 @@ export function CreatableSecretPicker(props: {
           setCreating(false);
         }}
         onCancel={() => setCreating(false)}
-        targetScope={targetScope}
+        targetScope={targetScope ?? writeScope}
         allowReferenceOnly={allowReferenceOnly}
       />
     );

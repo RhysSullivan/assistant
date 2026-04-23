@@ -1,88 +1,256 @@
-import { useState } from "react";
-import {
-  useAtomValue,
-  useAtomSet,
-  Result,
-} from "@effect-atom/atom-react";
+import { useEffect, useMemo, useState } from "react";
+import { Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 
+import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import {
-  openApiSourceAtom,
-  updateOpenApiSource,
-} from "./atoms";
-import { useScope } from "@executor/react/api/scope-context";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
+  connectionsAtom,
+  setSecret,
+  sourceAtom,
+} from "@executor/react/api/atoms";
+import { useScope, useScopeStack, useUserScope } from "@executor/react/api/scope-context";
 import {
-  headerValueToState,
-  headersFromState,
-  type HeaderState,
-} from "@executor/react/plugins/secret-header-auth";
-import { HeadersList } from "@executor/react/plugins/headers-list";
-import {
-  SourceIdentityFields,
-  useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
+  connectionWriteKeys,
+  secretWriteKeys,
+  sourceWriteKeys,
+} from "@executor/react/api/reactivity-keys";
 import { Button } from "@executor/react/components/button";
 import {
   CardStack,
   CardStackContent,
+  CardStackEntry,
+  CardStackEntryContent,
+  CardStackEntryDescription,
   CardStackEntryField,
+  CardStackEntryTitle,
 } from "@executor/react/components/card-stack";
-import { FieldLabel } from "@executor/react/components/field";
+import { FilterTabs } from "@executor/react/components/filter-tabs";
 import { Input } from "@executor/react/components/input";
-import { Badge } from "@executor/react/components/badge";
-import type { StoredSourceSchemaType } from "../sdk/store";
+import { sourceWriteKeys as openApiWriteKeys } from "@executor/react/api/reactivity-keys";
+import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
 
-// ---------------------------------------------------------------------------
-// Edit form — source config only. Sign-in / reconnect lives on the source
-// detail top bar (see source-plugin.signIn) and connection lifecycle lives
-// on the Connections page.
-// ---------------------------------------------------------------------------
+import {
+  openApiSourceAtom,
+  openApiSourceBindingsAtom,
+  removeOpenApiSourceBinding,
+  setOpenApiSourceBinding,
+  startOpenApiOAuth,
+  updateOpenApiSource,
+} from "./atoms";
+import {
+  OPENAPI_OAUTH_CALLBACK_PATH,
+  OPENAPI_OAUTH_CHANNEL,
+  OPENAPI_OAUTH_POPUP_NAME,
+  resolveOAuthUrl,
+} from "./AddOpenApiSource";
+import type { OpenApiSourceBindingValue } from "../sdk/types";
 
-function EditForm(props: {
-  sourceId: string;
-  initial: StoredSourceSchemaType;
-  onSave: () => void;
+type SlotDef =
+  | {
+      readonly kind: "secret";
+      readonly slot: string;
+      readonly label: string;
+      readonly hint?: string;
+    }
+  | {
+      readonly kind: "oauth2";
+      readonly slot: string;
+      readonly label: string;
+    };
+
+const slugify = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "default";
+
+const bindingSecretId = (sourceId: string, slot: string, scopeId: string): string =>
+  `source-binding-${slugify(sourceId)}-${slugify(slot)}-${slugify(scopeId)}`;
+
+const exactBindingForScope = (
+  rows: readonly {
+    readonly slot: string;
+    readonly scopeId: ScopeId;
+    readonly value: unknown;
+  }[],
+  slot: string,
+  scopeId: ScopeId,
+) => rows.find((row) => row.slot === slot && row.scopeId === scopeId) ?? null;
+
+const scopeRank = (ranks: ReadonlyMap<string, number>, scopeId: ScopeId): number =>
+  ranks.get(scopeId as string) ?? Number.MAX_SAFE_INTEGER;
+
+const effectiveBindingForScope = (
+  rows: readonly {
+    readonly slot: string;
+    readonly scopeId: ScopeId;
+    readonly value: unknown;
+  }[],
+  slot: string,
+  targetScope: ScopeId,
+  ranks: ReadonlyMap<string, number>,
+) =>
+  rows.find(
+    (row) =>
+      row.slot === slot &&
+      scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
+  ) ?? null;
+
+const isSecretBindingValue = (
+  value: unknown,
+): value is Extract<OpenApiSourceBindingValue, { readonly kind: "secret" }> =>
+  typeof value === "object" &&
+  value !== null &&
+  "kind" in value &&
+  (value as { kind?: unknown }).kind === "secret" &&
+  "secretId" in value;
+
+const isConnectionBindingValue = (
+  value: unknown,
+): value is Extract<OpenApiSourceBindingValue, { readonly kind: "connection" }> =>
+  typeof value === "object" &&
+  value !== null &&
+  "kind" in value &&
+  (value as { kind?: unknown }).kind === "connection" &&
+  "connectionId" in value;
+
+export default function EditOpenApiSource(props: {
+  readonly sourceId: string;
+  readonly onSave: () => void;
 }) {
-  const scopeId = useScope();
-  const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
-  const secretList = useSecretPickerSecrets();
-
-  const identity = useSourceIdentity({
-    fallbackName: props.initial.name,
-    fallbackNamespace: props.initial.namespace,
-  });
-  const [baseUrl, setBaseUrl] = useState(props.initial.config.baseUrl ?? "");
-  const [headers, setHeaders] = useState<HeaderState[]>(() =>
-    Object.entries(props.initial.config.headers ?? {}).map(([name, value]) =>
-      headerValueToState(name, value),
-    ),
+  const displayScope = useScope();
+  const scopeStack = useScopeStack();
+  const userScope = useUserScope();
+  const sourceSummaryResult = useAtomValue(sourceAtom(props.sourceId, displayScope));
+  const sourceSummary =
+    Result.isSuccess(sourceSummaryResult) && sourceSummaryResult.value
+      ? sourceSummaryResult.value
+      : null;
+  const sourceScopeId = sourceSummary?.scopeId ?? displayScope;
+  const sourceScope = ScopeId.make(sourceScopeId);
+  const scopeRanks = useMemo(
+    () => new Map(scopeStack.map((scope, index) => [scope.id as string, index] as const)),
+    [scopeStack],
   );
+
+  const sourceResult = useAtomValue(openApiSourceAtom(sourceScope, props.sourceId));
+  const bindingsResult = useAtomValue(
+    openApiSourceBindingsAtom(displayScope, props.sourceId, sourceScope),
+  );
+  const connectionsResult = useAtomValue(connectionsAtom(displayScope));
+
+  const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
+  const doSetSecret = useAtomSet(setSecret, { mode: "promise" });
+  const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
+  const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+
+  const source =
+    Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
+  const bindingRows =
+    Result.isSuccess(bindingsResult) ? bindingsResult.value : [];
+  const connections =
+    Result.isSuccess(connectionsResult) ? connectionsResult.value : [];
+
+  const [name, setName] = useState(source?.name ?? "");
+  const [baseUrl, setBaseUrl] = useState(source?.config.baseUrl ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [bindingValues, setBindingValues] = useState<Record<string, string>>({});
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [loadedSourceKey, setLoadedSourceKey] = useState<string | null>(null);
+  const [selectedCredentialScope, setSelectedCredentialScope] = useState<string>(
+    userScope !== sourceScopeId ? userScope : sourceScopeId,
+  );
 
-  const identityDirty = identity.name.trim() !== props.initial.name.trim();
+  useEffect(() => {
+    if (!source) return;
+    const sourceKey = `${sourceScopeId}:${source.namespace}`;
+    if (loadedSourceKey === sourceKey) return;
+    setName(source.name);
+    setBaseUrl(source.config.baseUrl ?? "");
+    setLoadedSourceKey(sourceKey);
+  }, [loadedSourceKey, source, sourceScopeId]);
 
-  const handleHeadersChange = (next: HeaderState[]) => {
-    setHeaders(next);
-    setDirty(true);
-  };
+  useEffect(() => {
+    setSelectedCredentialScope(userScope !== sourceScopeId ? userScope : sourceScopeId);
+  }, [sourceScopeId, userScope]);
+
+  const secretSlots = useMemo(() => {
+    if (!source) return [] as SlotDef[];
+    const slots: SlotDef[] = [];
+    for (const [headerName, value] of Object.entries(source.config.headers ?? {})) {
+      if (typeof value === "string") continue;
+      slots.push({
+        kind: "secret",
+        slot: value.slot,
+        label: headerName,
+        hint: value.prefix ? `Prefix: ${value.prefix}` : undefined,
+      });
+    }
+    if (source.config.oauth2) {
+      slots.push({
+        kind: "secret",
+        slot: source.config.oauth2.clientIdSlot,
+        label: "Client ID",
+      });
+      if (source.config.oauth2.clientSecretSlot) {
+        slots.push({
+          kind: "secret",
+          slot: source.config.oauth2.clientSecretSlot,
+          label: "Client Secret",
+        });
+      }
+      slots.push({
+        kind: "oauth2",
+        slot: source.config.oauth2.connectionSlot,
+        label:
+          source.config.oauth2.flow === "clientCredentials"
+            ? "OAuth Client Credentials"
+            : "OAuth Authorization Code",
+      });
+    }
+    return slots;
+  }, [source]);
+
+  const credentialScopes = useMemo(() => {
+    const entries = [{ scopeId: ScopeId.make(sourceScopeId), label: "Organization" }];
+    if (userScope !== sourceScopeId) {
+      entries.unshift({ scopeId: ScopeId.make(userScope), label: "Personal" });
+    } else {
+      entries[0] = { scopeId: ScopeId.make(sourceScopeId), label: "Credentials" };
+    }
+    return entries;
+  }, [sourceScopeId, userScope]);
+  const activeCredentialScope =
+    credentialScopes.find((entry) => entry.scopeId === selectedCredentialScope) ??
+    credentialScopes[0]!;
+  const activeCredentialScopeId = activeCredentialScope.scopeId;
+  const activeCredentialScopeLabel = activeCredentialScope.label;
+
+  if (!source) {
+    return (
+      <div className="space-y-3">
+        <h1 className="text-xl font-semibold text-foreground">Edit OpenAPI Source</h1>
+        <p className="text-sm text-muted-foreground">Loading configuration…</p>
+      </div>
+    );
+  }
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
       await doUpdate({
-        path: { scopeId, namespace: props.sourceId },
+        path: { scopeId: ScopeId.make(sourceScopeId), namespace: props.sourceId },
         payload: {
-          name: identity.name.trim() || undefined,
+          name: name.trim() || undefined,
           baseUrl: baseUrl.trim() || undefined,
-          headers: headersFromState(headers),
+          headers: source.config.headers,
+          oauth2: source.config.oauth2,
         },
-        reactivityKeys: sourceWriteKeys,
+        reactivityKeys: openApiWriteKeys,
       });
-      setDirty(false);
       props.onSave();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update source");
@@ -91,51 +259,429 @@ function EditForm(props: {
     }
   };
 
+  const saveSecretBinding = async (
+    targetScope: ScopeId,
+    slot: string,
+    label: string,
+  ) => {
+    const inputKey = `${targetScope}:${slot}`;
+    const value = bindingValues[inputKey]?.trim();
+    if (!value) return;
+    const existing = exactBindingForScope(bindingRows, slot, targetScope);
+    const secretId =
+      existing && isSecretBindingValue(existing.value)
+        ? existing.value.secretId
+        : SecretId.make(bindingSecretId(props.sourceId, slot, targetScope));
+    setBusyKey(inputKey);
+    setError(null);
+    try {
+      await doSetSecret({
+        path: { scopeId: targetScope },
+        payload: {
+          id: secretId,
+          name: `${source.name} ${label}`,
+          value,
+        },
+        reactivityKeys: secretWriteKeys,
+      });
+      await doSetBinding({
+        path: { scopeId: displayScope },
+        payload: {
+          sourceId: props.sourceId,
+          sourceScope,
+          scope: targetScope,
+          slot,
+          value: { kind: "secret", secretId },
+        },
+        reactivityKeys: [...sourceWriteKeys, ...secretWriteKeys],
+      });
+      setBindingValues((current) => ({ ...current, [inputKey]: "" }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save credential");
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const clearBinding = async (targetScope: ScopeId, slot: string) => {
+    setBusyKey(`${targetScope}:${slot}:clear`);
+    setError(null);
+    try {
+      await doRemoveBinding({
+        path: { scopeId: displayScope },
+        payload: {
+          sourceId: props.sourceId,
+          sourceScope,
+          slot,
+          scope: targetScope,
+        },
+        reactivityKeys: sourceWriteKeys,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to clear credential binding");
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const connectOAuth = async (targetScope: ScopeId) => {
+    const oauth2 = source.config.oauth2;
+    if (!oauth2) return;
+    const clientIdBinding = effectiveBindingForScope(
+      bindingRows,
+      oauth2.clientIdSlot,
+      targetScope,
+      scopeRanks,
+    );
+    const clientSecretBinding = oauth2.clientSecretSlot
+      ? effectiveBindingForScope(
+          bindingRows,
+          oauth2.clientSecretSlot,
+          targetScope,
+          scopeRanks,
+        )
+      : null;
+    if (!clientIdBinding || !isSecretBindingValue(clientIdBinding.value)) {
+      setError("Client ID must be bound before connecting");
+      return;
+    }
+    if (oauth2.flow === "clientCredentials" && (!clientSecretBinding || !isSecretBindingValue(clientSecretBinding.value))) {
+      setError("Client secret must be bound before connecting");
+      return;
+    }
+    const clientSecretValue =
+      oauth2.flow === "clientCredentials" &&
+      clientSecretBinding &&
+      isSecretBindingValue(clientSecretBinding.value)
+        ? clientSecretBinding.value
+        : null;
+
+    const existingConnection = exactBindingForScope(
+      bindingRows,
+      oauth2.connectionSlot,
+      targetScope,
+    );
+    const connectionId =
+      existingConnection && isConnectionBindingValue(existingConnection.value)
+        ? existingConnection.value.connectionId
+        : ConnectionId.make(
+            `openapi-oauth-${slugify(props.sourceId)}-${slugify(oauth2.securitySchemeName)}-${slugify(targetScope)}`,
+          );
+
+    setBusyKey(`${targetScope}:${oauth2.connectionSlot}:connect`);
+    setError(null);
+    try {
+      const displayName = source.name;
+      const tokenUrl = resolveOAuthUrl(oauth2.tokenUrl, source.config.baseUrl ?? "");
+      if (oauth2.flow === "clientCredentials") {
+        const response = await doStartOAuth({
+          path: { scopeId: displayScope },
+          payload: {
+            sourceId: props.sourceId,
+            connectionId,
+            tokenScope: targetScope,
+            displayName,
+            securitySchemeName: oauth2.securitySchemeName,
+            flow: "clientCredentials",
+            tokenUrl,
+            clientIdSecretId: clientIdBinding.value.secretId,
+            clientSecretSecretId: clientSecretValue!.secretId,
+            scopes: [...oauth2.scopes],
+          },
+        });
+        if (response.flow !== "clientCredentials") {
+          throw new Error("Unexpected OAuth response");
+        }
+        await doSetBinding({
+          path: { scopeId: displayScope },
+          payload: {
+            sourceId: props.sourceId,
+            sourceScope,
+            scope: targetScope,
+            slot: oauth2.connectionSlot,
+            value: {
+              kind: "connection",
+              connectionId: ConnectionId.make(response.auth.connectionId),
+            },
+          },
+          reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
+        });
+        return;
+      }
+
+      const authorizationUrl = resolveOAuthUrl(
+        oauth2.authorizationUrl ?? "",
+        source.config.baseUrl ?? "",
+      );
+      const redirectUrl =
+        typeof window !== "undefined"
+          ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
+          : OPENAPI_OAUTH_CALLBACK_PATH;
+      const response = await doStartOAuth({
+        path: { scopeId: displayScope },
+        payload: {
+          sourceId: props.sourceId,
+          connectionId,
+          tokenScope: targetScope,
+          displayName,
+          securitySchemeName: oauth2.securitySchemeName,
+          flow: "authorizationCode",
+          authorizationUrl,
+          tokenUrl,
+          redirectUrl,
+          clientIdSecretId: clientIdBinding.value.secretId,
+          clientSecretSecretId:
+            clientSecretBinding && isSecretBindingValue(clientSecretBinding.value)
+              ? clientSecretBinding.value.secretId
+              : undefined,
+          scopes: [...oauth2.scopes],
+        },
+      });
+      if (response.flow !== "authorizationCode") {
+        throw new Error("Unexpected OAuth response");
+      }
+      openOAuthPopup({
+        url: response.authorizationUrl,
+        popupName: OPENAPI_OAUTH_POPUP_NAME,
+        channelName: OPENAPI_OAUTH_CHANNEL,
+        onResult: async (result: OAuthPopupResult<{ connectionId: string }>) => {
+          if (!result.ok) {
+            setError(result.error);
+            setBusyKey(null);
+            return;
+          }
+          try {
+            await doSetBinding({
+              path: { scopeId: displayScope },
+              payload: {
+                sourceId: props.sourceId,
+                sourceScope,
+                scope: targetScope,
+                slot: oauth2.connectionSlot,
+                value: {
+                  kind: "connection",
+                  connectionId: ConnectionId.make(result.connectionId),
+                },
+              },
+              reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
+            });
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Failed to save OAuth binding");
+          } finally {
+            setBusyKey(null);
+          }
+        },
+        onClosed: () => {
+          setBusyKey(null);
+        },
+        onOpenFailed: () => {
+          setError("OAuth popup was blocked by the browser");
+          setBusyKey(null);
+        },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to connect OAuth");
+      setBusyKey(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Edit OpenAPI Source</h1>
+        <h1 className="text-xl font-semibold text-foreground">OpenAPI Source</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Update the base URL and authentication headers for this source.
+          Shared source settings stay on the source. Credentials can be saved
+          personally or shared with the organization.
         </p>
       </div>
 
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-card-foreground">{props.sourceId}</p>
-        </div>
-        <Badge variant="secondary" className="text-xs">
-          OpenAPI
-        </Badge>
-      </div>
-
-      <SourceIdentityFields identity={identity} namespaceReadOnly />
-
       <CardStack>
         <CardStackContent className="border-t-0">
+          <CardStackEntryField label="Name">
+            <Input value={name} onChange={(e) => setName((e.target as HTMLInputElement).value)} />
+          </CardStackEntryField>
           <CardStackEntryField label="Base URL">
             <Input
               value={baseUrl}
-              onChange={(e) => {
-                setBaseUrl((e.target as HTMLInputElement).value);
-                setDirty(true);
-              }}
-              placeholder="https://api.example.com"
+              onChange={(e) => setBaseUrl((e.target as HTMLInputElement).value)}
               className="font-mono text-sm"
             />
           </CardStackEntryField>
+          <CardStackEntry>
+            <CardStackEntryContent>
+              <CardStackEntryTitle>Authentication Template</CardStackEntryTitle>
+              <CardStackEntryDescription>
+                {source.config.oauth2
+                  ? `OAuth2 ${source.config.oauth2.flow}`
+                  : Object.keys(source.config.headers ?? {}).length > 0
+                    ? `${Object.keys(source.config.headers ?? {}).length} header binding${
+                        Object.keys(source.config.headers ?? {}).length === 1 ? "" : "s"
+                      }`
+                    : "None"}
+              </CardStackEntryDescription>
+            </CardStackEntryContent>
+          </CardStackEntry>
         </CardStackContent>
       </CardStack>
 
-      <section className="space-y-2.5">
-        <FieldLabel>Headers</FieldLabel>
-        <HeadersList
-          headers={headers}
-          onHeadersChange={handleHeadersChange}
-          existingSecrets={secretList}
-          sourceName={identity.name}
-        />
-      </section>
+      <CardStack>
+        <CardStackContent className="border-t-0">
+          {credentialScopes.length > 1 && (
+            <CardStackEntry>
+              <CardStackEntryContent>
+                <CardStackEntryTitle>Credentials</CardStackEntryTitle>
+                <CardStackEntryDescription>
+                  Choose whether each credential is personal or shared with the
+                  organization.
+                </CardStackEntryDescription>
+              </CardStackEntryContent>
+              <FilterTabs
+                tabs={credentialScopes.map((entry) => ({
+                  value: entry.scopeId as string,
+                  label: entry.label,
+                }))}
+                value={activeCredentialScopeId as string}
+                onChange={setSelectedCredentialScope}
+              />
+            </CardStackEntry>
+          )}
+
+          {secretSlots
+            .filter((slot) => slot.kind === "secret")
+            .map((slot) => {
+              const exact = exactBindingForScope(
+                bindingRows,
+                slot.slot,
+                activeCredentialScopeId,
+              );
+              const effective = effectiveBindingForScope(
+                bindingRows,
+                slot.slot,
+                activeCredentialScopeId,
+                scopeRanks,
+              );
+              const inputKey = `${activeCredentialScopeId}:${slot.slot}`;
+              const savedHere = !!(exact && isSecretBindingValue(exact.value));
+              const inherited =
+                !savedHere &&
+                effective &&
+                effective.scopeId !== activeCredentialScopeId &&
+                isSecretBindingValue(effective.value);
+              return (
+                <CardStackEntryField key={`${slot.slot}:${activeCredentialScopeId}`} label={slot.label}>
+                  <div className="space-y-2">
+                    <Input
+                      type="password"
+                      value={bindingValues[inputKey] ?? ""}
+                      onChange={(e) =>
+                        setBindingValues((current) => ({
+                          ...current,
+                          [inputKey]: (e.target as HTMLInputElement).value,
+                        }))
+                      }
+                      placeholder={
+                        savedHere
+                          ? `Saved in ${activeCredentialScopeLabel.toLowerCase()}`
+                          : inherited
+                            ? "Using organization default"
+                            : "Enter value"
+                      }
+                      className="font-mono text-sm"
+                    />
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          void saveSecretBinding(
+                            activeCredentialScopeId,
+                            slot.slot,
+                            slot.label,
+                          )
+                        }
+                        disabled={busyKey === inputKey || !(bindingValues[inputKey] ?? "").trim()}
+                      >
+                        {busyKey === inputKey ? "Saving…" : "Save"}
+                      </Button>
+                      {savedHere && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void clearBinding(activeCredentialScopeId, slot.slot)}
+                          disabled={
+                            busyKey === `${activeCredentialScopeId}:${slot.slot}:clear`
+                          }
+                        >
+                          Clear
+                        </Button>
+                      )}
+                      {slot.hint && (
+                        <span className="text-xs text-muted-foreground">{slot.hint}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {savedHere
+                        ? `Saved in ${activeCredentialScopeLabel.toLowerCase()}.`
+                        : inherited
+                          ? "No value saved here. Using the organization default."
+                          : `No ${activeCredentialScopeLabel.toLowerCase()} value saved yet.`}
+                    </p>
+                  </div>
+                </CardStackEntryField>
+              );
+            })}
+
+          {source.config.oauth2 && (
+            <CardStackEntryField label="OAuth Connection">
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">
+                  {(() => {
+                    const exact = exactBindingForScope(
+                      bindingRows,
+                      source.config.oauth2!.connectionSlot,
+                      activeCredentialScopeId,
+                    );
+                    const binding =
+                      exact ??
+                      effectiveBindingForScope(
+                        bindingRows,
+                        source.config.oauth2!.connectionSlot,
+                        activeCredentialScopeId,
+                        scopeRanks,
+                      );
+                    if (binding && isConnectionBindingValue(binding.value)) {
+                      const connectionId = binding.value.connectionId;
+                      const connection = connections.find((entry) => entry.id === connectionId);
+                      return connection
+                        ? binding.scopeId === activeCredentialScopeId
+                          ? `Connected in ${activeCredentialScopeLabel.toLowerCase()} as ${
+                              connection.identityLabel ?? connection.id
+                            }`
+                          : `Using organization connection ${
+                              connection.identityLabel ?? connection.id
+                            }`
+                        : binding.scopeId === activeCredentialScopeId
+                          ? `Connection saved in ${activeCredentialScopeLabel.toLowerCase()}`
+                          : "Using organization connection"
+                    }
+                    return `No ${activeCredentialScopeLabel.toLowerCase()} connection`;
+                  })()}
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => void connectOAuth(activeCredentialScopeId)}
+                  disabled={
+                    busyKey === `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`
+                  }
+                >
+                  {busyKey === `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`
+                    ? "Connecting…"
+                    : "Connect"}
+                </Button>
+              </div>
+            </CardStackEntryField>
+          )}
+        </CardStackContent>
+      </CardStack>
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
@@ -145,34 +691,12 @@ function EditForm(props: {
 
       <div className="flex items-center justify-between border-t border-border pt-4">
         <Button variant="ghost" onClick={props.onSave}>
-          Cancel
+          Back
         </Button>
-        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
-          {saving ? "Saving…" : "Save changes"}
+        <Button onClick={() => void handleSave()} disabled={saving}>
+          {saving ? "Saving…" : "Save source settings"}
         </Button>
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-export default function EditOpenApiSource(props: { sourceId: string; onSave: () => void }) {
-  const scopeId = useScope();
-  const sourceResult = useAtomValue(openApiSourceAtom(scopeId, props.sourceId));
-
-  if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Edit OpenAPI Source</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Loading configuration…</p>
-        </div>
-      </div>
-    );
-  }
-
-  return <EditForm sourceId={props.sourceId} initial={sourceResult.value} onSave={props.onSave} />;
 }

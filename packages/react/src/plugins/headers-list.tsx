@@ -34,6 +34,8 @@ export interface HeadersListProps {
   readonly sourceName?: string;
   /** When provided, inline-created secrets are written to this scope. */
   readonly targetScope?: ScopeId;
+  /** Alias for `targetScope`, used by source flows that choose a write scope. */
+  readonly writeScope?: ScopeId;
   /** Allow configuring a secret id reference without creating a value yet. */
   readonly allowReferenceOnly?: boolean;
 }
@@ -47,6 +49,7 @@ export function HeadersList({
   emptyLabel = "No headers",
   sourceName,
   targetScope,
+  writeScope,
   allowReferenceOnly = true,
 }: HeadersListProps) {
   const [picking, setPicking] = useState(false);
@@ -114,7 +117,7 @@ export function HeadersList({
                 onRemove={singleHeader ? undefined : () => removeHeader(index)}
                 existingSecrets={existingSecrets}
                 sourceName={sourceName}
-                targetScope={targetScope}
+                targetScope={targetScope ?? writeScope}
                 allowReferenceOnly={allowReferenceOnly}
               />
             ))}
