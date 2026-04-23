@@ -4,13 +4,11 @@ import { Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import {
   connectionsAtom,
-  setSecret,
   sourceAtom,
 } from "@executor/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor/react/api/scope-context";
 import {
   connectionWriteKeys,
-  secretWriteKeys,
   sourceWriteKeys,
 } from "@executor/react/api/reactivity-keys";
 import { Button } from "@executor/react/components/button";
@@ -27,6 +25,8 @@ import { FilterTabs } from "@executor/react/components/filter-tabs";
 import { Input } from "@executor/react/components/input";
 import { sourceWriteKeys as openApiWriteKeys } from "@executor/react/api/reactivity-keys";
 import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
+import { CreatableSecretPicker } from "@executor/react/plugins/secret-header-auth";
+import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 
 import {
   openApiSourceAtom,
@@ -144,9 +144,9 @@ export default function EditOpenApiSource(props: {
     openApiSourceBindingsAtom(displayScope, props.sourceId, sourceScope),
   );
   const connectionsResult = useAtomValue(connectionsAtom(displayScope));
+  const secretList = useSecretPickerSecrets();
 
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
-  const doSetSecret = useAtomSet(setSecret, { mode: "promise" });
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
@@ -162,7 +162,6 @@ export default function EditOpenApiSource(props: {
   const [baseUrl, setBaseUrl] = useState(source?.config.baseUrl ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [bindingValues, setBindingValues] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loadedSourceKey, setLoadedSourceKey] = useState<string | null>(null);
   const [selectedCredentialScope, setSelectedCredentialScope] = useState<string>(
@@ -268,31 +267,17 @@ export default function EditOpenApiSource(props: {
     }
   };
 
-  const saveSecretBinding = async (
+  const setSecretBinding = async (
     targetScope: ScopeId,
     slot: string,
-    label: string,
+    secretId: string,
   ) => {
     const inputKey = `${targetScope}:${slot}`;
-    const value = bindingValues[inputKey]?.trim();
-    if (!value) return;
-    const existing = exactBindingForScope(bindingRows, slot, targetScope);
-    const secretId =
-      existing && isSecretBindingValue(existing.value)
-        ? existing.value.secretId
-        : SecretId.make(bindingSecretId(props.sourceId, slot, targetScope));
+    const trimmed = secretId.trim();
+    if (!trimmed) return;
     setBusyKey(inputKey);
     setError(null);
     try {
-      await doSetSecret({
-        path: { scopeId: targetScope },
-        payload: {
-          id: secretId,
-          name: `${source.name} ${label}`,
-          value,
-        },
-        reactivityKeys: secretWriteKeys,
-      });
       await doSetBinding({
         path: { scopeId: displayScope },
         payload: {
@@ -300,13 +285,12 @@ export default function EditOpenApiSource(props: {
           sourceScope,
           scope: targetScope,
           slot,
-          value: { kind: "secret", secretId },
+          value: { kind: "secret", secretId: SecretId.make(trimmed) },
         },
-        reactivityKeys: [...sourceWriteKeys, ...secretWriteKeys],
+        reactivityKeys: sourceWriteKeys,
       });
-      setBindingValues((current) => ({ ...current, [inputKey]: "" }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save credential");
+      setError(e instanceof Error ? e.message : "Failed to save credential binding");
     } finally {
       setBusyKey(null);
     }
@@ -575,41 +559,38 @@ export default function EditOpenApiSource(props: {
                 effective &&
                 effective.scopeId !== activeCredentialScopeId &&
                 isSecretBindingValue(effective.value);
+              const currentSecretId =
+                exact && isSecretBindingValue(exact.value)
+                  ? (exact.value.secretId as string)
+                  : inherited && effective && isSecretBindingValue(effective.value)
+                    ? (effective.value.secretId as string)
+                    : null;
               return (
                 <CardStackEntryField key={`${slot.slot}:${activeCredentialScopeId}`} label={slot.label}>
                   <div className="space-y-2">
-                    <Input
-                      type="password"
-                      value={bindingValues[inputKey] ?? ""}
-                      onChange={(e) =>
-                        setBindingValues((current) => ({
-                          ...current,
-                          [inputKey]: (e.target as HTMLInputElement).value,
-                        }))
+                    <CreatableSecretPicker
+                      value={currentSecretId}
+                      onSelect={(secretId) =>
+                        void setSecretBinding(activeCredentialScopeId, slot.slot, secretId)
                       }
+                      secrets={secretList}
                       placeholder={
                         savedHere
-                          ? `Saved in ${activeCredentialScopeLabel.toLowerCase()}`
+                          ? `Selected in ${activeCredentialScopeLabel.toLowerCase()}`
                           : inherited
                             ? "Using organization default"
-                            : "Enter value"
+                            : "Select or create a secret"
                       }
-                      className="font-mono text-sm"
+                      targetScope={activeCredentialScopeId}
+                      suggestedId={bindingSecretId(
+                        props.sourceId,
+                        slot.slot,
+                        activeCredentialScopeId,
+                      )}
+                      sourceName={source.name}
+                      secretLabel={slot.label}
                     />
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          void saveSecretBinding(
-                            activeCredentialScopeId,
-                            slot.slot,
-                            slot.label,
-                          )
-                        }
-                        disabled={busyKey === inputKey || !(bindingValues[inputKey] ?? "").trim()}
-                      >
-                        {busyKey === inputKey ? "Saving…" : "Save"}
-                      </Button>
                       {savedHere && (
                         <Button
                           variant="outline"
@@ -621,6 +602,9 @@ export default function EditOpenApiSource(props: {
                         >
                           Clear
                         </Button>
+                      )}
+                      {busyKey === inputKey && (
+                        <span className="text-xs text-muted-foreground">Saving…</span>
                       )}
                       {slot.hint && (
                         <span className="text-xs text-muted-foreground">{slot.hint}</span>
