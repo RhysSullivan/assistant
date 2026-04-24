@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest";
-import { Cause, Chunk, Effect, Exit } from "effect";
+import { Effect, Exit } from "effect";
 
 import {
   OAUTH2_DEFAULT_TIMEOUT_MS,
@@ -25,9 +25,6 @@ const jsonResponse = (status: number, body: unknown): Response =>
     status,
     headers: { "content-type": "application/json" },
   });
-
-const textResponse = (status: number, body: string): Response =>
-  new Response(body, { status, headers: { "content-type": "text/html" } });
 
 // ---------------------------------------------------------------------------
 // PKCE

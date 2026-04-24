@@ -24,6 +24,7 @@ const READ_ONLY_MUTATIONS = new Set<string>([
   "startGoogleDiscoveryOAuth",
   "previewOpenApiSpec",
   "startOpenApiOAuth",
+  "startOAuth",
   "resolveSecret",
   "detectSource",
   "getDomainVerificationLink",
