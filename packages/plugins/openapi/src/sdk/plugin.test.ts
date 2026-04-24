@@ -13,6 +13,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 
 import {
   createExecutor,
+  type DBAdapter,
   definePlugin,
   makeTestConfig,
   Scope,
@@ -21,6 +22,7 @@ import {
   SetSecretInput,
   type InvokeOptions,
   type SecretProvider,
+  type Where,
 } from "@executor/sdk";
 
 const TEST_SCOPE = "test-scope";
@@ -28,6 +30,32 @@ import { openApiPlugin } from "./plugin";
 import { OAuth2Auth } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
+
+type FindManyCall = {
+  readonly model: string;
+  readonly where?: readonly Where[];
+};
+
+const recordFindMany = (
+  adapter: DBAdapter,
+  calls: FindManyCall[],
+): DBAdapter => ({
+  ...adapter,
+  findMany: (data) => {
+    calls.push({ model: data.model, where: data.where });
+    return adapter.findMany(data);
+  },
+  transaction: (callback) =>
+    adapter.transaction((trx) =>
+      callback({
+        ...trx,
+        findMany: (data) => {
+          calls.push({ model: data.model, where: data.where });
+          return trx.findMany(data);
+        },
+      }),
+    ),
+});
 
 // ---------------------------------------------------------------------------
 // In-memory secrets provider plugin — registered alongside openapi so
@@ -517,6 +545,47 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       expect(userView?.scope).toBe(USER_SCOPE as string);
       expect(orgView?.name).toBe("Org Source");
       expect(orgView?.scope).toBe(ORG_SCOPE as string);
+    }),
+  );
+
+  it.effect("getSource resolves inherited config without listing every OpenAPI source", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+      const config = makeTestConfig({
+        scopes: stackedScopes,
+        plugins: [
+          openApiPlugin({ httpClientLayer: clientLayer }),
+          memorySecretsPlugin(),
+        ] as const,
+      });
+      const findManyCalls: FindManyCall[] = [];
+
+      const executor = yield* createExecutor({
+        ...config,
+        adapter: recordFindMany(config.adapter, findManyCalls),
+      });
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: ORG_SCOPE as string,
+        namespace: "shared",
+        baseUrl: "https://org.example.com",
+        name: "Org Source",
+      });
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: USER_SCOPE as string,
+        namespace: "shared",
+        baseUrl: "",
+        name: "User Source",
+      });
+
+      findManyCalls.length = 0;
+      const userView = yield* executor.openapi.getSource("shared", USER_SCOPE as string);
+
+      expect(userView?.config.baseUrl).toBe("https://org.example.com");
+      expect(findManyCalls.some((call) => call.model === "openapi_source")).toBe(false);
     }),
   );
 
