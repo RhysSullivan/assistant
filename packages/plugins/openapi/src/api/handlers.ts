@@ -2,6 +2,7 @@ import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Context, Effect } from "effect";
 
 import { addGroup, capture, InternalError, runOAuthCallback } from "@executor/api";
+import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
 import { OpenApiOAuthError } from "../sdk/errors";
 import type {
   ConfiguredHeaderValue,
@@ -11,7 +12,7 @@ import type {
 } from "../sdk/plugin";
 import { OpenApiGroup } from "./group";
 
-const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
+const OPENAPI_OAUTH_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
 
 const toPopupErrorMessage = (error: unknown): string => {
   if (error instanceof OpenApiOAuthError) return error.message;

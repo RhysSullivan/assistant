@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
-import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
+import {
+  ConnectionId,
+  OAUTH_POPUP_MESSAGE_TYPE,
+  ScopeId,
+  SecretId,
+} from "@executor/sdk";
 
 import {
   openOAuthPopup,
@@ -86,7 +91,7 @@ import {
   type ServerVariable,
 } from "../sdk/types";
 
-export const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
+export const OPENAPI_OAUTH_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
 export const OPENAPI_OAUTH_POPUP_NAME = "openapi-oauth";
 export const OPENAPI_OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 

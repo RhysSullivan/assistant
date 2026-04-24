@@ -617,6 +617,7 @@ export const createExecutor = <
       ["mcp:oauth2", "oauth2"],
       ["openapi:oauth2", "oauth2"],
       ["google-discovery:google", "oauth2"],
+      ["google-discovery:oauth2", "oauth2"],
     ]);
     const resolveConnectionProvider = (
       key: string,

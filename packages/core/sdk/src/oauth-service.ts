@@ -152,6 +152,11 @@ const coerceJson = (value: unknown): unknown => {
   }
 };
 
+const stringArray = (value: unknown): readonly string[] =>
+  Array.isArray(value)
+    ? value.filter((scope): scope is string => typeof scope === "string")
+    : [];
+
 const decodeProviderState = (value: unknown): OAuthProviderState => {
   const raw = coerceJson(value);
   const record =
@@ -166,9 +171,7 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
         clientIdSecretId: record.clientIdSecretId,
         clientSecretSecretId: record.clientSecretSecretId ?? null,
         clientAuth: "body",
-        scope: Array.isArray(record.scopes)
-          ? record.scopes.filter((scope): scope is string => typeof scope === "string").join(" ")
-          : null,
+        scope: stringArray(record.scopes).join(" ") || null,
       });
     }
     if (flow === "clientCredentials") {
@@ -177,15 +180,68 @@ const decodeProviderState = (value: unknown): OAuthProviderState => {
         tokenEndpoint: record.tokenUrl,
         clientIdSecretId: record.clientIdSecretId,
         clientSecretSecretId: record.clientSecretSecretId,
-        scopes: Array.isArray(record.scopes)
-          ? record.scopes.filter((scope): scope is string => typeof scope === "string")
-          : [],
+        scopes: stringArray(record.scopes),
         clientAuth: "body",
-        scope: Array.isArray(record.scopes)
-          ? record.scopes.filter((scope): scope is string => typeof scope === "string").join(" ")
-          : null,
+        scope: stringArray(record.scopes).join(" ") || null,
       });
     }
+  }
+
+  if (
+    record &&
+    !("kind" in record) &&
+    "clientIdSecretId" in record &&
+    "scopes" in record
+  ) {
+    const scopes = stringArray(record.scopes);
+    return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
+      kind: "authorization-code",
+      tokenEndpoint: "https://oauth2.googleapis.com/token",
+      clientIdSecretId: record.clientIdSecretId,
+      clientSecretSecretId: record.clientSecretSecretId ?? null,
+      clientAuth: "body",
+      scope: scopes.join(" ") || null,
+    });
+  }
+
+  if (
+    record &&
+    !("kind" in record) &&
+    "clientInformation" in record &&
+    "endpoint" in record
+  ) {
+    const clientInformation =
+      record.clientInformation && typeof record.clientInformation === "object"
+        ? (record.clientInformation as Record<string, unknown>)
+        : null;
+    return Schema.decodeUnknownSync(OAuthProviderStateSchema)({
+      kind: "dynamic-dcr",
+      tokenEndpoint:
+        typeof record.tokenEndpoint === "string"
+          ? record.tokenEndpoint
+          : record.authorizationServerMetadata &&
+              typeof record.authorizationServerMetadata === "object" &&
+              typeof (record.authorizationServerMetadata as Record<string, unknown>)
+                .token_endpoint === "string"
+            ? ((record.authorizationServerMetadata as Record<string, unknown>)
+                .token_endpoint as string)
+            : "",
+      authorizationServerUrl:
+        typeof record.authorizationServerUrl === "string"
+          ? record.authorizationServerUrl
+          : null,
+      authorizationServerMetadataUrl:
+        typeof record.authorizationServerMetadataUrl === "string"
+          ? record.authorizationServerMetadataUrl
+          : null,
+      clientId:
+        typeof clientInformation?.client_id === "string"
+          ? clientInformation.client_id
+          : "",
+      clientSecretSecretId: null,
+      clientAuth: "body",
+      scope: null,
+    });
   }
 
   return Schema.decodeUnknownSync(OAuthProviderStateSchema)(raw);
@@ -686,6 +742,7 @@ export const makeOAuth2Service = (
               tokenEndpoint: (payload.authorizationServerMetadata as {
                 token_endpoint: string;
               }).token_endpoint,
+              authorizationServerUrl: payload.authorizationServerUrl,
               authorizationServerMetadataUrl:
                 payload.authorizationServerMetadataUrl,
               clientId: (payload.clientInformation as { client_id: string })
@@ -958,9 +1015,52 @@ export const makeOAuth2Service = (
           }
         })();
 
+        const tokenEndpoint = yield* (() => {
+          if (state.tokenEndpoint) return Effect.succeed(state.tokenEndpoint);
+          if (
+            state.kind === "dynamic-dcr" &&
+            state.authorizationServerUrl
+          ) {
+            return discoverAuthorizationServerMetadata(
+              state.authorizationServerUrl,
+            ).pipe(
+              Effect.flatMap((metadata) =>
+                metadata?.metadata.token_endpoint
+                  ? Effect.succeed(metadata.metadata.token_endpoint)
+                  : Effect.fail(
+                      new ConnectionRefreshError({
+                        connectionId: input.connectionId,
+                        message:
+                          "oauth2 legacy MCP providerState is missing token endpoint",
+                        reauthRequired: true,
+                      }),
+                    ),
+              ),
+              Effect.mapError((cause) =>
+                cause instanceof ConnectionRefreshError
+                  ? cause
+                  : new ConnectionRefreshError({
+                      connectionId: input.connectionId,
+                      message:
+                        "Failed to discover token endpoint for legacy MCP OAuth connection",
+                      reauthRequired: true,
+                      cause,
+                    }),
+              ),
+            );
+          }
+          return Effect.fail(
+            new ConnectionRefreshError({
+              connectionId: input.connectionId,
+              message: "oauth2 providerState is missing token endpoint",
+              reauthRequired: true,
+            }),
+          );
+        })();
+
         const tokens = yield* (state.kind === "client-credentials"
           ? exchangeClientCredentials({
-              tokenUrl: state.tokenEndpoint,
+              tokenUrl: tokenEndpoint,
               clientId,
               clientSecret: clientSecret ?? "",
               scopes: state.scopes,
@@ -968,7 +1068,7 @@ export const makeOAuth2Service = (
               clientAuth: state.clientAuth,
             })
           : refreshAccessToken({
-              tokenUrl: state.tokenEndpoint,
+              tokenUrl: tokenEndpoint,
               clientId,
               clientSecret: clientSecret ?? undefined,
               refreshToken: input.refreshToken!,
@@ -998,6 +1098,7 @@ export const makeOAuth2Service = (
           oauthScope: tokens.scope ?? input.oauthScope,
           providerState: Schema.encodeSync(OAuthProviderStateSchema)({
             ...state,
+            tokenEndpoint,
             scope: tokens.scope ?? state.scope,
           }) as Record<string, unknown>,
         };

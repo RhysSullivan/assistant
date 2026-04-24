@@ -9,6 +9,7 @@ import { Cause, Effect } from "effect";
 
 import { runOAuthCallback } from "../oauth-popup";
 import {
+  OAUTH_POPUP_MESSAGE_TYPE,
   OAuthCompleteError,
   OAuthProbeError,
   OAuthSessionNotFoundError,
@@ -20,7 +21,7 @@ import { ExecutorApi } from "../api";
 import { capture } from "../observability";
 import { ExecutorService } from "../services";
 
-const OAUTH_POPUP_CHANNEL = "executor:oauth-result";
+const OAUTH_POPUP_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
 
 const toPopupErrorMessage = (error: unknown): string => {
   if (error instanceof OAuthStartError) return error.message;

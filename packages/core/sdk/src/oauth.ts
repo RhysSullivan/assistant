@@ -116,6 +116,7 @@ export const OAuthProviderState = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("dynamic-dcr"),
     tokenEndpoint: Schema.String,
+    authorizationServerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     authorizationServerMetadataUrl: Schema.NullOr(Schema.String),
     /** DCR-minted client_id. Embedded inline (not a secret) — DCR
      *  clients are public-ish by design; the secret part (if the AS
