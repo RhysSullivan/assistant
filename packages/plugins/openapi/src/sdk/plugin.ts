@@ -471,14 +471,13 @@ const resolveEffectiveSourceConfig = (
   Effect.gen(function* () {
     const rank = new Map(ctx.scopes.map((scope, index) => [scope.id as string, index] as const));
     const baseRank = rank.get(base.scope) ?? Infinity;
-    const fallback = (yield* ctx.storage.listSources())
-      .filter((source) => source.namespace === base.namespace)
-      .filter((source) => (rank.get(source.scope) ?? Infinity) > baseRank)
-      .sort(
-        (a, b) =>
-          (rank.get(a.scope) ?? Infinity) -
-          (rank.get(b.scope) ?? Infinity),
-      )[0];
+    let fallback: StoredSource | null = null;
+    for (let index = baseRank + 1; index < ctx.scopes.length; index++) {
+      const scope = ctx.scopes[index];
+      if (!scope) continue;
+      fallback = yield* ctx.storage.getSource(base.namespace, scope.id as string);
+      if (fallback) break;
+    }
 
     if (!fallback) {
       return {

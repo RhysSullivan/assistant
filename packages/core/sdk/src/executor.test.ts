@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+import type { DBAdapter, Where } from "@executor/storage-core";
 
 import { makeInMemoryBlobStore } from "./blob";
 import { collectSchemas, createExecutor } from "./executor";
@@ -16,6 +17,32 @@ import { makeTestConfig } from "./testing";
 import type { SecretProvider } from "./secrets";
 import { ScopeId, SecretId } from "./ids";
 import { Scope } from "./scope";
+
+type FindManyCall = {
+  readonly model: string;
+  readonly where?: readonly Where[];
+};
+
+const recordFindMany = (
+  adapter: DBAdapter,
+  calls: FindManyCall[],
+): DBAdapter => ({
+  ...adapter,
+  findMany: (data) => {
+    calls.push({ model: data.model, where: data.where });
+    return adapter.findMany(data);
+  },
+  transaction: (callback) =>
+    adapter.transaction((trx) =>
+      callback({
+        ...trx,
+        findMany: (data) => {
+          calls.push({ model: data.model, where: data.where });
+          return trx.findMany(data);
+        },
+      }),
+    ),
+});
 
 // ---------------------------------------------------------------------------
 // Tiny test plugin — declares a static source with two control tools, a
@@ -203,6 +230,33 @@ describe("createExecutor", () => {
 
       const tools = yield* executor.tools.list({ query: "echo" });
       expect(tools.map((t) => t.id)).toEqual(["test.control.echo"]);
+    }),
+  );
+
+  it.effect("pushes sourceId tool list filters into storage", () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig({ plugins: [testPlugin()] as const });
+      const findManyCalls: FindManyCall[] = [];
+      const executor = yield* createExecutor({
+        ...config,
+        adapter: recordFindMany(config.adapter, findManyCalls),
+      });
+      yield* executor.test.addThing("thing1", "hello");
+      yield* executor.test.addThing("thing2", "goodbye");
+
+      findManyCalls.length = 0;
+      const tools = yield* executor.tools.list({ sourceId: "thing1" });
+
+      expect(tools.map((t) => t.id).sort()).toEqual([
+        "thing1.read",
+        "thing1.write",
+      ]);
+      const toolRead = findManyCalls.find((call) => call.model === "tool");
+      expect(toolRead?.where).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: "source_id", value: "thing1" }),
+        ]),
+      );
     }),
   );
 

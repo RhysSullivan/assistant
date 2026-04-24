@@ -1875,7 +1875,12 @@ export const createExecutor = <
 
     const listTools = (filter?: ToolListFilter) =>
       Effect.gen(function* () {
-        const dynamic = yield* core.findMany({ model: "tool" });
+        const dynamic = yield* core.findMany({
+          model: "tool",
+          where: filter?.sourceId
+            ? [{ field: "source_id", value: filter.sourceId }]
+            : undefined,
+        });
         // Dedup by tool id, innermost scope winning — same reason as
         // `listSources` above: a shadowed id must surface as one entry
         // (the inner one), not two.
