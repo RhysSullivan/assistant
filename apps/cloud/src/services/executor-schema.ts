@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, integer, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const source = pgTable("source", {
   id: text('id').notNull(),
@@ -83,6 +83,24 @@ export const connection = pgTable("connection", {
   index("connection_provider_idx").on(table.provider),
 ]);
 
+export const oauth2_session = pgTable("oauth2_session", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  plugin_id: text('plugin_id').notNull(),
+  strategy: text('strategy').notNull(),
+  connection_id: text('connection_id').notNull(),
+  token_scope: text('token_scope').notNull(),
+  redirect_url: text('redirect_url').notNull(),
+  payload: jsonb('payload').notNull(),
+  expires_at: bigint('expires_at', { mode: 'number' }).notNull(),
+  created_at: timestamp('created_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("oauth2_session_scope_id_idx").on(table.scope_id),
+  index("oauth2_session_plugin_id_idx").on(table.plugin_id),
+  index("oauth2_session_connection_id_idx").on(table.connection_id),
+]);
+
 export const openapi_source = pgTable("openapi_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
@@ -98,23 +116,6 @@ export const openapi_source = pgTable("openapi_source", {
   index("openapi_source_scope_id_idx").on(table.scope_id),
 ]);
 
-export const openapi_source_binding = pgTable("openapi_source_binding", {
-  id: text('id').notNull(),
-  source_id: text('source_id').notNull(),
-  source_scope_id: text('source_scope_id').notNull(),
-  target_scope_id: text('target_scope_id').notNull(),
-  slot: text('slot').notNull(),
-  value: jsonb('value').notNull(),
-  created_at: timestamp('created_at').notNull(),
-  updated_at: timestamp('updated_at').notNull()
-}, (table) => [
-  primaryKey({ columns: [table.id] }),
-  index("openapi_source_binding_source_id_idx").on(table.source_id),
-  index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
-  index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
-  index("openapi_source_binding_slot_idx").on(table.slot),
-]);
-
 export const openapi_operation = pgTable("openapi_operation", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
@@ -124,6 +125,22 @@ export const openapi_operation = pgTable("openapi_operation", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("openapi_operation_scope_id_idx").on(table.scope_id),
   index("openapi_operation_source_id_idx").on(table.source_id),
+]);
+
+export const openapi_source_binding = pgTable("openapi_source_binding", {
+  id: text('id').primaryKey(),
+  source_id: text('source_id').notNull(),
+  source_scope_id: text('source_scope_id').notNull(),
+  target_scope_id: text('target_scope_id').notNull(),
+  slot: text('slot').notNull(),
+  value: jsonb('value').notNull(),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  index("openapi_source_binding_source_id_idx").on(table.source_id),
+  index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
+  index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
+  index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
 export const openapi_oauth_session = pgTable("openapi_oauth_session", {
@@ -157,17 +174,6 @@ export const mcp_binding = pgTable("mcp_binding", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("mcp_binding_scope_id_idx").on(table.scope_id),
   index("mcp_binding_source_id_idx").on(table.source_id),
-]);
-
-export const mcp_oauth_session = pgTable("mcp_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: jsonb('session').notNull(),
-  expires_at: bigint('expires_at', { mode: 'number' }).notNull(),
-  created_at: timestamp('created_at').notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("mcp_oauth_session_scope_id_idx").on(table.scope_id),
 ]);
 
 export const graphql_source = pgTable("graphql_source", {

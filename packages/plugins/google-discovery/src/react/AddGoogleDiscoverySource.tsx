@@ -2,16 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
 import {
+  secretsAtom,
+  setSecret,
+  startOAuth,
+} from "@executor/react/api/atoms";
+import {
   openOAuthPopup,
   type OAuthPopupResult,
-} from "@executor/plugin-oauth2/react";
-
-import { secretsAtom, setSecret } from "@executor/react/api/atoms";
+} from "@executor/react/api/oauth-popup";
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { secretWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { useScope } from "@executor/react/api/scope-context";
 import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
-import { SecretId } from "@executor/sdk";
+import { OAUTH_POPUP_MESSAGE_TYPE, SecretId } from "@executor/sdk";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
 import {
@@ -45,7 +48,22 @@ import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
-import { addGoogleDiscoverySource, probeGoogleDiscovery, startGoogleDiscoveryOAuth } from "./atoms";
+import { addGoogleDiscoverySource, probeGoogleDiscovery } from "./atoms";
+
+// ---------------------------------------------------------------------------
+// Google OAuth constants — the plugin bakes these in because Google only
+// serves a single OAuth authorization + token URL for every Discovery API.
+// ---------------------------------------------------------------------------
+
+const GOOGLE_AUTHORIZATION_URL =
+  "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+
+const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
+  access_type: "offline",
+  include_granted_scopes: "true",
+  prompt: "consent",
+} as const;
 
 type GoogleAuthKind = "none" | "oauth2";
 
@@ -374,10 +392,20 @@ type OAuthAuth = {
   scopes: string[];
 };
 
-type GoogleOAuthPopupResult = OAuthPopupResult<OAuthAuth>;
+// Popup callback payload. The shared /oauth/callback route returns the
+// minted connection id — the UI stitches the rest from fields it already
+// has (clientIdSecretId, clientSecretSecretId, scopes).
+type CompletionPayload = {
+  connectionId: string;
+  expiresAt: number | null;
+  scope: string | null;
+};
 
-const OAUTH_RESULT_CHANNEL = "executor:google-discovery-oauth-result";
 const OAUTH_POPUP_NAME = "google-discovery-oauth";
+const OAUTH_CALLBACK_PATH = "/api/oauth/callback";
+
+const googleDiscoveryOAuthConnectionId = (namespaceSlug: string): string =>
+  `google-discovery-oauth2-${namespaceSlug || "default"}`;
 
 export default function AddGoogleDiscoverySource(props: {
   readonly onComplete: () => void;
@@ -408,11 +436,15 @@ export default function AddGoogleDiscoverySource(props: {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showScopes, setShowScopes] = useState(false);
+  const resolvedNamespace =
+    slugifyNamespace(identity.namespace) ||
+    slugifyNamespace(probe?.name ?? selectedTemplate?.name ?? "") ||
+    "google";
 
   const scopeId = useScope();
   const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
   const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startGoogleDiscoveryOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
   const secrets = useAtomValue(secretsAtom(scopeId));
   const { beginAdd } = usePendingSources();
 
@@ -496,32 +528,48 @@ export default function AddGoogleDiscoverySource(props: {
     setStartingOAuth(true);
     setError(null);
     try {
+      const connectionId = googleDiscoveryOAuthConnectionId(resolvedNamespace);
+      const scopes = [...probe.scopes];
+      const redirectUrl = `${window.location.origin}${OAUTH_CALLBACK_PATH}`;
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
-          name: identity.name.trim() || probe.name,
-          discoveryUrl: discoveryUrl.trim(),
-          clientIdSecretId,
-          clientSecretSecretId,
-          redirectUrl: `${window.location.origin}/api/google-discovery/oauth/callback`,
-          scopes: probe.scopes,
+          endpoint: discoveryUrl.trim(),
+          redirectUrl,
+          connectionId,
+          strategy: {
+            kind: "authorization-code",
+            authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
+            tokenEndpoint: GOOGLE_TOKEN_URL,
+            clientIdSecretId,
+            clientSecretSecretId,
+            scopes,
+            extraAuthorizationParams: GOOGLE_EXTRA_AUTHORIZATION_PARAMS,
+          },
+          pluginId: "google-discovery",
         },
       });
 
-      oauthCleanup.current = openOAuthPopup<OAuthAuth>({
+      if (response.authorizationUrl === null) {
+        setStartingOAuth(false);
+        setError("OAuth start did not produce an authorization URL");
+        return;
+      }
+
+      oauthCleanup.current = openOAuthPopup<CompletionPayload>({
         url: response.authorizationUrl,
         popupName: OAUTH_POPUP_NAME,
-        channelName: OAUTH_RESULT_CHANNEL,
-        onResult: (result: GoogleOAuthPopupResult) => {
+        channelName: OAUTH_POPUP_MESSAGE_TYPE,
+        onResult: (result: OAuthPopupResult<CompletionPayload>) => {
           oauthCleanup.current = null;
           setStartingOAuth(false);
           if (result.ok) {
             setOauthAuth({
               kind: "oauth2",
               connectionId: result.connectionId,
-              clientIdSecretId: result.clientIdSecretId,
-              clientSecretSecretId: result.clientSecretSecretId,
-              scopes: [...result.scopes],
+              clientIdSecretId,
+              clientSecretSecretId,
+              scopes,
             });
             setError(null);
           } else {
@@ -538,7 +586,15 @@ export default function AddGoogleDiscoverySource(props: {
       setStartingOAuth(false);
       setError(e instanceof Error ? e.message : "Failed to start OAuth");
     }
-  }, [probe, doStartOAuth, scopeId, identity, discoveryUrl, clientIdSecretId, clientSecretSecretId]);
+  }, [
+    probe,
+    doStartOAuth,
+    scopeId,
+    discoveryUrl,
+    clientIdSecretId,
+    clientSecretSecretId,
+    resolvedNamespace,
+  ]);
 
   const handleCancelOAuth = useCallback(() => {
     oauthCleanup.current?.();
@@ -551,7 +607,7 @@ export default function AddGoogleDiscoverySource(props: {
     setAdding(true);
     setError(null);
     const displayName = identity.name.trim() || probe.name;
-    const namespace = slugifyNamespace(identity.namespace) || probe.name;
+    const namespace = resolvedNamespace;
     const placeholder = beginAdd({
       id: namespace,
       name: displayName,
@@ -563,7 +619,7 @@ export default function AddGoogleDiscoverySource(props: {
         payload: {
           name: displayName,
           discoveryUrl: discoveryUrl.trim(),
-          namespace: slugifyNamespace(identity.namespace) || undefined,
+          namespace,
           auth:
             authKind === "oauth2" && oauthAuth
               ? {
@@ -584,7 +640,18 @@ export default function AddGoogleDiscoverySource(props: {
     } finally {
       placeholder.done();
     }
-  }, [probe, doAdd, identity, discoveryUrl, authKind, oauthAuth, props, scopeId, beginAdd]);
+  }, [
+    probe,
+    doAdd,
+    identity,
+    discoveryUrl,
+    authKind,
+    oauthAuth,
+    props,
+    scopeId,
+    beginAdd,
+    resolvedNamespace,
+  ]);
 
   const addDisabled =
     !probe || adding || (authKind === "oauth2" && (!canUseOAuth || oauthAuth === null));

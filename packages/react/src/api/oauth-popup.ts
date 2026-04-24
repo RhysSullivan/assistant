@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/plugin-oauth2/react — browser popup opener for OAuth flows.
+// openOAuthPopup — browser popup opener for OAuth flows.
 //
 // Opens a centered popup window pointed at an authorization URL, listens
 // for the result via `postMessage` and `BroadcastChannel` (Safari fallback),
@@ -11,10 +11,10 @@
 import {
   isOAuthPopupResult as sharedIsOAuthPopupResult,
   type OAuthPopupResult,
-} from "./popup-types";
+} from "@executor/sdk";
 
-export { OAUTH_POPUP_MESSAGE_TYPE } from "./popup-types";
-export type { OAuthPopupResult } from "./popup-types";
+export { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
+export type { OAuthPopupResult } from "@executor/sdk";
 
 export const isOAuthPopupResult = sharedIsOAuthPopupResult;
 

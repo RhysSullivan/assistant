@@ -37,7 +37,13 @@ import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picke
 type RemoteAuthMode = "none" | "header" | "oauth2";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
-import { probeMcpEndpoint, addMcpSource, startMcpOAuth } from "./atoms";
+import { startOAuth } from "@executor/react/api/atoms";
+import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/react/api/oauth-popup";
+import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
+import { probeMcpEndpoint, addMcpSource } from "./atoms";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
 
 // ---------------------------------------------------------------------------
@@ -64,17 +70,13 @@ const mcpOAuthConnectionId = (namespaceSlug: string): string =>
 
 type OAuthTokens = {
   /** Id of the SDK Connection minted by the exchange. The UI stores it
-   *  on the source's auth config as `{kind: "oauth2", connectionId}`. */
+   *  on the source's auth config as `{kind: "oauth2", connectionId}`.
+   *  DCR client info + discovery URLs are persisted on the Connection's
+   *  own `providerState` by `ctx.oauth.complete`, so the UI no longer
+   *  needs to echo them back through the source. */
   connectionId: string;
-  tokenType: string;
   expiresAt: number | null;
   scope: string | null;
-  /** Source-level OAuth state captured during the flow. Persisted on
-   *  the source's auth config so refreshes + future user OAuth flows
-   *  re-use the same DCR client + skip discovery. */
-  clientInformation: Record<string, unknown> | null;
-  authorizationServerUrl: string | null;
-  resourceMetadataUrl: string | null;
 };
 
 type ProbeResult = {
@@ -231,72 +233,12 @@ function reducer(state: State, action: Action): State {
 }
 
 // ---------------------------------------------------------------------------
-// OAuth popup
+// OAuth popup — `openOAuthPopup` from `@executor/react/api/oauth-popup`
+// is used directly; the popup message shape + channel name are shared
+// with every other OAuth-capable plugin now.
 // ---------------------------------------------------------------------------
 
-type OAuthPopupResult =
-  | ({
-      type: "executor:oauth-result";
-      ok: true;
-      sessionId: string;
-    } & OAuthTokens)
-  | {
-      type: "executor:oauth-result";
-      ok: false;
-      sessionId: null;
-      error: string;
-    };
-
-const OAUTH_RESULT_CHANNEL = "executor:mcp-oauth-result";
-
-const isOAuthPopupResult = (value: unknown): value is OAuthPopupResult =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as { type?: unknown }).type === "executor:oauth-result";
-
-function openOAuthPopup(
-  url: string,
-  onResult: (data: OAuthPopupResult) => void,
-  onOpenFailed?: () => void,
-): () => void {
-  const w = 600,
-    h = 700;
-  const left = window.screenX + (window.outerWidth - w) / 2;
-  const top = window.screenY + (window.outerHeight - h) / 2;
-
-  let settled = false;
-  const channel =
-    typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(OAUTH_RESULT_CHANNEL) : null;
-  const settle = () => {
-    if (settled) return;
-    settled = true;
-    window.removeEventListener("message", onMsg);
-    channel?.close();
-  };
-
-  const handleResult = (data: unknown) => {
-    if (!isOAuthPopupResult(data) || settled) return;
-    settle();
-    onResult(data);
-  };
-
-  const onMsg = (e: MessageEvent) => {
-    if (e.origin === window.location.origin) handleResult(e.data);
-  };
-  window.addEventListener("message", onMsg);
-  if (channel) channel.onmessage = (e) => handleResult(e.data);
-
-  const popup = window.open(
-    url,
-    "mcp-oauth",
-    `width=${w},height=${h},left=${left},top=${top},popup=1`,
-  );
-  if (!popup && !settled) {
-    settle();
-    queueMicrotask(() => onOpenFailed?.());
-  }
-  return settle;
-}
+const OAUTH_RESULT_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -347,7 +289,7 @@ export default function AddMcpSource(props: {
   const scopeId = useScope();
   const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
   const doAdd = useAtomSet(addMcpSource, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startMcpOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
@@ -438,7 +380,7 @@ export default function AddMcpSource(props: {
     oauthCleanup.current = null;
     dispatch({ type: "oauth-start" });
     try {
-      const redirectUrl = `${window.location.origin}/api/mcp/oauth/callback`;
+      const redirectUrl = `${window.location.origin}/api/oauth/callback`;
       const namespaceSlug =
         slugifyNamespace(remoteIdentity.namespace) ||
         slugifyNamespace(probe?.namespace ?? "") ||
@@ -450,35 +392,50 @@ export default function AddMcpSource(props: {
           endpoint: state.url.trim(),
           redirectUrl,
           connectionId,
+          strategy: { kind: "dynamic-dcr" },
+          pluginId: "mcp",
         },
       });
+      if (result.authorizationUrl === null) {
+        dispatch({
+          type: "oauth-fail",
+          error: "OAuth start did not produce an authorization URL",
+        });
+        return;
+      }
       dispatch({ type: "oauth-waiting", sessionId: result.sessionId });
-      oauthCleanup.current = openOAuthPopup(
-        result.authorizationUrl,
-        (data) => {
+      oauthCleanup.current = openOAuthPopup<OAuthTokens>({
+        url: result.authorizationUrl,
+        popupName: "mcp-oauth",
+        channelName: OAUTH_RESULT_CHANNEL,
+        onResult: (data: OAuthPopupResult<OAuthTokens>) => {
           oauthCleanup.current = null;
           if (data.ok) {
             dispatch({
               type: "oauth-ok",
               tokens: {
                 connectionId: data.connectionId,
-                tokenType: data.tokenType,
                 expiresAt: data.expiresAt,
                 scope: data.scope,
-                clientInformation: data.clientInformation ?? null,
-                authorizationServerUrl: data.authorizationServerUrl ?? null,
-                resourceMetadataUrl: data.resourceMetadataUrl ?? null,
               },
             });
           } else {
             dispatch({ type: "oauth-fail", error: data.error });
           }
         },
-        () => {
+        onClosed: () => {
+          oauthCleanup.current = null;
+          dispatch({
+            type: "oauth-fail",
+            error:
+              "Sign-in cancelled — popup was closed before completing the flow.",
+          });
+        },
+        onOpenFailed: () => {
           oauthCleanup.current = null;
           dispatch({ type: "oauth-fail", error: "OAuth popup was blocked" });
         },
-      );
+      });
     } catch (e) {
       dispatch({
         type: "oauth-fail",

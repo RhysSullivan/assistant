@@ -110,6 +110,80 @@ export {
   makeInMemoryBlobStore,
 } from "./blob";
 
+// OAuth 2.1
+export {
+  type OAuthService,
+  type OAuthStrategy,
+  type OAuthDynamicDcrStrategy,
+  type OAuthAuthorizationCodeStrategy,
+  type OAuthClientCredentialsStrategy,
+  type OAuthProviderState,
+  type OAuthProbeInput,
+  type OAuthProbeResult,
+  type OAuthStartInput,
+  type OAuthStartResult,
+  type OAuthCompleteInput,
+  type OAuthCompleteResult,
+  OAuthProbeError,
+  OAuthStartError,
+  OAuthCompleteError,
+  OAuthSessionNotFoundError,
+  OAUTH2_PROVIDER_KEY,
+  OAUTH2_SESSION_TTL_MS,
+  OAuthStrategy as OAuthStrategySchema,
+  OAuthProviderState as OAuthProviderStateSchema,
+  OAuthDynamicDcrStrategy as OAuthDynamicDcrStrategySchema,
+  OAuthAuthorizationCodeStrategy as OAuthAuthorizationCodeStrategySchema,
+  OAuthClientCredentialsStrategy as OAuthClientCredentialsStrategySchema,
+} from "./oauth";
+
+export {
+  OAuth2Error,
+  OAUTH2_DEFAULT_TIMEOUT_MS,
+  OAUTH2_REFRESH_SKEW_MS,
+  buildAuthorizationUrl,
+  createPkceCodeChallenge,
+  createPkceCodeVerifier,
+  exchangeAuthorizationCode,
+  exchangeClientCredentials,
+  refreshAccessToken,
+  shouldRefreshToken,
+  type OAuth2TokenResponse,
+  type BuildAuthorizationUrlInput,
+  type ClientAuthMethod,
+  type ExchangeAuthorizationCodeInput,
+  type ExchangeClientCredentialsInput,
+  type RefreshAccessTokenInput,
+} from "./oauth-helpers";
+
+export { makeOAuth2Service, type OAuthServiceDeps } from "./oauth-service";
+
+export {
+  OAuthDiscoveryError,
+  OAuthAuthorizationServerMetadataSchema,
+  OAuthClientInformationSchema,
+  OAuthProtectedResourceMetadataSchema,
+  beginDynamicAuthorization,
+  discoverAuthorizationServerMetadata,
+  discoverProtectedResourceMetadata,
+  registerDynamicClient,
+  type BeginDynamicAuthorizationInput,
+  type DiscoveryRequestOptions,
+  type DynamicAuthorizationState,
+  type DynamicAuthorizationStartResult,
+  type DynamicClientMetadata,
+  type OAuthAuthorizationServerMetadata,
+  type OAuthClientInformation,
+  type OAuthProtectedResourceMetadata,
+  type RegisterDynamicClientInput,
+} from "./oauth-discovery";
+
+export {
+  OAUTH_POPUP_MESSAGE_TYPE,
+  type OAuthPopupResult,
+  isOAuthPopupResult,
+} from "./oauth-popup-types";
+
 // Plugin definition
 export {
   type Plugin,

@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
+import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/react/api/oauth-popup";
 import {
   connectionsAtom,
   sourceAtom,

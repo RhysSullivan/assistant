@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
 
+import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/react/api/oauth-popup";
 import { useScope, useUserScope } from "@executor/react/api/scope-context";
 import {
   connectionWriteKeys,
@@ -536,11 +539,11 @@ export default function AddOpenApiSource(props: {
         return;
       }
 
-      oauthCleanup.current = openOAuthPopup<OAuth2Auth>({
+      oauthCleanup.current = openOAuthPopup<{ connectionId: string }>({
         url: response.authorizationUrl,
         popupName: OPENAPI_OAUTH_POPUP_NAME,
         channelName: OPENAPI_OAUTH_CHANNEL,
-        onResult: (result: OAuthPopupResult<OAuth2Auth>) => {
+        onResult: (result: OAuthPopupResult<{ connectionId: string }>) => {
           oauthCleanup.current = null;
           setStartingOAuth(false);
           if (result.ok) {
@@ -549,13 +552,13 @@ export default function AddOpenApiSource(props: {
               auth: new OAuth2Auth({
                 kind: "oauth2",
                 connectionId: result.connectionId,
-                securitySchemeName: result.securitySchemeName,
-                flow: result.flow,
-                tokenUrl: result.tokenUrl,
-                authorizationUrl: result.authorizationUrl,
-                clientIdSecretId: result.clientIdSecretId,
-                clientSecretSecretId: result.clientSecretSecretId,
-                scopes: result.scopes,
+                securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+                flow: "authorizationCode",
+                tokenUrl,
+                authorizationUrl,
+                clientIdSecretId: oauth2ClientIdSecretId,
+                clientSecretSecretId: oauth2ClientSecretSecretId,
+                scopes: [...oauth2SelectedScopes],
               }),
             });
             setOauth2Error(null);

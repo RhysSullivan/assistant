@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/plugin-oauth2/http — server-side HTTP helpers for OAuth popups.
+// OAuth popup HTTP helpers — server-side.
 //
 // `popupDocument` renders the HTML page returned by the OAuth redirect
 // handler. The page immediately `postMessage`s the result back to the
@@ -15,10 +15,10 @@ import { Cause, Effect } from "effect";
 import {
   OAUTH_POPUP_MESSAGE_TYPE,
   type OAuthPopupResult,
-} from "./popup-types";
+} from "@executor/sdk";
 
-export { OAUTH_POPUP_MESSAGE_TYPE, isOAuthPopupResult } from "./popup-types";
-export type { OAuthPopupResult } from "./popup-types";
+export { OAUTH_POPUP_MESSAGE_TYPE, isOAuthPopupResult } from "@executor/sdk";
+export type { OAuthPopupResult } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // HTML generation

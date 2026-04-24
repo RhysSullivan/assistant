@@ -15,6 +15,7 @@ export {
   type OpenApiStartOAuthInput,
   type OpenApiStartOAuthResponse,
   type OpenApiCompleteOAuthInput,
+  type OpenApiCompleteOAuthResponse,
 } from "./plugin";
 export {
   openapiSchema,

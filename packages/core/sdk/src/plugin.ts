@@ -34,6 +34,7 @@ import type {
   ConnectionRefreshNotSupportedError,
   SecretOwnedByConnectionError,
 } from "./errors";
+import type { OAuthService } from "./oauth";
 import type { Scope } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
@@ -200,6 +201,10 @@ export interface PluginCtx<TStore = unknown> {
     >;
     readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
   };
+
+  /** Shared OAuth service. Plugins use this to probe/start/complete OAuth
+   *  flows; invocation should still resolve tokens via `connections.accessToken`. */
+  readonly oauth: OAuthService;
 
   /** Run `effect` inside a database transaction. Wraps the underlying
    *  adapter's transaction method. Use this in extension methods that

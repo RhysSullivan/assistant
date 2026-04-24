@@ -1,9 +1,7 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { runOAuthCallback } from "@executor/plugin-oauth2/http";
-
-import { addGroup, capture, InternalError } from "@executor/api";
+import { addGroup, capture, InternalError, runOAuthCallback } from "@executor/api";
 import { OpenApiOAuthError } from "../sdk/errors";
 import type {
   ConfiguredHeaderValue,
@@ -11,7 +9,6 @@ import type {
   HeaderValue,
   OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
-import { OAuth2Auth } from "../sdk/types";
 import { OpenApiGroup } from "./group";
 
 const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
@@ -177,7 +174,11 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
       // structured result.
       capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
-        const html = yield* runOAuthCallback<OAuth2Auth, OpenApiOAuthError | InternalError, never>({
+        const html = yield* runOAuthCallback<
+          { readonly connectionId: string; readonly expiresAt: number | null; readonly scope: string | null },
+          OpenApiOAuthError | InternalError,
+          never
+        >({
           complete: ({ state, code, error }) =>
             ext.completeOAuth({
               state,

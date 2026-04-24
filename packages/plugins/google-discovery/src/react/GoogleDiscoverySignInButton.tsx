@@ -1,46 +1,65 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
+import {
+  connectionsAtom,
+  startOAuth,
+} from "@executor/react/api/atoms";
+import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/react/api/oauth-popup";
 import { useScope } from "@executor/react/api/scope-context";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { connectionsAtom } from "@executor/react/api/atoms";
+import {
+  connectionWriteKeys,
+  sourceWriteKeys,
+} from "@executor/react/api/reactivity-keys";
+import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
 import { Button } from "@executor/react/components/button";
 
 import {
   googleDiscoverySourceAtom,
-  startGoogleDiscoveryOAuth,
   updateGoogleDiscoverySource,
 } from "./atoms";
 
 // ---------------------------------------------------------------------------
 // GoogleDiscoverySignInButton — top-bar action on the source detail page.
 //
-// Reads the source's stored `GoogleDiscoveryAuth`, re-runs the authorization
-// code flow via popup using the same `clientIdSecretId` / `clientSecretSecretId`
-// / `scopes` the source was originally configured with, and on success
-// rewrites the source's auth pointer to the freshly minted connection id.
-// Works whether or not the previous Connection still exists — source-owned
+// Drives the shared /scopes/:scopeId/oauth/{start,callback} surface with
+// a Google-specific `authorization-code` strategy. On success rewrites
+// the source's auth pointer to the freshly minted connection id. Works
+// whether or not the previous Connection still exists — source-owned
 // OAuth config is the source of truth.
 // ---------------------------------------------------------------------------
 
-const CALLBACK_PATH = "/api/google-discovery/oauth/callback";
-const POPUP_NAME = "google-discovery-oauth";
-const CHANNEL_NAME = "executor:google-discovery-oauth-result";
+const GOOGLE_AUTHORIZATION_URL =
+  "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
-type GoogleOAuthPopupPayload = {
-  kind: "oauth2";
+const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
+  access_type: "offline",
+  include_granted_scopes: "true",
+  prompt: "consent",
+} as const;
+
+const OAUTH_CALLBACK_PATH = "/api/oauth/callback";
+const POPUP_NAME = "google-discovery-oauth";
+const signInWriteKeys = [
+  ...sourceWriteKeys,
+  ...connectionWriteKeys,
+] as const;
+
+type CompletionPayload = {
   connectionId: string;
-  clientIdSecretId: string;
-  clientSecretSecretId: string | null;
-  scopes: readonly string[];
+  expiresAt: number | null;
+  scope: string | null;
 };
 
 export default function GoogleDiscoverySignInButton(props: { sourceId: string }) {
   const scopeId = useScope();
   const sourceResult = useAtomValue(googleDiscoverySourceAtom(scopeId, props.sourceId));
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
-  const doStartOAuth = useAtomSet(startGoogleDiscoveryOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
   const doUpdate = useAtomSet(updateGoogleDiscoverySource, { mode: "promise" });
 
   const [busy, setBusy] = useState(false);
@@ -63,8 +82,8 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
 
   const redirectUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}${CALLBACK_PATH}`
-      : CALLBACK_PATH;
+      ? `${window.location.origin}${OAUTH_CALLBACK_PATH}`
+      : OAUTH_CALLBACK_PATH;
 
   const handleSignIn = useCallback(async () => {
     if (!oauth2 || !source) return;
@@ -73,23 +92,38 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
     setBusy(true);
     setError(null);
     try {
+      const connectionId = oauth2.connectionId;
+      const scopes = [...oauth2.scopes];
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
-          name: source.name,
-          discoveryUrl: source.config.discoveryUrl,
-          clientIdSecretId: oauth2.clientIdSecretId,
-          clientSecretSecretId: oauth2.clientSecretSecretId,
+          endpoint: source.config.discoveryUrl,
           redirectUrl,
-          scopes: [...oauth2.scopes],
+          connectionId,
+          strategy: {
+            kind: "authorization-code",
+            authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
+            tokenEndpoint: GOOGLE_TOKEN_URL,
+            clientIdSecretId: oauth2.clientIdSecretId,
+            clientSecretSecretId: oauth2.clientSecretSecretId,
+            scopes,
+            extraAuthorizationParams: GOOGLE_EXTRA_AUTHORIZATION_PARAMS,
+          },
+          pluginId: "google-discovery",
         },
       });
 
-      cleanupRef.current = openOAuthPopup<GoogleOAuthPopupPayload>({
+      if (response.authorizationUrl === null) {
+        setBusy(false);
+        setError("OAuth start did not produce an authorization URL");
+        return;
+      }
+
+      cleanupRef.current = openOAuthPopup<CompletionPayload>({
         url: response.authorizationUrl,
         popupName: POPUP_NAME,
-        channelName: CHANNEL_NAME,
-        onResult: async (result: OAuthPopupResult<GoogleOAuthPopupPayload>) => {
+        channelName: OAUTH_POPUP_MESSAGE_TYPE,
+        onResult: async (result: OAuthPopupResult<CompletionPayload>) => {
           cleanupRef.current = null;
           if (!result.ok) {
             setBusy(false);
@@ -103,12 +137,12 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
                 auth: {
                   kind: "oauth2",
                   connectionId: result.connectionId,
-                  clientIdSecretId: result.clientIdSecretId,
-                  clientSecretSecretId: result.clientSecretSecretId,
-                  scopes: result.scopes,
+                  clientIdSecretId: oauth2.clientIdSecretId,
+                  clientSecretSecretId: oauth2.clientSecretSecretId,
+                  scopes,
                 },
               },
-              reactivityKeys: sourceWriteKeys,
+              reactivityKeys: signInWriteKeys,
             });
             setBusy(false);
           } catch (e) {
