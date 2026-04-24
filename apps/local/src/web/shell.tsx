@@ -1,13 +1,16 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtomRefresh, useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomRefresh, Result } from "@effect-atom/atom-react";
 import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
+import { useSourcesWithPending } from "@executor/react/api/optimistic";
 import { useScope, useScopeInfo } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { CommandPalette } from "@executor/react/components/command-palette";
 import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
+import { createMcpSourcePlugin } from "@executor/plugin-mcp/react";
+
+const mcpSourcePlugin = createMcpSourcePlugin({ allowStdio: true });
 import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
 import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
 
@@ -222,7 +225,7 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
-  const sources = useAtomValue(sourcesAtom(scopeId));
+  const sources = useSourcesWithPending(scopeId);
 
   return Result.match(sources, {
     onInitial: () => (
@@ -273,7 +276,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
 function ScopeLabel() {
   const { name } = useScopeInfo();
   // Show just the last folder name, with full path as tooltip
-  const parts = name.replace(/\/+$/, "").split("/");
+  const parts = name.replace(/[/\\]+$/, "").split(/[/\\]/);
   const folder = parts[parts.length - 1] || name;
 
   return (
@@ -303,6 +306,7 @@ function SidebarContent(props: {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
   const isRuns = props.pathname === "/runs";
+  const isConnections = props.pathname === "/connections";
 
   return (
     <>
@@ -317,6 +321,7 @@ function SidebarContent(props: {
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <ScopeLabel />
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+        <NavItem to="/connections" label="Connections" active={isConnections} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
         <NavItem to="/runs" label="Runs" active={isRuns} onNavigate={props.onNavigate} />
 

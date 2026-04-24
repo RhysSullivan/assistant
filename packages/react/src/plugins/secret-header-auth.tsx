@@ -1,14 +1,15 @@
-import { useState } from "react";
-import { useAtomRefresh, useAtomSet } from "@effect-atom/atom-react";
+import { useId, useState, type CSSProperties } from "react";
+import { useAtomSet } from "@effect-atom/atom-react";
 
-import { secretsAtom, setSecret, resolveSecret } from "../api/atoms";
+import { setSecret, resolveSecret } from "../api/atoms";
+import { secretWriteKeys } from "../api/reactivity-keys";
 import { useScope } from "../api/scope-context";
+import { SecretId, type ScopeId } from "@executor/sdk";
 import { Button } from "../components/button";
+import { Field, FieldError, FieldGroup, FieldLabel } from "../components/field";
 import { Input } from "../components/input";
-import { Label } from "../components/label";
 import { Spinner } from "../components/spinner";
 import { SecretPicker, type SecretPickerSecret } from "./secret-picker";
-import { SecretId } from "@executor/sdk";
 
 export interface HeaderAuthPreset {
   readonly key: string;
@@ -59,21 +60,37 @@ function SecretVisibilityIcon(props: { revealed: boolean }) {
   );
 }
 
-function InlineCreateSecret(props: {
-  headerName: string;
+function slugifyForSecretId(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function InlineCreateSecret(props: {
   suggestedId: string;
+  suggestedName: string;
   onCreated: (secretId: string) => void;
   onCancel: () => void;
+  targetScope?: ScopeId;
+  writeScope?: ScopeId;
 }) {
-  const [secretId, setSecretId] = useState(props.suggestedId);
-  const [secretName, setSecretName] = useState(props.headerName);
+  const [nameOverride, setNameOverride] = useState<string | null>(null);
+  const [idOverride, setIdOverride] = useState<string | null>(null);
   const [secretValue, setSecretValue] = useState("");
   const [secretRevealed, setSecretRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const scopeId = useScope();
+  const defaultScope = useScope();
+  const scopeId = props.targetScope ?? props.writeScope ?? defaultScope;
   const doSet = useAtomSet(setSecret, { mode: "promise" });
-  const refreshSecrets = useAtomRefresh(secretsAtom(scopeId));
+  const secretIdInputId = useId();
+  const secretNameInputId = useId();
+  const secretValueInputId = useId();
+
+  const secretName = nameOverride ?? props.suggestedName;
+  const secretId = idOverride ?? (slugifyForSecretId(secretName) || "custom-header");
 
   const handleSave = async () => {
     if (!secretId.trim() || !secretValue.trim()) return;
@@ -86,10 +103,9 @@ function InlineCreateSecret(props: {
           id: SecretId.make(secretId.trim()),
           name: secretName.trim() || secretId.trim(),
           value: secretValue.trim(),
-          purpose: `Auth header: ${props.headerName}`,
         },
+        reactivityKeys: secretWriteKeys,
       });
-      refreshSecrets();
       props.onCreated(secretId.trim());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save secret");
@@ -98,54 +114,59 @@ function InlineCreateSecret(props: {
   };
 
   return (
-    <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-2.5">
-      <p className="text-xs font-semibold text-primary tracking-wide uppercase">New secret</p>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">ID</Label>
-          <Input
-            value={secretId}
-            onChange={(e) => setSecretId((e.target as HTMLInputElement).value)}
-            placeholder="my-api-token"
-            className="h-8 text-sm font-mono"
-          />
+    <div className="bg-primary/[0.03] px-4 py-3 space-y-3">
+      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
+      <FieldGroup className="gap-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Field>
+            <FieldLabel htmlFor={secretNameInputId}>Label</FieldLabel>
+            <Input
+              id={secretNameInputId}
+              value={secretName}
+              onChange={(e) => setNameOverride((e.target as HTMLInputElement).value)}
+              placeholder="API Token"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={secretIdInputId}>ID</FieldLabel>
+            <Input
+              id={secretIdInputId}
+              value={secretId}
+              onChange={(e) => setIdOverride((e.target as HTMLInputElement).value)}
+              placeholder="my-api-token"
+              className="font-mono"
+            />
+          </Field>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-            Label
-          </Label>
-          <Input
-            value={secretName}
-            onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
-            placeholder="API Token"
-            className="h-8 text-sm"
-          />
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Value</Label>
-        <div className="relative">
-          <Input
-            type={secretRevealed ? "text" : "password"}
-            value={secretValue}
-            onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
-            placeholder="paste your token or key…"
-            className="h-8 pr-8 text-xs font-mono"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className="absolute right-1 top-1/2 size-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            onClick={() => setSecretRevealed((revealed) => !revealed)}
-            aria-label={secretRevealed ? "Hide secret value" : "Reveal secret value"}
-          >
-            <SecretVisibilityIcon revealed={secretRevealed} />
-          </Button>
-        </div>
-      </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="flex gap-1.5 pt-0.5">
+        <Field>
+          <FieldLabel htmlFor={secretValueInputId}>Value</FieldLabel>
+          <div className="relative">
+            <Input
+              id={secretValueInputId}
+              type="text"
+              value={secretValue}
+              onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
+              placeholder="paste your token or key…"
+              className="pr-9 font-mono"
+              style={
+                secretRevealed ? undefined : ({ WebkitTextSecurity: "disc" } as CSSProperties)
+              }
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="absolute right-1 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              onClick={() => setSecretRevealed((revealed) => !revealed)}
+              aria-label={secretRevealed ? "Hide secret value" : "Reveal secret value"}
+            >
+              <SecretVisibilityIcon revealed={secretRevealed} />
+            </Button>
+          </div>
+          {error && <FieldError>{error}</FieldError>}
+        </Field>
+      </FieldGroup>
+      <div className="flex justify-end gap-1.5 pt-0.5">
         <Button variant="outline" size="xs" onClick={props.onCancel}>
           Cancel
         </Button>
@@ -154,7 +175,7 @@ function InlineCreateSecret(props: {
           onClick={handleSave}
           disabled={!secretId.trim() || !secretValue.trim() || saving}
         >
-          {saving ? "Saving…" : "Create & use"}
+          {saving ? "Saving…" : "Create and use"}
         </Button>
       </div>
     </div>
@@ -286,12 +307,21 @@ export function SecretHeaderAuthRow(props: {
   onChange: (update: { name: string; prefix?: string; presetKey?: string }) => void;
   onSelectSecret: (secretId: string) => void;
   existingSecrets: readonly SecretPickerSecret[];
-  presets?: readonly HeaderAuthPreset[];
   onRemove?: () => void;
   removeLabel?: string;
   label?: string;
+  /**
+   * Display name of the source this header belongs to (e.g. "Axiom"). Used
+   * to prefix the suggested secret label and ID so tokens from different
+   * sources don't collide on ids like `authorization`.
+   */
+  sourceName?: string;
+  targetScope?: ScopeId;
+  writeScope?: ScopeId;
 }) {
   const [creating, setCreating] = useState(false);
+  const nameInputId = useId();
+  const prefixInputId = useId();
   const {
     name,
     prefix,
@@ -300,35 +330,38 @@ export function SecretHeaderAuthRow(props: {
     onChange,
     onSelectSecret,
     existingSecrets,
-    presets = defaultHeaderAuthPresets,
     onRemove,
     removeLabel = "Remove",
     label = "Header",
+    sourceName,
+    targetScope,
+    writeScope,
   } = props;
 
-  const isCustom = presetKey === "custom";
-  const suggestedId = name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "custom-header";
+  const isCustom = presetKey === "custom" || presetKey === undefined;
+  const headerLabel = name.trim() || "Custom Header";
+  const suggestedName = [sourceName?.trim(), headerLabel].filter(Boolean).join(" ");
+  const suggestedId = slugifyForSecretId(suggestedName) || "custom-header";
 
   if (creating) {
     return (
       <InlineCreateSecret
-        headerName={name || "Custom Header"}
         suggestedId={suggestedId}
+        suggestedName={suggestedName}
         onCreated={(id) => {
           onSelectSecret(id);
           setCreating(false);
         }}
         onCancel={() => setCreating(false)}
+        targetScope={targetScope ?? writeScope}
       />
     );
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-          {label}
-        </Label>
+    <div className="space-y-2.5 px-4 py-3">
+      <div className="flex w-full items-center justify-between gap-4">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
         {onRemove && (
           <Button
             variant="ghost"
@@ -341,92 +374,115 @@ export function SecretHeaderAuthRow(props: {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-1">
-        {presets.map((preset) => (
-          <Button
-            key={preset.key}
-            variant="ghost"
-            size="sm"
-            type="button"
-            onClick={() =>
+      <FieldGroup className="grid grid-cols-2 gap-3">
+        <Field>
+          <FieldLabel htmlFor={nameInputId}>Name</FieldLabel>
+          <Input
+            id={nameInputId}
+            value={name}
+            onChange={(e) =>
               onChange({
-                name: preset.name,
-                prefix: preset.prefix,
-                presetKey: preset.key,
+                name: (e.target as HTMLInputElement).value,
+                prefix,
+                presetKey: isCustom ? "custom" : presetKey,
               })
             }
-            className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
-              presetKey === preset.key
-                ? "border-primary/50 bg-primary/10 text-primary"
-                : "border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            }`}
-          >
-            {preset.label}
-          </Button>
-        ))}
-      </div>
+            placeholder="Authorization"
+            className="font-mono"
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={prefixInputId}>
+            Prefix <span className="font-normal text-muted-foreground/60">(optional)</span>
+          </FieldLabel>
+          <Input
+            id={prefixInputId}
+            value={prefix ?? ""}
+            onChange={(e) =>
+              onChange({
+                name,
+                prefix: (e.target as HTMLInputElement).value || undefined,
+                presetKey: isCustom ? "custom" : presetKey,
+              })
+            }
+            placeholder="Bearer "
+            className="font-mono"
+          />
+        </Field>
+      </FieldGroup>
 
-      {presetKey !== undefined && (
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Name
-            </Label>
-            <Input
-              value={name}
-              onChange={(e) =>
-                onChange({
-                  name: (e.target as HTMLInputElement).value,
-                  prefix,
-                  presetKey: isCustom ? "custom" : presetKey,
-                })
-              }
-              placeholder="Authorization"
-              className="h-8 text-sm font-mono"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Prefix{" "}
-              <span className="normal-case tracking-normal font-normal text-muted-foreground">
-                (opt.)
-              </span>
-            </Label>
-            <Input
-              value={prefix ?? ""}
-              onChange={(e) =>
-                onChange({
-                  name,
-                  prefix: (e.target as HTMLInputElement).value || undefined,
-                  presetKey: isCustom ? "custom" : presetKey,
-                })
-              }
-              placeholder="Bearer "
-              className="h-8 text-sm font-mono"
-            />
-          </div>
-        </div>
-      )}
-
-      {presetKey !== undefined && name.trim() && (
-        <div className="flex items-center gap-1.5">
-          <div className="flex-1 min-w-0">
-            <SecretPicker value={secretId} onSelect={onSelectSecret} secrets={existingSecrets} />
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => setCreating(true)}
-          >
-            + New
-          </Button>
-        </div>
-      )}
+      <SecretPicker
+        value={secretId}
+        onSelect={onSelectSecret}
+        secrets={existingSecrets}
+        onCreateNew={() => setCreating(true)}
+      />
 
       {secretId && name.trim() && (
         <HeaderValuePreview headerName={name.trim()} secretId={secretId} prefix={prefix} />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CreatableSecretPicker — SecretPicker + inline "+ New secret" create flow
+// ---------------------------------------------------------------------------
+
+export function CreatableSecretPicker(props: {
+  readonly value: string | null;
+  readonly onSelect: (secretId: string) => void;
+  readonly secrets: readonly SecretPickerSecret[];
+  readonly placeholder?: string;
+  readonly targetScope?: ScopeId;
+  readonly suggestedId?: string;
+  /**
+   * Display name of the source the secret belongs to (e.g. "Stripe").
+   * Combined with `secretLabel` to produce a suggested name/ID.
+   */
+  readonly sourceName?: string;
+  /** Role of this secret (e.g. "Client ID", "API Token"). */
+  readonly secretLabel: string;
+  readonly writeScope?: ScopeId;
+}) {
+  const {
+    value,
+    onSelect,
+    secrets,
+    placeholder,
+    sourceName,
+    secretLabel,
+    targetScope,
+    suggestedId: suggestedIdProp,
+    writeScope,
+  } = props;
+  const [creating, setCreating] = useState(false);
+
+  const suggestedName = [sourceName?.trim(), secretLabel].filter(Boolean).join(" ");
+  const suggestedId = suggestedIdProp?.trim() || slugifyForSecretId(suggestedName) || "secret";
+
+  if (creating) {
+    return (
+      <InlineCreateSecret
+        suggestedId={suggestedId}
+        suggestedName={suggestedName}
+        onCreated={(id) => {
+          onSelect(id);
+          setCreating(false);
+        }}
+        onCancel={() => setCreating(false)}
+        targetScope={targetScope ?? writeScope}
+      />
+    );
+  }
+
+  return (
+    <SecretPicker
+      value={value}
+      onSelect={onSelect}
+      secrets={secrets}
+      placeholder={placeholder}
+      onCreateNew={() => setCreating(true)}
+    />
   );
 }

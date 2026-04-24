@@ -15,13 +15,13 @@ import { getServerHandlers } from "./server/main";
 // Host allowlist
 // ---------------------------------------------------------------------------
 
-const ALLOWED_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+const DEFAULT_ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]", "::1"];
 
-const isAllowedHost = (request: Request): boolean => {
+const makeIsAllowedHost = (allowed: ReadonlySet<string>) => (request: Request): boolean => {
   const host = request.headers.get("host");
   if (!host) return true;
   const hostname = host.replace(/:\d+$/, "");
-  return ALLOWED_HOSTS.has(hostname);
+  return allowed.has(hostname);
 };
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,11 @@ const isAllowedHost = (request: Request): boolean => {
 // ---------------------------------------------------------------------------
 
 type StaticHandler = () => Response | Promise<Response>;
+
+const hasFileExtension = (pathname: string): boolean => {
+  const lastSegment = pathname.split("/").at(-1) ?? "";
+  return lastSegment.includes(".");
+};
 
 function collectStaticRoutes(dir: string, prefix = ""): Record<string, StaticHandler> {
   const routes: Record<string, StaticHandler> = {};
@@ -76,6 +81,10 @@ export interface StartServerOptions {
   clientDir?: string;
   /** Embedded web UI map from compiled binary (path → bunfs path). Overrides clientDir. */
   embeddedWebUI?: Record<string, string> | null;
+  /** Bind address. Defaults to 127.0.0.1. Use 0.0.0.0 to listen on all interfaces. */
+  hostname?: string;
+  /** Extra hostnames permitted in the Host header, on top of localhost/127.0.0.1. */
+  allowedHosts?: ReadonlyArray<string>;
 }
 
 export interface ServerInstance {
@@ -85,6 +94,9 @@ export interface ServerInstance {
 
 export async function startServer(opts: StartServerOptions = {}): Promise<ServerInstance> {
   const port = opts.port ?? parseInt(process.env.PORT ?? "4788", 10);
+  const hostname = opts.hostname ?? "127.0.0.1";
+  const allowedHostSet = new Set<string>([...DEFAULT_ALLOWED_HOSTS, ...(opts.allowedHosts ?? [])]);
+  const isAllowedHost = makeIsAllowedHost(allowedHostSet);
   const clientDir = opts.clientDir ?? resolve(import.meta.dirname, "../dist");
 
   const handlers = await getServerHandlers();
@@ -105,7 +117,7 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
 
   const server = Bun.serve({
     port,
-    hostname: "127.0.0.1",
+    hostname,
     // Disable Bun's default 10s idle timeout. MCP elicitation and pause/resume
     // can idle longer during human approval; `0` disables the socket timeout.
     idleTimeout: 0,
@@ -124,6 +136,13 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
       if (url.pathname.startsWith("/api/") || url.pathname === "/api") {
         url.pathname = url.pathname.slice("/api".length) || "/";
         return handlers.api.handler(new Request(url, req));
+      }
+
+      // If a path looks like a static asset (has a file extension), do not
+      // fall back to SPA HTML. Returning index.html here causes browser module
+      // MIME errors when hashed chunks are stale/missing.
+      if (hasFileExtension(url.pathname)) {
+        return new Response("Not Found", { status: 404 });
       }
 
       // SPA fallback

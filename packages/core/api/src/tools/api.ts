@@ -2,6 +2,8 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId, ToolId, ToolNotFoundError } from "@executor/sdk";
 
+import { InternalError } from "../observability";
+
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
@@ -15,7 +17,7 @@ const toolIdParam = HttpApiSchema.param("toolId", ToolId);
 
 const ToolMetadataResponse = Schema.Struct({
   id: ToolId,
-  pluginKey: Schema.String,
+  pluginId: Schema.String,
   sourceId: Schema.String,
   name: Schema.String,
   description: Schema.optional(Schema.String),
@@ -53,4 +55,5 @@ export class ToolsApi extends HttpApiGroup.make("tools")
     HttpApiEndpoint.get("schema")`/scopes/${scopeIdParam}/tools/${toolIdParam}/schema`
       .addSuccess(ToolSchemaResponse)
       .addError(ToolNotFound),
-  ) {}
+  )
+  .addError(InternalError) {}

@@ -1,10 +1,25 @@
 import { Effect } from "effect";
 
-import { definePlugin, type SecretId, type ExecutorPlugin } from "@executor/sdk";
+import { definePlugin, type PluginCtx } from "@executor/sdk";
 
-import { displayName, isSupportedPlatform, resolveServiceName } from "./keyring";
-import { getPassword } from "./keyring";
+import {
+  deletePassword,
+  displayName,
+  getPassword,
+  isSupportedPlatform,
+  resolveServiceName,
+  setPassword,
+} from "./keyring";
 import { makeKeychainProvider } from "./provider";
+
+// Probe the keychain by writing and then deleting a sentinel entry. A
+// read-only probe isn't enough — on some Linux environments (WSL2,
+// headless CI) `getPassword` for a missing key returns null without
+// error, but `setPassword` fails because the secret-service backend
+// isn't actually reachable. Writing is the capability the executor
+// cares about, so test it directly.
+const PROBE_ACCOUNT = "__executor_keychain_probe__";
+const PROBE_VALUE = "probe";
 
 // ---------------------------------------------------------------------------
 // Re-exports
@@ -35,39 +50,62 @@ export interface KeychainExtension {
   readonly isSupported: boolean;
 
   /** Check if a secret exists in the system keychain */
-  readonly has: (secretId: SecretId) => Effect.Effect<boolean>;
+  readonly has: (id: string) => Effect.Effect<boolean>;
 }
 
 // ---------------------------------------------------------------------------
 // Plugin definition
 // ---------------------------------------------------------------------------
 
-const PLUGIN_KEY = "keychain";
+// Scope the keychain service name to the current executor scope so each
+// folder / workspace gets its own set of keychain entries. Computed
+// identically in `extension` and `secretProviders` — both receive ctx and
+// both are called once per createExecutor, so the derivation stays pure.
+const scopedServiceName = (
+  ctx: PluginCtx<unknown>,
+  options: KeychainPluginConfig | undefined,
+): string =>
+  `${resolveServiceName(options?.serviceName)}/${ctx.scopes[0]!.id as string}`;
 
-export const keychainPlugin = (
-  config?: KeychainPluginConfig,
-): ExecutorPlugin<typeof PLUGIN_KEY, KeychainExtension> =>
-  definePlugin({
-    key: PLUGIN_KEY,
-    init: (ctx) =>
+export const keychainPlugin = definePlugin(
+  (options?: KeychainPluginConfig) => ({
+    id: "keychain" as const,
+    storage: () => ({}),
+
+    extension: (ctx): KeychainExtension => {
+      const serviceName = scopedServiceName(ctx, options);
+      return {
+        displayName: displayName(),
+        isSupported: isSupportedPlatform(),
+        has: (id) =>
+          getPassword(serviceName, id).pipe(
+            Effect.map((v) => v !== null),
+            Effect.orElseSucceed(() => false),
+          ),
+      };
+    },
+
+    secretProviders: (ctx) =>
       Effect.gen(function* () {
-        // Scope the service name to the current scope so each folder gets its own keychain entries
-        const baseServiceName = resolveServiceName(config?.serviceName);
-        const serviceName = `${baseServiceName}/${ctx.scope.id}`;
-
-        yield* ctx.secrets.addProvider(makeKeychainProvider(serviceName));
-
-        const extension: KeychainExtension = {
-          displayName: displayName(),
-          isSupported: isSupportedPlatform(),
-
-          has: (secretId) =>
-            getPassword(serviceName, secretId).pipe(
-              Effect.map((v) => v !== null),
-              Effect.orElseSucceed(() => false),
+        const serviceName = scopedServiceName(ctx, options);
+        const reachable = yield* setPassword(
+          serviceName,
+          PROBE_ACCOUNT,
+          PROBE_VALUE,
+        ).pipe(
+          Effect.andThen(
+            deletePassword(serviceName, PROBE_ACCOUNT).pipe(
+              Effect.catchAll(() => Effect.void),
             ),
-        };
-
-        return { extension };
+          ),
+          Effect.as(true),
+          Effect.catchAll((cause) =>
+            Effect.logWarning(
+              `keychain unavailable, skipping provider registration: ${cause.message}`,
+            ).pipe(Effect.as(false)),
+          ),
+        );
+        return reachable ? [makeKeychainProvider(serviceName)] : [];
       }),
-  });
+  }),
+);

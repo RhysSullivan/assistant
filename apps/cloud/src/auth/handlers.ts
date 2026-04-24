@@ -5,8 +5,10 @@ import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
+import { authorizeOrganization } from "./authorize-organization";
+import { env } from "cloudflare:workers";
+import { WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
-import { server } from "../env";
 
 const COOKIE_OPTIONS = {
   path: "/",
@@ -18,7 +20,7 @@ const COOKIE_OPTIONS = {
 
 // ---------------------------------------------------------------------------
 // Single non-protected API surface — public (login/callback) + session
-// (me/logout). The session group has SessionAuth on it.
+// (me/logout/organizations/switch-organization). The session group has SessionAuth on it.
 // ---------------------------------------------------------------------------
 
 export const NonProtectedApi = HttpApi.make("cloudWeb").add(CloudAuthPublicApi).add(CloudAuthApi);
@@ -38,7 +40,7 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           // Use the explicit public site URL — in dev, the request's Host
           // header points at the internal proxy target, not the public URL
           // WorkOS needs to redirect back to.
-          const origin = server.VITE_PUBLIC_SITE_URL;
+          const origin = env.VITE_PUBLIC_SITE_URL ?? "";
           const url = workos.getAuthorizationUrl(`${origin}${AUTH_PATHS.callback}`);
           return HttpServerResponse.redirect(url, { status: 302 });
         }),
@@ -54,40 +56,22 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           yield* users.use((s) => s.ensureAccount(result.user.id));
 
           let sealedSession = result.sealedSession;
-          let organizationId = result.organizationId;
 
-          // If the auth response doesn't include an org, check if the user
-          // already belongs to one. Only create a new workspace if they truly
-          // have no memberships — this prevents duplicate orgs on re-login.
-          if (!organizationId) {
+          // If the auth response didn't surface an org but the user already
+          // belongs to one, rehydrate the session with it. If they have no
+          // memberships at all, leave the session org-less — the frontend
+          // AuthGate will render the onboarding flow. We never auto-create
+          // organizations on login.
+          if (!result.organizationId && sealedSession) {
             const memberships = yield* workos.listUserMemberships(result.user.id);
             const existing = memberships.data[0];
-
             if (existing) {
-              organizationId = existing.organizationId;
-            } else {
-              const name =
-                [result.user.firstName, result.user.lastName].filter(Boolean).join(" ") ||
-                result.user.email;
-              const org = yield* workos.createOrganization(`${name}'s Organization`);
-              yield* workos.createMembership(org.id, result.user.id, "admin");
-              yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
-              organizationId = org.id;
-            }
-
-            // Refresh the session so it includes the org context
-            if (sealedSession) {
-              const refreshed = yield* workos.refreshSession(sealedSession, organizationId);
+              const refreshed = yield* workos.refreshSession(
+                sealedSession,
+                existing.organizationId,
+              );
               if (refreshed) sealedSession = refreshed;
             }
-          } else {
-            const org = yield* workos.getOrganization(organizationId!);
-            yield* users.use((s) =>
-              s.upsertOrganization({
-                id: organizationId!,
-                name: org.name,
-              }),
-            );
           }
 
           if (!sealedSession) {
@@ -96,12 +80,7 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
 
           setCookie("wos-session", sealedSession, COOKIE_OPTIONS);
           return HttpServerResponse.redirect("/", { status: 302 });
-        }).pipe(
-          Effect.catchTags({
-            WorkOSError: () => Effect.succeed(HttpServerResponse.redirect("/", { status: 302 })),
-            UserStoreError: () => Effect.succeed(HttpServerResponse.redirect("/", { status: 302 })),
-          }),
-        ),
+        }),
       ),
 );
 
@@ -117,9 +96,8 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
       .handle("me", () =>
         Effect.gen(function* () {
           const session = yield* SessionContext;
-          const users = yield* UserStoreService;
           const org = session.organizationId
-            ? yield* users.use((s) => s.getOrganization(session.organizationId!))
+            ? yield* authorizeOrganization(session.accountId, session.organizationId)
             : null;
 
           return {
@@ -133,10 +111,85 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           };
         }),
       )
-      .handleRaw("logout", () =>
-        Effect.sync(() => {
-          deleteCookie("wos-session", { path: "/" });
-          return HttpServerResponse.redirect("/", { status: 302 });
+      .handleRaw("logout", () => {
+        deleteCookie("wos-session", { path: "/" });
+        return Effect.succeed(HttpServerResponse.redirect("/", { status: 302 }));
+      })
+      .handle("organizations", () =>
+        Effect.gen(function* () {
+          const workos = yield* WorkOSAuth;
+          const session = yield* SessionContext;
+
+          const memberships = yield* workos.listUserMemberships(session.accountId);
+          const organizations = yield* Effect.all(
+            memberships.data.map((m) =>
+              workos.getOrganization(m.organizationId).pipe(
+                Effect.map((org) => ({ id: org.id, name: org.name })),
+                Effect.orElseSucceed(() => null),
+              ),
+            ),
+            { concurrency: "unbounded" },
+          );
+
+          return {
+            organizations: organizations.filter((org): org is NonNullable<typeof org> => org !== null),
+            activeOrganizationId: session.organizationId,
+          };
+        }),
+      )
+      .handle("switchOrganization", ({ payload }) =>
+        Effect.gen(function* () {
+          const workos = yield* WorkOSAuth;
+          const session = yield* SessionContext;
+
+          const refreshed = yield* workos.refreshSession(
+            session.sealedSession,
+            payload.organizationId,
+          );
+          if (refreshed) {
+            setCookie("wos-session", refreshed, COOKIE_OPTIONS);
+          }
+        }),
+      )
+      .handle("createOrganization", ({ payload }) =>
+        Effect.gen(function* () {
+          const workos = yield* WorkOSAuth;
+          const users = yield* UserStoreService;
+          const session = yield* SessionContext;
+
+          const name = payload.name.trim();
+          const org = yield* workos.createOrganization(name);
+          yield* workos.createMembership(org.id, session.accountId, "admin");
+          yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
+
+          // Try to attach the new org to the current session. This can fail
+          // (or silently return a session still scoped to the old org) when
+          // the caller's current session is stale — most commonly after the
+          // user was removed from the org their cookie is pinned to. In that
+          // case we can't repair the session in-place, so we clear the
+          // cookie and fail loudly; the frontend will bounce to login and
+          // the callback's rehydrate path will pick up the new membership.
+          const refreshed = yield* workos.refreshSession(session.sealedSession, org.id);
+          const verified = refreshed
+            ? yield* workos.authenticateSealedSession(refreshed)
+            : null;
+
+          if (!refreshed || !verified || verified.organizationId !== org.id) {
+            yield* Effect.logWarning(
+              "createOrganization: unable to attach new org to current session",
+              {
+                userId: session.accountId,
+                newOrgId: org.id,
+                refreshReturnedSession: refreshed != null,
+                verifiedOrgId: verified?.organizationId ?? null,
+              },
+            );
+            deleteCookie("wos-session", { path: "/" });
+            return yield* new WorkOSError();
+          }
+
+          setCookie("wos-session", refreshed, COOKIE_OPTIONS);
+          return { id: org.id, name: org.name };
         }),
       ),
 );

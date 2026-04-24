@@ -1,9 +1,6 @@
 import { Suspense } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { SourcePlugin } from "../plugins/source-plugin";
-import { useAtomRefresh } from "@effect-atom/atom-react";
-import { sourcesAtom } from "../api/atoms";
-import { useScope } from "../hooks/use-scope";
 
 // ---------------------------------------------------------------------------
 // Page
@@ -17,15 +14,13 @@ export function SourcesAddPage(props: {
   sourcePlugins: readonly SourcePlugin[];
 }) {
   const { pluginKey, url, preset, namespace, sourcePlugins } = props;
-  const scopeId = useScope();
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const navigate = useNavigate();
 
   const plugin = sourcePlugins.find((p) => p.key === pluginKey);
 
   if (!plugin) {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
             <p className="text-sm font-medium text-foreground/70 mb-1">
@@ -49,15 +44,14 @@ export function SourcesAddPage(props: {
   const AddComponent = plugin.add;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
+    <div className="relative min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto flex min-h-full max-w-4xl flex-col px-6 py-10 lg:px-10 lg:py-14">
         <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
           <AddComponent
             initialUrl={url}
             initialPreset={preset}
             initialNamespace={namespace}
             onComplete={() => {
-              refreshSources();
               void navigate({ to: "/" });
             }}
             onCancel={() => {

@@ -1,45 +1,103 @@
-// IDs
+// ---------------------------------------------------------------------------
+// @executor/sdk — public surface
+// ---------------------------------------------------------------------------
+
+// Storage adapter interface types (re-exported from @executor/storage-core
+// so plugin authors can write adapters against a single public surface
+// without depending on storage-core directly).
+export type {
+  DBAdapter,
+  DBSchema,
+  DBFieldAttribute,
+  DBFieldType,
+  StorageFailure,
+  TypedAdapter,
+  Where,
+  WhereOperator,
+} from "@executor/storage-core";
+
+export { typedAdapter } from "@executor/storage-core";
+
+// Storage-layer typed errors (re-exported so plugin code can catchTag
+// `UniqueViolationError` without importing storage-core directly).
+export { StorageError, UniqueViolationError } from "@executor/storage-core";
+
+// IDs (branded)
 export {
   ScopeId,
   ToolId,
   SecretId,
   PolicyId,
+  ConnectionId,
   ExecutionId,
   ExecutionInteractionId,
   ExecutionToolCallId,
 } from "./ids";
 
-// Errors
+// Scope
+export { Scope } from "./scope";
+
+// Errors (tagged)
 export {
   ToolNotFoundError,
   ToolInvocationError,
+  NoHandlerError,
+  SourceNotFoundError,
+  SourceRemovalNotAllowedError,
+  PluginNotLoadedError,
   SecretNotFoundError,
   SecretResolutionError,
-  PolicyDeniedError,
+  SecretOwnedByConnectionError,
+  ConnectionNotFoundError,
+  ConnectionProviderNotRegisteredError,
+  ConnectionRefreshNotSupportedError,
+  ConnectionReauthRequiredError,
+  type ExecutorError,
 } from "./errors";
 
-// Tools
+// Public projections
 export {
-  ToolMetadata,
   ToolSchema,
-  ToolInvocationResult,
-  ToolRegistry,
-  ToolRegistration,
-  ToolAnnotations,
-  ToolListFilter,
-  type ToolInvoker,
-  type RuntimeToolHandler,
-  type InvokeOptions,
-} from "./tools";
-
-// Sources
-export {
-  Source,
   SourceDetectionResult,
-  SourceRegistry,
-  makeInMemorySourceRegistry,
-  type SourceManager,
-} from "./sources";
+  type Source,
+  type Tool,
+  type ToolListFilter,
+} from "./types";
+
+// Core schema
+export {
+  coreSchema,
+  type CoreSchema,
+  type SourceInput,
+  type SourceInputTool,
+  type SourceRow,
+  type ToolRow,
+  type DefinitionRow,
+  type SecretRow,
+  type ConnectionRow,
+  type DefinitionsInput,
+  type ToolAnnotations,
+} from "./core-schema";
+
+// Secrets
+export {
+  SecretRef,
+  SetSecretInput,
+  type SecretProvider,
+} from "./secrets";
+
+// Connections
+export {
+  ConnectionRef,
+  ConnectionProviderState,
+  CreateConnectionInput,
+  UpdateConnectionTokensInput,
+  TokenMaterial,
+  ConnectionRefreshError,
+  type ConnectionProvider,
+  type ConnectionRefreshInput,
+  type ConnectionRefreshResult,
+} from "./connections";
 
 // Elicitation
 export {
@@ -53,70 +111,62 @@ export {
   type ElicitationContext,
 } from "./elicitation";
 
-// Secrets
-export { SecretRef, SetSecretInput, SecretStore, type SecretProvider } from "./secrets";
-
-// Policies
-export { Policy, PolicyAction, PolicyCheckInput, PolicyEngine } from "./policies";
-
-// Executions
+// Blob store
 export {
-  ExecutionStatus,
-  Execution,
-  ExecutionInteractionStatus,
-  ExecutionInteraction,
-  ExecutionToolCall,
-  ExecutionToolCallStatus,
-  ExecutionStore,
-  EXECUTION_STATUS_KEYS,
-  pickChartBucketMs,
-  buildExecutionListMeta,
-  matchToolPathPattern,
-  pickExecutionSorter,
-  type CreateExecutionInput,
-  type UpdateExecutionInput,
-  type CreateExecutionInteractionInput,
-  type UpdateExecutionInteractionInput,
-  type CreateExecutionToolCallInput,
-  type UpdateExecutionToolCallInput,
-  type ExecutionListItem,
-  type ExecutionListOptions,
-  type ExecutionListMeta,
-  type ExecutionChartBucket,
-  type ExecutionToolFacet,
-  type BuildExecutionListMetaInput,
-  type ExecutionSort,
-  type ExecutionSortField,
-  type ExecutionSortDirection,
-} from "./executions";
+  type BlobStore,
+  type PluginBlobStore,
+  pluginBlobStore,
+  makeInMemoryBlobStore,
+} from "./blob";
 
-// Scope
-export { Scope } from "./scope";
-
-// Plugin
+// Plugin definition
 export {
-  definePlugin,
-  type ExecutorPlugin,
-  type PluginContext,
-  type PluginHandle,
+  type Plugin,
+  type PluginSpec,
+  type PluginCtx,
   type PluginExtensions,
+  type ConfiguredPlugin,
+  type AnyPlugin,
+  type StorageDeps,
+  type StaticSourceDecl,
+  type StaticToolDecl,
+  type StaticToolHandlerInput,
+  type InvokeToolInput,
+  type SourceLifecycleInput,
+  type SecretListEntry,
+  type Elicit,
+  definePlugin,
+  defineSchema,
 } from "./plugin";
 
 // Executor
-export { createExecutor, type Executor, type ExecutorConfig } from "./executor";
-
-// Built-in plugins
 export {
-  inMemoryToolsPlugin,
-  tool,
-  type MemoryToolDefinition,
-  type MemoryToolContext,
-  type MemoryToolSdkAccess,
-  type InMemoryToolsPluginExtension,
-} from "./plugins/in-memory-tools";
+  type Executor,
+  type ExecutorConfig,
+  type InvokeOptions,
+  createExecutor,
+  collectSchemas,
+} from "./executor";
 
-// Schema ref utilities
-export { hoistDefinitions, collectRefs, reattachDefs, normalizeRefs } from "./schema-refs";
+// CLI config
+export {
+  defineExecutorConfig,
+  type ExecutorCliConfig,
+  type ExecutorDialect,
+} from "./config";
+
+// Test helper
+export { makeTestConfig } from "./testing";
+
+// JSON schema $ref helpers (used by openapi for $defs handling)
+export {
+  hoistDefinitions,
+  collectRefs,
+  reattachDefs,
+  normalizeRefs,
+} from "./schema-refs";
+
+// TypeScript preview generation from JSON schemas
 export {
   schemaToTypeScriptPreview,
   schemaToTypeScriptPreviewWithDefs,
@@ -124,24 +174,3 @@ export {
   type TypeScriptRenderOptions,
   type TypeScriptSchemaPreview,
 } from "./schema-types";
-
-// Runtime tools
-export {
-  registerRuntimeTools,
-  runtimeTool,
-  type RuntimeSourceDefinition,
-  type RuntimeToolDefinition,
-} from "./runtime-tools";
-
-// Cursor
-export { encodeCursor, decodeCursor } from "./cursor";
-
-// In-memory implementations
-export { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
-export { makeInMemorySecretStore, makeInMemorySecretProvider } from "./in-memory/secret-store";
-export { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
-export { makeInMemoryExecutionStore } from "./in-memory/execution-store";
-
-// Testing
-export { makeTestConfig } from "./testing";
-export { type Kv, type KvEntry, type ScopedKv, scopeKv, makeInMemoryScopedKv } from "./plugin-kv";

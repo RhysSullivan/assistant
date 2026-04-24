@@ -36,12 +36,25 @@ const makeTestInvoker = (
 
 const executor = makeSecureExecExecutor({ timeoutMs: 5_000 });
 
-describe("secure-exec executor", () => {
+// secure-exec-v8 does not ship a Windows binary — skip on win32
+describe.skipIf(process.platform === "win32")("secure-exec executor", () => {
   it.effect("runs plain code", () =>
     Effect.gen(function* () {
       const result = yield* executor.execute("return 1 + 2", makeTestInvoker({}));
 
       expect(result.result).toBe(3);
+      expect(result.error).toBeUndefined();
+    }),
+  );
+
+  it.effect("recovers prose-wrapped fenced async arrow input", () =>
+    Effect.gen(function* () {
+      const result = yield* executor.execute(
+        ["Use this snippet.", "", "```ts", "async () => 42", "```"].join("\n"),
+        makeTestInvoker({}),
+      );
+
+      expect(result.result).toBe(42);
       expect(result.error).toBeUndefined();
     }),
   );

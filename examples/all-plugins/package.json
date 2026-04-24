@@ -1,0 +1,28 @@
+{
+  "name": "@executor/example-all-plugins",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@executor/plugin-file-secrets": "workspace:*",
+    "@executor/plugin-google-discovery": "workspace:*",
+    "@executor/plugin-graphql": "workspace:*",
+    "@executor/plugin-keychain": "workspace:*",
+    "@executor/plugin-mcp": "workspace:*",
+    "@executor/plugin-onepassword": "workspace:*",
+    "@executor/plugin-openapi": "workspace:*",
+    "@executor/plugin-workos-vault": "workspace:*",
+    "@executor/sdk": "workspace:*",
+    "@executor/storage-core": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "latest"
+  }
+}

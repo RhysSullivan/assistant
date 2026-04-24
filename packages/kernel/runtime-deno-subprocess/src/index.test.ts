@@ -54,6 +54,21 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
     }),
   );
 
+  it.effect("recovers prose-wrapped fenced async arrow input", () =>
+    Effect.gen(function* () {
+      const executor = makeDenoSubprocessExecutor();
+      const toolInvoker = makeTestInvoker({});
+
+      const output = yield* executor.execute(
+        ["Use this snippet.", "", "```ts", "async () => 42", "```"].join("\n"),
+        toolInvoker,
+      );
+
+      expect(output.result).toBe(42);
+      expect(output.error).toBeUndefined();
+    }),
+  );
+
   it.effect("executes code with tool calls", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor();
@@ -153,7 +168,8 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
     }),
   );
 
-  it.effect("network access can be allowed via permissions", () =>
+  // Skipped in CI and on Windows — outbound HTTPS may be blocked by firewall/policy
+  it.effect.skipIf(process.env["CI"] === "true" || process.platform === "win32")("network access can be allowed via permissions", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor({
         permissions: {

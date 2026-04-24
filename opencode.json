@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "executor": {
+      "type": "remote",
+      "url": "https://executor-local.localhost:1355/mcp",
+      "enabled": true,
+      "command": [
+        "bun",
+        "run",
+        "dev:cli",
+        "mcp",
+        "--scope",
+        "/Users/rhyssullivan/src/executor/apps/local"
+      ],
+      "environment": {}
+    }
+  }
+}

@@ -1,22 +1,45 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomValue, Result } from "@effect-atom/atom-react";
-import { sourcesAtom } from "@executor/react/api/atoms";
+import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
+import { useSourcesWithPending } from "@executor/react/api/optimistic";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
+import { Skeleton } from "@executor/react/components/skeleton";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@executor/react/components/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@executor/react/components/dropdown-menu";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { CommandPalette } from "@executor/react/components/command-palette";
 import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
 import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
-import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
 import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
 import { AUTH_PATHS } from "../auth/api";
-import { useAuth } from "./auth";
+import { organizationsAtom, switchOrganization, useAuth } from "./auth";
+import {
+  CreateOrganizationFields,
+  useCreateOrganizationForm,
+} from "./components/create-organization-form";
 
 const sourcePlugins = [
   openApiSourcePlugin,
   mcpSourcePlugin,
-  googleDiscoverySourcePlugin,
   graphqlSourcePlugin,
 ];
 
@@ -43,11 +66,18 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
 
 function SourceList(props: { pathname: string; onNavigate?: () => void }) {
   const scopeId = useScope();
-  const sources = useAtomValue(sourcesAtom(scopeId));
+  const sources = useSourcesWithPending(scopeId);
 
   return Result.match(sources, {
     onInitial: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>
+      <div className="flex flex-col gap-1 px-2.5 py-1">
+        {[80, 65, 72, 58, 68].map((w, i) => (
+          <div key={i} className="flex items-center gap-2 rounded-md py-1.5">
+            <Skeleton className="size-3.5 shrink-0 rounded" />
+            <Skeleton className="h-3" style={{ width: `${w}%` }} />
+          </div>
+        ))}
+      </div>
     ),
     onFailure: () => (
       <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
@@ -91,57 +121,236 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
 
 // ── UserFooter ──────────────────────────────────────────────────────────
 
+function initialsFor(name: string | null, email: string) {
+  if (name) {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+  }
+  return email[0]!.toUpperCase();
+}
+
+function Avatar(props: { url: string | null; name: string | null; email: string; size?: "sm" | "md" }) {
+  const size = props.size === "md" ? "size-8" : "size-7";
+  const text = props.size === "md" ? "text-sm" : "text-xs";
+  if (props.url) {
+    return <img src={props.url} alt="" className={`${size} shrink-0 rounded-full`} />;
+  }
+  return (
+    <div
+      className={`flex ${size} shrink-0 items-center justify-center rounded-full bg-primary/10 ${text} font-semibold text-primary`}
+    >
+      {initialsFor(props.name, props.email)}
+    </div>
+  );
+}
+
+function OrganizationSwitcherItems(props: { activeOrganizationId: string | null }) {
+  const organizations = useAtomValue(organizationsAtom);
+  const doSwitchOrganization = useAtomSet(switchOrganization, { mode: "promiseExit" });
+
+  const handleSwitch = async (organizationId: string) => {
+    if (organizationId === props.activeOrganizationId) return;
+    const exit = await doSwitchOrganization({ payload: { organizationId } });
+    if (exit._tag === "Success") window.location.reload();
+  };
+
+  return Result.match(organizations, {
+    onInitial: () => <DropdownMenuItem disabled>Loading…</DropdownMenuItem>,
+    onFailure: () => <DropdownMenuItem disabled>Failed to load organizations</DropdownMenuItem>,
+    onSuccess: ({ value }) =>
+      value.organizations.length === 0 ? (
+        <DropdownMenuItem disabled>No organizations</DropdownMenuItem>
+      ) : (
+        <>
+          {value.organizations.map((organization) => {
+            const isActive = organization.id === props.activeOrganizationId;
+            return (
+              <DropdownMenuItem
+                key={organization.id}
+                disabled={isActive}
+                onClick={() => handleSwitch(organization.id)}
+                className="text-xs"
+              >
+                <span className="min-w-0 flex-1 truncate">{organization.name}</span>
+                {isActive && <CheckIcon />}
+              </DropdownMenuItem>
+            );
+          })}
+        </>
+      ),
+  });
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="ml-auto size-3 text-muted-foreground">
+      <path
+        d="M3.5 8.5L6.5 11.5L12.5 5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function UserFooter() {
   const auth = useAuth();
+  const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false);
+
+  const suggestedOrganizationName =
+    auth.status === "authenticated" &&
+    auth.user.name?.trim() !== "" &&
+    auth.user.name != null
+      ? `${auth.user.name}'s Organization`
+      : "New Organization";
+
+  const form = useCreateOrganizationForm({
+    defaultName: suggestedOrganizationName,
+    onSuccess: () => window.location.reload(),
+  });
+
   if (auth.status !== "authenticated") return null;
 
-  const initials = auth.user.name
-    ? auth.user.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
-    : auth.user.email[0]!.toUpperCase();
+  const openCreateOrganization = () => {
+    form.reset(suggestedOrganizationName);
+    setCreateOrganizationOpen(true);
+  };
 
   return (
     <div className="shrink-0 border-t border-sidebar-border px-3 py-2.5">
-      <div className="flex items-center gap-2.5">
-        {auth.user.avatarUrl ? (
-          <img src={auth.user.avatarUrl} alt="" className="size-7 shrink-0 rounded-full" />
-        ) : (
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-            {initials}
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-foreground">
-            {auth.user.name ?? auth.user.email}
-          </p>
-          {auth.organization && (
-            <p className="truncate text-xs text-muted-foreground">{auth.organization.name}</p>
-          )}
-        </div>
-        <form action={AUTH_PATHS.logout} method="post">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            type="submit"
-            className="shrink-0 text-muted-foreground hover:bg-sidebar-active hover:text-foreground"
-            title="Sign out"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-              <path
-                d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6M10.5 11.5L14 8l-3.5-3.5M14 8H6"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+      <Dialog
+        open={createOrganizationOpen}
+        onOpenChange={(open) => {
+          setCreateOrganizationOpen(open);
+          if (!open) form.reset(suggestedOrganizationName);
+        }}
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-1 py-1 text-left hover:bg-sidebar-active/60"
+            >
+              <Avatar
+                url={auth.user.avatarUrl}
+                name={auth.user.name}
+                email={auth.user.email}
               />
-            </svg>
-          </Button>
-        </form>
-      </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-foreground">
+                  {auth.user.name ?? auth.user.email}
+                </p>
+                {auth.organization && (
+                  <p className="truncate text-xs text-muted-foreground">{auth.organization.name}</p>
+                )}
+              </div>
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                className="size-3.5 shrink-0 text-muted-foreground"
+              >
+                <path
+                  d="M4 6l4 4 4-4"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="top" className="w-64">
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Organization
+            </DropdownMenuLabel>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="text-xs">
+                <span className="min-w-0 flex-1 truncate">
+                  {auth.organization?.name ?? "No organization"}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-56">
+                <OrganizationSwitcherItems activeOrganizationId={auth.organization?.id ?? null} />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-xs"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    openCreateOrganization();
+                  }}
+                >
+                  Create organization
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Signed in as
+            </DropdownMenuLabel>
+            <DropdownMenuItem disabled className="gap-2 text-xs opacity-100">
+              <Avatar url={auth.user.avatarUrl} name={auth.user.name} email={auth.user.email} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">
+                  {auth.user.name ?? auth.user.email}
+                </p>
+                {auth.user.name && (
+                  <p className="truncate text-muted-foreground">{auth.user.email}</p>
+                )}
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-xs text-destructive focus:text-destructive"
+              onClick={async () => {
+                await fetch(AUTH_PATHS.logout, { method: "POST" });
+                window.location.href = "/";
+              }}
+            >
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Create organization</DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed">
+              Add another organization under your current account and switch into it immediately.
+            </DialogDescription>
+          </DialogHeader>
+
+          <CreateOrganizationFields
+            name={form.name}
+            onNameChange={(name) => {
+              form.setName(name);
+              if (form.error) form.setError(null);
+            }}
+            error={form.error}
+            onSubmit={() => void form.submit()}
+          />
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm" disabled={form.creating}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              size="sm"
+              onClick={() => void form.submit()}
+              disabled={!form.canSubmit || form.creating}
+            >
+              {form.creating ? "Creating…" : "Create organization"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -152,6 +361,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
   const isRuns = props.pathname === "/runs";
+  const isConnections = props.pathname === "/connections";
   const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
   const isOrg = props.pathname === "/org";
 
@@ -167,6 +377,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+        <NavItem to="/connections" label="Connections" active={isConnections} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
         <NavItem to="/runs" label="Runs" active={isRuns} onNavigate={props.onNavigate} />
         <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />

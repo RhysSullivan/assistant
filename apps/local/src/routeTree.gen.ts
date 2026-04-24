@@ -11,7 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as SecretsRouteImport } from './routes/secrets'
-import { Route as RunsRouteImport } from './routes/runs'
+import { Route as ConnectionsRouteImport } from './routes/connections'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SourcesNamespaceRouteImport } from './routes/sources.$namespace'
 import { Route as SourcesAddPluginKeyRouteImport } from './routes/sources.add.$pluginKey'
@@ -26,9 +26,9 @@ const SecretsRoute = SecretsRouteImport.update({
   path: '/secrets',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RunsRoute = RunsRouteImport.update({
-  id: '/runs',
-  path: '/runs',
+const ConnectionsRoute = ConnectionsRouteImport.update({
+  id: '/connections',
+  path: '/connections',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -49,7 +49,7 @@ const SourcesAddPluginKeyRoute = SourcesAddPluginKeyRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/runs': typeof RunsRoute
+  '/connections': typeof ConnectionsRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
@@ -57,7 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/runs': typeof RunsRoute
+  '/connections': typeof ConnectionsRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
@@ -66,7 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/runs': typeof RunsRoute
+  '/connections': typeof ConnectionsRoute
   '/secrets': typeof SecretsRoute
   '/tools': typeof ToolsRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
@@ -76,7 +76,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/runs'
+    | '/connections'
     | '/secrets'
     | '/tools'
     | '/sources/$namespace'
@@ -84,7 +84,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/runs'
+    | '/connections'
     | '/secrets'
     | '/tools'
     | '/sources/$namespace'
@@ -92,7 +92,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/runs'
+    | '/connections'
     | '/secrets'
     | '/tools'
     | '/sources/$namespace'
@@ -101,7 +101,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  RunsRoute: typeof RunsRoute
+  ConnectionsRoute: typeof ConnectionsRoute
   SecretsRoute: typeof SecretsRoute
   ToolsRoute: typeof ToolsRoute
   SourcesNamespaceRoute: typeof SourcesNamespaceRoute
@@ -124,11 +124,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SecretsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/runs': {
-      id: '/runs'
-      path: '/runs'
-      fullPath: '/runs'
-      preLoaderRoute: typeof RunsRouteImport
+    '/connections': {
+      id: '/connections'
+      path: '/connections'
+      fullPath: '/connections'
+      preLoaderRoute: typeof ConnectionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -157,7 +157,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  RunsRoute: RunsRoute,
+  ConnectionsRoute: ConnectionsRoute,
   SecretsRoute: SecretsRoute,
   ToolsRoute: ToolsRoute,
   SourcesNamespaceRoute: SourcesNamespaceRoute,

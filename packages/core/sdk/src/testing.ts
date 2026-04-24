@@ -1,38 +1,43 @@
-import { ScopeId } from "./ids";
-import type { Scope } from "./scope";
-import type { ExecutorConfig } from "./executor";
-import type { ExecutorPlugin } from "./plugin";
+import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
 
-import { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
-import { makeInMemorySecretStore } from "./in-memory/secret-store";
-import { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
-import { makeInMemoryExecutionStore } from "./in-memory/execution-store";
-import { makeInMemorySourceRegistry } from "./sources";
+import { makeInMemoryBlobStore } from "./blob";
+import type { ExecutorConfig } from "./executor";
+import { collectSchemas } from "./executor";
+import { ScopeId } from "./ids";
+import type { AnyPlugin } from "./plugin";
+import { Scope } from "./scope";
 
 // ---------------------------------------------------------------------------
-// makeTestConfig — one-liner to build a test ExecutorConfig
+// makeTestConfig — build an ExecutorConfig backed by in-memory adapter +
+// blob store. For unit tests, plugin authors validating their plugin,
+// REPL experimentation. No persistence.
+//
+// Defaults to a single-element scope stack ("test-scope") — tests that
+// need multi-scope behavior can pass `scopes` explicitly.
 // ---------------------------------------------------------------------------
 
 export const makeTestConfig = <
-  const TPlugins extends readonly ExecutorPlugin<string, object>[] = [],
+  const TPlugins extends readonly AnyPlugin[] = [],
 >(options?: {
-  readonly cwd?: string;
+  readonly scopeName?: string;
+  readonly scopes?: readonly Scope[];
   readonly plugins?: TPlugins;
 }): ExecutorConfig<TPlugins> => {
-  const cwd = options?.cwd ?? "/test";
-  const scope: Scope = {
-    id: ScopeId.make("test-scope"),
-    name: cwd,
-    createdAt: new Date(),
-  };
+  const scopes =
+    options?.scopes ?? [
+      new Scope({
+        id: ScopeId.make("test-scope"),
+        name: options?.scopeName ?? "test",
+        createdAt: new Date(),
+      }),
+    ];
+
+  const schema = collectSchemas(options?.plugins ?? []);
 
   return {
-    scope,
-    tools: makeInMemoryToolRegistry(),
-    sources: makeInMemorySourceRegistry(),
-    secrets: makeInMemorySecretStore(),
-    policies: makeInMemoryPolicyEngine(),
-    executions: makeInMemoryExecutionStore(),
+    scopes,
+    adapter: makeMemoryAdapter({ schema }),
+    blobs: makeInMemoryBlobStore(),
     plugins: options?.plugins,
   };
 };

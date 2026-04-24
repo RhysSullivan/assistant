@@ -1,6 +1,6 @@
 {
   "name": "@executor/sdk",
-  "version": "0.0.1-beta.6",
+  "version": "0.0.1",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/sdk",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"
@@ -17,6 +17,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./core": "./src/index.ts",
     "./promise": "./src/promise.ts"
   },
   "publishConfig": {
@@ -43,6 +44,8 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
+    "@effect/platform": "catalog:",
+    "@executor/storage-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

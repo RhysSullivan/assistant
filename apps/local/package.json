@@ -1,6 +1,6 @@
 {
   "name": "@executor/local",
-  "version": "1.4.2",
+  "version": "1.4.4",
   "private": true,
   "type": "module",
   "exports": {
@@ -10,6 +10,10 @@
     "dev": "portless run --name executor-local bunx --bun vite dev",
     "build": "bunx --bun vite build",
     "start": "bun run src/serve.ts",
+    "db:schema": "node --import jiti/register ../../packages/core/cli/src/index.ts generate --config ./executor.config.ts --output ./src/server/executor-schema.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "test": "bunx --bun vitest run",
     "typecheck": "tsgo --noEmit",
     "typecheck:slow": "tsc --noEmit"
   },
@@ -17,8 +21,6 @@
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
-    "@effect/sql": "catalog:",
-    "@effect/sql-sqlite-bun": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/config": "workspace:*",
     "@executor/execution": "workspace:*",
@@ -31,10 +33,13 @@
     "@executor/plugin-onepassword": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
     "@executor/react": "workspace:*",
+    "@executor/runtime-quickjs": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@executor/storage-file": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tanstack/react-router": "catalog:",
+    "drizzle-orm": "catalog:",
+    "jsonc-parser": "^3.3.1",
     "effect": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
@@ -47,9 +52,12 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "bun-types": "catalog:",
+    "drizzle-kit": "catalog:",
+    "jiti": "^2.6.1",
     "portless": "^0.10.1",
     "react-grab": "^0.1.31",
     "typescript": "catalog:",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vitest": "catalog:"
   }
 }

@@ -8,4 +8,3 @@ export {
 } from "./executor";
 
 export { buildExecutorModule } from "./module-template";
-export { normalizeCode } from "./normalize";

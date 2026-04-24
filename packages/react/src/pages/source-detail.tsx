@@ -8,6 +8,7 @@ import {
   removeSource,
   refreshSource,
 } from "../api/atoms";
+import { sourceWriteKeys } from "../api/reactivity-keys";
 import { ToolTree } from "../components/tool-tree";
 import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
 import type { ToolSummary } from "../components/tool-tree";
@@ -15,6 +16,7 @@ import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin } from "../plugins/source-plugin";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
+import { Skeleton } from "../components/skeleton";
 
 export function SourceDetailPage(props: {
   namespace: string;
@@ -65,7 +67,7 @@ export function SourceDetailPage(props: {
     return tools.value.map((t) => ({
       id: t.id,
       name: t.name,
-      pluginKey: t.pluginKey,
+      pluginKey: t.pluginId,
       description: t.description,
     }));
   }, [tools]);
@@ -80,8 +82,8 @@ export function SourceDetailPage(props: {
     try {
       await doRemove({
         path: { scopeId, sourceId: namespace },
+        reactivityKeys: sourceWriteKeys,
       });
-      refreshSources();
       void navigate({ to: "/" });
     } catch {
       setDeleting(false);
@@ -94,9 +96,8 @@ export function SourceDetailPage(props: {
     try {
       await doRefresh({
         path: { scopeId, sourceId: namespace },
+        reactivityKeys: sourceWriteKeys,
       });
-      refreshTools();
-      refreshSources();
     } finally {
       setRefreshing(false);
     }
@@ -104,8 +105,6 @@ export function SourceDetailPage(props: {
 
   const handleEditSave = () => {
     setEditing(false);
-    refreshSources();
-    refreshTools();
   };
 
   return (
@@ -128,6 +127,12 @@ export function SourceDetailPage(props: {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          {editPlugin?.signIn && !editing && (
+            <Suspense fallback={null}>
+              <editPlugin.signIn sourceId={namespace} />
+            </Suspense>
+          )}
+
           {canEdit && editPlugin && !editing && (
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               Edit
@@ -190,46 +195,115 @@ export function SourceDetailPage(props: {
       {editing && editPlugin ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-2xl px-6 py-8">
-            <Suspense
-              fallback={<div className="p-6 text-sm text-muted-foreground">Loading...</div>}
-            >
+            <Suspense fallback={<EditFormSkeleton />}>
               <editPlugin.edit sourceId={namespace} onSave={handleEditSave} />
             </Suspense>
           </div>
         </div>
       ) : (
-        /* Content -- split pane */
-        Result.match(tools, {
-          onInitial: () => <div className="p-6 text-sm text-muted-foreground">Loading...</div>,
-          onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
-          onSuccess: () => (
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              {/* Left: tool tree */}
-              <div className="flex w-72 shrink-0 flex-col border-r border-border/60 lg:w-80 xl:w-[22rem]">
-                <ToolTree
-                  tools={sourceTools}
-                  selectedToolId={selectedToolId}
-                  onSelect={setSelectedToolId}
-                />
-              </div>
+        <>
+          {editPlugin?.summary && (
+            <Suspense fallback={null}>
+              <editPlugin.summary
+                sourceId={namespace}
+                variant="panel"
+                onAction={() => setEditing(true)}
+              />
+            </Suspense>
+          )}
 
-              {/* Right: tool detail */}
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                {selectedTool ? (
-                  <ToolDetail
-                    toolId={selectedTool.id}
-                    toolName={selectedTool.name}
-                    toolDescription={selectedTool.description}
-                    scopeId={scopeId}
+          {/* Content -- split pane */}
+          {Result.match(tools, {
+            onInitial: () => <SourceDetailSkeleton />,
+            onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
+            onSuccess: () => (
+              <div className="flex min-h-0 flex-1 overflow-hidden">
+                {/* Left: tool tree */}
+                <div className="flex w-72 shrink-0 flex-col border-r border-border/60 lg:w-80 xl:w-[22rem]">
+                  <ToolTree
+                    tools={sourceTools}
+                    selectedToolId={selectedToolId}
+                    onSelect={setSelectedToolId}
                   />
-                ) : (
-                  <ToolDetailEmpty hasTools={sourceTools.length > 0} />
-                )}
+                </div>
+
+                {/* Right: tool detail */}
+                <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                  {selectedTool ? (
+                    <ToolDetail
+                      toolId={selectedTool.id}
+                      toolName={selectedTool.name}
+                      toolDescription={selectedTool.description}
+                      scopeId={scopeId}
+                    />
+                  ) : (
+                    <ToolDetailEmpty hasTools={sourceTools.length > 0} />
+                  )}
+                </div>
               </div>
-            </div>
-          ),
-        })
+            ),
+          })}
+        </>
       )}
+    </div>
+  );
+}
+
+function SourceDetailSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      {/* Left: tool tree skeleton */}
+      <div className="flex w-72 shrink-0 flex-col gap-1 border-r border-border/60 p-3 lg:w-80 xl:w-[22rem]">
+        <Skeleton className="mb-2 h-8 w-full rounded-md" />
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+            <Skeleton className="size-4 shrink-0 rounded" />
+            <Skeleton
+              className="h-3.5"
+              style={{ width: `${55 + ((i * 13) % 35)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Right: tool detail skeleton */}
+      <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-hidden p-6">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-4 w-80" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-20 w-full rounded-md" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-20 w-full rounded-md" />
+        </div>
+        <Skeleton className="h-9 w-32 rounded-md" />
+      </div>
+    </div>
+  );
+}
+
+function EditFormSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 p-6">
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-9 w-full rounded-md" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-9 w-full rounded-md" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-24 w-full rounded-md" />
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <Skeleton className="h-9 w-20 rounded-md" />
+        <Skeleton className="h-9 w-24 rounded-md" />
+      </div>
     </div>
   );
 }

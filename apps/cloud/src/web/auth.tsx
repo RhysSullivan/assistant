@@ -1,5 +1,7 @@
 import React, { createContext, useContext } from "react";
+import { Atom } from "@effect-atom/atom";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { ReactivityKey } from "@executor/react/api/reactivity-keys";
 
 import { CloudApiClient } from "./client";
 
@@ -25,7 +27,18 @@ type AuthOrganization = {
 
 export const authAtom = CloudApiClient.query("cloudAuth", "me", {
   timeToLive: "5 minutes",
+  reactivityKeys: [ReactivityKey.auth],
 });
+
+export const organizationsAtom = Atom.refreshOnWindowFocus(
+  CloudApiClient.query("cloudAuth", "organizations", {
+    timeToLive: "1 minute",
+    reactivityKeys: [ReactivityKey.auth],
+  }),
+);
+
+export const switchOrganization = CloudApiClient.mutation("cloudAuth", "switchOrganization");
+export const createOrganization = CloudApiClient.mutation("cloudAuth", "createOrganization");
 
 // ---------------------------------------------------------------------------
 // Provider + hook

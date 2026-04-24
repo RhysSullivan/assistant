@@ -1,6 +1,6 @@
-import { googleDiscoveryPlugin as googleDiscoveryPluginEffect } from "./sdk/plugin";
-
+export { googleDiscoveryPlugin } from "./sdk/plugin";
 export type {
+  GoogleDiscoveryPluginExtension,
   GoogleDiscoveryAddSourceInput,
   GoogleDiscoveryProbeResult,
   GoogleDiscoveryOAuthStartInput,
@@ -8,12 +8,3 @@ export type {
   GoogleDiscoveryOAuthCompleteInput,
   GoogleDiscoveryOAuthAuthResult,
 } from "./sdk/plugin";
-
-export type { GoogleDiscoveryBindingStore } from "./sdk/binding-store";
-
-export interface GoogleDiscoveryPluginOptions {
-  readonly bindingStore?: import("./sdk/binding-store").GoogleDiscoveryBindingStore;
-}
-
-export const googleDiscoveryPlugin = (options?: GoogleDiscoveryPluginOptions) =>
-  googleDiscoveryPluginEffect(options);

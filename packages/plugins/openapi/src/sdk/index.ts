@@ -1,29 +1,74 @@
-export { parse } from "./parse";
+export { parse, resolveSpecText, fetchSpecText } from "./parse";
 export { extract } from "./extract";
-export { invoke, makeOpenApiInvoker } from "./invoke";
-export { openApiPlugin, type OpenApiSpecConfig, type OpenApiPluginExtension } from "./plugin";
 export {
-  type OpenApiOperationStore,
+  invoke,
+  invokeWithLayer,
+  resolveHeaders,
+  annotationsForOperation,
+} from "./invoke";
+export {
+  openApiPlugin,
+  type OpenApiSpecConfig,
+  type OpenApiPluginExtension,
+  type OpenApiPluginOptions,
+  type OpenApiUpdateSourceInput,
+  type OpenApiStartOAuthInput,
+  type OpenApiStartOAuthResponse,
+  type OpenApiCompleteOAuthInput,
+} from "./plugin";
+export {
+  openapiSchema,
+  type OpenapiSchema,
+  type OpenapiStore,
   type StoredOperation,
   type StoredSource,
   type SourceConfig,
-} from "./operation-store";
-export { makeKvOperationStore, makeInMemoryOperationStore } from "./kv-operation-store";
-export { withConfigFile } from "./config-file-store";
-export { previewSpec, SecurityScheme, AuthStrategy, HeaderPreset, SpecPreview } from "./preview";
-export { DocResolver, resolveBaseUrl, preferredContent } from "./openapi-utils";
-
-export { OpenApiParseError, OpenApiExtractionError, OpenApiInvocationError } from "./errors";
+  makeDefaultOpenapiStore,
+} from "./store";
+export {
+  previewSpec,
+  SecurityScheme,
+  AuthStrategy,
+  HeaderPreset,
+  OAuth2Preset,
+  OAuth2Flows,
+  OAuth2AuthorizationCodeFlow,
+  OAuth2ClientCredentialsFlow,
+  PreviewOperation,
+  SpecPreview,
+} from "./preview";
+export {
+  DocResolver,
+  resolveBaseUrl,
+  substituteUrlVariables,
+  preferredContent,
+} from "./openapi-utils";
 
 export {
+  OpenApiParseError,
+  OpenApiExtractionError,
+  OpenApiInvocationError,
+  OpenApiOAuthError,
+} from "./errors";
+
+export {
+  EncodingObject,
   ExtractedOperation,
   ExtractionResult,
   InvocationConfig,
   InvocationResult,
+  MediaBinding,
+  OAuth2Auth,
+  OAuth2SourceConfig,
+  OpenApiOAuthSession,
+  OpenApiSourceBindingInput,
+  OpenApiSourceBindingRef,
+  OpenApiSourceBindingValue,
   OperationBinding,
   OperationParameter,
   OperationRequestBody,
   ServerInfo,
+  ServerVariable,
   OperationId,
   HttpMethod,
   ParameterLocation,

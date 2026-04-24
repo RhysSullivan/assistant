@@ -1,6 +1,7 @@
 import { useState, Suspense } from "react";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
+import { secretWriteKeys } from "../api/reactivity-keys";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
 import { SecretId } from "@executor/sdk";
 import { useScope } from "../hooks/use-scope";
@@ -41,29 +42,43 @@ import {
 } from "../components/card-stack";
 import { Badge } from "../components/badge";
 
+type SecretStorageOption = {
+  readonly label: string;
+  readonly value: string;
+};
+
+const defaultStorageOptions: readonly SecretStorageOption[] = [
+  { value: "auto", label: "Auto" },
+  { value: "keychain", label: "Keychain" },
+  { value: "file", label: "File" },
+];
+
 // ---------------------------------------------------------------------------
 // Add secret dialog
 // ---------------------------------------------------------------------------
 
-function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => void }) {
+function AddSecretDialog(props: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  description: string;
+  storageOptions: readonly SecretStorageOption[];
+}) {
+  const initialProvider = props.storageOptions[0]?.value ?? "auto";
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
-  const [purpose, setPurpose] = useState("");
-  const [provider, setProvider] = useState("auto");
+  const [provider, setProvider] = useState(initialProvider);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const scopeId = useScope();
   const doSet = useAtomSet(setSecret, { mode: "promise" });
-  const refresh = useAtomRefresh(secretsAtom(scopeId));
 
   const reset = () => {
     setId("");
     setName("");
     setValue("");
-    setPurpose("");
-    setProvider("auto");
+    setProvider(initialProvider);
     setError(null);
     setSaving(false);
   };
@@ -79,13 +94,12 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
           id: SecretId.make(id.trim()),
           name: name.trim(),
           value: value.trim(),
-          purpose: purpose.trim() || undefined,
           provider: provider === "auto" ? undefined : provider,
         },
+        reactivityKeys: secretWriteKeys,
       });
       reset();
       props.onOpenChange(false);
-      refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save secret");
       setSaving(false);
@@ -104,8 +118,7 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
         <DialogHeader>
           <DialogTitle className="font-display text-xl">New secret</DialogTitle>
           <DialogDescription className="text-sm leading-relaxed">
-            Store a credential or API key. Values are kept in your system keychain when available,
-            with a local encrypted file fallback.
+            {props.description}
           </DialogDescription>
         </DialogHeader>
 
@@ -160,43 +173,29 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label
-                htmlFor="secret-purpose"
-                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-              >
-                Purpose{" "}
-                <span className="normal-case tracking-normal font-normal text-muted-foreground">
-                  (opt.)
-                </span>
-              </Label>
-              <Input
-                id="secret-purpose"
-                placeholder="GitHub API auth"
-                value={purpose}
-                onChange={(e) => setPurpose((e.target as HTMLInputElement).value)}
-                className="text-sm h-9"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label
-                htmlFor="secret-provider"
-                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-              >
-                Storage
-              </Label>
-              <Select value={provider} onValueChange={setProvider}>
-                <SelectTrigger id="secret-provider" className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Auto</SelectItem>
-                  <SelectItem value="keychain">Keychain</SelectItem>
-                  <SelectItem value="file">File</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid gap-3">
+            {props.storageOptions.length > 1 && (
+              <div className="grid gap-1.5">
+                <Label
+                  htmlFor="secret-provider"
+                  className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
+                >
+                  Storage
+                </Label>
+                <Select value={provider} onValueChange={setProvider}>
+                  <SelectTrigger id="secret-provider" className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {props.storageOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           {error && (
@@ -230,10 +229,11 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
 // ---------------------------------------------------------------------------
 
 function SecretRow(props: {
-  secret: { id: string; name: string; purpose?: string; provider?: string };
+  showProvider: boolean;
+  secret: { id: string; name: string; provider?: string };
   onRemove: () => void;
 }) {
-  const { secret } = props;
+  const { secret, showProvider } = props;
 
   return (
     <CardStackEntry>
@@ -241,14 +241,9 @@ function SecretRow(props: {
         <CardStackEntryTitle className="flex items-center gap-2">
           <span className="truncate">{secret.name}</span>
         </CardStackEntryTitle>
-        {secret.purpose && (
-          <CardStackEntryDescription>
-            <div className="flex gap-2 flex-col text-xs">{secret.purpose}</div>
-          </CardStackEntryDescription>
-        )}
       </CardStackEntryContent>
       <CardStackEntryActions>
-        {secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
+        {showProvider && secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -281,13 +276,22 @@ function SecretRow(props: {
 // Page
 // ---------------------------------------------------------------------------
 
-export function SecretsPage(props: { secretProviderPlugins: readonly SecretProviderPlugin[] }) {
+export function SecretsPage(props: {
+  addSecretDescription?: string;
+  showProviderInfo?: boolean;
+  secretProviderPlugins: readonly SecretProviderPlugin[];
+  storageOptions?: readonly SecretStorageOption[];
+}) {
+  const storageOptions = props.storageOptions ?? defaultStorageOptions;
+  const showProviderInfo = props.showProviderInfo ?? true;
+  const addSecretDescription =
+    props.addSecretDescription ??
+    "Store a credential or API key. Values are kept in your system keychain when available, with a local encrypted file fallback.";
   const { secretProviderPlugins } = props;
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
   const secrets = useAtomValue(secretsAtom(scopeId));
   const doRemove = useAtomSet(removeSecret, { mode: "promise" });
-  const refresh = useAtomRefresh(secretsAtom(scopeId));
 
   const handleRemove = async (secretId: string) => {
     try {
@@ -296,8 +300,8 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
           scopeId,
           secretId: SecretId.make(secretId),
         },
+        reactivityKeys: secretWriteKeys,
       });
-      refresh();
     } catch {
       // TODO: toast
     }
@@ -322,7 +326,7 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
         </div>
 
         {/* Provider plugins */}
-        {secretProviderPlugins.length > 0 && (
+        {showProviderInfo && secretProviderPlugins.length > 0 && (
           <div className="mb-10">
             <CardStack>
               <CardStackHeader>Providers</CardStackHeader>
@@ -383,10 +387,10 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
                   value.map((s) => (
                     <SecretRow
                       key={s.id}
+                      showProvider={showProviderInfo}
                       secret={{
                         id: s.id,
                         name: s.name,
-                        purpose: s.purpose,
                         provider: s.provider ? String(s.provider) : undefined,
                       }}
                       onRemove={() => handleRemove(s.id)}
@@ -398,7 +402,12 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
           ),
         })}
 
-        <AddSecretDialog open={addOpen} onOpenChange={setAddOpen} />
+        <AddSecretDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          description={addSecretDescription}
+          storageOptions={storageOptions}
+        />
       </div>
     </div>
   );

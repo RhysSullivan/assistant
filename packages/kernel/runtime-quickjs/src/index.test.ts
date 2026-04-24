@@ -32,6 +32,18 @@ describe("quickjs executor", () => {
     }),
   );
 
+  it.effect("recovers prose-wrapped fenced async arrow input", () =>
+    Effect.gen(function* () {
+      const result = yield* executor.execute(
+        ["Use this snippet.", "", "```ts", "async () => 42", "```"].join("\n"),
+        makeTestInvoker({}),
+      );
+
+      expect(result.result).toBe(42);
+      expect(result.error).toBeUndefined();
+    }),
+  );
+
   it.effect("invokes a tool and returns its result", () =>
     Effect.gen(function* () {
       const invoker = makeTestInvoker({

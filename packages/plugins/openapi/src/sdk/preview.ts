@@ -1,9 +1,39 @@
 import { Effect, Option } from "effect";
 import { Schema } from "effect";
 
-import { parse } from "./parse";
+import { parse, resolveSpecText, type ParsedDocument } from "./parse";
 import { extract } from "./extract";
-import type { ExtractionResult } from "./types";
+import { DocResolver } from "./openapi-utils";
+import { HttpMethod, ServerInfo, type ExtractionResult } from "./types";
+
+// ---------------------------------------------------------------------------
+// OAuth 2.0 flows — one entry per supported grant type
+// ---------------------------------------------------------------------------
+
+/** Scopes declared by a flow: `{ scopeName: description }` */
+const OAuth2Scopes = Schema.Record({ key: Schema.String, value: Schema.String });
+
+export class OAuth2AuthorizationCodeFlow extends Schema.Class<OAuth2AuthorizationCodeFlow>(
+  "OAuth2AuthorizationCodeFlow",
+)({
+  authorizationUrl: Schema.String,
+  tokenUrl: Schema.String,
+  refreshUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  scopes: OAuth2Scopes,
+}) {}
+
+export class OAuth2ClientCredentialsFlow extends Schema.Class<OAuth2ClientCredentialsFlow>(
+  "OAuth2ClientCredentialsFlow",
+)({
+  tokenUrl: Schema.String,
+  refreshUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  scopes: OAuth2Scopes,
+}) {}
+
+export class OAuth2Flows extends Schema.Class<OAuth2Flows>("OAuth2Flows")({
+  authorizationCode: Schema.optionalWith(OAuth2AuthorizationCodeFlow, { as: "Option" }),
+  clientCredentials: Schema.optionalWith(OAuth2ClientCredentialsFlow, { as: "Option" }),
+}) {}
 
 // ---------------------------------------------------------------------------
 // Security scheme — what the spec declares it needs
@@ -16,11 +46,17 @@ export class SecurityScheme extends Schema.Class<SecurityScheme>("SecurityScheme
   type: Schema.Literal("http", "apiKey", "oauth2", "openIdConnect"),
   /** For type: "http" — e.g. "bearer", "basic" */
   scheme: Schema.optionalWith(Schema.String, { as: "Option" }),
+  /** For type: "http" with scheme "bearer" — e.g. "JWT" */
+  bearerFormat: Schema.optionalWith(Schema.String, { as: "Option" }),
   /** For type: "apiKey" — where the key goes */
   in: Schema.optionalWith(Schema.Literal("header", "query", "cookie"), { as: "Option" }),
   /** For type: "apiKey" — the header/query/cookie name */
   headerName: Schema.optionalWith(Schema.String, { as: "Option" }),
   description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  /** For type: "oauth2" — declared flows (authorizationCode / clientCredentials only; implicit and password are deprecated). */
+  flows: Schema.optionalWith(OAuth2Flows, { as: "Option" }),
+  /** For type: "openIdConnect" — the discovery URL. */
+  openIdConnectUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -46,6 +82,40 @@ export class HeaderPreset extends Schema.Class<HeaderPreset>("HeaderPreset")({
 }) {}
 
 // ---------------------------------------------------------------------------
+// OAuth2 preset — derived from an oauth2 security scheme + a flow choice
+// ---------------------------------------------------------------------------
+
+export class OAuth2Preset extends Schema.Class<OAuth2Preset>("OAuth2Preset")({
+  /** Human-readable label for the UI (e.g. "OAuth2 (Authorization Code) — oauth_app") */
+  label: Schema.String,
+  /** The source security scheme this preset came from (components.securitySchemes key). */
+  securitySchemeName: Schema.String,
+  /** Which OAuth2 flow this preset uses. */
+  flow: Schema.Literal("authorizationCode", "clientCredentials"),
+  /** For authorizationCode: user-agent redirect URL (from the spec). */
+  authorizationUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  /** Token endpoint to exchange the code / refresh. */
+  tokenUrl: Schema.String,
+  /** Optional refresh endpoint if the spec declares one separately. */
+  refreshUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  /** Declared scopes for this flow: `{ scope: description }`. */
+  scopes: Schema.Record({ key: Schema.String, value: Schema.String }),
+}) {}
+
+// ---------------------------------------------------------------------------
+// Preview operation — lightweight shape for the add-source UI list
+// ---------------------------------------------------------------------------
+
+export class PreviewOperation extends Schema.Class<PreviewOperation>("PreviewOperation")({
+  operationId: Schema.String,
+  method: HttpMethod,
+  path: Schema.String,
+  summary: Schema.optionalWith(Schema.String, { as: "Option" }),
+  tags: Schema.Array(Schema.String),
+  deprecated: Schema.Boolean,
+}) {}
+
+// ---------------------------------------------------------------------------
 // Spec preview — everything the frontend needs
 // ---------------------------------------------------------------------------
 
@@ -53,25 +123,97 @@ export class SpecPreview extends Schema.Class<SpecPreview>("SpecPreview")({
   title: Schema.optionalWith(Schema.String, { as: "Option" }),
   version: Schema.optionalWith(Schema.String, { as: "Option" }),
   /** Reuses ServerInfo from extraction */
-  servers: Schema.Array(Schema.Unknown),
+  servers: Schema.Array(ServerInfo),
   operationCount: Schema.Number,
+  /** Lightweight operation list for the add-source UI */
+  operations: Schema.Array(PreviewOperation),
   tags: Schema.Array(Schema.String),
   securitySchemes: Schema.Array(SecurityScheme),
   /** Valid auth strategies (each is a set of schemes used together) */
   authStrategies: Schema.Array(AuthStrategy),
   /** Pre-built header presets derived from auth strategies */
   headerPresets: Schema.Array(HeaderPreset),
+  /** OAuth2 presets — one per (oauth2 scheme × supported flow) combination */
+  oauth2Presets: Schema.Array(OAuth2Preset),
 }) {}
 
 // ---------------------------------------------------------------------------
 // Security scheme extraction
 // ---------------------------------------------------------------------------
 
-const extractSecuritySchemes = (rawSchemes: Record<string, unknown>): SecurityScheme[] =>
+const stringRecord = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return out;
+};
+
+const extractFlows = (rawFlows: unknown): Option.Option<OAuth2Flows> => {
+  if (!rawFlows || typeof rawFlows !== "object") return Option.none();
+  const flows = rawFlows as Record<string, unknown>;
+
+  const parseFlow = <K extends "authorizationCode" | "clientCredentials">(
+    key: K,
+  ): unknown => flows[key];
+
+  let authorizationCode: Option.Option<OAuth2AuthorizationCodeFlow> = Option.none();
+  const authCodeRaw = parseFlow("authorizationCode");
+  if (authCodeRaw && typeof authCodeRaw === "object") {
+    const f = authCodeRaw as Record<string, unknown>;
+    const authUrl = typeof f.authorizationUrl === "string" ? f.authorizationUrl : null;
+    const tokenUrl = typeof f.tokenUrl === "string" ? f.tokenUrl : null;
+    if (authUrl && tokenUrl) {
+      authorizationCode = Option.some(
+        new OAuth2AuthorizationCodeFlow({
+          authorizationUrl: authUrl,
+          tokenUrl,
+          refreshUrl: Option.fromNullable(
+            typeof f.refreshUrl === "string" ? f.refreshUrl : undefined,
+          ),
+          scopes: stringRecord(f.scopes),
+        }),
+      );
+    }
+  }
+
+  let clientCredentials: Option.Option<OAuth2ClientCredentialsFlow> = Option.none();
+  const ccRaw = parseFlow("clientCredentials");
+  if (ccRaw && typeof ccRaw === "object") {
+    const f = ccRaw as Record<string, unknown>;
+    const tokenUrl = typeof f.tokenUrl === "string" ? f.tokenUrl : null;
+    if (tokenUrl) {
+      clientCredentials = Option.some(
+        new OAuth2ClientCredentialsFlow({
+          tokenUrl,
+          refreshUrl: Option.fromNullable(
+            typeof f.refreshUrl === "string" ? f.refreshUrl : undefined,
+          ),
+          scopes: stringRecord(f.scopes),
+        }),
+      );
+    }
+  }
+
+  if (Option.isNone(authorizationCode) && Option.isNone(clientCredentials)) {
+    return Option.none();
+  }
+  return Option.some(new OAuth2Flows({ authorizationCode, clientCredentials }));
+};
+
+const extractSecuritySchemes = (
+  rawSchemes: Record<string, unknown>,
+  resolver: DocResolver,
+): SecurityScheme[] =>
   Object.entries(rawSchemes).flatMap(([name, schemeOrRef]) => {
     if (!schemeOrRef || typeof schemeOrRef !== "object") return [];
-    const scheme = schemeOrRef as Record<string, unknown>;
-    if ("$ref" in scheme) return [];
+    // Resolve $ref so schemes defined via `$ref` aren't silently dropped.
+    const resolved = resolver.resolve<Record<string, unknown>>(
+      schemeOrRef as Record<string, unknown>,
+    );
+    if (!resolved || typeof resolved !== "object") return [];
+    const scheme = resolved;
 
     const type = scheme.type as string;
     if (!["http", "apiKey", "oauth2", "openIdConnect"].includes(type)) return [];
@@ -81,9 +223,14 @@ const extractSecuritySchemes = (rawSchemes: Record<string, unknown>): SecuritySc
         name,
         type: type as "http" | "apiKey" | "oauth2" | "openIdConnect",
         scheme: Option.fromNullable(scheme.scheme as string | undefined),
+        bearerFormat: Option.fromNullable(scheme.bearerFormat as string | undefined),
         in: Option.fromNullable(scheme.in as "header" | "query" | "cookie" | undefined),
         headerName: Option.fromNullable(scheme.name as string | undefined),
         description: Option.fromNullable(scheme.description as string | undefined),
+        flows: type === "oauth2" ? extractFlows(scheme.flows) : Option.none(),
+        openIdConnectUrl: Option.fromNullable(
+          scheme.openIdConnectUrl as string | undefined,
+        ),
       }),
     ];
   });
@@ -139,6 +286,50 @@ const buildHeaderPresets = (
 };
 
 // ---------------------------------------------------------------------------
+// OAuth2 preset builder
+// ---------------------------------------------------------------------------
+
+const buildOAuth2Presets = (schemes: readonly SecurityScheme[]): OAuth2Preset[] => {
+  const presets: OAuth2Preset[] = [];
+  for (const scheme of schemes) {
+    if (scheme.type !== "oauth2") continue;
+    if (Option.isNone(scheme.flows)) continue;
+    const flows = scheme.flows.value;
+
+    if (Option.isSome(flows.authorizationCode)) {
+      const flow = flows.authorizationCode.value;
+      presets.push(
+        new OAuth2Preset({
+          label: `OAuth2 Authorization Code · ${scheme.name}`,
+          securitySchemeName: scheme.name,
+          flow: "authorizationCode",
+          authorizationUrl: Option.some(flow.authorizationUrl),
+          tokenUrl: flow.tokenUrl,
+          refreshUrl: flow.refreshUrl,
+          scopes: flow.scopes,
+        }),
+      );
+    }
+
+    if (Option.isSome(flows.clientCredentials)) {
+      const flow = flows.clientCredentials.value;
+      presets.push(
+        new OAuth2Preset({
+          label: `OAuth2 Client Credentials · ${scheme.name}`,
+          securitySchemeName: scheme.name,
+          flow: "clientCredentials",
+          authorizationUrl: Option.none(),
+          tokenUrl: flow.tokenUrl,
+          refreshUrl: flow.refreshUrl,
+          scopes: flow.scopes,
+        }),
+      );
+    }
+  }
+  return presets;
+};
+
+// ---------------------------------------------------------------------------
 // Collect unique tags from extraction result
 // ---------------------------------------------------------------------------
 
@@ -155,26 +346,49 @@ const collectTags = (result: ExtractionResult): string[] => {
 // ---------------------------------------------------------------------------
 
 /** Preview an OpenAPI spec — extract metadata without registering anything.
- *  Reuses parse() + extract() for the heavy lifting. */
-export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (specText: string) {
-  const doc = yield* parse(specText);
+ *  Accepts either a URL or raw JSON/YAML text. */
+export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (input: string) {
+  const specText = yield* resolveSpecText(input);
+  const doc: ParsedDocument = yield* parse(specText);
   const result = yield* extract(doc);
 
-  const securitySchemes = extractSecuritySchemes(doc.components?.securitySchemes ?? {});
+  const resolver = new DocResolver(doc);
+  const securitySchemes = extractSecuritySchemes(
+    doc.components?.securitySchemes ?? {},
+    resolver,
+  );
 
   const rawSecurity = (doc.security ?? []) as Array<Record<string, unknown>>;
-  const authStrategies = rawSecurity.map(
+  const declaredStrategies = rawSecurity.map(
     (entry) => new AuthStrategy({ schemes: Object.keys(entry) }),
   );
+  // Fall back to one strategy per scheme when the spec only declares schemes
+  // under components (e.g. Sentry) so the user still sees auth options.
+  const authStrategies =
+    declaredStrategies.length > 0
+      ? declaredStrategies
+      : securitySchemes.map((scheme) => new AuthStrategy({ schemes: [scheme.name] }));
 
   return new SpecPreview({
     title: result.title,
     version: result.version,
-    servers: result.servers as unknown as readonly unknown[],
+    servers: result.servers,
     operationCount: result.operations.length,
+    operations: result.operations.map(
+      (op) =>
+        new PreviewOperation({
+          operationId: op.operationId,
+          method: op.method,
+          path: op.pathTemplate,
+          summary: op.summary,
+          tags: op.tags,
+          deprecated: op.deprecated,
+        }),
+    ),
     tags: collectTags(result),
     securitySchemes,
     authStrategies,
     headerPresets: buildHeaderPresets(securitySchemes, authStrategies),
+    oauth2Presets: buildOAuth2Presets(securitySchemes),
   });
 });

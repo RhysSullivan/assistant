@@ -1,32 +1,38 @@
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
 
-import {
-  type ScopeId,
-  type SecretId,
-  type ToolId,
-  ToolInvocationError,
-  ToolInvocationResult,
-  type ToolInvoker,
-} from "@executor/sdk";
+import type { PluginCtx, StorageFailure } from "@executor/sdk";
 
-import { GoogleDiscoveryInvocationError } from "./errors";
-import type { GoogleDiscoveryBindingStore } from "./binding-store";
+import {
+  GoogleDiscoveryInvocationError,
+  GoogleDiscoveryOAuthError,
+} from "./errors";
+import type { GoogleDiscoveryStore } from "./binding-store";
 import {
   GoogleDiscoveryInvocationResult,
-  GoogleDiscoveryStoredSourceData,
   type GoogleDiscoveryParameter,
+  type GoogleDiscoveryStoredSourceData,
 } from "./types";
-import { refreshAccessToken } from "./oauth";
-
-const OAUTH_REFRESH_SKEW_MS = 60_000;
 
 const SAFE_METHODS = new Set(["get", "head", "options"]);
 
+export const annotationsForOperation = (
+  method: string,
+  pathTemplate: string,
+): { requiresApproval?: boolean; approvalDescription?: string } => {
+  if (SAFE_METHODS.has(method.toLowerCase())) return {};
+  return {
+    requiresApproval: true,
+    approvalDescription: `${method.toUpperCase()} ${pathTemplate}`,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Path / query parameter helpers (unchanged from the old invoker)
+// ---------------------------------------------------------------------------
+
 const stringValuesFromParameter = (value: unknown, repeated: boolean): string[] => {
-  if (value === undefined || value === null) {
-    return [];
-  }
+  if (value === undefined || value === null) return [];
   if (Array.isArray(value)) {
     const normalized = value.flatMap((entry) =>
       entry === undefined || entry === null ? [] : [String(entry)],
@@ -69,173 +75,11 @@ const isJsonContentType = (contentType: string | null | undefined): boolean => {
   );
 };
 
-const resolveOAuthAccessToken = (input: {
-  sourceId: string;
-  source: GoogleDiscoveryStoredSourceData;
-  secrets: {
-    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
-    readonly set: (input: {
-      id: SecretId;
-      scopeId: ScopeId;
-      name: string;
-      value: string;
-      purpose?: string;
-    }) => Effect.Effect<unknown, unknown>;
-  };
-  scopeId: ScopeId;
-  bindingStore: GoogleDiscoveryBindingStore;
-}): Effect.Effect<string, ToolInvocationError> =>
-  Effect.gen(function* () {
-    if (input.source.auth.kind !== "oauth2") {
-      return "";
-    }
+// ---------------------------------------------------------------------------
+// HTTP request builder / executor
+// ---------------------------------------------------------------------------
 
-    const auth = input.source.auth;
-    const now = Date.now();
-    const needsRefresh =
-      auth.refreshTokenSecretId !== null &&
-      auth.expiresAt !== null &&
-      auth.expiresAt <= now + OAUTH_REFRESH_SKEW_MS;
-
-    if (!needsRefresh) {
-      return yield* input.secrets.resolve(auth.accessTokenSecretId as SecretId, input.scopeId).pipe(
-        Effect.mapError(
-          () =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: "Failed to resolve Google OAuth access token",
-              cause: undefined,
-            }),
-        ),
-      );
-    }
-
-    const refreshToken = yield* input.secrets
-      .resolve(auth.refreshTokenSecretId as SecretId, input.scopeId)
-      .pipe(
-        Effect.mapError(
-          () =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: "Failed to resolve Google OAuth refresh token",
-              cause: undefined,
-            }),
-        ),
-      );
-
-    const clientSecret =
-      auth.clientSecretSecretId === null
-        ? null
-        : yield* input.secrets.resolve(auth.clientSecretSecretId as SecretId, input.scopeId).pipe(
-            Effect.mapError(
-              () =>
-                new ToolInvocationError({
-                  toolId: "" as ToolId,
-                  message: "Failed to resolve Google OAuth client secret",
-                  cause: undefined,
-                }),
-            ),
-          );
-
-    const refreshed = yield* refreshAccessToken({
-      clientId: auth.clientId,
-      clientSecret,
-      refreshToken,
-      scopes: auth.scopes,
-    }).pipe(
-      Effect.mapError(
-        (error) =>
-          new ToolInvocationError({
-            toolId: "" as ToolId,
-            message: error.message,
-            cause: undefined,
-          }),
-      ),
-    );
-
-    yield* input.secrets
-      .set({
-        id: auth.accessTokenSecretId as SecretId,
-        scopeId: input.scopeId,
-        name: `${input.source.name} Access Token`,
-        value: refreshed.access_token,
-        purpose: "google_oauth_access_token",
-      })
-      .pipe(
-        Effect.mapError(
-          () =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: "Failed to persist refreshed Google OAuth access token",
-              cause: undefined,
-            }),
-        ),
-      );
-
-    let refreshTokenSecretId = auth.refreshTokenSecretId;
-    if (refreshed.refresh_token && auth.refreshTokenSecretId) {
-      yield* input.secrets
-        .set({
-          id: auth.refreshTokenSecretId as SecretId,
-          scopeId: input.scopeId,
-          name: `${input.source.name} Refresh Token`,
-          value: refreshed.refresh_token,
-          purpose: "google_oauth_refresh_token",
-        })
-        .pipe(
-          Effect.mapError(
-            () =>
-              new ToolInvocationError({
-                toolId: "" as ToolId,
-                message: "Failed to persist refreshed Google OAuth refresh token",
-                cause: undefined,
-              }),
-          ),
-        );
-      refreshTokenSecretId = auth.refreshTokenSecretId;
-    }
-
-    const updatedSource = new GoogleDiscoveryStoredSourceData({
-      ...input.source,
-      auth: {
-        kind: "oauth2",
-        clientId: auth.clientId,
-        clientSecretSecretId: auth.clientSecretSecretId,
-        accessTokenSecretId: auth.accessTokenSecretId,
-        refreshTokenSecretId,
-        tokenType: refreshed.token_type ?? auth.tokenType,
-        expiresAt:
-          typeof refreshed.expires_in === "number"
-            ? Date.now() + refreshed.expires_in * 1000
-            : auth.expiresAt,
-        scope: refreshed.scope ?? auth.scope,
-        scopes: auth.scopes,
-      },
-    });
-    yield* input.bindingStore.putSource({
-      namespace: input.sourceId,
-      name: input.source.name,
-      config: updatedSource,
-    });
-
-    return refreshed.access_token;
-  });
-
-export const annotationsForOperation = (
-  method: string,
-  pathTemplate: string,
-): {
-  requiresApproval?: boolean;
-  approvalDescription?: string;
-} => {
-  if (SAFE_METHODS.has(method.toLowerCase())) return {};
-  return {
-    requiresApproval: true,
-    approvalDescription: `${method.toUpperCase()} ${pathTemplate}`,
-  };
-};
-
-const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
+const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
   method: string;
   pathTemplate: string;
   parameters: readonly GoogleDiscoveryParameter[];
@@ -255,7 +99,6 @@ const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
 
   for (const parameter of input.parameters) {
     if (parameter.location === "path") continue;
-
     const values = stringValuesFromParameter(input.args[parameter.name], parameter.repeated);
     if (values.length === 0) {
       if (parameter.required) {
@@ -266,12 +109,10 @@ const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
       }
       continue;
     }
-
     if (parameter.location === "query") {
       for (const value of values) {
         requestUrl.searchParams.append(parameter.name, value);
       }
-      continue;
     }
   }
 
@@ -308,15 +149,25 @@ const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
   );
 
   const contentType = response.headers["content-type"] ?? null;
+  const mapBodyError = Effect.mapError(
+    (err: { readonly message?: string }) =>
+      new GoogleDiscoveryInvocationError({
+        message: `Failed to read response body: ${err.message ?? String(err)}`,
+        statusCode: Option.some(response.status),
+        cause: err,
+      }),
+  );
   const body =
     response.status === 204
       ? null
       : isJsonContentType(contentType)
-        ? yield* response.json.pipe(Effect.catchAll(() => response.text))
-        : yield* response.text;
+        ? yield* response.json.pipe(
+            Effect.catchAll(() => response.text),
+            mapBodyError,
+          )
+        : yield* response.text.pipe(mapBodyError);
 
   const ok = response.status >= 200 && response.status < 300;
-
   return new GoogleDiscoveryInvocationResult({
     status: response.status,
     headers: { ...response.headers },
@@ -325,92 +176,70 @@ const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
   });
 });
 
-export const makeGoogleDiscoveryInvoker = (input: {
-  readonly bindingStore: GoogleDiscoveryBindingStore;
-  readonly secrets: {
-    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
-    readonly set: (input: {
-      id: SecretId;
-      scopeId: ScopeId;
-      name: string;
-      value: string;
-      purpose?: string;
-    }) => Effect.Effect<unknown, unknown>;
-  };
-  readonly scopeId: ScopeId;
-  readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
-}): ToolInvoker => {
-  const httpClientLayer = input.httpClientLayer ?? FetchHttpClient.layer;
+// ---------------------------------------------------------------------------
+// Entry point — called from plugin.invokeTool.
+// ---------------------------------------------------------------------------
 
-  return {
-    resolveAnnotations: (toolId: ToolId) =>
-      Effect.gen(function* () {
-        const entry = yield* input.bindingStore.get(toolId);
-        if (!entry) return undefined;
-        return annotationsForOperation(entry.binding.method, entry.binding.pathTemplate);
-      }),
+export const invokeGoogleDiscoveryTool = (input: {
+  ctx: PluginCtx<GoogleDiscoveryStore>;
+  toolId: string;
+  /** Resolved owning scope of the tool row. */
+  toolScope: string;
+  args: unknown;
+  httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
+}): Effect.Effect<
+  GoogleDiscoveryInvocationResult,
+  | GoogleDiscoveryInvocationError
+  | GoogleDiscoveryOAuthError
+  | StorageFailure
+> =>
+  Effect.gen(function* () {
+    const entry = yield* input.ctx.storage.getBinding(input.toolId, input.toolScope);
+    if (!entry) {
+      return yield* Effect.fail(
+        new GoogleDiscoveryInvocationError({
+          message: `No Google Discovery operation found for tool "${input.toolId}"`,
+          statusCode: Option.none(),
+        }),
+      );
+    }
+    const stored = yield* input.ctx.storage.getSource(entry.namespace, input.toolScope);
+    if (!stored) {
+      return yield* Effect.fail(
+        new GoogleDiscoveryInvocationError({
+          message: `No Google Discovery source found for "${entry.namespace}"`,
+          statusCode: Option.none(),
+        }),
+      );
+    }
+    const source = stored.config;
 
-    invoke: (toolId: ToolId, args: unknown) =>
-      Effect.gen(function* () {
-        const entry = yield* input.bindingStore.get(toolId);
-        if (!entry) {
-          return yield* new ToolInvocationError({
-            toolId,
-            message: `No Google Discovery operation found for tool "${toolId}"`,
-            cause: undefined,
-          });
-        }
-
-        const source = yield* input.bindingStore.getSourceConfig(entry.namespace);
-        if (!source) {
-          return yield* new ToolInvocationError({
-            toolId,
-            message: `No Google Discovery source found for "${entry.namespace}"`,
-            cause: undefined,
-          });
-        }
-
-        const accessToken =
-          source.auth.kind === "oauth2"
-            ? yield* resolveOAuthAccessToken({
-                sourceId: entry.namespace,
-                source,
-                secrets: input.secrets,
-                scopeId: input.scopeId,
-                bindingStore: input.bindingStore,
-              })
-            : "";
-
-        const authHeader =
-          source.auth.kind === "oauth2" ? `${source.auth.tokenType} ${accessToken}` : undefined;
-
-        const result = yield* invoke({
-          method: entry.binding.method,
-          pathTemplate: entry.binding.pathTemplate,
-          parameters: entry.binding.parameters,
-          hasBody: entry.binding.hasBody,
-          source,
-          args: (args ?? {}) as Record<string, unknown>,
-          authorizationHeader: authHeader,
-        }).pipe(Effect.provide(httpClientLayer));
-
-        return new ToolInvocationResult({
-          data: result.data,
-          error: result.error,
-          status: result.status,
-        });
-      }).pipe(
-        Effect.catchAll((error) =>
-          error instanceof ToolInvocationError
-            ? Effect.fail(error)
-            : Effect.fail(
-                new ToolInvocationError({
-                  toolId,
-                  message: error instanceof Error ? error.message : String(error),
-                  cause: undefined,
-                }),
+    const authHeader =
+      source.auth.kind === "oauth2"
+        ? `Bearer ${yield* input.ctx.connections
+            .accessToken(source.auth.connectionId)
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new GoogleDiscoveryOAuthError({
+                    message:
+                      "message" in err
+                        ? (err as { message: string }).message
+                        : String(err),
+                  }),
               ),
-        ),
-      ),
-  };
-};
+            )}`
+        : undefined;
+
+    const layer = input.httpClientLayer ?? FetchHttpClient.layer;
+
+    return yield* performRequest({
+      method: entry.binding.method,
+      pathTemplate: entry.binding.pathTemplate,
+      parameters: entry.binding.parameters,
+      hasBody: entry.binding.hasBody,
+      source,
+      args: (input.args ?? {}) as Record<string, unknown>,
+      authorizationHeader: authHeader,
+    }).pipe(Effect.provide(layer));
+  });

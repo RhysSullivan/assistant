@@ -1,7 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
+import {
+  recoverExecutionBody,
+  type CodeExecutor,
+  type ExecuteResult,
+  type SandboxToolInvoker,
+} from "@executor/codemode-core";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
@@ -83,9 +88,12 @@ const defaultDenoExecutable = (): string => {
   const configured = process.env.DENO_BIN?.trim();
   if (configured) return configured;
 
-  const home = process.env.HOME?.trim();
+  const isWindows = process.platform === "win32";
+  const home = (process.env.HOME || process.env.USERPROFILE)?.trim();
   if (home) {
-    const installedPath = `${home}/.deno/bin/deno`;
+    const installedPath = isWindows
+      ? `${home}\\.deno\\bin\\deno.exe`
+      : `${home}/.deno/bin/deno`;
     const result = spawnSync(installedPath, ["--version"], {
       stdio: "ignore",
       timeout: 5000,
@@ -102,8 +110,6 @@ const defaultDenoExecutable = (): string => {
 
 const resolveWorkerScriptPath = (): string => {
   const moduleUrl = String(import.meta.url);
-  if (moduleUrl.startsWith("/")) return moduleUrl;
-
   try {
     const workerUrl = new URL("./deno-subprocess-worker.mjs", moduleUrl);
     if (workerUrl.protocol === "file:") return fileURLToPath(workerUrl);
@@ -151,6 +157,7 @@ const executeInDeno = (
   toolInvoker: SandboxToolInvoker,
   options: DenoSubprocessExecutorOptions,
 ): Effect.Effect<ExecuteResult, never> => {
+  const recoveredBody = recoverExecutionBody(code);
   const denoExecutable = options.denoExecutable ?? defaultDenoExecutable();
   const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
@@ -217,7 +224,7 @@ const executeInDeno = (
     });
 
     // Send code to the subprocess
-    writeMessage(worker.stdin, { type: "start", code });
+    writeMessage(worker.stdin, { type: "start", code: recoveredBody });
 
     // Set up timeout — kills process and completes the deferred
     const timer = setTimeout(() => {
@@ -324,7 +331,7 @@ export const isDenoAvailable = (executable: string = defaultDenoExecutable()): b
 
 export const makeDenoSubprocessExecutor = (
   options: DenoSubprocessExecutorOptions = {},
-): CodeExecutor => ({
+): CodeExecutor<never> => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     executeInDeno(code, toolInvoker, options),
 });

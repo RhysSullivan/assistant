@@ -1,29 +1,35 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
+import { ToolId, ToolNotFoundError } from "@executor/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
+import { capture } from "@executor/api";
 
 export const ToolsHandlers = HttpApiBuilder.group(ExecutorApi, "tools", (handlers) =>
   handlers
     .handle("list", () =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         const tools = yield* executor.tools.list();
         return tools.map((t) => ({
-          id: t.id,
-          pluginKey: t.pluginKey,
+          id: ToolId.make(t.id),
+          pluginId: t.pluginId,
           sourceId: t.sourceId,
           name: t.name,
           description: t.description,
-          mayElicit: t.mayElicit,
+          mayElicit: t.annotations?.mayElicit,
         }));
-      }),
+      })),
     )
     .handle("schema", ({ path }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        return yield* executor.tools.schema(path.toolId);
-      }),
+        const schema = yield* executor.tools.schema(path.toolId);
+        if (schema === null) {
+          return yield* Effect.fail(new ToolNotFoundError({ toolId: path.toolId }));
+        }
+        return schema;
+      })),
     ),
 );

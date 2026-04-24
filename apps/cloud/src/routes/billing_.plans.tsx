@@ -10,25 +10,28 @@ export const Route = createFileRoute("/billing_/plans")({
   component: PlansPage,
 });
 
-const PLAN_META: Record<string, { tagline: string; features: string[] }> = {
+const PLAN_META: Record<
+  string,
+  { tagline: string; inherits?: string; features: string[] }
+> = {
   hobby: {
     tagline: "For individuals and small teams",
     features: [
-      "50,000 executions / month",
+      "50,000 included executions per seat",
       "Up to 5 seats",
       "60s execution timeout",
       "Unlimited sources",
-      "$1 per 10,000 extra executions",
+      "$0.30 per 1,000 extra executions",
     ],
   },
   professional: {
     tagline: "For teams that need more",
+    inherits: "Hobby",
     features: [
-      "100,000 executions / month",
+      "100,000 included executions per seat",
       "Unlimited seats",
       "5 minute execution timeout",
-      "Unlimited sources",
-      "$1 per 10,000 extra executions",
+      "Join by team domain",
     ],
   },
 };
@@ -40,6 +43,29 @@ const ACTION_LABELS: Record<string, string> = {
   none: "Current plan",
   purchase: "Purchase",
 };
+
+const ENTERPRISE_FEATURES = [
+  "Self-hosted or dedicated cloud deployment",
+  "SSO / SAML & SCIM provisioning",
+  "Audit logs for every tool call",
+  "Dedicated support & onboarding",
+  "Security reviews, DPA & SOC 2 on request",
+];
+
+const ENTERPRISE_MAILTO = `mailto:rhys@executor.sh?subject=${encodeURIComponent(
+  "Executor Enterprise inquiry",
+)}&body=${encodeURIComponent(
+  [
+    "Hi,",
+    "",
+    "We're interested in Executor Enterprise.",
+    "",
+    "Company:",
+    "Team size:",
+    "Use case:",
+    "Requirements (SSO, self-hosted, compliance, etc.):",
+  ].join("\n"),
+)}`;
 
 function PlansPage() {
   const { attach, openCustomerPortal, isLoading: customerLoading } = useCustomer();
@@ -54,7 +80,7 @@ function PlansPage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
+      <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10 lg:py-14">
         <div className="mb-8">
           <Link
             to="/billing"
@@ -80,14 +106,15 @@ function PlansPage() {
         </div>
 
         {isLoading ? (
-          <div className="grid gap-4 grid-cols-2">
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
+            <div className="h-64 animate-pulse rounded-xl bg-muted" />
             <div className="h-64 animate-pulse rounded-xl bg-muted" />
             <div className="h-64 animate-pulse rounded-xl bg-muted" />
           </div>
         ) : (
           <div
             className={[
-              "grid gap-4 grid-cols-2 transition-opacity",
+              "grid gap-4 grid-cols-1 md:grid-cols-3 transition-opacity",
               isFetching ? "opacity-50 pointer-events-none" : "",
             ].join(" ")}
           >
@@ -110,7 +137,7 @@ function PlansPage() {
                   className={[
                     "flex flex-col rounded-xl border p-5",
                     isCurrent
-                      ? "border-amber-500/30 bg-amber-500/[0.03]"
+                      ? "border-emerald-500/30 bg-emerald-500/[0.03]"
                       : isScheduled
                         ? "border-emerald-500/30 bg-emerald-500/[0.03]"
                         : "border-border",
@@ -121,7 +148,7 @@ function PlansPage() {
                       {plan.name}
                     </p>
                     {isCurrent && (
-                      <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                      <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                         Your plan
                       </Badge>
                     )}
@@ -184,7 +211,18 @@ function PlansPage() {
                     )}
                   </div>
 
-                  <ul role="list" className="mt-5 space-y-2">
+                  {meta.inherits && (
+                    <p className="mt-5 text-xs font-medium text-foreground">
+                      Everything in {meta.inherits}, plus
+                    </p>
+                  )}
+                  <ul
+                    role="list"
+                    className={[
+                      "space-y-2",
+                      meta.inherits ? "mt-2" : "mt-5",
+                    ].join(" ")}
+                  >
                     {meta.features.map((f) => (
                       <li
                         key={f}
@@ -210,6 +248,59 @@ function PlansPage() {
                 </div>
               );
             })}
+
+            <div className="flex flex-col rounded-xl border border-border p-5">
+              <div className="flex items-center justify-between">
+                <p className="text-base font-semibold text-foreground leading-none">
+                  Enterprise
+                </p>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                For orgs with custom needs
+              </p>
+
+              <div className="mt-4 flex items-baseline gap-1.5">
+                <span className="text-2xl font-semibold text-foreground tabular-nums">
+                  Custom
+                </span>
+              </div>
+
+              <div className="mt-4">
+                <a
+                  href={ENTERPRISE_MAILTO}
+                  className="flex h-9 w-full items-center justify-center rounded-md border border-border bg-background text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  Contact us
+                </a>
+              </div>
+
+              <p className="mt-5 text-xs font-medium text-foreground">
+                Everything in Professional, plus
+              </p>
+              <ul role="list" className="mt-2 space-y-2">
+                {ENTERPRISE_FEATURES.map((f) => (
+                  <li
+                    key={f}
+                    className="flex items-start gap-2 text-xs text-muted-foreground"
+                  >
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      className="mt-px size-3.5 shrink-0 text-primary/60"
+                    >
+                      <path
+                        d="M3.5 8.5L6.5 11.5L12.5 5"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
       </div>

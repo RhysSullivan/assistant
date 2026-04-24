@@ -1,101 +1,114 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Fiber, Schema } from "effect";
+import { Effect, Fiber } from "effect";
 
 import {
   ElicitationResponse,
-  ExecutionId,
-  Source,
+  FormElicitation,
   createExecutor,
-  inMemoryToolsPlugin,
+  definePlugin,
   makeTestConfig,
-  tool,
 } from "@executor/sdk";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
 
-const EmptyInput = Schema.Struct({});
-const RepoInput = Schema.Struct({
-  owner: Schema.String,
-  repo: Schema.String,
-});
-const ContactInput = Schema.Struct({
-  email: Schema.String,
-});
+const codeExecutor = makeQuickJsExecutor();
 
-import { FormElicitation } from "@executor/sdk";
+const RepoInputSchema = {
+  type: "object",
+  properties: {
+    owner: { type: "string" },
+    repo: { type: "string" },
+  },
+  required: ["owner", "repo"],
+  additionalProperties: false,
+} as const;
+
+const ContactInputSchema = {
+  type: "object",
+  properties: {
+    email: { type: "string" },
+  },
+  required: ["email"],
+  additionalProperties: false,
+} as const;
+
+const EmptyInputSchema = {
+  type: "object",
+  properties: {},
+  additionalProperties: false,
+} as const;
 
 const acceptAll = () => Effect.succeed(new ElicitationResponse({ action: "accept" }));
 
+// ---------------------------------------------------------------------------
+// Test plugins — each one declares a namespace as a static source with N
+// tools. Handlers return static data; the suite only cares about discovery
+// + elicitation flow, not real invocation semantics.
+// ---------------------------------------------------------------------------
+
+const githubPlugin = definePlugin(() => ({
+  id: "github-test" as const,
+  storage: () => ({}),
+  staticSources: () => [
+    {
+      id: "github",
+      kind: "in-memory",
+      name: "GitHub",
+      tools: [
+        {
+          name: "listRepositoryIssues",
+          description: "List issues for a repository",
+          inputSchema: RepoInputSchema,
+          handler: () => Effect.succeed([]),
+        },
+        {
+          name: "getRepositoryDetails",
+          description: "Get repository details including the default branch",
+          inputSchema: RepoInputSchema,
+          handler: () => Effect.succeed({ defaultBranch: "main" }),
+        },
+        {
+          name: "searchDocs",
+          description: "Search GitHub API documentation",
+          inputSchema: EmptyInputSchema,
+          handler: () => Effect.succeed([]),
+        },
+      ],
+    },
+  ],
+}));
+
+const crmPlugin = definePlugin(() => ({
+  id: "crm-test" as const,
+  storage: () => ({}),
+  staticSources: () => [
+    {
+      id: "crm",
+      kind: "in-memory",
+      name: "CRM",
+      tools: [
+        {
+          name: "createContact",
+          description: "Create a CRM contact record",
+          inputSchema: ContactInputSchema,
+          handler: () => Effect.succeed({ id: "contact_1" }),
+        },
+        {
+          name: "listContacts",
+          description: "List CRM contacts",
+          inputSchema: EmptyInputSchema,
+          handler: () => Effect.succeed([]),
+        },
+      ],
+    },
+  ],
+}));
+
 const makeSearchExecutor = () =>
-  Effect.gen(function* () {
-    const config = makeTestConfig({
-      plugins: [
-        inMemoryToolsPlugin({
-          namespace: "github",
-          tools: [
-            tool({
-              name: "listRepositoryIssues",
-              description: "List issues for a repository",
-              inputSchema: RepoInput,
-              handler: () => [],
-            }),
-            tool({
-              name: "getRepositoryDetails",
-              description: "Get repository details including the default branch",
-              inputSchema: RepoInput,
-              handler: () => ({ defaultBranch: "main" }),
-            }),
-            tool({
-              name: "searchDocs",
-              description: "Search GitHub API documentation",
-              inputSchema: EmptyInput,
-              handler: () => [],
-            }),
-          ],
-        }),
-        inMemoryToolsPlugin({
-          namespace: "crm",
-          tools: [
-            tool({
-              name: "createContact",
-              description: "Create a CRM contact record",
-              inputSchema: ContactInput,
-              handler: () => ({ id: "contact_1" }),
-            }),
-            tool({
-              name: "listContacts",
-              description: "List CRM contacts",
-              inputSchema: EmptyInput,
-              handler: () => [],
-            }),
-          ],
-        }),
-      ] as const,
-    });
-
-    yield* config.sources.registerRuntime(
-      new Source({
-        id: "github",
-        name: "GitHub",
-        kind: "in-memory",
-        runtime: true,
-        canRemove: false,
-        canRefresh: false,
-      }),
-    );
-    yield* config.sources.registerRuntime(
-      new Source({
-        id: "crm",
-        name: "CRM",
-        kind: "in-memory",
-        runtime: true,
-        canRemove: false,
-        canRefresh: false,
-      }),
-    );
-
-    return yield* createExecutor(config);
-  });
+  createExecutor(
+    makeTestConfig({ plugins: [githubPlugin(), crmPlugin()] as const }),
+  );
 
 describe("tool discovery", () => {
   it.effect("ranks matches using ids, namespaces, camelCase names, and descriptions", () =>
@@ -137,11 +150,9 @@ describe("tool discovery", () => {
       });
       expect(crmOnly.map((match) => match.path)).toEqual(["crm.listContacts"]);
 
-      const sandboxResult = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute(
-          'return await tools.search({ namespace: "crm", query: "create contact", limit: 5 });',
-          { onElicitation: acceptAll },
-        ),
+      const sandboxResult = yield* createExecutionEngine({ executor, codeExecutor }).execute(
+        'return await tools.search({ namespace: "crm", query: "create contact", limit: 5 });',
+        { onElicitation: acceptAll },
       );
       expect(sandboxResult.error).toBeUndefined();
       expect(sandboxResult.result).toEqual([
@@ -154,10 +165,9 @@ describe("tool discovery", () => {
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
 
-      const listed = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute("return await tools.executor.sources.list();", {
-          onElicitation: acceptAll,
-        }),
+      const listed = yield* createExecutionEngine({ executor, codeExecutor }).execute(
+        "return await tools.executor.sources.list();",
+        { onElicitation: acceptAll },
       );
       expect(listed.error).toBeUndefined();
       expect(listed.result).toEqual(
@@ -167,11 +177,9 @@ describe("tool discovery", () => {
         ]),
       );
 
-      const searched = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute(
-          'return await tools.search({ query: "list contacts", namespace: "crm", limit: 5 });',
-          { onElicitation: acceptAll },
-        ),
+      const searched = yield* createExecutionEngine({ executor, codeExecutor }).execute(
+        'return await tools.search({ query: "list contacts", namespace: "crm", limit: 5 });',
+        { onElicitation: acceptAll },
       );
       expect(searched.error).toBeUndefined();
       expect(searched.result).toEqual([expect.objectContaining({ path: "crm.listContacts" })]);
@@ -182,78 +190,63 @@ describe("tool discovery", () => {
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
 
-      const withoutSchemas = yield* describeTool(executor, "github.listRepositoryIssues");
-      expect(withoutSchemas).toEqual({
-        path: "github.listRepositoryIssues",
-        name: "listRepositoryIssues",
-        description: "List issues for a repository",
-        inputTypeScript: "{ owner: string; repo: string }",
-        outputTypeScript: undefined,
-        typeScriptDefinitions: undefined,
-      });
-
-      const withSchemas = yield* describeTool(executor, "github.listRepositoryIssues");
-      expect(withSchemas.path).toBe("github.listRepositoryIssues");
-      expect(withSchemas.inputTypeScript).toBe("{ owner: string; repo: string }");
-      expect(withSchemas.typeScriptDefinitions).toBeUndefined();
-      expect(withSchemas.outputTypeScript).toBeUndefined();
+      const described = yield* describeTool(executor, "github.listRepositoryIssues");
+      expect(described.path).toBe("github.listRepositoryIssues");
+      expect(described.name).toBe("listRepositoryIssues");
+      expect(described.description).toBe("List issues for a repository");
+      expect(described.inputTypeScript).toBe("{ owner: string; repo: string }");
+      expect(described.outputTypeScript).toBeUndefined();
+      expect(described.typeScriptDefinitions).toBeUndefined();
     }),
   );
 
   it.effect("rejects malformed discover calls inside the sandbox", () =>
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
-      const engine = createExecutionEngine({ executor });
+      const engine = createExecutionEngine({ executor, codeExecutor });
 
-      const invalid = yield* Effect.promise(() =>
-        engine.execute(
-          [
-            "try {",
-            '  await tools.search("github issues");',
-            '  return "unexpected";',
-            "} catch (error) {",
-            "  return error instanceof Error ? error.message : String(error);",
-            "}",
-          ].join("\n"),
-          { onElicitation: acceptAll },
-        ),
+      const invalid = yield* engine.execute(
+        [
+          "try {",
+          '  await tools.search("github issues");',
+          '  return "unexpected";',
+          "} catch (error) {",
+          "  return error instanceof Error ? error.message : String(error);",
+          "}",
+        ].join("\n"),
+        { onElicitation: acceptAll },
       );
       expect(invalid.error).toBeUndefined();
       expect(String(invalid.result)).toContain(
         "tools.search expects an object: { query?: string; namespace?: string; limit?: number }",
       );
 
-      const emptyQuery = yield* Effect.promise(() =>
-        engine.execute('return await tools.search({ query: "", limit: 5 });', {
-          onElicitation: acceptAll,
-        }),
+      const emptyQuery = yield* engine.execute(
+        'return await tools.search({ query: "", limit: 5 });',
+        { onElicitation: acceptAll },
       );
       expect(emptyQuery.error).toBeUndefined();
       expect(emptyQuery.result).toEqual([]);
 
-      const invalidDescribe = yield* Effect.promise(() =>
-        engine.execute(
-          [
-            "try {",
-            '  await tools.describe.tool({ path: "github.listRepositoryIssues", includeSchemas: true });',
-            '  return "unexpected";',
-            "} catch (error) {",
-            "  return error instanceof Error ? error.message : String(error);",
-            "}",
-          ].join("\n"),
-          { onElicitation: acceptAll },
-        ),
+      const invalidDescribe = yield* engine.execute(
+        [
+          "try {",
+          '  await tools.describe.tool({ path: "github.listRepositoryIssues", includeSchemas: true });',
+          '  return "unexpected";',
+          "} catch (error) {",
+          "  return error instanceof Error ? error.message : String(error);",
+          "}",
+        ].join("\n"),
+        { onElicitation: acceptAll },
       );
       expect(invalidDescribe.error).toBeUndefined();
       expect(String(invalidDescribe.result)).toContain(
         "tools.describe.tool no longer accepts includeSchemas",
       );
 
-      const invalidSearch = yield* Effect.promise(() =>
-        engine.execute(
-          'try { return await tools.search("crm"); } catch (error) { return error instanceof Error ? error.message : String(error); }',
-          { onElicitation: acceptAll },
-        ),
+      const invalidSearch = yield* engine.execute(
+        'try { return await tools.search("crm"); } catch (error) { return error instanceof Error ? error.message : String(error); }',
+        { onElicitation: acceptAll },
       );
       expect(invalidSearch.error).toBeUndefined();
       expect(String(invalidSearch.result)).toContain("tools.search expects an object");
@@ -265,81 +258,71 @@ describe("tool discovery", () => {
 // pause/resume — multiple elicitations in a single execution
 // ---------------------------------------------------------------------------
 
+const apiPlugin = definePlugin(() => ({
+  id: "api-test" as const,
+  storage: () => ({}),
+  staticSources: () => [
+    {
+      id: "api",
+      kind: "in-memory",
+      name: "API",
+      tools: [
+        {
+          name: "multiApproval",
+          description: "A tool that elicits twice",
+          inputSchema: EmptyInputSchema,
+          handler: ({ elicit }) =>
+            Effect.gen(function* () {
+              const r1 = yield* elicit(
+                new FormElicitation({
+                  message: "First approval",
+                  requestedSchema: {},
+                }),
+              );
+              const r2 = yield* elicit(
+                new FormElicitation({
+                  message: "Second approval",
+                  requestedSchema: {},
+                }),
+              );
+              return { first: r1, second: r2 };
+            }),
+        },
+        {
+          name: "singleApproval",
+          description:
+            "A tool that elicits exactly once and then returns a value. Mirrors the shape of a typical `gmail.users.labels.create` style operation: one approval, one side effect, one success response.",
+          inputSchema: EmptyInputSchema,
+          handler: ({ elicit }) =>
+            Effect.gen(function* () {
+              const r = yield* elicit(
+                new FormElicitation({
+                  message: "Only approval",
+                  requestedSchema: {},
+                }),
+              );
+              return { ok: true, response: r };
+            }),
+        },
+      ],
+    },
+  ],
+}));
+
 describe("pause/resume with multiple elicitations", () => {
   const makeElicitingExecutor = () =>
-    Effect.gen(function* () {
-      const config = makeTestConfig({
-        plugins: [
-          inMemoryToolsPlugin({
-            namespace: "api",
-            tools: [
-              tool({
-                name: "multiApproval",
-                description: "A tool that elicits twice",
-                inputSchema: EmptyInput,
-                handler: (_args, ctx) =>
-                  Effect.gen(function* () {
-                    const r1 = yield* ctx.elicit(
-                      new FormElicitation({
-                        message: "First approval",
-                        requestedSchema: {},
-                      }),
-                    );
-                    const r2 = yield* ctx.elicit(
-                      new FormElicitation({
-                        message: "Second approval",
-                        requestedSchema: {},
-                      }),
-                    );
-                    return { first: r1, second: r2 };
-                  }),
-              }),
-              tool({
-                name: "singleApproval",
-                description:
-                  "A tool that elicits exactly once and then returns a value. Mirrors the shape of a typical `gmail.users.labels.create` style operation: one approval, one side effect, one success response.",
-                inputSchema: EmptyInput,
-                handler: (_args, ctx) =>
-                  Effect.gen(function* () {
-                    const r = yield* ctx.elicit(
-                      new FormElicitation({
-                        message: "Only approval",
-                        requestedSchema: {},
-                      }),
-                    );
-                    return { ok: true, response: r };
-                  }),
-              }),
-            ],
-          }),
-        ] as const,
-      });
-
-      yield* config.sources.registerRuntime(
-        new Source({
-          id: "api",
-          name: "API",
-          kind: "in-memory",
-          runtime: true,
-          canRemove: false,
-          canRefresh: false,
-        }),
-      );
-
-      return yield* createExecutor(config);
-    });
+    createExecutor(makeTestConfig({ plugins: [apiPlugin()] as const }));
 
   it.effect(
     "resume does not hang when execution hits a second elicitation",
     () =>
       Effect.gen(function* () {
         const executor = yield* makeElicitingExecutor();
-        const engine = createExecutionEngine({ executor });
+        const engine = createExecutionEngine({ executor, codeExecutor });
 
         const code = "return await tools.api.multiApproval({});";
 
-        // First executeWithPause — should pause on first elicitation
-        const outcome1 = yield* Effect.promise(() => engine.executeWithPause(code));
+        const outcome1 = yield* engine.executeWithPause(code);
         expect(outcome1.status).toBe("paused");
         const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
         expect(paused1.execution.elicitationContext.request.message).toBe("First approval");
@@ -349,7 +332,7 @@ describe("pause/resume with multiple elicitations", () => {
         // result or the completion).
         const outcome2 = yield* Effect.promise(() =>
           Promise.race([
-            engine.resume(paused1.execution.id, { action: "accept" }),
+            Effect.runPromise(engine.resume(paused1.execution.id, { action: "accept" })),
             new Promise<never>((_, reject) =>
               setTimeout(
                 () => reject(new Error("resume hung — second elicitation not surfaced")),
@@ -369,11 +352,11 @@ describe("pause/resume with multiple elicitations", () => {
   // sandbox fiber.
   it("resume returns across separate runPromise boundaries for a single-elicit tool (HTTP-like)", async () => {
     const executor = await Effect.runPromise(makeElicitingExecutor());
-    const engine = createExecutionEngine({ executor });
+    const engine = createExecutionEngine({ executor, codeExecutor });
 
     const code = "return await tools.api.singleApproval({});";
 
-    const outcome1 = await engine.executeWithPause(code);
+    const outcome1 = await Effect.runPromise(engine.executeWithPause(code));
     expect(outcome1.status).toBe("paused");
     const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
     expect(paused1.execution.elicitationContext.request.message).toBe("Only approval");
@@ -394,7 +377,7 @@ describe("pause/resume with multiple elicitations", () => {
     expect(exitProbe).toBe("still-running");
 
     const outcome2 = await Promise.race([
-      engine.resume(paused1.execution.id, { action: "accept" }),
+      Effect.runPromise(engine.resume(paused1.execution.id, { action: "accept" })),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("resume hung across runPromise boundaries")), 2000),
       ),
@@ -408,250 +391,4 @@ describe("pause/resume with multiple elicitations", () => {
       expect(resumed.result.result).toMatchObject({ ok: true });
     }
   }, 10000);
-});
-
-describe("execution history persistence", () => {
-  const makeHistoryExecutor = () =>
-    Effect.gen(function* () {
-      const config = makeTestConfig({
-        plugins: [
-          inMemoryToolsPlugin({
-            namespace: "api",
-            tools: [
-              tool({
-                name: "singleApproval",
-                description: "A tool that elicits once",
-                inputSchema: EmptyInput,
-                handler: (_args, ctx) =>
-                  Effect.gen(function* () {
-                    const r = yield* ctx.elicit(
-                      new FormElicitation({
-                        message: "Only approval",
-                        requestedSchema: {},
-                      }),
-                    );
-                    return { ok: true, response: r };
-                  }),
-              }),
-            ],
-          }),
-        ] as const,
-      });
-
-      yield* config.sources.registerRuntime(
-        new Source({
-          id: "api",
-          name: "API",
-          kind: "in-memory",
-          runtime: true,
-          canRemove: false,
-          canRefresh: false,
-        }),
-      );
-
-      return yield* createExecutor(config);
-    });
-
-  it.effect("records completed executions with result and logs", () =>
-    Effect.gen(function* () {
-      const executor = yield* makeSearchExecutor();
-      const engine = createExecutionEngine({ executor });
-
-      const result = yield* Effect.promise(() =>
-        engine.execute(
-          ['console.log("hello from run");', "return { ok: true, value: 42 };"].join("\n"),
-          { onElicitation: acceptAll },
-        ),
-      );
-
-      expect(result.error).toBeUndefined();
-
-      const listed = yield* executor.executions.list(executor.scope.id, { limit: 10 });
-      expect(listed.executions).toHaveLength(1);
-      expect(listed.executions[0]?.status).toBe("completed");
-      expect(JSON.parse(listed.executions[0]!.resultJson ?? "null")).toEqual({
-        ok: true,
-        value: 42,
-      });
-      expect(JSON.parse(listed.executions[0]!.logsJson ?? "[]")).toContain("[log] hello from run");
-    }),
-  );
-
-  it.effect("records waiting interactions and resolves them on resume", () =>
-    Effect.gen(function* () {
-      const executor = yield* makeHistoryExecutor();
-      const engine = createExecutionEngine({ executor });
-
-      const paused = yield* Effect.promise(() =>
-        engine.executeWithPause("return await tools.api.singleApproval({});"),
-      );
-      expect(paused.status).toBe("paused");
-
-      if (paused.status !== "paused") {
-        return;
-      }
-
-      const waiting = yield* executor.executions.get(ExecutionId.make(paused.execution.id));
-      expect(waiting?.execution.status).toBe("waiting_for_interaction");
-      expect(waiting?.pendingInteraction?.status).toBe("pending");
-      expect(waiting?.pendingInteraction?.purpose).toBe("Only approval");
-
-      const resumed = yield* Effect.promise(() =>
-        engine.resume(paused.execution.id, { action: "accept" }),
-      );
-      expect(resumed?.status).toBe("completed");
-
-      const completed = yield* executor.executions.get(ExecutionId.make(paused.execution.id));
-      expect(completed?.execution.status).toBe("completed");
-      expect(completed?.pendingInteraction).toBeNull();
-      expect(JSON.parse(completed?.execution.resultJson ?? "null")).toMatchObject({ ok: true });
-    }),
-  );
-
-  it.effect("marks executions cancelled when a paused interaction is declined", () =>
-    Effect.gen(function* () {
-      const executor = yield* makeHistoryExecutor();
-      const engine = createExecutionEngine({ executor });
-
-      const paused = yield* Effect.promise(() =>
-        engine.executeWithPause("return await tools.api.singleApproval({});"),
-      );
-      expect(paused.status).toBe("paused");
-
-      if (paused.status !== "paused") {
-        return;
-      }
-
-      const resumed = yield* Effect.promise(() =>
-        engine.resume(paused.execution.id, { action: "decline" }),
-      );
-      expect(resumed?.status).toBe("completed");
-      if (resumed?.status === "completed") {
-        expect(resumed.result.error).toContain("cancelled");
-      }
-
-      const cancelled = yield* executor.executions.get(ExecutionId.make(paused.execution.id));
-      expect(cancelled?.execution.status).toBe("cancelled");
-      expect(cancelled?.pendingInteraction).toBeNull();
-    }),
-  );
-
-  it.effect("records trigger kind and tool call count on persisted executions", () =>
-    Effect.gen(function* () {
-      const config = makeTestConfig({
-        plugins: [
-          inMemoryToolsPlugin({
-            namespace: "api",
-            tools: [
-              tool({
-                name: "ping",
-                description: "ping",
-                inputSchema: EmptyInput,
-                handler: () => Effect.succeed({ ok: true }),
-              }),
-              tool({
-                name: "pong",
-                description: "pong",
-                inputSchema: EmptyInput,
-                handler: () => Effect.succeed({ ok: true }),
-              }),
-            ],
-          }),
-        ] as const,
-      });
-      yield* config.sources.registerRuntime(
-        new Source({
-          id: "api",
-          name: "API",
-          kind: "in-memory",
-          runtime: true,
-          canRemove: false,
-          canRefresh: false,
-        }),
-      );
-      const executor = yield* createExecutor(config);
-      const engine = createExecutionEngine({ executor });
-
-      yield* Effect.promise(() =>
-        engine.execute(
-          ["await tools.api.ping({});", "await tools.api.pong({});", "return 'done';"].join("\n"),
-          { onElicitation: acceptAll, trigger: { kind: "test" } },
-        ),
-      );
-
-      const listed = yield* executor.executions.list(executor.scope.id, { limit: 10 });
-      expect(listed.executions).toHaveLength(1);
-      const execution = listed.executions[0]!;
-      expect(execution.triggerKind).toBe("test");
-      expect(execution.toolCallCount).toBe(2);
-
-      const calls = yield* executor.executions.listToolCalls(execution.id);
-      expect(calls).toHaveLength(2);
-      expect(calls[0]?.toolPath).toBe("api.ping");
-      expect(calls[0]?.status).toBe("completed");
-      expect(calls[0]?.namespace).toBe("api");
-      expect(calls[1]?.toolPath).toBe("api.pong");
-    }),
-  );
-
-  it.effect("list meta exposes triggerCounts and toolFacets", () =>
-    Effect.gen(function* () {
-      const config = makeTestConfig({
-        plugins: [
-          inMemoryToolsPlugin({
-            namespace: "api",
-            tools: [
-              tool({
-                name: "ping",
-                description: "ping",
-                inputSchema: EmptyInput,
-                handler: () => Effect.succeed({ ok: true }),
-              }),
-            ],
-          }),
-        ] as const,
-      });
-      yield* config.sources.registerRuntime(
-        new Source({
-          id: "api",
-          name: "API",
-          kind: "in-memory",
-          runtime: true,
-          canRemove: false,
-          canRefresh: false,
-        }),
-      );
-      const executor = yield* createExecutor(config);
-      const engine = createExecutionEngine({ executor });
-
-      yield* Effect.promise(() =>
-        engine.execute("await tools.api.ping({}); return 1;", {
-          onElicitation: acceptAll,
-          trigger: { kind: "http" },
-        }),
-      );
-      yield* Effect.promise(() =>
-        engine.execute("return 1;", {
-          onElicitation: acceptAll,
-          trigger: { kind: "http" },
-        }),
-      );
-      yield* Effect.promise(() =>
-        engine.execute("return 1;", {
-          onElicitation: acceptAll,
-          trigger: { kind: "mcp" },
-        }),
-      );
-
-      const listed = yield* executor.executions.list(executor.scope.id, {
-        limit: 10,
-        includeMeta: true,
-      });
-      expect(listed.meta?.triggerCounts.http).toBe(2);
-      expect(listed.meta?.triggerCounts.mcp).toBe(1);
-      expect(listed.meta?.toolFacets).toHaveLength(1);
-      expect(listed.meta?.toolFacets[0]?.toolPath).toBe("api.ping");
-      expect(listed.meta?.toolFacets[0]?.count).toBe(1);
-    }),
-  );
 });

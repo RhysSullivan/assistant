@@ -1,0 +1,261 @@
+import { describe, expect, it } from "vitest";
+
+import { recoverExecutionBody } from "./code-recovery";
+
+const wrapCallableBody = (source: string): string =>
+  [
+    "const __fn = (",
+    source,
+    ");",
+    'if (typeof __fn !== "function") throw new Error("Code must evaluate to a function");',
+    "return await __fn();",
+  ].join("\n");
+
+describe("recoverExecutionBody", () => {
+  it("wraps an async arrow function body for invocation", () => {
+    expect(recoverExecutionBody("async () => { return 1; }")).toBe(
+      wrapCallableBody("async () => { return 1; }"),
+    );
+  });
+
+  it("wraps an async arrow with params for invocation", () => {
+    expect(recoverExecutionBody("async (x) => x + 1")).toBe(wrapCallableBody("async (x) => x + 1"));
+  });
+
+  it("strips export default from an async arrow", () => {
+    expect(recoverExecutionBody("export default async () => 42")).toBe(
+      wrapCallableBody("async () => 42"),
+    );
+  });
+
+  it("leaves a bare expression as a statement body", () => {
+    expect(recoverExecutionBody("1 + 2")).toBe("1 + 2");
+  });
+
+  it("wraps a named function declaration and calls it", () => {
+    expect(recoverExecutionBody("function hello() { return 42; }")).toBe(
+      "function hello() { return 42; }\nreturn await hello();",
+    );
+  });
+
+  it("wraps an async function declaration", () => {
+    expect(recoverExecutionBody("async function run() { return 'ok'; }")).toBe(
+      "async function run() { return 'ok'; }\nreturn await run();",
+    );
+  });
+
+  it("wraps an exported default named async function declaration", () => {
+    expect(recoverExecutionBody("export default async function run() { return 'ok'; }")).toBe(
+      "async function run() { return 'ok'; }\nreturn await run();",
+    );
+  });
+
+  it("wraps an exported default anonymous async function declaration", () => {
+    expect(recoverExecutionBody("export default async function () { return 'ok'; }")).toBe(
+      "return await (async function () { return 'ok'; })();",
+    );
+  });
+
+  it("strips markdown code fences", () => {
+    expect(recoverExecutionBody("```js\nasync () => 42\n```")).toBe(wrapCallableBody("async () => 42"));
+  });
+
+  it("strips typescript fences", () => {
+    expect(recoverExecutionBody("```typescript\nasync () => 42\n```")).toBe(
+      wrapCallableBody("async () => 42"),
+    );
+  });
+
+  it("returns an empty body for an empty string", () => {
+    expect(recoverExecutionBody("")).toBe("");
+  });
+
+  it("returns an empty body for whitespace-only", () => {
+    expect(recoverExecutionBody("   \n  ")).toBe("");
+  });
+
+  it("handles multi-statement code", () => {
+    const code = "const a = 1;\nconst b = 2;\na + b";
+    expect(recoverExecutionBody(code)).toBe(code);
+  });
+
+  it("accepts a parenthesized async arrow from a fenced block", () => {
+    expect(recoverExecutionBody("```ts\n(async () => 42)\n```")).toBe(
+      wrapCallableBody("(async () => 42)"),
+    );
+  });
+
+  it("passes through an async arrow with noisy spacing", () => {
+    expect(recoverExecutionBody("  \n\tasync   ( input )   =>   input?.value ?? 42   \n")).toBe(
+      wrapCallableBody("async   ( input )   =>   input?.value ?? 42"),
+    );
+  });
+
+  it("strips export default from a parenthesized async arrow", () => {
+    expect(recoverExecutionBody("export default (async () => 42)")).toBe(
+      wrapCallableBody("async () => 42"),
+    );
+  });
+
+  it("wraps a sync anonymous function declaration from a fence", () => {
+    expect(recoverExecutionBody("```javascript\nfunction () { return 42; }\n```")).toBe(
+      "return await (function () { return 42; })();",
+    );
+  });
+
+  it("keeps a statement body that already contains return", () => {
+    const code = 'const query = "github issues";\nreturn await tools.search({ query, limit: 5 });';
+    expect(recoverExecutionBody(code)).toBe(code);
+  });
+
+  it("keeps a multiline async arrow with comments by wrapping the source", () => {
+    const code = [
+      "async () => {",
+      '  console.log("before");',
+      "  // Model added some narration inline",
+      "  return 42;",
+      "}",
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(wrapCallableBody(code));
+  });
+
+  it("extracts code from prose wrapped fences", () => {
+    const code = [
+      "Sure, here's the code:",
+      "",
+      "```ts",
+      "async () => 42",
+      "```",
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(wrapCallableBody("async () => 42"));
+  });
+
+  it("ignores leading comments before an async arrow", () => {
+    const code = [
+      "// calling tools.search with the narrowed namespace",
+      'async () => await tools.search({ query: "list contacts", namespace: "crm", limit: 5 })',
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(wrapCallableBody(code));
+  });
+
+  it("handles block comments before export default", () => {
+    const code = [
+      "/* generated by the model */",
+      "export default async () => 42",
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(wrapCallableBody("async () => 42"));
+  });
+
+  it("handles uppercase fence labels", () => {
+    expect(recoverExecutionBody("```TypeScript\nasync () => 42\n```")).toBe(
+      wrapCallableBody("async () => 42"),
+    );
+  });
+
+  it("treats a named function with leading comments as a declaration", () => {
+    const code = [
+      "// top-level helper the model wanted to keep",
+      "async function run() {",
+      '  return "ok";',
+      "}",
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(`${code}\nreturn await run();`);
+  });
+
+  it("extracts the body from prose before and after a fence", () => {
+    const code = [
+      "Use this exact snippet.",
+      "",
+      "```javascript",
+      'return await tools.search({ query: "github issues", limit: 5 });',
+      "```",
+      "",
+      "That should do it.",
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(
+      'return await tools.search({ query: "github issues", limit: 5 });',
+    );
+  });
+
+  it("keeps a complex multi-step function body intact", () => {
+    const code = [
+      'const query = "recent pull requests";',
+      "const limit = 5;",
+      "",
+      "function pickTop(matches) {",
+      "  return matches.slice(0, 3).map((match) => match.path);",
+      "}",
+      "",
+      "try {",
+      "  const matches = await tools.search({ query, limit });",
+      "  const top = pickTop(matches);",
+      '  console.log("top results", top);',
+      "  return { count: matches.length, top };",
+      "} catch (error) {",
+      "  return {",
+      '    error: error instanceof Error ? error.message : String(error),',
+      "    query,",
+      "  };",
+      "}",
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(code);
+  });
+
+  it("extracts a complex fenced function body from surrounding prose", () => {
+    const body = [
+      "const owner = 'openai';",
+      "const repo = 'executor';",
+      "",
+      "const issues = await tools.github.listRepositoryIssues({ owner, repo });",
+      "const titles = issues",
+      "  .slice(0, 5)",
+      "  .map((issue) => issue.title)",
+      "  .filter(Boolean);",
+      "",
+      "return {",
+      "  owner,",
+      "  repo,",
+      "  titles,",
+      "};",
+    ].join("\n");
+
+    const code = [
+      "Run this:",
+      "",
+      "```ts",
+      body,
+      "```",
+      "",
+      "It should return the top issue titles.",
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(body);
+  });
+
+  it("wraps a complex async arrow body for invocation", () => {
+    const code = [
+      "async () => {",
+      '  const query = "list contacts";',
+      "  const results = await tools.search({",
+      "    query,",
+      '    namespace: "crm",',
+      "    limit: 5,",
+      "  });",
+      "",
+      "  return results.map((result) => ({",
+      "    path: result.path,",
+      "    score: result.score ?? null,",
+      "  }));",
+      "}",
+    ].join("\n");
+
+    expect(recoverExecutionBody(code)).toBe(wrapCallableBody(code));
+  });
+});

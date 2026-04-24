@@ -1,4 +1,5 @@
 import {
+  recoverExecutionBody,
   type CodeExecutor,
   type ExecuteResult,
   type SandboxToolInvoker,
@@ -166,17 +167,7 @@ const invokeToolBinding = (
   );
 
 const buildExecutionSource = (code: string): string => {
-  const trimmed = code.trim();
-  const looksLikeArrowFunction =
-    (trimmed.startsWith("async") || trimmed.startsWith("(")) && trimmed.includes("=>");
-
-  const body = looksLikeArrowFunction
-    ? [
-        `const __fn = (${trimmed});`,
-        "if (typeof __fn !== 'function') throw new Error('Code must evaluate to a function');",
-        "return await __fn();",
-      ].join("\n")
-    : code;
+  const body = recoverExecutionBody(code);
 
   // Tool invocation uses async bindings via SecureExec.bindings.__invokeTool.
   // Console methods use SecureExec.bindings.__log for structured log capture.
@@ -418,7 +409,9 @@ const evaluateInSecureExec = (
   );
 };
 
-export const makeSecureExecExecutor = (options: SecureExecExecutorOptions = {}): CodeExecutor => ({
+export const makeSecureExecExecutor = (
+  options: SecureExecExecutorOptions = {},
+): CodeExecutor<never> => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     evaluateInSecureExec(options, code, toolInvoker),
 });

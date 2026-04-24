@@ -1,6 +1,14 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId, SecretId, SecretNotFoundError, SecretResolutionError } from "@executor/sdk";
+import {
+  ScopeId,
+  SecretId,
+  SecretNotFoundError,
+  SecretOwnedByConnectionError,
+  SecretResolutionError,
+} from "@executor/sdk";
+
+import { InternalError } from "../observability";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -17,8 +25,7 @@ const SecretRefResponse = Schema.Struct({
   id: SecretId,
   scopeId: ScopeId,
   name: Schema.String,
-  provider: Schema.optional(Schema.String),
-  purpose: Schema.optional(Schema.String),
+  provider: Schema.String,
   createdAt: Schema.Number,
 });
 
@@ -36,7 +43,6 @@ const SetSecretPayload = Schema.Struct({
   id: SecretId,
   name: Schema.String,
   value: Schema.String,
-  purpose: Schema.optional(Schema.String),
   provider: Schema.optional(Schema.String),
 });
 
@@ -47,6 +53,9 @@ const SetSecretPayload = Schema.Struct({
 const SecretNotFound = SecretNotFoundError.annotations(HttpApiSchema.annotations({ status: 404 }));
 const SecretResolution = SecretResolutionError.annotations(
   HttpApiSchema.annotations({ status: 500 }),
+);
+const SecretOwnedByConnection = SecretOwnedByConnectionError.annotations(
+  HttpApiSchema.annotations({ status: 409 }),
 );
 
 // ---------------------------------------------------------------------------
@@ -79,5 +88,7 @@ export class SecretsApi extends HttpApiGroup.make("secrets")
   .add(
     HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/secrets/${secretIdParam}`
       .addSuccess(Schema.Struct({ removed: Schema.Boolean }))
-      .addError(SecretNotFound),
-  ) {}
+      .addError(SecretNotFound)
+      .addError(SecretOwnedByConnection),
+  )
+  .addError(InternalError) {}

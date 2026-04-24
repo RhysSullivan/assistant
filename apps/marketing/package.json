@@ -1,13 +1,15 @@
 {
   "name": "@executor/marketing",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "type": "module",
   "scripts": {
-    "dev": "portless run --name executor-marketing astro dev",
+    "dev": "portless run --no-tls --name executor-marketing astro dev",
     "build": "astro build",
     "preview": "astro preview",
     "deploy": "astro build && npx wrangler deploy --config dist/server/wrangler.json",
-    "astro": "astro"
+    "astro": "astro",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.0.0",

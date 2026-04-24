@@ -1,19 +1,33 @@
 import { useState } from "react";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { graphqlSourceAtom, updateGraphqlSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
+import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import {
-  SecretHeaderAuthRow,
   headerValueToState,
   headersFromState,
   type HeaderState,
 } from "@executor/react/plugins/secret-header-auth";
+import { HeadersList } from "@executor/react/plugins/headers-list";
+import {
+  SourceIdentityFields,
+  useSourceIdentity,
+} from "@executor/react/plugins/source-identity";
 import { Button } from "@executor/react/components/button";
+import {
+  CardStack,
+  CardStackContent,
+  CardStackEntryField,
+} from "@executor/react/components/card-stack";
+import { FieldLabel } from "@executor/react/components/field";
 import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
-import type { StoredSourceSchemaType } from "../sdk/stored-source";
+import type { StoredGraphqlSource } from "../sdk/store";
+
+// UI only needs the fields the API exposes; `scope` on the SDK interface
+// isn't part of the HTTP response.
+type EditableSource = Omit<StoredGraphqlSource, "scope">;
 
 // ---------------------------------------------------------------------------
 // Edit form
@@ -21,17 +35,20 @@ import type { StoredSourceSchemaType } from "../sdk/stored-source";
 
 function EditForm(props: {
   sourceId: string;
-  initial: StoredSourceSchemaType;
+  initial: EditableSource;
   onSave: () => void;
 }) {
   const scopeId = useScope();
   const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
-  const refreshSource = useAtomRefresh(graphqlSourceAtom(scopeId, props.sourceId));
   const secretList = useSecretPickerSecrets();
 
-  const [endpoint, setEndpoint] = useState(props.initial.config.endpoint);
+  const identity = useSourceIdentity({
+    fallbackName: props.initial.name,
+    fallbackNamespace: props.initial.namespace,
+  });
+  const [endpoint, setEndpoint] = useState(props.initial.endpoint);
   const [headers, setHeaders] = useState<HeaderState[]>(() =>
-    Object.entries(props.initial.config.headers ?? {}).map(([name, value]) =>
+    Object.entries(props.initial.headers ?? {}).map(([name, value]) =>
       headerValueToState(name, value),
     ),
   );
@@ -39,8 +56,10 @@ function EditForm(props: {
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const updateHeader = (index: number, update: Partial<HeaderState>) => {
-    setHeaders((prev) => prev.map((h, i) => (i === index ? { ...h, ...update } : h)));
+  const identityDirty = identity.name.trim() !== props.initial.name.trim();
+
+  const handleHeadersChange = (next: HeaderState[]) => {
+    setHeaders(next);
     setDirty(true);
   };
 
@@ -51,11 +70,12 @@ function EditForm(props: {
       await doUpdate({
         path: { scopeId, namespace: props.sourceId },
         payload: {
+          name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
           headers: headersFromState(headers),
         },
+        reactivityKeys: sourceWriteKeys,
       });
-      refreshSource();
       setDirty(false);
       props.onSave();
     } catch (e) {
@@ -83,48 +103,32 @@ function EditForm(props: {
         </Badge>
       </div>
 
-      <section className="space-y-2">
-        <Label>Endpoint</Label>
-        <Input
-          value={endpoint}
-          onChange={(e) => {
-            setEndpoint((e.target as HTMLInputElement).value);
-            setDirty(true);
-          }}
-          placeholder="https://api.example.com/graphql"
-          className="font-mono text-sm"
-        />
-      </section>
+      <SourceIdentityFields identity={identity} namespaceReadOnly />
+
+      <CardStack>
+        <CardStackContent className="border-t-0">
+          <CardStackEntryField label="Endpoint">
+            <Input
+              value={endpoint}
+              onChange={(e) => {
+                setEndpoint((e.target as HTMLInputElement).value);
+                setDirty(true);
+              }}
+              placeholder="https://api.example.com/graphql"
+              className="font-mono text-sm"
+            />
+          </CardStackEntryField>
+        </CardStackContent>
+      </CardStack>
 
       <section className="space-y-2.5">
-        <Label>Headers</Label>
-        {headers.map((h, i) => (
-          <SecretHeaderAuthRow
-            key={i}
-            name={h.name}
-            prefix={h.prefix}
-            presetKey={h.presetKey}
-            secretId={h.secretId}
-            onChange={(update) => updateHeader(i, update)}
-            onSelectSecret={(secretId) => updateHeader(i, { secretId })}
-            onRemove={() => {
-              setHeaders((prev) => prev.filter((_, j) => j !== i));
-              setDirty(true);
-            }}
-            existingSecrets={secretList}
-          />
-        ))}
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full border-dashed"
-          onClick={() => {
-            setHeaders((prev) => [...prev, { name: "", secretId: null }]);
-            setDirty(true);
-          }}
-        >
-          + Add header
-        </Button>
+        <FieldLabel>Headers</FieldLabel>
+        <HeadersList
+          headers={headers}
+          onHeadersChange={handleHeadersChange}
+          existingSecrets={secretList}
+          sourceName={identity.name}
+        />
       </section>
 
       {error && (
@@ -137,7 +141,7 @@ function EditForm(props: {
         <Button variant="ghost" onClick={props.onSave}>
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={!dirty || saving}>
+        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>

@@ -12,10 +12,12 @@ const queryClient = new QueryClient({
   },
 });
 
-export const ExecutorProvider = (props: React.PropsWithChildren) => (
+export const ExecutorProvider = (
+  props: React.PropsWithChildren<{ fallback?: React.ReactNode }>,
+) => (
   <QueryClientProvider client={queryClient}>
     <RegistryProvider>
-      <ScopeProvider>{props.children}</ScopeProvider>
+      <ScopeProvider fallback={props.fallback}>{props.children}</ScopeProvider>
     </RegistryProvider>
   </QueryClientProvider>
 );

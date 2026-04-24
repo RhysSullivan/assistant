@@ -3,128 +3,15 @@ import { Effect } from "effect";
 
 import { ExecutorApi } from "../api";
 import { formatExecuteResult, formatPausedExecution } from "@executor/execution";
-import {
-  ExecutionId,
-  type ExecutionSort,
-  type ExecutionSortDirection,
-  type ExecutionSortField,
-  type ExecutionStatus,
-} from "@executor/sdk";
-import { ExecutionEngineService, ExecutorService } from "../services";
-
-const EXECUTION_STATUSES = new Set<ExecutionStatus>([
-  "pending",
-  "running",
-  "waiting_for_interaction",
-  "completed",
-  "failed",
-  "cancelled",
-]);
-
-const SORT_FIELDS = new Set<ExecutionSortField>(["createdAt", "durationMs"]);
-const SORT_DIRECTIONS = new Set<ExecutionSortDirection>(["asc", "desc"]);
-
-const splitCsv = (value: string | undefined): string[] =>
-  value ? value.split(",").map((s) => s.trim()).filter((s) => s.length > 0) : [];
-
-const parseSortParam = (value: string | undefined): ExecutionSort | undefined => {
-  if (!value) return undefined;
-  const [rawField, rawDirection] = value.split(",");
-  if (!rawField || !rawDirection) return undefined;
-  if (!SORT_FIELDS.has(rawField as ExecutionSortField)) return undefined;
-  if (!SORT_DIRECTIONS.has(rawDirection as ExecutionSortDirection)) return undefined;
-  return {
-    field: rawField as ExecutionSortField,
-    direction: rawDirection as ExecutionSortDirection,
-  };
-};
-
-const parseElicitationParam = (value: string | undefined): boolean | undefined => {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return undefined;
-};
+import { ExecutionEngineService } from "../services";
+import { capture, captureEngineError } from "@executor/api";
 
 export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions", (handlers) =>
   handlers
-    .handle("list", ({ urlParams }) =>
-      Effect.gen(function* () {
-        const executor = yield* ExecutorService;
-        const statusFilter = splitCsv(urlParams.status).filter(
-          (v): v is ExecutionStatus => EXECUTION_STATUSES.has(v as ExecutionStatus),
-        );
-        const triggerFilter = splitCsv(urlParams.trigger);
-        const toolPathFilter = splitCsv(urlParams.tool);
-        const includeMeta = urlParams.cursor === undefined && urlParams.after === undefined;
-        const sort = parseSortParam(urlParams.sort);
-        const hadElicitation = parseElicitationParam(urlParams.elicitation);
-        const result = yield* executor.executions.list(executor.scope.id, {
-          limit: Math.max(1, Math.min(urlParams.limit ?? 25, 100)),
-          cursor: urlParams.cursor,
-          statusFilter: statusFilter && statusFilter.length > 0 ? statusFilter : undefined,
-          triggerFilter: triggerFilter && triggerFilter.length > 0 ? triggerFilter : undefined,
-          toolPathFilter: toolPathFilter && toolPathFilter.length > 0 ? toolPathFilter : undefined,
-          after: urlParams.after,
-          timeRange:
-            urlParams.from !== undefined || urlParams.to !== undefined
-              ? {
-                  from: urlParams.from,
-                  to: urlParams.to,
-                }
-              : undefined,
-          codeQuery: urlParams.code,
-          sort,
-          hadElicitation,
-          includeMeta,
-        });
-
-        return {
-          executions: result.executions,
-          ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
-          ...(result.meta ? { meta: result.meta } : {}),
-        };
-      }),
-    )
-    .handle("get", ({ path }) =>
-      Effect.gen(function* () {
-        const executor = yield* ExecutorService;
-        const result = yield* executor.executions.get(ExecutionId.make(path.executionId));
-
-        if (!result) {
-          return yield* Effect.fail({
-            _tag: "ExecutionNotFoundError" as const,
-            executionId: path.executionId,
-          });
-        }
-
-        return result;
-      }),
-    )
-    .handle("listToolCalls", ({ path }) =>
-      Effect.gen(function* () {
-        const executor = yield* ExecutorService;
-        const execution = yield* executor.executions.get(ExecutionId.make(path.executionId));
-        if (!execution) {
-          return yield* Effect.fail({
-            _tag: "ExecutionNotFoundError" as const,
-            executionId: path.executionId,
-          });
-        }
-        const toolCalls = yield* executor.executions.listToolCalls(
-          ExecutionId.make(path.executionId),
-        );
-        return { toolCalls };
-      }),
-    )
-    .handle("execute", ({ payload, headers }) =>
-      Effect.gen(function* () {
+    .handle("execute", ({ payload }) =>
+      capture(Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
-        const triggerKind = headers["x-executor-trigger"] ?? "http";
-        const outcome = yield* Effect.promise(() =>
-          engine.executeWithPause(payload.code, {
-            trigger: { kind: triggerKind },
-          }),
-        );
+        const outcome = yield* captureEngineError(engine.executeWithPause(payload.code));
 
         if (outcome.status === "completed") {
           const formatted = formatExecuteResult(outcome.result);
@@ -142,13 +29,13 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
           text: formatted.text,
           structured: formatted.structured,
         };
-      }),
+      })),
     )
     .handle("resume", ({ path, payload }) =>
-      Effect.gen(function* () {
+      capture(Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
-        const result = yield* Effect.promise(() =>
-          engine.resume(ExecutionId.make(path.executionId), {
+        const result = yield* captureEngineError(
+          engine.resume(path.executionId, {
             action: payload.action,
             content: payload.content as Record<string, unknown> | undefined,
           }),
@@ -176,6 +63,6 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
           structured: formatted.structured,
           isError: false,
         };
-      }),
+      })),
     ),
 );

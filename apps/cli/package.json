@@ -1,6 +1,6 @@
 {
   "name": "executor",
-  "version": "1.4.5",
+  "version": "1.4.8",
   "private": true,
   "bin": {
     "executor": "./bin/executor.ts"
@@ -12,6 +12,9 @@
   "scripts": {
     "build": "bun run src/build.ts binary --single",
     "build:all": "bun run src/build.ts binary",
+    "build:preview": "bun run src/build.ts preview",
+    "build:preview:tarball": "bun run src/build.ts preview-tarball",
+    "build:preview:wrapper": "bun run src/build.ts preview-wrapper",
     "build:publish": "bun run src/build.ts publish",
     "release:publish:dry-run": "bun run src/release.ts --dry-run",
     "release:publish": "bun run src/release.ts",

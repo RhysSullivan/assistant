@@ -1,14 +1,10 @@
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from "@effect/platform";
 import { Effect, Layer } from "effect";
 
-import { CoreExecutorApi } from "@executor/api";
+import { CoreExecutorApi, InternalError, observabilityMiddleware } from "@executor/api";
 import { CoreHandlers } from "@executor/api/server";
 import { OpenApiGroup, OpenApiHandlers } from "@executor/plugin-openapi/api";
 import { McpGroup, McpHandlers } from "@executor/plugin-mcp/api";
-import {
-  GoogleDiscoveryGroup,
-  GoogleDiscoveryHandlers,
-} from "@executor/plugin-google-discovery/api";
 import { GraphqlGroup, GraphqlHandlers } from "@executor/plugin-graphql/api";
 
 import { OrgAuth } from "../auth/middleware";
@@ -19,17 +15,23 @@ import {
   CloudSessionAuthHandlers,
   NonProtectedApi,
 } from "../auth/handlers";
-import { WorkOSAuth } from "../auth/workos";
-import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
+import { TelemetryLive } from "../services/telemetry";
 import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
+import { ErrorCaptureLive } from "../observability";
+
+import { CoreSharedServices } from "./core-shared-services";
+
+export { CoreSharedServices };
 
 const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
   .add(McpGroup)
-  .add(GoogleDiscoveryGroup)
   .add(GraphqlGroup)
+  .addError(InternalError)
   .middleware(OrgAuth);
+
+const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
 
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
@@ -37,9 +39,9 @@ const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 export const SharedServices = Layer.mergeAll(
   DbLive,
   UserStoreLive,
-  WorkOSAuth.Default,
-  AutumnService.Default,
+  CoreSharedServices,
   HttpServer.layerContext,
+  TelemetryLive,
 );
 
 export const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
@@ -50,11 +52,12 @@ export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
       CoreHandlers,
       OpenApiHandlers,
       McpHandlers,
-      GoogleDiscoveryHandlers,
       GraphqlHandlers,
       OrgAuthLive,
+      ObservabilityLive,
     ),
   ),
+  Layer.provide(ErrorCaptureLive),
 );
 
 const NonProtectedApiLive = HttpApiBuilder.api(NonProtectedApi).pipe(

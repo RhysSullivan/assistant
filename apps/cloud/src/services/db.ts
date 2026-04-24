@@ -14,28 +14,40 @@
 import { env } from "cloudflare:workers";
 import { Context, Effect, Layer } from "effect";
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import * as sharedSchema from "@executor/storage-postgres/schema";
+import type { PgDatabase } from "drizzle-orm/pg-core";
+import postgres, { type Sql } from "postgres";
 import * as cloudSchema from "./schema";
-import type { DrizzleDb } from "@executor/storage-postgres";
-import { server } from "../env";
+import * as executorSchema from "./executor-schema";
 
-const schema = { ...sharedSchema, ...cloudSchema };
+// Exported so every drizzle() call in the cloud app shares one schema
+// object. Historically `mcp-session.ts` built its own and forgot to spread
+// `executorSchema`, producing runtime "unknown model source" errors that
+// only surfaced in prod. See apps/cloud/src/services/db.schema.test.ts.
+export const combinedSchema = { ...cloudSchema, ...executorSchema };
 
-export type { DrizzleDb };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type DrizzleDb = PgDatabase<any, any, any>;
+
+export type DbServiceShape = {
+  readonly sql: Sql;
+  readonly db: DrizzleDb;
+};
 
 const resolveConnectionString = () => {
   // In local dev prefer an explicit DATABASE_URL (direct connection to
   // the PGlite socket server) so we bypass Miniflare's Hyperdrive proxy.
   // In production fall back to the Hyperdrive binding.
-  if (server.DATABASE_URL) {
-    return server.DATABASE_URL;
-  }
-  return env.HYPERDRIVE?.connectionString ?? server.DATABASE_URL;
+  return env.DATABASE_URL || env.HYPERDRIVE?.connectionString || "";
 };
 
-const makeSql = () =>
+const makeSql = (): Sql =>
   postgres(resolveConnectionString(), {
+    // max=1 is correct for Hyperdrive: one request, one connection. The
+    // earlier deadlock under ctx.transaction (outer sql.begin holding the
+    // only connection while nested writes pulled fresh ones) is fixed in
+    // @executor/sdk — nested writes now thread through the active tx
+    // handle via a FiberRef in buildAdapterRouter, so they reuse the same
+    // connection and never contend with the outer sql.begin.
     max: 1,
     idle_timeout: 0,
     max_lifetime: 60,
@@ -43,13 +55,16 @@ const makeSql = () =>
     onnotice: () => undefined,
   });
 
-export class DbService extends Context.Tag("@executor/cloud/DbService")<DbService, DrizzleDb>() {
+export class DbService extends Context.Tag("@executor/cloud/DbService")<
+  DbService,
+  DbServiceShape
+>() {
   static Live = Layer.scoped(
     this,
     Effect.acquireRelease(
-      Effect.sync(() => {
+      Effect.sync((): DbServiceShape => {
         const sql = makeSql();
-        return { sql, db: drizzle(sql, { schema }) as DrizzleDb };
+        return { sql, db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb };
       }),
       ({ sql }) =>
         // Fire-and-forget: the Terminate round-trip sometimes hangs, and
@@ -57,6 +72,6 @@ export class DbService extends Context.Tag("@executor/cloud/DbService")<DbServic
         Effect.sync(() => {
           sql.end({ timeout: 0 }).catch(() => undefined);
         }),
-    ).pipe(Effect.map(({ db }) => db)),
+    ),
   );
 }

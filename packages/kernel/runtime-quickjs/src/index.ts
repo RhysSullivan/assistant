@@ -1,6 +1,12 @@
-import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
+import {
+  recoverExecutionBody,
+  type CodeExecutor,
+  type ExecuteResult,
+  type SandboxToolInvoker,
+} from "@executor/codemode-core";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Runtime from "effect/Runtime";
 import {
   getQuickJS,
   shouldInterruptAfterDeadline,
@@ -81,17 +87,7 @@ const normalizeExecutionError = (cause: unknown, deadlineMs: number, timeoutMs: 
 };
 
 const buildExecutionSource = (code: string): string => {
-  const trimmed = code.trim();
-  const looksLikeArrowFunction =
-    (trimmed.startsWith("async") || trimmed.startsWith("(")) && trimmed.includes("=>");
-
-  const body = looksLikeArrowFunction
-    ? [
-        `const __fn = (${trimmed});`,
-        "if (typeof __fn !== 'function') throw new Error('Code must evaluate to a function');",
-        "return await __fn();",
-      ].join("\n")
-    : code;
+  const body = recoverExecutionBody(code);
 
   return [
     '"use strict";',
@@ -170,10 +166,13 @@ const createLogBridge = (context: QuickJSContext, logs: string[]): QuickJSHandle
     return context.undefined;
   });
 
+type RunPromise = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
+
 const createToolBridge = (
   context: QuickJSContext,
   toolInvoker: SandboxToolInvoker,
   pendingDeferreds: Set<QuickJSDeferredPromise>,
+  runPromise: RunPromise,
 ): QuickJSHandle =>
   context.newFunction("__executor_invokeTool", (pathHandle, argsHandle) => {
     const path = context.getString(pathHandle);
@@ -187,7 +186,7 @@ const createToolBridge = (
       pendingDeferreds.delete(deferred);
     });
 
-    void Effect.runPromise(toolInvoker.invoke({ path, args })).then(
+    void runPromise(toolInvoker.invoke({ path, args })).then(
       (value) => {
         if (!deferred.alive) {
           return;
@@ -283,6 +282,7 @@ const evaluateInQuickJs = async (
   options: QuickJsExecutorOptions,
   code: string,
   toolInvoker: SandboxToolInvoker,
+  runPromise: RunPromise,
 ): Promise<ExecuteResult> => {
   const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const deadlineMs = Date.now() + timeoutMs;
@@ -308,7 +308,7 @@ const evaluateInQuickJs = async (
       context.setProp(context.global, "__executor_log", logBridge);
       logBridge.dispose();
 
-      const toolBridge = createToolBridge(context, toolInvoker, pendingDeferreds);
+      const toolBridge = createToolBridge(context, toolInvoker, pendingDeferreds, runPromise);
       context.setProp(context.global, "__executor_invokeTool", toolBridge);
       toolBridge.dispose();
 
@@ -392,12 +392,22 @@ const runInQuickJs = (
   code: string,
   toolInvoker: SandboxToolInvoker,
 ): Effect.Effect<ExecuteResult, QuickJsExecutionError> =>
-  Effect.tryPromise({
-    try: () => evaluateInQuickJs(options, code, toolInvoker),
-    catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),
-  }).pipe(Effect.withSpan("executor.runtime.quickjs"));
+  Effect.gen(function* () {
+    const runtime = yield* Effect.runtime<never>();
+    const runPromise = Runtime.runPromise(runtime);
+    return yield* Effect.tryPromise({
+      try: () => evaluateInQuickJs(options, code, toolInvoker, runPromise),
+      catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),
+    });
+  }).pipe(
+    Effect.withSpan("executor.code.exec.quickjs", {
+      attributes: { "executor.runtime": "quickjs" },
+    }),
+  );
 
-export const makeQuickJsExecutor = (options: QuickJsExecutorOptions = {}): CodeExecutor => ({
+export const makeQuickJsExecutor = (
+  options: QuickJsExecutorOptions = {},
+): CodeExecutor<QuickJsExecutionError> => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     runInQuickJs(options, code, toolInvoker),
 });

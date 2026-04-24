@@ -1,6 +1,6 @@
 {
   "name": "@executor/api",
-  "version": "1.4.3-beta.0",
+  "version": "1.4.3",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,17 +9,21 @@
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
-    "typecheck:slow": "tsc --noEmit"
+    "typecheck:slow": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@effect/platform": "catalog:",
     "@executor/execution": "workspace:*",
     "@executor/sdk": "workspace:*",
+    "@executor/storage-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "bun-types": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

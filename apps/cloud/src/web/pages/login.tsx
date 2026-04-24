@@ -15,6 +15,14 @@ export const LoginPage = () => {
         >
           Sign in
         </a>
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <a href="/privacy" className="transition-colors hover:text-foreground">
+            Privacy
+          </a>
+          <a href="/terms" className="transition-colors hover:text-foreground">
+            Terms
+          </a>
+        </div>
       </div>
     </div>
   );

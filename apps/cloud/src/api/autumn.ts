@@ -1,9 +1,9 @@
+import { env } from "cloudflare:workers";
 import { Effect } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { autumnHandler } from "autumn-js/backend";
 
 import { WorkOSAuth } from "../auth/workos";
-import { server } from "../env";
 import { AutumnService } from "../services/autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { SharedServices } from "./layers";
@@ -29,7 +29,7 @@ export const makeTrackExecutionUsage = (autumn: AutumnService["Type"]) => {
   };
 };
 
-const handleAutumnRequestEffect = Effect.gen(function* () {
+export const AutumnApiApp = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const webRequest = yield* Effect.mapError(
     HttpServerRequest.toWeb(request),
@@ -81,7 +81,7 @@ const handleAutumnRequestEffect = Effect.gen(function* () {
         email: session.email,
       },
       clientOptions: {
-        secretKey: server.AUTUMN_SECRET_KEY,
+        secretKey: env.AUTUMN_SECRET_KEY ?? "",
       },
       pathPrefix: "/autumn",
     }),
@@ -114,5 +114,3 @@ const handleAutumnRequestEffect = Effect.gen(function* () {
     return Effect.succeed(toErrorServerResponse(err));
   }),
 );
-
-export const AutumnApiApp = handleAutumnRequestEffect;

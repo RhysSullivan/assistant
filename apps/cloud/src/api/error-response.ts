@@ -1,4 +1,5 @@
-import { Data, Effect } from "effect";
+import * as Sentry from "@sentry/cloudflare";
+import { Data } from "effect";
 import { HttpServerResponse } from "@effect/platform";
 
 export class HttpResponseError extends Data.TaggedError("HttpResponseError")<{
@@ -20,15 +21,16 @@ export const isServerError = (error: unknown): boolean => toHttpResponseError(er
 
 export const toErrorResponse = (error: unknown): Response => {
   const mapped = toHttpResponseError(error);
+  if (mapped.status >= 500) Sentry.captureException(error);
   return Response.json({ error: mapped.message, code: mapped.code }, { status: mapped.status });
 };
 
 export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpServerResponse => {
-  Effect.logError("[api] toErrorServerResponse error").pipe(
-    Effect.annotateLogs("error", error instanceof Error ? error.stack ?? error.message : String(error)),
-    Effect.runFork,
-  );
   const mapped = toHttpResponseError(error);
+  if (mapped.status >= 500) {
+    console.error("[api] toErrorServerResponse error:", error instanceof Error ? error.stack : error);
+    Sentry.captureException(error);
+  }
   return HttpServerResponse.unsafeJson(
     { error: mapped.message, code: mapped.code },
     { status: mapped.status },
