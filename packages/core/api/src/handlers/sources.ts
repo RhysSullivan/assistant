@@ -42,7 +42,10 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
     .handle("tools", ({ path }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        const tools = yield* executor.tools.list({ sourceId: path.sourceId });
+        const tools = yield* executor.tools.list({
+          sourceId: path.sourceId,
+          includeAnnotations: false,
+        });
         return tools.map((t) => ({
           id: ToolId.make(t.id),
           pluginId: t.pluginId,

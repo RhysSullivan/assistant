@@ -1895,9 +1895,12 @@ export const createExecutor = <
           }
         }
         const dynamicDeduped = [...byId.values()];
-        const annotations = yield* resolveAnnotationsFor(dynamicDeduped).pipe(
-          Effect.withSpan("executor.tools.list.annotations"),
-        );
+        const annotations =
+          filter?.includeAnnotations === false
+            ? new Map<string, ToolAnnotations>()
+            : yield* resolveAnnotationsFor(dynamicDeduped).pipe(
+                Effect.withSpan("executor.tools.list.annotations"),
+              );
 
         const out: Tool[] = [];
         // Static tools — annotations from the declaration, not a resolver.

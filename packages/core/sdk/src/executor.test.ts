@@ -61,6 +61,8 @@ const testSchema = defineSchema({
   },
 });
 
+let testAnnotationResolveCount = 0;
+
 const testPlugin = definePlugin(() => ({
   id: "test" as const,
   schema: testSchema,
@@ -141,6 +143,7 @@ const testPlugin = definePlugin(() => ({
   // Purely computed from the tool's name — no data persisted on the row.
   resolveAnnotations: ({ toolRows }) =>
     Effect.sync(() => {
+      testAnnotationResolveCount++;
       const out: Record<string, { requiresApproval: boolean; approvalDescription?: string }> = {};
       for (const row of toolRows) {
         if (row.name === "write") {
@@ -257,6 +260,28 @@ describe("createExecutor", () => {
           expect.objectContaining({ field: "source_id", value: "thing1" }),
         ]),
       );
+    }),
+  );
+
+  it.effect("can list tools without resolving dynamic annotations", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [testPlugin()] as const }),
+      );
+      yield* executor.test.addThing("thing1", "hello");
+      testAnnotationResolveCount = 0;
+
+      const tools = yield* executor.tools.list({
+        sourceId: "thing1",
+        includeAnnotations: false,
+      });
+
+      expect(testAnnotationResolveCount).toBe(0);
+      expect(tools.map((t) => t.id).sort()).toEqual([
+        "thing1.read",
+        "thing1.write",
+      ]);
+      expect(tools.every((tool) => tool.annotations === undefined)).toBe(true);
     }),
   );
 

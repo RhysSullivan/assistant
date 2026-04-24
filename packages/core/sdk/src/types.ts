@@ -105,4 +105,6 @@ export interface ToolListFilter {
   readonly sourceId?: string;
   /** Case-insensitive substring match against `name` OR `description`. */
   readonly query?: string;
+  /** Resolve plugin-derived annotations. Defaults to true. */
+  readonly includeAnnotations?: boolean;
 }

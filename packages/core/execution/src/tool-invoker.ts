@@ -287,7 +287,7 @@ export const searchTools = Effect.fn("executor.tools.search")(function* (
     return [] as ReadonlyArray<ToolDiscoveryResult>;
   }
 
-  const all = yield* executor.tools.list().pipe(Effect.orDie);
+  const all = yield* executor.tools.list({ includeAnnotations: false }).pipe(Effect.orDie);
   const results = all
     .filter((tool: Tool) => matchesNamespace(tool, options?.namespace))
     .map((tool: Tool) => scoreToolMatch(tool, query))
@@ -320,7 +320,7 @@ export const listExecutorSources = Effect.fn("executor.sources.list")(function* 
         });
 
   // Single query for all tools, then count per source in memory.
-  const allTools = yield* executor.tools.list().pipe(Effect.orDie);
+  const allTools = yield* executor.tools.list({ includeAnnotations: false }).pipe(Effect.orDie);
   const toolCountBySource = new Map<string, number>();
   for (const tool of allTools) {
     toolCountBySource.set(tool.sourceId, (toolCountBySource.get(tool.sourceId) ?? 0) + 1);
