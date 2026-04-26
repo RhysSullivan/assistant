@@ -476,6 +476,7 @@ export default function EditOpenApiSource(props: {
         url: response.authorizationUrl,
         popupName: OPENAPI_OAUTH_POPUP_NAME,
         channelName: OPENAPI_OAUTH_CHANNEL,
+        expectedSessionId: response.sessionId,
         onResult: async (result: OAuthPopupResult<{ connectionId: string }>) => {
           if (!result.ok) {
             setError(result.error);

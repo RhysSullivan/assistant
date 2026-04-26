@@ -560,6 +560,7 @@ export default function AddGoogleDiscoverySource(props: {
         url: response.authorizationUrl,
         popupName: OAUTH_POPUP_NAME,
         channelName: OAUTH_POPUP_MESSAGE_TYPE,
+        expectedSessionId: response.sessionId,
         onResult: (result: OAuthPopupResult<CompletionPayload>) => {
           oauthCleanup.current = null;
           setStartingOAuth(false);
@@ -580,6 +581,11 @@ export default function AddGoogleDiscoverySource(props: {
           oauthCleanup.current = null;
           setStartingOAuth(false);
           setError("OAuth popup was blocked");
+        },
+        onClosed: () => {
+          oauthCleanup.current = null;
+          setStartingOAuth(false);
+          setError("OAuth cancelled: popup was closed before completing the flow.");
         },
       });
     } catch (e) {

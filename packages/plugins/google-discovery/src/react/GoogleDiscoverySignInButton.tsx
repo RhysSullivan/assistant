@@ -123,6 +123,7 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
         url: response.authorizationUrl,
         popupName: POPUP_NAME,
         channelName: OAUTH_POPUP_MESSAGE_TYPE,
+        expectedSessionId: response.sessionId,
         onResult: async (result: OAuthPopupResult<CompletionPayload>) => {
           cleanupRef.current = null;
           if (!result.ok) {

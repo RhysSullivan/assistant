@@ -14,6 +14,15 @@ const stubFetch = (result: Response | Error): typeof fetch =>
     return result;
   }) as unknown as typeof fetch;
 
+const stubFetchSequence = (results: readonly Response[]): typeof fetch => {
+  let index = 0;
+  return (async (_input: unknown, _init?: unknown) => {
+    const result = results[index++];
+    if (!result) throw new Error("unexpected fetch");
+    return result;
+  }) as unknown as typeof fetch;
+};
+
 describe("probeMcpEndpointShape", () => {
   it.effect("classifies 2xx as unauth-OK MCP", () =>
     Effect.gen(function* () {
@@ -59,6 +68,37 @@ describe("probeMcpEndpointShape", () => {
         fetch: stubFetch(response),
       });
       expect(result.kind).toBe("not-mcp");
+    }),
+  );
+
+  it.effect("falls back to GET for OAuth-protected SSE endpoints", () =>
+    Effect.gen(function* () {
+      const post = new Response(null, { status: 405 });
+      const get = new Response(null, {
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource"',
+        },
+      });
+      const result = yield* probeMcpEndpointShape("https://mcp.example/sse", {
+        fetch: stubFetchSequence([post, get]),
+      });
+      expect(result).toEqual({ kind: "mcp", requiresAuth: true });
+    }),
+  );
+
+  it.effect("classifies unauthenticated SSE GET endpoints as MCP", () =>
+    Effect.gen(function* () {
+      const post = new Response(null, { status: 405 });
+      const get = new Response("event: endpoint\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+      const result = yield* probeMcpEndpointShape("https://mcp.example/sse", {
+        fetch: stubFetchSequence([post, get]),
+      });
+      expect(result).toEqual({ kind: "mcp", requiresAuth: false });
     }),
   );
 

@@ -61,7 +61,6 @@ export {
   MediaBinding,
   OAuth2Auth,
   OAuth2SourceConfig,
-  OpenApiOAuthSession,
   OpenApiSourceBindingInput,
   OpenApiSourceBindingRef,
   OpenApiSourceBindingValue,

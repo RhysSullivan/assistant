@@ -143,16 +143,6 @@ export const openapi_source_binding = sqliteTable("openapi_source_binding", {
   index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
-export const openapi_oauth_session = sqliteTable("openapi_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: text('session', { mode: "json" }).notNull(),
-  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("openapi_oauth_session_scope_id_idx").on(table.scope_id),
-]);
-
 export const mcp_source = sqliteTable("mcp_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),

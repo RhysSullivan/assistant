@@ -57,6 +57,7 @@ import type {
 } from "./errors";
 import type { CoreSchema } from "./core-schema";
 import { ConnectionId, ScopeId, SecretId } from "./ids";
+import { SetSecretInput, type SecretRef } from "./secrets";
 import {
   OAUTH2_PROVIDER_KEY,
   OAUTH2_SESSION_TTL_MS,
@@ -265,6 +266,7 @@ export interface OAuthServiceDeps {
   /** Resolves client-id / client-secret refs at start + refresh time.
    *  A `null` return means "secret row is gone" and aborts the flow. */
   readonly secretsGet: (id: string) => Effect.Effect<string | null, StorageFailure>;
+  readonly secretsSet: (input: SetSecretInput) => Effect.Effect<SecretRef, StorageFailure>;
   /** Mints the Connection row + backing secret rows. Called from
    *  `complete` (and from `start` for `client-credentials`). */
   readonly connectionsCreate: (
@@ -735,6 +737,36 @@ export const makeOAuth2Service = (
           ? now() + exchangeResult.tokens.expires_in * 1000
           : null;
 
+      const dynamicClientSecretSecretId = yield* (() => {
+        if (payload.kind !== "dynamic-dcr") return Effect.succeed(null);
+        const clientSecret = (payload.clientInformation as { client_secret?: unknown })
+          .client_secret;
+        if (typeof clientSecret !== "string" || clientSecret.length === 0) {
+          return Effect.succeed(null);
+        }
+        const secretId = `${connectionId}.client_secret`;
+        return deps
+          .secretsSet(
+            new SetSecretInput({
+              id: SecretId.make(secretId),
+              scope: ScopeId.make(tokenScope),
+              name: "OAuth Client Secret",
+              value: clientSecret,
+            }),
+          )
+          .pipe(
+            Effect.as(secretId),
+            Effect.mapError(
+              (err) =>
+                new OAuthCompleteError({
+                  message: `Failed to persist DCR client_secret: ${
+                    err instanceof Error ? err.message : String(err)
+                  }`,
+                }),
+            ),
+          );
+      })();
+
       const providerState: OAuthProviderState =
         payload.kind === "dynamic-dcr"
           ? {
@@ -747,8 +779,12 @@ export const makeOAuth2Service = (
                 payload.authorizationServerMetadataUrl,
               clientId: (payload.clientInformation as { client_id: string })
                 .client_id,
-              clientSecretSecretId: null,
-              clientAuth: "body",
+              clientSecretSecretId: dynamicClientSecretSecretId,
+              clientAuth:
+                (payload.clientInformation as { token_endpoint_auth_method?: string })
+                  .token_endpoint_auth_method === "client_secret_basic"
+                  ? "basic"
+                  : "body",
               scope: exchangeResult.tokens.scope ?? null,
             }
           : {
@@ -884,6 +920,13 @@ export const makeOAuth2Service = (
       const clientSecret = payload.clientSecretSecretId
         ? yield* deps.secretsGet(payload.clientSecretSecretId)
         : null;
+      if (payload.clientSecretSecretId && clientSecret === null) {
+        return yield* Effect.fail(
+          new OAuthCompleteError({
+            message: `client_secret secret "${payload.clientSecretSecretId}" not found`,
+          }),
+        );
+      }
 
       const tokens = yield* exchangeAuthorizationCode({
         tokenUrl: payload.tokenEndpoint,
@@ -955,9 +998,33 @@ export const makeOAuth2Service = (
         const { clientId, clientSecret } = yield* (() => {
           switch (state.kind) {
             case "dynamic-dcr":
-              return Effect.succeed({
-                clientId: state.clientId,
-                clientSecret: null as string | null,
+              return Effect.gen(function* () {
+                const csec = state.clientSecretSecretId
+                  ? yield* deps
+                      .secretsGet(state.clientSecretSecretId)
+                      .pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new ConnectionRefreshError({
+                              connectionId: input.connectionId,
+                              message: `Failed to resolve DCR client_secret: ${
+                                cause instanceof Error
+                                  ? cause.message
+                                  : String(cause)
+                              }`,
+                              cause,
+                            }),
+                        ),
+                      )
+                  : null;
+                if (state.clientSecretSecretId && csec === null) {
+                  return yield* new ConnectionRefreshError({
+                    connectionId: input.connectionId,
+                    message: `client_secret secret "${state.clientSecretSecretId}" not found`,
+                    reauthRequired: true,
+                  });
+                }
+                return { clientId: state.clientId, clientSecret: csec };
               });
             case "authorization-code":
             case "client-credentials":
@@ -1003,7 +1070,7 @@ export const makeOAuth2Service = (
                         ),
                       )
                   : null;
-                if (state.kind === "client-credentials" && csec === null) {
+                if (state.clientSecretSecretId && csec === null) {
                   return yield* new ConnectionRefreshError({
                     connectionId: input.connectionId,
                     message: `client_secret secret "${state.clientSecretSecretId}" not found`,

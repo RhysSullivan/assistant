@@ -96,6 +96,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
         url: response.authorizationUrl,
         popupName: POPUP_NAME,
         channelName: CHANNEL_NAME,
+        expectedSessionId: response.sessionId,
         onResult: async (result: OAuthPopupResult<McpOAuthPopupPayload>) => {
           cleanupRef.current = null;
           if (!result.ok) {

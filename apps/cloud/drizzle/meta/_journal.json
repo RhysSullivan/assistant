@@ -50,6 +50,13 @@
       "when": 1777000762014,
       "tag": "0006_unusual_doctor_strange",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777247134968,
+      "tag": "0007_ancient_goliath",
+      "breakpoints": true
     }
   ]
 }

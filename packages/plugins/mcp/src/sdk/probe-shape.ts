@@ -103,7 +103,36 @@ export const probeMcpEndpointShape = (
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
-          const response = await fetchImpl(endpoint, {
+          const classify = (response: Response, method: "GET" | "POST") => {
+            if (response.status === 401) {
+              const wwwAuth = readHeader(response.headers, "www-authenticate");
+              if (wwwAuth && /^\s*bearer\b/i.test(wwwAuth)) {
+                return { kind: "mcp", requiresAuth: true } as const;
+              }
+              return {
+                kind: "not-mcp",
+                reason:
+                  "401 without Bearer WWW-Authenticate — not an MCP auth challenge",
+              } as const;
+            }
+
+            if (response.status >= 200 && response.status < 300) {
+              if (method === "GET") {
+                const contentType = readHeader(response.headers, "content-type") ?? "";
+                if (!/^\s*text\/event-stream\b/i.test(contentType)) {
+                  return {
+                    kind: "not-mcp",
+                    reason: "GET response is not an SSE stream",
+                  } as const;
+                }
+              }
+              return { kind: "mcp", requiresAuth: false } as const;
+            }
+
+            return null;
+          };
+
+          const postResponse = await fetchImpl(endpoint, {
             method: "POST",
             headers: {
               "content-type": "application/json",
@@ -113,29 +142,22 @@ export const probeMcpEndpointShape = (
             signal: controller.signal,
           });
 
-          if (response.status === 401) {
-            const wwwAuth = readHeader(response.headers, "www-authenticate");
-            if (wwwAuth && /^\s*bearer\b/i.test(wwwAuth)) {
-              return { kind: "mcp", requiresAuth: true };
-            }
-            return {
-              kind: "not-mcp",
-              reason:
-                "401 without Bearer WWW-Authenticate — not an MCP auth challenge",
-            };
-          }
+          const postResult = classify(postResponse, "POST");
+          if (postResult) return postResult;
 
-          if (response.status >= 200 && response.status < 300) {
-            // Streamable-HTTP servers may answer with `text/event-stream`;
-            // either way the status alone is enough to rule in the
-            // "MCP, unauth OK" case. The full JSON-RPC decode happens in
-            // `discoverTools` — this probe only needs to confirm shape.
-            return { kind: "mcp", requiresAuth: false };
+          if ([404, 405, 406, 415].includes(postResponse.status)) {
+            const getResponse = await fetchImpl(endpoint, {
+              method: "GET",
+              headers: { accept: "text/event-stream" },
+              signal: controller.signal,
+            });
+            const getResult = classify(getResponse, "GET");
+            if (getResult) return getResult;
           }
 
           return {
             kind: "not-mcp",
-            reason: `unexpected status ${response.status} for initialize`,
+            reason: `unexpected status ${postResponse.status} for initialize`,
           };
         } finally {
           clearTimeout(timer);

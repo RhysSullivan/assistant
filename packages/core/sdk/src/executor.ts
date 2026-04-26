@@ -1600,6 +1600,7 @@ export const createExecutor = <
       adapter: core,
       rawAdapter: adapter,
       secretsGet: (id) => secretsGet(id),
+      secretsSet: (input) => secretsSet(input),
       connectionsCreate: (input) => connectionsCreate(input),
     });
     connectionProviders.set(

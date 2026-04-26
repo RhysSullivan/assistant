@@ -25,6 +25,8 @@ export const isOAuthPopupResult = sharedIsOAuthPopupResult;
 export type OpenOAuthPopupInput<TAuth> = {
   readonly url: string;
   readonly onResult: (data: OAuthPopupResult<TAuth>) => void;
+  /** Ignore popup messages for any other in-flight OAuth session. */
+  readonly expectedSessionId?: string;
   /** `window.open` target name — also used to focus an existing popup. */
   readonly popupName: string;
   /** BroadcastChannel name, must match the server-side `popupDocument` channel. */
@@ -100,6 +102,7 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
 
   const handleResult = (data: unknown) => {
     if (!isOAuthPopupResult<TAuth>(data) || settled) return;
+    if (input.expectedSessionId && data.sessionId !== input.expectedSessionId) return;
     settle();
     input.onResult(data);
   };

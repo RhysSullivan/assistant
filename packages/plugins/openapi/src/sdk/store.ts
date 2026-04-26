@@ -14,7 +14,6 @@ import {
   HeaderValue,
   OAuth2Auth,
   OAuth2SourceConfig,
-  OpenApiOAuthSession,
   OpenApiSourceBindingInput,
   OpenApiSourceBindingRef,
   OpenApiSourceBindingValue,
@@ -25,7 +24,7 @@ import {
 // Schema — three tables:
 //   - openapi_source: one row per onboarded spec (baseUrl, headers, oauth2, ...)
 //   - openapi_operation: one row per operation binding keyed by tool id
-//   - openapi_oauth_session: transient session rows used during oauth onboarding
+//   - openapi_source_binding: credential bindings for shared sources
 // ---------------------------------------------------------------------------
 
 export const openapiSchema = defineSchema({
@@ -69,14 +68,6 @@ export const openapiSchema = defineSchema({
       value: { type: "json", required: true },
       created_at: { type: "date", required: true },
       updated_at: { type: "date", required: true },
-    },
-  },
-  openapi_oauth_session: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      session: { type: "json", required: true },
-      created_at: { type: "date", required: true },
     },
   },
 });
@@ -156,9 +147,6 @@ const decodeOAuth2 = Schema.decodeUnknownSync(OAuth2Auth);
 const encodeOAuth2SourceConfig = Schema.encodeSync(OAuth2SourceConfig);
 const encodeSourceBindingValue = Schema.encodeSync(OpenApiSourceBindingValue);
 const decodeSourceBindingValue = Schema.decodeUnknownSync(OpenApiSourceBindingValue);
-
-const encodeOAuthSession = Schema.encodeSync(OpenApiOAuthSession);
-const decodeOAuthSession = Schema.decodeUnknownSync(OpenApiOAuthSession);
 
 const asJsonObject = (value: unknown): Record<string, unknown> => {
   if (value == null) return {};
@@ -315,17 +303,6 @@ export interface OpenapiStore {
     namespace: string,
     scope: string,
   ) => Effect.Effect<void, StorageFailure>;
-
-  readonly putOAuthSession: (
-    sessionId: string,
-    session: OpenApiOAuthSession,
-  ) => Effect.Effect<void, StorageFailure>;
-
-  readonly getOAuthSession: (
-    sessionId: string,
-  ) => Effect.Effect<OpenApiOAuthSession | null, StorageFailure>;
-
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, StorageFailure>;
 
   readonly listSourceBindings: (
     sourceId: string,
@@ -650,59 +627,6 @@ export const makeDefaultOpenapiStore = ({
         .pipe(Effect.map((rows) => rows.map(rowToOperation))),
 
     removeSource: (namespace, scope) => deleteSource(namespace, scope),
-
-    putOAuthSession: (sessionId, session) =>
-      Effect.gen(function* () {
-        // Defensive overwrite — sessionIds are UUIDs so collisions are
-        // negligible, but pin to the target scope so a hypothetical
-        // collision with a session in another scope of this stack
-        // can't wipe the wrong row.
-        yield* adapter.delete({
-          model: "openapi_oauth_session",
-          where: [
-            { field: "id", value: sessionId },
-            { field: "scope_id", value: session.tokenScope },
-          ],
-        });
-        yield* adapter.create({
-          model: "openapi_oauth_session",
-          data: {
-            id: sessionId,
-            // Session row lives at the same scope the completed tokens
-            // will land in — keeps in-flight sessions visible only to
-            // the executor that started them (user stacks can see
-            // their own sessions but not another user's).
-            scope_id: session.tokenScope,
-            session: encodeOAuthSession(session) as unknown as Record<string, unknown>,
-            created_at: new Date(),
-          },
-          forceAllowId: true,
-        });
-      }),
-
-    getOAuthSession: (sessionId) =>
-      adapter
-        .findOne({
-          model: "openapi_oauth_session",
-          where: [{ field: "id", value: sessionId }],
-        })
-        .pipe(
-          Effect.map((row) => {
-            if (!row) return null;
-            const raw = row.session;
-            return decodeOAuthSession(
-              typeof raw === "string" ? JSON.parse(raw) : raw,
-            );
-          }),
-        ),
-
-    deleteOAuthSession: (sessionId) =>
-      adapter
-        .delete({
-          model: "openapi_oauth_session",
-          where: [{ field: "id", value: sessionId }],
-        })
-        .pipe(Effect.asVoid),
 
     listSourceBindings: (sourceId, sourceScope) =>
       Effect.gen(function* () {

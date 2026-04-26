@@ -408,6 +408,7 @@ export default function AddMcpSource(props: {
         url: result.authorizationUrl,
         popupName: "mcp-oauth",
         channelName: OAUTH_RESULT_CHANNEL,
+        expectedSessionId: result.sessionId,
         onResult: (data: OAuthPopupResult<OAuthTokens>) => {
           oauthCleanup.current = null;
           if (data.ok) {

@@ -137,7 +137,7 @@ export const runOAuthCallback = <TAuth, E, R>(
         Effect.succeed<OAuthPopupResult<TAuth>>({
           type: OAUTH_POPUP_MESSAGE_TYPE,
           ok: false,
-          sessionId: null,
+          sessionId: input.urlParams.state ?? null,
           error: input.toErrorMessage(Cause.squash(cause)),
         }),
       ),

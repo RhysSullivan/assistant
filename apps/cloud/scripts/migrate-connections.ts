@@ -26,6 +26,7 @@ import {
   parse as parseOpenApi,
   resolveSpecText,
   OAuth2Auth,
+  OAuth2SourceConfig,
 } from "@executor/plugin-openapi";
 
 const APPLY = process.argv.includes("--apply");
@@ -54,6 +55,7 @@ class LegacyOAuth2Auth extends Schema.Class<LegacyOAuth2Auth>("LegacyOAuth2Auth"
 }) {}
 
 const decodeCurrent = Schema.decodeUnknownOption(OAuth2Auth);
+const decodeCurrentTemplate = Schema.decodeUnknownOption(OAuth2SourceConfig);
 const decodeLegacy = Schema.decodeUnknownOption(LegacyOAuth2Auth);
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -122,6 +124,7 @@ type Row = {
 type Bucket =
   | { kind: "no-oauth"; row: Row }
   | { kind: "current"; row: Row }
+  | { kind: "current-template"; row: Row }
   | {
       kind: "legacy-migratable";
       row: Row;
@@ -138,6 +141,9 @@ const classifyRow = async (row: Row): Promise<Bucket> => {
   if (primary == null) return { kind: "no-oauth", row };
 
   if (Option.isSome(decodeCurrent(primary))) return { kind: "current", row };
+  if (Option.isSome(decodeCurrentTemplate(primary))) {
+    return { kind: "current-template", row };
+  }
 
   const legacyOption = decodeLegacy(primary);
   if (Option.isSome(legacyOption)) {
@@ -216,6 +222,7 @@ const main = async () => {
     const counts = {
       "no-oauth": 0,
       current: 0,
+      "current-template": 0,
       "legacy-migratable": 0,
       "legacy-blocked": 0,
       unknown: 0,
@@ -225,6 +232,7 @@ const main = async () => {
     console.log("Classification:");
     console.log(`  no oauth2 config:          ${counts["no-oauth"]}`);
     console.log(`  already on new shape:      ${counts.current}`);
+    console.log(`  source oauth2 templates:   ${counts["current-template"]}`);
     console.log(`  legacy — would migrate:    ${counts["legacy-migratable"]}`);
     console.log(`  legacy — blocked:          ${counts["legacy-blocked"]}`);
     console.log(`  unrecognized shape:        ${counts.unknown}\n`);
