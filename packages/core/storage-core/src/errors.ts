@@ -27,6 +27,12 @@ export class StorageError extends Data.TaggedError("StorageError")<{
   readonly cause: unknown;
 }> {}
 
+export const wrapStorageError = (prefix: string, op: string) => (cause: unknown): StorageError =>
+  new StorageError({
+    message: `[${prefix}] ${op}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    cause,
+  });
+
 /**
  * Typed unique-constraint violation. Plugins are expected to
  * `Effect.catchTag` this and translate to their own user-facing error.

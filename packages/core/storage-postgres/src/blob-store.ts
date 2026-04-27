@@ -15,7 +15,7 @@ import type { PgDatabase } from "drizzle-orm/pg-core";
 import { pgTable, primaryKey, text } from "drizzle-orm/pg-core";
 
 import type { BlobStore } from "@executor/sdk";
-import { StorageError } from "@executor/storage-core";
+import { wrapStorageError } from "@executor/storage-core";
 
 export const blobTable = pgTable(
   "blob",
@@ -34,15 +34,7 @@ export interface MakePostgresBlobStoreOptions {
   readonly db: DrizzlePgDB;
 }
 
-const wrapErr =
-  (op: string) =>
-  (cause: unknown): StorageError => {
-    const msg = cause instanceof Error ? cause.message : String(cause);
-    return new StorageError({
-      message: `[storage-postgres] blob ${op}: ${msg}`,
-      cause,
-    });
-  };
+const wrapErr = (op: string) => wrapStorageError("storage-postgres", `blob ${op}`);
 
 export const makePostgresBlobStore = (
   options: MakePostgresBlobStoreOptions,

@@ -13,7 +13,7 @@ import { and, eq, inArray, sql as drizzleSql } from "drizzle-orm";
 import { primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import type { BlobStore } from "@executor/sdk";
-import { StorageError } from "@executor/storage-core";
+import { wrapStorageError } from "@executor/storage-core";
 
 export const blobTable = sqliteTable(
   "blob",
@@ -33,15 +33,7 @@ export interface MakeSqliteBlobStoreOptions {
   readonly db: DrizzleSqliteDB;
 }
 
-const wrapErr =
-  (op: string) =>
-  (cause: unknown): StorageError => {
-    const msg = cause instanceof Error ? cause.message : String(cause);
-    return new StorageError({
-      message: `[storage-file] blob ${op}: ${msg}`,
-      cause,
-    });
-  };
+const wrapErr = (op: string) => wrapStorageError("storage-file", `blob ${op}`);
 
 export const makeSqliteBlobStore = (
   options: MakeSqliteBlobStoreOptions,

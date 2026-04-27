@@ -15,7 +15,7 @@ export { typedAdapter, type TypedAdapter } from "./typed";
 
 export { createAdapter, type CreateAdapterOptions } from "./factory";
 
-export { StorageError, UniqueViolationError } from "./errors";
+export { StorageError, UniqueViolationError, wrapStorageError } from "./errors";
 
 export {
   whereOperators,
