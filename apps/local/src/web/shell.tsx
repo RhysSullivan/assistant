@@ -1,25 +1,12 @@
-import { Link, Outlet, useLocation } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { Outlet, useLocation } from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
+import { useAtomRefresh } from "@effect-atom/atom-react";
 import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
-import { useSourcesWithPending } from "@executor/react/api/optimistic";
 import { useScope, useScopeInfo } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
-import { SourceFavicon } from "@executor/react/components/source-favicon";
+import { AppShellFrame, BrandLink, NavItem, SourceList } from "@executor/react/components/app-sidebar";
 import { CommandPalette } from "@executor/react/components/command-palette";
-import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { createMcpSourcePlugin } from "@executor/plugin-mcp/react";
-
-const mcpSourcePlugin = createMcpSourcePlugin({ allowStdio: true });
-import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
-import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
-
-const sourcePlugins = [
-  openApiSourcePlugin,
-  mcpSourcePlugin,
-  googleDiscoverySourcePlugin,
-  graphqlSourcePlugin,
-];
+import { sourcePlugins } from "./source-plugins";
 
 // ── Env ─────────────────────────────────────────────────────────────────
 
@@ -202,75 +189,6 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
   );
 }
 
-// ── NavItem ──────────────────────────────────────────────────────────────
-
-function NavItem(props: { to: string; label: string; active: boolean; onNavigate?: () => void }) {
-  return (
-    <Link
-      to={props.to}
-      onClick={props.onNavigate}
-      className={[
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-        props.active
-          ? "bg-sidebar-active text-foreground font-medium"
-          : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
-      ].join(" ")}
-    >
-      {props.label}
-    </Link>
-  );
-}
-
-// ── SourceList ───────────────────────────────────────────────────────────
-
-function SourceList(props: { pathname: string; onNavigate?: () => void }) {
-  const scopeId = useScope();
-  const sources = useSourcesWithPending(scopeId);
-
-  return Result.match(sources, {
-    onInitial: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>
-    ),
-    onFailure: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
-    ),
-    onSuccess: ({ value }) =>
-      value.length === 0 ? (
-        <div className="px-2.5 py-2 text-sm leading-relaxed text-muted-foreground">
-          No sources yet
-        </div>
-      ) : (
-        <div className="flex flex-col gap-px">
-          {value.map((s) => {
-            const detailPath = `/sources/${s.id}`;
-            const active =
-              props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
-            return (
-              <Link
-                key={s.id}
-                to="/sources/$namespace"
-                params={{ namespace: s.id }}
-                onClick={props.onNavigate}
-                className={[
-                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
-                  active
-                    ? "bg-sidebar-active text-foreground font-medium"
-                    : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
-                ].join(" ")}
-              >
-                <SourceFavicon url={s.url} />
-                <span className="flex-1 truncate">{s.name}</span>
-                <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
-                  {s.kind}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      ),
-  });
-}
-
 // ── ScopeLabel ───────────────────────────────────────────────────────────
 
 function ScopeLabel() {
@@ -311,9 +229,7 @@ function SidebarContent(props: {
     <>
       {props.showBrand !== false && (
         <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
-          <Link to="/" className="flex items-center gap-1.5">
-            <span className="font-display text-base tracking-tight text-foreground">executor</span>
-          </Link>
+          <BrandLink />
         </div>
       )}
 
@@ -372,22 +288,6 @@ export function Shell() {
   const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const refreshTools = useAtomRefresh(toolsAtom(scopeId));
   const { latestVersion, updateAvailable, channel } = useLatestVersion(VITE_APP_VERSION);
-  const lastPathname = useRef(pathname);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  if (lastPathname.current !== pathname) {
-    lastPathname.current = pathname;
-    if (mobileSidebarOpen) setMobileSidebarOpen(false);
-  }
-
-  // Lock scroll when mobile sidebar open
-  useEffect(() => {
-    if (!mobileSidebarOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [mobileSidebarOpen]);
 
   useEffect(() => {
     if (!import.meta.hot) {
@@ -407,92 +307,20 @@ export function Shell() {
   }, [refreshSources, refreshTools]);
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <CommandPalette sourcePlugins={sourcePlugins} />
-      {/* Desktop sidebar */}
-      <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
+    <AppShellFrame
+      pathname={pathname}
+      commandPalette={<CommandPalette sourcePlugins={sourcePlugins} />}
+      sidebar={(sidebarProps) => (
         <SidebarContent
           pathname={pathname}
           updateAvailable={updateAvailable}
           latestVersion={latestVersion}
           channel={channel}
+          {...sidebarProps}
         />
-      </aside>
-
-      {/* Mobile sidebar overlay */}
-      {mobileSidebarOpen && (
-        <div className="fixed inset-0 z-50 flex md:hidden">
-          {/* oxlint-disable-next-line react/forbid-elements */}
-          <button
-            type="button"
-            aria-label="Close navigation"
-            className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
-            onClick={() => setMobileSidebarOpen(false)}
-          />
-          <div className="relative flex h-full w-[84vw] max-w-xs flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
-            <div className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
-              <Link to="/" className="flex items-center gap-1.5">
-                <span className="font-display text-base tracking-tight text-foreground">
-                  executor
-                </span>
-              </Link>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Close navigation"
-                onClick={() => setMobileSidebarOpen(false)}
-                className="text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
-              >
-                <svg viewBox="0 0 16 16" className="size-3.5">
-                  <path
-                    d="M3 3l10 10M13 3L3 13"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </Button>
-            </div>
-            <SidebarContent
-              pathname={pathname}
-              onNavigate={() => setMobileSidebarOpen(false)}
-              showBrand={false}
-              updateAvailable={updateAvailable}
-              latestVersion={latestVersion}
-              channel={channel}
-            />
-          </div>
-        </div>
       )}
-
-      {/* Main content */}
-      <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
-        {/* Mobile top bar */}
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 md:hidden">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Open navigation"
-            onClick={() => setMobileSidebarOpen(true)}
-            className="bg-card hover:bg-accent/50"
-          >
-            <svg viewBox="0 0 16 16" className="size-4">
-              <path
-                d="M2 4h12M2 8h12M2 12h12"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </Button>
-          <Link to="/" className="flex items-center gap-1.5">
-            <span className="font-display text-base tracking-tight text-foreground">executor</span>
-          </Link>
-          <div className="w-8 shrink-0" />
-        </div>
-
-        <Outlet />
-      </main>
-    </div>
+    >
+      <Outlet />
+    </AppShellFrame>
   );
 }
