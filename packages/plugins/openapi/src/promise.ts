@@ -8,4 +8,5 @@ export type {
   OpenApiStartOAuthInput,
   OpenApiStartOAuthResponse,
   OpenApiCompleteOAuthInput,
+  OpenApiCompleteOAuthResponse,
 } from "./sdk/plugin";

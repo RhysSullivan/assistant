@@ -243,6 +243,10 @@ export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
   /** Absolute authorization endpoint URL. Only used for authorizationCode
    *  flows; clientCredentials has no user consent step. */
   authorizationUrl: Schema.NullOr(Schema.String),
+  /** Expected issuer for ID token validation. Defaults to authorization origin. */
+  issuerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
+    default: () => null,
+  }),
   /** Secret id holding the OAuth client_id. */
   clientIdSecretId: Schema.String,
   /** Secret id holding the OAuth client_secret. Optional for public
@@ -262,6 +266,9 @@ export class OAuth2SourceConfig extends Schema.Class<OAuth2SourceConfig>(
   flow: OAuth2Flow,
   tokenUrl: Schema.String,
   authorizationUrl: Schema.NullOr(Schema.String),
+  issuerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
+    default: () => null,
+  }),
   clientIdSlot: Schema.String,
   clientSecretSlot: Schema.NullOr(Schema.String),
   connectionSlot: Schema.String,
@@ -280,44 +287,6 @@ export class InvocationConfig extends Schema.Class<InvocationConfig>("Invocation
    * request. Coexists with `headers` but wins for the Authorization header.
    */
   oauth2: Schema.optionalWith(OAuth2Auth, { as: "Option" }),
-}) {}
-
-// ---------------------------------------------------------------------------
-// Pending OAuth session — persisted between startOAuth and completeOAuth.
-// All the fields the exchange needs (token endpoint, client credential
-// secret ids, redirect URL, PKCE verifier) plus the pre-decided Connection
-// / secret ids the SDK stamps when the user returns.
-// ---------------------------------------------------------------------------
-
-export class OpenApiOAuthSession extends Schema.Class<OpenApiOAuthSession>(
-  "OpenApiOAuthSession",
-)({
-  /** Display name used for the resulting Connection's identity label. */
-  displayName: Schema.String,
-  securitySchemeName: Schema.String,
-  /** Only authorizationCode reaches this session type. client_credentials
-   *  has no user-interactive step so it creates the Connection inline in
-   *  `startOAuth` without persisting a session. */
-  flow: Schema.Literal("authorizationCode"),
-  tokenUrl: Schema.String,
-  /** Absolute authorization endpoint — persisted so completeOAuth can
-   *  stamp it onto the resulting `OAuth2Auth` for future sign-ins. */
-  authorizationUrl: Schema.String,
-  redirectUrl: Schema.String,
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.NullOr(Schema.String),
-  /** Executor scope that will own the resulting Connection (and its
-   *  backing secret rows). Typically the innermost (per-user) scope. */
-  tokenScope: Schema.String,
-  /** Pre-decided Connection id stamped at `completeOAuth` time. */
-  connectionId: Schema.String,
-  /** Pre-decided secret ids for the Connection's access + refresh
-   *  tokens. Fixed at session creation so a retried callback lands
-   *  on the same ids. */
-  accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.String,
-  scopes: Schema.Array(Schema.String),
-  codeVerifier: Schema.String,
 }) {}
 
 export class InvocationResult extends Schema.Class<InvocationResult>("InvocationResult")({

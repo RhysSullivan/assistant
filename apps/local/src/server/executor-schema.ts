@@ -83,6 +83,24 @@ export const connection = sqliteTable("connection", {
   index("connection_provider_idx").on(table.provider),
 ]);
 
+export const oauth2_session = sqliteTable("oauth2_session", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  plugin_id: text('plugin_id').notNull(),
+  strategy: text('strategy').notNull(),
+  connection_id: text('connection_id').notNull(),
+  token_scope: text('token_scope').notNull(),
+  redirect_url: text('redirect_url').notNull(),
+  payload: text('payload', { mode: "json" }).notNull(),
+  expires_at: integer('expires_at').notNull(),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("oauth2_session_scope_id_idx").on(table.scope_id),
+  index("oauth2_session_plugin_id_idx").on(table.plugin_id),
+  index("oauth2_session_connection_id_idx").on(table.connection_id),
+]);
+
 export const openapi_source = sqliteTable("openapi_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
@@ -125,16 +143,6 @@ export const openapi_source_binding = sqliteTable("openapi_source_binding", {
   index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
-export const openapi_oauth_session = sqliteTable("openapi_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: text('session', { mode: "json" }).notNull(),
-  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("openapi_oauth_session_scope_id_idx").on(table.scope_id),
-]);
-
 export const mcp_source = sqliteTable("mcp_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
@@ -156,17 +164,6 @@ export const mcp_binding = sqliteTable("mcp_binding", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("mcp_binding_scope_id_idx").on(table.scope_id),
   index("mcp_binding_source_id_idx").on(table.source_id),
-]);
-
-export const mcp_oauth_session = sqliteTable("mcp_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: text('session', { mode: "json" }).notNull(),
-  expires_at: integer('expires_at').notNull(),
-  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("mcp_oauth_session_scope_id_idx").on(table.scope_id),
 ]);
 
 export const google_discovery_source = sqliteTable("google_discovery_source", {
@@ -191,16 +188,6 @@ export const google_discovery_binding = sqliteTable("google_discovery_binding", 
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("google_discovery_binding_scope_id_idx").on(table.scope_id),
   index("google_discovery_binding_source_id_idx").on(table.source_id),
-]);
-
-export const google_discovery_oauth_session = sqliteTable("google_discovery_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: text('session', { mode: "json" }).notNull(),
-  expires_at: integer('expires_at', { mode: 'timestamp_ms' }).notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("google_discovery_oauth_session_scope_id_idx").on(table.scope_id),
 ]);
 
 export const graphql_source = sqliteTable("graphql_source", {

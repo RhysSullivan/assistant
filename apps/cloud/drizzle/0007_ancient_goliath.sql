@@ -1,0 +1,1 @@
+DROP TABLE "openapi_oauth_session" CASCADE;

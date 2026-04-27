@@ -23,8 +23,6 @@ const failingExtension: GoogleDiscoveryPluginExtension = {
   probeDiscovery: () => Effect.die(new Error("Not implemented")),
   addSource: () => unused,
   removeSource: (_namespace: string, _scope: string) => unused,
-  startOAuth: () => unused,
-  completeOAuth: () => Effect.die(new Error("Not implemented")),
   getSource: (_namespace: string, _scope: string) => Effect.succeed(null),
   updateSource: () => unused,
 };

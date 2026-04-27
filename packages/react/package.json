@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./api/oauth-popup": "./src/api/oauth-popup.ts",
     "./api/*": "./src/api/*.tsx",
     "./plugins/*": "./src/plugins/*.tsx",
     "./pages/*": "./src/pages/*.tsx",

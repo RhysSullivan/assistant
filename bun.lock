@@ -321,6 +321,7 @@
         "@effect/platform": "catalog:",
         "@executor/storage-core": "workspace:*",
         "effect": "catalog:",
+        "oauth4webapi": "^3.8.5",
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
@@ -535,7 +536,6 @@
       "dependencies": {
         "@effect/platform": "catalog:",
         "@executor/api": "workspace:*",
-        "@executor/plugin-oauth2": "workspace:*",
         "@executor/sdk": "workspace:*",
         "effect": "catalog:",
       },
@@ -623,7 +623,6 @@
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
         "@executor/config": "workspace:*",
-        "@executor/plugin-oauth2": "workspace:*",
         "@executor/sdk": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "effect": "catalog:",
@@ -656,20 +655,6 @@
         "@tanstack/react-router",
         "react",
       ],
-    },
-    "packages/plugins/oauth2": {
-      "name": "@executor/plugin-oauth2",
-      "version": "0.0.1",
-      "dependencies": {
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "@types/node": "catalog:",
-        "bun-types": "catalog:",
-        "tsup": "catalog:",
-        "vitest": "catalog:",
-      },
     },
     "packages/plugins/onepassword": {
       "name": "@executor/plugin-onepassword",
@@ -709,7 +694,6 @@
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
         "@executor/config": "workspace:*",
-        "@executor/plugin-oauth2": "workspace:*",
         "@executor/sdk": "workspace:*",
         "effect": "catalog:",
         "openapi-types": "^12.1.3",
@@ -1274,8 +1258,6 @@
     "@executor/plugin-keychain": ["@executor/plugin-keychain@workspace:packages/plugins/keychain"],
 
     "@executor/plugin-mcp": ["@executor/plugin-mcp@workspace:packages/plugins/mcp"],
-
-    "@executor/plugin-oauth2": ["@executor/plugin-oauth2@workspace:packages/plugins/oauth2"],
 
     "@executor/plugin-onepassword": ["@executor/plugin-onepassword@workspace:packages/plugins/onepassword"],
 
@@ -3832,6 +3814,8 @@
     "nth-check": ["nth-check@2.1.1", "", { "dependencies": { "boolbase": "^1.0.0" } }, "sha512-lqjrjmaOoAnWfMmBPL+XNnynZh2+swxiX3WUE0s4yEHI6m+AwrK2UZOimIRl3X/4QctVqS8AiZjFqyOGrMXb/w=="],
 
     "numeral": ["numeral@2.0.6", "", {}, "sha512-qaKRmtYPZ5qdw4jWJD6bxEf1FJEqllJrwxCLIm0sQU/A7v2/czigzOb+C2uSiFsa9lBUzeH7M1oK+Q+OLxL3kA=="],
+
+    "oauth4webapi": ["oauth4webapi@3.8.5", "", {}, "sha512-A8jmyUckVhRJj5lspguklcl90Ydqk61H3dcU0oLhH3Yv13KpAliKTt5hknpGGPZSSfOwGyraNEFmofDYH+1kSg=="],
 
     "object-assign": ["object-assign@4.1.1", "", {}, "sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg=="],
 
