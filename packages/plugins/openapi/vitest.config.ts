@@ -1,8 +1,3 @@
-import { defineConfig } from "vitest/config";
+import { packageTestConfig } from "../../vitest.shared.config";
 
-export default defineConfig({
-  test: {
-    include: ["src/**/*.test.ts"],
-    exclude: ["src/api/**", "src/react/**"],
-  },
-});
+export default packageTestConfig({ exclude: ["src/api/**", "src/react/**"] });

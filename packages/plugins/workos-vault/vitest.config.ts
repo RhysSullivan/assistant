@@ -1,8 +1,3 @@
-import { defineConfig } from "vitest/config";
+import { packageTestConfig } from "../../vitest.shared.config";
 
-export default defineConfig({
-  test: {
-    environment: "node",
-    include: ["src/**/*.test.ts"],
-  },
-});
+export default packageTestConfig({ environment: "node" });

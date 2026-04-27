@@ -1,13 +1,3 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import { defineConfig } from "vitest/config";
+import { cloudflarePackageTestConfig } from "../../vitest.cloudflare.config";
 
-export default defineConfig({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" },
-    }),
-  ],
-  test: {
-    include: ["src/**/*.test.ts"],
-  },
-});
+export default cloudflarePackageTestConfig("./wrangler.jsonc", { include: ["src/**/*.test.ts"] });

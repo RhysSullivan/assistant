@@ -1,14 +1,3 @@
-import { defineConfig } from "tsup";
+import { packageConfig } from "../../tsup.shared.config";
 
-export default defineConfig({
-  entry: {
-    index: "src/index.ts",
-    http: "src/http.ts",
-    react: "src/react.ts",
-  },
-  format: ["esm"],
-  dts: false,
-  sourcemap: true,
-  clean: true,
-  external: [/^@executor\//, /^effect/, /^@effect\//],
-});
+export default packageConfig({ index: "src/index.ts", http: "src/http.ts", react: "src/react.ts" });

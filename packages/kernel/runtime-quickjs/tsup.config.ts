@@ -1,12 +1,3 @@
-import { defineConfig } from "tsup";
+import { packageConfigWithExternal } from "../../tsup.shared.config";
 
-export default defineConfig({
-  entry: {
-    index: "src/index.ts",
-  },
-  format: ["esm"],
-  dts: false,
-  sourcemap: true,
-  clean: true,
-  external: [/^@executor\//, /^effect/, /^@effect\//, "quickjs-emscripten"],
-});
+export default packageConfigWithExternal({ index: "src/index.ts" }, ["quickjs-emscripten"]);

@@ -1,13 +1,6 @@
-import { defineConfig } from "tsup";
+import { packageConfig } from "../../tsup.shared.config";
 
-export default defineConfig({
-  entry: {
-    index: "src/promise.ts",
-    core: "src/sdk/index.ts",
-  },
-  format: ["esm"],
-  dts: false,
-  sourcemap: true,
-  clean: true,
-  external: [/^@executor\//, /^effect/, /^@workos-inc\/node/],
-});
+export default packageConfig(
+  { index: "src/promise.ts", core: "src/sdk/index.ts" },
+  [/^@executor\//, /^effect/, /^@workos-inc\/node/],
+);

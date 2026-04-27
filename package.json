@@ -60,6 +60,7 @@
   "dependencies": {},
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
+    "@cloudflare/vitest-pool-workers": "^0.15.0",
     "@effect/language-service": "^0.84.2",
     "@effect/platform": "catalog:",
     "@effect/vitest": "catalog:",
