@@ -1,7 +1,3 @@
-import { defineConfig } from "drizzle-kit";
+import { localDrizzleConfig } from "../shared/drizzle-config";
 
-export default defineConfig({
-  schema: "./src/server/executor-schema.ts",
-  out: "./drizzle",
-  dialect: "sqlite",
-});
+export default localDrizzleConfig();
