@@ -14,8 +14,10 @@ import type {
   SourceConfig,
   ExecutorFileConfig,
   ConfigHeaderValue,
+  McpAuthConfig,
 } from "@executor/config";
 import { SECRET_REF_PREFIX } from "@executor/config";
+import type { McpConnectionAuth } from "@executor/plugin-mcp";
 
 import type { LocalExecutor } from "./executor";
 
@@ -51,6 +53,28 @@ const translateHeaders = (
     out[k] = translateHeader(v);
   }
   return out;
+};
+
+// MCP auth translation: file format → plugin format. The header variant
+// stores credentials as `secret-public-ref:<id>`; the plugin SDK takes the
+// raw secret id. The oauth2 variant is structurally identical.
+export const translateMcpAuth = (
+  auth: McpAuthConfig | undefined,
+): McpConnectionAuth | undefined => {
+  if (!auth) return undefined;
+  if (auth.kind === "none") return { kind: "none" };
+  if (auth.kind === "header") {
+    const secretId = auth.secret.startsWith(SECRET_REF_PREFIX)
+      ? auth.secret.slice(SECRET_REF_PREFIX.length)
+      : auth.secret;
+    return {
+      kind: "header",
+      headerName: auth.headerName,
+      secretId,
+      prefix: auth.prefix,
+    };
+  }
+  return { kind: "oauth2", connectionId: auth.connectionId };
 };
 
 // ---------------------------------------------------------------------------
@@ -129,6 +153,7 @@ const addSourceFromConfig = (
         queryParams: source.queryParams,
         headers: source.headers,
         namespace: source.namespace,
+        auth: translateMcpAuth(source.auth),
       }).pipe(Effect.asVoid);
   }
 };
