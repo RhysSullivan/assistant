@@ -22,6 +22,10 @@ import { createRemoteJWKSet } from "jose";
 
 import { TelemetryLive } from "./services/telemetry";
 import { McpJwtVerificationError, verifyMcpAccessToken, type VerifiedToken } from "./mcp-auth";
+import { authorizeOrganization } from "./auth/authorize-organization";
+import { UserStoreService } from "./auth/context";
+import { CoreSharedServices } from "./api/core-shared-services";
+import { DbService } from "./services/db";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -93,11 +97,37 @@ export class McpAuth extends Context.Tag("@executor/cloud/McpAuth")<
   }
 >() {}
 
+export class McpOrganizationAuth extends Context.Tag("@executor/cloud/McpOrganizationAuth")<
+  McpOrganizationAuth,
+  {
+    readonly authorize: (
+      accountId: string,
+      organizationId: string,
+    ) => Effect.Effect<boolean, unknown>;
+  }
+>() {}
+
 const verifyJwt = (token: string) =>
   verifyMcpAccessToken(token, jwks, {
     issuer: AUTHKIT_DOMAIN,
     audience: RESOURCE_URL,
   });
+
+const DbLive = DbService.Live;
+const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
+const McpOrganizationAuthServices = Layer.mergeAll(
+  DbLive,
+  UserStoreLive,
+  CoreSharedServices,
+);
+
+export const McpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth, {
+  authorize: (accountId, organizationId) =>
+    authorizeOrganization(accountId, organizationId).pipe(
+      Effect.map((org) => org !== null),
+      Effect.provide(McpOrganizationAuthServices),
+    ),
+});
 
 export const McpAuthLive = Layer.succeed(McpAuth, {
   verifyBearer: Effect.fn("mcp.auth.verify_bearer")(function* (request) {
@@ -622,14 +652,59 @@ const forwardToExistingSession = (
     return HttpServerResponse.raw(withMcpResponseHeaders(annotated));
   });
 
-const dispatchPost = (request: Request, token: VerifiedToken) =>
+const clearExistingSession = (request: Request, sessionId: string) =>
+  Effect.gen(function* () {
+    const ns = env.MCP_SESSION;
+    const stub = ns.get(ns.idFromString(sessionId));
+    const propagation = yield* currentPropagationHeaders(request);
+    yield* Effect.promise(() => stub.clearSession(propagation) as Promise<void>).pipe(
+      Effect.catchAll(() => Effect.void),
+      Effect.withSpan("mcp.do.clear_session", {
+        attributes: { "mcp.request.session_id_present": true },
+      }),
+    );
+  });
+
+const authorizeMcpOrganization = (
+  request: Request,
+  token: VerifiedToken,
+  sessionId: string | null,
+) =>
   Effect.gen(function* () {
     const organizationId = token.organizationId;
     if (!organizationId) {
       return jsonRpcError(403, -32001, "No organization in session — log in via the web app first");
     }
 
+    const auth = yield* McpOrganizationAuth;
+    const allowed = yield* auth.authorize(token.accountId, organizationId).pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          yield* Effect.annotateCurrentSpan({
+            "mcp.auth.organization_authorize_error": String(error),
+          });
+          return false;
+        }),
+      ),
+      Effect.withSpan("mcp.auth.authorize_organization", {
+        attributes: { "mcp.auth.organization_id": organizationId },
+      }),
+    );
+    if (allowed) return null;
+
+    if (sessionId) {
+      yield* clearExistingSession(request, sessionId);
+    }
+    return jsonRpcError(403, -32001, "No organization in session — log in via the web app first");
+  });
+
+const dispatchPost = (request: Request, token: VerifiedToken) =>
+  Effect.gen(function* () {
     const sessionId = request.headers.get("mcp-session-id");
+    const authError = yield* authorizeMcpOrganization(request, token, sessionId);
+    if (authError) return authError;
+    const organizationId = token.organizationId!;
+
     if (sessionId) return yield* forwardToExistingSession(request, sessionId, true, token);
 
     const ns = env.MCP_SESSION;
@@ -664,13 +739,21 @@ const dispatchGet = (request: Request, token: VerifiedToken) => {
   const sessionId = request.headers.get("mcp-session-id");
   if (!sessionId)
     return Effect.succeed(jsonRpcError(400, -32000, "mcp-session-id header required for SSE"));
-  return forwardToExistingSession(request, sessionId, false, token);
+  return Effect.gen(function* () {
+    const authError = yield* authorizeMcpOrganization(request, token, sessionId);
+    if (authError) return authError;
+    return yield* forwardToExistingSession(request, sessionId, false, token);
+  });
 };
 
 const dispatchDelete = (request: Request, token: VerifiedToken) => {
   const sessionId = request.headers.get("mcp-session-id");
   if (!sessionId) return Effect.succeed(HttpServerResponse.empty({ status: 204 }));
-  return forwardToExistingSession(request, sessionId, true, token);
+  return Effect.gen(function* () {
+    const authError = yield* authorizeMcpOrganization(request, token, sessionId);
+    if (authError) return authError;
+    return yield* forwardToExistingSession(request, sessionId, true, token);
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -696,14 +779,13 @@ export const classifyMcpPath = (pathname: string): McpRoute => {
 
 /**
  * Raw Effect-native MCP app. Exported so alternate entry points (e.g. the
- * vitest-pool-workers test worker) can provide their own `McpAuth` layer —
- * the only dependency we deliberately swap in tests because hitting the real
- * WorkOS JWKS isn't practical. Every other layer stays real.
+ * vitest-pool-workers test worker) can provide their own auth layers because
+ * hitting WorkOS JWKS / membership APIs is not practical in the isolate.
  */
 export const mcpApp: Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   never,
-  HttpServerRequest.HttpServerRequest | McpAuth
+  HttpServerRequest.HttpServerRequest | McpAuth | McpOrganizationAuth
 > = Effect.gen(function* () {
   const httpRequest = yield* HttpServerRequest.HttpServerRequest;
   const request = httpRequest.source as Request;
@@ -744,7 +826,7 @@ export const mcpApp: Effect.Effect<
 );
 
 const rawMcpFetch = HttpApp.toWebHandler(
-  mcpApp.pipe(Effect.provide(Layer.mergeAll(McpAuthLive, TelemetryLive))),
+  mcpApp.pipe(Effect.provide(Layer.mergeAll(McpAuthLive, McpOrganizationAuthLive, TelemetryLive))),
 );
 
 /**

@@ -18,7 +18,14 @@ import { Effect, Layer } from "effect";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 
-import { McpAuth, McpAuthLive, classifyMcpPath, mcpApp } from "./mcp";
+import {
+  McpAuth,
+  McpAuthLive,
+  McpOrganizationAuth,
+  McpOrganizationAuthLive,
+  classifyMcpPath,
+  mcpApp,
+} from "./mcp";
 import { organizations } from "./services/schema";
 import { parseTestBearer } from "./test-bearer";
 import { DoTelemetryLive } from "./services/telemetry";
@@ -32,6 +39,11 @@ const TestMcpAuthLive = Layer.succeed(McpAuth, {
       if (!header?.startsWith("Bearer ")) return null;
       return parseTestBearer(header.slice("Bearer ".length));
     }),
+});
+
+const TestMcpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth, {
+  authorize: (_accountId, organizationId) =>
+    Effect.succeed(!organizationId.startsWith("revoked_")),
 });
 
 // ---------------------------------------------------------------------------
@@ -86,11 +98,15 @@ const handleSeedOrg = async (
 // instrumentation, so we reuse DoTelemetryLive (it's a plain WebSdk +
 // OTLPTraceExporter — not Durable-Object-specific) to stand in.
 const testMcpFetch = HttpApp.toWebHandler(
-  mcpApp.pipe(Effect.provide(Layer.mergeAll(TestMcpAuthLive, DoTelemetryLive))),
+  mcpApp.pipe(
+    Effect.provide(
+      Layer.mergeAll(TestMcpAuthLive, TestMcpOrganizationAuthLive, DoTelemetryLive),
+    ),
+  ),
 );
 
 const realAuthMcpFetch = HttpApp.toWebHandler(
-  mcpApp.pipe(Effect.provide(Layer.mergeAll(McpAuthLive, DoTelemetryLive))),
+  mcpApp.pipe(Effect.provide(Layer.mergeAll(McpAuthLive, McpOrganizationAuthLive, DoTelemetryLive))),
 );
 
 export default {
