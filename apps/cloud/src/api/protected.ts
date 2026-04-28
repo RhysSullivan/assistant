@@ -7,7 +7,7 @@ import { McpExtensionService } from "@executor/plugin-mcp/api";
 import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
 
 import { authorizeOrganization } from "../auth/authorize-organization";
-import { WorkOSAuth } from "../auth/workos";
+import { IdentityProvider } from "../identity/provider";
 import { makeExecutionStack } from "../services/execution-stack";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
@@ -23,13 +23,13 @@ const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
           message: "Invalid request",
         }),
     );
-    const workos = yield* WorkOSAuth;
-    const session = yield* workos.authenticateRequest(webRequest);
+    const identity = yield* IdentityProvider;
+    const session = yield* identity.authenticateRequest(webRequest);
     if (!session || !session.organizationId) return null;
 
-    const org = yield* authorizeOrganization(session.userId, session.organizationId);
+    const org = yield* authorizeOrganization(session.accountId, session.organizationId);
     if (!org) return null;
-    return { org, userId: session.userId };
+    return { org, userId: session.accountId };
   });
 
 const createProtectedApp = (userId: string, organizationId: string, organizationName: string) =>

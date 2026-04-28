@@ -25,6 +25,7 @@ import type { DrizzleDb, DbServiceShape } from "./services/db";
 import { CoreSharedServices } from "./api/core-shared-services";
 import { UserStoreService } from "./auth/context";
 import { resolveOrganization } from "./auth/resolve-organization";
+import { IdentityDirectory } from "./identity/directory";
 import { DbService, combinedSchema, resolveConnectionString } from "./services/db";
 import { makeExecutionStack } from "./services/execution-stack";
 import { makeMcpWorkerTransport, type McpWorkerTransport } from "./services/mcp-worker-transport";
@@ -160,7 +161,11 @@ const makeEphemeralDb = (): DbHandle => makeDbHandle({ idleTimeout: 0, maxLifeti
 const makeResolveOrganizationServices = (dbHandle: DbHandle) => {
   const DbLive = Layer.succeed(DbService, { sql: dbHandle.sql, db: dbHandle.db });
   const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
-  return Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
+  const IdentityDirectoryLive = IdentityDirectory.Live.pipe(
+    Layer.provideMerge(UserStoreLive),
+    Layer.provideMerge(CoreSharedServices),
+  );
+  return Layer.mergeAll(DbLive, UserStoreLive, IdentityDirectoryLive, CoreSharedServices);
 };
 
 // Session services DON'T re-provide `DoTelemetryLive` — that would install a

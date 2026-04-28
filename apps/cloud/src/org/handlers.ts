@@ -4,6 +4,8 @@ import { Effect } from "effect";
 import { UserStoreService } from "../auth/context";
 import { AuthContext } from "../auth/middleware";
 import { env } from "cloudflare:workers";
+import { IdentityDirectory } from "../identity/directory";
+import { IdentityProvider } from "../identity/provider";
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { OrgHttpApi } from "./compose";
@@ -11,10 +13,9 @@ import { Forbidden } from "./api";
 
 const requireAdmin = Effect.gen(function* () {
   const auth = yield* AuthContext;
-  const workos = yield* WorkOSAuth;
-  const memberships = yield* workos.listOrgMembers(auth.organizationId);
-  const currentMembership = memberships.data.find((m) => m.userId === auth.accountId);
-  if (!currentMembership || currentMembership.role?.slug !== "admin") {
+  const directory = yield* IdentityDirectory;
+  const allowed = yield* directory.requireRole(auth.accountId, auth.organizationId, "admin");
+  if (!allowed) {
     return yield* new Forbidden();
   }
 });
@@ -57,29 +58,21 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
     .handle("listMembers", () =>
       Effect.gen(function* () {
         const auth = yield* AuthContext;
-        const workos = yield* WorkOSAuth;
+        const identity = yield* IdentityProvider;
 
-        const memberships = yield* workos.listOrgMembers(auth.organizationId);
+        const memberships = yield* identity.listOrganizationMembers(auth.organizationId);
 
-        const members = yield* Effect.all(
-          memberships.data.map((m) =>
-            Effect.gen(function* () {
-              const user = yield* workos.getUser(m.userId);
-              return {
-                id: m.id,
-                userId: m.userId,
-                email: user.email,
-                name: [user.firstName, user.lastName].filter(Boolean).join(" ") || null,
-                avatarUrl: user.profilePictureUrl ?? null,
-                role: m.role?.slug ?? "member",
-                status: m.status,
-                lastActiveAt: user.lastSignInAt ?? null,
-                isCurrentUser: m.userId === auth.accountId,
-              };
-            }),
-          ),
-          { concurrency: 5 },
-        );
+        const members = memberships.map((m) => ({
+          id: m.id,
+          userId: m.accountId,
+          email: m.email,
+          name: m.name,
+          avatarUrl: m.avatarUrl,
+          role: m.roleSlug,
+          status: m.status,
+          lastActiveAt: m.lastActiveAt,
+          isCurrentUser: m.accountId === auth.accountId,
+        }));
 
         return { members };
       }),
@@ -87,12 +80,12 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
     .handle("listRoles", () =>
       Effect.gen(function* () {
         const auth = yield* AuthContext;
-        const workos = yield* WorkOSAuth;
+        const identity = yield* IdentityProvider;
 
-        const result = yield* workos.listOrgRoles(auth.organizationId);
+        const roles = yield* identity.listOrganizationRoles(auth.organizationId);
 
         return {
-          roles: result.data.map((r) => ({
+          roles: roles.map((r) => ({
             slug: r.slug,
             name: r.name,
           })),

@@ -3,20 +3,20 @@
 // Imports the WorkOS SDK so it must NOT be pulled into the client bundle.
 // ---------------------------------------------------------------------------
 
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer } from "effect";
 
+import { IdentityProvider } from "../identity/provider";
 import { NoOrganization, OrgAuth, SessionAuth, Unauthorized } from "./middleware";
-import { WorkOSAuth } from "./workos";
 
 export const SessionAuthLive = Layer.effect(
   SessionAuth,
   Effect.gen(function* () {
-    const workos = yield* WorkOSAuth;
+    const identity = yield* IdentityProvider;
     return SessionAuth.of({
       cookie: (sealedSession) =>
         Effect.gen(function* () {
-          const result = yield* workos
-            .authenticateSealedSession(Redacted.value(sealedSession))
+          const result = yield* identity
+            .authenticateSealedSession(sealedSession)
             .pipe(Effect.orElseSucceed(() => null));
 
           if (!result) {
@@ -24,12 +24,12 @@ export const SessionAuthLive = Layer.effect(
           }
 
           return {
-            accountId: result.userId,
+            accountId: result.accountId,
             email: result.email,
-            name: `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() || null,
+            name: result.name,
             avatarUrl: result.avatarUrl ?? null,
             organizationId: result.organizationId ?? null,
-            sealedSession: result.refreshedSession ?? Redacted.value(sealedSession),
+            sealedSession: result.sealedSession,
             refreshedSession: result.refreshedSession ?? null,
           };
         }),
@@ -40,12 +40,12 @@ export const SessionAuthLive = Layer.effect(
 export const OrgAuthLive = Layer.effect(
   OrgAuth,
   Effect.gen(function* () {
-    const workos = yield* WorkOSAuth;
+    const identity = yield* IdentityProvider;
     return OrgAuth.of({
       cookie: (sealedSession) =>
         Effect.gen(function* () {
-          const result = yield* workos
-            .authenticateSealedSession(Redacted.value(sealedSession))
+          const result = yield* identity
+            .authenticateSealedSession(sealedSession)
             .pipe(Effect.orElseSucceed(() => null));
 
           if (!result) {
@@ -57,10 +57,10 @@ export const OrgAuthLive = Layer.effect(
           }
 
           return {
-            accountId: result.userId,
+            accountId: result.accountId,
             organizationId: result.organizationId,
             email: result.email,
-            name: `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() || null,
+            name: result.name,
             avatarUrl: result.avatarUrl ?? null,
           };
         }),

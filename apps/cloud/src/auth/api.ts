@@ -77,6 +77,7 @@ export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
   .add(
     HttpApiEndpoint.get("organizations")`/auth/organizations`
       .addSuccess(AuthOrganizationsResponse)
+      .addError(UserStoreError)
       .addError(WorkOSError),
   )
   .add(
