@@ -7,6 +7,8 @@ import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
 import { authorizeOrganization } from "./authorize-organization";
 import { env } from "cloudflare:workers";
+import { IdentityDirectory } from "../identity/directory";
+import { IdentityProvider } from "../identity/provider";
 import { WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
 
@@ -121,7 +123,16 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           const result = yield* workos.authenticateWithCode(urlParams.code);
 
           // Mirror the account locally
-          yield* users.use((s) => s.ensureAccount(result.user.id));
+          yield* users.use((s) =>
+            s.ensureAccount({
+              id: result.user.id,
+              email: result.user.email,
+              name: [result.user.firstName, result.user.lastName].filter(Boolean).join(" ") || null,
+              avatarUrl: result.user.profilePictureUrl ?? null,
+              externalId: result.user.id,
+              identityProvider: "workos",
+            }),
+          );
 
           let sealedSession = result.sealedSession;
 
@@ -193,6 +204,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
       .handle("organizations", () =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
+          const directory = yield* IdentityDirectory;
           const session = yield* SessionContext;
 
           const memberships = yield* workos.listUserMemberships(session.accountId);
@@ -202,9 +214,10 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
                 Effect.map((org) => ({ id: org.id, name: org.name })),
                 Effect.orElseSucceed(() => null),
               ),
-            ),
+              ),
             { concurrency: "unbounded" },
           );
+          yield* directory.refreshAccountMemberships(session.accountId);
 
           return {
             organizations: organizations.filter((org): org is NonNullable<typeof org> => org !== null),
@@ -214,10 +227,10 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
       )
       .handle("switchOrganization", ({ payload }) =>
         Effect.gen(function* () {
-          const workos = yield* WorkOSAuth;
+          const identity = yield* IdentityProvider;
           const session = yield* SessionContext;
 
-          const refreshed = yield* workos.refreshSession(
+          const refreshed = yield* identity.refreshSession(
             session.sealedSession,
             payload.organizationId,
           );

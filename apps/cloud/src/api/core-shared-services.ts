@@ -14,6 +14,7 @@
 import { Layer } from "effect";
 
 import { WorkOSAuth } from "../auth/workos";
+import { IdentityProvider } from "../identity/provider";
 import { AutumnService } from "../services/autumn";
 
 /**
@@ -24,5 +25,6 @@ import { AutumnService } from "../services/autumn";
  */
 export const CoreSharedServices = Layer.mergeAll(
   WorkOSAuth.Default,
+  IdentityProvider.WorkOSLive.pipe(Layer.provide(WorkOSAuth.Default)),
   AutumnService.Default,
 );

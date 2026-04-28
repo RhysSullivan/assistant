@@ -100,12 +100,14 @@ export class OrgApi extends HttpApiGroup.make("org")
     HttpApiEndpoint.post("invite")`/org/invite`
       .setPayload(InviteBody)
       .addSuccess(InviteResponse)
+      .addError(UserStoreError)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
   .add(
     HttpApiEndpoint.del("removeMember")`/org/members/${membershipIdParam}`
       .addSuccess(RemoveResponse)
+      .addError(UserStoreError)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
@@ -113,6 +115,7 @@ export class OrgApi extends HttpApiGroup.make("org")
     HttpApiEndpoint.patch("updateMemberRole")`/org/members/${membershipIdParam}/role`
       .setPayload(UpdateRoleBody)
       .addSuccess(UpdateRoleResponse)
+      .addError(UserStoreError)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
@@ -124,12 +127,14 @@ export class OrgApi extends HttpApiGroup.make("org")
   .add(
     HttpApiEndpoint.post("getDomainVerificationLink")`/org/domains/verify-link`
       .addSuccess(DomainVerificationLinkResponse)
+      .addError(UserStoreError)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
   .add(
     HttpApiEndpoint.del("deleteDomain")`/org/domains/${domainIdParam}`
       .addSuccess(RemoveResponse)
+      .addError(UserStoreError)
       .addError(WorkOSError)
       .addError(Forbidden),
   )

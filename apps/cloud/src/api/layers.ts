@@ -10,6 +10,7 @@ import { GraphqlGroup, GraphqlHandlers } from "@executor/plugin-graphql/api";
 import { OrgAuth } from "../auth/middleware";
 import { OrgAuthLive, SessionAuthLive } from "../auth/middleware-live";
 import { UserStoreService } from "../auth/context";
+import { IdentityDirectory } from "../identity/directory";
 import {
   CloudAuthPublicHandlers,
   CloudSessionAuthHandlers,
@@ -35,10 +36,15 @@ const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
 
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
+const IdentityDirectoryLive = IdentityDirectory.Live.pipe(
+  Layer.provideMerge(UserStoreLive),
+  Layer.provideMerge(CoreSharedServices),
+);
 
 export const SharedServices = Layer.mergeAll(
   DbLive,
   UserStoreLive,
+  IdentityDirectoryLive,
   CoreSharedServices,
   HttpServer.layerContext,
   TelemetryLive,
