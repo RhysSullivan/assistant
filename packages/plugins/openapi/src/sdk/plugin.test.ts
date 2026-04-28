@@ -24,6 +24,7 @@ import {
   type SecretProvider,
   type Where,
 } from "@executor/sdk";
+import type { ConfigFileSink } from "@executor/config";
 
 const TEST_SCOPE = "test-scope";
 import { openApiPlugin } from "./plugin";
@@ -486,6 +487,49 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         "openapi.previewSpec",
       ]);
     }),
+  );
+
+  it.effect(
+    "executor.sources.remove writes back to configFile (engine-level remove)",
+    () =>
+      Effect.gen(function* () {
+        const httpClient = yield* HttpClient.HttpClient;
+        const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+        const removeCalls: string[] = [];
+        const upsertCalls: string[] = [];
+        const configFile: ConfigFileSink = {
+          upsertSource: (source) =>
+            Effect.sync(() => {
+              upsertCalls.push(source.namespace ?? "");
+            }),
+          removeSource: (namespace) =>
+            Effect.sync(() => {
+              removeCalls.push(namespace);
+            }),
+        };
+
+        const executor = yield* createExecutor(
+          makeTestConfig({
+            plugins: [
+              openApiPlugin({ httpClientLayer: clientLayer, configFile }),
+              memorySecretsPlugin(),
+            ] as const,
+          }),
+        );
+
+        yield* executor.openapi.addSpec({
+          spec: specJson,
+          scope: TEST_SCOPE,
+          namespace: "removable",
+          baseUrl: "",
+        });
+        expect(upsertCalls).toEqual(["removable"]);
+
+        yield* executor.sources.remove("removable");
+
+        expect(removeCalls).toEqual(["removable"]);
+      }),
   );
 
   // -------------------------------------------------------------------------

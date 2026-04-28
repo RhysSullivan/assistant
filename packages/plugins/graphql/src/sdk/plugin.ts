@@ -565,7 +565,12 @@ export const graphqlPlugin = definePlugin(
         }),
 
       removeSource: ({ ctx, sourceId, scope }) =>
-        ctx.storage.removeSource(sourceId, scope),
+        Effect.gen(function* () {
+          yield* ctx.storage.removeSource(sourceId, scope);
+          if (options?.configFile) {
+            yield* options.configFile.removeSource(sourceId);
+          }
+        }),
 
       detect: ({ url }) =>
         Effect.gen(function* () {

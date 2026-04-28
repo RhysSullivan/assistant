@@ -1392,7 +1392,12 @@ export const openApiPlugin = definePlugin(
         }),
 
       removeSource: ({ ctx, sourceId, scope }) =>
-        ctx.storage.removeSource(sourceId, scope),
+        Effect.gen(function* () {
+          yield* ctx.storage.removeSource(sourceId, scope);
+          if (options?.configFile) {
+            yield* options.configFile.removeSource(sourceId);
+          }
+        }),
 
       // Re-fetch the spec from its origin URL (captured at addSpec time)
       // and replay the same parse → extract → upsertSource → register
