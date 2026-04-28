@@ -89,6 +89,7 @@ export class OrgApi extends HttpApiGroup.make("org")
   .add(
     HttpApiEndpoint.get("listMembers")`/org/members`
       .addSuccess(OrgMembersResponse)
+      .addError(UserStoreError)
       .addError(WorkOSError),
   )
   .add(

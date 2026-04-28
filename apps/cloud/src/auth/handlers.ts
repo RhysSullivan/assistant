@@ -153,6 +153,9 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
             }
           }
 
+          const directory = yield* IdentityDirectory;
+          yield* directory.refreshAccountMemberships(result.user.id);
+
           if (!sealedSession) {
             return HttpServerResponse.text("Failed to create session", { status: 500 });
           }
@@ -203,24 +206,13 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
       })
       .handle("organizations", () =>
         Effect.gen(function* () {
-          const workos = yield* WorkOSAuth;
           const directory = yield* IdentityDirectory;
           const session = yield* SessionContext;
 
-          const memberships = yield* workos.listUserMemberships(session.accountId);
-          const organizations = yield* Effect.all(
-            memberships.data.map((m) =>
-              workos.getOrganization(m.organizationId).pipe(
-                Effect.map((org) => ({ id: org.id, name: org.name })),
-                Effect.orElseSucceed(() => null),
-              ),
-              ),
-            { concurrency: "unbounded" },
-          );
-          yield* directory.refreshAccountMemberships(session.accountId);
+          const organizations = yield* directory.listUserOrganizations(session.accountId);
 
           return {
-            organizations: organizations.filter((org): org is NonNullable<typeof org> => org !== null),
+            organizations,
             activeOrganizationId: session.organizationId,
           };
         }),
@@ -249,6 +241,14 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           const org = yield* workos.createOrganization(name);
           yield* workos.createMembership(org.id, session.accountId, "admin");
           yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
+          yield* users.use((s) =>
+            s.upsertMembership({
+              accountId: session.accountId,
+              organizationId: org.id,
+              status: "active",
+              roleSlug: "admin",
+            }),
+          );
 
           // Try to attach the new org to the current session. This can fail
           // (or silently return a session still scoped to the old org) when

@@ -58,9 +58,9 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
     .handle("listMembers", () =>
       Effect.gen(function* () {
         const auth = yield* AuthContext;
-        const identity = yield* IdentityProvider;
+        const directory = yield* IdentityDirectory;
 
-        const memberships = yield* identity.listOrganizationMembers(auth.organizationId);
+        const memberships = yield* directory.listOrganizationMembers(auth.organizationId);
 
         const members = memberships.map((m) => ({
           id: m.id,
