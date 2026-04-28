@@ -11,8 +11,9 @@
 //     → env.MCP_SESSION.idFromString() → stub.handleRequest()
 //     → the real McpSessionDO stale-session path
 //
-// Only one seam is faked: `McpAuth.verifyBearer`. The real impl calls
-// WorkOS's JWKS endpoint, which we can't reach from the test isolate.
+// Two auth seams are faked: `McpAuth.verifyBearer` and the live WorkOS
+// membership check. The real bearer impl calls WorkOS's JWKS endpoint,
+// which we can't reach from the test isolate.
 // Test bearer format is `test-accept::<accountId>::<orgId|none>`
 // (see `makeTestBearer` in test-worker.ts).
 //
@@ -215,6 +216,23 @@ describe("/mcp verified token without org", () => {
   });
 });
 
+describe("/mcp verified token without live org access", () => {
+  it("returns JSON-RPC -32001 before creating a session", async () => {
+    const response = await mcpPost({
+      bearer: makeTestBearer(nextAccountId(), `revoked_${nextOrgId()}`),
+      body: INITIALIZE_REQUEST,
+    });
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as {
+      jsonrpc: string;
+      error: { code: number; message: string };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.error.code).toBe(-32001);
+    expect(body.error.message).toMatch(/No organization/i);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 5. POST /mcp on an unknown session-id
 // ---------------------------------------------------------------------------
@@ -348,6 +366,46 @@ describe("/mcp session restore", () => {
     expect(body.jsonrpc).toBe("2.0");
     expect(body.error?.code).toBe(-32003);
     expect(body.error?.message).toMatch(/does not belong/i);
+  }, 15_000);
+
+  it("clears an existing session when live org access is revoked", async () => {
+    const orgId = `revoked_${nextOrgId()}`;
+    const accountId = nextAccountId();
+    const stub = env.MCP_SESSION.get(env.MCP_SESSION.newUniqueId());
+    const sessionId = stub.id.toString();
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      await state.storage.put(SESSION_META_KEY, {
+        organizationId: orgId,
+        organizationName: "Revoked Org",
+        userId: accountId,
+      });
+      await state.storage.put(LAST_ACTIVITY_KEY, Date.now());
+      await state.storage.setAlarm(Date.now() + HEARTBEAT_MS);
+    });
+
+    const revokedResponse = await mcpPost({
+      bearer: makeTestBearer(accountId, orgId),
+      sessionId,
+      body: TOOLS_LIST_REQUEST,
+    });
+    expect(revokedResponse.status).toBe(403);
+    const body = (await revokedResponse.json()) as {
+      readonly jsonrpc: string;
+      readonly error?: { readonly code: number; readonly message: string };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.error?.code).toBe(-32001);
+    expect(body.error?.message).toMatch(/No organization/i);
+
+    const stored = await runInDurableObject(stub, async (_instance, state) => ({
+      sessionMeta: await state.storage.get(SESSION_META_KEY),
+      lastActivity: await state.storage.get(LAST_ACTIVITY_KEY),
+      alarm: await state.storage.getAlarm(),
+    }));
+    expect(stored.sessionMeta).toBeUndefined();
+    expect(stored.lastActivity).toBeUndefined();
+    expect(stored.alarm).toBeNull();
   }, 15_000);
 });
 

@@ -594,6 +594,16 @@ export class McpSessionDO extends DurableObject {
     return Effect.runPromise(program);
   }
 
+  async clearSession(incoming?: IncomingTraceHeaders): Promise<void> {
+    return Effect.runPromise(
+      Effect.promise(() => this.cleanup()).pipe(
+        Effect.withSpan("McpSessionDO.clearSession"),
+        (eff) => withIncomingParent(incoming, eff),
+        Effect.provide(DoTelemetryLive),
+      ),
+    );
+  }
+
   private async runAlarm(): Promise<void> {
     const lastActivityMs = await this.loadLastActivity();
     const idleMs = Date.now() - lastActivityMs;
