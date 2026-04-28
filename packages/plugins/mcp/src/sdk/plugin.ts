@@ -1066,12 +1066,32 @@ export const mcpPlugin = definePlugin(
                 : {}),
             };
 
+            const sourceName = input.name?.trim() || existing.name;
+
             yield* ctx.storage.putSource({
               namespace,
               scope,
-              name: input.name?.trim() || existing.name,
+              name: sourceName,
               config: updatedConfig,
             });
+
+            if (configFile) {
+              yield* configFile
+                .upsertSource(
+                  toMcpConfigEntry(namespace, sourceName, {
+                    transport: "remote",
+                    scope,
+                    name: sourceName,
+                    endpoint: updatedConfig.endpoint,
+                    remoteTransport: updatedConfig.remoteTransport,
+                    queryParams: updatedConfig.queryParams,
+                    headers: updatedConfig.headers,
+                    namespace,
+                    auth: updatedConfig.auth,
+                  }),
+                )
+                .pipe(Effect.withSpan("mcp.plugin.config_file.upsert"));
+            }
           }).pipe(
             Effect.withSpan("mcp.plugin.update_source", {
               attributes: { "mcp.source.namespace": namespace },
