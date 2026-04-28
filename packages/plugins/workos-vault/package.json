@@ -17,6 +17,7 @@
   "type": "module",
   "exports": {
     ".": "./src/sdk/index.ts",
+    "./testing": "./src/sdk/testing.ts",
     "./promise": "./src/promise.ts",
     "./react": "./src/react/index.ts"
   },
@@ -34,6 +35,12 @@
           "types": "./dist/sdk/index.d.ts",
           "default": "./dist/core.js"
         }
+      },
+      "./testing": {
+        "import": {
+          "types": "./dist/sdk/testing.d.ts",
+          "default": "./dist/testing.js"
+        }
       }
     }
   },
@@ -41,6 +48,7 @@
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
+    "test:contract:workos-vault": "WORKOS_VAULT_CONTRACT=1 vitest run src/sdk/workos-vault.contract.test.ts",
     "test:watch": "vitest",
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
