@@ -1,4 +1,4 @@
-import { HttpApi, HttpApiBuilder, HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Effect } from "effect";
 import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 
@@ -27,20 +27,19 @@ const STATE_COOKIE_OPTIONS = {
   secure: true,
 };
 
+const DELETE_COOKIE_OPTIONS = {
+  path: "/",
+  httpOnly: true,
+  sameSite: "lax" as const,
+  maxAge: 0,
+  expires: new Date(0),
+  secure: true,
+};
+
 const randomState = (): string => {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-};
-
-const parseCookie = (cookieHeader: string | null, name: string): string | null => {
-  if (!cookieHeader) return null;
-  const match = cookieHeader
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith(`${name}=`));
-  if (!match) return null;
-  return match.slice(name.length + 1) || null;
 };
 
 const timingSafeEqual = (a: string, b: string): boolean => {
@@ -51,6 +50,18 @@ const timingSafeEqual = (a: string, b: string): boolean => {
   }
   return diff === 0;
 };
+
+const setResponseCookie = (
+  response: HttpServerResponse.HttpServerResponse,
+  name: string,
+  value: string,
+  options: typeof COOKIE_OPTIONS,
+) => HttpServerResponse.unsafeSetCookie(response, name, value, options);
+
+const deleteResponseCookie = (
+  response: HttpServerResponse.HttpServerResponse,
+  name: string,
+) => HttpServerResponse.unsafeSetCookie(response, name, "", DELETE_COOKIE_OPTIONS);
 
 // ---------------------------------------------------------------------------
 // Single non-protected API surface — public (login/callback) + session
@@ -76,23 +87,25 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           // WorkOS needs to redirect back to.
           const origin = env.VITE_PUBLIC_SITE_URL ?? "";
           const state = randomState();
-          setCookie(STATE_COOKIE, state, STATE_COOKIE_OPTIONS);
           const url = workos.getAuthorizationUrl(`${origin}${AUTH_PATHS.callback}`, state);
-          return HttpServerResponse.redirect(url, { status: 302 });
+          return setResponseCookie(
+            HttpServerResponse.redirect(url, { status: 302 }),
+            STATE_COOKIE,
+            state,
+            STATE_COOKIE_OPTIONS,
+          );
         }),
       )
       .handleRaw("callback", ({ request, urlParams }) =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
           const users = yield* UserStoreService;
-          const webRequest = yield* Effect.mapError(
-            HttpServerRequest.toWeb(request),
-            () => new WorkOSError(),
-          );
-          const cookieState = parseCookie(webRequest.headers.get("cookie"), STATE_COOKIE);
+          const cookieState = request.cookies[STATE_COOKIE] ?? null;
           if (!cookieState || !timingSafeEqual(cookieState, urlParams.state)) {
-            deleteCookie(STATE_COOKIE, { path: "/" });
-            return HttpServerResponse.text("Invalid login state", { status: 400 });
+            return deleteResponseCookie(
+              HttpServerResponse.text("Invalid login state", { status: 400 }),
+              STATE_COOKIE,
+            );
           }
 
           const result = yield* workos.authenticateWithCode(urlParams.code);
@@ -123,9 +136,15 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
             return HttpServerResponse.text("Failed to create session", { status: 500 });
           }
 
-          setCookie("wos-session", sealedSession, COOKIE_OPTIONS);
-          deleteCookie(STATE_COOKIE, { path: "/" });
-          return HttpServerResponse.redirect("/", { status: 302 });
+          return deleteResponseCookie(
+            setResponseCookie(
+              HttpServerResponse.redirect("/", { status: 302 }),
+              "wos-session",
+              sealedSession,
+              COOKIE_OPTIONS,
+            ),
+            STATE_COOKIE,
+          );
         }),
       ),
 );
