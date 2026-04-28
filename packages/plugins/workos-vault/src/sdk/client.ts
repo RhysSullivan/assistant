@@ -1,5 +1,9 @@
 import type { WorkOS } from "@workos-inc/node/worker";
-import { WorkOS as WorkOSClient } from "@workos-inc/node/worker";
+import {
+  GenericServerException,
+  NotFoundException,
+  WorkOS as WorkOSClient,
+} from "@workos-inc/node/worker";
 import { Data, Effect } from "effect";
 
 export interface WorkOSVaultObjectMetadata {
@@ -18,8 +22,32 @@ export interface WorkOSVaultObject {
 
 export class WorkOSVaultClientError extends Data.TaggedError("WorkOSVaultClientError")<{
   readonly cause: unknown;
+  readonly message: string;
   readonly operation: string;
-}> {}
+  readonly status?: number;
+}> {
+  constructor(options: {
+    readonly cause: unknown;
+    readonly message?: string;
+    readonly operation: string;
+    readonly status?: number;
+  }) {
+    super({
+      cause: options.cause,
+      message: options.message ?? messageFromCause(options.cause),
+      operation: options.operation,
+      status: options.status ?? statusFromWorkOSCause(options.cause),
+    });
+  }
+}
+
+const statusFromWorkOSCause = (cause: unknown): number | undefined =>
+  cause instanceof GenericServerException || cause instanceof NotFoundException
+    ? cause.status
+    : undefined;
+
+const messageFromCause = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
 
 export class WorkOSVaultClientInstantiationError extends Data.TaggedError(
   "WorkOSVaultClientInstantiationError",
@@ -27,7 +55,7 @@ export class WorkOSVaultClientInstantiationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export interface WorkOSVaultSdk {
+interface WorkOSVaultSdk {
   readonly createObject: (options: {
     readonly name: string;
     readonly value: string;
@@ -48,10 +76,6 @@ export interface WorkOSVaultCredentials {
 }
 
 export interface WorkOSVaultClient {
-  readonly use: <A>(
-    operation: string,
-    fn: (client: WorkOSVaultSdk) => Promise<A>,
-  ) => Effect.Effect<A, WorkOSVaultClientError, never>;
   readonly createObject: (options: {
     readonly name: string;
     readonly value: string;
@@ -85,7 +109,6 @@ export const makeWorkOSVaultClient = (
     }).pipe(Effect.withSpan(`workos_vault.${operation}`));
 
   return {
-    use,
     createObject: (options) => use("create_object", (vault) => vault.createObject(options)),
     readObjectByName: (name) => use("read_object_by_name", (vault) => vault.readObjectByName(name)),
     updateObject: (options) => use("update_object", (vault) => vault.updateObject(options)),
