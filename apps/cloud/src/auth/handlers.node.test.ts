@@ -65,7 +65,9 @@ describe("Auth callback handlers", () => {
       expect(response.headers.get("location")).toBe(
         `https://auth.example.test?state=${observedState}`,
       );
-      expect(response.headers.get("set-cookie")).toContain(`wos-login-state=${observedState}`);
+      const setCookie = response.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain(`wos-login-state=${observedState}`);
+      expect(setCookie).toContain("Max-Age=600");
     }),
   );
 
@@ -94,6 +96,37 @@ describe("Auth callback handlers", () => {
 
       expect(response.status).toBe(400);
       expect(authenticateCalls).toBe(0);
+    }),
+  );
+
+  it.effect("sets the session cookie and clears login state on matching callback state", () =>
+    Effect.gen(function* () {
+      const fetch = makeAuthFetch({
+        authenticateWithCode: () =>
+          Effect.succeed({
+            user: { id: "user_1" },
+            accessToken: "access_token",
+            refreshToken: "refresh_token",
+            organizationId: "org_1",
+            sealedSession: "sealed_session",
+          } as never),
+      });
+
+      const response = yield* Effect.promise(() =>
+        fetch(
+          new Request("http://test.local/auth/callback?code=code&state=state_1", {
+            headers: { cookie: "wos-login-state=state_1" },
+          }),
+        ),
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/");
+      const setCookie = response.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("wos-session=sealed_session");
+      expect(setCookie).toContain("Max-Age=604800");
+      expect(setCookie).toContain("wos-login-state=");
+      expect(setCookie).toContain("Max-Age=0");
     }),
   );
 });

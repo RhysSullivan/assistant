@@ -99,6 +99,21 @@ const verifyJwt = (token: string) =>
   verifyMcpAccessToken(token, jwks, {
     issuer: AUTHKIT_DOMAIN,
     audience: RESOURCE_URL,
+  }).pipe(
+    Effect.catchTag("McpJwtVerificationError", (error) => {
+      if (env.MCP_STRICT_AUDIENCE === "true") {
+        return Effect.fail(error);
+      }
+      return verifyMcpAccessToken(token, jwks, {
+        issuer: AUTHKIT_DOMAIN,
+      }).pipe(
+        Effect.tap(() =>
+          Effect.annotateCurrentSpan({
+            "mcp.auth.audience_fallback": true,
+          }),
+        ),
+      );
+    }),
   });
 
 export const McpAuthLive = Layer.succeed(McpAuth, {

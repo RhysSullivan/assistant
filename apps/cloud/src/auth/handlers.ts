@@ -1,5 +1,5 @@
 import { HttpApi, HttpApiBuilder, HttpServerResponse } from "@effect/platform";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 
 import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
@@ -25,6 +25,16 @@ const STATE_COOKIE_OPTIONS = {
   sameSite: "lax" as const,
   maxAge: 10 * 60,
   secure: true,
+};
+
+const RESPONSE_COOKIE_OPTIONS = {
+  ...COOKIE_OPTIONS,
+  maxAge: Duration.days(7),
+};
+
+const RESPONSE_STATE_COOKIE_OPTIONS = {
+  ...STATE_COOKIE_OPTIONS,
+  maxAge: Duration.minutes(10),
 };
 
 const DELETE_COOKIE_OPTIONS = {
@@ -55,7 +65,7 @@ const setResponseCookie = (
   response: HttpServerResponse.HttpServerResponse,
   name: string,
   value: string,
-  options: typeof COOKIE_OPTIONS,
+  options: typeof RESPONSE_COOKIE_OPTIONS,
 ) => HttpServerResponse.unsafeSetCookie(response, name, value, options);
 
 const deleteResponseCookie = (
@@ -92,7 +102,7 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
             HttpServerResponse.redirect(url, { status: 302 }),
             STATE_COOKIE,
             state,
-            STATE_COOKIE_OPTIONS,
+            RESPONSE_STATE_COOKIE_OPTIONS,
           );
         }),
       )
@@ -141,7 +151,7 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
               HttpServerResponse.redirect("/", { status: 302 }),
               "wos-session",
               sealedSession,
-              COOKIE_OPTIONS,
+              RESPONSE_COOKIE_OPTIONS,
             ),
             STATE_COOKIE,
           );

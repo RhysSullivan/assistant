@@ -17,14 +17,14 @@ export const verifyMcpAccessToken = Effect.fn("mcp.auth.jwt_verify")(function* (
   jwks: JWTVerifyGetKey,
   options: {
     readonly issuer: string;
-    readonly audience: string;
+    readonly audience?: string;
   },
 ) {
   const { payload } = yield* Effect.tryPromise({
     try: () =>
       jwtVerify(token, jwks, {
         issuer: options.issuer,
-        audience: options.audience,
+        ...(options.audience ? { audience: options.audience } : {}),
       }),
     catch: (cause) => new McpJwtVerificationError({ cause }),
   });
