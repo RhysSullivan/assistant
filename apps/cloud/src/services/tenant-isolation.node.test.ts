@@ -155,4 +155,56 @@ describe("tenant isolation (HTTP)", () => {
       expect(result._tag).toBe("Left");
     }),
   );
+
+  it.effect("updating a same-namespace OpenAPI source in one org does not mutate another org", () =>
+    Effect.gen(function* () {
+      const orgA = `org_${crypto.randomUUID()}`;
+      const orgB = `org_${crypto.randomUUID()}`;
+      const namespace = `shared_${crypto.randomUUID().replace(/-/g, "_")}`;
+
+      yield* asOrg(orgA, (client) =>
+        client.openapi.addSpec({
+          path: { scopeId: ScopeId.make(orgA) },
+          payload: {
+            spec: MINIMAL_OPENAPI_SPEC,
+            namespace,
+            name: "Org A API",
+            baseUrl: "https://org-a.example.com",
+          },
+        }),
+      );
+      yield* asOrg(orgB, (client) =>
+        client.openapi.addSpec({
+          path: { scopeId: ScopeId.make(orgB) },
+          payload: {
+            spec: MINIMAL_OPENAPI_SPEC,
+            namespace,
+            name: "Org B API",
+            baseUrl: "https://org-b.example.com",
+          },
+        }),
+      );
+
+      yield* asOrg(orgA, (client) =>
+        client.openapi.updateSource({
+          path: { scopeId: ScopeId.make(orgA), namespace },
+          payload: {
+            name: "Org A Updated API",
+            baseUrl: "https://org-a-updated.example.com",
+          },
+        }),
+      );
+
+      const orgASource = yield* asOrg(orgA, (client) =>
+        client.openapi.getSource({ path: { scopeId: ScopeId.make(orgA), namespace } }),
+      );
+      const orgBSource = yield* asOrg(orgB, (client) =>
+        client.openapi.getSource({ path: { scopeId: ScopeId.make(orgB), namespace } }),
+      );
+      expect(orgASource?.name).toBe("Org A Updated API");
+      expect(orgASource?.config.baseUrl).toBe("https://org-a-updated.example.com");
+      expect(orgBSource?.name).toBe("Org B API");
+      expect(orgBSource?.config.baseUrl).toBe("https://org-b.example.com");
+    }),
+  );
 });

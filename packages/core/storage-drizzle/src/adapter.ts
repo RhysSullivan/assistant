@@ -212,6 +212,17 @@ const compileWhere = (
   return andClause ?? orClause;
 };
 
+const rowIdentityClause = (
+  table: AnyTable,
+  row: Record<string, unknown>,
+): SQL => {
+  const idClause = eq(table.id, row.id);
+  if (table.scope_id && typeof row.scope_id === "string") {
+    return and(eq(table.scope_id, row.scope_id), idClause) as SQL;
+  }
+  return idClause;
+};
+
 // ---------------------------------------------------------------------------
 // Join → drizzle `with` clause
 //
@@ -592,7 +603,8 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         if (matched.length === 0) return null;
         if (matched.length > 1) return null;
         const target = matched[0]!;
-        let updQ = db.update(table).set(update).where(eq(table.id, target.id));
+        const identity = rowIdentityClause(table, target);
+        let updQ = db.update(table).set(update).where(identity);
         if (provider !== "mysql") {
           const rows = (yield* runPromise(
             "update returning",
@@ -608,7 +620,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         );
         const reread = (yield* runPromise(
           "mysql update reread",
-          () => db.select().from(table).where(eq(table.id, target.id)).limit(1),
+          () => db.select().from(table).where(identity).limit(1),
           model,
         )) as Record<string, unknown>[];
         return (reread[0] ?? null) as never;
@@ -652,18 +664,18 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         const table = getTable(model);
         const clause = compileWhere(table, where, provider);
         // Mirror in-memory semantics: delete first matching row only
-        let findQ = db.select({ id: table.id }).from(table);
+        let findQ = db.select().from(table);
         if (clause) findQ = findQ.where(clause);
         const matched = (yield* runPromise(
           "delete pre-select",
           () => findQ.limit(1),
           model,
-        )) as { id: unknown }[];
+        )) as Record<string, unknown>[];
         const first = matched[0];
         if (!first) return;
         yield* runPromise(
           "delete exec",
-          () => Promise.resolve(db.delete(table).where(eq(table.id, first.id))),
+          () => Promise.resolve(db.delete(table).where(rowIdentityClause(table, first))),
           model,
         );
       }).pipe(
