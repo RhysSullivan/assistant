@@ -5,7 +5,6 @@ import {
   type WorkOSVaultClient,
   type WorkOSVaultObject,
   type WorkOSVaultObjectMetadata,
-  type WorkOSVaultSdk,
 } from "./client";
 
 export class TestWorkOSVaultNotFoundError extends Data.TaggedError("TestWorkOSVaultNotFoundError")<{
@@ -170,23 +169,19 @@ export const makeTestWorkOSVaultClient = (
     effect: Effect.Effect<A, TestWorkOSVaultError>,
   ): Effect.Effect<A, WorkOSVaultClientError> =>
     effect.pipe(
-      Effect.mapError((cause) => new WorkOSVaultClientError({ cause, operation })),
+      Effect.mapError(
+        (cause) =>
+          new WorkOSVaultClientError({
+            cause,
+            message: cause.message,
+            operation,
+            status: cause.status,
+          }),
+      ),
       Effect.withSpan(`workos_vault.test.${operation}`),
     );
 
-  const rawClient: WorkOSVaultSdk = {
-    createObject: (options) => Effect.runPromise(createObject(options)),
-    readObjectByName: (name) => Effect.runPromise(readObjectByName(name)),
-    updateObject: (options) => Effect.runPromise(updateObject(options)),
-    deleteObject: (options) => Effect.runPromise(deleteObject(options)),
-  };
-
   return {
-    use: (operation, fn) =>
-      Effect.tryPromise({
-        try: () => fn(rawClient),
-        catch: (cause) => new WorkOSVaultClientError({ cause, operation }),
-      }).pipe(Effect.withSpan(`workos_vault.test.${operation}`)),
     createObject: (options) => wrap("create_object", createObject(options)),
     readObjectByName: (name) => wrap("read_object_by_name", readObjectByName(name)),
     updateObject: (options) => wrap("update_object", updateObject(options)),

@@ -1,5 +1,6 @@
 {
   "plugins": ["react"],
+  "jsPlugins": ["./scripts/oxlint-plugin-executor/index.js"],
   "rules": {
     "typescript/no-explicit-any": "error",
     "react/forbid-elements": [
@@ -16,5 +17,27 @@
       },
     ],
   },
+  "overrides": [
+    {
+      "files": ["packages/plugins/workos-vault/src/**/*.{ts,tsx}"],
+      "rules": {
+        "eslint/no-nested-ternary": "error",
+        "executor/no-inline-object-type-assertion": "error",
+        "executor/no-instanceof-tagged-error": "error",
+        "executor/no-manual-tag-check": "error",
+        "executor/no-promise-client-surface": "error",
+        "executor/no-raw-error-throw": "error",
+        "executor/no-redundant-error-factory": "error",
+        "executor/no-unknown-shape-probing": "error",
+      },
+    },
+    {
+      "files": ["packages/plugins/workos-vault/src/**/*.{test,spec}.{ts,tsx}"],
+      "rules": {
+        "executor/no-if-in-tests": "error",
+        "executor/no-vitest-import": "error",
+      },
+    },
+  ],
   "ignorePatterns": [".astro/", "**/routeTree.gen.ts", ".references/"],
 }

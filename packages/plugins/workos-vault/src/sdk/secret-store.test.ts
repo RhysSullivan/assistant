@@ -12,10 +12,15 @@ import {
   ScopeId,
   SecretId,
   SetSecretInput,
+  typedAdapter,
 } from "@executor/sdk";
 
 import { type WorkOSVaultClient } from "./client";
 import { workosVaultPlugin } from "./plugin";
+import {
+  makeWorkosVaultStore,
+  type WorkosVaultSchema,
+} from "./secret-store";
 import { makeTestWorkOSVaultClient } from "./testing";
 
 const makeExecutor = (client: WorkOSVaultClient) =>
@@ -180,6 +185,9 @@ const makeLayeredExecutors = (client: WorkOSVaultClient) =>
     const plugins = [workosVaultPlugin({ client })] as const;
     const schema = collectSchemas(plugins);
     const adapter = makeMemoryAdapter({ schema });
+    const metadataStore = makeWorkosVaultStore({
+      adapter: typedAdapter<WorkosVaultSchema>(adapter),
+    });
     const blobs = makeInMemoryBlobStore();
 
     const outerId = ScopeId.make("org");
@@ -207,7 +215,7 @@ const makeLayeredExecutors = (client: WorkOSVaultClient) =>
       blobs,
       plugins,
     });
-    return { execOuter, execInner, outerId, innerId, adapter };
+    return { execOuter, execInner, outerId, innerId, metadataStore };
   });
 
 describe("WorkOS Vault secret provider — multi-scope isolation", () => {
@@ -274,7 +282,7 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
       // just the SDK's defensive shielding.
       Effect.gen(function* () {
         const client = makeTestWorkOSVaultClient();
-        const { execOuter, execInner, outerId, innerId, adapter } =
+        const { execOuter, execInner, outerId, innerId, metadataStore } =
           yield* makeLayeredExecutors(client);
 
         yield* execOuter.secrets.set(
@@ -294,11 +302,11 @@ describe("WorkOS Vault secret provider — multi-scope isolation", () => {
           }),
         );
 
-        const rows = yield* adapter.findMany({
-          model: "workos_vault_metadata",
-          where: [{ field: "id", value: "api-token" }],
-        });
-        const scopes = rows.map((r) => (r as { scope_id: string }).scope_id).sort();
+        const rows = yield* metadataStore.list();
+        const scopes = rows
+          .filter((row) => row.id === "api-token")
+          .map((row) => row.scope_id)
+          .sort();
         expect(scopes).toEqual([outerId, innerId].sort());
       }),
   );
