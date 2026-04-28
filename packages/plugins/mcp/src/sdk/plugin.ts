@@ -1079,15 +1079,10 @@ export const mcpPlugin = definePlugin(
               yield* configFile
                 .upsertSource(
                   toMcpConfigEntry(namespace, sourceName, {
-                    transport: "remote",
+                    ...updatedConfig,
                     scope,
                     name: sourceName,
-                    endpoint: updatedConfig.endpoint,
-                    remoteTransport: updatedConfig.remoteTransport,
-                    queryParams: updatedConfig.queryParams,
-                    headers: updatedConfig.headers,
                     namespace,
-                    auth: updatedConfig.auth,
                   }),
                 )
                 .pipe(Effect.withSpan("mcp.plugin.config_file.upsert"));
