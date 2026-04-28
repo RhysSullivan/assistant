@@ -4,6 +4,7 @@ import { UserStoreService } from "../auth/context";
 import { WorkOSError, type UserStoreError } from "../auth/errors";
 import { IdentityProvider } from "./provider";
 import type { IdentityMembership, IdentityOrganization } from "./types";
+import type { IdentityMemberProfile } from "./types";
 
 export class IdentityDirectory extends Context.Tag("@executor/cloud/IdentityDirectory")<
   IdentityDirectory,
@@ -18,6 +19,9 @@ export class IdentityDirectory extends Context.Tag("@executor/cloud/IdentityDire
     readonly listUserOrganizations: (
       accountId: string,
     ) => Effect.Effect<ReadonlyArray<IdentityOrganization>, UserStoreError | WorkOSError>;
+    readonly listOrganizationMembers: (
+      organizationId: string,
+    ) => Effect.Effect<ReadonlyArray<IdentityMemberProfile>, UserStoreError>;
     readonly requireRole: (
       accountId: string,
       organizationId: string,
@@ -118,6 +122,33 @@ export class IdentityDirectory extends Context.Tag("@executor/cloud/IdentityDire
             const fresh = yield* refreshAccountMemberships(accountId);
             return yield* listActiveOrganizations(
               fresh.filter((membership) => membership.status === "active"),
+            );
+          }),
+        listOrganizationMembers: (organizationId) =>
+          Effect.gen(function* () {
+            const memberships = yield* users.use((store) =>
+              store.listMembershipsForOrganization(organizationId),
+            );
+            return yield* Effect.all(
+              memberships.map((membership) =>
+                Effect.gen(function* () {
+                  const account = yield* users.use((store) =>
+                    store.getAccount(membership.accountId),
+                  );
+                  return {
+                    id: membership.externalId ?? `${membership.accountId}:${membership.organizationId}`,
+                    accountId: membership.accountId,
+                    organizationId: membership.organizationId,
+                    status: membership.status,
+                    roleSlug: membership.roleSlug,
+                    email: account?.email ?? "",
+                    name: account?.name ?? null,
+                    avatarUrl: account?.avatarUrl ?? null,
+                    lastActiveAt: null,
+                  } satisfies IdentityMemberProfile;
+                }),
+              ),
+              { concurrency: 5 },
             );
           }),
         requireRole: (accountId, organizationId, roleSlug) =>

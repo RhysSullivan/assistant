@@ -11,6 +11,7 @@ import { CloudAuthPublicApi } from "./api";
 import { CloudAuthPublicHandlers } from "./handlers";
 import { UserStoreService } from "./context";
 import { WorkOSAuth } from "./workos";
+import { IdentityDirectory } from "../identity/directory";
 
 const TestAuthPublicApi = HttpApi.make("cloudWeb").add(CloudAuthPublicApi);
 
@@ -29,6 +30,9 @@ const makeAuthFetch = (workos: Partial<WorkOSAuth["Type"]>) => {
   const UserStoreTest = Layer.succeed(UserStoreService, {
     use: <A>() => Effect.sync(() => undefined as A),
   });
+  const IdentityDirectoryTest = Layer.succeed(IdentityDirectory, {
+    refreshAccountMemberships: () => Effect.succeed([]),
+  } as unknown as IdentityDirectory["Type"]);
   const app = Effect.flatMap(
     HttpApiBuilder.httpApp.pipe(
       Effect.provide(
@@ -36,6 +40,7 @@ const makeAuthFetch = (workos: Partial<WorkOSAuth["Type"]>) => {
           Layer.provide(CloudAuthPublicHandlers),
           Layer.provideMerge(WorkOSTest),
           Layer.provideMerge(UserStoreTest),
+          Layer.provideMerge(IdentityDirectoryTest),
           Layer.provideMerge(HttpServer.layerContext),
           Layer.provideMerge(HttpApiBuilder.Router.Live),
           Layer.provideMerge(HttpApiBuilder.Middleware.layer),
