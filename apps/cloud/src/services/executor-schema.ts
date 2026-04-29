@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, bigint, doublePrecision, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const source = pgTable("source", {
   id: text('id').notNull(),
@@ -88,7 +88,9 @@ export const tool_policy = pgTable("tool_policy", {
   scope_id: text('scope_id').notNull(),
   pattern: text('pattern').notNull(),
   action: text('action').notNull(),
-  position: bigint('position', { mode: 'number' }).notNull(),
+  // double precision so reorders can use float midpoints (insert between
+  // two existing rows in one update, no swap). bigint would refuse 2.5.
+  position: doublePrecision('position').notNull(),
   created_at: timestamp('created_at').notNull(),
   updated_at: timestamp('updated_at').notNull()
 }, (table) => [
