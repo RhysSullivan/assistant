@@ -175,8 +175,8 @@ function PolicyRow(props: {
   isLast: boolean;
   onRemove: () => void;
   onChangeAction: (action: ToolPolicyAction) => void;
-  onMoveToTop: () => void;
-  onMoveToBottom: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }) {
   return (
     <CardStackEntry>
@@ -229,15 +229,15 @@ function PolicyRow(props: {
           <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuItem
               disabled={props.isFirst}
-              onClick={props.onMoveToTop}
+              onClick={props.onMoveUp}
             >
-              Move to top
+              Move up
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={props.isLast}
-              onClick={props.onMoveToBottom}
+              onClick={props.onMoveDown}
             >
-              Move to bottom
+              Move down
             </DropdownMenuItem>
             <DropdownMenuItem
               className="text-destructive focus:text-destructive text-sm"
@@ -348,10 +348,20 @@ export function PoliciesPage() {
             // immediately. Server returns rows in this order too, so this
             // converges with the canonical order on refresh.
             const sorted = [...value].sort((a, b) => a.position - b.position);
-            const minPosition =
-              sorted.length > 0 ? sorted[0]!.position : 0;
-            const maxPosition =
-              sorted.length > 0 ? sorted[sorted.length - 1]!.position : 0;
+            // For "move up" at index i, place the row between its new
+            // neighbors (sorted[i-2], sorted[i-1]) using the midpoint of
+            // their positions. At the very top, go strictly above the
+            // current first. Symmetric for "move down". Using midpoints
+            // means a single update reorders correctly without swapping
+            // two rows.
+            const positionAbove = (i: number): number =>
+              i === 1
+                ? sorted[0]!.position - 1
+                : (sorted[i - 2]!.position + sorted[i - 1]!.position) / 2;
+            const positionBelow = (i: number): number =>
+              i === sorted.length - 2
+                ? sorted[sorted.length - 1]!.position + 1
+                : (sorted[i + 1]!.position + sorted[i + 2]!.position) / 2;
             return (
               <CardStack>
                 <CardStackHeader>Active policies</CardStackHeader>
@@ -379,10 +389,8 @@ export function PoliciesPage() {
                         isLast={i === sorted.length - 1}
                         onRemove={() => handleRemove(p.id)}
                         onChangeAction={(action) => handleUpdate(p.id, action)}
-                        onMoveToTop={() => handleMove(p.id, minPosition - 1)}
-                        onMoveToBottom={() =>
-                          handleMove(p.id, maxPosition + 1)
-                        }
+                        onMoveUp={() => handleMove(p.id, positionAbove(i))}
+                        onMoveDown={() => handleMove(p.id, positionBelow(i))}
                       />
                     ))
                   )}
