@@ -1273,6 +1273,9 @@ export const mcpPlugin = definePlugin(
         Effect.gen(function* () {
           yield* ctx.storage.removeBindingsByNamespace(sourceId, scope);
           yield* ctx.storage.removeSource(sourceId, scope);
+          if (options?.configFile) {
+            yield* options.configFile.removeSource(sourceId);
+          }
         }),
 
       refreshSource: () => Effect.void,
