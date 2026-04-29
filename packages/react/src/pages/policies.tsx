@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
+import { ChevronDownIcon } from "lucide-react";
 import { PolicyId, type ToolPolicyAction } from "@executor/sdk";
 
 import {
-  createPolicy,
-  policiesAtom,
-  removePolicy,
-  updatePolicy,
+  createPolicyOptimistic,
+  policiesOptimisticAtom,
+  removePolicyOptimistic,
+  updatePolicyOptimistic,
 } from "../api/atoms";
 import { policyWriteKeys } from "../api/reactivity-keys";
 import { useScope } from "../hooks/use-scope";
-import { Badge } from "../components/badge";
+import { badgeVariants } from "../components/badge";
+import { cn } from "../lib/utils";
 import { Button } from "../components/button";
 import {
   CardStack,
@@ -33,6 +35,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectPrimitiveTrigger,
   SelectTrigger,
   SelectValue,
 } from "../components/select";
@@ -182,9 +185,29 @@ function PolicyRow(props: {
         </CardStackEntryDescription>
       </CardStackEntryContent>
       <CardStackEntryActions>
-        <Badge variant={actionVariants[props.policy.action]}>
-          {actionLabels[props.policy.action]}
-        </Badge>
+        <Select
+          value={props.policy.action}
+          onValueChange={(v) => props.onChangeAction(v as ToolPolicyAction)}
+        >
+          <SelectPrimitiveTrigger
+            className={cn(
+              badgeVariants({
+                variant: actionVariants[props.policy.action],
+              }),
+              "cursor-pointer pr-1.5 gap-1 transition-[opacity,box-shadow] hover:opacity-80 focus-visible:outline-none data-[state=open]:ring-2 data-[state=open]:ring-ring/50",
+            )}
+          >
+            {actionLabels[props.policy.action]}
+            <ChevronDownIcon className="size-3 opacity-70" />
+          </SelectPrimitiveTrigger>
+          <SelectContent position="popper" align="end">
+            <SelectItem value="approve">{actionLabels.approve}</SelectItem>
+            <SelectItem value="require_approval">
+              {actionLabels.require_approval}
+            </SelectItem>
+            <SelectItem value="block">{actionLabels.block}</SelectItem>
+          </SelectContent>
+        </Select>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -199,18 +222,7 @@ function PolicyRow(props: {
               </svg>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem onClick={() => props.onChangeAction("approve")}>
-              Set: Auto-approve
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => props.onChangeAction("require_approval")}
-            >
-              Set: Require approval
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => props.onChangeAction("block")}>
-              Set: Block
-            </DropdownMenuItem>
+          <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuItem
               className="text-destructive focus:text-destructive text-sm"
               onClick={props.onRemove}
@@ -230,10 +242,16 @@ function PolicyRow(props: {
 
 export function PoliciesPage() {
   const scopeId = useScope();
-  const policies = useAtomValue(policiesAtom(scopeId));
-  const doCreate = useAtomSet(createPolicy, { mode: "promise" });
-  const doUpdate = useAtomSet(updatePolicy, { mode: "promise" });
-  const doRemove = useAtomSet(removePolicy, { mode: "promise" });
+  const policies = useAtomValue(policiesOptimisticAtom(scopeId));
+  const doCreate = useAtomSet(createPolicyOptimistic(scopeId), {
+    mode: "promise",
+  });
+  const doUpdate = useAtomSet(updatePolicyOptimistic(scopeId), {
+    mode: "promise",
+  });
+  const doRemove = useAtomSet(removePolicyOptimistic(scopeId), {
+    mode: "promise",
+  });
   const [busy, setBusy] = useState(false);
 
   const handleCreate = async (input: {
