@@ -65,3 +65,7 @@ executor.jsonc
 
 .mcp.json
 .codex/
+
+# Warden local scan outputs
+.warden/
+.warden-runs/
