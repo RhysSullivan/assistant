@@ -46,7 +46,8 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@executor/storage-core": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "fractional-indexing": "^3.2.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

@@ -1,7 +1,9 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { effectivePolicyFromSorted } from "@executor/sdk";
 import {
+  policiesOptimisticAtom,
   sourceToolsAtom,
   sourcesAtom,
   sourceAtom,
@@ -26,6 +28,7 @@ export function SourceDetailPage(props: {
   const scopeId = useScope();
   const source = useAtomValue(sourceAtom(namespace, scopeId));
   const tools = useAtomValue(sourceToolsAtom(namespace, scopeId));
+  const policies = useAtomValue(policiesOptimisticAtom(scopeId));
   const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
   const doRemove = useAtomSet(removeSource, { mode: "promise" });
@@ -62,6 +65,14 @@ export function SourceDetailPage(props: {
     return sourcePlugins.find((p) => p.key === sourceData.kind) ?? null;
   }, [sourceData, sourcePlugins]);
 
+  // Policies are pre-sorted by the server in evaluation order
+  // (innermost scope first, then position ASC). The matcher walks the
+  // list and stops at the first hit, mirroring server-side resolution.
+  const policyList = useMemo(
+    () => (Result.isSuccess(policies) ? policies.value : []),
+    [policies],
+  );
+
   const sourceTools: ToolSummary[] = useMemo(() => {
     if (!Result.isSuccess(tools)) return [];
     return tools.value.map((t) => ({
@@ -69,8 +80,9 @@ export function SourceDetailPage(props: {
       name: t.name,
       pluginKey: t.pluginId,
       description: t.description,
+      policy: effectivePolicyFromSorted(t.id, policyList, t.requiresApproval),
     }));
-  }, [tools]);
+  }, [tools, policyList]);
 
   const selectedTool = useMemo(
     () => sourceTools.find((t) => t.id === selectedToolId) ?? null,
@@ -235,6 +247,7 @@ export function SourceDetailPage(props: {
                       toolName={selectedTool.name}
                       toolDescription={selectedTool.description}
                       scopeId={scopeId}
+                      policy={selectedTool.policy}
                     />
                   ) : (
                     <ToolDetailEmpty hasTools={sourceTools.length > 0} />

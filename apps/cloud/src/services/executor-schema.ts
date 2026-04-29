@@ -83,6 +83,27 @@ export const connection = pgTable("connection", {
   index("connection_provider_idx").on(table.provider),
 ]);
 
+export const tool_policy = pgTable("tool_policy", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  pattern: text('pattern').notNull(),
+  action: text('action').notNull(),
+  // Fractional-indexing key (Jira lexorank style). Stored as text and
+  // compared lexicographically. Sortable like a number, but you can
+  // always lengthen the key to insert between two adjacent rows
+  // without precision loss.
+  position: text('position').notNull(),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  // Composite (scope_id, position) — list reads are always
+  // `WHERE scope_id = ? ORDER BY position` so the prefix lets postgres
+  // serve both the filter and the sort from one btree. The earlier
+  // standalone scope_id and position indexes were redundant.
+  index("tool_policy_scope_id_position_idx").on(table.scope_id, table.position),
+]);
+
 export const openapi_source = pgTable("openapi_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),

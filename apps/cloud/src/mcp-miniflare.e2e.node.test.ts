@@ -489,3 +489,48 @@ layer(TestEnv, { timeout: 60_000 })("cloud MCP over real HTTP (miniflare)", (it)
   );
 
 });
+
+layer(TestEnv, { timeout: 60_000 })("cloud MCP request-id telemetry", (it) => {
+  it.effect("exports MCP JSON-RPC request ids for request-shaped ids", () =>
+    Effect.gen(function* () {
+      const { baseUrl, seedOrg } = yield* Worker;
+      const receiver = yield* TelemetryReceiver;
+      const orgId = nextOrgId();
+      const accountId = nextAccountId();
+      const requestId = `req_${crypto.randomUUID().replace(/-/g, "")}`;
+      yield* Effect.promise(() => seedOrg(orgId, "Request Id Org"));
+
+      const response = yield* Effect.promise(() =>
+        fetch(new URL("/mcp", baseUrl), {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${makeTestBearer(accountId, orgId)}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: requestId,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "mcp-request-id-e2e", version: "0" },
+            },
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      yield* Effect.promise(() => response.text());
+
+      const annotateSpan = yield* Effect.promise(() =>
+        receiver.waitForSpan(
+          (s) =>
+            s.name === "mcp.request.annotate" &&
+            s.attributes["mcp.rpc.id"] === requestId,
+        ),
+      );
+      expect(annotateSpan.attributes["mcp.rpc.method"]).toBe("initialize");
+    }), 30_000,
+  );
+});
