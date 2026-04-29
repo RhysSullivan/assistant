@@ -169,7 +169,6 @@ function PolicyRow(props: {
     id: string;
     pattern: string;
     action: ToolPolicyAction;
-    position: number;
   };
   isFirst: boolean;
   isLast: boolean;
@@ -184,9 +183,6 @@ function PolicyRow(props: {
         <CardStackEntryTitle className="flex items-center gap-2 font-mono text-sm">
           <span className="truncate">{props.policy.pattern}</span>
         </CardStackEntryTitle>
-        <CardStackEntryDescription className="text-xs text-muted-foreground">
-          Position {props.policy.position}
-        </CardStackEntryDescription>
       </CardStackEntryContent>
       <CardStackEntryActions>
         <Select
@@ -383,7 +379,6 @@ export function PoliciesPage() {
                           id: p.id,
                           pattern: p.pattern,
                           action: p.action,
-                          position: p.position,
                         }}
                         isFirst={i === 0}
                         isLast={i === sorted.length - 1}
