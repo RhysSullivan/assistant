@@ -126,6 +126,10 @@ bun dev
 
 The dev server starts at `http://127.0.0.1:4788`.
 
+### Symphony smoke test
+
+hello world from the Symphony executor workspace smoke test.
+
 ## Community
 
 Join the Discord: [https://discord.gg/eF29HBHwM6](https://discord.gg/eF29HBHwM6)
