@@ -126,6 +126,10 @@ bun dev
 
 The dev server starts at `http://127.0.0.1:4788`.
 
+### Symphony smoke test
+
+This repository was used to smoke test Symphony's executor workspace flow: clone, edit docs, validate, and publish from a configured workspace.
+
 ## Community
 
 Join the Discord: [https://discord.gg/eF29HBHwM6](https://discord.gg/eF29HBHwM6)
