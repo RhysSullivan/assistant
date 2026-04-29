@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/select";
+import { Label } from "../components/label";
 
 // ---------------------------------------------------------------------------
 // Sort comparator — fractional-indexing key, then id as a stable tiebreak.
@@ -138,8 +139,11 @@ function AddPolicyForm(props: {
       }}
     >
       <div className="flex flex-col gap-1">
-        <label className="text-xs font-medium text-foreground/80">Pattern</label>
+        <Label htmlFor="policy-pattern" className="text-xs font-medium text-foreground/80">
+          Pattern
+        </Label>
         <Input
+          id="policy-pattern"
           placeholder="vercel.dns.* or *"
           value={pattern}
           onChange={(e) => setPattern(e.target.value)}
@@ -155,7 +159,7 @@ function AddPolicyForm(props: {
         </p>
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-xs font-medium text-foreground/80">Action</label>
+        <Label className="text-xs font-medium text-foreground/80">Action</Label>
         <Select
           value={action}
           onValueChange={(v) => setAction(v as ToolPolicyAction)}
