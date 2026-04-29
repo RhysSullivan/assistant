@@ -362,19 +362,15 @@ const annotateMcpRequest = (
     };
 
     const envelope = opts.parseBody ? yield* readJsonRpcEnvelope(request) : Option.none();
-
-    yield* Effect.annotateCurrentSpan({
+    const attrs = {
       ...baseAttrs,
       ...rpcAttrs(envelope),
-    });
-  }).pipe(
-    Effect.withSpan("mcp.request.annotate", {
-      attributes: {
-        "mcp.request.method": request.method,
-        "mcp.request.parse_body": opts.parseBody,
-      },
-    }),
-  );
+      "mcp.request.parse_body": opts.parseBody,
+    };
+
+    yield* Effect.annotateCurrentSpan(attrs);
+    yield* Effect.annotateCurrentSpan(attrs).pipe(Effect.withSpan("mcp.request.annotate"));
+  });
 
 // ---------------------------------------------------------------------------
 // OAuth metadata endpoints
