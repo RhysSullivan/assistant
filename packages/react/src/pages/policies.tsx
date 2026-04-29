@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
+import { generateKeyBetween } from "fractional-indexing";
 import { ChevronDownIcon } from "lucide-react";
 import { PolicyId, type ToolPolicyAction } from "@executor/sdk";
 
@@ -297,7 +298,7 @@ export function PoliciesPage() {
     });
   };
 
-  const handleMove = async (id: string, position: number) => {
+  const handleMove = async (id: string, position: string) => {
     await doUpdate({
       path: { scopeId, policyId: PolicyId.make(id) },
       payload: { position },
@@ -340,24 +341,35 @@ export function PoliciesPage() {
             </div>
           ),
           onSuccess: ({ value }) => {
-            // Sort by position so optimistic position updates reorder the list
-            // immediately. Server returns rows in this order too, so this
-            // converges with the canonical order on refresh.
-            const sorted = [...value].sort((a, b) => a.position - b.position);
-            // For "move up" at index i, place the row between its new
-            // neighbors (sorted[i-2], sorted[i-1]) using the midpoint of
-            // their positions. At the very top, go strictly above the
-            // current first. Symmetric for "move down". Using midpoints
-            // means a single update reorders correctly without swapping
-            // two rows.
-            const positionAbove = (i: number): number =>
+            // Sort by position (lex order on fractional-indexing keys) so
+            // optimistic position updates reorder the list immediately.
+            // Server returns rows in this order too, so this converges
+            // with the canonical order on refresh.
+            const sorted = [...value].sort((a, b) =>
+              a.position < b.position ? -1 : a.position > b.position ? 1 : 0,
+            );
+            // For "move up" at index i, generate a key between the row's
+            // new neighbors (sorted[i-2], sorted[i-1]). At the very top,
+            // generate a key above sorted[0]. Symmetric for "move down".
+            // One update per click; fractional-indexing strings can
+            // always be subdivided so we never run out of keys.
+            const positionAbove = (i: number): string =>
               i === 1
-                ? sorted[0]!.position - 1
-                : (sorted[i - 2]!.position + sorted[i - 1]!.position) / 2;
-            const positionBelow = (i: number): number =>
+                ? generateKeyBetween(null, sorted[0]!.position)
+                : generateKeyBetween(
+                    sorted[i - 2]!.position,
+                    sorted[i - 1]!.position,
+                  );
+            const positionBelow = (i: number): string =>
               i === sorted.length - 2
-                ? sorted[sorted.length - 1]!.position + 1
-                : (sorted[i + 1]!.position + sorted[i + 2]!.position) / 2;
+                ? generateKeyBetween(
+                    sorted[sorted.length - 1]!.position,
+                    null,
+                  )
+                : generateKeyBetween(
+                    sorted[i + 1]!.position,
+                    sorted[i + 2]!.position,
+                  );
             return (
               <CardStack>
                 <CardStackHeader>Active policies</CardStackHeader>

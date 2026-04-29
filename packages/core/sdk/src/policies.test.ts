@@ -84,7 +84,7 @@ describe("resolveToolPolicy", () => {
     id: string,
     pattern: string,
     action: "approve" | "require_approval" | "block",
-    position: number,
+    position: string,
     scope_id = "test-scope",
   ): ToolPolicyRow =>
     ({
@@ -102,7 +102,7 @@ describe("resolveToolPolicy", () => {
   it("returns undefined when no policies match", () => {
     const result = resolveToolPolicy(
       "vercel.dns.create",
-      [ROW("a", "github.*", "block", 0)],
+      [ROW("a", "github.*", "block", "a0")],
       flatRank,
     );
     expect(result).toBeUndefined();
@@ -114,8 +114,8 @@ describe("resolveToolPolicy", () => {
     const result = resolveToolPolicy(
       "vercel.dns.create",
       [
-        ROW("a", "vercel.dns.create", "approve", 0),
-        ROW("b", "vercel.dns.*", "require_approval", 1),
+        ROW("a", "vercel.dns.create", "approve", "a0"),
+        ROW("b", "vercel.dns.*", "require_approval", "a1"),
       ],
       flatRank,
     );
@@ -131,8 +131,8 @@ describe("resolveToolPolicy", () => {
     const result = resolveToolPolicy(
       "vercel.dns.create",
       [
-        ROW("b", "vercel.dns.*", "require_approval", 0),
-        ROW("a", "vercel.dns.create", "approve", 1),
+        ROW("b", "vercel.dns.*", "require_approval", "a0"),
+        ROW("a", "vercel.dns.create", "approve", "a1"),
       ],
       flatRank,
     );
@@ -145,8 +145,8 @@ describe("resolveToolPolicy", () => {
     // 1 = next, etc. An inner-scope rule wins even when its position
     // would otherwise put it after the outer rule.
     const policies = [
-      ROW("outer", "vercel.*", "block", 0, "org"),
-      ROW("inner", "vercel.dns.create", "approve", 0, "user"),
+      ROW("outer", "vercel.*", "block", "a0", "org"),
+      ROW("inner", "vercel.dns.create", "approve", "a0", "user"),
     ];
     const rank = (row: { scope_id: unknown }) =>
       row.scope_id === "user" ? 0 : 1;
@@ -309,8 +309,9 @@ describe("executor.policies", () => {
         pattern: "vercel.delete",
         action: "block",
       });
-      // second was created later but should sit above first.
-      expect(second.position).toBeLessThan(first.position);
+      // second was created later but should sit above first (lower lex
+      // order on the fractional-indexing key).
+      expect(second.position < first.position).toBe(true);
 
       const rules = yield* executor.policies.list();
       expect(rules.map((r) => r.pattern)).toEqual([

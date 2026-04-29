@@ -134,7 +134,7 @@ export const createPolicyOptimistic = Atom.family((scopeId: ScopeId) =>
           payload: {
             pattern: string;
             action: ToolPolicyAction;
-            position?: number;
+            position?: string;
           };
           reactivityKeys?: ReadonlyArray<unknown>;
         },
@@ -147,8 +147,10 @@ export const createPolicyOptimistic = Atom.family((scopeId: ScopeId) =>
             scopeId,
             pattern: arg.payload.pattern,
             action: arg.payload.action,
-            // New rules go to the top in the server too — match that.
-            position: -Number.MAX_SAFE_INTEGER,
+            // Empty string sorts before any fractional-indexing key, so
+            // the placeholder lands at the top until the server returns
+            // the canonical key.
+            position: "",
             createdAt: Date.now(),
             updatedAt: Date.now(),
           },
@@ -169,7 +171,7 @@ export const updatePolicyOptimistic = Atom.family((_scopeId: ScopeId) =>
           payload: {
             pattern?: string;
             action?: ToolPolicyAction;
-            position?: number;
+            position?: string;
           };
           reactivityKeys?: ReadonlyArray<unknown>;
         },

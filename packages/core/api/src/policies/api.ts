@@ -20,7 +20,7 @@ const ToolPolicyResponse = Schema.Struct({
   scopeId: ScopeId,
   pattern: Schema.String,
   action: ToolPolicyActionSchema,
-  position: Schema.Number,
+  position: Schema.String,
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
 });
@@ -28,13 +28,13 @@ const ToolPolicyResponse = Schema.Struct({
 const CreateToolPolicyPayload = Schema.Struct({
   pattern: Schema.String,
   action: ToolPolicyActionSchema,
-  position: Schema.optional(Schema.Number),
+  position: Schema.optional(Schema.String),
 });
 
 const UpdateToolPolicyPayload = Schema.Struct({
   pattern: Schema.optional(Schema.String),
   action: Schema.optional(ToolPolicyActionSchema),
-  position: Schema.optional(Schema.Number),
+  position: Schema.optional(Schema.String),
 });
 
 // ---------------------------------------------------------------------------

@@ -168,9 +168,13 @@ export const coreSchema = {
       pattern: { type: "string", required: true },
       /** "approve" | "require_approval" | "block". */
       action: { type: "string", required: true },
-      /** Lower position = higher precedence within a scope. New rules
-       *  default to the top (smallest position). */
-      position: { type: "number", required: true, index: true },
+      /** Fractional-indexing key (Jira lexorank style). Lower lex order =
+       *  higher precedence. New rules default to a key generated above
+       *  the current minimum. Strings instead of numbers so we can
+       *  always lengthen the key to insert between two adjacent rows
+       *  without precision loss; see `fractional-indexing` in
+       *  `policies.ts`. */
+      position: { type: "string", required: true, index: true },
       created_at: { type: "date", required: true },
       updated_at: { type: "date", required: true },
     },

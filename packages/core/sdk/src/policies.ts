@@ -20,8 +20,10 @@ export interface ToolPolicy {
   readonly scopeId: ScopeId;
   readonly pattern: string;
   readonly action: ToolPolicyAction;
-  /** Lower number = higher precedence within a scope. */
-  readonly position: number;
+  /** Fractional-indexing key. Lower lex order = higher precedence.
+   *  Use `generateKeyBetween(a, b)` from the `fractional-indexing`
+   *  package to produce a key that sits between two existing rows. */
+  readonly position: string;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -30,16 +32,16 @@ export interface CreateToolPolicyInput {
   readonly scope: string;
   readonly pattern: string;
   readonly action: ToolPolicyAction;
-  /** Optional explicit position. Defaults to the top of the scope's list
-   *  (smallest position; highest precedence). */
-  readonly position?: number;
+  /** Optional explicit position. Defaults to a key above the current
+   *  minimum (top of the scope's list; highest precedence). */
+  readonly position?: string;
 }
 
 export interface UpdateToolPolicyInput {
   readonly id: string;
   readonly pattern?: string;
   readonly action?: ToolPolicyAction;
-  readonly position?: number;
+  readonly position?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +139,9 @@ export const resolveToolPolicy = (
     const sa = scopeRank(a);
     const sb = scopeRank(b);
     if (sa !== sb) return sa - sb;
-    return (a.position as number) - (b.position as number);
+    const pa = a.position as string;
+    const pb = b.position as string;
+    return pa < pb ? -1 : pa > pb ? 1 : 0;
   });
   for (const row of sorted) {
     if (matchPattern(row.pattern as string, toolId)) {
@@ -216,7 +220,7 @@ export const rowToToolPolicy = (row: ToolPolicyRow): ToolPolicy => ({
   scopeId: ScopeId.make(row.scope_id as string),
   pattern: row.pattern as string,
   action: row.action as ToolPolicyAction,
-  position: row.position as number,
+  position: row.position as string,
   createdAt: row.created_at as Date,
   updatedAt: row.updated_at as Date,
 });

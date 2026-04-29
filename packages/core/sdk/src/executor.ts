@@ -1,4 +1,5 @@
 import { Deferred, Effect, FiberRef, Option, Schema } from "effect";
+import { generateKeyBetween } from "fractional-indexing";
 import {
   StorageError,
   typedAdapter,
@@ -2503,7 +2504,9 @@ export const createExecutor = <
           const sa = scopeRank(a);
           const sb = scopeRank(b);
           if (sa !== sb) return sa - sb;
-          return (a.position as number) - (b.position as number);
+          const pa = a.position as string;
+          const pb = b.position as string;
+          return pa < pb ? -1 : pa > pb ? 1 : 0;
         });
         return sorted.map((row) => rowToToolPolicy(row));
       }).pipe(Effect.withSpan("executor.policies.list"));
@@ -2529,23 +2532,23 @@ export const createExecutor = <
           });
         }
 
-        // Default position: top of the target scope's list (smallest
-        // position - 1). Lets newly-created rules win against existing
-        // ones, which matches the v1 design — users typically add a
-        // rule to override behavior they're seeing right now, not as a
-        // background fallback.
+        // Default position: a fractional-indexing key above the
+        // current minimum. Lets newly-created rules win against
+        // existing ones, which matches the v1 design — users typically
+        // add a rule to override behavior they're seeing right now,
+        // not as a background fallback.
         let position = input.position;
         if (position === undefined) {
           const existing = yield* core.findMany({
             model: "tool_policy",
             where: [{ field: "scope_id", value: input.scope }],
           });
-          let min = 0;
+          let min: string | null = null;
           for (const row of existing) {
-            const p = row.position as number;
-            if (p < min) min = p;
+            const p = row.position as string;
+            if (min === null || p < min) min = p;
           }
-          position = min - 1;
+          position = generateKeyBetween(null, min);
         }
 
         const id = `pol_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
@@ -2617,7 +2620,7 @@ export const createExecutor = <
           update: {
             pattern: updated.pattern as string,
             action: updated.action as string,
-            position: updated.position as number,
+            position: updated.position as string,
             updated_at: updated.updated_at as Date,
           },
         });

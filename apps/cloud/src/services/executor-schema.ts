@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, bigint, doublePrecision, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, bigint, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const source = pgTable("source", {
   id: text('id').notNull(),
@@ -88,9 +88,11 @@ export const tool_policy = pgTable("tool_policy", {
   scope_id: text('scope_id').notNull(),
   pattern: text('pattern').notNull(),
   action: text('action').notNull(),
-  // double precision so reorders can use float midpoints (insert between
-  // two existing rows in one update, no swap). bigint would refuse 2.5.
-  position: doublePrecision('position').notNull(),
+  // Fractional-indexing key (Jira lexorank style). Stored as text and
+  // compared lexicographically. Sortable like a number, but you can
+  // always lengthen the key to insert between two adjacent rows
+  // without precision loss.
+  position: text('position').notNull(),
   created_at: timestamp('created_at').notNull(),
   updated_at: timestamp('updated_at').notNull()
 }, (table) => [
