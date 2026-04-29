@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { generateKeyBetween } from "fractional-indexing";
 
 import type { ToolPolicyRow } from "./core-schema";
 import { PolicyId } from "./ids";
@@ -157,6 +158,33 @@ describe("resolveToolPolicy", () => {
     );
     expect(result?.action).toBe("approve");
     expect(result?.policyId).toBe("inner");
+  });
+
+  it("tiebreaks identical positions by id so order is deterministic", () => {
+    // Two rows with the same `position` (racing inserts that picked the
+    // same fractional-indexing key from independent clients) must sort
+    // deterministically — otherwise the rendered order flips on every
+    // refetch and reorder math sees colliding neighbor keys.
+    const a = resolveToolPolicy(
+      "vercel.dns.create",
+      [
+        ROW("z", "vercel.dns.*", "block", "a0"),
+        ROW("a", "vercel.dns.*", "approve", "a0"),
+      ],
+      flatRank,
+    );
+    const b = resolveToolPolicy(
+      "vercel.dns.create",
+      [
+        ROW("a", "vercel.dns.*", "approve", "a0"),
+        ROW("z", "vercel.dns.*", "block", "a0"),
+      ],
+      flatRank,
+    );
+    // Same input rows in different order, same winner — id "a" sorts
+    // before "z" so it wins regardless of array order.
+    expect(a?.policyId).toBe("a");
+    expect(b?.policyId).toBe("a");
   });
 });
 
@@ -350,6 +378,81 @@ describe("executor.policies", () => {
       const rules = yield* executor.policies.list();
       expect(rules[0]?.action).toBe("block");
     }),
+  );
+
+  it.effect("update without position preserves the existing position", () =>
+    Effect.gen(function* () {
+      const executor = yield* setupExecutor();
+      const created = yield* executor.policies.create({
+        scope: "test-scope",
+        pattern: "vercel.*",
+        action: "require_approval",
+      });
+      yield* executor.policies.update({
+        id: created.id,
+        action: "block",
+      });
+      const rules = yield* executor.policies.list();
+      expect(rules[0]?.position).toBe(created.position);
+    }),
+  );
+
+  it.effect("update with a new position reorders the list", () =>
+    Effect.gen(function* () {
+      const executor = yield* setupExecutor();
+      const a = yield* executor.policies.create({
+        scope: "test-scope",
+        pattern: "a.*",
+        action: "approve",
+      });
+      const b = yield* executor.policies.create({
+        scope: "test-scope",
+        pattern: "b.*",
+        action: "approve",
+      });
+      // After two creates: b above a (newer = higher precedence).
+      const before = yield* executor.policies.list();
+      expect(before.map((r) => r.pattern)).toEqual(["b.*", "a.*"]);
+
+      // Move `a` above `b` by setting a position lex-less-than b's.
+      // generateKeyBetween(null, b.position) is what the UI would do.
+      yield* executor.policies.update({
+        id: a.id,
+        position: generateKeyBetween(null, b.position),
+      });
+      const after = yield* executor.policies.list();
+      expect(after.map((r) => r.pattern)).toEqual(["a.*", "b.*"]);
+    }),
+  );
+
+  it.effect(
+    "consecutive creates produce strictly increasing-precedence keys",
+    () =>
+      Effect.gen(function* () {
+        const executor = yield* setupExecutor();
+        const created: string[] = [];
+        for (const pattern of ["a.*", "b.*", "c.*", "d.*"]) {
+          const row = yield* executor.policies.create({
+            scope: "test-scope",
+            pattern,
+            action: "approve",
+          });
+          created.push(row.position);
+        }
+        // Each new key sorts strictly above the previous (lower lex
+        // order = higher precedence). No collisions.
+        for (let i = 1; i < created.length; i++) {
+          expect(created[i]! < created[i - 1]!).toBe(true);
+        }
+        // List order matches insertion-reverse.
+        const rules = yield* executor.policies.list();
+        expect(rules.map((r) => r.pattern)).toEqual([
+          "d.*",
+          "c.*",
+          "b.*",
+          "a.*",
+        ]);
+      }),
   );
 
   it.effect("remove deletes the row", () =>
