@@ -46,6 +46,7 @@ import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-gro
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { addGoogleDiscoverySource, probeGoogleDiscovery } from "./atoms";
 import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";
+import { googleDiscoveryPresets, type GoogleDiscoveryPreset } from "../sdk/presets";
 
 type GoogleAuthKind = "none" | "oauth2";
 
@@ -87,142 +88,45 @@ function SecretBackedField(props: {
   );
 }
 
-type GoogleDiscoveryTemplate = {
-  id: string;
-  name: string;
-  summary: string;
-  service: string;
-  version: string;
-  discoveryUrl: string;
+type GoogleDiscoveryTemplate = GoogleDiscoveryPreset & {
+  readonly discoveryUrl: string;
+  readonly service: string;
+  readonly version: string;
 };
 
-const defaultGoogleDiscoveryUrl = (service: string, version: string): string =>
-  `https://www.googleapis.com/discovery/v1/apis/${service}/${version}/rest`;
+const GOOGLE_G_ICON = "https://fonts.gstatic.com/s/i/productlogos/googleg/v6/192px.svg";
 
-const googleDiscoveryTemplate = (template: GoogleDiscoveryTemplate): GoogleDiscoveryTemplate => ({
-  ...template,
-  discoveryUrl:
-    template.discoveryUrl || defaultGoogleDiscoveryUrl(template.service, template.version),
-});
+function parseGoogleDiscoveryPreset(preset: GoogleDiscoveryPreset): GoogleDiscoveryTemplate {
+  try {
+    const url = new URL(preset.url);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const apisIndex = parts.indexOf("apis");
+    const service = apisIndex >= 0 ? parts[apisIndex + 1] : undefined;
+    const version =
+      apisIndex >= 0 ? parts[apisIndex + 2] : (url.searchParams.get("version") ?? undefined);
+    return {
+      ...preset,
+      discoveryUrl: preset.url,
+      service: service ?? url.hostname.replace(/\.googleapis\.com$/, ""),
+      version: version ?? "",
+    };
+  } catch {
+    return { ...preset, discoveryUrl: preset.url, service: preset.id, version: "" };
+  }
+}
 
-const GOOGLE_DISCOVERY_TEMPLATES: readonly GoogleDiscoveryTemplate[] = [
-  googleDiscoveryTemplate({
-    id: "google-calendar",
-    name: "Google Calendar",
-    summary: "Calendars, events, ACLs, and scheduling workflows.",
-    service: "calendar",
-    version: "v3",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-drive",
-    name: "Google Drive",
-    summary: "Files, folders, permissions, comments, and shared drives.",
-    service: "drive",
-    version: "v3",
-    discoveryUrl: defaultGoogleDiscoveryUrl("drive", "v3"),
-  }),
-  googleDiscoveryTemplate({
-    id: "google-gmail",
-    name: "Gmail",
-    summary: "Messages, threads, labels, drafts, and mailbox automation.",
-    service: "gmail",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-docs",
-    name: "Google Docs",
-    summary: "Documents, structural edits, text ranges, and formatting.",
-    service: "docs",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/docs/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-sheets",
-    name: "Google Sheets",
-    summary: "Spreadsheets, values, ranges, formatting, and batch updates.",
-    service: "sheets",
-    version: "v4",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-slides",
-    name: "Google Slides",
-    summary: "Presentations, slides, page elements, and deck updates.",
-    service: "slides",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/slides/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-forms",
-    name: "Google Forms",
-    summary: "Forms, questions, responses, quizzes, and form metadata.",
-    service: "forms",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/forms/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-people",
-    name: "Google People",
-    summary: "Contacts, profiles, directory people, and contact groups.",
-    service: "people",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/people/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-tasks",
-    name: "Google Tasks",
-    summary: "Task lists, task items, notes, and due dates.",
-    service: "tasks",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-chat",
-    name: "Google Chat",
-    summary: "Spaces, messages, members, reactions, and chat workflows.",
-    service: "chat",
-    version: "v1",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/chat/v1/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-bigquery",
-    name: "Google BigQuery",
-    summary: "Datasets, tables, jobs, routines, and analytics workflows.",
-    service: "bigquery",
-    version: "v2",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/bigquery/v2/rest",
-  }),
-  googleDiscoveryTemplate({
-    id: "google-youtube",
-    name: "YouTube Data",
-    summary: "Channels, playlists, videos, comments, captions, and uploads.",
-    service: "youtube",
-    version: "v3",
-    discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest",
-  }),
-];
+const GOOGLE_DISCOVERY_TEMPLATES = googleDiscoveryPresets.map(parseGoogleDiscoveryPreset);
 
-const GOOGLE_SERVICE_ICON_URLS: Record<string, string> = {
-  calendar: "https://fonts.gstatic.com/s/i/productlogos/calendar_2020q4/v8/192px.svg",
-  drive: "https://fonts.gstatic.com/s/i/productlogos/drive_2020q4/v8/192px.svg",
-  gmail:
-    "https://fonts.gstatic.com/s/i/productlogos/gmail_2020q4/v8/web-96dp/logo_gmail_2020q4_color_2x_web_96dp.png",
-  docs: "https://fonts.gstatic.com/s/i/productlogos/docs_2020q4/v12/192px.svg",
-  sheets: "https://fonts.gstatic.com/s/i/productlogos/sheets_2020q4/v8/192px.svg",
-  slides: "https://fonts.gstatic.com/s/i/productlogos/slides_2020q4/v12/192px.svg",
-  forms: "https://fonts.gstatic.com/s/i/productlogos/forms_2020q4/v6/192px.svg",
-  people: "https://fonts.gstatic.com/s/i/productlogos/contacts/v9/192px.svg",
-  tasks: "https://fonts.gstatic.com/s/i/productlogos/tasks/v10/192px.svg",
-  chat: "https://fonts.gstatic.com/s/i/productlogos/chat_2020q4/v8/192px.svg",
-  bigquery: "https://fonts.gstatic.com/s/i/productlogos/cloud/v8/192px.svg",
-  youtube: "https://fonts.gstatic.com/s/i/productlogos/youtube/v9/192px.svg",
-};
+const iconForService = (service: string): string | undefined =>
+  GOOGLE_DISCOVERY_TEMPLATES.find((template) => template.service === service)?.icon;
 
-function GoogleServiceIcon(props: { readonly service: string; readonly className?: string }) {
-  const { service, className = "size-11" } = props;
-  const src = GOOGLE_SERVICE_ICON_URLS[service] ?? GOOGLE_SERVICE_ICON_URLS.bigquery;
+function GoogleServiceIcon(props: {
+  readonly icon?: string;
+  readonly service?: string;
+  readonly className?: string;
+}) {
+  const { icon, service, className = "size-11" } = props;
+  const src = icon ?? (service ? iconForService(service) : undefined) ?? GOOGLE_G_ICON;
 
   return (
     <img
@@ -266,8 +170,10 @@ export default function AddGoogleDiscoverySource(props: {
   readonly onComplete: () => void;
   readonly onCancel: () => void;
   readonly initialUrl?: string;
+  readonly initialPreset?: string;
 }) {
   const defaultTemplate =
+    GOOGLE_DISCOVERY_TEMPLATES.find((template) => template.id === props.initialPreset) ??
     GOOGLE_DISCOVERY_TEMPLATES.find((template) => template.id === "google-sheets") ??
     GOOGLE_DISCOVERY_TEMPLATES[0]!;
   const [discoveryUrl, setDiscoveryUrl] = useState(
@@ -494,7 +400,11 @@ export default function AddGoogleDiscoverySource(props: {
               return (
                 <FieldLabel key={template.id} htmlFor={inputId}>
                   <Field orientation="horizontal">
-                    <GoogleServiceIcon service={template.service} className="size-8" />
+                    <GoogleServiceIcon
+                      icon={template.icon}
+                      service={template.service}
+                      className="size-8"
+                    />
                     <FieldContent>
                       <FieldTitle>{template.name}</FieldTitle>
                       <FieldDescription className="line-clamp-2">
@@ -548,6 +458,7 @@ export default function AddGoogleDiscoverySource(props: {
             <div className="flex items-center gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background/80 shadow-xs">
                 <GoogleServiceIcon
+                  icon={selectedTemplate?.icon}
                   service={selectedTemplate?.service ?? probe.service}
                   className="size-5"
                 />
