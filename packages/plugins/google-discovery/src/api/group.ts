@@ -15,6 +15,19 @@ export { HttpApiSchema };
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 
+const SecretBackedValue = Schema.Union(
+  Schema.String,
+  Schema.Struct({
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+);
+
+const DiscoveryCredentialsPayload = Schema.Struct({
+  headers: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
+  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
+});
+
 const AuthPayload = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("none"),
@@ -30,6 +43,7 @@ const AuthPayload = Schema.Union(
 
 const ProbePayload = Schema.Struct({
   discoveryUrl: Schema.String,
+  credentials: Schema.optional(DiscoveryCredentialsPayload),
 });
 
 const ProbeOperation = Schema.Struct({
@@ -52,6 +66,7 @@ const ProbeResponse = Schema.Struct({
 const AddSourcePayload = Schema.Struct({
   name: Schema.String,
   discoveryUrl: Schema.String,
+  credentials: Schema.optional(DiscoveryCredentialsPayload),
   namespace: Schema.optional(Schema.String),
   auth: AuthPayload,
 });
@@ -73,6 +88,7 @@ const UpdateSourceResponse = Schema.Struct({
 const StartOAuthPayload = Schema.Struct({
   name: Schema.String,
   discoveryUrl: Schema.String,
+  credentials: Schema.optional(DiscoveryCredentialsPayload),
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   redirectUrl: Schema.String,
@@ -168,8 +184,9 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
   .add(
     HttpApiEndpoint.get(
       "getSource",
-    )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
-      .addSuccess(Schema.NullOr(GoogleDiscoveryStoredSourceSchema)),
+    )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`.addSuccess(
+      Schema.NullOr(GoogleDiscoveryStoredSourceSchema),
+    ),
   )
   // Errors declared once at the group level — every endpoint inherits.
   // `InternalError` is the shared opaque 500 translated at the HTTP edge

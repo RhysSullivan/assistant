@@ -5,24 +5,21 @@ import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import {
-  headerValueToState,
-  headersFromState,
-  type HeaderState,
-} from "@executor/react/plugins/secret-header-auth";
-import { HeadersList } from "@executor/react/plugins/headers-list";
-import {
-  SourceIdentityFields,
-  useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
+  HttpCredentialsEditor,
+  httpCredentialsFromValues,
+  serializeHttpCredentials,
+  type HttpCredentialsState,
+} from "@executor/react/plugins/http-credentials";
+import { SourceIdentityFields, useSourceIdentity } from "@executor/react/plugins/source-identity";
 import { Button } from "@executor/react/components/button";
 import {
   CardStack,
   CardStackContent,
   CardStackEntryField,
 } from "@executor/react/components/card-stack";
-import { FieldLabel } from "@executor/react/components/field";
 import { Input } from "@executor/react/components/input";
 import { Badge } from "@executor/react/components/badge";
+import type { HeaderValue } from "../sdk/types";
 import type { StoredGraphqlSource } from "../sdk/store";
 
 // UI only needs the fields the API exposes; `scope` on the SDK interface
@@ -33,11 +30,7 @@ type EditableSource = Omit<StoredGraphqlSource, "scope">;
 // Edit form
 // ---------------------------------------------------------------------------
 
-function EditForm(props: {
-  sourceId: string;
-  initial: EditableSource;
-  onSave: () => void;
-}) {
+function EditForm(props: { sourceId: string; initial: EditableSource; onSave: () => void }) {
   const scopeId = useScope();
   const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
@@ -47,10 +40,11 @@ function EditForm(props: {
     fallbackNamespace: props.initial.namespace,
   });
   const [endpoint, setEndpoint] = useState(props.initial.endpoint);
-  const [headers, setHeaders] = useState<HeaderState[]>(() =>
-    Object.entries(props.initial.headers ?? {}).map(([name, value]) =>
-      headerValueToState(name, value),
-    ),
+  const [credentials, setCredentials] = useState<HttpCredentialsState>(() =>
+    httpCredentialsFromValues({
+      headers: props.initial.headers,
+      queryParams: props.initial.queryParams,
+    }),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,21 +52,23 @@ function EditForm(props: {
 
   const identityDirty = identity.name.trim() !== props.initial.name.trim();
 
-  const handleHeadersChange = (next: HeaderState[]) => {
-    setHeaders(next);
+  const handleCredentialsChange = (next: HttpCredentialsState) => {
+    setCredentials(next);
     setDirty(true);
   };
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+    const { headers, queryParams } = serializeHttpCredentials(credentials);
     try {
       await doUpdate({
         path: { scopeId, namespace: props.sourceId },
         payload: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
-          headers: headersFromState(headers),
+          headers,
+          queryParams: queryParams as Record<string, HeaderValue>,
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -121,15 +117,12 @@ function EditForm(props: {
         </CardStackContent>
       </CardStack>
 
-      <section className="space-y-2.5">
-        <FieldLabel>Headers</FieldLabel>
-        <HeadersList
-          headers={headers}
-          onHeadersChange={handleHeadersChange}
-          existingSecrets={secretList}
-          sourceName={identity.name}
-        />
-      </section>
+      <HttpCredentialsEditor
+        credentials={credentials}
+        onChange={handleCredentialsChange}
+        existingSecrets={secretList}
+        sourceName={identity.name}
+      />
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">

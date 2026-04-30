@@ -82,6 +82,11 @@ export default function McpSignInButton(props: { sourceId: string }) {
           endpoint: remote.endpoint,
           redirectUrl,
           connectionId,
+          ...(remote.queryParams ? { queryParams: remote.queryParams } : {}),
+          ...(oauth2.clientIdSecretId ? { clientIdSecretId: oauth2.clientIdSecretId } : {}),
+          ...(oauth2.clientSecretSecretId
+            ? { clientSecretSecretId: oauth2.clientSecretSecretId }
+            : {}),
         },
       });
 

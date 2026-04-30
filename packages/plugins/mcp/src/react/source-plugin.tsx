@@ -4,7 +4,6 @@ import { mcpPresets } from "../sdk/presets";
 
 const LazyAddMcpSource = lazy(() => import("./AddMcpSource"));
 const LazyEditMcpSource = lazy(() => import("./EditMcpSource"));
-const LazySummary = lazy(() => import("./McpSourceSummary"));
 const LazyMcpSignInButton = lazy(() => import("./McpSignInButton"));
 
 type AddProps = ComponentProps<SourcePlugin["add"]>;
@@ -40,7 +39,6 @@ export const createMcpSourcePlugin = (
     label: "MCP",
     add: AddWithFlag,
     edit: LazyEditMcpSource,
-    summary: LazySummary,
     signIn: LazyMcpSignInButton,
     presets,
   };

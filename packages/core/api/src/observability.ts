@@ -172,6 +172,10 @@ export const observabilityMiddleware = <
       return (httpApp) =>
         Effect.catchAllCause(httpApp, (cause) =>
           Effect.gen(function* () {
+            const defects = Cause.defects(cause);
+            if (defects.length === 0) {
+              return yield* Effect.failCause(cause);
+            }
             const traceId = yield* c.captureException(cause);
             return HttpServerResponse.unsafeJson(
               new InternalError({ traceId }),

@@ -34,6 +34,13 @@ export interface SecretProvider {
     id: string,
     scope: string,
   ) => Effect.Effect<string | null, StorageFailure>;
+  /** Check whether a provider has a backing value without returning it.
+   *  Providers that can answer this cheaply should implement it so
+   *  stale core routing rows don't appear as selectable secrets. */
+  readonly has?: (
+    id: string,
+    scope: string,
+  ) => Effect.Effect<boolean, StorageFailure>;
   /** Set a secret value at a named scope. Only called on writable
    *  providers. Providers that partition by scope use this arg to
    *  decide where to write; flat providers ignore it. */

@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useReducer, useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
@@ -18,14 +18,19 @@ import { FieldError, FieldLabel } from "@executor/react/components/field";
 import { FilterTabs } from "@executor/react/components/filter-tabs";
 import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { Textarea } from "@executor/react/components/textarea";
-import { HeadersList } from "@executor/react/plugins/headers-list";
-import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
+import {
+  HttpCredentialsEditor,
+  emptyHttpCredentials,
+  httpCredentialsValid,
+  serializeHttpCredentials,
+  type HttpCredentialsState,
+} from "@executor/react/plugins/http-credentials";
+import { CreatableSecretPicker } from "@executor/react/plugins/secret-header-auth";
 import {
   displayNameFromUrl,
   slugifyNamespace,
@@ -34,7 +39,7 @@ import {
 } from "@executor/react/plugins/source-identity";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 
-type RemoteAuthMode = "none" | "header" | "oauth2";
+type RemoteAuthMode = "none" | "oauth2";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { probeMcpEndpoint, addMcpSource, startMcpOAuth } from "./atoms";
@@ -84,11 +89,6 @@ type ProbeResult = {
   namespace: string;
   toolCount: number | null;
   serverName: string | null;
-};
-
-type PlainHeader = {
-  name: string;
-  value: string;
 };
 
 type State =
@@ -352,43 +352,43 @@ export default function AddMcpSource(props: {
   const secretList = useSecretPickerSecrets();
 
   const [remoteAuthMode, setRemoteAuthMode] = useState<RemoteAuthMode>("none");
-  const [remoteAuthHeaders, setRemoteAuthHeaders] = useState<HeaderState[]>([
-    {
-      name: "Authorization",
-      prefix: "Bearer ",
-      presetKey: "bearer",
-      secretId: null,
-    },
-  ]);
-  const [remoteHeaders, setRemoteHeaders] = useState<PlainHeader[]>([]);
+  const [oauthClientIdSecretId, setOauthClientIdSecretId] = useState<string | null>(null);
+  const [oauthClientSecretSecretId, setOauthClientSecretSecretId] = useState<string | null>(null);
+  const [remoteCredentials, setRemoteCredentials] = useState<HttpCredentialsState>(() =>
+    emptyHttpCredentials(),
+  );
+  const [lastCheckedKey, setLastCheckedKey] = useState<string | null>(null);
+  const initialProbeStartedRef = useRef(false);
 
   const probe = "probe" in state ? state.probe : null;
   const tokens = "tokens" in state ? state.tokens : null;
+  const serializedRemoteCredentials = serializeHttpCredentials(remoteCredentials);
+  const currentCheckKey = JSON.stringify({
+    url: state.url.trim(),
+    headers: serializedRemoteCredentials.headers,
+    queryParams: serializedRemoteCredentials.queryParams,
+  });
+  const connectionCheckStale = Boolean(probe) && lastCheckedKey !== currentCheckKey;
 
   const remoteIdentity = useSourceIdentity({
-    fallbackName:
-      probe?.serverName ?? probe?.name ?? displayNameFromUrl(state.url) ?? "",
+    fallbackName: probe?.serverName ?? probe?.name ?? displayNameFromUrl(state.url) ?? "",
   });
   const isProbing = state.step === "probing";
   const isAdding = state.step === "adding";
   const isOAuthBusy = state.step === "oauth-starting" || state.step === "oauth-waiting";
-  const canUseNone = probe?.requiresOAuth !== true;
-  const remoteAuthHeader = remoteAuthHeaders[0];
-  const headerAuthComplete = Boolean(remoteAuthHeader?.name.trim() && remoteAuthHeader?.secretId);
-  const remoteHeadersComplete = remoteHeaders.every(
-    (header) => header.name.trim() && header.value.trim(),
-  );
+  const remoteCredentialsComplete = httpCredentialsValid(remoteCredentials);
   // OAuth is "ready to save" even without tokens — the source is stored
   // with a stable connectionId pointer, and each user completes their
   // own sign-in via McpSignInButton on the source detail page (per-user
   // scope shadowing means each user's tokens land at their own scope).
-  const authReady =
-    remoteAuthMode === "none"
-      ? canUseNone
-      : remoteAuthMode === "header"
-        ? headerAuthComplete
-        : true;
-  const canAdd = Boolean(probe) && authReady && remoteHeadersComplete && !isAdding && !isOAuthBusy;
+  const authReady = remoteAuthMode !== "oauth2" || probe?.requiresOAuth === true;
+  const canAdd =
+    Boolean(probe) &&
+    !connectionCheckStale &&
+    authReady &&
+    remoteCredentialsComplete &&
+    !isAdding &&
+    !isOAuthBusy;
   // Probe failures are shown inline on the URL field; other failures
   // (OAuth start, add source) render in the bottom error block.
   const probeError = state.step === "error" && state.probe === null ? state.error : null;
@@ -398,38 +398,38 @@ export default function AddMcpSource(props: {
 
   const handleProbe = useCallback(async () => {
     dispatch({ type: "probe-start" });
+    const { headers, queryParams } = serializedRemoteCredentials;
     try {
       const result = await doProbe({
         path: { scopeId },
-        payload: { endpoint: state.url.trim() },
+        payload: {
+          endpoint: state.url.trim(),
+          ...(Object.keys(headers).length > 0 ? { headers } : {}),
+          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+        },
       });
       setRemoteAuthMode(result.requiresOAuth ? "oauth2" : "none");
+      setLastCheckedKey(currentCheckKey);
       dispatch({ type: "probe-ok", probe: result });
     } catch (e) {
+      setLastCheckedKey(null);
       dispatch({
         type: "probe-fail",
         error: e instanceof Error ? e.message : "Failed to connect",
       });
     }
-  }, [state.url, scopeId, doProbe]);
+  }, [state.url, scopeId, doProbe, serializedRemoteCredentials, currentCheckKey]);
 
-  // Keep the latest handleProbe in a ref so the debounced effect can call it
-  // without depending on its identity (which changes every render).
-  const handleProbeRef = useRef(handleProbe);
-  handleProbeRef.current = handleProbe;
-
-  // Auto-probe whenever the URL changes (debounced) while we're on the
-  // remote transport and not already probing/probed.
   useEffect(() => {
+    if (initialProbeStartedRef.current) return;
     if (transport !== "remote") return;
     if (state.step !== "url") return;
-    const trimmed = state.url.trim();
-    if (!trimmed) return;
-    const handle = setTimeout(() => {
-      handleProbeRef.current();
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [transport, state.step, state.url]);
+    if (!state.url.trim()) return;
+    if (!remoteCredentialsComplete) return;
+
+    initialProbeStartedRef.current = true;
+    void handleProbe();
+  }, [transport, state.step, state.url, remoteCredentialsComplete, handleProbe]);
 
   const oauthCleanup = useRef<(() => void) | null>(null);
 
@@ -444,12 +444,18 @@ export default function AddMcpSource(props: {
         slugifyNamespace(probe?.namespace ?? "") ||
         "mcp";
       const connectionId = mcpOAuthConnectionId(namespaceSlug);
+      const { queryParams } = serializeHttpCredentials(remoteCredentials);
       const result = await doStartOAuth({
         path: { scopeId },
         payload: {
           endpoint: state.url.trim(),
           redirectUrl,
           connectionId,
+          ...(oauthClientIdSecretId ? { clientIdSecretId: oauthClientIdSecretId } : {}),
+          ...(oauthClientSecretSecretId
+            ? { clientSecretSecretId: oauthClientSecretSecretId }
+            : {}),
+          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
         },
       });
       dispatch({ type: "oauth-waiting", sessionId: result.sessionId });
@@ -485,7 +491,16 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to start OAuth",
       });
     }
-  }, [state.url, scopeId, doStartOAuth, remoteIdentity.namespace, probe?.namespace]);
+  }, [
+    state.url,
+    scopeId,
+    doStartOAuth,
+    remoteIdentity.namespace,
+    probe?.namespace,
+    remoteCredentials,
+    oauthClientIdSecretId,
+    oauthClientSecretSecretId,
+  ]);
 
   const handleCancelOAuth = useCallback(() => {
     oauthCleanup.current?.();
@@ -496,7 +511,6 @@ export default function AddMcpSource(props: {
   const handleAddRemote = useCallback(async () => {
     if (!probe) return;
     dispatch({ type: "add-start" });
-    const headerAuth = remoteAuthHeaders[0];
     // For oauth2 sources saved without completing the flow, use the
     // same stable connectionId the handleOAuth path would have used.
     // This pins the source's auth pointer, so when a per-user sign-in
@@ -509,24 +523,17 @@ export default function AddMcpSource(props: {
         "mcp",
     );
     const auth =
-      remoteAuthMode === "header" && headerAuth?.secretId
+      remoteAuthMode === "oauth2"
         ? {
-            kind: "header" as const,
-            headerName: headerAuth.name.trim(),
-            secretId: headerAuth.secretId,
-            ...(headerAuth.prefix ? { prefix: headerAuth.prefix } : {}),
+            kind: "oauth2" as const,
+            connectionId: tokens?.connectionId ?? deferredOAuthConnectionId,
+            ...(oauthClientIdSecretId ? { clientIdSecretId: oauthClientIdSecretId } : {}),
+            ...(oauthClientSecretSecretId
+              ? { clientSecretSecretId: oauthClientSecretSecretId }
+              : {}),
           }
-        : remoteAuthMode === "oauth2"
-          ? {
-              kind: "oauth2" as const,
-              connectionId: tokens?.connectionId ?? deferredOAuthConnectionId,
-            }
-          : { kind: "none" as const };
-    const headers = Object.fromEntries(
-      remoteHeaders
-        .map((header) => [header.name.trim(), header.value.trim()] as const)
-        .filter(([name, value]) => name && value),
-    );
+        : { kind: "none" as const };
+    const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
     const displayName = remoteIdentity.name.trim() || probe.serverName || probe.name;
     const slugNamespace = slugifyNamespace(remoteIdentity.namespace);
     const placeholderId = slugNamespace || `pending:${crypto.randomUUID()}`;
@@ -546,6 +553,7 @@ export default function AddMcpSource(props: {
           endpoint: state.url.trim(),
           auth,
           ...(Object.keys(headers).length > 0 ? { headers } : {}),
+          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -561,10 +569,11 @@ export default function AddMcpSource(props: {
   }, [
     probe,
     remoteAuthMode,
-    remoteAuthHeaders,
-    remoteHeaders,
+    remoteCredentials,
     remoteIdentity,
     tokens,
+    oauthClientIdSecretId,
+    oauthClientSecretSecretId,
     state.url,
     doAdd,
     props,
@@ -761,55 +770,100 @@ export default function AddMcpSource(props: {
             </CardStackContent>
           </CardStack>
 
-          {probe && (
-            <SourceIdentityFields
-              identity={remoteIdentity}
-              namePlaceholder="e.g. Linear"
-            />
+          <HttpCredentialsEditor
+            credentials={remoteCredentials}
+            onChange={setRemoteCredentials}
+            existingSecrets={secretList}
+            sourceName={remoteIdentity.name}
+          />
+
+          {connectionCheckStale && (
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2">
+              <p className="text-[12px] text-amber-700 dark:text-amber-300">
+                Credentials changed since the last connection check.
+              </p>
+            </div>
           )}
 
-          {/* Authentication */}
           {probe && (
+            <SourceIdentityFields identity={remoteIdentity} namePlaceholder="e.g. Linear" />
+          )}
+
+          {/* MCP OAuth */}
+          {probe?.requiresOAuth && (
             <section className="space-y-2.5">
               <div className="flex items-center justify-between gap-3">
-                <FieldLabel>Authentication</FieldLabel>
+                <FieldLabel>MCP OAuth</FieldLabel>
                 <FilterTabs<RemoteAuthMode>
-                  tabs={
-                    probe.requiresOAuth
-                      ? [
-                          { value: "header", label: "Header" },
-                          { value: "oauth2", label: "OAuth" },
-                        ]
-                      : [
-                          { value: "none", label: "None" },
-                          { value: "header", label: "Header" },
-                        ]
-                  }
+                  tabs={[{ value: "oauth2", label: "OAuth" }]}
                   value={remoteAuthMode}
                   onChange={setRemoteAuthMode}
                 />
               </div>
 
-              {remoteAuthMode === "header" && (
-                <HeadersList
-                  headers={remoteAuthHeaders}
-                  onHeadersChange={setRemoteAuthHeaders}
-                  existingSecrets={secretList}
-                  singleHeader
-                  sourceName={remoteIdentity.name}
-                />
-              )}
-
               {remoteAuthMode === "oauth2" && (
                 <>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <FieldLabel>OAuth client ID</FieldLabel>
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <CreatableSecretPicker
+                            value={oauthClientIdSecretId}
+                            onSelect={setOauthClientIdSecretId}
+                            secrets={secretList}
+                            placeholder="Select client ID secret"
+                            sourceName={remoteIdentity.name || probe.name}
+                            secretLabel="OAuth Client ID"
+                            suggestedId={`${slugifyNamespace(remoteIdentity.namespace) || "mcp"}-oauth-client-id`}
+                          />
+                        </div>
+                        {oauthClientIdSecretId && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setOauthClientIdSecretId(null)}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <FieldLabel>OAuth client secret</FieldLabel>
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <CreatableSecretPicker
+                            value={oauthClientSecretSecretId}
+                            onSelect={setOauthClientSecretSecretId}
+                            secrets={secretList}
+                            placeholder="Select client secret"
+                            sourceName={remoteIdentity.name || probe.name}
+                            secretLabel="OAuth Client Secret"
+                            suggestedId={`${slugifyNamespace(remoteIdentity.namespace) || "mcp"}-oauth-client-secret`}
+                          />
+                        </div>
+                        {oauthClientSecretSecretId && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setOauthClientSecretSecretId(null)}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                   {!tokens && state.step === "probed" && (
                     <div className="flex flex-col gap-2">
                       <Button onClick={handleOAuth} variant="outline">
                         Sign in
                       </Button>
                       <p className="text-[11px] text-muted-foreground">
-                        Optional — you can save the source now and each user can sign
-                        in from the source detail page later.
+                        Optional — you can save the source now and each user can sign in from the
+                        source detail page later.
                       </p>
                     </div>
                   )}
@@ -859,108 +913,6 @@ export default function AddMcpSource(props: {
             </section>
           )}
 
-          {/* Additional headers */}
-          {probe && (
-            <section className="space-y-2.5">
-              <div>
-                <Label>Additional headers</Label>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  Plaintext headers sent with every request. Use authentication for secret-backed
-                  auth headers.
-                </p>
-              </div>
-
-              <CardStack>
-                <CardStackContent>
-                  {remoteHeaders.length === 0 ? (
-                    <AddPlainHeaderRow
-                      leading={<span>No headers</span>}
-                      onClick={() =>
-                        setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
-                      }
-                    />
-                  ) : (
-                    <>
-                      {remoteHeaders.map((header, index) => (
-                        <CardStackEntry key={index} className="flex-col items-stretch gap-2">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                              Header
-                            </Label>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="xs"
-                              className="text-muted-foreground hover:text-destructive"
-                              onClick={() =>
-                                setRemoteHeaders((headers) =>
-                                  headers.filter((_, headerIndex) => headerIndex !== index),
-                                )
-                              }
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Name
-                              </Label>
-                              <Input
-                                value={header.name}
-                                onChange={(event) =>
-                                  setRemoteHeaders((headers) =>
-                                    headers.map((current, headerIndex) =>
-                                      headerIndex === index
-                                        ? {
-                                            ...current,
-                                            name: (event.target as HTMLInputElement).value,
-                                          }
-                                        : current,
-                                    ),
-                                  )
-                                }
-                                placeholder="X-Organization-Id"
-                                className="h-8 text-xs font-mono"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Value
-                              </Label>
-                              <Input
-                                value={header.value}
-                                onChange={(event) =>
-                                  setRemoteHeaders((headers) =>
-                                    headers.map((current, headerIndex) =>
-                                      headerIndex === index
-                                        ? {
-                                            ...current,
-                                            value: (event.target as HTMLInputElement).value,
-                                          }
-                                        : current,
-                                    ),
-                                  )
-                                }
-                                placeholder="workspace-id"
-                                className="h-8 text-xs font-mono"
-                              />
-                            </div>
-                          </div>
-                        </CardStackEntry>
-                      ))}
-                      <AddPlainHeaderRow
-                        onClick={() =>
-                          setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
-                        }
-                      />
-                    </>
-                  )}
-                </CardStackContent>
-              </CardStack>
-            </section>
-          )}
-
           {/* Error (OAuth / add source). Probe errors show inline on the field. */}
           {otherError && (
             <div className="space-y-2">
@@ -982,7 +934,22 @@ export default function AddMcpSource(props: {
             <Button variant="ghost" onClick={props.onCancel} disabled={isAdding}>
               Cancel
             </Button>
-            {(probe || isProbing) && (
+            <Button
+              variant={probe && !connectionCheckStale ? "outline" : "default"}
+              onClick={handleProbe}
+              disabled={!state.url.trim() || !remoteCredentialsComplete || isProbing || isAdding}
+            >
+              {isProbing ? (
+                <>
+                  <Spinner className="size-3.5" /> Checking…
+                </>
+              ) : probe ? (
+                "Check again"
+              ) : (
+                "Check connection"
+              )}
+            </Button>
+            {probe && (
               <Button onClick={handleAddRemote} disabled={!canAdd}>
                 {isAdding ? (
                   <>
@@ -1040,10 +1007,7 @@ export default function AddMcpSource(props: {
             </CardStackContent>
           </CardStack>
 
-          <SourceIdentityFields
-            identity={stdioIdentity}
-            namePlaceholder="My MCP Server"
-          />
+          <SourceIdentityFields identity={stdioIdentity} namePlaceholder="My MCP Server" />
 
           {/* Stdio error */}
           {stdioError && (
@@ -1069,31 +1033,5 @@ export default function AddMcpSource(props: {
         </>
       )}
     </div>
-  );
-}
-
-function AddPlainHeaderRow({
-  onClick,
-  leading,
-}: {
-  readonly onClick: () => void;
-  readonly leading?: ReactNode;
-}) {
-  return (
-    // oxlint-disable-next-line react/forbid-elements
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      aria-label="Add header"
-      className="flex w-full items-center justify-between gap-4 px-4 py-3 text-sm text-muted-foreground outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent/40 focus-visible:bg-accent/40"
-    >
-      <span className="min-w-0 flex-1 text-left">{leading}</span>
-      <svg aria-hidden viewBox="0 0 16 16" fill="none" className="size-4 shrink-0">
-        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    </button>
   );
 }

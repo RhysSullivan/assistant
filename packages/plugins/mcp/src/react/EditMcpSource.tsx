@@ -3,10 +3,14 @@ import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import { SourceIdentityFields, useSourceIdentity } from "@executor/react/plugins/source-identity";
+import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import {
-  SourceIdentityFields,
-  useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
+  HttpCredentialsEditor,
+  httpCredentialsFromValues,
+  serializeHttpCredentials,
+  type HttpCredentialsState,
+} from "@executor/react/plugins/http-credentials";
 import { Button } from "@executor/react/components/button";
 import {
   CardStack,
@@ -14,18 +18,8 @@ import {
   CardStackEntryField,
 } from "@executor/react/components/card-stack";
 import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
-
-// ---------------------------------------------------------------------------
-// Editable header entry
-// ---------------------------------------------------------------------------
-
-type HeaderEntry = {
-  readonly name: string;
-  readonly value: string;
-};
 
 // ---------------------------------------------------------------------------
 // Remote edit form
@@ -38,17 +32,18 @@ function RemoteEditForm(props: {
 }) {
   const scopeId = useScope();
   const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
+  const secretList = useSecretPickerSecrets();
 
   const identity = useSourceIdentity({
     fallbackName: props.initial.name,
     fallbackNamespace: props.initial.namespace,
   });
   const [endpoint, setEndpoint] = useState(props.initial.config.endpoint);
-  const [headerEntries, setHeaderEntries] = useState<HeaderEntry[]>(() =>
-    Object.entries(props.initial.config.headers ?? {}).map(([name, value]) => ({
-      name,
-      value,
-    })),
+  const [credentials, setCredentials] = useState<HttpCredentialsState>(() =>
+    httpCredentialsFromValues({
+      headers: props.initial.config.headers,
+      queryParams: props.initial.config.queryParams,
+    }),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,39 +51,23 @@ function RemoteEditForm(props: {
 
   const identityDirty = identity.name.trim() !== props.initial.name.trim();
 
-  const updateHeader = (index: number, field: "name" | "value", val: string) => {
-    setHeaderEntries((prev) =>
-      prev.map((entry, i) => (i === index ? { ...entry, [field]: val } : entry)),
-    );
-    setDirty(true);
-  };
-
-  const removeHeader = (index: number) => {
-    setHeaderEntries((prev) => prev.filter((_, i) => i !== index));
-    setDirty(true);
-  };
-
-  const addHeader = () => {
-    setHeaderEntries((prev) => [...prev, { name: "", value: "" }]);
+  const handleCredentialsChange = (next: HttpCredentialsState) => {
+    setCredentials(next);
     setDirty(true);
   };
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+    const { headers, queryParams } = serializeHttpCredentials(credentials);
     try {
-      const headersObj: Record<string, string> = {};
-      for (const entry of headerEntries) {
-        const name = entry.name.trim();
-        if (name) headersObj[name] = entry.value;
-      }
-
       await doUpdate({
         path: { scopeId, namespace: props.sourceId },
         payload: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
-          headers: headersObj,
+          headers,
+          queryParams,
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -138,37 +117,12 @@ function RemoteEditForm(props: {
         </CardStackContent>
       </CardStack>
 
-      {/* Headers */}
-      <section className="space-y-2.5">
-        <Label>Headers</Label>
-        {headerEntries.map((entry, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <Input
-              value={entry.name}
-              onChange={(e) => updateHeader(i, "name", (e.target as HTMLInputElement).value)}
-              placeholder="Header name"
-              className="h-8 text-sm font-mono flex-1"
-            />
-            <Input
-              value={entry.value}
-              onChange={(e) => updateHeader(i, "value", (e.target as HTMLInputElement).value)}
-              placeholder="Header value"
-              className="h-8 text-sm font-mono flex-1"
-            />
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground hover:text-destructive shrink-0"
-              onClick={() => removeHeader(i)}
-            >
-              Remove
-            </Button>
-          </div>
-        ))}
-        <Button variant="outline" size="sm" className="w-full border-dashed" onClick={addHeader}>
-          + Add header
-        </Button>
-      </section>
+      <HttpCredentialsEditor
+        credentials={credentials}
+        onChange={handleCredentialsChange}
+        existingSecrets={secretList}
+        sourceName={identity.name}
+      />
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">

@@ -18,6 +18,7 @@ import { makeTestConfig } from "./testing";
 import type { SecretProvider } from "./secrets";
 import { ConnectionId, ScopeId, SecretId } from "./ids";
 import { Scope } from "./scope";
+import { SourceDetectionResult } from "./types";
 
 type FindManyCall = {
   readonly model: string;
@@ -199,6 +200,37 @@ const memoryConnectionPlugin = definePlugin(() => ({
   connectionProviders: [{ key: "memory-connection" }],
 }));
 
+const staleRouteProvider: SecretProvider = {
+  key: "stale-route",
+  writable: true,
+  get: () => Effect.succeed(null),
+  has: () => Effect.succeed(false),
+  set: () => Effect.void,
+  delete: () => Effect.succeed(false),
+  list: () => Effect.succeed([]),
+};
+
+const staleRouteSecretsPlugin = definePlugin(() => ({
+  id: "stale-route-secrets" as const,
+  storage: () => ({}),
+  secretProviders: [staleRouteProvider],
+}));
+
+const opaqueRouteProvider: SecretProvider = {
+  key: "opaque-route",
+  writable: true,
+  get: () => Effect.succeed(null),
+  set: () => Effect.void,
+  delete: () => Effect.succeed(false),
+  list: () => Effect.succeed([]),
+};
+
+const opaqueRouteSecretsPlugin = definePlugin(() => ({
+  id: "opaque-route-secrets" as const,
+  storage: () => ({}),
+  secretProviders: [opaqueRouteProvider],
+}));
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -353,6 +385,49 @@ describe("createExecutor", () => {
       expect(dynamic).toBeDefined();
       expect(dynamic!.runtime).toBe(false);
       expect(dynamic!.canRemove).toBe(true);
+    }),
+  );
+
+  it.effect("orders source detection results by confidence", () =>
+    Effect.gen(function* () {
+      const lowConfidencePlugin = definePlugin(() => ({
+        id: "low-detect" as const,
+        storage: () => ({}),
+        detect: () =>
+          Effect.succeed(
+            new SourceDetectionResult({
+              kind: "mcp",
+              confidence: "low",
+              endpoint: "https://example.com/source",
+              name: "Weak OAuth match",
+              namespace: "weak_oauth_match",
+            }),
+          ),
+      }));
+      const highConfidencePlugin = definePlugin(() => ({
+        id: "high-detect" as const,
+        storage: () => ({}),
+        detect: () =>
+          Effect.succeed(
+            new SourceDetectionResult({
+              kind: "graphql",
+              confidence: "high",
+              endpoint: "https://example.com/source",
+              name: "GraphQL API",
+              namespace: "graphql_api",
+            }),
+          ),
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [lowConfidencePlugin(), highConfidencePlugin()] as const,
+        }),
+      );
+
+      const results = yield* executor.sources.detect("https://example.com/source");
+
+      expect(results.map((result) => result.kind)).toEqual(["graphql", "mcp"]);
     }),
   );
 
@@ -1128,6 +1203,52 @@ describe("tenant isolation (SDK)", () => {
 
       const value = yield* exec.secrets.get("token");
       expect(value).toBe("user-value");
+    }),
+  );
+
+  it.effect("secrets.list hides routing rows when the provider reports no backing value", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [staleRouteSecretsPlugin()] as const }),
+      );
+
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("missing-secret"),
+          scope: ScopeId.make("test-scope"),
+          name: "Missing Secret",
+          value: "not-stored",
+        }),
+      );
+
+      const refs = yield* executor.secrets.list();
+      const status = yield* executor.secrets.status("missing-secret");
+
+      expect(refs.map((ref) => ref.id)).not.toContain("missing-secret");
+      expect(status).toBe("missing");
+    }),
+  );
+
+  it.effect("secrets.list keeps routing rows for providers without existence checks", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [opaqueRouteSecretsPlugin()] as const }),
+      );
+
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("opaque-secret"),
+          scope: ScopeId.make("test-scope"),
+          name: "Opaque Secret",
+          value: "not-stored",
+        }),
+      );
+
+      const refs = yield* executor.secrets.list();
+      const status = yield* executor.secrets.status("opaque-secret");
+
+      expect(refs.map((ref) => ref.id)).toContain("opaque-secret");
+      expect(status).toBe("resolved");
     }),
   );
 });

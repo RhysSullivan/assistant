@@ -28,6 +28,7 @@ import {
   type ConnectionRow,
   type CoreSchema,
   type DefinitionsInput,
+  type SecretRow,
   type SourceInput,
   type SourceRow,
   type ToolAnnotations,
@@ -722,15 +723,15 @@ export const createExecutor = <
 
     const secretRowsForId = (
       id: string,
-    ): Effect.Effect<readonly Record<string, unknown>[], StorageFailure> =>
+    ): Effect.Effect<readonly SecretRow[], StorageFailure> =>
       core.findMany({
         model: "secret",
         where: [{ field: "id", value: id }],
-      });
+      }) as Effect.Effect<readonly SecretRow[], StorageFailure>;
 
     const resolveSecretValueFromRows = (
       id: string,
-      rows: readonly Record<string, unknown>[],
+      rows: readonly SecretRow[],
     ): Effect.Effect<string | null, StorageFailure> =>
       Effect.gen(function* () {
         const ordered = [...rows].sort(
@@ -798,6 +799,14 @@ export const createExecutor = <
         const rows = yield* secretRowsForId(id);
         return yield* resolveSecretValueFromRows(id, rows);
       });
+
+    const secretRouteHasBackingValue = (row: SecretRow) => {
+      const provider = secretProviders.get(row.provider as string);
+      if (!provider?.has) return Effect.succeed(true);
+      return provider
+        .has(row.id as string, row.scope_id as string)
+        .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    };
 
     const secretsSet = (
       input: SetSecretInput,
@@ -1009,7 +1018,10 @@ export const createExecutor = <
             }),
           );
         };
-        for (const row of rows) pick(row);
+        for (const row of rows) {
+          const hasBackingValue = yield* secretRouteHasBackingValue(row);
+          if (hasBackingValue) pick(row);
+        }
 
         // Then every provider that can enumerate itself, in parallel.
         // If a provider fails to list (unlocked vault, network error),
@@ -1743,6 +1755,19 @@ export const createExecutor = <
                   );
                 }),
               ),
+            update: (input) =>
+              core.update({
+                model: "source",
+                where: [
+                  { field: "id", value: input.id },
+                  { field: "scope_id", value: input.scope },
+                ],
+                update: {
+                  ...(input.name !== undefined ? { name: input.name } : {}),
+                  ...(input.url !== undefined ? { url: input.url ?? undefined } : {}),
+                  updated_at: new Date(),
+                },
+              }).pipe(Effect.asVoid),
           },
           definitions: {
             register: (input: DefinitionsInput) =>
@@ -2448,6 +2473,19 @@ export const createExecutor = <
     // `detect` hook. Collect all non-null results. Plugin-level detect
     // implementations should swallow fetch errors and return null, so
     // one flaky plugin doesn't block the whole dispatch.
+    const detectionConfidenceScore = (
+      confidence: SourceDetectionResult["confidence"],
+    ) => {
+      switch (confidence) {
+        case "high":
+          return 3;
+        case "medium":
+          return 2;
+        case "low":
+          return 1;
+      }
+    };
+
     const detectSource = (url: string) =>
       Effect.gen(function* () {
         const results: SourceDetectionResult[] = [];
@@ -2458,26 +2496,31 @@ export const createExecutor = <
             .pipe(Effect.catchAll(() => Effect.succeed(null)));
           if (result) results.push(result);
         }
-        return results;
+        return results.sort(
+          (a, b) =>
+            detectionConfidenceScore(b.confidence) -
+            detectionConfidenceScore(a.confidence),
+        );
       });
 
     // Per-source definitions accessor — one query, one mapping pass.
     const sourceDefinitions = (sourceId: string) =>
       loadDefinitionsForSource(sourceId);
 
-    // Fast-path existence check. Hits the core `secret` routing row
-    // first (no provider call). If no routing row, walks enumerating
-    // providers and checks their lists for a matching id — same
-    // fallback strategy as secretsGet. Still avoids provider.get()
-    // so no keychain permission prompts / 1password value IPC fires
-    // just to ask "does this exist?"
+    // Existence check for user-facing secret pickers. Core `secret`
+    // rows are routing metadata; when a provider can answer `has()`,
+    // confirm the backing value still exists. Providers without `has()`
+    // remain conservative so keychain/1password don't need to return
+    // the value or prompt just to populate picker/status UI.
     const secretsStatus = (
       id: string,
     ): Effect.Effect<"resolved" | "missing", StorageFailure> =>
       Effect.gen(function* () {
         const rows = yield* secretRowsForId(id);
         if (rows.some((row) => row.owned_by_connection_id)) return "missing";
-        if (rows.length > 0) return "resolved";
+        for (const row of rows) {
+          if (yield* secretRouteHasBackingValue(row)) return "resolved";
+        }
 
         for (const provider of secretProviders.values()) {
           if (!provider.list) continue;

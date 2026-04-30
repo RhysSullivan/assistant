@@ -60,79 +60,93 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("probeDiscovery", ({ payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.probeDiscovery(payload.discoveryUrl);
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.probeDiscovery({
+              discoveryUrl: payload.discoveryUrl,
+              credentials: payload.credentials,
+            });
+          }),
+        ),
       )
       .handle("addSource", ({ path, payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.addSource({
-            ...(payload as Omit<GoogleDiscoveryAddSourceInput, "scope">),
-            scope: path.scopeId,
-          });
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.addSource({
+              ...(payload as Omit<GoogleDiscoveryAddSourceInput, "scope">),
+              scope: path.scopeId,
+            });
+          }),
+        ),
       )
       .handle("startOAuth", ({ payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.startOAuth({
-            name: payload.name,
-            discoveryUrl: payload.discoveryUrl,
-            clientIdSecretId: payload.clientIdSecretId,
-            clientSecretSecretId: payload.clientSecretSecretId,
-            redirectUrl: payload.redirectUrl,
-            scopes: payload.scopes,
-            tokenScope: payload.tokenScope,
-          });
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.startOAuth({
+              name: payload.name,
+              discoveryUrl: payload.discoveryUrl,
+              credentials: payload.credentials,
+              clientIdSecretId: payload.clientIdSecretId,
+              clientSecretSecretId: payload.clientSecretSecretId,
+              redirectUrl: payload.redirectUrl,
+              scopes: payload.scopes,
+              tokenScope: payload.tokenScope,
+            });
+          }),
+        ),
       )
       .handle("completeOAuth", ({ payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.completeOAuth({
-            state: payload.state,
-            code: payload.code,
-            error: payload.error,
-          });
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.completeOAuth({
+              state: payload.state,
+              code: payload.code,
+              error: payload.error,
+            });
+          }),
+        ),
       )
       .handle("getSource", ({ path }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.getSource(path.namespace, path.scopeId);
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.getSource(path.namespace, path.scopeId);
+          }),
+        ),
       )
       .handle("updateSource", ({ path, payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          yield* ext.updateSource(path.namespace, path.scopeId, {
-            name: payload.name,
-            auth: payload.auth,
-          });
-          return { updated: true };
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            yield* ext.updateSource(path.namespace, path.scopeId, {
+              name: payload.name,
+              auth: payload.auth,
+            });
+            return { updated: true };
+          }),
+        ),
       )
       .handle("oauthCallback", ({ urlParams }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          const html = yield* runOAuthCallback<
-            GoogleDiscoveryOAuthAuthResult,
-            unknown,
-            never
-          >({
-            complete: ({ state, code, error }) =>
-              ext.completeOAuth({
-                state,
-                code: code ?? undefined,
-                error: error ?? undefined,
-              }),
-            urlParams,
-            toErrorMessage: toPopupErrorMessage,
-            channelName: GOOGLE_DISCOVERY_OAUTH_CHANNEL,
-          });
-          return yield* HttpServerResponse.html(html);
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            const html = yield* runOAuthCallback<GoogleDiscoveryOAuthAuthResult, unknown, never>({
+              complete: ({ state, code, error }) =>
+                ext.completeOAuth({
+                  state,
+                  code: code ?? undefined,
+                  error: error ?? undefined,
+                }),
+              urlParams,
+              toErrorMessage: toPopupErrorMessage,
+              channelName: GOOGLE_DISCOVERY_OAUTH_CHANNEL,
+            });
+            return yield* HttpServerResponse.html(html);
+          }),
+        ),
       ),
 );

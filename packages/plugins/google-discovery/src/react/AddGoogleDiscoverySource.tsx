@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
-import {
-  openOAuthPopup,
-  type OAuthPopupResult,
-} from "@executor/plugin-oauth2/react";
+import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 
 import { secretsAtom, setSecret } from "@executor/react/api/atoms";
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { secretWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { useScope } from "@executor/react/api/scope-context";
 import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
+import {
+  HttpCredentialsEditor,
+  emptyHttpCredentials,
+  serializeHttpCredentials,
+  type HttpCredentialsState,
+} from "@executor/react/plugins/http-credentials";
 import { SecretId } from "@executor/sdk";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
@@ -398,6 +401,9 @@ export default function AddGoogleDiscoverySource(props: {
   const [authKind, setAuthKind] = useState<GoogleAuthKind>("oauth2");
   const [clientIdSecretId, setClientIdSecretId] = useState<string | null>(null);
   const [clientSecretSecretId, setClientSecretSecretId] = useState<string | null>(null);
+  const [discoveryCredentials, setDiscoveryCredentials] = useState<HttpCredentialsState>(() =>
+    emptyHttpCredentials(),
+  );
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const identity = useSourceIdentity({
     fallbackName: probe?.name ?? selectedTemplate?.name ?? "",
@@ -449,9 +455,13 @@ export default function AddGoogleDiscoverySource(props: {
     setOauthAuth(null);
     setShowScopes(false);
     try {
+      const credentials = serializeHttpCredentials(discoveryCredentials);
       const result = await doProbe({
         path: { scopeId },
-        payload: { discoveryUrl: discoveryUrl.trim() },
+        payload: {
+          discoveryUrl: discoveryUrl.trim(),
+          credentials,
+        },
       });
       setProbe({
         ...result,
@@ -467,7 +477,7 @@ export default function AddGoogleDiscoverySource(props: {
     } finally {
       setLoadingProbe(false);
     }
-  }, [discoveryUrl, doProbe, scopeId]);
+  }, [discoveryUrl, doProbe, scopeId, discoveryCredentials]);
 
   // Keep the latest handleProbe in a ref so the debounced effect can call it
   // without depending on its identity (which changes every render).
@@ -496,11 +506,13 @@ export default function AddGoogleDiscoverySource(props: {
     setStartingOAuth(true);
     setError(null);
     try {
+      const credentials = serializeHttpCredentials(discoveryCredentials);
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
           name: identity.name.trim() || probe.name,
           discoveryUrl: discoveryUrl.trim(),
+          credentials,
           clientIdSecretId,
           clientSecretSecretId,
           redirectUrl: `${window.location.origin}/api/google-discovery/oauth/callback`,
@@ -538,7 +550,16 @@ export default function AddGoogleDiscoverySource(props: {
       setStartingOAuth(false);
       setError(e instanceof Error ? e.message : "Failed to start OAuth");
     }
-  }, [probe, doStartOAuth, scopeId, identity, discoveryUrl, clientIdSecretId, clientSecretSecretId]);
+  }, [
+    probe,
+    doStartOAuth,
+    scopeId,
+    identity,
+    discoveryUrl,
+    discoveryCredentials,
+    clientIdSecretId,
+    clientSecretSecretId,
+  ]);
 
   const handleCancelOAuth = useCallback(() => {
     oauthCleanup.current?.();
@@ -558,11 +579,13 @@ export default function AddGoogleDiscoverySource(props: {
       kind: "google-discovery",
     });
     try {
+      const credentials = serializeHttpCredentials(discoveryCredentials);
       await doAdd({
         path: { scopeId },
         payload: {
           name: displayName,
           discoveryUrl: discoveryUrl.trim(),
+          credentials,
           namespace: slugifyNamespace(identity.namespace) || undefined,
           auth:
             authKind === "oauth2" && oauthAuth
@@ -584,7 +607,18 @@ export default function AddGoogleDiscoverySource(props: {
     } finally {
       placeholder.done();
     }
-  }, [probe, doAdd, identity, discoveryUrl, authKind, oauthAuth, props, scopeId, beginAdd]);
+  }, [
+    probe,
+    doAdd,
+    identity,
+    discoveryUrl,
+    discoveryCredentials,
+    authKind,
+    oauthAuth,
+    props,
+    scopeId,
+    beginAdd,
+  ]);
 
   const addDisabled =
     !probe || adding || (authKind === "oauth2" && (!canUseOAuth || oauthAuth === null));
@@ -654,9 +688,15 @@ export default function AddGoogleDiscoverySource(props: {
               )}
             </div>
           </CardStackEntryField>
-
         </CardStackContent>
       </CardStack>
+
+      <HttpCredentialsEditor
+        credentials={discoveryCredentials}
+        onChange={setDiscoveryCredentials}
+        existingSecrets={secretList}
+        sourceName={identity.name}
+      />
 
       <SourceIdentityFields
         identity={identity}

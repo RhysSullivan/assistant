@@ -6,7 +6,11 @@ import { Effect } from "effect";
 
 import type { McpConnector } from "./connection";
 import { McpToolDiscoveryError } from "./errors";
-import { extractManifestFromListToolsResult, type McpToolManifest } from "./manifest";
+import {
+  extractManifestFromListToolsResult,
+  isListToolsResult,
+  type McpToolManifest,
+} from "./manifest";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -42,6 +46,16 @@ export const discoverTools = (
           }`,
         }),
     });
+
+    if (!isListToolsResult(listResult)) {
+      yield* Effect.promise(() => connection.close().catch(() => {}));
+      return yield* Effect.fail(
+        new McpToolDiscoveryError({
+          stage: "list_tools",
+          message: "MCP listTools response did not match the expected schema",
+        }),
+      );
+    }
 
     const manifest = extractManifestFromListToolsResult(listResult, {
       serverInfo: connection.client.getServerVersion?.(),

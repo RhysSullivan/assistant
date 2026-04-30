@@ -132,10 +132,21 @@ export interface IntrospectionResult {
 export const introspect = Effect.fn("GraphQL.introspect")(function* (
   endpoint: string,
   headers?: Record<string, string>,
+  queryParams?: Record<string, string>,
 ) {
   const client = yield* HttpClient.HttpClient;
+  const requestEndpoint =
+    queryParams && Object.keys(queryParams).length > 0
+      ? (() => {
+          const url = new URL(endpoint);
+          for (const [name, value] of Object.entries(queryParams)) {
+            url.searchParams.set(name, value);
+          }
+          return url.toString();
+        })()
+      : endpoint;
 
-  let request = HttpClientRequest.post(endpoint).pipe(
+  let request = HttpClientRequest.post(requestEndpoint).pipe(
     HttpClientRequest.setHeader("Content-Type", "application/json"),
     HttpClientRequest.bodyUnsafeJson({
       query: INTROSPECTION_QUERY,
