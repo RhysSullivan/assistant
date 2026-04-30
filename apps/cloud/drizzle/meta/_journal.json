@@ -71,6 +71,13 @@
       "when": 1777526656946,
       "tag": "0009_sudden_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777530361076,
+      "tag": "0010_whole_falcon",
+      "breakpoints": true
     }
   ]
 }

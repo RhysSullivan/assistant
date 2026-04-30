@@ -210,7 +210,8 @@ export const graphql_source = sqliteTable("graphql_source", {
   name: text('name').notNull(),
   endpoint: text('endpoint').notNull(),
   headers: text('headers', { mode: "json" }),
-  query_params: text('query_params', { mode: "json" })
+  query_params: text('query_params', { mode: "json" }),
+  auth: text('auth', { mode: "json" })
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_source_scope_id_idx").on(table.scope_id),

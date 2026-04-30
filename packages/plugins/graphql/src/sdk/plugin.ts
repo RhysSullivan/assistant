@@ -36,6 +36,7 @@ import {
 } from "./store";
 import {
   ExtractedField,
+  type GraphqlSourceAuth,
   OperationBinding,
   type HeaderValue as HeaderValueValue,
   type QueryParamValue,
@@ -68,6 +69,8 @@ export interface GraphqlSourceConfig {
   readonly headers?: Record<string, HeaderValue>;
   /** Query parameters applied to every request. Values can reference secrets. */
   readonly queryParams?: Record<string, QueryParamValue>;
+  /** Optional OAuth2 connection used as a Bearer token for every request. */
+  readonly auth?: GraphqlSourceAuth;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +82,7 @@ export interface GraphqlUpdateSourceInput {
   readonly endpoint?: string;
   readonly headers?: Record<string, HeaderValue>;
   readonly queryParams?: Record<string, QueryParamValue>;
+  readonly auth?: GraphqlSourceAuth;
 }
 
 /**
@@ -107,7 +111,10 @@ export interface GraphqlPluginExtension {
   /** Remove all tools from a previously added GraphQL source by namespace.
    *  `scope` pins the cleanup to the exact row — without it a shadowed
    *  outer-scope source with the same namespace could be wiped instead. */
-  readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (
+    namespace: string,
+    scope: string,
+  ) => Effect.Effect<void, StorageFailure>;
 
   /** Fetch the full stored source by namespace (or null if missing).
    *  `scope` returns the exact row at that scope. For fall-through
@@ -229,10 +236,14 @@ const prepareOperations = (
     typeMap.set(t.name, t);
   }
 
-  const fieldMap = new Map<string, { kind: GraphqlOperationKind; field: IntrospectionField }>();
+  const fieldMap = new Map<
+    string,
+    { kind: GraphqlOperationKind; field: IntrospectionField }
+  >();
   const schema = introspection.__schema;
   for (const rootKind of ["query", "mutation"] as const) {
-    const typeName = rootKind === "query" ? schema.queryType?.name : schema.mutationType?.name;
+    const typeName =
+      rootKind === "query" ? schema.queryType?.name : schema.mutationType?.name;
     if (!typeName) continue;
     const rootType = typeMap.get(typeName);
     if (!rootType?.fields) continue;
@@ -248,7 +259,8 @@ const prepareOperations = (
     const toolPath = `${prefix}.${extracted.fieldName}`;
     const description = Option.getOrElse(
       extracted.description,
-      () => `GraphQL ${extracted.kind}: ${extracted.fieldName} -> ${extracted.returnTypeName}`,
+      () =>
+        `GraphQL ${extracted.kind}: ${extracted.fieldName} -> ${extracted.returnTypeName}`,
     );
 
     const key = `${extracted.kind}.${extracted.fieldName}`;
@@ -314,11 +326,43 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
     storage: (deps): GraphqlStore => makeDefaultGraphqlStore(deps),
 
     extension: (ctx) => {
-      const resolveConfigValues = (values: Record<string, HeaderValue> | undefined) =>
+      const resolveConfigValues = (
+        values: Record<string, HeaderValue> | undefined,
+      ) =>
         Effect.gen(function* () {
           if (!values) return undefined;
           const resolved = yield* resolveHeaders(values, ctx.secrets);
           return Object.keys(resolved).length > 0 ? resolved : undefined;
+        });
+
+      const resolveOAuthHeader = (auth: GraphqlSourceAuth | undefined) =>
+        Effect.gen(function* () {
+          if (!auth || auth.kind === "none") return undefined;
+          const accessToken = yield* ctx.connections
+            .accessToken(auth.connectionId)
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new GraphqlIntrospectionError({
+                    message: `Failed to resolve OAuth connection "${auth.connectionId}": ${
+                      "message" in err
+                        ? (err as { message: string }).message
+                        : String(err)
+                    }`,
+                  }),
+              ),
+            );
+          return { Authorization: `Bearer ${accessToken}` };
+        });
+
+      const resolveRequestHeaders = (
+        headers: Record<string, HeaderValue> | undefined,
+        auth: GraphqlSourceAuth | undefined,
+      ) =>
+        Effect.gen(function* () {
+          const resolvedHeaders = yield* resolveConfigValues(headers);
+          const oauthHeader = yield* resolveOAuthHeader(auth);
+          return { ...(resolvedHeaders ?? {}), ...(oauthHeader ?? {}) };
         });
 
       const addSourceInternal = (config: GraphqlSourceConfig) =>
@@ -326,20 +370,33 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
           Effect.gen(function* () {
             let introspectionResult: IntrospectionResult;
             if (config.introspectionJson) {
-              introspectionResult = yield* parseIntrospectionJson(config.introspectionJson);
+              introspectionResult = yield* parseIntrospectionJson(
+                config.introspectionJson,
+              );
             } else {
-              const resolvedHeaders = yield* resolveConfigValues(config.headers);
-              const resolvedQueryParams = yield* resolveConfigValues(config.queryParams);
+              const resolvedHeaders = yield* resolveRequestHeaders(
+                config.headers,
+                config.auth,
+              );
+              const resolvedQueryParams = yield* resolveConfigValues(
+                config.queryParams,
+              );
               introspectionResult = yield* introspect(
                 config.endpoint,
-                resolvedHeaders,
+                Object.keys(resolvedHeaders).length > 0
+                  ? resolvedHeaders
+                  : undefined,
                 resolvedQueryParams,
               ).pipe(Effect.provide(httpClientLayer));
             }
 
             const { result, definitions } = yield* extract(introspectionResult);
-            const namespace = config.namespace ?? namespaceFromEndpoint(config.endpoint);
-            const prepared = prepareOperations(result.fields, introspectionResult);
+            const namespace =
+              config.namespace ?? namespaceFromEndpoint(config.endpoint);
+            const prepared = prepareOperations(
+              result.fields,
+              introspectionResult,
+            );
 
             const displayName = config.name?.trim() || namespace;
 
@@ -352,6 +409,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
               endpoint: config.endpoint,
               headers: config.headers ?? {},
               queryParams: config.queryParams ?? {},
+              auth: config.auth ?? { kind: "none" },
             };
 
             const storedOps: StoredOperation[] = prepared.map((p) => ({
@@ -397,7 +455,9 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
           addSourceInternal(config).pipe(
             Effect.tap((result) =>
               configFile
-                ? configFile.upsertSource(toGraphqlConfigEntry(result.namespace, config))
+                ? configFile.upsertSource(
+                    toGraphqlConfigEntry(result.namespace, config),
+                  )
                 : Effect.void,
             ),
           ),
@@ -415,7 +475,8 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
             }
           }),
 
-        getSource: (namespace, scope) => ctx.storage.getSource(namespace, scope),
+        getSource: (namespace, scope) =>
+          ctx.storage.getSource(namespace, scope),
 
         updateSource: (namespace, scope, input) =>
           ctx.storage.updateSourceMeta(namespace, scope, {
@@ -423,6 +484,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
             endpoint: input.endpoint,
             headers: input.headers,
             queryParams: input.queryParams,
+            auth: input.auth,
           }),
       } satisfies GraphqlPluginExtension;
     },
@@ -435,7 +497,8 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         tools: [
           {
             name: "addSource",
-            description: "Add a GraphQL endpoint and register its operations as tools",
+            description:
+              "Add a GraphQL endpoint and register its operations as tools",
             inputSchema: {
               type: "object",
               properties: {
@@ -445,6 +508,7 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
                 namespace: { type: "string" },
                 headers: { type: "object" },
                 queryParams: { type: "object" },
+                auth: { type: "object" },
               },
               required: ["endpoint"],
             },
@@ -478,7 +542,10 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         // scope, so pin every store lookup to it instead of relying
         // on the scoped adapter's stack-wide fall-through.
         const toolScope = toolRow.scope_id as string;
-        const op = yield* ctx.storage.getOperationByToolId(toolRow.id, toolScope);
+        const op = yield* ctx.storage.getOperationByToolId(
+          toolRow.id,
+          toolScope,
+        );
         if (!op) {
           return yield* Effect.fail(
             new Error(`No GraphQL operation found for tool "${toolRow.id}"`),
@@ -486,11 +553,25 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         }
         const source = yield* ctx.storage.getSource(op.sourceId, toolScope);
         if (!source) {
-          return yield* Effect.fail(new Error(`No GraphQL source found for "${op.sourceId}"`));
+          return yield* Effect.fail(
+            new Error(`No GraphQL source found for "${op.sourceId}"`),
+          );
         }
 
-        const resolvedHeaders = yield* resolveHeaders(source.headers, ctx.secrets);
-        const resolvedQueryParams = yield* resolveHeaders(source.queryParams, ctx.secrets);
+        const resolvedHeaders = yield* resolveHeaders(
+          source.headers,
+          ctx.secrets,
+        );
+        const resolvedQueryParams = yield* resolveHeaders(
+          source.queryParams,
+          ctx.secrets,
+        );
+        if (source.auth.kind === "oauth2") {
+          const accessToken = yield* ctx.connections.accessToken(
+            source.auth.connectionId,
+          );
+          resolvedHeaders.Authorization = `Bearer ${accessToken}`;
+        }
 
         const result = yield* invokeWithLayer(
           op.binding,
@@ -524,7 +605,10 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
           [...scopes],
           (scope) =>
             Effect.gen(function* () {
-              const ops = yield* ctx.storage.listOperationsBySource(sourceId, scope);
+              const ops = yield* ctx.storage.listOperationsBySource(
+                sourceId,
+                scope,
+              );
               const byId = new Map<string, OperationBinding>();
               for (const op of ops) byId.set(op.toolId, op.binding);
               return [scope, byId] as const;
@@ -541,13 +625,16 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
         return out;
       }),
 
-    removeSource: ({ ctx, sourceId, scope }) => ctx.storage.removeSource(sourceId, scope),
+    removeSource: ({ ctx, sourceId, scope }) =>
+      ctx.storage.removeSource(sourceId, scope),
 
     detect: ({ url }) =>
       Effect.gen(function* () {
         const trimmed = url.trim();
         if (!trimmed) return null;
-        const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
+        const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(
+          Effect.option,
+        );
         if (parsed._tag === "None") return null;
 
         const ok = yield* introspect(trimmed).pipe(

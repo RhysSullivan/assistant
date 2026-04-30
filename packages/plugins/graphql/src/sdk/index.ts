@@ -28,8 +28,10 @@ export {
   ExtractionResult,
   GraphqlArgument,
   GraphqlOperationKind,
+  GraphqlSourceAuth,
   InvocationConfig,
   InvocationResult,
   OperationBinding,
   HeaderValue,
+  type QueryParamValue,
 } from "./types";

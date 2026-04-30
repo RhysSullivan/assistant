@@ -3,8 +3,11 @@ import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
-import { GraphqlIntrospectionError, GraphqlExtractionError } from "../sdk/errors";
-import { HeaderValue } from "../sdk/types";
+import {
+  GraphqlIntrospectionError,
+  GraphqlExtractionError,
+} from "../sdk/errors";
+import { GraphqlSourceAuth, HeaderValue } from "../sdk/types";
 
 // StoredGraphqlSource shape as an HTTP response schema. Kept local to the
 // api layer because the sdk-side `StoredGraphqlSource` is a plain interface.
@@ -14,6 +17,7 @@ const StoredSourceSchema = Schema.Struct({
   endpoint: Schema.String,
   headers: Schema.Record({ key: Schema.String, value: HeaderValue }),
   queryParams: Schema.Record({ key: Schema.String, value: HeaderValue }),
+  auth: GraphqlSourceAuth,
 });
 
 // ---------------------------------------------------------------------------
@@ -32,15 +36,25 @@ const AddSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   introspectionJson: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  headers: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
+  queryParams: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
+  auth: Schema.optional(GraphqlSourceAuth),
 });
 
 const UpdateSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   endpoint: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  headers: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
+  queryParams: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
+  auth: Schema.optional(GraphqlSourceAuth),
 });
 
 const UpdateSourceResponse = Schema.Struct({
@@ -96,7 +110,9 @@ export class GraphqlGroup extends HttpApiGroup.make("graphql")
     ),
   )
   .add(
-    HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`
+    HttpApiEndpoint.patch(
+      "updateSource",
+    )`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
       .addSuccess(UpdateSourceResponse),
   )

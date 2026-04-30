@@ -186,7 +186,8 @@ export const graphql_source = pgTable("graphql_source", {
   name: text('name').notNull(),
   endpoint: text('endpoint').notNull(),
   headers: jsonb('headers'),
-  query_params: jsonb('query_params')
+  query_params: jsonb('query_params'),
+  auth: jsonb('auth')
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_source_scope_id_idx").on(table.scope_id),

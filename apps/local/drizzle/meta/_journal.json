@@ -64,6 +64,13 @@
       "when": 1777526645783,
       "tag": "0008_purple_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1777530361075,
+      "tag": "0009_serious_omega_sentinel",
+      "breakpoints": true
     }
   ]
 }
