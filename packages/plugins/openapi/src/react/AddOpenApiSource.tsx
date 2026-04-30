@@ -3,6 +3,7 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
 import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
+import { startOAuth } from "@executor/react/api/atoms";
 import { useScope, useUserScope } from "@executor/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 
@@ -64,12 +65,7 @@ import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
-import {
-  addOpenApiSpec,
-  previewOpenApiSpec,
-  setOpenApiSourceBinding,
-  startOpenApiOAuth,
-} from "./atoms";
+import { addOpenApiSpec, previewOpenApiSpec, setOpenApiSourceBinding } from "./atoms";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
 import {
   headerBindingSlot,
@@ -248,7 +244,7 @@ export default function AddOpenApiSource(props: {
   const userScope = useUserScope();
   const doPreview = useAtomSet(previewOpenApiSpec, { mode: "promise" });
   const doAdd = useAtomSet(addOpenApiSpec, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
@@ -484,28 +480,43 @@ export default function AddOpenApiSource(props: {
           return;
         }
         setStartingOAuth(true);
+        const connectionId = openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow);
         const response = await doStartOAuth({
           path: { scopeId },
           payload: {
-            sourceId: resolvedSourceId,
-            connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
-            displayName,
-            securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-            flow: "clientCredentials",
-            tokenUrl,
-            clientIdSecretId: oauth2ClientIdSecretId,
-            clientSecretSecretId: oauth2ClientSecretSecretId,
-            scopes: [...oauth2SelectedScopes],
+            endpoint: tokenUrl,
+            redirectUrl: tokenUrl,
+            connectionId,
+            tokenScope: scopeId as string,
+            strategy: {
+              kind: "client-credentials",
+              tokenEndpoint: tokenUrl,
+              clientIdSecretId: oauth2ClientIdSecretId,
+              clientSecretSecretId: oauth2ClientSecretSecretId,
+              scopes: [...oauth2SelectedScopes],
+            },
+            pluginId: "openapi",
+            identityLabel: `${displayName} OAuth`,
           },
         });
         setStartingOAuth(false);
-        if (response.flow !== "clientCredentials") {
-          setOauth2Error("Unexpected response flow from server");
+        if (!response.completedConnection) {
+          setOauth2Error("client_credentials flow did not mint a connection");
           return;
         }
         setOauth2AuthState({
           fingerprint: selectedOAuth2Fingerprint,
-          auth: response.auth,
+          auth: new OAuth2Auth({
+            kind: "oauth2",
+            connectionId: response.completedConnection.connectionId,
+            securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+            flow: "clientCredentials",
+            tokenUrl,
+            authorizationUrl: null,
+            clientIdSecretId: oauth2ClientIdSecretId,
+            clientSecretSecretId: oauth2ClientSecretSecretId,
+            scopes: [...oauth2SelectedScopes],
+          }),
         });
         setOauth2Error(null);
         return;
@@ -522,21 +533,24 @@ export default function AddOpenApiSource(props: {
           const response = await doStartOAuth({
             path: { scopeId },
             payload: {
-              sourceId: resolvedSourceId,
+              endpoint: authorizationUrl,
               connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
-              displayName,
-              securitySchemeName: selectedOAuth2Preset.securitySchemeName,
-              flow: "authorizationCode",
-              authorizationUrl,
-              issuerUrl,
-              tokenUrl,
+              tokenScope: scopeId as string,
               redirectUrl: oauth2RedirectUrl,
-              clientIdSecretId: oauth2ClientIdSecretId,
-              clientSecretSecretId: oauth2ClientSecretSecretId,
-              scopes: [...oauth2SelectedScopes],
+              strategy: {
+                kind: "authorization-code",
+                authorizationEndpoint: authorizationUrl,
+                tokenEndpoint: tokenUrl,
+                issuerUrl,
+                clientIdSecretId: oauth2ClientIdSecretId,
+                clientSecretSecretId: oauth2ClientSecretSecretId ?? null,
+                scopes: [...oauth2SelectedScopes],
+              },
+              pluginId: "openapi",
+              identityLabel: `${displayName} OAuth`,
             },
           });
-          if (response.flow !== "authorizationCode") {
+          if (response.authorizationUrl === null) {
             throw new Error("Unexpected response flow from server");
           }
           return {

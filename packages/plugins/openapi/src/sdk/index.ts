@@ -1,21 +1,12 @@
 export { parse, resolveSpecText, fetchSpecText } from "./parse";
 export { extract } from "./extract";
-export {
-  invoke,
-  invokeWithLayer,
-  resolveHeaders,
-  annotationsForOperation,
-} from "./invoke";
+export { invoke, invokeWithLayer, resolveHeaders, annotationsForOperation } from "./invoke";
 export {
   openApiPlugin,
   type OpenApiSpecConfig,
   type OpenApiPluginExtension,
   type OpenApiPluginOptions,
   type OpenApiUpdateSourceInput,
-  type OpenApiStartOAuthInput,
-  type OpenApiStartOAuthResponse,
-  type OpenApiCompleteOAuthInput,
-  type OpenApiCompleteOAuthResponse,
 } from "./plugin";
 export {
   openapiSchema,
