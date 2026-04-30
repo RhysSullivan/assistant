@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 
-import { connectionsAtom, sourceAtom } from "@executor/react/api/atoms";
+import { connectionsAtom, sourceAtom, startOAuth } from "@executor/react/api/atoms";
 import { useScope, useScopeStack, useUserScope } from "@executor/react/api/scope-context";
 import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { Button } from "@executor/react/components/button";
@@ -32,7 +32,6 @@ import {
   openApiSourceBindingsAtom,
   removeOpenApiSourceBinding,
   setOpenApiSourceBinding,
-  startOpenApiOAuth,
   updateOpenApiSource,
 } from "./atoms";
 import {
@@ -164,7 +163,7 @@ export default function EditOpenApiSource(props: {
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promise" });
-  const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({
     popupName: OPENAPI_OAUTH_POPUP_NAME,
     popupBlockedMessage: "OAuth popup was blocked by the browser",
@@ -419,19 +418,22 @@ export default function EditOpenApiSource(props: {
         const response = await doStartOAuth({
           path: { scopeId: displayScope },
           payload: {
-            sourceId: props.sourceId,
-            connectionId,
-            tokenScope: targetScope,
-            displayName,
-            securitySchemeName: oauth2.securitySchemeName,
-            flow: "clientCredentials",
-            tokenUrl,
-            clientIdSecretId,
-            clientSecretSecretId: clientSecretValue!.secretId,
-            scopes: [...oauth2.scopes],
+            endpoint: tokenUrl,
+            redirectUrl: tokenUrl,
+            connectionId: connectionId as string,
+            tokenScope: targetScope as string,
+            strategy: {
+              kind: "client-credentials",
+              tokenEndpoint: tokenUrl,
+              clientIdSecretId,
+              clientSecretSecretId: clientSecretValue!.secretId,
+              scopes: [...oauth2.scopes],
+            },
+            pluginId: "openapi",
+            identityLabel: `${displayName} OAuth`,
           },
         });
-        if (response.flow !== "clientCredentials") {
+        if (!response.completedConnection) {
           throw new Error("Unexpected OAuth response");
         }
         await doSetBinding({
@@ -443,7 +445,7 @@ export default function EditOpenApiSource(props: {
             slot: oauth2.connectionSlot,
             value: {
               kind: "connection",
-              connectionId: ConnectionId.make(response.auth.connectionId),
+              connectionId: ConnectionId.make(response.completedConnection.connectionId),
             },
           },
           reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
@@ -463,25 +465,27 @@ export default function EditOpenApiSource(props: {
           const response = await doStartOAuth({
             path: { scopeId: displayScope },
             payload: {
-              sourceId: props.sourceId,
-              connectionId,
-              tokenScope: targetScope,
-              displayName,
-              securitySchemeName: oauth2.securitySchemeName,
-              flow: "authorizationCode",
-              authorizationUrl,
-              issuerUrl,
-              tokenUrl,
+              endpoint: authorizationUrl,
+              connectionId: connectionId as string,
+              tokenScope: targetScope as string,
               redirectUrl: oauth2RedirectUrl,
-              clientIdSecretId,
-              clientSecretSecretId:
-                clientSecretBinding && isSecretBindingValue(clientSecretBinding.value)
-                  ? clientSecretBinding.value.secretId
-                  : undefined,
-              scopes: [...oauth2.scopes],
+              strategy: {
+                kind: "authorization-code",
+                authorizationEndpoint: authorizationUrl,
+                tokenEndpoint: tokenUrl,
+                issuerUrl,
+                clientIdSecretId,
+                clientSecretSecretId:
+                  clientSecretBinding && isSecretBindingValue(clientSecretBinding.value)
+                    ? clientSecretBinding.value.secretId
+                    : null,
+                scopes: [...oauth2.scopes],
+              },
+              pluginId: "openapi",
+              identityLabel: `${displayName} OAuth`,
             },
           });
-          if (response.flow !== "authorizationCode") {
+          if (response.authorizationUrl === null) {
             throw new Error("Unexpected OAuth response");
           }
           return {

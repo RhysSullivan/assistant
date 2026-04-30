@@ -5,8 +5,4 @@ export type {
   OpenApiSpecConfig,
   OpenApiUpdateSourceInput,
   HeaderValue,
-  OpenApiStartOAuthInput,
-  OpenApiStartOAuthResponse,
-  OpenApiCompleteOAuthInput,
-  OpenApiCompleteOAuthResponse,
 } from "./sdk/plugin";

@@ -84,86 +84,6 @@ const AddSpecResponse = Schema.Struct({
   namespace: Schema.String,
 });
 
-// ---------------------------------------------------------------------------
-// OAuth payloads / responses
-// ---------------------------------------------------------------------------
-
-// Shared identity fields for both OAuth2 flows.
-//
-// `sourceId` (namespace) pins the resulting Connection *name* to a
-// stable per-source value so repeated sign-ins refresh an existing
-// row per scope instead of spawning a fresh UUID every click. Both
-// flows write at the innermost executor scope by default (per-user
-// row, per-user token), which preserves per-user credentials via
-// scope-stacked secret shadowing.
-//
-// `tokenScope` defaults to `ctx.scopes[0].id` (innermost). Callers
-// can override — e.g. an admin writing an org-wide shared connection
-// — and the SDK validates that the target is in the executor's stack.
-const StartOAuthIdentityFields = {
-  displayName: Schema.String,
-  securitySchemeName: Schema.String,
-  tokenUrl: Schema.String,
-  clientIdSecretId: Schema.String,
-  scopes: Schema.Array(Schema.String),
-  tokenScope: Schema.optional(ScopeId),
-  connectionId: Schema.optional(Schema.String),
-  sourceId: Schema.String,
-} as const;
-
-const StartOAuthPayload = Schema.Union(
-  Schema.Struct({
-    ...StartOAuthIdentityFields,
-    flow: Schema.Literal("authorizationCode"),
-    authorizationUrl: Schema.String,
-    issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
-    redirectUrl: Schema.String,
-    clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
-  }),
-  // RFC 6749 §4.4 — no user-interactive step, no session, no popup. The
-  // plugin exchanges tokens inline and returns a completed auth. The
-  // client_secret is required (the grant is client authentication + token
-  // request) and no refresh token is issued (§4.4.3).
-  Schema.Struct({
-    ...StartOAuthIdentityFields,
-    flow: Schema.Literal("clientCredentials"),
-    clientSecretSecretId: Schema.String,
-  }),
-);
-
-const StartOAuthResponse = Schema.Union(
-  Schema.Struct({
-    flow: Schema.Literal("authorizationCode"),
-    sessionId: Schema.String,
-    authorizationUrl: Schema.String,
-    scopes: Schema.Array(Schema.String),
-  }),
-  Schema.Struct({
-    flow: Schema.Literal("clientCredentials"),
-    auth: OAuth2Auth,
-    scopes: Schema.Array(Schema.String),
-  }),
-);
-
-const CompleteOAuthPayload = Schema.Struct({
-  state: Schema.String,
-  code: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-});
-
-const CompleteOAuthResponse = Schema.Struct({
-  connectionId: Schema.String,
-  expiresAt: Schema.NullOr(Schema.Number),
-  scope: Schema.NullOr(Schema.String),
-});
-
-const OAuthCallbackUrlParams = Schema.Struct({
-  state: Schema.String,
-  code: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-  error_description: Schema.optional(Schema.String),
-});
-
 // HTTP status on the three domain errors lives on their class
 // declarations in `../sdk/errors.ts` — see the comment there.
 
@@ -225,23 +145,6 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
     )`/scopes/${scopeIdParam}/openapi/source-bindings/remove`
       .setPayload(RemoveBindingPayload)
       .addSuccess(Schema.Struct({ removed: Schema.Boolean })),
-  )
-  .add(
-    HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/openapi/oauth/start`
-      .setPayload(StartOAuthPayload)
-      .addSuccess(StartOAuthResponse),
-  )
-  .add(
-    HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/openapi/oauth/complete`
-      .setPayload(CompleteOAuthPayload)
-      .addSuccess(CompleteOAuthResponse),
-  )
-  .add(
-    HttpApiEndpoint.get("oauthCallback", "/openapi/oauth/callback")
-      .setUrlParams(OAuthCallbackUrlParams)
-      .addSuccess(
-        Schema.Unknown.annotations(HttpApiSchema.annotations({ contentType: "text/html" })),
-      ),
   )
   // Errors declared once at the group level — every endpoint inherits.
   // Plugin domain errors carry their own HttpApiSchema status (4xx);

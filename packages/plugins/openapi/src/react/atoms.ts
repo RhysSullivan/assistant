@@ -21,11 +21,7 @@ export const openApiSourceBindingsAtom = (
   OpenApiClient.query("openapi", "listSourceBindings", {
     path: { scopeId, namespace, sourceScopeId },
     timeToLive: "15 seconds",
-    reactivityKeys: [
-      ReactivityKey.sources,
-      ReactivityKey.secrets,
-      ReactivityKey.connections,
-    ],
+    reactivityKeys: [ReactivityKey.sources, ReactivityKey.secrets, ReactivityKey.connections],
   });
 
 // ---------------------------------------------------------------------------
@@ -40,11 +36,4 @@ export const updateOpenApiSource = OpenApiClient.mutation("openapi", "updateSour
 
 export const setOpenApiSourceBinding = OpenApiClient.mutation("openapi", "setSourceBinding");
 
-export const removeOpenApiSourceBinding = OpenApiClient.mutation(
-  "openapi",
-  "removeSourceBinding",
-);
-
-export const startOpenApiOAuth = OpenApiClient.mutation("openapi", "startOAuth");
-
-export const completeOpenApiOAuth = OpenApiClient.mutation("openapi", "completeOAuth");
+export const removeOpenApiSourceBinding = OpenApiClient.mutation("openapi", "removeSourceBinding");
