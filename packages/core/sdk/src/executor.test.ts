@@ -5,6 +5,7 @@ import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
 import type { DBAdapter, Where } from "@executor/storage-core";
 
 import { makeInMemoryBlobStore } from "./blob";
+import { CreateConnectionInput, TokenMaterial } from "./connections";
 import { collectSchemas, createExecutor } from "./executor";
 import {
   ElicitationResponse,
@@ -15,8 +16,9 @@ import { defineSchema, definePlugin } from "./plugin";
 import { SetSecretInput } from "./secrets";
 import { makeTestConfig } from "./testing";
 import type { SecretProvider } from "./secrets";
-import { ScopeId, SecretId } from "./ids";
+import { ConnectionId, ScopeId, SecretId } from "./ids";
 import { Scope } from "./scope";
+import { SourceDetectionResult } from "./types";
 
 type FindManyCall = {
   readonly model: string;
@@ -192,6 +194,43 @@ const memorySecretsPlugin = definePlugin(() => ({
   secretProviders: [memoryProvider],
 }));
 
+const memoryConnectionPlugin = definePlugin(() => ({
+  id: "memory-connection" as const,
+  storage: () => ({}),
+  connectionProviders: [{ key: "memory-connection" }],
+}));
+
+const staleRouteProvider: SecretProvider = {
+  key: "stale-route",
+  writable: true,
+  get: () => Effect.succeed(null),
+  has: () => Effect.succeed(false),
+  set: () => Effect.void,
+  delete: () => Effect.succeed(false),
+  list: () => Effect.succeed([]),
+};
+
+const staleRouteSecretsPlugin = definePlugin(() => ({
+  id: "stale-route-secrets" as const,
+  storage: () => ({}),
+  secretProviders: [staleRouteProvider],
+}));
+
+const opaqueRouteProvider: SecretProvider = {
+  key: "opaque-route",
+  writable: true,
+  get: () => Effect.succeed(null),
+  set: () => Effect.void,
+  delete: () => Effect.succeed(false),
+  list: () => Effect.succeed([]),
+};
+
+const opaqueRouteSecretsPlugin = definePlugin(() => ({
+  id: "opaque-route-secrets" as const,
+  storage: () => ({}),
+  secretProviders: [opaqueRouteProvider],
+}));
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -346,6 +385,49 @@ describe("createExecutor", () => {
       expect(dynamic).toBeDefined();
       expect(dynamic!.runtime).toBe(false);
       expect(dynamic!.canRemove).toBe(true);
+    }),
+  );
+
+  it.effect("orders source detection results by confidence", () =>
+    Effect.gen(function* () {
+      const lowConfidencePlugin = definePlugin(() => ({
+        id: "low-detect" as const,
+        storage: () => ({}),
+        detect: () =>
+          Effect.succeed(
+            new SourceDetectionResult({
+              kind: "mcp",
+              confidence: "low",
+              endpoint: "https://example.com/source",
+              name: "Weak OAuth match",
+              namespace: "weak_oauth_match",
+            }),
+          ),
+      }));
+      const highConfidencePlugin = definePlugin(() => ({
+        id: "high-detect" as const,
+        storage: () => ({}),
+        detect: () =>
+          Effect.succeed(
+            new SourceDetectionResult({
+              kind: "graphql",
+              confidence: "high",
+              endpoint: "https://example.com/source",
+              name: "GraphQL API",
+              namespace: "graphql_api",
+            }),
+          ),
+      }));
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [lowConfidencePlugin(), highConfidencePlugin()] as const,
+        }),
+      );
+
+      const results = yield* executor.sources.detect("https://example.com/source");
+
+      expect(results.map((result) => result.kind)).toEqual(["graphql", "mcp"]);
     }),
   );
 
@@ -553,6 +635,58 @@ describe("createExecutor", () => {
       expect(list).toHaveLength(1);
       expect(list[0]!.name).toBe("API Token");
       expect(list[0]!.provider).toBe("memory");
+    }),
+  );
+
+  it.effect("secrets.get rejects connection-owned token secrets", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [memorySecretsPlugin(), memoryConnectionPlugin()] as const,
+        }),
+      );
+
+      yield* executor.connections.create(
+        new CreateConnectionInput({
+          id: ConnectionId.make("conn-owned"),
+          scope: ScopeId.make("test-scope"),
+          provider: "memory-connection",
+          identityLabel: "Alice",
+          accessToken: new TokenMaterial({
+            secretId: SecretId.make("conn-owned.access_token"),
+            name: "Access",
+            value: "access-secret",
+          }),
+          refreshToken: new TokenMaterial({
+            secretId: SecretId.make("conn-owned.refresh_token"),
+            name: "Refresh",
+            value: "refresh-secret",
+          }),
+          expiresAt: null,
+          oauthScope: "read",
+          providerState: null,
+        }),
+      );
+
+      const leaked = yield* executor.secrets
+        .get("conn-owned.access_token")
+        .pipe(Effect.either);
+      expect(leaked._tag).toBe("Left");
+      if (leaked._tag === "Left") {
+        expect((leaked.left as { _tag?: string })._tag).toBe(
+          "SecretOwnedByConnectionError",
+        );
+      }
+
+      const status = yield* executor.secrets.status("conn-owned.access_token");
+      expect(status).toBe("missing");
+      const visibleIds = (yield* executor.secrets.list()).map(
+        (s) => s.id as unknown as string,
+      );
+      expect(visibleIds).not.toContain("conn-owned.access_token");
+
+      const token = yield* executor.connections.accessToken("conn-owned");
+      expect(token).toBe("access-secret");
     }),
   );
 
@@ -1069,6 +1203,52 @@ describe("tenant isolation (SDK)", () => {
 
       const value = yield* exec.secrets.get("token");
       expect(value).toBe("user-value");
+    }),
+  );
+
+  it.effect("secrets.list hides routing rows when the provider reports no backing value", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [staleRouteSecretsPlugin()] as const }),
+      );
+
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("missing-secret"),
+          scope: ScopeId.make("test-scope"),
+          name: "Missing Secret",
+          value: "not-stored",
+        }),
+      );
+
+      const refs = yield* executor.secrets.list();
+      const status = yield* executor.secrets.status("missing-secret");
+
+      expect(refs.map((ref) => ref.id)).not.toContain("missing-secret");
+      expect(status).toBe("missing");
+    }),
+  );
+
+  it.effect("secrets.list keeps routing rows for providers without existence checks", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [opaqueRouteSecretsPlugin()] as const }),
+      );
+
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("opaque-secret"),
+          scope: ScopeId.make("test-scope"),
+          name: "Opaque Secret",
+          value: "not-stored",
+        }),
+      );
+
+      const refs = yield* executor.secrets.list();
+      const status = yield* executor.secrets.status("opaque-secret");
+
+      expect(refs.map((ref) => ref.id)).toContain("opaque-secret");
+      expect(status).toBe("resolved");
     }),
   );
 });

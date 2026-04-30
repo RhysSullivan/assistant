@@ -1,7 +1,7 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 
-import type { StorageFailure } from "@executor/sdk";
+import type { SecretOwnedByConnectionError, StorageFailure } from "@executor/sdk";
 
 import { OpenApiInvocationError } from "./errors";
 import {
@@ -97,7 +97,9 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
 export const resolveHeaders = (
   headers: Record<string, HeaderValue>,
   secrets: {
-    readonly get: (id: string) => Effect.Effect<string | null, StorageFailure>;
+    readonly get: (
+      id: string,
+    ) => Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure>;
   },
 ): Effect.Effect<Record<string, string>, OpenApiInvocationError | StorageFailure> => {
   const entries = Object.entries(headers);
@@ -115,6 +117,14 @@ export const resolveHeaders = (
         typeof value === "string"
           ? Effect.succeed({ name, value })
           : secrets.get(value.secretId).pipe(
+              Effect.mapError((err) =>
+                "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+                  ? new OpenApiInvocationError({
+                      message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
+                      statusCode: Option.none(),
+                    })
+                  : err,
+              ),
               Effect.flatMap((secret) =>
                 secret === null
                   ? Effect.fail(
@@ -509,6 +519,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   operation: OperationBinding,
   args: Record<string, unknown>,
   resolvedHeaders: Record<string, string>,
+  sourceQueryParams: Record<string, string> = {},
 ) {
   const client = yield* HttpClient.HttpClient;
 
@@ -525,6 +536,10 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   const path = resolvedPath.startsWith("/") ? resolvedPath : `/${resolvedPath}`;
 
   let request = HttpClientRequest.make(operation.method.toUpperCase() as "GET")(path);
+
+  for (const [name, value] of Object.entries(sourceQueryParams)) {
+    request = HttpClientRequest.setUrlParam(request, name, value);
+  }
 
   for (const param of operation.parameters) {
     if (param.location !== "query") continue;
@@ -621,6 +636,7 @@ export const invokeWithLayer = (
   args: Record<string, unknown>,
   baseUrl: string,
   resolvedHeaders: Record<string, string>,
+  sourceQueryParams: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
 ) => {
   const clientWithBaseUrl = baseUrl
@@ -633,7 +649,7 @@ export const invokeWithLayer = (
       ).pipe(Layer.provide(httpClientLayer))
     : httpClientLayer;
 
-  return invoke(operation, args, resolvedHeaders).pipe(
+  return invoke(operation, args, resolvedHeaders, sourceQueryParams).pipe(
     Effect.provide(clientWithBaseUrl),
     Effect.withSpan("plugin.openapi.invoke", {
       attributes: {

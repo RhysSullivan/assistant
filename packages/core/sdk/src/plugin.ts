@@ -116,6 +116,12 @@ export interface PluginCtx<TStore = unknown> {
       readonly unregister: (
         sourceId: string,
       ) => Effect.Effect<void, StorageFailure>;
+      readonly update: (input: {
+        readonly id: string;
+        readonly scope: string;
+        readonly name?: string;
+        readonly url?: string | null;
+      }) => Effect.Effect<void, StorageFailure>;
     };
     /** Register shared JSON-schema `$defs` for a source. Tool
      *  input/output schemas registered via `sources.register` can carry
@@ -133,7 +139,7 @@ export interface PluginCtx<TStore = unknown> {
   readonly secrets: {
     readonly get: (
       id: string,
-    ) => Effect.Effect<string | null, StorageFailure>;
+    ) => Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure>;
     /** List user-visible secrets. Connection-owned secrets (rows with
      *  `owned_by_connection_id` set) are filtered out so they don't
      *  clutter the UI — users see the Connection instead. */

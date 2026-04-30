@@ -41,6 +41,7 @@ export const openapiSchema = defineSchema({
       source_url: { type: "string", required: false },
       base_url: { type: "string", required: false },
       headers: { type: "json", required: false },
+      query_params: { type: "json", required: false },
       oauth2: { type: "json", required: false },
       invocation_config: { type: "json", required: true },
     },
@@ -86,6 +87,7 @@ export interface SourceConfig {
   readonly baseUrl?: string;
   readonly namespace?: string;
   readonly headers?: Record<string, ConfiguredHeaderValue>;
+  readonly queryParams?: Record<string, HeaderValue>;
   readonly oauth2?: OAuth2SourceConfig;
 }
 
@@ -121,6 +123,7 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
     headers: Schema.optional(
       Schema.Record({ key: Schema.String, value: ConfiguredHeaderValue }),
     ),
+    queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValue })),
     // Canonical source-owned OAuth config. Concrete client credentials
     // and connection ids live in OpenAPI-owned scoped binding rows.
     oauth2: Schema.optional(OAuth2SourceConfig),
@@ -278,6 +281,7 @@ export interface OpenapiStore {
       readonly name?: string;
       readonly baseUrl?: string;
       readonly headers?: Record<string, ConfiguredHeaderValue>;
+      readonly queryParams?: Record<string, HeaderValue>;
       readonly oauth2?: OAuth2SourceConfig;
     },
   ) => Effect.Effect<void, StorageFailure>;
@@ -444,6 +448,7 @@ export const makeDefaultOpenapiStore = ({
         sourceUrl: (row.source_url as string | null | undefined) ?? undefined,
         baseUrl: (row.base_url as string | null | undefined) ?? undefined,
         headers: normalizedHeaders.headers,
+        queryParams: decodeHeaders(row.query_params),
         oauth2: normalizedOAuth2.oauth2,
       },
       legacy:
@@ -518,6 +523,7 @@ export const makeDefaultOpenapiStore = ({
                     : value),
               ]),
             ) as Record<string, unknown>,
+            query_params: input.config.queryParams as unknown as Record<string, unknown>,
             oauth2: input.config.oauth2
               ? (encodeOAuth2SourceConfig(input.config.oauth2) as unknown as Record<string, unknown>)
               : undefined,
@@ -556,6 +562,10 @@ export const makeDefaultOpenapiStore = ({
           patch.baseUrl !== undefined ? patch.baseUrl : existing.config.baseUrl;
         const nextHeaders =
           patch.headers !== undefined ? patch.headers : existing.config.headers ?? {};
+        const nextQueryParams =
+          patch.queryParams !== undefined
+            ? patch.queryParams
+            : existing.config.queryParams ?? {};
         const nextOAuth2 =
           patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
 
@@ -580,6 +590,7 @@ export const makeDefaultOpenapiStore = ({
                     },
               ]),
             ) as Record<string, unknown>,
+            query_params: nextQueryParams as unknown as Record<string, unknown>,
             oauth2: nextOAuth2
               ? (encodeOAuth2SourceConfig(nextOAuth2) as unknown as Record<string, unknown>)
               : undefined,

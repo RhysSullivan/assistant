@@ -6,12 +6,14 @@
 // pattern apps/cloud uses). Port 5435 so it doesn't clash with the
 // cloud test DB on 5434.
 
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { relations } from "drizzle-orm";
 import {
   pgTable,
+  primaryKey,
   text,
   doublePrecision,
   boolean,
@@ -67,6 +69,16 @@ const with_defaults = pgTable("with_defaults", {
   nickname: text("nickname"),
   touchedAt: timestamp("touchedAt"),
 });
+
+const scoped_item = pgTable(
+  "scoped_item",
+  {
+    id: text("id").notNull(),
+    scope_id: text("scope_id").notNull(),
+    label: text("label"),
+  },
+  (table) => [primaryKey({ columns: [table.scope_id, table.id] })],
+);
 
 const sourceRelations = relations(source, ({ many }) => ({
   source_tag: many(source_tag),
@@ -157,3 +169,123 @@ const withAdapter = <A, E>(
   }) as Effect.Effect<A, E | Error>;
 
 runAdapterConformance("postgres", withAdapter);
+
+const scopedSchema = {
+  scoped_item: {
+    fields: {
+      scope_id: { type: "string", required: true, index: true },
+      label: { type: "string", required: true },
+    },
+  },
+} as const;
+
+const resetScopedTable = Effect.tryPromise({
+  try: async () => {
+    await sql.unsafe(`DROP TABLE IF EXISTS "scoped_item" CASCADE`);
+    await sql.unsafe(
+      `CREATE TABLE "scoped_item" (
+        "id" TEXT NOT NULL,
+        "scope_id" TEXT NOT NULL,
+        "label" TEXT,
+        PRIMARY KEY ("scope_id", "id")
+      )`,
+    );
+  },
+  catch: (cause) =>
+    new Error(`failed to reset scoped_item table: ${String(cause)}`),
+});
+
+const makeScopedAdapter = () =>
+  makePostgresAdapter({
+    db: drizzle(sql, { schema: { scoped_item } }),
+    schema: scopedSchema,
+  });
+
+describe("postgres scoped row identity", () => {
+  it.effect("update pins composite identity when id is reused across scopes", () =>
+    Effect.gen(function* () {
+      yield* resetScopedTable;
+      const adapter = makeScopedAdapter();
+
+      yield* adapter.create({
+        model: "scoped_item",
+        forceAllowId: true,
+        data: { id: "shared", scope_id: "scope-a", label: "a" } as never,
+      });
+      yield* adapter.create({
+        model: "scoped_item",
+        forceAllowId: true,
+        data: { id: "shared", scope_id: "scope-b", label: "b" } as never,
+      });
+
+      yield* adapter.update({
+        model: "scoped_item",
+        where: [
+          { field: "id", value: "shared" },
+          { field: "scope_id", value: "scope-a" },
+        ],
+        update: { label: "a-updated" },
+      });
+
+      const scopeA = yield* adapter.findOne<{ label: string }>({
+        model: "scoped_item",
+        where: [
+          { field: "id", value: "shared" },
+          { field: "scope_id", value: "scope-a" },
+        ],
+      });
+      const scopeB = yield* adapter.findOne<{ label: string }>({
+        model: "scoped_item",
+        where: [
+          { field: "id", value: "shared" },
+          { field: "scope_id", value: "scope-b" },
+        ],
+      });
+      expect(scopeA?.label).toBe("a-updated");
+      expect(scopeB?.label).toBe("b");
+    }),
+  );
+
+  it.effect("delete pins composite identity when id is reused across scopes", () =>
+    Effect.gen(function* () {
+      yield* resetScopedTable;
+      const adapter = makeScopedAdapter();
+
+      yield* adapter.create({
+        model: "scoped_item",
+        forceAllowId: true,
+        data: { id: "shared", scope_id: "scope-a", label: "a" } as never,
+      });
+      yield* adapter.create({
+        model: "scoped_item",
+        forceAllowId: true,
+        data: { id: "shared", scope_id: "scope-b", label: "b" } as never,
+      });
+
+      yield* adapter.delete({
+        model: "scoped_item",
+        where: [
+          { field: "id", value: "shared" },
+          { field: "scope_id", value: "scope-a" },
+        ],
+      });
+
+      const scopeA = yield* adapter.findOne<{ label: string }>({
+        model: "scoped_item",
+        where: [
+          { field: "id", value: "shared" },
+          { field: "scope_id", value: "scope-a" },
+        ],
+      });
+      const scopeB = yield* adapter.findOne<{ label: string }>({
+        model: "scoped_item",
+        where: [
+          { field: "id", value: "shared" },
+          { field: "scope_id", value: "scope-b" },
+        ],
+      });
+      expect(scopeA).toBeNull();
+      expect(scopeB?.label).toBe("b");
+    }),
+  );
+});

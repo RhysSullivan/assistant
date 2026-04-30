@@ -101,6 +101,20 @@ export const oauth2_session = pgTable("oauth2_session", {
   index("oauth2_session_connection_id_idx").on(table.connection_id),
 ]);
 
+export const tool_policy = pgTable("tool_policy", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  pattern: text('pattern').notNull(),
+  action: text('action').notNull(),
+  position: text('position').notNull(),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("tool_policy_scope_id_idx").on(table.scope_id),
+  index("tool_policy_position_idx").on(table.position),
+]);
+
 export const openapi_source = pgTable("openapi_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
@@ -109,6 +123,7 @@ export const openapi_source = pgTable("openapi_source", {
   source_url: text('source_url'),
   base_url: text('base_url'),
   headers: jsonb('headers'),
+  query_params: jsonb('query_params'),
   oauth2: jsonb('oauth2'),
   invocation_config: jsonb('invocation_config').notNull()
 }, (table) => [
@@ -171,7 +186,8 @@ export const graphql_source = pgTable("graphql_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   endpoint: text('endpoint').notNull(),
-  headers: jsonb('headers')
+  headers: jsonb('headers'),
+  query_params: jsonb('query_params')
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_source_scope_id_idx").on(table.scope_id),
@@ -197,15 +213,4 @@ export const workos_vault_metadata = pgTable("workos_vault_metadata", {
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("workos_vault_metadata_scope_id_idx").on(table.scope_id),
-]);
-
-// Blob store table — hand-appended. BlobStore is a separate storage
-// abstraction from DBSchema, so the CLI doesn't generate it. Keep in
-// sync with @executor/storage-postgres's BlobStore implementation.
-export const blob = pgTable("blob", {
-  namespace: text('namespace').notNull(),
-  key: text('key').notNull(),
-  value: text('value').notNull(),
-}, (table) => [
-  primaryKey({ columns: [table.namespace, table.key] }),
 ]);

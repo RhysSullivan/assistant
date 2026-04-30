@@ -15,6 +15,7 @@ export {
   type OAuthPopupResult,
   type RunOAuthCallbackInput,
 } from "./oauth-popup";
+export { PoliciesApi } from "./policies/api";
 export {
   InternalError,
   ErrorCapture,

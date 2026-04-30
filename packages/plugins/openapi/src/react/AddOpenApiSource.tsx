@@ -15,26 +15,23 @@ import {
   type OAuthPopupResult,
 } from "@executor/react/api/oauth-popup";
 import { useScope, useUserScope } from "@executor/react/api/scope-context";
-import {
-  connectionWriteKeys,
-  sourceWriteKeys,
-} from "@executor/react/api/reactivity-keys";
+import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 
 // `addSpec` with an oauth2 payload persists a source row AND (for
 // clientCredentials) a freshly-minted Connection + owned secrets,
 // because the inline token exchange happens during `startOAuth`.
 // Invalidate both so the source-detail page opens into its connected
 // state without a refresh.
-const addSpecWriteKeys = [
-  ...sourceWriteKeys,
-  ...connectionWriteKeys,
-] as const;
-const bindingWriteKeys = [
-  ...sourceWriteKeys,
-  ...connectionWriteKeys,
-] as const;
+const addSpecWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
+const bindingWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { HeadersList } from "@executor/react/plugins/headers-list";
+import {
+  HttpCredentialsEditor,
+  emptyHttpCredentials,
+  serializeHttpCredentials,
+  type HttpCredentialsState,
+} from "@executor/react/plugins/http-credentials";
 import {
   CreatableSecretPicker,
   matchPresetKey,
@@ -49,6 +46,11 @@ import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picke
 import { Button } from "@executor/react/components/button";
 import { CopyButton } from "@executor/react/components/copy-button";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@executor/react/components/collapsible";
+import {
   CardStack,
   CardStackContent,
   CardStackEntry,
@@ -61,10 +63,7 @@ import { FieldLabel } from "@executor/react/components/field";
 import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@executor/react/components/native-select";
+import { NativeSelect, NativeSelectOption } from "@executor/react/components/native-select";
 import { Textarea } from "@executor/react/components/textarea";
 import { Checkbox } from "@executor/react/components/checkbox";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
@@ -104,7 +103,7 @@ const substituteUrlVariables = (url: string, values: Record<string, string>): st
   return out;
 };
 
-const openApiOAuthConnectionId = (
+export const openApiOAuthConnectionId = (
   namespaceSlug: string,
   flow: OAuth2Preset["flow"],
 ): string =>
@@ -229,12 +228,17 @@ export default function AddOpenApiSource(props: {
   // Auth
   const [strategy, setStrategy] = useState<StrategySelection>({ kind: "none" });
   const [customHeaders, setCustomHeaders] = useState<HeaderState[]>([]);
+  const [specFetchCredentials, setSpecFetchCredentials] = useState<HttpCredentialsState>(() =>
+    emptyHttpCredentials(),
+  );
+  const [specFetchCredentialsOpen, setSpecFetchCredentialsOpen] = useState(false);
+  const [runtimeCredentials, setRuntimeCredentials] = useState<HttpCredentialsState>(() =>
+    emptyHttpCredentials(),
+  );
 
   // OAuth2 state (only populated while an oauth2 preset is selected)
   const [oauth2ClientIdSecretId, setOauth2ClientIdSecretId] = useState<string | null>(null);
-  const [oauth2ClientSecretSecretId, setOauth2ClientSecretSecretId] = useState<string | null>(
-    null,
-  );
+  const [oauth2ClientSecretSecretId, setOauth2ClientSecretSecretId] = useState<string | null>(null);
   const [oauth2SelectedScopes, setOauth2SelectedScopes] = useState<Set<string>>(new Set());
   const [oauth2AuthState, setOauth2AuthState] = useState<{
     readonly fingerprint: string;
@@ -282,13 +286,9 @@ export default function AddOpenApiSource(props: {
     selectedServerIndex >= 0 ? (servers[selectedServerIndex] ?? null) : null;
 
   const serverVariables: Record<string, ServerVariable> = selectedServer
-    ? Option.getOrElse(
-        selectedServer.variables,
-        () => ({}) as Record<string, ServerVariable>,
-      )
+    ? Option.getOrElse(selectedServer.variables, () => ({}) as Record<string, ServerVariable>)
     : {};
-  const serverVariableEntries: Array<[string, ServerVariable]> =
-    Object.entries(serverVariables);
+  const serverVariableEntries: Array<[string, ServerVariable]> = Object.entries(serverVariables);
 
   const resolvedBaseUrl =
     selectedServer !== null
@@ -346,9 +346,7 @@ export default function AddOpenApiSource(props: {
       ].join("\n")
     : "";
   const oauth2Auth =
-    oauth2AuthState?.fingerprint === selectedOAuth2Fingerprint
-      ? oauth2AuthState.auth
-      : null;
+    oauth2AuthState?.fingerprint === selectedOAuth2Fingerprint ? oauth2AuthState.auth : null;
 
   const configuredOAuth2 =
     strategy.kind === "oauth2" && selectedOAuth2Preset
@@ -384,9 +382,13 @@ export default function AddOpenApiSource(props: {
     setAnalyzeError(null);
     setAddError(null);
     try {
+      const credentials = serializeHttpCredentials(specFetchCredentials);
       const result = await doPreview({
         path: { scopeId },
-        payload: { spec: specUrl },
+        payload: {
+          spec: specUrl,
+          specFetchCredentials: credentials,
+        },
       });
       setPreview(result);
 
@@ -477,13 +479,9 @@ export default function AddOpenApiSource(props: {
     setStartingOAuth(true);
     setOauth2Error(null);
     try {
-      const displayName =
-        identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
+      const displayName = identity.name.trim() || selectedOAuth2Preset.securitySchemeName;
 
-      const tokenUrl = resolveOAuthUrl(
-        selectedOAuth2Preset.tokenUrl,
-        resolvedBaseUrl,
-      );
+      const tokenUrl = resolveOAuthUrl(selectedOAuth2Preset.tokenUrl, resolvedBaseUrl);
 
       if (selectedOAuth2Preset.flow === "clientCredentials") {
         // RFC 6749 §4.4: no user-interactive consent step. The client_secret
@@ -498,10 +496,7 @@ export default function AddOpenApiSource(props: {
           path: { scopeId },
           payload: {
             sourceId: resolvedSourceId,
-            connectionId: openApiOAuthConnectionId(
-              resolvedSourceId,
-              selectedOAuth2Preset.flow,
-            ),
+            connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
             displayName,
             securitySchemeName: selectedOAuth2Preset.securitySchemeName,
             flow: "clientCredentials",
@@ -534,10 +529,7 @@ export default function AddOpenApiSource(props: {
         path: { scopeId },
         payload: {
           sourceId: resolvedSourceId,
-          connectionId: openApiOAuthConnectionId(
-            resolvedSourceId,
-            selectedOAuth2Preset.flow,
-          ),
+          connectionId: openApiOAuthConnectionId(resolvedSourceId, selectedOAuth2Preset.flow),
           displayName,
           securitySchemeName: selectedOAuth2Preset.securitySchemeName,
           flow: "authorizationCode",
@@ -664,10 +656,14 @@ export default function AddOpenApiSource(props: {
         path: { scopeId },
         payload: {
           spec: specUrl,
+          specFetchCredentials: serializeHttpCredentials(specFetchCredentials),
           name: identity.name.trim() || undefined,
           namespace: slugifyNamespace(identity.namespace) || undefined,
           baseUrl: resolvedBaseUrl || undefined,
           ...(hasHeaders ? { headers: configuredHeaders } : {}),
+          ...(Object.keys(serializeHttpCredentials(runtimeCredentials).queryParams).length > 0
+            ? { queryParams: serializeHttpCredentials(runtimeCredentials).queryParams }
+            : {}),
           ...(configuredOAuth2 ? { oauth2: configuredOAuth2 } : {}),
         },
         reactivityKeys: addSpecWriteKeys,
@@ -711,10 +707,7 @@ export default function AddOpenApiSource(props: {
         });
       }
 
-      if (
-        configuredOAuth2?.clientSecretSlot &&
-        oauth2ClientSecretSecretId
-      ) {
+      if (configuredOAuth2?.clientSecretSlot && oauth2ClientSecretSecretId) {
         await doSetBinding({
           path: { scopeId },
           payload: {
@@ -801,6 +794,30 @@ export default function AddOpenApiSource(props: {
         </CardStackContent>
       </CardStack>
 
+      <Collapsible
+        open={specFetchCredentialsOpen}
+        onOpenChange={setSpecFetchCredentialsOpen}
+        className="space-y-3"
+      >
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" size="sm" className="self-start">
+            {specFetchCredentialsOpen ? "Hide spec credentials" : "Add spec credentials"}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <HttpCredentialsEditor
+            credentials={specFetchCredentials}
+            onChange={setSpecFetchCredentials}
+            existingSecrets={secretList}
+            sourceName={identity.name}
+            labels={{
+              headers: "Spec fetch headers",
+              queryParams: "Spec fetch query parameters",
+            }}
+          />
+        </CollapsibleContent>
+      </Collapsible>
+
       {/* ── Title card (shown below spec input after analysis) ── */}
       {preview ? (
         <CardStack>
@@ -878,9 +895,7 @@ export default function AddOpenApiSource(props: {
                       >
                         <RadioGroupItem value={String(i)} className="mt-0.5" />
                         <div className="min-w-0 flex-1">
-                          <div className="font-mono text-xs text-foreground truncate">
-                            {s.url}
-                          </div>
+                          <div className="font-mono text-xs text-foreground truncate">{s.url}</div>
                           {Option.isSome(s.description) && (
                             <div className="mt-0.5 text-[10px] text-muted-foreground">
                               {s.description.value}
@@ -988,8 +1003,7 @@ export default function AddOpenApiSource(props: {
                 className="gap-1.5"
               >
                 {preview.headerPresets.map((preset, i) => {
-                  const selected =
-                    strategy.kind === "header" && strategy.presetIndex === i;
+                  const selected = strategy.kind === "header" && strategy.presetIndex === i;
                   return (
                     <Label
                       key={`header-${i}`}
@@ -1012,8 +1026,7 @@ export default function AddOpenApiSource(props: {
                   );
                 })}
                 {oauth2Presets.map((preset, i) => {
-                  const selected =
-                    strategy.kind === "oauth2" && strategy.presetIndex === i;
+                  const selected = strategy.kind === "oauth2" && strategy.presetIndex === i;
                   const scopeCount = Object.keys(preset.scopes).length;
                   return (
                     <Label
@@ -1067,6 +1080,16 @@ export default function AddOpenApiSource(props: {
                 writeScope={userScope}
               />
             )}
+
+            <HttpCredentialsEditor
+              credentials={runtimeCredentials}
+              onChange={setRuntimeCredentials}
+              existingSecrets={secretList}
+              sourceName={identity.name}
+              writeScope={userScope}
+              sections={{ headers: false, queryParams: true }}
+              labels={{ queryParams: "Runtime query parameters" }}
+            />
 
             {/* OAuth2 configuration */}
             {selectedOAuth2Preset && (
@@ -1125,10 +1148,7 @@ export default function AddOpenApiSource(props: {
                       </div>
                     ) : (
                       Object.entries(selectedOAuth2Preset.scopes).map(([scope, description]) => (
-                        <Label
-                          key={scope}
-                          className="flex items-start gap-2 cursor-pointer py-1"
-                        >
+                        <Label key={scope} className="flex items-start gap-2 cursor-pointer py-1">
                           <Checkbox
                             checked={oauth2SelectedScopes.has(scope)}
                             onCheckedChange={() => toggleOAuth2Scope(scope)}
@@ -1136,9 +1156,7 @@ export default function AddOpenApiSource(props: {
                           <div className="min-w-0 flex-1">
                             <div className="font-mono text-[11px] text-foreground">{scope}</div>
                             {description && (
-                              <div className="text-[10px] text-muted-foreground">
-                                {description}
-                              </div>
+                              <div className="text-[10px] text-muted-foreground">{description}</div>
                             )}
                           </div>
                         </Label>
@@ -1153,11 +1171,7 @@ export default function AddOpenApiSource(props: {
                       Connected · {oauth2SelectedScopes.size} scope
                       {oauth2SelectedScopes.size === 1 ? "" : "s"} granted
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setOauth2AuthState(null)}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setOauth2AuthState(null)}>
                       Disconnect
                     </Button>
                   </div>
@@ -1185,8 +1199,8 @@ export default function AddOpenApiSource(props: {
                       Connect via OAuth
                     </Button>
                     <p className="text-[11px] text-muted-foreground">
-                      Optional — you can save the source now and each user can sign
-                      in from the source detail page later.
+                      Optional — you can save the source now and each user can sign in from the
+                      source detail page later.
                     </p>
                   </div>
                 )}

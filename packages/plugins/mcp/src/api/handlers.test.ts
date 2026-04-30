@@ -14,6 +14,7 @@ import { Effect, Layer } from "effect";
 import { addGroup, observabilityMiddleware } from "@executor/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor/api/server";
 import type { McpPluginExtension } from "../sdk/plugin";
+import { McpConnectionError } from "../sdk/errors";
 import { McpExtensionService, McpHandlers } from "./handlers";
 import { McpGroup } from "./group";
 
@@ -30,29 +31,32 @@ const failingExtension: McpPluginExtension = {
 
 const Api = addGroup(McpGroup);
 
+const webHandlerFor = (extension: McpPluginExtension) =>
+  Effect.acquireRelease(
+    Effect.sync(() =>
+      HttpApiBuilder.toWebHandler(
+        HttpApiBuilder.api(Api).pipe(
+          Layer.provide(CoreHandlers),
+          Layer.provide(McpHandlers),
+          Layer.provide(observabilityMiddleware(Api)),
+          Layer.provide(Layer.succeed(ExecutorService, {} as never)),
+          Layer.provide(Layer.succeed(ExecutionEngineService, {} as never)),
+          Layer.provide(Layer.succeed(McpExtensionService, extension)),
+          Layer.provideMerge(HttpServer.layerContext),
+          Layer.provideMerge(HttpApiBuilder.Router.Live),
+          Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+        ),
+      ),
+    ),
+    (web) => Effect.promise(() => web.dispose()),
+  );
+
 // `acquireRelease` keeps disposal inside the Effect scope — no
 // try/finally, no per-test cleanup plumbing. `it.scoped` closes the
 // scope for us. Each `Layer.provide` satisfies a piece of the api
 // builder's dependency graph; `provideMerge` at the bottom keeps
 // framework services available to the router itself.
-const WebHandler = Effect.acquireRelease(
-  Effect.sync(() =>
-    HttpApiBuilder.toWebHandler(
-      HttpApiBuilder.api(Api).pipe(
-        Layer.provide(CoreHandlers),
-        Layer.provide(McpHandlers),
-        Layer.provide(observabilityMiddleware(Api)),
-        Layer.provide(Layer.succeed(ExecutorService, {} as never)),
-        Layer.provide(Layer.succeed(ExecutionEngineService, {} as never)),
-        Layer.provide(Layer.succeed(McpExtensionService, failingExtension)),
-        Layer.provideMerge(HttpServer.layerContext),
-        Layer.provideMerge(HttpApiBuilder.Router.Live),
-        Layer.provideMerge(HttpApiBuilder.Middleware.layer),
-      ),
-    ),
-  ),
-  (web) => Effect.promise(() => web.dispose()),
-);
+const WebHandler = webHandlerFor(failingExtension);
 
 describe("McpHandlers", () => {
   it.scoped(
@@ -79,5 +83,38 @@ describe("McpHandlers", () => {
         expect(typeof body.traceId).toBe("string");
         expect(JSON.stringify(body)).not.toContain("Not implemented");
       }),
+  );
+
+  it.scoped("domain MCP connection errors are encoded as 400 responses", () =>
+    Effect.gen(function* () {
+      const web = yield* webHandlerFor({
+        ...failingExtension,
+        probeEndpoint: () =>
+          Effect.fail(
+            new McpConnectionError({
+              transport: "remote",
+              message:
+                "Failed to connect to MCP endpoint and no OAuth was detected. Do you need to provide an API key, header, or query parameter?",
+            }),
+          ),
+      });
+      const response = yield* Effect.promise(() =>
+        web.handler(
+          new Request("http://localhost/scopes/scope_1/mcp/probe", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ endpoint: "https://ui.sh/mcp" }),
+          }),
+        ),
+      );
+
+      expect(response.status).toBe(400);
+      const body = (yield* Effect.promise(() => response.json())) as {
+        _tag?: string;
+        message?: string;
+      };
+      expect(body._tag).toBe("McpConnectionError");
+      expect(body.message).toContain("Do you need to provide an API key");
+    }),
   );
 });

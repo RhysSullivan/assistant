@@ -51,34 +51,42 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
   (handlers) =>
     handlers
       .handle("probeDiscovery", ({ payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.probeDiscovery(payload.discoveryUrl);
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.probeDiscovery(payload.discoveryUrl);
+          }),
+        ),
       )
       .handle("addSource", ({ path, payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.addSource({
-            ...(payload as Omit<GoogleDiscoveryAddSourceInput, "scope">),
-            scope: path.scopeId,
-          });
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.addSource({
+              ...(payload as Omit<GoogleDiscoveryAddSourceInput, "scope">),
+              scope: path.scopeId,
+            });
+          }),
+        ),
       )
       .handle("getSource", ({ path }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.getSource(path.namespace, path.scopeId);
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            return yield* ext.getSource(path.namespace, path.scopeId);
+          }),
+        ),
       )
       .handle("updateSource", ({ path, payload }) =>
-        capture(Effect.gen(function* () {
-          const ext = yield* GoogleDiscoveryExtensionService;
-          yield* ext.updateSource(path.namespace, path.scopeId, {
-            name: payload.name,
-            auth: payload.auth,
-          });
-          return { updated: true };
-        })),
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GoogleDiscoveryExtensionService;
+            yield* ext.updateSource(path.namespace, path.scopeId, {
+              name: payload.name,
+              auth: payload.auth,
+            });
+            return { updated: true };
+          }),
+        ),
       ),
 );

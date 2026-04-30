@@ -233,6 +233,30 @@ describe("MCP elicitation (end-to-end)", () => {
     }),
   );
 
+  it.scoped("addSource preserves the configured display name over server metadata", () =>
+    Effect.gen(function* () {
+      const server = yield* serveMcpServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [mcpPlugin()] as const,
+        }),
+      );
+
+      yield* executor.mcp.addSource({
+        transport: "remote",
+        scope: "test-scope",
+        name: "Gmail",
+        endpoint: server.url,
+        namespace: "gmail",
+      });
+
+      const sources = yield* executor.sources.list();
+      const source = sources.find((s) => s.id === "gmail");
+
+      expect(source?.name).toBe("Gmail");
+    }),
+  );
+
   it.scoped("handler receives correct toolId, args, and FormElicitation schema", () =>
     Effect.gen(function* () {
       const server = yield* serveMcpServer;

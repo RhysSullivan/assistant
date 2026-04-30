@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, SearchIcon, XIcon } from "lucide-react";
+import type { EffectivePolicy, ToolPolicyAction } from "@executor/sdk";
 import { Button } from "./button";
 import { Input } from "./input";
 import { cn } from "../lib/utils";
@@ -13,7 +14,56 @@ export interface ToolSummary {
   readonly name: string;
   readonly pluginKey: string;
   readonly description?: string;
+  /** Resolved policy for this tool — combines user-authored rules and
+   *  plugin defaults into one answer. Always present. UI distinguishes
+   *  user vs default purely via `policy.source`. */
+  readonly policy: EffectivePolicy;
 }
+
+// Color + label for the per-row policy indicator. Mirrors the badges on
+// the /policies page so the same action looks the same everywhere.
+const POLICY_INDICATOR: Record<
+  ToolPolicyAction,
+  { readonly label: string; readonly dot: string; readonly ring: string }
+> = {
+  approve: {
+    label: "Auto-approve",
+    dot: "bg-emerald-500",
+    ring: "ring-emerald-500/70",
+  },
+  require_approval: {
+    label: "Require approval",
+    dot: "bg-amber-500",
+    ring: "ring-amber-500/70",
+  },
+  block: {
+    label: "Blocked",
+    dot: "bg-destructive",
+    ring: "ring-destructive/70",
+  },
+};
+
+// What the dot looks like for a given effective policy. Auto-approve as
+// a plugin default is silent (the safe state — no point cluttering every
+// row); everything else gets a dot. User policies are filled, plugin
+// defaults are hollow rings.
+const indicatorFor = (policy: EffectivePolicy) => {
+  if (policy.source === "plugin-default" && policy.action === "approve") {
+    return null;
+  }
+  const ind = POLICY_INDICATOR[policy.action];
+  const filled = policy.source === "user";
+  const label =
+    policy.source === "user"
+      ? `${ind.label} (matched ${policy.pattern})`
+      : `Plugin default: ${ind.label}`;
+  return {
+    label,
+    className: filled
+      ? ind.dot
+      : cn("bg-transparent ring-1", ind.ring),
+  };
+};
 
 type TreeNode = {
   segment: string;
@@ -360,6 +410,7 @@ function ToolLeafRow(props: {
   search: string;
 }) {
   const label = props.tool.name.split(".").pop() ?? props.tool.name;
+  const indicator = indicatorFor(props.tool.policy);
   return (
     <Button
       ref={props.buttonRef}
@@ -370,12 +421,20 @@ function ToolLeafRow(props: {
         props.active
           ? "bg-primary/15 text-foreground ring-1 ring-inset ring-primary/40 hover:bg-primary/20"
           : "text-foreground/80 hover:bg-accent/60 hover:text-foreground",
+        props.tool.policy.action === "block" && !props.active && "opacity-60",
       )}
       style={{ paddingLeft: rowIndent(props.depth) + 20, paddingRight: 12 }}
     >
       <span className="flex-1 truncate text-left font-mono">
         {highlightMatch(label, props.search)}
       </span>
+      {indicator && (
+        <span
+          aria-label={indicator.label}
+          title={indicator.label}
+          className={cn("shrink-0 size-1.5 rounded-full", indicator.className)}
+        />
+      )}
     </Button>
   );
 }

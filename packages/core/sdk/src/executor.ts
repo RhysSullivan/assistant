@@ -1,4 +1,5 @@
 import { Deferred, Effect, FiberRef, Option, Schema } from "effect";
+import { generateKeyBetween } from "fractional-indexing";
 import {
   StorageError,
   typedAdapter,
@@ -23,12 +24,15 @@ import {
 } from "./connections";
 import {
   coreSchema,
+  isToolPolicyAction,
   type ConnectionRow,
   type CoreSchema,
   type DefinitionsInput,
+  type SecretRow,
   type SourceInput,
   type SourceRow,
   type ToolAnnotations,
+  type ToolPolicyRow,
   type ToolRow,
 } from "./core-schema";
 import {
@@ -47,12 +51,23 @@ import {
   PluginNotLoadedError,
   SecretOwnedByConnectionError,
   SourceRemovalNotAllowedError,
+  ToolBlockedError,
   ToolInvocationError,
   ToolNotFoundError,
 } from "./errors";
 import { ConnectionId, ScopeId, SecretId, ToolId } from "./ids";
 import { makeOAuth2Service } from "./oauth-service";
 import type { OAuthService } from "./oauth";
+import {
+  comparePolicyRow,
+  isValidPattern,
+  resolveToolPolicy,
+  rowToToolPolicy,
+  type CreateToolPolicyInput,
+  type PolicyMatch,
+  type ToolPolicy,
+  type UpdateToolPolicyInput,
+} from "./policies";
 import type {
   AnyPlugin,
   Elicit,
@@ -144,6 +159,7 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     ) => Effect.Effect<
       unknown,
       | ToolNotFoundError
+      | ToolBlockedError
       | PluginNotLoadedError
       | NoHandlerError
       | ToolInvocationError
@@ -173,7 +189,7 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
   readonly secrets: {
     readonly get: (
       id: string,
-    ) => Effect.Effect<string | null, StorageFailure>;
+    ) => Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure>;
     /** Fast-path existence check — hits the core `secret` routing table
      *  only, never calls the provider. Use this for UI state ("secret
      *  missing, prompt to add") to avoid keychain permission prompts
@@ -233,6 +249,29 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
   /** Shared OAuth service. Hosts use this through the core HTTP OAuth group;
    *  plugins see the same service as `ctx.oauth`. */
   readonly oauth: OAuthService;
+
+  readonly policies: {
+    /** All policies visible across the executor's scope stack, sorted
+     *  by (innermost-scope-first, position ascending) — i.e. the order
+     *  in which they're evaluated by first-match-wins. */
+    readonly list: () => Effect.Effect<readonly ToolPolicy[], StorageFailure>;
+    /** Create a new policy. Defaults to the top of the target scope's
+     *  list (highest precedence) when `position` is omitted. */
+    readonly create: (
+      input: CreateToolPolicyInput,
+    ) => Effect.Effect<ToolPolicy, StorageFailure>;
+    readonly update: (
+      input: UpdateToolPolicyInput,
+    ) => Effect.Effect<ToolPolicy, StorageFailure>;
+    readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
+    /** Resolve the effective policy for a tool id by walking the scope-
+     *  stacked policy list with first-match-wins semantics. Returns
+     *  `undefined` when no rule matches (caller falls back to the
+     *  plugin's `resolveAnnotations` output). */
+    readonly resolve: (
+      toolId: string,
+    ) => Effect.Effect<PolicyMatch | undefined, StorageFailure>;
+  };
 
   readonly close: () => Effect.Effect<void, StorageFailure>;
 } & PluginExtensions<TPlugins>;
@@ -702,16 +741,19 @@ export const createExecutor = <
       return winner ?? null;
     };
 
-    const secretsGet = (
+    const secretRowsForId = (
       id: string,
+    ): Effect.Effect<readonly SecretRow[], StorageFailure> =>
+      core.findMany({
+        model: "secret",
+        where: [{ field: "id", value: id }],
+      }) as Effect.Effect<readonly SecretRow[], StorageFailure>;
+
+    const resolveSecretValueFromRows = (
+      id: string,
+      rows: readonly SecretRow[],
     ): Effect.Effect<string | null, StorageFailure> =>
       Effect.gen(function* () {
-        // The scope-wrapped adapter injects `scope_id IN (scopeIds)`
-        // automatically, so we only filter by id here.
-        const rows = yield* core.findMany({
-          model: "secret",
-          where: [{ field: "id", value: id }],
-        });
         const ordered = [...rows].sort(
           (a, b) =>
             (scopePrecedence.get(a.scope_id as string) ?? Infinity) -
@@ -746,6 +788,45 @@ export const createExecutor = <
         for (const value of values) if (value !== null) return value;
         return null;
       });
+
+    const secretsGet = (
+      id: string,
+    ): Effect.Effect<string | null, SecretOwnedByConnectionError | StorageFailure> =>
+      Effect.gen(function* () {
+        // The scope-wrapped adapter injects `scope_id IN (scopeIds)`
+        // automatically, so we only filter by id here. Connection-owned
+        // token rows are internal plumbing; public secret resolution
+        // must not expose them even if a token secret id is leaked.
+        const rows = yield* secretRowsForId(id);
+        const owned = rows.find((row) => row.owned_by_connection_id);
+        if (owned) {
+          return yield* Effect.fail(
+            new SecretOwnedByConnectionError({
+              secretId: SecretId.make(id),
+              connectionId: ConnectionId.make(
+                owned.owned_by_connection_id as string,
+              ),
+            }),
+          );
+        }
+        return yield* resolveSecretValueFromRows(id, rows);
+      });
+
+    const connectionSecretGet = (
+      id: string,
+    ): Effect.Effect<string | null, StorageFailure> =>
+      Effect.gen(function* () {
+        const rows = yield* secretRowsForId(id);
+        return yield* resolveSecretValueFromRows(id, rows);
+      });
+
+    const secretRouteHasBackingValue = (row: SecretRow) => {
+      const provider = secretProviders.get(row.provider as string);
+      if (!provider?.has) return Effect.succeed(true);
+      return provider
+        .has(row.id as string, row.scope_id as string)
+        .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    };
 
     const secretsSet = (
       input: SetSecretInput,
@@ -957,7 +1038,10 @@ export const createExecutor = <
             }),
           );
         };
-        for (const row of rows) pick(row);
+        for (const row of rows) {
+          const hasBackingValue = yield* secretRouteHasBackingValue(row);
+          if (hasBackingValue) pick(row);
+        }
 
         // Then every provider that can enumerate itself, in parallel.
         // If a provider fails to list (unlocked vault, network error),
@@ -1477,7 +1561,7 @@ export const createExecutor = <
         }
 
         const refreshTokenValue = ref.refreshTokenSecretId
-          ? yield* secretsGet(ref.refreshTokenSecretId as unknown as string)
+          ? yield* connectionSecretGet(ref.refreshTokenSecretId as unknown as string)
           : null;
 
         // RFC 6749 §5.2 `invalid_grant` (and anything else the
@@ -1553,7 +1637,7 @@ export const createExecutor = <
           ref.expiresAt - CONNECTION_REFRESH_SKEW_MS <= now;
 
         if (!needsRefresh) {
-          const current = yield* secretsGet(
+          const current = yield* connectionSecretGet(
             ref.accessTokenSecretId as unknown as string,
           );
           if (current !== null) return current;
@@ -1608,7 +1692,12 @@ export const createExecutor = <
     const oauthBundle = makeOAuth2Service({
       adapter: core,
       rawAdapter: adapter,
-      secretsGet: (id) => secretsGet(id),
+      secretsGet: (id) =>
+        secretsGet(id).pipe(
+          Effect.catchTag("SecretOwnedByConnectionError", () =>
+            Effect.succeed(null),
+          ),
+        ),
       secretsSet: (input) => secretsSet(input),
       connectionsCreate: (input) => connectionsCreate(input),
     });
@@ -1712,6 +1801,19 @@ export const createExecutor = <
                   );
                 }),
               ),
+            update: (input) =>
+              core.update({
+                model: "source",
+                where: [
+                  { field: "id", value: input.id },
+                  { field: "scope_id", value: input.scope },
+                ],
+                update: {
+                  ...(input.name !== undefined ? { name: input.name } : {}),
+                  ...(input.url !== undefined ? { url: input.url ?? undefined } : {}),
+                  updated_at: new Date(),
+                },
+              }).pipe(Effect.asVoid),
           },
           definitions: {
             register: (input: DefinitionsInput) =>
@@ -1952,11 +2054,37 @@ export const createExecutor = <
         for (const row of dynamicDeduped) {
           out.push(rowToTool(row, annotations.get(row.id)));
         }
-        const result = filter ? out.filter((t) => toolMatchesFilter(t, filter)) : out;
+        const filtered = filter
+          ? out.filter((t) => toolMatchesFilter(t, filter))
+          : out;
+
+        // Drop tools blocked by user policy unless the caller explicitly
+        // asked to see them (the settings UI does, agent surfaces don't).
+        // One findMany covers the entire scope stack; resolution per
+        // tool is in-memory.
+        let result = filtered;
+        let blockedCount = 0;
+        if (filter?.includeBlocked !== true) {
+          const policies = yield* loadAllPolicies();
+          if (policies.length > 0) {
+            const kept: Tool[] = [];
+            for (const tool of filtered) {
+              const match = resolveToolPolicy(tool.id, policies, scopeRank);
+              if (match?.action === "block") {
+                blockedCount++;
+                continue;
+              }
+              kept.push(tool);
+            }
+            result = kept;
+          }
+        }
+
         yield* Effect.annotateCurrentSpan({
           "executor.tools.static_count": staticTools.size,
           "executor.tools.dynamic_count": dynamicDeduped.length,
           "executor.tools.result_count": result.length,
+          "executor.tools.blocked_count": blockedCount,
         });
         return result;
       }).pipe(Effect.withSpan("executor.tools.list"));
@@ -2138,18 +2266,51 @@ export const createExecutor = <
         });
     };
 
+    // ------------------------------------------------------------------
+    // Tool policies — user-authored overrides of the plugin-derived
+    // approval annotations. Resolution walks the scope-stacked policy
+    // table with first-match-wins ordering (innermost scope first, then
+    // `position` ascending). The result either short-circuits invoke
+    // (`block`), forces approval (`require_approval`), skips approval
+    // (`approve`), or returns `undefined` so the plugin annotation is
+    // used as today.
+    // ------------------------------------------------------------------
+
+    const loadAllPolicies = () =>
+      core.findMany({ model: "tool_policy" });
+
+    const resolveToolPolicyForId = (toolId: string) =>
+      Effect.gen(function* () {
+        const policies = yield* loadAllPolicies();
+        return resolveToolPolicy(toolId, policies, scopeRank);
+      });
+
     const enforceApproval = (
       annotations: ToolAnnotations | undefined,
       toolId: string,
       args: unknown,
       options: InvokeOptions | undefined,
+      policy: PolicyMatch | undefined,
     ) =>
       Effect.gen(function* () {
-        if (!annotations?.requiresApproval) return;
+        // approve → never prompt regardless of plugin annotation.
+        if (policy?.action === "approve") return;
+
+        // require_approval → always prompt. If the plugin already had a
+        // description, prefer it; otherwise show the matched pattern so
+        // the user can see *why* the prompt fired.
+        const policyForcesApproval = policy?.action === "require_approval";
+        if (!policyForcesApproval && !annotations?.requiresApproval) return;
+
         const handler = resolveElicitationHandler(options);
         const tid = ToolId.make(toolId);
+        const message = annotations?.approvalDescription
+          ? annotations.approvalDescription
+          : policyForcesApproval && policy
+            ? `Approve ${toolId}? (matched policy: ${policy.pattern})`
+            : `Approve ${toolId}?`;
         const request = new FormElicitation({
-          message: annotations.approvalDescription ?? `Approve ${toolId}?`,
+          message,
           requestedSchema: {},
         });
         const response = yield* handler({ toolId: tid, args, request });
@@ -2182,6 +2343,19 @@ export const createExecutor = <
             ),
           );
 
+        // Resolve the user-authored policy first. A `block` rule
+        // short-circuits both the static and dynamic paths before any
+        // plugin code runs.
+        const policy = yield* resolveToolPolicyForId(toolId).pipe(
+          Effect.withSpan("executor.tool.resolve_policy"),
+        );
+        if (policy?.action === "block") {
+          return yield* new ToolBlockedError({
+            toolId: ToolId.make(toolId),
+            pattern: policy.pattern,
+          });
+        }
+
         // Static path — O(1) map lookup, no DB hit.
         const staticEntry = staticTools.get(toolId);
         if (staticEntry) {
@@ -2196,6 +2370,7 @@ export const createExecutor = <
             toolId,
             args,
             options,
+            policy,
           ).pipe(Effect.withSpan("executor.tool.enforce_approval"));
           return yield* wrapInvocationError(
             staticEntry.tool.handler({
@@ -2245,9 +2420,11 @@ export const createExecutor = <
         // has a resolver. Cheap because the plugin typically already
         // needs to load its enrichment data to invoke the tool —
         // implementations should structure their resolver + invokeTool
-        // around a single storage read.
+        // around a single storage read. Skipped entirely when the user
+        // policy is `approve` — the prompt is going to be skipped no
+        // matter what the plugin says, so don't pay for the lookup.
         let annotations: ToolAnnotations | undefined;
-        if (runtime.plugin.resolveAnnotations) {
+        if (policy?.action !== "approve" && runtime.plugin.resolveAnnotations) {
           const map = yield* runtime.plugin
             .resolveAnnotations({
               ctx: runtime.ctx,
@@ -2257,7 +2434,7 @@ export const createExecutor = <
             .pipe(Effect.withSpan("executor.tool.resolve_annotations"));
           annotations = map[toolId];
         }
-        yield* enforceApproval(annotations, toolId, args, options).pipe(
+        yield* enforceApproval(annotations, toolId, args, options, policy).pipe(
           Effect.withSpan("executor.tool.enforce_approval"),
         );
 
@@ -2343,6 +2520,19 @@ export const createExecutor = <
     // `detect` hook. Collect all non-null results. Plugin-level detect
     // implementations should swallow fetch errors and return null, so
     // one flaky plugin doesn't block the whole dispatch.
+    const detectionConfidenceScore = (
+      confidence: SourceDetectionResult["confidence"],
+    ) => {
+      switch (confidence) {
+        case "high":
+          return 3;
+        case "medium":
+          return 2;
+        case "low":
+          return 1;
+      }
+    };
+
     const detectSource = (url: string) =>
       Effect.gen(function* () {
         const results: SourceDetectionResult[] = [];
@@ -2353,28 +2543,31 @@ export const createExecutor = <
             .pipe(Effect.catchAll(() => Effect.succeed(null)));
           if (result) results.push(result);
         }
-        return results;
+        return results.sort(
+          (a, b) =>
+            detectionConfidenceScore(b.confidence) -
+            detectionConfidenceScore(a.confidence),
+        );
       });
 
     // Per-source definitions accessor — one query, one mapping pass.
     const sourceDefinitions = (sourceId: string) =>
       loadDefinitionsForSource(sourceId);
 
-    // Fast-path existence check. Hits the core `secret` routing row
-    // first (no provider call). If no routing row, walks enumerating
-    // providers and checks their lists for a matching id — same
-    // fallback strategy as secretsGet. Still avoids provider.get()
-    // so no keychain permission prompts / 1password value IPC fires
-    // just to ask "does this exist?"
+    // Existence check for user-facing secret pickers. Core `secret`
+    // rows are routing metadata; when a provider can answer `has()`,
+    // confirm the backing value still exists. Providers without `has()`
+    // remain conservative so keychain/1password don't need to return
+    // the value or prompt just to populate picker/status UI.
     const secretsStatus = (
       id: string,
     ): Effect.Effect<"resolved" | "missing", StorageFailure> =>
       Effect.gen(function* () {
-        const row = yield* core.findOne({
-          model: "secret",
-          where: [{ field: "id", value: id }],
-        });
-        if (row) return "resolved";
+        const rows = yield* secretRowsForId(id);
+        if (rows.some((row) => row.owned_by_connection_id)) return "missing";
+        for (const row of rows) {
+          if (yield* secretRouteHasBackingValue(row)) return "resolved";
+        }
 
         for (const provider of secretProviders.values()) {
           if (!provider.list) continue;
@@ -2385,6 +2578,156 @@ export const createExecutor = <
         }
         return "missing";
       });
+
+    // ------------------------------------------------------------------
+    // Policies — CRUD surface backed by the `tool_policy` core table.
+    // The cloud settings UI is one consumer; plugins call the same API
+    // when they programmatically manage policies.
+    //
+    // `list` orders rows the same way resolution does — innermost scope
+    // first, then position ascending — so the UI can render the
+    // evaluation order without re-sorting.
+    // ------------------------------------------------------------------
+    const policiesList = () =>
+      Effect.gen(function* () {
+        const rows = yield* loadAllPolicies();
+        const sorted = [...rows].sort((a, b) => {
+          const sa = scopeRank(a);
+          const sb = scopeRank(b);
+          if (sa !== sb) return sa - sb;
+          return comparePolicyRow(a, b);
+        });
+        return sorted.map((row) => rowToToolPolicy(row));
+      }).pipe(Effect.withSpan("executor.policies.list"));
+
+    const policiesCreate = (input: CreateToolPolicyInput) =>
+      Effect.gen(function* () {
+        if (!isValidPattern(input.pattern)) {
+          return yield* new StorageError({
+            message:
+              `Invalid tool policy pattern "${input.pattern}". ` +
+              `Patterns must be "*" (every tool), an exact tool id ("a.b.c"), ` +
+              `or a trailing wildcard ("a.b.*"). Leading "*" prefixes ` +
+              `("*foo", "*.foo") and "**" are not supported.`,
+            cause: undefined,
+          });
+        }
+        if (!isToolPolicyAction(input.action)) {
+          return yield* new StorageError({
+            message:
+              `Invalid tool policy action "${String(input.action)}". ` +
+              `Expected "approve" | "require_approval" | "block".`,
+            cause: undefined,
+          });
+        }
+
+        // Default position: a fractional-indexing key above the
+        // current minimum. Lets newly-created rules win against
+        // existing ones, which matches the v1 design — users typically
+        // add a rule to override behavior they're seeing right now,
+        // not as a background fallback.
+        let position = input.position;
+        if (position === undefined) {
+          const existing = yield* core.findMany({
+            model: "tool_policy",
+            where: [{ field: "scope_id", value: input.scope }],
+          });
+          let min: string | null = null;
+          for (const row of existing) {
+            const p = row.position as string;
+            if (min === null || p < min) min = p;
+          }
+          position = generateKeyBetween(null, min);
+        }
+
+        const id = `pol_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+        const now = new Date();
+        yield* core.create({
+          model: "tool_policy",
+          data: {
+            id,
+            scope_id: input.scope,
+            pattern: input.pattern,
+            action: input.action,
+            position,
+            created_at: now,
+            updated_at: now,
+          },
+          forceAllowId: true,
+        });
+        return rowToToolPolicy({
+          id,
+          scope_id: input.scope,
+          pattern: input.pattern,
+          action: input.action,
+          position,
+          created_at: now,
+          updated_at: now,
+        } as ToolPolicyRow);
+      }).pipe(Effect.withSpan("executor.policies.create"));
+
+    const policiesUpdate = (input: UpdateToolPolicyInput) =>
+      Effect.gen(function* () {
+        if (input.pattern !== undefined && !isValidPattern(input.pattern)) {
+          return yield* new StorageError({
+            message: `Invalid tool policy pattern "${input.pattern}".`,
+            cause: undefined,
+          });
+        }
+        if (input.action !== undefined && !isToolPolicyAction(input.action)) {
+          return yield* new StorageError({
+            message: `Invalid tool policy action "${String(input.action)}".`,
+            cause: undefined,
+          });
+        }
+
+        const rows = yield* core.findMany({
+          model: "tool_policy",
+          where: [{ field: "id", value: input.id }],
+        });
+        const row = findInnermost(rows);
+        if (!row) {
+          return yield* new StorageError({
+            message: `Tool policy "${input.id}" not found.`,
+            cause: undefined,
+          });
+        }
+
+        const updated: ToolPolicyRow = {
+          ...row,
+          pattern: input.pattern ?? row.pattern,
+          action: input.action ?? row.action,
+          position: input.position ?? row.position,
+          updated_at: new Date(),
+        };
+        yield* core.update({
+          model: "tool_policy",
+          where: [
+            { field: "id", value: input.id },
+            { field: "scope_id", value: row.scope_id as string },
+          ],
+          update: {
+            pattern: updated.pattern as string,
+            action: updated.action as string,
+            position: updated.position as string,
+            updated_at: updated.updated_at as Date,
+          },
+        });
+        return rowToToolPolicy(updated);
+      }).pipe(Effect.withSpan("executor.policies.update"));
+
+    const policiesRemove = (id: string) =>
+      core
+        .deleteMany({
+          model: "tool_policy",
+          where: [{ field: "id", value: id }],
+        })
+        .pipe(Effect.asVoid, Effect.withSpan("executor.policies.remove"));
+
+    const policiesResolve = (toolId: string) =>
+      resolveToolPolicyForId(toolId).pipe(
+        Effect.withSpan("executor.policies.resolve"),
+      );
 
     const close = () =>
       Effect.gen(function* () {
@@ -2441,6 +2784,13 @@ export const createExecutor = <
           ),
       },
       oauth: oauthBundle.service,
+      policies: {
+        list: policiesList,
+        create: policiesCreate,
+        update: policiesUpdate,
+        remove: policiesRemove,
+        resolve: policiesResolve,
+      },
       close,
     };
 

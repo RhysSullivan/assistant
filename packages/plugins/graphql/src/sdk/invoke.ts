@@ -2,11 +2,7 @@ import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 
 import { GraphqlInvocationError } from "./errors";
-import {
-  type HeaderValue,
-  type OperationBinding,
-  InvocationResult,
-} from "./types";
+import { type HeaderValue, type OperationBinding, InvocationResult } from "./types";
 
 // ---------------------------------------------------------------------------
 // Header resolution — resolves secret refs at invocation time
@@ -36,12 +32,7 @@ export const resolveHeaders = (
               Effect.catchAll(() => Effect.succeed<string | null>(null)),
               Effect.map((secret) => ({
                 name,
-                value:
-                  secret === null
-                    ? null
-                    : value.prefix
-                      ? `${value.prefix}${secret}`
-                      : secret,
+                value: secret === null ? null : value.prefix ? `${value.prefix}${secret}` : secret,
               })),
             ),
       ),
@@ -60,6 +51,15 @@ export const resolveHeaders = (
       },
     }),
   );
+};
+
+const endpointWithQueryParams = (endpoint: string, queryParams: Record<string, string>): string => {
+  if (Object.keys(queryParams).length === 0) return endpoint;
+  const url = new URL(endpoint);
+  for (const [name, value] of Object.entries(queryParams)) {
+    url.searchParams.set(name, value);
+  }
+  return url.toString();
 };
 
 // ---------------------------------------------------------------------------
@@ -83,16 +83,19 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
   args: Record<string, unknown>,
   endpoint: string,
   resolvedHeaders: Record<string, string>,
+  resolvedQueryParams: Record<string, string> = {},
 ) {
   const client = yield* HttpClient.HttpClient;
+  const requestEndpoint = endpointWithQueryParams(endpoint, resolvedQueryParams);
 
   yield* Effect.annotateCurrentSpan({
     "http.method": "POST",
-    "http.url": endpoint,
+    "http.url": requestEndpoint,
     "plugin.graphql.endpoint": endpoint,
     "plugin.graphql.operation_kind": operation.kind,
     "plugin.graphql.field_name": operation.fieldName,
     "plugin.graphql.headers.resolved_count": Object.keys(resolvedHeaders).length,
+    "plugin.graphql.query_params.resolved_count": Object.keys(resolvedQueryParams).length,
   });
 
   // Build the GraphQL request body
@@ -108,7 +111,7 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
     Object.assign(variables, args.variables);
   }
 
-  let request = HttpClientRequest.post(endpoint).pipe(
+  let request = HttpClientRequest.post(requestEndpoint).pipe(
     HttpClientRequest.setHeader("Content-Type", "application/json"),
     HttpClientRequest.bodyUnsafeJson({
       query: operation.operationString,
@@ -164,9 +167,10 @@ export const invokeWithLayer = (
   args: Record<string, unknown>,
   endpoint: string,
   resolvedHeaders: Record<string, string>,
+  resolvedQueryParams: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
 ) =>
-  invoke(operation, args, endpoint, resolvedHeaders).pipe(
+  invoke(operation, args, endpoint, resolvedHeaders, resolvedQueryParams).pipe(
     Effect.provide(httpClientLayer),
     Effect.mapError((err) =>
       err instanceof GraphqlInvocationError

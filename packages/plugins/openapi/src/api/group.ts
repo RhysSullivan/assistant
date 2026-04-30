@@ -3,11 +3,7 @@ import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
-import {
-  OpenApiParseError,
-  OpenApiExtractionError,
-  OpenApiOAuthError,
-} from "../sdk/errors";
+import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
 import { StoredSourceSchema } from "../sdk/store";
 import {
@@ -25,27 +21,44 @@ const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 const sourceScopeIdParam = HttpApiSchema.param("sourceScopeId", ScopeId);
 
+const SecretBackedValue = Schema.Union(
+  Schema.String,
+  Schema.Struct({
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+);
+
+const SpecFetchCredentialsPayload = Schema.Struct({
+  headers: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
+  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
+});
+
 // ---------------------------------------------------------------------------
 // Payloads
 // ---------------------------------------------------------------------------
 
 const AddSpecPayload = Schema.Struct({
   spec: Schema.String,
+  specFetchCredentials: Schema.optional(SpecFetchCredentialsPayload),
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
   oauth2: Schema.optional(Schema.Union(OAuth2Auth, OAuth2SourceConfig)),
 });
 
 const PreviewSpecPayload = Schema.Struct({
   spec: Schema.String,
+  specFetchCredentials: Schema.optional(SpecFetchCredentialsPayload),
 });
 
 const UpdateSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
   // Set after a successful re-authenticate to refresh the source's
   // stored OAuth2 metadata.
   oauth2: Schema.optional(Schema.Union(OAuth2Auth, OAuth2SourceConfig)),
@@ -183,8 +196,11 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
       .addSuccess(AddSpecResponse),
   )
   .add(
-    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
-      .addSuccess(Schema.NullOr(StoredSourceSchema)),
+    HttpApiEndpoint.get(
+      "getSource",
+    )`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`.addSuccess(
+      Schema.NullOr(StoredSourceSchema),
+    ),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
@@ -194,8 +210,9 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
   .add(
     HttpApiEndpoint.get(
       "listSourceBindings",
-    )`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}/base/${sourceScopeIdParam}/bindings`
-      .addSuccess(Schema.Array(OpenApiSourceBindingRef)),
+    )`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}/base/${sourceScopeIdParam}/bindings`.addSuccess(
+      Schema.Array(OpenApiSourceBindingRef),
+    ),
   )
   .add(
     HttpApiEndpoint.post("setSourceBinding")`/scopes/${scopeIdParam}/openapi/source-bindings`
@@ -203,7 +220,9 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
       .addSuccess(OpenApiSourceBindingRef),
   )
   .add(
-    HttpApiEndpoint.post("removeSourceBinding")`/scopes/${scopeIdParam}/openapi/source-bindings/remove`
+    HttpApiEndpoint.post(
+      "removeSourceBinding",
+    )`/scopes/${scopeIdParam}/openapi/source-bindings/remove`
       .setPayload(RemoveBindingPayload)
       .addSuccess(Schema.Struct({ removed: Schema.Boolean })),
   )
@@ -221,9 +240,7 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
     HttpApiEndpoint.get("oauthCallback", "/openapi/oauth/callback")
       .setUrlParams(OAuthCallbackUrlParams)
       .addSuccess(
-        Schema.Unknown.annotations(
-          HttpApiSchema.annotations({ contentType: "text/html" }),
-        ),
+        Schema.Unknown.annotations(HttpApiSchema.annotations({ contentType: "text/html" })),
       ),
   )
   // Errors declared once at the group level — every endpoint inherits.

@@ -34,6 +34,7 @@ import { probeMcpEndpointShape } from "./probe-shape";
 import {
   McpToolBinding,
   type McpConnectionAuth,
+  type SecretBackedValue,
   type McpStoredSourceData,
 } from "./types";
 
@@ -63,8 +64,8 @@ export interface McpRemoteSourceConfig extends McpSourceScopeField {
   readonly name: string;
   readonly endpoint: string;
   readonly remoteTransport?: "streamable-http" | "sse" | "auto";
-  readonly queryParams?: Record<string, string>;
-  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, SecretBackedValue>;
+  readonly headers?: Record<string, SecretBackedValue>;
   readonly namespace?: string;
   readonly auth?: McpConnectionAuth;
 }
@@ -101,9 +102,15 @@ export interface McpProbeResult {
 export interface McpUpdateSourceInput {
   readonly name?: string;
   readonly endpoint?: string;
-  readonly headers?: Record<string, string>;
-  readonly queryParams?: Record<string, string>;
+  readonly headers?: Record<string, SecretBackedValue>;
+  readonly queryParams?: Record<string, SecretBackedValue>;
   readonly auth?: McpConnectionAuth;
+}
+
+export interface McpProbeEndpointInput {
+  readonly endpoint: string;
+  readonly headers?: Record<string, SecretBackedValue>;
+  readonly queryParams?: Record<string, SecretBackedValue>;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +200,49 @@ const remoteConnectionError = (message: string) =>
 const mcpDiscoveryError = (message: string) =>
   new McpToolDiscoveryError({ stage: "list_tools", message });
 
+const resolveSecretBackedValue = (
+  value: SecretBackedValue,
+  ctx: PluginCtx<McpBindingStore>,
+): Effect.Effect<string, McpConnectionError | StorageFailure> => {
+  if (typeof value === "string") return Effect.succeed(value);
+  return ctx.secrets.get(value.secretId).pipe(
+    Effect.mapError((err) =>
+      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+        ? remoteConnectionError(`Failed to resolve secret "${value.secretId}"`)
+        : err,
+    ),
+    Effect.flatMap((secret) =>
+      secret === null
+        ? Effect.fail(remoteConnectionError(`Failed to resolve secret "${value.secretId}"`))
+        : Effect.succeed(value.prefix ? `${value.prefix}${secret}` : secret),
+    ),
+  );
+};
+
+const resolveSecretBackedMap = (
+  values: Record<string, SecretBackedValue> | undefined,
+  ctx: PluginCtx<McpBindingStore>,
+): Effect.Effect<Record<string, string> | undefined, McpConnectionError | StorageFailure> => {
+  if (!values) return Effect.succeed(undefined);
+  return Effect.forEach(Object.entries(values), ([key, value]) =>
+    Effect.map(resolveSecretBackedValue(value, ctx), (resolved) => [key, resolved] as const),
+  ).pipe(
+    Effect.map((entries) =>
+      entries.length > 0 ? Object.fromEntries(entries) : undefined,
+    ),
+  );
+};
+
+const plainStringMap = (
+  values: Record<string, SecretBackedValue> | undefined,
+): Record<string, string> | undefined => {
+  if (!values) return undefined;
+  const entries = Object.entries(values).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+};
+
 // ---------------------------------------------------------------------------
 // Shared connector resolution — reads secrets, builds stdio/remote input
 // ---------------------------------------------------------------------------
@@ -222,12 +272,20 @@ const resolveConnectorInput = (
   }
 
   return Effect.gen(function* () {
-    const headers: Record<string, string> = { ...sd.headers };
+    const resolvedHeaders = yield* resolveSecretBackedMap(sd.headers, ctx);
+    const resolvedQueryParams = yield* resolveSecretBackedMap(sd.queryParams, ctx);
+    const headers: Record<string, string> = { ...(resolvedHeaders ?? {}) };
     let authProvider: OAuthClientProvider | undefined;
 
     const auth = sd.auth;
     if (auth.kind === "header") {
-      const val = yield* ctx.secrets.get(auth.secretId);
+      const val = yield* ctx.secrets.get(auth.secretId).pipe(
+        Effect.mapError((err) =>
+          "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+            ? remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`)
+            : err,
+        ),
+      );
       if (val === null) {
         return yield* Effect.fail(
           remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`),
@@ -260,7 +318,7 @@ const resolveConnectorInput = (
       transport: "remote" as const,
       endpoint: sd.endpoint,
       remoteTransport: sd.remoteTransport,
-      queryParams: sd.queryParams,
+      queryParams: resolvedQueryParams,
       headers: Object.keys(headers).length > 0 ? headers : undefined,
       authProvider,
     };
@@ -378,8 +436,8 @@ const toMcpConfigEntry = (
     name: sourceName,
     endpoint: config.endpoint,
     remoteTransport: config.remoteTransport,
-    queryParams: config.queryParams,
-    headers: config.headers,
+    queryParams: plainStringMap(config.queryParams),
+    headers: plainStringMap(config.headers),
     namespace,
     auth: authToConfig(config.auth),
   };
@@ -411,8 +469,9 @@ export const mcpPlugin = definePlugin(
       storage: (deps): McpBindingStore => makeMcpStore(deps),
 
       extension: (ctx) => {
-        const probeEndpoint = (endpoint: string) =>
+        const probeEndpoint = (input: string | McpProbeEndpointInput) =>
           Effect.gen(function* () {
+            const endpoint = typeof input === "string" ? input : input.endpoint;
             const trimmed = endpoint.trim();
             if (!trimmed) {
               return yield* Effect.fail(
@@ -425,9 +484,20 @@ export const mcpPlugin = definePlugin(
             ).pipe(Effect.orElseSucceed(() => "mcp"));
             const namespace = deriveMcpNamespace({ endpoint: trimmed });
 
+            const probeHeaders =
+              typeof input === "string"
+                ? undefined
+                : yield* resolveSecretBackedMap(input.headers, ctx);
+            const probeQueryParams =
+              typeof input === "string"
+                ? undefined
+                : yield* resolveSecretBackedMap(input.queryParams, ctx);
+
             const connector = createMcpConnector({
               transport: "remote",
               endpoint: trimmed,
+              headers: probeHeaders,
+              queryParams: probeQueryParams,
             });
 
             const result = yield* discoverTools(connector).pipe(
@@ -455,7 +525,10 @@ export const mcpPlugin = definePlugin(
             // RFC 9728 + 8414 metadata) would otherwise pass the OAuth
             // probe and be misclassified as MCP. The shape probe rejects
             // anything whose initialize response isn't 2xx or 401+Bearer.
-            const shape = yield* probeMcpEndpointShape(trimmed);
+            const shape = yield* probeMcpEndpointShape(trimmed, {
+              headers: probeHeaders,
+              queryParams: probeQueryParams,
+            });
             if (shape.kind !== "mcp") {
               return yield* Effect.fail(
                 remoteConnectionError(
@@ -467,7 +540,9 @@ export const mcpPlugin = definePlugin(
             }
 
             const probeResult = yield* ctx.oauth
-              .probe({ endpoint: trimmed })
+              .probe({
+                endpoint: trimmed,
+              })
               .pipe(
                 Effect.map(() => true),
                 Effect.catchAll(() => Effect.succeed(false)),
@@ -492,7 +567,7 @@ export const mcpPlugin = definePlugin(
             );
           }).pipe(
             Effect.withSpan("mcp.plugin.probe_endpoint", {
-              attributes: { "mcp.endpoint": endpoint },
+              attributes: { "mcp.endpoint": typeof input === "string" ? input : input.endpoint },
             }),
           );
 
@@ -545,7 +620,7 @@ export const mcpPlugin = definePlugin(
                 ? discovery.right
                 : { server: undefined, tools: [] as const };
 
-            const sourceName = manifest.server?.name ?? config.name ?? namespace;
+            const sourceName = config.name ?? manifest.server?.name ?? namespace;
 
             yield* ctx
               .transaction(
@@ -975,7 +1050,7 @@ export type McpExtensionFailure =
 
 export interface McpPluginExtension {
   readonly probeEndpoint: (
-    endpoint: string,
+    input: string | McpProbeEndpointInput,
   ) => Effect.Effect<McpProbeResult, McpExtensionFailure>;
   readonly addSource: (
     config: McpSourceConfig,

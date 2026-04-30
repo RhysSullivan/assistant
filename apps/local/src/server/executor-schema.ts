@@ -101,6 +101,20 @@ export const oauth2_session = sqliteTable("oauth2_session", {
   index("oauth2_session_connection_id_idx").on(table.connection_id),
 ]);
 
+export const tool_policy = sqliteTable("tool_policy", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  pattern: text('pattern').notNull(),
+  action: text('action').notNull(),
+  position: text('position').notNull(),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("tool_policy_scope_id_idx").on(table.scope_id),
+  index("tool_policy_position_idx").on(table.position),
+]);
+
 export const openapi_source = sqliteTable("openapi_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
@@ -109,6 +123,7 @@ export const openapi_source = sqliteTable("openapi_source", {
   source_url: text('source_url'),
   base_url: text('base_url'),
   headers: text('headers', { mode: "json" }),
+  query_params: text('query_params', { mode: "json" }),
   oauth2: text('oauth2', { mode: "json" }),
   invocation_config: text('invocation_config', { mode: "json" }).notNull()
 }, (table) => [
@@ -195,7 +210,8 @@ export const graphql_source = sqliteTable("graphql_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   endpoint: text('endpoint').notNull(),
-  headers: text('headers', { mode: "json" })
+  headers: text('headers', { mode: "json" }),
+  query_params: text('query_params', { mode: "json" })
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_source_scope_id_idx").on(table.scope_id),

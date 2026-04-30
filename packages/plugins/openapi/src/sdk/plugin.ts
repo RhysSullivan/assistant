@@ -78,6 +78,7 @@ export interface OpenApiSpecConfig {
   readonly baseUrl?: string;
   readonly namespace?: string;
   readonly headers?: Record<string, OpenApiHeaderInput>;
+  readonly queryParams?: Record<string, HeaderValue>;
   readonly oauth2?: OpenApiOAuthInput;
 }
 
@@ -85,6 +86,7 @@ export interface OpenApiUpdateSourceInput {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, OpenApiHeaderInput>;
+  readonly queryParams?: Record<string, HeaderValue>;
   /** Refresh the source's stored OAuth2 metadata after a successful
    *  re-authenticate. */
   readonly oauth2?: OpenApiOAuthInput;
@@ -512,7 +514,15 @@ const resolveConfiguredHeaders = (
         value.slot,
       );
       if (binding?.value.kind === "secret") {
-        const secret = yield* ctx.secrets.get(binding.value.secretId as string);
+        const secret = yield* ctx.secrets.get(binding.value.secretId as string).pipe(
+          Effect.mapError((err) =>
+            "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+              ? new OpenApiOAuthError({
+                  message: `Secret not found for header "${name}"`,
+                })
+              : err,
+          ),
+        );
         if (secret === null) {
           return yield* new OpenApiOAuthError({
             message: `Missing secret "${binding.value.secretId}" for header "${name}"`,
@@ -544,6 +554,40 @@ const resolveConfiguredHeaders = (
     }
     return resolved;
   });
+
+const resolveHeaderValue = (
+  ctx: PluginCtx<OpenapiStore>,
+  name: string,
+  value: HeaderValue,
+): Effect.Effect<string, OpenApiOAuthError | StorageFailure> => {
+  if (typeof value === "string") return Effect.succeed(value);
+  return ctx.secrets.get(value.secretId).pipe(
+    Effect.mapError((err) =>
+      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+        ? new OpenApiOAuthError({
+            message: `Secret not found for "${name}"`,
+          })
+        : err,
+    ),
+    Effect.flatMap((secret) =>
+      secret === null
+        ? Effect.fail(
+            new OpenApiOAuthError({
+              message: `Secret not found for "${name}"`,
+            }),
+          )
+        : Effect.succeed(value.prefix ? `${value.prefix}${secret}` : secret),
+    ),
+  );
+};
+
+const resolveHeaderValues = (
+  ctx: PluginCtx<OpenapiStore>,
+  values: Record<string, HeaderValue> | undefined,
+): Effect.Effect<Record<string, string>, OpenApiOAuthError | StorageFailure> =>
+  Effect.forEach(Object.entries(values ?? {}), ([name, value]) =>
+    Effect.map(resolveHeaderValue(ctx, name, value), (resolved) => [name, resolved] as const),
+  ).pipe(Effect.map((entries) => Object.fromEntries(entries)));
 
 const resolveOAuthConnectionId = (
   ctx: PluginCtx<OpenapiStore>,
@@ -624,6 +668,7 @@ export const openApiPlugin = definePlugin(
       readonly baseUrl?: string;
       readonly namespace?: string;
       readonly headers?: Record<string, OpenApiHeaderInput>;
+      readonly queryParams?: Record<string, HeaderValue>;
       readonly oauth2?: OpenApiOAuthInput;
     };
 
@@ -764,6 +809,7 @@ export const openApiPlugin = definePlugin(
           baseUrl: resolvedConfig.baseUrl,
           namespace: existing.namespace,
           headers: existing.legacy?.headers ?? existing.config.headers,
+          queryParams: existing.config.queryParams,
           oauth2: existing.legacy?.oauth2 ?? existing.config.oauth2,
         });
       });
@@ -790,6 +836,7 @@ export const openApiPlugin = definePlugin(
               baseUrl: config.baseUrl,
               namespace: config.namespace,
               headers: config.headers,
+              queryParams: config.queryParams,
               oauth2: config.oauth2,
             });
           });
@@ -855,6 +902,7 @@ export const openApiPlugin = definePlugin(
                 name: input.name?.trim() || undefined,
                 baseUrl: input.baseUrl,
                 headers: canonicalHeaders?.headers,
+                queryParams: input.queryParams,
                 oauth2: canonicalOAuth2?.oauth2,
               });
               for (const set of [canonicalHeaders?.bindings, canonicalOAuth2?.bindings]) {
@@ -1085,6 +1133,10 @@ export const openApiPlugin = definePlugin(
           }).pipe(
             Effect.mapError((err) => new Error(err.message)),
           );
+          const resolvedQueryParams = yield* resolveHeaderValues(
+            ctx,
+            config.queryParams,
+          ).pipe(Effect.mapError((err) => new Error(err.message)));
 
           // If the source has OAuth2 auth, resolve a guaranteed-fresh
           // access token from the backing Connection and inject the
@@ -1126,6 +1178,7 @@ export const openApiPlugin = definePlugin(
             (args ?? {}) as Record<string, unknown>,
             config.baseUrl ?? "",
             resolvedHeaders,
+            resolvedQueryParams,
             httpClientLayer,
           );
 

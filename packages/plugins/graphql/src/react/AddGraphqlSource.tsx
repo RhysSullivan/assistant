@@ -4,8 +4,12 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
-import { HeadersList } from "@executor/react/plugins/headers-list";
-import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
+import {
+  HttpCredentialsEditor,
+  httpCredentialsValid,
+  serializeHttpCredentials,
+  type HttpCredentialsState,
+} from "@executor/react/plugins/http-credentials";
 import {
   displayNameFromUrl,
   slugifyNamespace,
@@ -19,19 +23,11 @@ import {
   CardStackContent,
   CardStackEntryField,
 } from "@executor/react/components/card-stack";
-import { FieldLabel } from "@executor/react/components/field";
 import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
 import { Spinner } from "@executor/react/components/spinner";
 import { addGraphqlSource } from "./atoms";
 import type { HeaderValue } from "../sdk/types";
-
-const initialHeader = (): HeaderState => ({
-  name: "Authorization",
-  prefix: "Bearer ",
-  presetKey: "bearer",
-  secretId: null,
-});
 
 export default function AddGraphqlSource(props: {
   onComplete: () => void;
@@ -42,7 +38,17 @@ export default function AddGraphqlSource(props: {
   const identity = useSourceIdentity({
     fallbackName: displayNameFromUrl(endpoint) ?? "",
   });
-  const [headers, setHeaders] = useState<HeaderState[]>([initialHeader()]);
+  const [credentials, setCredentials] = useState<HttpCredentialsState>({
+    headers: [
+      {
+        name: "Authorization",
+        prefix: "Bearer ",
+        presetKey: "bearer",
+        secretId: null,
+      },
+    ],
+    queryParams: [],
+  });
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -51,30 +57,19 @@ export default function AddGraphqlSource(props: {
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
 
-  const headersValid = headers.every((header) => header.name.trim() && header.secretId);
-  const canAdd = endpoint.trim().length > 0 && (headers.length === 0 || headersValid);
+  const canAdd = endpoint.trim().length > 0 && httpCredentialsValid(credentials);
 
   const handleAdd = async () => {
     setAdding(true);
     setAddError(null);
-    const headerMap: Record<string, HeaderValue> = {};
-    for (const header of headers) {
-      const name = header.name.trim();
-      if (name && header.secretId) {
-        headerMap[name] = {
-          secretId: header.secretId,
-          ...(header.prefix ? { prefix: header.prefix } : {}),
-        };
-      }
-    }
+    const { headers: headerMap, queryParams } = serializeHttpCredentials(credentials);
 
     const trimmedEndpoint = endpoint.trim();
     const namespace =
       slugifyNamespace(identity.namespace) ||
       slugifyNamespace(displayNameFromUrl(trimmedEndpoint) ?? "") ||
       "graphql";
-    const displayName =
-      identity.name.trim() || displayNameFromUrl(trimmedEndpoint) || namespace;
+    const displayName = identity.name.trim() || displayNameFromUrl(trimmedEndpoint) || namespace;
     const placeholder = beginAdd({
       id: namespace,
       name: displayName,
@@ -89,6 +84,9 @@ export default function AddGraphqlSource(props: {
           name: identity.name.trim() || undefined,
           namespace: slugifyNamespace(identity.namespace) || undefined,
           ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
+          ...(Object.keys(queryParams).length > 0
+            ? { queryParams: queryParams as Record<string, HeaderValue> }
+            : {}),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -121,20 +119,14 @@ export default function AddGraphqlSource(props: {
         </CardStackContent>
       </CardStack>
 
-      <SourceIdentityFields
-        identity={identity}
-        namePlaceholder="e.g. Shopify API"
-      />
+      <SourceIdentityFields identity={identity} namePlaceholder="e.g. Shopify API" />
 
-      <section className="space-y-2.5">
-        <FieldLabel>Headers</FieldLabel>
-        <HeadersList
-          headers={headers}
-          onHeadersChange={setHeaders}
-          existingSecrets={secretList}
-          sourceName={identity.name}
-        />
-      </section>
+      <HttpCredentialsEditor
+        credentials={credentials}
+        onChange={setCredentials}
+        existingSecrets={secretList}
+        sourceName={identity.name}
+      />
 
       {/* Error */}
       {addError && (

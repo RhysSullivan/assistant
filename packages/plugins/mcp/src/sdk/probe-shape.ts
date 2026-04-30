@@ -77,6 +77,8 @@ export interface ProbeOptions {
   readonly fetch?: typeof fetch;
   /** Abort the request after this many ms. Default 8000. */
   readonly timeoutMs?: number;
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
 }
 
 /**
@@ -132,9 +134,16 @@ export const probeMcpEndpointShape = (
             return null;
           };
 
-          const postResponse = await fetchImpl(endpoint, {
+          const url = new URL(endpoint);
+          for (const [key, value] of Object.entries(options.queryParams ?? {})) {
+            url.searchParams.set(key, value);
+          }
+          const authHeaders = options.headers ?? {};
+
+          const postResponse = await fetchImpl(url, {
             method: "POST",
             headers: {
+              ...authHeaders,
               "content-type": "application/json",
               accept: "application/json, text/event-stream",
             },
@@ -146,9 +155,9 @@ export const probeMcpEndpointShape = (
           if (postResult) return postResult;
 
           if ([404, 405, 406, 415].includes(postResponse.status)) {
-            const getResponse = await fetchImpl(endpoint, {
+            const getResponse = await fetchImpl(url, {
               method: "GET",
-              headers: { accept: "text/event-stream" },
+              headers: { ...authHeaders, accept: "text/event-stream" },
               signal: controller.signal,
             });
             const getResult = classify(getResponse, "GET");

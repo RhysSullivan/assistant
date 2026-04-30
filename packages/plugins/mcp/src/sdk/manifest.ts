@@ -46,6 +46,9 @@ const ServerInfo = Schema.Struct({
 const decodeListToolsResult = Schema.decodeUnknownOption(ListToolsResult);
 const decodeServerInfo = Schema.decodeUnknownOption(ServerInfo);
 
+export const isListToolsResult = (value: unknown): boolean =>
+  decodeListToolsResult(value)._tag === "Some";
+
 // ---------------------------------------------------------------------------
 // Tool ID sanitization
 // ---------------------------------------------------------------------------
