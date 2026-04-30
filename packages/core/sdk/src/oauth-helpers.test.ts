@@ -259,6 +259,38 @@ describe("exchangeAuthorizationCode", () => {
     expect(result.access_token).toBe("tok");
   });
 
+  it("ignores unusable ID tokens when the access-token response is otherwise valid", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt(
+          {
+            iss: "https://backboard.railway.com",
+            aud: "cid",
+            sub: "user-1",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            iat: Math.floor(Date.now() / 1000),
+          },
+          "ES256",
+        ),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      exchangeAuthorizationCode({
+        tokenUrl: "https://backboard.railway.com/oauth/token",
+        issuerUrl: "https://backboard.railway.com",
+        clientId: "cid",
+        redirectUrl: "https://app.example.com/cb",
+        codeVerifier: "verifier",
+        code: "abc",
+      }),
+    );
+
+    expect(result.access_token).toBe("tok");
+    expect(result.refresh_token).toBe("rtok");
+  });
+
   it("uses HTTP Basic auth when clientAuth=basic (Stripe-style)", async () => {
     const { calls } = captureFetch(jsonResponse(200, validBody));
     await Effect.runPromise(
@@ -438,6 +470,35 @@ describe("refreshAccessToken", () => {
         clientId: "cid",
         refreshToken: "old",
         idTokenSigningAlgValuesSupported: ["ES256"],
+      }),
+    );
+
+    expect(result.access_token).toBe("tok2");
+  });
+
+  it("ignores unusable refreshed ID tokens when the access-token response is otherwise valid", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt(
+          {
+            iss: "https://backboard.railway.com",
+            aud: "cid",
+            sub: "user-1",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            iat: Math.floor(Date.now() / 1000),
+          },
+          "ES256",
+        ),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      refreshAccessToken({
+        tokenUrl: "https://backboard.railway.com/oauth/token",
+        issuerUrl: "https://backboard.railway.com",
+        clientId: "cid",
+        refreshToken: "old",
       }),
     );
 
