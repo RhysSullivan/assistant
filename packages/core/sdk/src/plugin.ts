@@ -115,6 +115,12 @@ export interface PluginCtx<TStore = unknown> {
       readonly unregister: (
         sourceId: string,
       ) => Effect.Effect<void, StorageFailure>;
+      readonly update: (input: {
+        readonly id: string;
+        readonly scope: string;
+        readonly name?: string;
+        readonly url?: string | null;
+      }) => Effect.Effect<void, StorageFailure>;
     };
     /** Register shared JSON-schema `$defs` for a source. Tool
      *  input/output schemas registered via `sources.register` can carry

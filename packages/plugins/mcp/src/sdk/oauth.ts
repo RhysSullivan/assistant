@@ -37,6 +37,8 @@ export const McpOAuthSession = Schema.Struct({
   endpoint: Schema.String,
   redirectUrl: Schema.String,
   codeVerifier: Schema.String,
+  clientIdSecretId: Schema.NullOr(Schema.String),
+  clientSecretSecretId: Schema.NullOr(Schema.String),
   /**
    * Executor scope id where the minted Connection (and its owned
    * access/refresh secrets) will land. Pinned at `startOAuth` time so
@@ -71,6 +73,14 @@ const toJsonObject = (value: unknown): JsonObject | null =>
     ? (value as JsonObject)
     : null;
 
+const toPersistableClientInformation = (
+  value: OAuthClientInformationMixed | undefined,
+): JsonObject | null => {
+  if (!value) return null;
+  const { client_secret: _clientSecret, ...rest } = value;
+  return toJsonObject(rest);
+};
+
 const CLIENT_METADATA = {
   grant_types: ["authorization_code", "refresh_token"] as string[],
   response_types: ["code"] as string[],
@@ -86,7 +96,7 @@ const extractDiscoveryState = (
   authorizationServerUrl: discoveryState?.authorizationServerUrl ?? null,
   resourceMetadata: toJsonObject(discoveryState?.resourceMetadata),
   authorizationServerMetadata: toJsonObject(discoveryState?.authorizationServerMetadata),
-  clientInformation: toJsonObject(clientInformation),
+  clientInformation: toPersistableClientInformation(clientInformation),
 });
 
 const callAuth = (provider: OAuthClientProvider, opts: Parameters<typeof auth>[1]) =>
@@ -179,6 +189,7 @@ export const startMcpOAuthAuthorization = (input: {
 export const exchangeMcpOAuthCode = (input: {
   session: McpOAuthSession;
   code: string;
+  clientInformation?: OAuthClientInformationMixed | null;
 }): Effect.Effect<McpOAuthExchangeResult, McpOAuthError> =>
   Effect.gen(function* () {
     const { session } = input;
@@ -192,7 +203,10 @@ export const exchangeMcpOAuthCode = (input: {
       authorizationServerMetadata:
         session.authorizationServerMetadata as OAuthDiscoveryState["authorizationServerMetadata"],
     };
-    let clientInformation = session.clientInformation as OAuthClientInformationMixed | undefined;
+    let clientInformation =
+      input.clientInformation ??
+      (session.clientInformation as OAuthClientInformationMixed | null | undefined) ??
+      undefined;
 
     const provider: OAuthClientProvider = {
       get redirectUrl() {

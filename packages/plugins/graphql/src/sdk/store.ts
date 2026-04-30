@@ -2,7 +2,7 @@ import { Effect } from "effect";
 
 import { defineSchema, type StorageDeps, type StorageFailure } from "@executor/sdk";
 
-import { OperationBinding, type HeaderValue } from "./types";
+import { OperationBinding, type HeaderValue, type QueryParamValue } from "./types";
 
 // ---------------------------------------------------------------------------
 // Schema — two tables:
@@ -18,6 +18,7 @@ export const graphqlSchema = defineSchema({
       name: { type: "string", required: true },
       endpoint: { type: "string", required: true },
       headers: { type: "json", required: false },
+      query_params: { type: "json", required: false },
     },
   },
   graphql_operation: {
@@ -45,6 +46,7 @@ export interface StoredGraphqlSource {
   readonly name: string;
   readonly endpoint: string;
   readonly headers: Record<string, HeaderValue>;
+  readonly queryParams: Record<string, QueryParamValue>;
 }
 
 export interface StoredOperation {
@@ -63,7 +65,8 @@ interface BindingJson {
 }
 
 const decodeBinding = (value: unknown): OperationBinding => {
-  const data = typeof value === "string" ? (JSON.parse(value) as BindingJson) : (value as BindingJson);
+  const data =
+    typeof value === "string" ? (JSON.parse(value) as BindingJson) : (value as BindingJson);
   return new OperationBinding({
     kind: data.kind,
     fieldName: data.fieldName,
@@ -83,6 +86,12 @@ const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
   if (value == null) return {};
   if (typeof value === "string") return JSON.parse(value) as Record<string, HeaderValue>;
   return value as Record<string, HeaderValue>;
+};
+
+const decodeQueryParams = (value: unknown): Record<string, QueryParamValue> => {
+  if (value == null) return {};
+  if (typeof value === "string") return JSON.parse(value) as Record<string, QueryParamValue>;
+  return value as Record<string, QueryParamValue>;
 };
 
 // ---------------------------------------------------------------------------
@@ -109,7 +118,12 @@ export interface GraphqlStore {
   readonly updateSourceMeta: (
     namespace: string,
     scope: string,
-    patch: { readonly name?: string; readonly endpoint?: string; readonly headers?: Record<string, HeaderValue> },
+    patch: {
+      readonly name?: string;
+      readonly endpoint?: string;
+      readonly headers?: Record<string, HeaderValue>;
+      readonly queryParams?: Record<string, QueryParamValue>;
+    },
   ) => Effect.Effect<void, StorageFailure>;
 
   readonly getSource: (
@@ -129,10 +143,7 @@ export interface GraphqlStore {
     scope: string,
   ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
 
-  readonly removeSource: (
-    namespace: string,
-    scope: string,
-  ) => Effect.Effect<void, StorageFailure>;
+  readonly removeSource: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +159,7 @@ export const makeDefaultGraphqlStore = ({
     name: row.name as string,
     endpoint: row.endpoint as string,
     headers: decodeHeaders(row.headers),
+    queryParams: decodeQueryParams(row.query_params),
   });
 
   const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
@@ -186,6 +198,7 @@ export const makeDefaultGraphqlStore = ({
             name: input.name,
             endpoint: input.endpoint,
             headers: input.headers as unknown as Record<string, unknown>,
+            query_params: input.queryParams as unknown as Record<string, unknown>,
           },
           forceAllowId: true,
         });
@@ -219,6 +232,9 @@ export const makeDefaultGraphqlStore = ({
         if (patch.headers !== undefined) {
           update.headers = patch.headers as unknown as Record<string, unknown>;
         }
+        if (patch.queryParams !== undefined) {
+          update.query_params = patch.queryParams as unknown as Record<string, unknown>;
+        }
         if (Object.keys(update).length === 0) return;
         yield* db.update({
           model: "graphql_source",
@@ -242,9 +258,7 @@ export const makeDefaultGraphqlStore = ({
         .pipe(Effect.map((row) => (row ? rowToSource(row) : null))),
 
     listSources: () =>
-      db
-        .findMany({ model: "graphql_source" })
-        .pipe(Effect.map((rows) => rows.map(rowToSource))),
+      db.findMany({ model: "graphql_source" }).pipe(Effect.map((rows) => rows.map(rowToSource))),
 
     getOperationByToolId: (toolId, scope) =>
       db

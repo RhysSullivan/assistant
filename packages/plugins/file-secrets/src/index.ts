@@ -149,6 +149,15 @@ const makeScopedProvider = (
       catch: toStorageError,
     }),
 
+  has: (secretId, scope) =>
+    Effect.try({
+      try: () => {
+        const data = readScopeSecrets(filePath, scope);
+        return secretId in data;
+      },
+      catch: toStorageError,
+    }),
+
   set: (secretId, value, scope) =>
     Effect.try({
       try: () => {

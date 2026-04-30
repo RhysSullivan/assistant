@@ -62,12 +62,18 @@ export const HeaderValue = Schema.Union(
   }),
 );
 export type HeaderValue = typeof HeaderValue.Type;
+export const QueryParamValue = HeaderValue;
+export type QueryParamValue = typeof QueryParamValue.Type;
 
 export class InvocationConfig extends Schema.Class<InvocationConfig>("InvocationConfig")({
   /** The GraphQL endpoint URL */
   endpoint: Schema.String,
   /** Headers applied to every request. Values can reference secrets. */
   headers: Schema.optionalWith(Schema.Record({ key: Schema.String, value: HeaderValue }), {
+    default: () => ({}),
+  }),
+  /** Query parameters applied to every request. Values can reference secrets. */
+  queryParams: Schema.optionalWith(Schema.Record({ key: Schema.String, value: QueryParamValue }), {
     default: () => ({}),
   }),
 }) {}

@@ -36,6 +36,8 @@ export const McpConnectionAuth = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
     connectionId: Schema.String,
+    clientIdSecretId: Schema.optional(Schema.String),
+    clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 );
 export type McpConnectionAuth = typeof McpConnectionAuth.Type;
@@ -44,8 +46,18 @@ export type McpConnectionAuth = typeof McpConnectionAuth.Type;
 // Stored source data — discriminated union on transport
 // ---------------------------------------------------------------------------
 
+export const SecretBackedValue = Schema.Union(
+  Schema.String,
+  Schema.Struct({
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+);
+export type SecretBackedValue = typeof SecretBackedValue.Type;
+
 /** Common fields for remote string map schemas */
 const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
+const SecretBackedMap = Schema.Record({ key: Schema.String, value: SecretBackedValue });
 
 export const McpRemoteSourceData = Schema.Struct({
   transport: Schema.Literal("remote"),
@@ -54,9 +66,9 @@ export const McpRemoteSourceData = Schema.Struct({
   /** Transport preference for this remote source */
   remoteTransport: Schema.optionalWith(McpRemoteTransport, { default: () => "auto" as const }),
   /** Extra query params appended to the endpoint URL */
-  queryParams: Schema.optional(StringMap),
+  queryParams: Schema.optional(SecretBackedMap),
   /** Extra headers sent on every request */
-  headers: Schema.optional(StringMap),
+  headers: Schema.optional(SecretBackedMap),
   /** Auth configuration */
   auth: McpConnectionAuth,
 });

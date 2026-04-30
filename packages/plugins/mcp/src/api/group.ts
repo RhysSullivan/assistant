@@ -3,11 +3,7 @@ import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
-import {
-  McpConnectionError,
-  McpOAuthError,
-  McpToolDiscoveryError,
-} from "../sdk/errors";
+import { McpConnectionError, McpOAuthError, McpToolDiscoveryError } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
 
 // Re-export for handler use
@@ -40,10 +36,20 @@ const AuthPayload = Schema.Union(
      *  backing access/refresh secrets live on the connection row; the
      *  source only needs this pointer. */
     connectionId: Schema.String,
+    clientIdSecretId: Schema.optional(Schema.String),
+    clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 );
 
 const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
+const SecretBackedValue = Schema.Union(
+  Schema.String,
+  Schema.Struct({
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+);
+const SecretBackedMap = Schema.Record({ key: Schema.String, value: SecretBackedValue });
 
 // ---------------------------------------------------------------------------
 // Add source — discriminated union on transport
@@ -55,8 +61,8 @@ const AddRemoteSourcePayload = Schema.Struct({
   endpoint: Schema.String,
   remoteTransport: Schema.optional(Schema.Literal("streamable-http", "sse", "auto")),
   namespace: Schema.optional(Schema.String),
-  queryParams: Schema.optional(StringMap),
-  headers: Schema.optional(StringMap),
+  queryParams: Schema.optional(SecretBackedMap),
+  headers: Schema.optional(SecretBackedMap),
   auth: Schema.optional(AuthPayload),
 });
 
@@ -79,8 +85,8 @@ const AddSourcePayload = Schema.Union(AddRemoteSourcePayload, AddStdioSourcePayl
 const UpdateSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   endpoint: Schema.optional(Schema.String),
-  headers: Schema.optional(StringMap),
-  queryParams: Schema.optional(StringMap),
+  headers: Schema.optional(SecretBackedMap),
+  queryParams: Schema.optional(SecretBackedMap),
   auth: Schema.optional(AuthPayload),
 });
 
@@ -90,6 +96,8 @@ const UpdateSourceResponse = Schema.Struct({
 
 const ProbeEndpointPayload = Schema.Struct({
   endpoint: Schema.String,
+  headers: Schema.optional(SecretBackedMap),
+  queryParams: Schema.optional(SecretBackedMap),
 });
 
 const ProbeEndpointResponse = Schema.Struct({
@@ -108,7 +116,7 @@ const NamespacePayload = Schema.Struct({
 const StartOAuthPayload = Schema.Struct({
   endpoint: Schema.String,
   redirectUrl: Schema.String,
-  queryParams: Schema.optional(Schema.NullOr(StringMap)),
+  queryParams: Schema.optional(Schema.NullOr(SecretBackedMap)),
   /** Pre-decided SDK connection id the exchange will mint. Caller
    *  passes a stable value (`mcp-oauth2-${namespace}`) so every user
    *  signing in against the same source writes to the same id at their
@@ -121,6 +129,8 @@ const StartOAuthPayload = Schema.Struct({
   clientInformation: Schema.optional(Schema.NullOr(JsonObject)),
   authorizationServerUrl: Schema.optional(Schema.NullOr(Schema.String)),
   resourceMetadataUrl: Schema.optional(Schema.NullOr(Schema.String)),
+  clientIdSecretId: Schema.optional(Schema.String),
+  clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 const CompleteOAuthPayload = Schema.Struct({
@@ -228,8 +238,11 @@ export class McpGroup extends HttpApiGroup.make("mcp")
       .addSuccess(HtmlResponse),
   )
   .add(
-    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
-      .addSuccess(Schema.NullOr(McpStoredSourceSchema)),
+    HttpApiEndpoint.get(
+      "getSource",
+    )`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`.addSuccess(
+      Schema.NullOr(McpStoredSourceSchema),
+    ),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`

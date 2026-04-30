@@ -30,8 +30,13 @@ export type McpConnector = Effect.Effect<McpConnection, McpConnectionError>;
 // Connector input — extends stored source data with resolved auth
 // ---------------------------------------------------------------------------
 
-export type RemoteConnectorInput = Omit<McpRemoteSourceData, "auth" | "remoteTransport"> & {
+export type RemoteConnectorInput = Omit<
+  McpRemoteSourceData,
+  "auth" | "remoteTransport" | "headers" | "queryParams"
+> & {
   readonly remoteTransport?: McpRemoteSourceData["remoteTransport"];
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
   readonly authProvider?: OAuthClientProvider;
 };
 

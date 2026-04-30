@@ -1,6 +1,7 @@
 import { Suspense, useState, useCallback, useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Result, useAtomSet } from "@effect-atom/atom-react";
+import type { SourceDetectionResult } from "@executor/sdk";
 import { detectSource } from "../api/atoms";
 import { useSourcesWithPending } from "../api/optimistic";
 import { useScope } from "../hooks/use-scope";
@@ -30,6 +31,17 @@ const KIND_TO_PLUGIN_KEY: Record<string, string> = {
   graphql: "graphql",
   googleDiscovery: "googleDiscovery",
 };
+
+const detectionRank: Record<SourceDetectionResult["confidence"], number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+const bestDetection = (
+  results: readonly SourceDetectionResult[],
+): SourceDetectionResult | undefined =>
+  [...results].sort((a, b) => detectionRank[b.confidence] - detectionRank[a.confidence])[0];
 
 // ---------------------------------------------------------------------------
 // Page
@@ -61,15 +73,21 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
         setDetecting(false);
         return;
       }
-      const pluginKey = KIND_TO_PLUGIN_KEY[results[0].kind];
+      const detected = bestDetection(results);
+      if (!detected) {
+        setError("Could not detect a source type from this URL. Try adding manually.");
+        setDetecting(false);
+        return;
+      }
+      const pluginKey = KIND_TO_PLUGIN_KEY[detected.kind];
       if (pluginKey) {
         void navigate({
           to: "/sources/add/$pluginKey",
           params: { pluginKey },
-          search: { url: trimmed, namespace: results[0].namespace },
+          search: { url: trimmed, namespace: detected.namespace },
         });
       } else {
-        setError(`Detected source type "${results[0].kind}" but no plugin is available for it.`);
+        setError(`Detected source type "${detected.kind}" but no plugin is available for it.`);
       }
     } catch {
       setError("Detection failed. Try adding a source manually.");

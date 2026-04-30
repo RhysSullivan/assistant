@@ -519,6 +519,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   operation: OperationBinding,
   args: Record<string, unknown>,
   resolvedHeaders: Record<string, string>,
+  sourceQueryParams: Record<string, string> = {},
 ) {
   const client = yield* HttpClient.HttpClient;
 
@@ -535,6 +536,10 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
   const path = resolvedPath.startsWith("/") ? resolvedPath : `/${resolvedPath}`;
 
   let request = HttpClientRequest.make(operation.method.toUpperCase() as "GET")(path);
+
+  for (const [name, value] of Object.entries(sourceQueryParams)) {
+    request = HttpClientRequest.setUrlParam(request, name, value);
+  }
 
   for (const param of operation.parameters) {
     if (param.location !== "query") continue;
@@ -631,6 +636,7 @@ export const invokeWithLayer = (
   args: Record<string, unknown>,
   baseUrl: string,
   resolvedHeaders: Record<string, string>,
+  sourceQueryParams: Record<string, string>,
   httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
 ) => {
   const clientWithBaseUrl = baseUrl
@@ -643,7 +649,7 @@ export const invokeWithLayer = (
       ).pipe(Layer.provide(httpClientLayer))
     : httpClientLayer;
 
-  return invoke(operation, args, resolvedHeaders).pipe(
+  return invoke(operation, args, resolvedHeaders, sourceQueryParams).pipe(
     Effect.provide(clientWithBaseUrl),
     Effect.withSpan("plugin.openapi.invoke", {
       attributes: {

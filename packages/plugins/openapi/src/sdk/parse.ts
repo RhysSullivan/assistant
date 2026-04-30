@@ -7,6 +7,11 @@ import { OpenApiExtractionError, OpenApiParseError } from "./errors";
 
 export type ParsedDocument = OpenAPIV3.Document | OpenAPIV3_1.Document;
 
+export interface SpecFetchCredentials {
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
+}
+
 // ExtractionError subclass raised from parse() for non-3.x specs
 class OpenApiExtractionErrorFromParse extends OpenApiExtractionError {}
 
@@ -17,23 +22,30 @@ class OpenApiExtractionErrorFromParse extends OpenApiExtractionError {}
  * avoids json-schema-ref-parser's Node-polyfill http resolver, which hangs
  * in production. Bounded by a 20s timeout.
  */
-export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (url: string) {
+export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (
+  url: string,
+  credentials?: SpecFetchCredentials,
+) {
   const client = yield* HttpClient.HttpClient;
-  const response = yield* client
-    .execute(
-      HttpClientRequest.get(url).pipe(
-        HttpClientRequest.setHeader("Accept", "application/json, application/yaml, text/yaml, */*"),
-      ),
-    )
-    .pipe(
-      Effect.timeout(Duration.seconds(20)),
-      Effect.mapError(
-        (cause) =>
-          new OpenApiParseError({
-            message: `Failed to fetch OpenAPI document: ${cause instanceof Error ? cause.message : String(cause)}`,
-          }),
-      ),
-    );
+  const requestUrl = new URL(url);
+  for (const [name, value] of Object.entries(credentials?.queryParams ?? {})) {
+    requestUrl.searchParams.set(name, value);
+  }
+  let request = HttpClientRequest.get(requestUrl.toString()).pipe(
+    HttpClientRequest.setHeader("Accept", "application/json, application/yaml, text/yaml, */*"),
+  );
+  for (const [name, value] of Object.entries(credentials?.headers ?? {})) {
+    request = HttpClientRequest.setHeader(request, name, value);
+  }
+  const response = yield* client.execute(request).pipe(
+    Effect.timeout(Duration.seconds(20)),
+    Effect.mapError(
+      (cause) =>
+        new OpenApiParseError({
+          message: `Failed to fetch OpenAPI document: ${cause instanceof Error ? cause.message : String(cause)}`,
+        }),
+    ),
+  );
   if (response.status < 200 || response.status >= 300) {
     return yield* new OpenApiParseError({
       message: `Failed to fetch OpenAPI document: HTTP ${response.status}`,
@@ -53,9 +65,9 @@ export const fetchSpecText = Effect.fn("OpenApi.fetchSpecText")(function* (url: 
  * Resolve an input string to spec text — if it's a URL, fetch it via
  * HttpClient; otherwise return it as-is.
  */
-export const resolveSpecText = (input: string) =>
+export const resolveSpecText = (input: string, credentials?: SpecFetchCredentials) =>
   input.startsWith("http://") || input.startsWith("https://")
-    ? fetchSpecText(input)
+    ? fetchSpecText(input, credentials)
     : Effect.succeed(input);
 
 /**
