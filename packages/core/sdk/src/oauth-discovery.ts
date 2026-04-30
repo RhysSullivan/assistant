@@ -144,6 +144,11 @@ export interface DiscoveryRequestOptions {
   /** Send `MCP-Protocol-Version: <value>` on every request. Harmless
    *  for non-MCP servers; required by the MCP authorization spec. */
   readonly mcpProtocolVersion?: string;
+  /** Credentials needed to reach the protected resource itself. These
+   *  are intentionally used only for resource-side probes, never for
+   *  authorization-server metadata, DCR, authorization, or token calls. */
+  readonly resourceHeaders?: Readonly<Record<string, string>>;
+  readonly resourceQueryParams?: Readonly<Record<string, string>>;
 }
 
 const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
@@ -209,6 +214,18 @@ const buildResourceMetadataUrls = (resourceUrl: string): string[] => {
   return urls;
 };
 
+const withResourceQueryParams = (
+  url: string,
+  queryParams: Readonly<Record<string, string>> | undefined,
+): string => {
+  if (!queryParams || Object.keys(queryParams).length === 0) return url;
+  const parsed = new URL(url);
+  for (const [key, value] of Object.entries(queryParams)) {
+    parsed.searchParams.set(key, value);
+  }
+  return parsed.toString();
+};
+
 export const discoverProtectedResourceMetadata = (
   resourceUrl: string,
   options: DiscoveryRequestOptions = {},
@@ -223,11 +240,15 @@ export const discoverProtectedResourceMetadata = (
     for (const url of buildResourceMetadataUrls(resourceUrl)) {
       const result = yield* Effect.tryPromise({
         try: async () => {
-          const headers: Record<string, string> = { accept: "application/json" };
+          const requestUrl = withResourceQueryParams(url, options.resourceQueryParams);
+          const headers: Record<string, string> = {
+            ...options.resourceHeaders,
+            accept: "application/json",
+          };
           if (options.mcpProtocolVersion) {
             headers[MCP_PROTOCOL_VERSION_HEADER] = options.mcpProtocolVersion;
           }
-          const response = await fetchImpl(url, {
+          const response = await fetchImpl(requestUrl, {
             method: "GET",
             headers,
             signal: AbortSignal.timeout(timeoutMs),

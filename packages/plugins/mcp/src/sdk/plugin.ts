@@ -542,6 +542,8 @@ export const mcpPlugin = definePlugin(
             const probeResult = yield* ctx.oauth
               .probe({
                 endpoint: trimmed,
+                headers: probeHeaders,
+                queryParams: probeQueryParams,
               })
               .pipe(
                 Effect.map(() => true),

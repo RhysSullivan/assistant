@@ -25,6 +25,13 @@ import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { Textarea } from "@executor/react/components/textarea";
 import { HeadersList } from "@executor/react/plugins/headers-list";
+import {
+  emptyHttpCredentials,
+  httpCredentialsValid,
+  HttpCredentialsEditor,
+  serializeHttpCredentials,
+  type SecretBackedValue,
+} from "@executor/react/plugins/http-credentials";
 import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
 import {
   displayNameFromUrl,
@@ -304,6 +311,7 @@ export default function AddMcpSource(props: {
     },
   ]);
   const [remoteHeaders, setRemoteHeaders] = useState<PlainHeader[]>([]);
+  const [remoteCredentials, setRemoteCredentials] = useState(() => emptyHttpCredentials());
 
   const probe = "probe" in state ? state.probe : null;
   const tokens = "tokens" in state ? state.tokens : null;
@@ -321,6 +329,7 @@ export default function AddMcpSource(props: {
   const remoteHeadersComplete = remoteHeaders.every(
     (header) => header.name.trim() && header.value.trim(),
   );
+  const remoteCredentialsComplete = httpCredentialsValid(remoteCredentials);
   // OAuth is "ready to save" even without tokens — the source is stored
   // with a stable connectionId pointer, and each user completes their
   // own sign-in via McpSignInButton on the source detail page (per-user
@@ -331,7 +340,13 @@ export default function AddMcpSource(props: {
       : remoteAuthMode === "header"
         ? headerAuthComplete
         : true;
-  const canAdd = Boolean(probe) && authReady && remoteHeadersComplete && !isAdding && !isOAuthBusy;
+  const canAdd =
+    Boolean(probe) &&
+    authReady &&
+    remoteHeadersComplete &&
+    remoteCredentialsComplete &&
+    !isAdding &&
+    !isOAuthBusy;
   // Probe failures are shown inline on the URL field; other failures
   // (OAuth start, add source) render in the bottom error block.
   const probeError = state.step === "error" && state.probe === null ? state.error : null;
@@ -342,9 +357,14 @@ export default function AddMcpSource(props: {
   const handleProbe = useCallback(async () => {
     dispatch({ type: "probe-start" });
     try {
+      const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
       const result = await doProbe({
         path: { scopeId },
-        payload: { endpoint: state.url.trim() },
+        payload: {
+          endpoint: state.url.trim(),
+          ...(Object.keys(headers).length > 0 ? { headers } : {}),
+          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+        },
       });
       setRemoteAuthMode(result.requiresOAuth ? "oauth2" : "none");
       dispatch({ type: "probe-ok", probe: result });
@@ -354,7 +374,7 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to connect",
       });
     }
-  }, [state.url, scopeId, doProbe]);
+  }, [state.url, scopeId, doProbe, remoteCredentials]);
 
   // Keep the latest handleProbe in a ref so the debounced effect can call it
   // without depending on its identity (which changes every render).
@@ -376,6 +396,8 @@ export default function AddMcpSource(props: {
 
   const oauthCleanup = useRef<(() => void) | null>(null);
 
+  useEffect(() => () => oauthCleanup.current?.(), []);
+
   const handleOAuth = useCallback(async () => {
     oauthCleanup.current?.();
     oauthCleanup.current = null;
@@ -387,10 +409,13 @@ export default function AddMcpSource(props: {
         slugifyNamespace(probe?.namespace ?? "") ||
         "mcp";
       const connectionId = mcpOAuthConnectionId(namespaceSlug);
+      const { headers, queryParams } = serializeHttpCredentials(remoteCredentials);
       const result = await doStartOAuth({
         path: { scopeId },
         payload: {
           endpoint: state.url.trim(),
+          ...(Object.keys(headers).length > 0 ? { headers } : {}),
+          ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
           redirectUrl,
           connectionId,
           strategy: { kind: "dynamic-dcr" },
@@ -453,7 +478,15 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to start OAuth",
       });
     }
-  }, [state.url, scopeId, doStartOAuth, doCancelOAuth, remoteIdentity, probe]);
+  }, [
+    state.url,
+    scopeId,
+    doStartOAuth,
+    doCancelOAuth,
+    remoteIdentity,
+    probe,
+    remoteCredentials,
+  ]);
 
   const handleCancelOAuth = useCallback(() => {
     if (state.step === "oauth-waiting") {
@@ -501,6 +534,11 @@ export default function AddMcpSource(props: {
         .map((header) => [header.name.trim(), header.value.trim()] as const)
         .filter(([name, value]) => name && value),
     );
+    const credentials = serializeHttpCredentials(remoteCredentials);
+    const remoteRequestHeaders: Record<string, SecretBackedValue> = {
+      ...headers,
+      ...credentials.headers,
+    };
     const displayName = remoteIdentity.name.trim() || probe.serverName || probe.name;
     const slugNamespace = slugifyNamespace(remoteIdentity.namespace);
     const placeholderId = slugNamespace || `pending:${crypto.randomUUID()}`;
@@ -519,7 +557,12 @@ export default function AddMcpSource(props: {
           namespace: slugNamespace || undefined,
           endpoint: state.url.trim(),
           auth,
-          ...(Object.keys(headers).length > 0 ? { headers } : {}),
+          ...(Object.keys(remoteRequestHeaders).length > 0
+            ? { headers: remoteRequestHeaders }
+            : {}),
+          ...(Object.keys(credentials.queryParams).length > 0
+            ? { queryParams: credentials.queryParams }
+            : {}),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -537,6 +580,7 @@ export default function AddMcpSource(props: {
     remoteAuthMode,
     remoteAuthHeaders,
     remoteHeaders,
+    remoteCredentials,
     remoteIdentity,
     tokens,
     state.url,
@@ -734,6 +778,18 @@ export default function AddMcpSource(props: {
               </CardStackEntryField>
             </CardStackContent>
           </CardStack>
+
+          <HttpCredentialsEditor
+            credentials={remoteCredentials}
+            onChange={setRemoteCredentials}
+            existingSecrets={secretList}
+            sourceName={remoteIdentity.name}
+            targetScope={scopeId}
+            labels={{
+              headers: "Request headers",
+              queryParams: "Query parameters",
+            }}
+          />
 
           {probe && (
             <SourceIdentityFields

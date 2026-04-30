@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9c2f2ea5-48e2-4240-bc9c-6815a73fdcd8",
-  "prevId": "3a851e83-c26f-465b-9aac-177decb619b9",
+  "id": "f5e7a74a-307a-413b-835a-bdb321ca83f9",
+  "prevId": "035f1146-a2b3-4595-9d52-43084139f40b",
   "tables": {
     "connection": {
       "name": "connection",
@@ -437,13 +437,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "query_params": {
-          "name": "query_params",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -815,13 +808,6 @@
         },
         "headers": {
           "name": "headers",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "query_params": {
-          "name": "query_params",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1259,82 +1245,6 @@
             "id"
           ],
           "name": "tool_scope_id_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "tool_policy": {
-      "name": "tool_policy",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope_id": {
-          "name": "scope_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "pattern": {
-          "name": "pattern",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "action": {
-          "name": "action",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "position": {
-          "name": "position",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "tool_policy_scope_id_position_idx": {
-          "name": "tool_policy_scope_id_position_idx",
-          "columns": [
-            "scope_id",
-            "position"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "tool_policy_scope_id_id_pk": {
-          "columns": [
-            "scope_id",
-            "id"
-          ],
-          "name": "tool_policy_scope_id_id_pk"
         }
       },
       "uniqueConstraints": {},

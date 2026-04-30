@@ -130,7 +130,7 @@ export const generateDrizzleSchema: SchemaGenerator = async ({
     const id = hasScopeId ? `text('id').notNull()` : `text('id').primaryKey()`;
 
     type TableExtra =
-      | { kind: "uniqueIndex" | "index"; name: string; on: string }
+      | { kind: "uniqueIndex" | "index"; name: string; on: string | readonly string[] }
       | { kind: "primaryKey"; columns: readonly string[] };
     const extras: TableExtra[] = [];
 
@@ -142,7 +142,10 @@ export const generateDrizzleSchema: SchemaGenerator = async ({
           const cols = item.columns.map((c) => `table.${c}`).join(", ");
           lines.push(`  primaryKey({ columns: [${cols}] }),`);
         } else {
-          lines.push(`  ${item.kind}("${item.name}").on(table.${item.on}),`);
+          const cols = Array.isArray(item.on)
+            ? item.on.map((c) => `table.${c}`).join(", ")
+            : `table.${item.on}`;
+          lines.push(`  ${item.kind}("${item.name}").on(${cols}),`);
         }
       }
       lines.push(`]`);
@@ -153,14 +156,16 @@ export const generateDrizzleSchema: SchemaGenerator = async ({
       extras.push({ kind: "primaryKey", columns: ["scope_id", "id"] });
     }
 
-    const tableSchema = `export const ${tableKey} = ${dialect}Table("${modelName}", {
-  id: ${id},
-  ${Object.entries(fields)
+    const fieldLines = Object.entries(fields)
     .filter(([fieldName]) => fieldName !== "id")
     .map(([fieldName, attr]) => {
       const physical = attr.fieldName ?? fieldName;
 
-      if (attr.index && !attr.unique) {
+      const isToolPolicyCompositeField =
+        tableKey === "tool_policy" &&
+        (physical === "scope_id" || physical === "position");
+
+      if (attr.index && !attr.unique && !isToolPolicyCompositeField) {
         extras.push({
           kind: "index",
           name: `${tableKey}_${physical}_idx`,
@@ -214,7 +219,19 @@ export const generateDrizzleSchema: SchemaGenerator = async ({
           : ""
       }`;
     })
-    .join(",\n  ")}
+    .join(",\n  ");
+
+    if (tableKey === "tool_policy") {
+      extras.push({
+        kind: "index",
+        name: "tool_policy_scope_id_position_idx",
+        on: ["scope_id", "position"],
+      });
+    }
+
+    const tableSchema = `export const ${tableKey} = ${dialect}Table("${modelName}", {
+  id: ${id},
+  ${fieldLines}
 }${assignExtras(extras)});`;
 
     code += `\n${tableSchema}\n`;
@@ -384,7 +401,12 @@ function generateImport({
       if (field.bigint) hasBigint = true;
       if (field.type === "json") hasJson = true;
       if (field.type === "boolean") hasBoolean = true;
-      if (field.type === "number" || field.type === "number[]") hasNumber = true;
+      if (
+        (field.type === "number" && !field.bigint) ||
+        field.type === "number[]"
+      ) {
+        hasNumber = true;
+      }
       if (field.type === "date") hasDate = true;
       if (field.index && !field.unique) hasIndex = true;
       if (field.index && field.unique) hasUniqueIndex = true;

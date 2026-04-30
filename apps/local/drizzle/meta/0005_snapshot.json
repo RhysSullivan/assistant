@@ -1249,6 +1249,45 @@
       },
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "blob": {
+      "name": "blob",
+      "columns": {
+        "namespace": {
+          "name": "namespace",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "blob_namespace_key_pk": {
+          "columns": [
+            "namespace",
+            "key"
+          ],
+          "name": "blob_namespace_key_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     }
   },
   "views": {},

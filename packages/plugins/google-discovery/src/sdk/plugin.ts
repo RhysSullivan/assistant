@@ -22,6 +22,7 @@ import {
 } from "./errors";
 import type {
   GoogleDiscoveryAuth,
+  GoogleDiscoveryFetchCredentials,
   GoogleDiscoveryManifest,
   GoogleDiscoveryManifestMethod,
   GoogleDiscoveryMethodBinding,
@@ -50,10 +51,16 @@ export interface GoogleDiscoveryProbeResult {
   readonly operations: readonly GoogleDiscoveryProbeOperation[];
 }
 
+export interface GoogleDiscoveryProbeInput {
+  readonly discoveryUrl: string;
+  readonly credentials?: GoogleDiscoveryFetchCredentials;
+}
+
 export interface GoogleDiscoveryAddSourceInput {
   readonly name: string;
   readonly scope: string;
   readonly discoveryUrl: string;
+  readonly credentials?: GoogleDiscoveryFetchCredentials;
   readonly namespace?: string;
   readonly auth: GoogleDiscoveryAuth;
 }
@@ -75,7 +82,7 @@ export type GoogleDiscoveryExtensionFailure =
 
 export interface GoogleDiscoveryPluginExtension {
   readonly probeDiscovery: (
-    discoveryUrl: string,
+    input: string | GoogleDiscoveryProbeInput,
   ) => Effect.Effect<
     GoogleDiscoveryProbeResult,
     GoogleDiscoveryParseError | GoogleDiscoverySourceError
@@ -132,10 +139,67 @@ const normalizeDiscoveryUrl = (discoveryUrl: string): string => {
   return `${DISCOVERY_SERVICE_HOST}/${service}/${version}/rest`;
 };
 
-const fetchDiscoveryDocument = (discoveryUrl: string) =>
+const resolveGoogleDiscoveryCredentials = (
+  credentials: GoogleDiscoveryFetchCredentials | undefined,
+  ctx: PluginCtx<GoogleDiscoveryStore>,
+): Effect.Effect<
+  { headers?: Record<string, string>; queryParams?: Record<string, string> } | undefined,
+  GoogleDiscoverySourceError
+> =>
+  Effect.gen(function* () {
+    if (!credentials) return undefined;
+    const headers: Record<string, string> = {};
+    for (const [name, value] of Object.entries(credentials.headers ?? {})) {
+      if (typeof value === "string") {
+        headers[name] = value;
+        continue;
+      }
+      const secret = yield* ctx.secrets.get(value.secretId).pipe(
+        Effect.mapError(
+          () =>
+            new GoogleDiscoverySourceError({
+              message: `Secret not found for header "${name}"`,
+            }),
+        ),
+      );
+      if (secret !== null) headers[name] = value.prefix ? `${value.prefix}${secret}` : secret;
+    }
+    const queryParams: Record<string, string> = {};
+    for (const [name, value] of Object.entries(credentials.queryParams ?? {})) {
+      if (typeof value === "string") {
+        queryParams[name] = value;
+        continue;
+      }
+      const secret = yield* ctx.secrets.get(value.secretId).pipe(
+        Effect.mapError(
+          () =>
+            new GoogleDiscoverySourceError({
+              message: `Secret not found for query parameter "${name}"`,
+            }),
+        ),
+      );
+      if (secret !== null) {
+        queryParams[name] = value.prefix ? `${value.prefix}${secret}` : secret;
+      }
+    }
+    return {
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+    };
+  });
+
+const fetchDiscoveryDocument = (
+  discoveryUrl: string,
+  credentials?: { readonly headers?: Record<string, string>; readonly queryParams?: Record<string, string> },
+) =>
   Effect.tryPromise({
     try: async () => {
-      const response = await fetch(normalizeDiscoveryUrl(discoveryUrl), {
+      const url = new URL(normalizeDiscoveryUrl(discoveryUrl));
+      for (const [key, value] of Object.entries(credentials?.queryParams ?? {})) {
+        url.searchParams.set(key, value);
+      }
+      const response = await fetch(url.toString(), {
+        headers: credentials?.headers,
         signal: AbortSignal.timeout(20_000),
       });
       if (!response.ok) {
@@ -242,9 +306,14 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
   storage: (deps) => makeGoogleDiscoveryStore(deps),
 
   extension: (ctx) => ({
-    probeDiscovery: (discoveryUrl) =>
+    probeDiscovery: (input) =>
       Effect.gen(function* () {
-        const text = yield* fetchDiscoveryDocument(discoveryUrl);
+        const discoveryUrl = typeof input === "string" ? input : input.discoveryUrl;
+        const credentials =
+          typeof input === "string"
+            ? undefined
+            : yield* resolveGoogleDiscoveryCredentials(input.credentials, ctx);
+        const text = yield* fetchDiscoveryDocument(discoveryUrl, credentials);
         const manifest = yield* extractGoogleDiscoveryManifest(text);
         const scopes = Object.keys(
           manifest.oauthScopes._tag === "Some" ? manifest.oauthScopes.value : {},
@@ -272,7 +341,11 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
     addSource: (input) =>
       ctx.transaction(
         Effect.gen(function* () {
-          const text = yield* fetchDiscoveryDocument(input.discoveryUrl);
+          const credentials = yield* resolveGoogleDiscoveryCredentials(
+            input.credentials,
+            ctx,
+          );
+          const text = yield* fetchDiscoveryDocument(input.discoveryUrl, credentials);
           const manifest = yield* extractGoogleDiscoveryManifest(text);
           const namespace =
             input.namespace ??
@@ -284,6 +357,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
           const sourceData = new GoogleDiscoveryStoredSourceDataSchema({
             name: input.name,
             discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
+            credentials: input.credentials,
             service: manifest.service,
             version: manifest.version,
             rootUrl: manifest.rootUrl,
@@ -404,7 +478,14 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
       const existing = yield* typedCtx.storage.getSource(sourceId, scope);
       if (!existing) return;
-      const text = yield* fetchDiscoveryDocument(existing.config.discoveryUrl);
+      const credentials = yield* resolveGoogleDiscoveryCredentials(
+        existing.config.credentials,
+        typedCtx,
+      );
+      const text = yield* fetchDiscoveryDocument(
+        existing.config.discoveryUrl,
+        credentials,
+      );
       const manifest = yield* extractGoogleDiscoveryManifest(text);
       const next = new GoogleDiscoveryStoredSourceDataSchema({
         ...existing.config,

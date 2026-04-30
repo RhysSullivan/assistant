@@ -111,8 +111,7 @@ export const tool_policy = sqliteTable("tool_policy", {
   updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
-  index("tool_policy_scope_id_idx").on(table.scope_id),
-  index("tool_policy_position_idx").on(table.position),
+  index("tool_policy_scope_id_position_idx").on(table.scope_id, table.position),
 ]);
 
 export const openapi_source = sqliteTable("openapi_source", {
@@ -228,3 +227,10 @@ export const graphql_operation = sqliteTable("graphql_operation", {
   index("graphql_operation_source_id_idx").on(table.source_id),
 ]);
 
+export const blob = sqliteTable("blob", {
+  namespace: text('namespace').notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.namespace, table.key] }),
+]);

@@ -134,6 +134,7 @@ const AuthorizationCodeSessionPayload = Schema.Struct({
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
   scopes: Schema.Array(Schema.String),
+  scopeSeparator: Schema.optional(Schema.String),
   clientAuth: Schema.Literal("body", "basic"),
 });
 
@@ -306,8 +307,15 @@ export interface OAuthServiceDeps {
   readonly now?: () => number;
 }
 
-const defaultSessionId = (): string =>
-  `oauth2_session_${Math.random().toString(36).slice(2, 12)}_${Date.now().toString(36)}`;
+const defaultSessionId = (): string => {
+  const crypto = globalThis.crypto;
+  if (crypto?.randomUUID) return `oauth2_session_${crypto.randomUUID()}`;
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `oauth2_session_${Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("")}`;
+};
 
 const secretIdPart = (value: string): string =>
   value
@@ -353,6 +361,7 @@ export const makeOAuth2Service = (
     Effect.gen(function* () {
       const resource = yield* discoverProtectedResourceMetadata(
         input.endpoint,
+        { resourceHeaders: input.headers, resourceQueryParams: input.queryParams },
       ).pipe(
         Effect.catchTag("OAuthDiscoveryError", (err) =>
           Effect.fail(
@@ -402,9 +411,14 @@ export const makeOAuth2Service = (
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 6_000);
           try {
-            const response = await fetch(input.endpoint, {
+            const probeUrl = new URL(input.endpoint);
+            for (const [key, value] of Object.entries(input.queryParams ?? {})) {
+              probeUrl.searchParams.set(key, value);
+            }
+            const response = await fetch(probeUrl.toString(), {
               method: "POST",
               headers: {
+                ...(input.headers ?? {}),
                 "content-type": "application/json",
                 accept: "application/json, text/event-stream",
               },
@@ -458,6 +472,9 @@ export const makeOAuth2Service = (
         redirectUrl: input.redirectUrl,
         state: "",
         scopes: strategy.scopes,
+      }, {
+        resourceHeaders: input.headers,
+        resourceQueryParams: input.queryParams,
       }).pipe(
         Effect.catchTag("OAuthDiscoveryError", (err) =>
           Effect.fail(
@@ -574,6 +591,7 @@ export const makeOAuth2Service = (
         clientIdSecretId: strategy.clientIdSecretId,
         clientSecretSecretId: strategy.clientSecretSecretId,
         scopes: [...strategy.scopes],
+        scopeSeparator: strategy.scopeSeparator,
         clientAuth: strategy.clientAuth ?? "body",
       };
 
@@ -847,6 +865,7 @@ export const makeOAuth2Service = (
                   .token_endpoint_auth_method === "client_secret_basic"
                   ? "basic"
                   : "body",
+              scopes: [...payload.scopes],
               scope: exchangeResult.tokens.scope ?? null,
             }
           : {
@@ -856,6 +875,8 @@ export const makeOAuth2Service = (
               clientIdSecretId: payload.clientIdSecretId,
               clientSecretSecretId: payload.clientSecretSecretId,
               clientAuth: payload.clientAuth,
+              scopes: [...payload.scopes],
+              scopeSeparator: payload.scopeSeparator,
               scope: exchangeResult.tokens.scope ?? null,
             };
 
@@ -1216,6 +1237,14 @@ export const makeOAuth2Service = (
               clientId,
               clientSecret: clientSecret ?? undefined,
               refreshToken: input.refreshToken!,
+              scopes:
+                state.kind === "dynamic-dcr" || state.kind === "authorization-code"
+                  ? state.scopes
+                  : undefined,
+              scopeSeparator:
+                state.kind === "dynamic-dcr" || state.kind === "authorization-code"
+                  ? state.scopeSeparator
+                  : undefined,
               clientAuth: state.clientAuth,
             })).pipe(
           Effect.mapError(

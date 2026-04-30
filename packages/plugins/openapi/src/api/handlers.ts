@@ -8,6 +8,7 @@ import type {
   ConfiguredHeaderValue,
   OpenApiPluginExtension,
   HeaderValue,
+  OpenApiSpecFetchCredentials,
   OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
 import { OpenApiGroup } from "./group";
@@ -57,7 +58,12 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
-          return yield* ext.previewSpec(payload.spec);
+          return yield* ext.previewSpec({
+            spec: payload.spec,
+            specFetchCredentials: payload.specFetchCredentials as
+              | OpenApiSpecFetchCredentials
+              | undefined,
+          });
         }),
       ),
     )
@@ -67,6 +73,9 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           const ext = yield* OpenApiExtensionService;
           const result = yield* ext.addSpec({
             spec: payload.spec,
+            specFetchCredentials: payload.specFetchCredentials as
+              | OpenApiSpecFetchCredentials
+              | undefined,
             scope: path.scopeId,
             name: payload.name,
             baseUrl: payload.baseUrl,

@@ -65,8 +65,19 @@ export type ConfiguredHeaderValue = ConfiguredHeaderValueValue;
 export type OpenApiHeaderInput = HeaderValue | ConfiguredHeaderValue;
 export type OpenApiOAuthInput = OAuth2Auth | OAuth2SourceConfig;
 
+export interface OpenApiSpecFetchCredentials {
+  readonly headers?: Record<string, HeaderValue>;
+  readonly queryParams?: Record<string, HeaderValue>;
+}
+
+export interface OpenApiPreviewInput {
+  readonly spec: string;
+  readonly specFetchCredentials?: OpenApiSpecFetchCredentials;
+}
+
 export interface OpenApiSpecConfig {
   readonly spec: string;
+  readonly specFetchCredentials?: OpenApiSpecFetchCredentials;
   /**
    * Executor scope id that owns this source row. Must be one of the
    * executor's configured scopes. Typical shape: an admin adds the
@@ -216,7 +227,7 @@ export type OpenApiExtensionFailure =
 
 export interface OpenApiPluginExtension {
   readonly previewSpec: (
-    specText: string,
+    input: string | OpenApiPreviewInput,
   ) => Effect.Effect<SpecPreview, OpenApiParseError | OpenApiExtractionError>;
   readonly addSpec: (
     config: OpenApiSpecConfig,
@@ -264,6 +275,12 @@ export interface OpenApiPluginExtension {
 
 const PreviewSpecInputSchema = Schema.Struct({
   spec: Schema.String,
+  specFetchCredentials: Schema.optional(
+    Schema.Struct({
+      headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+      queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+    }),
+  ),
 });
 type PreviewSpecInput = typeof PreviewSpecInputSchema.Type;
 
@@ -272,6 +289,13 @@ const AddSourceInputSchema = Schema.Struct({
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+  specFetchCredentials: Schema.optional(
+    Schema.Struct({
+      headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+      queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+    }),
+  ),
 });
 type AddSourceInput = typeof AddSourceInputSchema.Type;
 
@@ -478,6 +502,7 @@ const resolveEffectiveSourceConfig = (
     }
 
     const hasBaseHeaders = Object.keys(base.config.headers ?? {}).length > 0;
+    const hasBaseQueryParams = Object.keys(base.config.queryParams ?? {}).length > 0;
     return {
       config: {
         ...base.config,
@@ -485,6 +510,9 @@ const resolveEffectiveSourceConfig = (
         baseUrl: base.config.baseUrl || fallback.config.baseUrl,
         namespace: base.config.namespace ?? fallback.config.namespace,
         headers: hasBaseHeaders ? base.config.headers : fallback.config.headers,
+        queryParams: hasBaseQueryParams
+          ? base.config.queryParams
+          : fallback.config.queryParams,
         oauth2: base.config.oauth2 ?? fallback.config.oauth2,
       },
       headersSource: hasBaseHeaders ? base : fallback,
@@ -710,6 +738,7 @@ export const openApiPlugin = definePlugin(
           baseUrl,
           namespace: input.namespace,
           headers: canonicalHeaders.headers,
+          queryParams: input.queryParams,
           oauth2: canonicalOAuth2.oauth2,
         };
 
@@ -820,12 +849,31 @@ export const openApiPlugin = definePlugin(
       storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
       extension: (ctx) => {
+        const resolveSpecFetchCredentials = (
+          credentials: OpenApiSpecFetchCredentials | undefined,
+        ) =>
+          Effect.gen(function* () {
+            if (!credentials) return undefined;
+            return {
+              headers: yield* resolveHeaderValues(ctx, credentials.headers).pipe(
+                Effect.catchAll(() => Effect.succeed({})),
+              ),
+              queryParams: yield* resolveHeaderValues(
+                ctx,
+                credentials.queryParams,
+              ).pipe(Effect.catchAll(() => Effect.succeed({}))),
+            };
+          });
+
         const addSpecInternal = (config: OpenApiSpecConfig) =>
           Effect.gen(function* () {
             // Resolve URL → text and parse BEFORE opening a transaction.
             // Holding `BEGIN` on the pool=1 Postgres connection across a
             // network fetch is the Hyperdrive deadlock path in production.
-            const specText = yield* resolveSpecText(config.spec).pipe(
+            const credentials = yield* resolveSpecFetchCredentials(
+              config.specFetchCredentials,
+            );
+            const specText = yield* resolveSpecText(config.spec, credentials).pipe(
               Effect.provide(httpClientLayer),
             );
             return yield* rebuildSource(ctx, {
@@ -844,8 +892,18 @@ export const openApiPlugin = definePlugin(
         const configFile = options?.configFile;
 
         return {
-          previewSpec: (specText) =>
-            previewSpec(specText).pipe(Effect.provide(httpClientLayer)),
+          previewSpec: (input) =>
+            Effect.gen(function* () {
+              const previewInput = typeof input === "string" ? { spec: input } : input;
+              const credentials = yield* resolveSpecFetchCredentials(
+                previewInput.specFetchCredentials,
+              );
+              const specText = yield* resolveSpecText(
+                previewInput.spec,
+                credentials,
+              ).pipe(Effect.provide(httpClientLayer));
+              return yield* previewSpec(specText).pipe(Effect.provide(httpClientLayer));
+            }),
 
           addSpec: (config) =>
             Effect.gen(function* () {
@@ -1059,11 +1117,14 @@ export const openApiPlugin = definePlugin(
                 "Preview an OpenAPI document before adding it as a source",
               inputSchema: {
                 type: "object",
-                properties: { spec: { type: "string" } },
+                properties: {
+                  spec: { type: "string" },
+                  specFetchCredentials: { type: "object" },
+                },
                 required: ["spec"],
               },
               handler: ({ args }) =>
-                self.previewSpec((args as PreviewSpecInput).spec),
+                self.previewSpec(args as PreviewSpecInput),
             },
             {
               name: "addSource",
@@ -1076,6 +1137,8 @@ export const openApiPlugin = definePlugin(
                   baseUrl: { type: "string" },
                   namespace: { type: "string" },
                   headers: { type: "object" },
+                  queryParams: { type: "object" },
+                  specFetchCredentials: { type: "object" },
                 },
                 required: ["spec"],
               },

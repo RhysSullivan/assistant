@@ -81,6 +81,8 @@ export default function McpSignInButton(props: { sourceId: string }) {
         path: { scopeId },
         payload: {
           endpoint: remote.endpoint,
+          ...(remote.headers ? { headers: remote.headers } : {}),
+          ...(remote.queryParams ? { queryParams: remote.queryParams } : {}),
           redirectUrl,
           connectionId,
           strategy: { kind: "dynamic-dcr" },

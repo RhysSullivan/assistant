@@ -22,6 +22,14 @@ import {
 import { InternalError } from "../observability";
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
+const SecretBackedValue = Schema.Union(
+  Schema.String,
+  Schema.Struct({
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+);
+const SecretBackedMap = Schema.Record({ key: Schema.String, value: SecretBackedValue });
 
 // ---------------------------------------------------------------------------
 // Probe — decide between dynamic-DCR and paste-your-credentials flows
@@ -29,6 +37,8 @@ const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
 
 const ProbePayload = Schema.Struct({
   endpoint: Schema.String,
+  headers: Schema.optional(SecretBackedMap),
+  queryParams: Schema.optional(SecretBackedMap),
 });
 
 const ProbeResponse = Schema.Struct({
@@ -55,6 +65,8 @@ const StartPayload = Schema.Struct({
   /** Resource URL — used by probe/display, not by the start flow for
    *  static strategies. */
   endpoint: Schema.String,
+  headers: Schema.optional(SecretBackedMap),
+  queryParams: Schema.optional(SecretBackedMap),
   /** Where the authorization server will bounce the user's browser
    *  back to. Pass a placeholder (e.g. the token URL) for flows that
    *  don't redirect; the service still persists it. */

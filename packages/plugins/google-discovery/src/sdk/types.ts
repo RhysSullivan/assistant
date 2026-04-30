@@ -90,11 +90,33 @@ export const GoogleDiscoveryAuth = Schema.Union(
 );
 export type GoogleDiscoveryAuth = typeof GoogleDiscoveryAuth.Type;
 
+export const GoogleDiscoveryCredentialValue = Schema.Union(
+  Schema.String,
+  Schema.Struct({
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+);
+export type GoogleDiscoveryCredentialValue =
+  typeof GoogleDiscoveryCredentialValue.Type;
+
+export const GoogleDiscoveryFetchCredentials = Schema.Struct({
+  headers: Schema.optional(
+    Schema.Record({ key: Schema.String, value: GoogleDiscoveryCredentialValue }),
+  ),
+  queryParams: Schema.optional(
+    Schema.Record({ key: Schema.String, value: GoogleDiscoveryCredentialValue }),
+  ),
+});
+export type GoogleDiscoveryFetchCredentials =
+  typeof GoogleDiscoveryFetchCredentials.Type;
+
 export class GoogleDiscoveryStoredSourceData extends Schema.Class<GoogleDiscoveryStoredSourceData>(
   "GoogleDiscoveryStoredSourceData",
 )({
   name: Schema.String,
   discoveryUrl: Schema.String,
+  credentials: Schema.optional(GoogleDiscoveryFetchCredentials),
   service: Schema.String,
   version: Schema.String,
   rootUrl: Schema.String,

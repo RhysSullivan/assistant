@@ -202,6 +202,9 @@ export default function EditOpenApiSource(props: {
     userScope !== sourceScopeId ? userScope : sourceScopeId,
   );
   const sourceSaveSeq = useRef(0);
+  const oauthCleanup = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => oauthCleanup.current?.(), []);
 
   useEffect(() => {
     if (!source) return;
@@ -467,6 +470,8 @@ export default function EditOpenApiSource(props: {
           },
           reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
         });
+        setPendingOAuthConnection(null);
+        setBusyKey(null);
         return;
       }
 
@@ -503,12 +508,13 @@ export default function EditOpenApiSource(props: {
       if (response.flow !== "authorizationCode") {
         throw new Error("Unexpected OAuth response");
       }
-      openOAuthPopup({
+      oauthCleanup.current = openOAuthPopup({
         url: response.authorizationUrl,
         popupName: OPENAPI_OAUTH_POPUP_NAME,
         channelName: OPENAPI_OAUTH_CHANNEL,
         expectedSessionId: response.sessionId,
         onResult: async (result: OAuthPopupResult<{ connectionId: string }>) => {
+          oauthCleanup.current = null;
           if (!result.ok) {
             setError(result.error);
             setPendingOAuthConnection(null);
@@ -538,6 +544,7 @@ export default function EditOpenApiSource(props: {
           }
         },
         onClosed: () => {
+          oauthCleanup.current = null;
           void doCancelOAuth({
             path: { scopeId: targetScope },
             payload: { sessionId: response.sessionId },
@@ -546,6 +553,7 @@ export default function EditOpenApiSource(props: {
           setBusyKey(null);
         },
         onOpenFailed: () => {
+          oauthCleanup.current = null;
           void doCancelOAuth({
             path: { scopeId: targetScope },
             payload: { sessionId: response.sessionId },

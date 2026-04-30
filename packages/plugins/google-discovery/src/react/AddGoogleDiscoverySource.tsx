@@ -524,6 +524,8 @@ export default function AddGoogleDiscoverySource(props: {
   const oauthCleanup = useRef<(() => void) | null>(null);
   const oauthSessionId = useRef<string | null>(null);
 
+  useEffect(() => () => oauthCleanup.current?.(), []);
+
   const handleStartOAuth = useCallback(async () => {
     if (!probe || !clientIdSecretId) return;
     oauthCleanup.current?.();

@@ -111,8 +111,7 @@ export const tool_policy = pgTable("tool_policy", {
   updated_at: timestamp('updated_at').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
-  index("tool_policy_scope_id_idx").on(table.scope_id),
-  index("tool_policy_position_idx").on(table.position),
+  index("tool_policy_scope_id_position_idx").on(table.scope_id, table.position),
 ]);
 
 export const openapi_source = pgTable("openapi_source", {
@@ -213,4 +212,12 @@ export const workos_vault_metadata = pgTable("workos_vault_metadata", {
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("workos_vault_metadata_scope_id_idx").on(table.scope_id),
+]);
+
+export const blob = pgTable("blob", {
+  namespace: text('namespace').notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.namespace, table.key] }),
 ]);

@@ -14,6 +14,7 @@ import {
   OAuthProbeError,
   OAuthSessionNotFoundError,
   OAuthStartError,
+  type Executor,
   type OAuthStrategy,
 } from "@executor/sdk";
 
@@ -22,6 +23,33 @@ import { capture } from "../observability";
 import { ExecutorService } from "../services";
 
 const OAUTH_POPUP_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
+
+type SecretBackedValue =
+  | string
+  | { readonly secretId: string; readonly prefix?: string };
+
+const resolveSecretBackedMap = (
+  executor: Executor,
+  values: Record<string, SecretBackedValue> | undefined,
+  makeError: (message: string) => OAuthProbeError | OAuthStartError,
+) =>
+  Effect.gen(function* () {
+    const resolved: Record<string, string> = {};
+    for (const [name, value] of Object.entries(values ?? {})) {
+      if (typeof value === "string") {
+        resolved[name] = value;
+        continue;
+      }
+      const secret = yield* executor.secrets.get(value.secretId).pipe(
+        Effect.mapError(() => makeError(`Secret not found for "${name}"`)),
+      );
+      if (secret === null) {
+        return yield* Effect.fail(makeError(`Secret not found for "${name}"`));
+      }
+      resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
+    }
+    return Object.keys(resolved).length > 0 ? resolved : undefined;
+  });
 
 const toPopupErrorMessage = (error: unknown): string => {
   if (error instanceof OAuthStartError) return error.message;
@@ -39,7 +67,21 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
       capture(
         Effect.gen(function* () {
           const executor = yield* ExecutorService;
-          return yield* executor.oauth.probe({ endpoint: payload.endpoint });
+          const headers = yield* resolveSecretBackedMap(
+            executor,
+            payload.headers,
+            (message) => new OAuthProbeError({ message }),
+          );
+          const queryParams = yield* resolveSecretBackedMap(
+            executor,
+            payload.queryParams,
+            (message) => new OAuthProbeError({ message }),
+          );
+          return yield* executor.oauth.probe({
+            endpoint: payload.endpoint,
+            headers,
+            queryParams,
+          });
         }),
       ),
     )
@@ -49,8 +91,20 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
           const executor = yield* ExecutorService;
           const tokenScope =
             payload.tokenScope ?? (executor.scopes[0]!.id as unknown as string);
+          const headers = yield* resolveSecretBackedMap(
+            executor,
+            payload.headers,
+            (message) => new OAuthStartError({ message }),
+          );
+          const queryParams = yield* resolveSecretBackedMap(
+            executor,
+            payload.queryParams,
+            (message) => new OAuthStartError({ message }),
+          );
           return yield* executor.oauth.start({
             endpoint: payload.endpoint,
+            headers,
+            queryParams,
             redirectUrl: payload.redirectUrl,
             connectionId: payload.connectionId,
             tokenScope,

@@ -129,6 +129,10 @@ export const OAuthProviderState = Schema.Union(
     clientId: Schema.String,
     clientSecretSecretId: Schema.NullOr(Schema.String),
     clientAuth: Schema.Literal("body", "basic"),
+    scopes: Schema.optionalWith(Schema.Array(Schema.String), {
+      default: () => [],
+    }),
+    scopeSeparator: Schema.optional(Schema.String),
     scope: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
@@ -138,6 +142,10 @@ export const OAuthProviderState = Schema.Union(
     clientIdSecretId: Schema.String,
     clientSecretSecretId: Schema.NullOr(Schema.String),
     clientAuth: Schema.Literal("body", "basic"),
+    scopes: Schema.optionalWith(Schema.Array(Schema.String), {
+      default: () => [],
+    }),
+    scopeSeparator: Schema.optional(Schema.String),
     scope: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
@@ -166,6 +174,8 @@ export const OAUTH2_PROVIDER_KEY = "oauth2" as const;
 
 export interface OAuthProbeInput {
   readonly endpoint: string;
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
 }
 
 export interface OAuthProbeResult {
@@ -201,6 +211,8 @@ export interface OAuthStartInput {
    *  is the probe target; for `authorization-code` it's stored only so
    *  the UI can display "signed in to X." */
   readonly endpoint: string;
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
   /** Pre-decided `Connection.id`. Writing it before the flow starts
    *  lets callers stamp `{kind:"oauth2", connectionId}` onto a source
    *  row atomically with the start call. Convention:

@@ -54,7 +54,10 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
         capture(
           Effect.gen(function* () {
             const ext = yield* GoogleDiscoveryExtensionService;
-            return yield* ext.probeDiscovery(payload.discoveryUrl);
+            return yield* ext.probeDiscovery({
+              discoveryUrl: payload.discoveryUrl,
+              credentials: payload.credentials,
+            });
           }),
         ),
       )
