@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect-atom/atom-react";
 
-import { secretsAtom } from "@executor/react/api/atoms";
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { useScope } from "@executor/react/api/scope-context";
 import type { SecretPickerSecret } from "@executor/react/plugins/secret-picker";
 import { CreatableSecretPicker } from "@executor/react/plugins/secret-header-auth";
+import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
 import {
@@ -45,20 +45,7 @@ import { Input } from "@executor/react/components/input";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { addGoogleDiscoverySource, probeGoogleDiscovery } from "./atoms";
-
-// ---------------------------------------------------------------------------
-// Google OAuth constants — the plugin bakes these in because Google only
-// serves a single OAuth authorization + token URL for every Discovery API.
-// ---------------------------------------------------------------------------
-
-const GOOGLE_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-
-const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
-  access_type: "offline",
-  include_granted_scopes: "true",
-  prompt: "consent",
-} as const;
+import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";
 
 type GoogleAuthKind = "none" | "oauth2";
 
@@ -311,26 +298,16 @@ export default function AddGoogleDiscoverySource(props: {
   const scopeId = useScope();
   const doProbe = useAtomSet(probeGoogleDiscovery, { mode: "promise" });
   const doAdd = useAtomSet(addGoogleDiscoverySource, { mode: "promise" });
-  const secrets = useAtomValue(secretsAtom(scopeId));
   const { beginAdd } = usePendingSources();
+  const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({
-    popupName: "google-discovery-oauth",
+    popupName: GOOGLE_DISCOVERY_OAUTH_POPUP_NAME,
     popupBlockedMessage: "OAuth popup was blocked",
     popupClosedMessage: "OAuth cancelled: popup was closed before completing the flow.",
     startErrorMessage: "Failed to start OAuth",
   });
 
   const canUseOAuth = useMemo(() => (probe?.scopes.length ?? 0) > 0, [probe]);
-  const secretList: readonly SecretPickerSecret[] = Result.match(secrets, {
-    onInitial: () => [] as SecretPickerSecret[],
-    onFailure: () => [] as SecretPickerSecret[],
-    onSuccess: ({ value }) =>
-      value.map((secret) => ({
-        id: secret.id,
-        name: secret.name,
-        provider: secret.provider ? String(secret.provider) : undefined,
-      })),
-  });
 
   const applyTemplate = useCallback(
     (template: GoogleDiscoveryTemplate) => {
@@ -404,16 +381,11 @@ export default function AddGoogleDiscoverySource(props: {
           namespace: resolvedNamespace,
         }),
         identityLabel: `${identity.name.trim() || probe.title || probe.name} OAuth`,
-        strategy: {
-          kind: "authorization-code",
-          authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
-          tokenEndpoint: GOOGLE_TOKEN_URL,
-          issuerUrl: "https://accounts.google.com",
+        strategy: googleDiscoveryOAuthStrategy({
           clientIdSecretId,
           clientSecretSecretId,
           scopes,
-          extraAuthorizationParams: GOOGLE_EXTRA_AUTHORIZATION_PARAMS,
-        },
+        }),
         pluginId: "google-discovery",
       },
       onSuccess: (result) => {

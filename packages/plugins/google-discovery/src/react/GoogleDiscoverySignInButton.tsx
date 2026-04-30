@@ -12,6 +12,7 @@ import {
 } from "@executor/react/plugins/oauth-sign-in";
 
 import { googleDiscoverySourceAtom, updateGoogleDiscoverySource } from "./atoms";
+import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";
 
 // ---------------------------------------------------------------------------
 // GoogleDiscoverySignInButton — top-bar action on the source detail page.
@@ -23,15 +24,6 @@ import { googleDiscoverySourceAtom, updateGoogleDiscoverySource } from "./atoms"
 // OAuth config is the source of truth.
 // ---------------------------------------------------------------------------
 
-const GOOGLE_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-
-const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
-  access_type: "offline",
-  include_granted_scopes: "true",
-  prompt: "consent",
-} as const;
-
 const signInWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
 
 export default function GoogleDiscoverySignInButton(props: { sourceId: string }) {
@@ -40,7 +32,7 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
   const doUpdate = useAtomSet(updateGoogleDiscoverySource, { mode: "promise" });
   const oauth = useOAuthPopupFlow({
-    popupName: "google-discovery-oauth",
+    popupName: GOOGLE_DISCOVERY_OAUTH_POPUP_NAME,
     popupBlockedMessage: "OAuth popup was blocked",
     popupClosedMessage: "OAuth cancelled: popup was closed before completing the flow.",
   });
@@ -63,16 +55,11 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
         redirectUrl: oauthCallbackUrl(),
         connectionId: oauth2.connectionId,
         identityLabel: `${source.name.trim() || props.sourceId} OAuth`,
-        strategy: {
-          kind: "authorization-code",
-          authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
-          tokenEndpoint: GOOGLE_TOKEN_URL,
-          issuerUrl: "https://accounts.google.com",
+        strategy: googleDiscoveryOAuthStrategy({
           clientIdSecretId: oauth2.clientIdSecretId,
           clientSecretSecretId: oauth2.clientSecretSecretId,
           scopes,
-          extraAuthorizationParams: GOOGLE_EXTRA_AUTHORIZATION_PARAMS,
-        },
+        }),
         pluginId: "google-discovery",
       },
       onSuccess: async (result: OAuthCompletionPayload) => {
