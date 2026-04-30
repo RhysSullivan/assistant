@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0edff1ad-a821-496f-9ba3-a1e2af824ad4",
+  "id": "d19b4bf7-780a-40ef-b6e9-a58a53ac25c5",
   "prevId": "b20a0eff-12a3-4709-9389-4353e5191535",
   "tables": {
     "connection": {
@@ -271,6 +271,60 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "google_discovery_oauth_session": {
+      "name": "google_discovery_oauth_session",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session": {
+          "name": "session",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "google_discovery_oauth_session_scope_id_idx": {
+          "name": "google_discovery_oauth_session_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "google_discovery_oauth_session_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "google_discovery_oauth_session_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "google_discovery_source": {
       "name": "google_discovery_source",
       "columns": {
@@ -529,6 +583,67 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "mcp_oauth_session": {
+      "name": "mcp_oauth_session",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session": {
+          "name": "session",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mcp_oauth_session_scope_id_idx": {
+          "name": "mcp_oauth_session_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "mcp_oauth_session_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "mcp_oauth_session_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "mcp_source": {
       "name": "mcp_source",
       "columns": {
@@ -585,116 +700,6 @@
             "id"
           ],
           "name": "mcp_source_scope_id_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "oauth2_session": {
-      "name": "oauth2_session",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope_id": {
-          "name": "scope_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "plugin_id": {
-          "name": "plugin_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "strategy": {
-          "name": "strategy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "connection_id": {
-          "name": "connection_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "token_scope": {
-          "name": "token_scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "redirect_url": {
-          "name": "redirect_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "payload": {
-          "name": "payload",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "oauth2_session_scope_id_idx": {
-          "name": "oauth2_session_scope_id_idx",
-          "columns": [
-            "scope_id"
-          ],
-          "isUnique": false
-        },
-        "oauth2_session_plugin_id_idx": {
-          "name": "oauth2_session_plugin_id_idx",
-          "columns": [
-            "plugin_id"
-          ],
-          "isUnique": false
-        },
-        "oauth2_session_connection_id_idx": {
-          "name": "oauth2_session_connection_id_idx",
-          "columns": [
-            "connection_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "oauth2_session_scope_id_id_pk": {
-          "columns": [
-            "scope_id",
-            "id"
-          ],
-          "name": "oauth2_session_scope_id_id_pk"
         }
       },
       "uniqueConstraints": {},
@@ -1299,6 +1304,82 @@
             "id"
           ],
           "name": "tool_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "tool_policy": {
+      "name": "tool_policy",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pattern": {
+          "name": "pattern",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "tool_policy_scope_id_position_idx": {
+          "name": "tool_policy_scope_id_position_idx",
+          "columns": [
+            "scope_id",
+            "position"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "tool_policy_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "tool_policy_scope_id_id_pk"
         }
       },
       "uniqueConstraints": {},

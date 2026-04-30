@@ -3,7 +3,11 @@ import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { cancelOAuth, connectionsAtom, startOAuth } from "@executor/react/api/atoms";
+import {
+  cancelOAuth,
+  connectionsAtom,
+  startOAuth,
+} from "@executor/react/api/atoms";
 import {
   openOAuthPopup,
   type OAuthPopupResult,
@@ -48,12 +52,29 @@ export default function McpSignInButton(props: { sourceId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const sessionRef = useRef<string | null>(null);
 
-  useEffect(() => () => cleanupRef.current?.(), []);
+  const cancelActiveOAuth = useCallback(() => {
+    const sessionId = sessionRef.current;
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    sessionRef.current = null;
+    if (sessionId) {
+      void doCancelOAuth({
+        path: { scopeId },
+        payload: { sessionId },
+      }).catch(() => undefined);
+    }
+  }, [doCancelOAuth, scopeId]);
+
+  useEffect(() => () => cancelActiveOAuth(), [cancelActiveOAuth]);
 
   const source =
-    Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
-  const remote = source && source.config.transport === "remote" ? source.config : null;
+    Result.isSuccess(sourceResult) && sourceResult.value
+      ? sourceResult.value
+      : null;
+  const remote =
+    source && source.config.transport === "remote" ? source.config : null;
   const oauth2 = remote && remote.auth.kind === "oauth2" ? remote.auth : null;
   const connections = Result.isSuccess(connectionsResult)
     ? connectionsResult.value
@@ -70,8 +91,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
 
   const handleSignIn = useCallback(async () => {
     if (!remote || !oauth2 || !source) return;
-    cleanupRef.current?.();
-    cleanupRef.current = null;
+    cancelActiveOAuth();
     setBusy(true);
     setError(null);
     try {
@@ -96,6 +116,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
         return;
       }
 
+      sessionRef.current = response.sessionId;
       cleanupRef.current = openOAuthPopup<McpOAuthPopupPayload>({
         url: response.authorizationUrl,
         popupName: POPUP_NAME,
@@ -103,6 +124,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
         expectedSessionId: response.sessionId,
         onResult: async (result: OAuthPopupResult<McpOAuthPopupPayload>) => {
           cleanupRef.current = null;
+          sessionRef.current = null;
           if (!result.ok) {
             setBusy(false);
             setError(result.error);
@@ -120,21 +142,27 @@ export default function McpSignInButton(props: { sourceId: string }) {
           } catch (e) {
             setBusy(false);
             setError(
-              e instanceof Error ? e.message : "Failed to persist new connection",
+              e instanceof Error
+                ? e.message
+                : "Failed to persist new connection",
             );
           }
         },
         onClosed: () => {
           cleanupRef.current = null;
+          sessionRef.current = null;
           void doCancelOAuth({
             path: { scopeId },
             payload: { sessionId: response.sessionId },
           }).catch(() => undefined);
           setBusy(false);
-          setError("Sign-in cancelled — popup was closed before completing the flow.");
+          setError(
+            "Sign-in cancelled — popup was closed before completing the flow.",
+          );
         },
         onOpenFailed: () => {
           cleanupRef.current = null;
+          sessionRef.current = null;
           void doCancelOAuth({
             path: { scopeId },
             payload: { sessionId: response.sessionId },
@@ -147,7 +175,18 @@ export default function McpSignInButton(props: { sourceId: string }) {
       setBusy(false);
       setError(e instanceof Error ? e.message : "Failed to start sign-in");
     }
-  }, [remote, oauth2, source, scopeId, props.sourceId, redirectUrl, doStartOAuth, doCancelOAuth, doUpdate]);
+  }, [
+    remote,
+    oauth2,
+    source,
+    scopeId,
+    props.sourceId,
+    redirectUrl,
+    doStartOAuth,
+    doCancelOAuth,
+    doUpdate,
+    cancelActiveOAuth,
+  ]);
 
   if (!oauth2) return null;
 

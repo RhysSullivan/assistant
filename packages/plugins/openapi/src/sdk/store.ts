@@ -88,7 +88,13 @@ export interface SourceConfig {
   readonly namespace?: string;
   readonly headers?: Record<string, ConfiguredHeaderValue>;
   readonly queryParams?: Record<string, HeaderValue>;
+  readonly specFetchCredentials?: OpenApiSpecFetchCredentials;
   readonly oauth2?: OAuth2SourceConfig;
+}
+
+export interface OpenApiSpecFetchCredentials {
+  readonly headers?: Record<string, HeaderValue>;
+  readonly queryParams?: Record<string, HeaderValue>;
 }
 
 export interface StoredSource {
@@ -123,7 +129,19 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
     headers: Schema.optional(
       Schema.Record({ key: Schema.String, value: ConfiguredHeaderValue }),
     ),
-    queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValue })),
+    queryParams: Schema.optional(
+      Schema.Record({ key: Schema.String, value: HeaderValue }),
+    ),
+    specFetchCredentials: Schema.optional(
+      Schema.Struct({
+        headers: Schema.optional(
+          Schema.Record({ key: Schema.String, value: HeaderValue }),
+        ),
+        queryParams: Schema.optional(
+          Schema.Record({ key: Schema.String, value: HeaderValue }),
+        ),
+      }),
+    ),
     // Canonical source-owned OAuth config. Concrete client credentials
     // and connection ids live in OpenAPI-owned scoped binding rows.
     oauth2: Schema.optional(OAuth2SourceConfig),
@@ -149,17 +167,21 @@ const decodeBinding = Schema.decodeUnknownSync(OperationBinding);
 const decodeOAuth2 = Schema.decodeUnknownSync(OAuth2Auth);
 const encodeOAuth2SourceConfig = Schema.encodeSync(OAuth2SourceConfig);
 const encodeSourceBindingValue = Schema.encodeSync(OpenApiSourceBindingValue);
-const decodeSourceBindingValue = Schema.decodeUnknownSync(OpenApiSourceBindingValue);
+const decodeSourceBindingValue = Schema.decodeUnknownSync(
+  OpenApiSourceBindingValue,
+);
 
 const asJsonObject = (value: unknown): Record<string, unknown> => {
   if (value == null) return {};
-  if (typeof value === "string") return JSON.parse(value) as Record<string, unknown>;
+  if (typeof value === "string")
+    return JSON.parse(value) as Record<string, unknown>;
   return value as Record<string, unknown>;
 };
 
 const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
   if (value == null) return {};
-  if (typeof value === "string") return JSON.parse(value) as Record<string, HeaderValue>;
+  if (typeof value === "string")
+    return JSON.parse(value) as Record<string, HeaderValue>;
   return value as Record<string, HeaderValue>;
 };
 
@@ -291,7 +313,10 @@ export interface OpenapiStore {
     scope: string,
   ) => Effect.Effect<StoredSource | null, StorageFailure>;
 
-  readonly listSources: () => Effect.Effect<readonly StoredSource[], StorageFailure>;
+  readonly listSources: () => Effect.Effect<
+    readonly StoredSource[],
+    StorageFailure
+  >;
 
   readonly getOperationByToolId: (
     toolId: string,
@@ -439,6 +464,7 @@ export const makeDefaultOpenapiStore = ({
   const rowToSource = (row: Record<string, unknown>): StoredSource => {
     const normalizedHeaders = normalizeStoredHeaders(row.headers);
     const normalizedOAuth2 = normalizeStoredOAuth2(row.oauth2);
+    const invocationConfig = asJsonObject(row.invocation_config);
     return {
       namespace: row.id as string,
       scope: row.scope_id as string,
@@ -449,15 +475,21 @@ export const makeDefaultOpenapiStore = ({
         baseUrl: (row.base_url as string | null | undefined) ?? undefined,
         headers: normalizedHeaders.headers,
         queryParams: decodeHeaders(row.query_params),
+        specFetchCredentials: invocationConfig.specFetchCredentials as
+          | OpenApiSpecFetchCredentials
+          | undefined,
         oauth2: normalizedOAuth2.oauth2,
       },
       legacy:
-        Object.keys(normalizedHeaders.legacy).length > 0 || normalizedOAuth2.legacy
+        Object.keys(normalizedHeaders.legacy).length > 0 ||
+        normalizedOAuth2.legacy
           ? {
               ...(Object.keys(normalizedHeaders.legacy).length > 0
                 ? { headers: normalizedHeaders.legacy }
                 : {}),
-              ...(normalizedOAuth2.legacy ? { oauth2: normalizedOAuth2.legacy } : {}),
+              ...(normalizedOAuth2.legacy
+                ? { oauth2: normalizedOAuth2.legacy }
+                : {}),
             }
           : undefined,
     };
@@ -471,7 +503,11 @@ export const makeDefaultOpenapiStore = ({
     ),
   });
 
-  const deleteSource = (namespace: string, scope: string) =>
+  const deleteSource = (
+    namespace: string,
+    scope: string,
+    options?: { readonly includeBindings?: boolean },
+  ) =>
     Effect.gen(function* () {
       yield* adapter.deleteMany({
         model: "openapi_operation",
@@ -487,13 +523,15 @@ export const makeDefaultOpenapiStore = ({
           { field: "scope_id", value: scope },
         ],
       });
-      yield* adapter.deleteMany({
-        model: "openapi_source_binding",
-        where: [
-          { field: "source_id", value: namespace },
-          { field: "source_scope_id", value: scope },
-        ],
-      });
+      if (options?.includeBindings) {
+        yield* adapter.deleteMany({
+          model: "openapi_source_binding",
+          where: [
+            { field: "source_id", value: namespace },
+            { field: "source_scope_id", value: scope },
+          ],
+        });
+      }
     });
 
   return {
@@ -510,24 +548,35 @@ export const makeDefaultOpenapiStore = ({
             source_url: input.config.sourceUrl ?? undefined,
             base_url: input.config.baseUrl ?? undefined,
             headers: Object.fromEntries(
-              Object.entries(input.config.headers ?? {}).map(([name, value]) => [
-                name,
-                typeof value === "string"
-                  ? value
-                  : (value.kind === "binding"
-                    ? {
-                        kind: value.kind,
-                        slot: value.slot,
-                        ...(value.prefix ? { prefix: value.prefix } : {}),
-                      }
-                    : value),
-              ]),
+              Object.entries(input.config.headers ?? {}).map(
+                ([name, value]) => [
+                  name,
+                  typeof value === "string"
+                    ? value
+                    : value.kind === "binding"
+                      ? {
+                          kind: value.kind,
+                          slot: value.slot,
+                          ...(value.prefix ? { prefix: value.prefix } : {}),
+                        }
+                      : value,
+                ],
+              ),
             ) as Record<string, unknown>,
-            query_params: input.config.queryParams as unknown as Record<string, unknown>,
+            query_params: input.config.queryParams as unknown as Record<
+              string,
+              unknown
+            >,
             oauth2: input.config.oauth2
-              ? (encodeOAuth2SourceConfig(input.config.oauth2) as unknown as Record<string, unknown>)
+              ? (encodeOAuth2SourceConfig(
+                  input.config.oauth2,
+                ) as unknown as Record<string, unknown>)
               : undefined,
-            invocation_config: {},
+            invocation_config: {
+              ...(input.config.specFetchCredentials
+                ? { specFetchCredentials: input.config.specFetchCredentials }
+                : {}),
+            },
           },
           forceAllowId: true,
         });
@@ -538,7 +587,10 @@ export const makeDefaultOpenapiStore = ({
               id: op.toolId,
               scope_id: input.scope,
               source_id: op.sourceId,
-              binding: encodeBinding(op.binding) as unknown as Record<string, unknown>,
+              binding: encodeBinding(op.binding) as unknown as Record<
+                string,
+                unknown
+              >,
             })),
             forceAllowId: true,
           });
@@ -561,11 +613,13 @@ export const makeDefaultOpenapiStore = ({
         const nextBaseUrl =
           patch.baseUrl !== undefined ? patch.baseUrl : existing.config.baseUrl;
         const nextHeaders =
-          patch.headers !== undefined ? patch.headers : existing.config.headers ?? {};
+          patch.headers !== undefined
+            ? patch.headers
+            : (existing.config.headers ?? {});
         const nextQueryParams =
           patch.queryParams !== undefined
             ? patch.queryParams
-            : existing.config.queryParams ?? {};
+            : (existing.config.queryParams ?? {});
         const nextOAuth2 =
           patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
 
@@ -592,7 +646,10 @@ export const makeDefaultOpenapiStore = ({
             ) as Record<string, unknown>,
             query_params: nextQueryParams as unknown as Record<string, unknown>,
             oauth2: nextOAuth2
-              ? (encodeOAuth2SourceConfig(nextOAuth2) as unknown as Record<string, unknown>)
+              ? (encodeOAuth2SourceConfig(nextOAuth2) as unknown as Record<
+                  string,
+                  unknown
+                >)
               : undefined,
             invocation_config: asJsonObject(existingRow.invocation_config),
           },
@@ -637,7 +694,8 @@ export const makeDefaultOpenapiStore = ({
         })
         .pipe(Effect.map((rows) => rows.map(rowToOperation))),
 
-    removeSource: (namespace, scope) => deleteSource(namespace, scope),
+    removeSource: (namespace, scope) =>
+      deleteSource(namespace, scope, { includeBindings: true }),
 
     listSourceBindings: (sourceId, sourceScope) =>
       Effect.gen(function* () {
@@ -655,7 +713,10 @@ export const makeDefaultOpenapiStore = ({
           ],
         });
         return rows
-          .filter((row) => scopeRank(row.target_scope_id as string) <= sourceScopeRank)
+          .filter(
+            (row) =>
+              scopeRank(row.target_scope_id as string) <= sourceScopeRank,
+          )
           .sort(
             (a, b) =>
               scopeRank(a.target_scope_id as string) -
@@ -719,7 +780,10 @@ export const makeDefaultOpenapiStore = ({
             source_scope_id: input.sourceScope as string,
             target_scope_id: input.scope as string,
             slot: input.slot,
-            value: encodeSourceBindingValue(input.value) as unknown as Record<string, unknown>,
+            value: encodeSourceBindingValue(input.value) as unknown as Record<
+              string,
+              unknown
+            >,
             created_at: now,
             updated_at: now,
           },

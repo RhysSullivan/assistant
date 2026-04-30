@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a1bec58a-061c-48b2-b377-d6b29061250c",
-  "prevId": "9c2f2ea5-48e2-4240-bc9c-6815a73fdcd8",
+  "id": "568e9813-45cd-4628-a094-ce627d6be53c",
+  "prevId": "aa134930-1238-45c8-a51b-7f9b94aabe74",
   "tables": {
     "connection": {
       "name": "connection",
@@ -88,19 +88,26 @@
       "indexes": {
         "connection_scope_id_idx": {
           "name": "connection_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "connection_provider_idx": {
           "name": "connection_provider_idx",
-          "columns": ["provider"],
+          "columns": [
+            "provider"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "connection_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "connection_scope_id_id_pk"
         }
       },
@@ -163,24 +170,33 @@
       "indexes": {
         "definition_scope_id_idx": {
           "name": "definition_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "definition_source_id_idx": {
           "name": "definition_source_id_idx",
-          "columns": ["source_id"],
+          "columns": [
+            "source_id"
+          ],
           "isUnique": false
         },
         "definition_plugin_id_idx": {
           "name": "definition_plugin_id_idx",
-          "columns": ["plugin_id"],
+          "columns": [
+            "plugin_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "definition_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "definition_scope_id_id_pk"
         }
       },
@@ -229,19 +245,26 @@
       "indexes": {
         "google_discovery_binding_scope_id_idx": {
           "name": "google_discovery_binding_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "google_discovery_binding_source_id_idx": {
           "name": "google_discovery_binding_source_id_idx",
-          "columns": ["source_id"],
+          "columns": [
+            "source_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "google_discovery_binding_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "google_discovery_binding_scope_id_id_pk"
         }
       },
@@ -297,14 +320,19 @@
       "indexes": {
         "google_discovery_source_scope_id_idx": {
           "name": "google_discovery_source_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "google_discovery_source_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "google_discovery_source_scope_id_id_pk"
         }
       },
@@ -346,19 +374,26 @@
       "indexes": {
         "graphql_operation_scope_id_idx": {
           "name": "graphql_operation_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "graphql_operation_source_id_idx": {
           "name": "graphql_operation_source_id_idx",
-          "columns": ["source_id"],
+          "columns": [
+            "source_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "graphql_operation_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "graphql_operation_scope_id_id_pk"
         }
       },
@@ -421,14 +456,19 @@
       "indexes": {
         "graphql_source_scope_id_idx": {
           "name": "graphql_source_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "graphql_source_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "graphql_source_scope_id_id_pk"
         }
       },
@@ -477,19 +517,26 @@
       "indexes": {
         "mcp_binding_scope_id_idx": {
           "name": "mcp_binding_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "mcp_binding_source_id_idx": {
           "name": "mcp_binding_source_id_idx",
-          "columns": ["source_id"],
+          "columns": [
+            "source_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "mcp_binding_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "mcp_binding_scope_id_id_pk"
         }
       },
@@ -538,116 +585,20 @@
       "indexes": {
         "mcp_source_scope_id_idx": {
           "name": "mcp_source_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "mcp_source_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "mcp_source_scope_id_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "oauth2_session": {
-      "name": "oauth2_session",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope_id": {
-          "name": "scope_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "plugin_id": {
-          "name": "plugin_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "strategy": {
-          "name": "strategy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "connection_id": {
-          "name": "connection_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "token_scope": {
-          "name": "token_scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "redirect_url": {
-          "name": "redirect_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "payload": {
-          "name": "payload",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "oauth2_session_scope_id_idx": {
-          "name": "oauth2_session_scope_id_idx",
-          "columns": ["scope_id"],
-          "isUnique": false
-        },
-        "oauth2_session_plugin_id_idx": {
-          "name": "oauth2_session_plugin_id_idx",
-          "columns": ["plugin_id"],
-          "isUnique": false
-        },
-        "oauth2_session_connection_id_idx": {
-          "name": "oauth2_session_connection_id_idx",
-          "columns": ["connection_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "oauth2_session_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
-          "name": "oauth2_session_scope_id_id_pk"
         }
       },
       "uniqueConstraints": {},
@@ -688,19 +639,26 @@
       "indexes": {
         "openapi_operation_scope_id_idx": {
           "name": "openapi_operation_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "openapi_operation_source_id_idx": {
           "name": "openapi_operation_source_id_idx",
-          "columns": ["source_id"],
+          "columns": [
+            "source_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "openapi_operation_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "openapi_operation_scope_id_id_pk"
         }
       },
@@ -759,13 +717,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "query_params": {
-          "name": "query_params",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "oauth2": {
           "name": "oauth2",
           "type": "text",
@@ -779,19 +730,31 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "query_params": {
+          "name": "query_params",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
         "openapi_source_scope_id_idx": {
           "name": "openapi_source_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "openapi_source_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "openapi_source_scope_id_id_pk"
         }
       },
@@ -861,22 +824,30 @@
       "indexes": {
         "openapi_source_binding_source_id_idx": {
           "name": "openapi_source_binding_source_id_idx",
-          "columns": ["source_id"],
+          "columns": [
+            "source_id"
+          ],
           "isUnique": false
         },
         "openapi_source_binding_source_scope_id_idx": {
           "name": "openapi_source_binding_source_scope_id_idx",
-          "columns": ["source_scope_id"],
+          "columns": [
+            "source_scope_id"
+          ],
           "isUnique": false
         },
         "openapi_source_binding_target_scope_id_idx": {
           "name": "openapi_source_binding_target_scope_id_idx",
-          "columns": ["target_scope_id"],
+          "columns": [
+            "target_scope_id"
+          ],
           "isUnique": false
         },
         "openapi_source_binding_slot_idx": {
           "name": "openapi_source_binding_slot_idx",
-          "columns": ["slot"],
+          "columns": [
+            "slot"
+          ],
           "isUnique": false
         }
       },
@@ -934,24 +905,33 @@
       "indexes": {
         "secret_scope_id_idx": {
           "name": "secret_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "secret_provider_idx": {
           "name": "secret_provider_idx",
-          "columns": ["provider"],
+          "columns": [
+            "provider"
+          ],
           "isUnique": false
         },
         "secret_owned_by_connection_id_idx": {
           "name": "secret_owned_by_connection_id_idx",
-          "columns": ["owned_by_connection_id"],
+          "columns": [
+            "owned_by_connection_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "secret_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "secret_scope_id_id_pk"
         }
       },
@@ -1045,19 +1025,26 @@
       "indexes": {
         "source_scope_id_idx": {
           "name": "source_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "source_plugin_id_idx": {
           "name": "source_plugin_id_idx",
-          "columns": ["plugin_id"],
+          "columns": [
+            "plugin_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "source_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "source_scope_id_id_pk"
         }
       },
@@ -1141,24 +1128,33 @@
       "indexes": {
         "tool_scope_id_idx": {
           "name": "tool_scope_id_idx",
-          "columns": ["scope_id"],
+          "columns": [
+            "scope_id"
+          ],
           "isUnique": false
         },
         "tool_source_id_idx": {
           "name": "tool_source_id_idx",
-          "columns": ["source_id"],
+          "columns": [
+            "source_id"
+          ],
           "isUnique": false
         },
         "tool_plugin_id_idx": {
           "name": "tool_plugin_id_idx",
-          "columns": ["plugin_id"],
+          "columns": [
+            "plugin_id"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "tool_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "tool_scope_id_id_pk"
         }
       },
@@ -1221,15 +1217,131 @@
       "indexes": {
         "tool_policy_scope_id_position_idx": {
           "name": "tool_policy_scope_id_position_idx",
-          "columns": ["scope_id", "position"],
+          "columns": [
+            "scope_id",
+            "position"
+          ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "tool_policy_scope_id_id_pk": {
-          "columns": ["scope_id", "id"],
+          "columns": [
+            "scope_id",
+            "id"
+          ],
           "name": "tool_policy_scope_id_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "oauth2_session": {
+      "name": "oauth2_session",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plugin_id": {
+          "name": "plugin_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "strategy": {
+          "name": "strategy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_scope": {
+          "name": "token_scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "redirect_url": {
+          "name": "redirect_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "oauth2_session_scope_id_idx": {
+          "name": "oauth2_session_scope_id_idx",
+          "columns": [
+            "scope_id"
+          ],
+          "isUnique": false
+        },
+        "oauth2_session_plugin_id_idx": {
+          "name": "oauth2_session_plugin_id_idx",
+          "columns": [
+            "plugin_id"
+          ],
+          "isUnique": false
+        },
+        "oauth2_session_connection_id_idx": {
+          "name": "oauth2_session_connection_id_idx",
+          "columns": [
+            "connection_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "oauth2_session_scope_id_id_pk": {
+          "columns": [
+            "scope_id",
+            "id"
+          ],
+          "name": "oauth2_session_scope_id_id_pk"
         }
       },
       "uniqueConstraints": {},
@@ -1264,7 +1376,10 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "blob_namespace_key_pk": {
-          "columns": ["namespace", "key"],
+          "columns": [
+            "namespace",
+            "key"
+          ],
           "name": "blob_namespace_key_pk"
         }
       },
