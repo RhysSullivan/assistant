@@ -68,27 +68,24 @@ const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
     onFailure: () => ({ status: "unauthenticated" as const }),
   });
 
+  const userId = state.status === "authenticated" ? state.user.id : null;
+  const email = state.status === "authenticated" ? state.user.email : null;
+  const name = state.status === "authenticated" ? state.user.name : null;
+  const orgId = state.status === "authenticated" ? state.organization?.id ?? null : null;
+  const orgName = state.status === "authenticated" ? state.organization?.name ?? null : null;
+  const isUnauthenticated = state.status === "unauthenticated";
+
   useEffect(() => {
     if (!posthog) return;
-    if (state.status === "authenticated") {
-      posthog.identify(state.user.id, {
-        email: state.user.email,
-        name: state.user.name,
-      });
-      if (state.organization) {
-        posthog.group("organization", state.organization.id, {
-          name: state.organization.name,
-        });
+    if (userId) {
+      posthog.identify(userId, { email, name });
+      if (orgId) {
+        posthog.group("organization", orgId, { name: orgName });
       }
-    } else if (state.status === "unauthenticated") {
+    } else if (isUnauthenticated) {
       posthog.reset();
     }
-  }, [
-    posthog,
-    state.status,
-    state.status === "authenticated" ? state.user.id : null,
-    state.status === "authenticated" ? state.organization?.id ?? null : null,
-  ]);
+  }, [posthog, userId, email, name, orgId, orgName, isUnauthenticated]);
 
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
 };
