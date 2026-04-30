@@ -102,20 +102,45 @@ import { scopeAdapter } from "./scoped-adapter";
 // The "accept-all" sentinel is convenient for tests and CLI automation —
 // every elicitation request gets auto-accepted with an empty content
 // payload. For real interactive hosts, pass a real handler.
+//
+// `onElicitation` is REQUIRED — silently auto-accepting elicitation
+// prompts in the absence of a handler would skip approvals or leak
+// data via user-input prompts. Callers must opt in explicitly via
+// `"accept-all"` (non-interactive) or a real handler (interactive).
 // ---------------------------------------------------------------------------
 
 export interface InvokeOptions {
-  readonly onElicitation?: ElicitationHandler | "accept-all";
+  readonly onElicitation: ElicitationHandler | "accept-all";
 }
+
+const MISSING_ON_ELICITATION_MESSAGE =
+  'executor.tools.invoke(...) requires an options object with `onElicitation`. ' +
+  'Pass `{ onElicitation: "accept-all" }` for non-interactive contexts, ' +
+  "or a handler `(ctx) => Promise<ElicitationResponse>` for interactive ones.";
+
+/**
+ * Asserts that the caller passed `options.onElicitation`. Throws a typed
+ * `TypeError` synchronously (not via the Effect channel) so the call site
+ * shows up cleanly in the stack — this is a programmer error, not a
+ * domain failure.
+ */
+const assertInvokeOptions = (
+  options: InvokeOptions | undefined,
+): InvokeOptions => {
+  if (options == null || options.onElicitation == null) {
+    throw new TypeError(MISSING_ON_ELICITATION_MESSAGE);
+  }
+  return options;
+};
 
 const acceptAllHandler: ElicitationHandler = () =>
   Effect.succeed(new ElicitationResponse({ action: "accept" }));
 
 const resolveElicitationHandler = (
-  options: InvokeOptions | undefined,
+  options: InvokeOptions,
 ): ElicitationHandler => {
-  const handler = options?.onElicitation;
-  if (!handler || handler === "accept-all") return acceptAllHandler;
+  const handler = options.onElicitation;
+  if (handler === "accept-all") return acceptAllHandler;
   return handler;
 };
 
@@ -155,7 +180,7 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     readonly invoke: (
       toolId: string,
       args: unknown,
-      options?: InvokeOptions,
+      options: InvokeOptions,
     ) => Effect.Effect<
       unknown,
       | ToolNotFoundError
@@ -2246,7 +2271,7 @@ export const createExecutor = <
         return out;
       });
 
-    const buildElicit = (toolId: string, args: unknown, options: InvokeOptions | undefined): Elicit => {
+    const buildElicit = (toolId: string, args: unknown, options: InvokeOptions): Elicit => {
       const handler = resolveElicitationHandler(options);
       return (request: ElicitationRequest) =>
         Effect.gen(function* () {
@@ -2289,7 +2314,7 @@ export const createExecutor = <
       annotations: ToolAnnotations | undefined,
       toolId: string,
       args: unknown,
-      options: InvokeOptions | undefined,
+      options: InvokeOptions,
       policy: PolicyMatch | undefined,
     ) =>
       Effect.gen(function* () {
@@ -2325,9 +2350,16 @@ export const createExecutor = <
     const invokeTool = (
       toolId: string,
       args: unknown,
-      options?: InvokeOptions,
-    ) =>
-      Effect.gen(function* () {
+      options: InvokeOptions,
+    ) => {
+      // Programmer-error guard: throw a typed TypeError synchronously
+      // (not via the Effect channel) so the call site shows up cleanly
+      // in the stack trace. We don't default `onElicitation` to
+      // `accept-all` — silently auto-accepting elicitation prompts in
+      // the absence of a handler would skip approvals and could leak
+      // data via user-input prompts.
+      assertInvokeOptions(options);
+      return Effect.gen(function* () {
         const wrapInvocationError = <A, E>(
           effect: Effect.Effect<A, E>,
         ): Effect.Effect<A, ToolInvocationError> =>
@@ -2453,6 +2485,7 @@ export const createExecutor = <
           },
         }),
       );
+    };
 
     const removeSource = (sourceId: string) =>
       Effect.gen(function* () {

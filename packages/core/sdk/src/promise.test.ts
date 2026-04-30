@@ -47,9 +47,11 @@ describe("promise/createExecutor", () => {
     const tools = await executor.tools.list();
     expect(tools.map((t) => t.id)).toContain("echo.ctl.say");
 
-    const out = await executor.tools.invoke("echo.ctl.say", {
-      message: "hi",
-    });
+    const out = await executor.tools.invoke(
+      "echo.ctl.say",
+      { message: "hi" },
+      { onElicitation: "accept-all" },
+    );
     expect(out).toBe("hi");
 
     await executor.close();
@@ -62,6 +64,46 @@ describe("promise/createExecutor", () => {
 
     const greeting = await executor.echo.greet("world");
     expect(greeting).toBe("hello, world");
+
+    await executor.close();
+  });
+
+  it("rejects with a typed TypeError when tools.invoke is called without options.onElicitation", async () => {
+    const executor = await createExecutor({
+      plugins: [echoPlugin()] as const,
+    });
+
+    // JS / `as any` consumers can call this without options. The
+    // runtime guard must reject (or throw synchronously) with a clear
+    // message that mentions `onElicitation` instead of throwing
+    // "Cannot read properties of undefined (reading 'onElicitation')".
+    // The Promise-layer guard intentionally throws synchronously so the
+    // stack trace points at the consumer call site — wrap the call in
+    // an `async` IIFE so missing-options surfaces as a rejection
+    // regardless of where it's thrown.
+    const invokeAsync = (
+      id: string,
+      args: unknown,
+      options?: unknown,
+    ) =>
+      (async () => {
+        const invoke = executor.tools.invoke as unknown as (
+          ...rest: unknown[]
+        ) => Promise<unknown>;
+        return invoke(id, args, options);
+      })();
+
+    await expect(
+      invokeAsync("echo.ctl.say", { message: "hi" }),
+    ).rejects.toThrow(TypeError);
+    await expect(
+      invokeAsync("echo.ctl.say", { message: "hi" }),
+    ).rejects.toThrow(/onElicitation/);
+
+    // Passing options without onElicitation also fails clearly.
+    await expect(
+      invokeAsync("echo.ctl.say", { message: "hi" }, {}),
+    ).rejects.toThrow(/onElicitation/);
 
     await executor.close();
   });

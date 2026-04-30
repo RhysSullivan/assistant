@@ -21,10 +21,34 @@ import {
   createExecutor as createEffectExecutor,
   collectSchemas,
   type Executor as EffectExecutor,
+  type InvokeOptions,
 } from "./executor";
 import { ScopeId } from "./ids";
 import type { AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
+
+// ---------------------------------------------------------------------------
+// invoke-options guard at the Promise layer — the Effect path also
+// asserts this, but mirroring it here yields a cleaner synchronous stack
+// trace that points at the consumer call site rather than at
+// `Effect.runPromise`. This is a programmer-error TypeError; we don't
+// default `onElicitation` to `accept-all` because silently
+// auto-accepting elicitation prompts could skip approvals or leak data
+// via user-input prompts.
+// ---------------------------------------------------------------------------
+
+const MISSING_ON_ELICITATION_MESSAGE =
+  'executor.tools.invoke(...) requires an options object with `onElicitation`. ' +
+  'Pass `{ onElicitation: "accept-all" }` for non-interactive contexts, ' +
+  "or a handler `(ctx) => Promise<ElicitationResponse>` for interactive ones.";
+
+const assertInvokeOptionsAtPromiseLayer = (
+  options: InvokeOptions | undefined,
+): void => {
+  if (options == null || options.onElicitation == null) {
+    throw new TypeError(MISSING_ON_ELICITATION_MESSAGE);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -152,5 +176,45 @@ export const createExecutor = async <
     createEffectExecutor(effectConfig),
   );
 
-  return promisifyDeep(effectExecutor) as Executor<TPlugins>;
+  const promised = promisifyDeep(effectExecutor) as Executor<TPlugins>;
+  const promisedAny = promised as unknown as {
+    tools: {
+      invoke: (
+        toolId: string,
+        args: unknown,
+        options?: InvokeOptions,
+      ) => Promise<unknown>;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+
+  // Wrap tools.invoke to surface the missing-options TypeError
+  // synchronously at the consumer call site. The Effect-layer
+  // `assertInvokeOptions` would still fire if this guard is bypassed —
+  // this wrapper just produces a cleaner stack trace.
+  const originalInvoke = promisedAny.tools.invoke;
+  const guardedInvoke = (
+    toolId: string,
+    args: unknown,
+    options?: InvokeOptions,
+  ) => {
+    assertInvokeOptionsAtPromiseLayer(options);
+    return originalInvoke(toolId, args, options);
+  };
+
+  return new Proxy(promisedAny, {
+    get(target, prop, receiver) {
+      if (prop === "tools") {
+        const tools = target.tools;
+        return new Proxy(tools, {
+          get(toolsTarget, toolsProp, toolsReceiver) {
+            if (toolsProp === "invoke") return guardedInvoke;
+            return Reflect.get(toolsTarget, toolsProp, toolsReceiver);
+          },
+        });
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as unknown as Executor<TPlugins>;
 };
