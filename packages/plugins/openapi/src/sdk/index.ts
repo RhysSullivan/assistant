@@ -15,6 +15,7 @@ export {
   type OpenApiStartOAuthInput,
   type OpenApiStartOAuthResponse,
   type OpenApiCompleteOAuthInput,
+  type OpenApiCompleteOAuthResponse,
 } from "./plugin";
 export {
   openapiSchema,
@@ -60,7 +61,6 @@ export {
   MediaBinding,
   OAuth2Auth,
   OAuth2SourceConfig,
-  OpenApiOAuthSession,
   OpenApiSourceBindingInput,
   OpenApiSourceBindingRef,
   OpenApiSourceBindingValue,

@@ -83,24 +83,34 @@ export const connection = pgTable("connection", {
   index("connection_provider_idx").on(table.provider),
 ]);
 
+export const oauth2_session = pgTable("oauth2_session", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  plugin_id: text('plugin_id').notNull(),
+  strategy: text('strategy').notNull(),
+  connection_id: text('connection_id').notNull(),
+  token_scope: text('token_scope').notNull(),
+  redirect_url: text('redirect_url').notNull(),
+  payload: jsonb('payload').notNull(),
+  expires_at: bigint('expires_at', { mode: 'number' }).notNull(),
+  created_at: timestamp('created_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("oauth2_session_scope_id_idx").on(table.scope_id),
+  index("oauth2_session_plugin_id_idx").on(table.plugin_id),
+  index("oauth2_session_connection_id_idx").on(table.connection_id),
+]);
+
 export const tool_policy = pgTable("tool_policy", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
   pattern: text('pattern').notNull(),
   action: text('action').notNull(),
-  // Fractional-indexing key (Jira lexorank style). Stored as text and
-  // compared lexicographically. Sortable like a number, but you can
-  // always lengthen the key to insert between two adjacent rows
-  // without precision loss.
   position: text('position').notNull(),
   created_at: timestamp('created_at').notNull(),
   updated_at: timestamp('updated_at').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
-  // Composite (scope_id, position) — list reads are always
-  // `WHERE scope_id = ? ORDER BY position` so the prefix lets postgres
-  // serve both the filter and the sort from one btree. The earlier
-  // standalone scope_id and position indexes were redundant.
   index("tool_policy_scope_id_position_idx").on(table.scope_id, table.position),
 ]);
 
@@ -112,28 +122,12 @@ export const openapi_source = pgTable("openapi_source", {
   source_url: text('source_url'),
   base_url: text('base_url'),
   headers: jsonb('headers'),
+  query_params: jsonb('query_params'),
   oauth2: jsonb('oauth2'),
   invocation_config: jsonb('invocation_config').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("openapi_source_scope_id_idx").on(table.scope_id),
-]);
-
-export const openapi_source_binding = pgTable("openapi_source_binding", {
-  id: text('id').notNull(),
-  source_id: text('source_id').notNull(),
-  source_scope_id: text('source_scope_id').notNull(),
-  target_scope_id: text('target_scope_id').notNull(),
-  slot: text('slot').notNull(),
-  value: jsonb('value').notNull(),
-  created_at: timestamp('created_at').notNull(),
-  updated_at: timestamp('updated_at').notNull()
-}, (table) => [
-  primaryKey({ columns: [table.id] }),
-  index("openapi_source_binding_source_id_idx").on(table.source_id),
-  index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
-  index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
-  index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
 export const openapi_operation = pgTable("openapi_operation", {
@@ -147,14 +141,20 @@ export const openapi_operation = pgTable("openapi_operation", {
   index("openapi_operation_source_id_idx").on(table.source_id),
 ]);
 
-export const openapi_oauth_session = pgTable("openapi_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: jsonb('session').notNull(),
-  created_at: timestamp('created_at').notNull()
+export const openapi_source_binding = pgTable("openapi_source_binding", {
+  id: text('id').primaryKey(),
+  source_id: text('source_id').notNull(),
+  source_scope_id: text('source_scope_id').notNull(),
+  target_scope_id: text('target_scope_id').notNull(),
+  slot: text('slot').notNull(),
+  value: jsonb('value').notNull(),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
 }, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("openapi_oauth_session_scope_id_idx").on(table.scope_id),
+  index("openapi_source_binding_source_id_idx").on(table.source_id),
+  index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
+  index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
+  index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
 export const mcp_source = pgTable("mcp_source", {
@@ -180,23 +180,14 @@ export const mcp_binding = pgTable("mcp_binding", {
   index("mcp_binding_source_id_idx").on(table.source_id),
 ]);
 
-export const mcp_oauth_session = pgTable("mcp_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: jsonb('session').notNull(),
-  expires_at: bigint('expires_at', { mode: 'number' }).notNull(),
-  created_at: timestamp('created_at').notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("mcp_oauth_session_scope_id_idx").on(table.scope_id),
-]);
-
 export const graphql_source = pgTable("graphql_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   endpoint: text('endpoint').notNull(),
-  headers: jsonb('headers')
+  headers: jsonb('headers'),
+  query_params: jsonb('query_params'),
+  auth: jsonb('auth')
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_source_scope_id_idx").on(table.scope_id),
@@ -224,13 +215,10 @@ export const workos_vault_metadata = pgTable("workos_vault_metadata", {
   index("workos_vault_metadata_scope_id_idx").on(table.scope_id),
 ]);
 
-// Blob store table — hand-appended. BlobStore is a separate storage
-// abstraction from DBSchema, so the CLI doesn't generate it. Keep in
-// sync with @executor/storage-postgres's BlobStore implementation.
 export const blob = pgTable("blob", {
   namespace: text('namespace').notNull(),
   key: text('key').notNull(),
-  value: text('value').notNull(),
+  value: text('value').notNull()
 }, (table) => [
   primaryKey({ columns: [table.namespace, table.key] }),
 ]);

@@ -1,20 +1,19 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { runOAuthCallback } from "@executor/plugin-oauth2/http";
-
-import { addGroup, capture, InternalError } from "@executor/api";
+import { addGroup, capture, InternalError, runOAuthCallback } from "@executor/api";
+import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
 import { OpenApiOAuthError } from "../sdk/errors";
 import type {
   ConfiguredHeaderValue,
   OpenApiPluginExtension,
   HeaderValue,
+  OpenApiSpecFetchCredentials,
   OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
-import { OAuth2Auth } from "../sdk/types";
 import { OpenApiGroup } from "./group";
 
-const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
+const OPENAPI_OAUTH_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
 
 const toPopupErrorMessage = (error: unknown): string => {
   if (error instanceof OpenApiOAuthError) return error.message;
@@ -61,7 +60,9 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           const ext = yield* OpenApiExtensionService;
           return yield* ext.previewSpec({
             spec: payload.spec,
-            specFetchCredentials: payload.specFetchCredentials,
+            specFetchCredentials: payload.specFetchCredentials as
+              | OpenApiSpecFetchCredentials
+              | undefined,
           });
         }),
       ),
@@ -72,7 +73,9 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           const ext = yield* OpenApiExtensionService;
           const result = yield* ext.addSpec({
             spec: payload.spec,
-            specFetchCredentials: payload.specFetchCredentials,
+            specFetchCredentials: payload.specFetchCredentials as
+              | OpenApiSpecFetchCredentials
+              | undefined,
             scope: path.scopeId,
             name: payload.name,
             baseUrl: payload.baseUrl,
@@ -173,6 +176,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
             securitySchemeName: payload.securitySchemeName,
             authorizationUrl: payload.authorizationUrl,
             tokenUrl: payload.tokenUrl,
+            issuerUrl: payload.issuerUrl ?? null,
             redirectUrl: payload.redirectUrl,
             clientIdSecretId: payload.clientIdSecretId,
             clientSecretSecretId: payload.clientSecretSecretId ?? null,
@@ -203,7 +207,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
           const html = yield* runOAuthCallback<
-            OAuth2Auth,
+            { readonly connectionId: string; readonly expiresAt: number | null; readonly scope: string | null },
             OpenApiOAuthError | InternalError,
             never
           >({

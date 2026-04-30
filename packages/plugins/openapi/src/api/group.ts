@@ -116,6 +116,7 @@ const StartOAuthPayload = Schema.Union(
     ...StartOAuthIdentityFields,
     flow: Schema.Literal("authorizationCode"),
     authorizationUrl: Schema.String,
+    issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     redirectUrl: Schema.String,
     clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   }),
@@ -148,6 +149,12 @@ const CompleteOAuthPayload = Schema.Struct({
   state: Schema.String,
   code: Schema.optional(Schema.String),
   error: Schema.optional(Schema.String),
+});
+
+const CompleteOAuthResponse = Schema.Struct({
+  connectionId: Schema.String,
+  expiresAt: Schema.NullOr(Schema.Number),
+  scope: Schema.NullOr(Schema.String),
 });
 
 const OAuthCallbackUrlParams = Schema.Struct({
@@ -227,7 +234,7 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
   .add(
     HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/openapi/oauth/complete`
       .setPayload(CompleteOAuthPayload)
-      .addSuccess(OAuth2Auth),
+      .addSuccess(CompleteOAuthResponse),
   )
   .add(
     HttpApiEndpoint.get("oauthCallback", "/openapi/oauth/callback")

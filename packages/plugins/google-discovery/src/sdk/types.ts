@@ -90,11 +90,33 @@ export const GoogleDiscoveryAuth = Schema.Union(
 );
 export type GoogleDiscoveryAuth = typeof GoogleDiscoveryAuth.Type;
 
+export const GoogleDiscoveryCredentialValue = Schema.Union(
+  Schema.String,
+  Schema.Struct({
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+);
+export type GoogleDiscoveryCredentialValue =
+  typeof GoogleDiscoveryCredentialValue.Type;
+
+export const GoogleDiscoveryFetchCredentials = Schema.Struct({
+  headers: Schema.optional(
+    Schema.Record({ key: Schema.String, value: GoogleDiscoveryCredentialValue }),
+  ),
+  queryParams: Schema.optional(
+    Schema.Record({ key: Schema.String, value: GoogleDiscoveryCredentialValue }),
+  ),
+});
+export type GoogleDiscoveryFetchCredentials =
+  typeof GoogleDiscoveryFetchCredentials.Type;
+
 export class GoogleDiscoveryStoredSourceData extends Schema.Class<GoogleDiscoveryStoredSourceData>(
   "GoogleDiscoveryStoredSourceData",
 )({
   name: Schema.String,
   discoveryUrl: Schema.String,
+  credentials: Schema.optional(GoogleDiscoveryFetchCredentials),
   service: Schema.String,
   version: Schema.String,
   rootUrl: Schema.String,
@@ -115,21 +137,3 @@ export interface GoogleDiscoverySourceMeta {
   readonly namespace: string;
   readonly name: string;
 }
-
-/** Pending OAuth session persisted between startOAuth and completeOAuth */
-export const GoogleDiscoveryOAuthSession = Schema.Struct({
-  discoveryUrl: Schema.String,
-  name: Schema.String,
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.NullOr(Schema.String),
-  redirectUrl: Schema.String,
-  scopes: Schema.Array(Schema.String),
-  codeVerifier: Schema.String,
-  /** Executor scope that will own the resulting Connection + its backing
-   *  secrets. Typically the innermost (per-user) scope. */
-  tokenScope: Schema.String,
-  /** Pre-decided Connection id stamped at completeOAuth time so a retried
-   *  callback lands on the same id. */
-  connectionId: Schema.String,
-});
-export type GoogleDiscoveryOAuthSession = typeof GoogleDiscoveryOAuthSession.Type;

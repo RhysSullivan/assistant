@@ -2,12 +2,20 @@ import type { ScopeId } from "@executor/sdk";
 import { ReactivityKey } from "@executor/react/api/reactivity-keys";
 import { GoogleDiscoveryClient } from "./client";
 
+// ---------------------------------------------------------------------------
+// Query atoms
+// ---------------------------------------------------------------------------
+
 export const googleDiscoverySourceAtom = (scopeId: ScopeId, namespace: string) =>
   GoogleDiscoveryClient.query("googleDiscovery", "getSource", {
     path: { scopeId, namespace },
     timeToLive: "15 seconds",
     reactivityKeys: [ReactivityKey.sources, ReactivityKey.tools],
   });
+
+// ---------------------------------------------------------------------------
+// Mutation atoms
+// ---------------------------------------------------------------------------
 
 export const probeGoogleDiscovery = GoogleDiscoveryClient.mutation(
   "googleDiscovery",
@@ -21,11 +29,6 @@ export const updateGoogleDiscoverySource = GoogleDiscoveryClient.mutation(
   "googleDiscovery",
   "updateSource",
 );
-export const startGoogleDiscoveryOAuth = GoogleDiscoveryClient.mutation(
-  "googleDiscovery",
-  "startOAuth",
-);
-export const completeGoogleDiscoveryOAuth = GoogleDiscoveryClient.mutation(
-  "googleDiscovery",
-  "completeOAuth",
-);
+// OAuth flow atoms live on `@executor/react/api/atoms` now —
+// `startOAuth`, `completeOAuth`, `probeOAuth`, `cancelOAuth` — one
+// pair serves every OAuth-capable plugin.

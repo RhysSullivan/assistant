@@ -1,31 +1,13 @@
-import { randomUUID } from "node:crypto";
-
 import { Effect, Option, Schema } from "effect";
 import { FetchHttpClient, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
 
 import {
-  OAuth2Error,
-  buildAuthorizationUrl,
-  createPkceCodeVerifier,
-  exchangeAuthorizationCode,
-  exchangeClientCredentials,
-  refreshAccessToken,
-  type OAuth2TokenResponse,
-} from "@executor/plugin-oauth2";
-
-import {
   ConnectionId,
-  ConnectionRefreshError,
-  CreateConnectionInput,
   ScopeId,
   SecretId,
   SourceDetectionResult,
-  TokenMaterial,
   definePlugin,
-  type ConnectionProvider,
-  type ConnectionRefreshInput,
-  type ConnectionRefreshResult,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -38,11 +20,19 @@ import {
   type OpenApiSourceConfig,
 } from "@executor/config";
 
-import { OpenApiExtractionError, OpenApiOAuthError, OpenApiParseError } from "./errors";
+import {
+  OpenApiExtractionError,
+  OpenApiOAuthError,
+  OpenApiParseError,
+} from "./errors";
 import { parse, resolveSpecText } from "./parse";
 import { extract } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
-import { annotationsForOperation, invokeWithLayer, resolveHeaders } from "./invoke";
+import {
+  annotationsForOperation,
+  invokeWithLayer,
+  resolveHeaders,
+} from "./invoke";
 import { resolveBaseUrl } from "./openapi-utils";
 import { previewSpec, SpecPreview } from "./preview";
 import {
@@ -58,7 +48,6 @@ import {
   ConfiguredHeaderBinding,
   OAuth2Auth,
   OAuth2SourceConfig,
-  OpenApiOAuthSession,
   OpenApiSourceBindingInput,
   type OpenApiSourceBindingRef,
   type OpenApiSourceBindingValue,
@@ -75,6 +64,7 @@ export type HeaderValue = HeaderValueValue;
 export type ConfiguredHeaderValue = ConfiguredHeaderValueValue;
 export type OpenApiHeaderInput = HeaderValue | ConfiguredHeaderValue;
 export type OpenApiOAuthInput = OAuth2Auth | OAuth2SourceConfig;
+
 export interface OpenApiSpecFetchCredentials {
   readonly headers?: Record<string, HeaderValue>;
   readonly queryParams?: Record<string, HeaderValue>;
@@ -167,6 +157,7 @@ export interface StartAuthorizationCodeOAuthInput extends StartOAuthIdentity {
   readonly flow: "authorizationCode";
   readonly authorizationUrl: string;
   readonly tokenUrl: string;
+  readonly issuerUrl?: string | null;
   readonly redirectUrl: string;
   readonly clientSecretSecretId?: string | null;
 }
@@ -212,6 +203,12 @@ export interface OpenApiCompleteOAuthInput {
   readonly error?: string;
 }
 
+export interface OpenApiCompleteOAuthResponse {
+  readonly connectionId: string;
+  readonly expiresAt: number | null;
+  readonly scope: string | null;
+}
+
 /**
  * Errors any OpenAPI extension method may surface. The first three are
  * plugin-domain tagged errors that flow directly to clients (4xx, each
@@ -231,14 +228,26 @@ export type OpenApiExtensionFailure =
 export interface OpenApiPluginExtension {
   readonly previewSpec: (
     input: string | OpenApiPreviewInput,
-  ) => Effect.Effect<SpecPreview, OpenApiParseError | OpenApiExtractionError>;
+  ) => Effect.Effect<
+    SpecPreview,
+    | OpenApiParseError
+    | OpenApiExtractionError
+    | OpenApiOAuthError
+    | StorageFailure
+  >;
   readonly addSpec: (
     config: OpenApiSpecConfig,
   ) => Effect.Effect<
     { readonly sourceId: string; readonly toolCount: number },
-    OpenApiParseError | OpenApiExtractionError | StorageFailure
+    | OpenApiParseError
+    | OpenApiExtractionError
+    | OpenApiOAuthError
+    | StorageFailure
   >;
-  readonly removeSpec: (namespace: string, scope: string) => Effect.Effect<void, StorageFailure>;
+  readonly removeSpec: (
+    namespace: string,
+    scope: string,
+  ) => Effect.Effect<void, StorageFailure>;
   readonly getSource: (
     namespace: string,
     scope: string,
@@ -266,7 +275,7 @@ export interface OpenApiPluginExtension {
   ) => Effect.Effect<OpenApiStartOAuthResponse, OpenApiOAuthError>;
   readonly completeOAuth: (
     input: OpenApiCompleteOAuthInput,
-  ) => Effect.Effect<OAuth2Auth, OpenApiOAuthError>;
+  ) => Effect.Effect<OpenApiCompleteOAuthResponse, OpenApiOAuthError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +284,16 @@ export interface OpenApiPluginExtension {
 
 const PreviewSpecInputSchema = Schema.Struct({
   spec: Schema.String,
+  specFetchCredentials: Schema.optional(
+    Schema.Struct({
+      headers: Schema.optional(
+        Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
+      ),
+      queryParams: Schema.optional(
+        Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
+      ),
+    }),
+  ),
 });
 type PreviewSpecInput = typeof PreviewSpecInputSchema.Type;
 
@@ -282,7 +301,22 @@ const AddSourceInputSchema = Schema.Struct({
   spec: Schema.String,
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+  headers: Schema.optional(
+    Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
+  ),
+  queryParams: Schema.optional(
+    Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
+  ),
+  specFetchCredentials: Schema.optional(
+    Schema.Struct({
+      headers: Schema.optional(
+        Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
+      ),
+      queryParams: Schema.optional(
+        Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
+      ),
+    }),
+  ),
 });
 type AddSourceInput = typeof AddSourceInputSchema.Type;
 
@@ -332,7 +366,10 @@ const toBinding = (def: ToolDefinition): OperationBinding =>
 const descriptionFor = (def: ToolDefinition): string => {
   const op = def.operation;
   return Option.getOrElse(op.description, () =>
-    Option.getOrElse(op.summary, () => `${op.method.toUpperCase()} ${op.pathTemplate}`),
+    Option.getOrElse(
+      op.summary,
+      () => `${op.method.toUpperCase()} ${op.pathTemplate}`,
+    ),
   );
 };
 
@@ -382,7 +419,8 @@ const canonicalizeHeaders = (
   }>;
 } => {
   const nextHeaders: Record<string, ConfiguredHeaderValue> = {};
-  const bindings: Array<{ slot: string; value: OpenApiSourceBindingValue }> = [];
+  const bindings: Array<{ slot: string; value: OpenApiSourceBindingValue }> =
+    [];
   for (const [name, value] of Object.entries(headers ?? {})) {
     if (typeof value === "string") {
       nextHeaders[name] = value;
@@ -478,13 +516,18 @@ const resolveEffectiveSourceConfig = (
   base: StoredSource,
 ): Effect.Effect<EffectiveSourceConfig, StorageFailure> =>
   Effect.gen(function* () {
-    const rank = new Map(ctx.scopes.map((scope, index) => [scope.id as string, index] as const));
+    const rank = new Map(
+      ctx.scopes.map((scope, index) => [scope.id as string, index] as const),
+    );
     const baseRank = rank.get(base.scope) ?? Infinity;
     let fallback: StoredSource | null = null;
     for (let index = baseRank + 1; index < ctx.scopes.length; index++) {
       const scope = ctx.scopes[index];
       if (!scope) continue;
-      fallback = yield* ctx.storage.getSource(base.namespace, scope.id as string);
+      fallback = yield* ctx.storage.getSource(
+        base.namespace,
+        scope.id as string,
+      );
       if (fallback) break;
     }
 
@@ -497,7 +540,8 @@ const resolveEffectiveSourceConfig = (
     }
 
     const hasBaseHeaders = Object.keys(base.config.headers ?? {}).length > 0;
-    const hasBaseQueryParams = Object.keys(base.config.queryParams ?? {}).length > 0;
+    const hasBaseQueryParams =
+      Object.keys(base.config.queryParams ?? {}).length > 0;
     return {
       config: {
         ...base.config,
@@ -505,7 +549,12 @@ const resolveEffectiveSourceConfig = (
         baseUrl: base.config.baseUrl || fallback.config.baseUrl,
         namespace: base.config.namespace ?? fallback.config.namespace,
         headers: hasBaseHeaders ? base.config.headers : fallback.config.headers,
-        queryParams: hasBaseQueryParams ? base.config.queryParams : fallback.config.queryParams,
+        queryParams: hasBaseQueryParams
+          ? base.config.queryParams
+          : fallback.config.queryParams,
+        specFetchCredentials:
+          base.config.specFetchCredentials ??
+          fallback.config.specFetchCredentials,
         oauth2: base.config.oauth2 ?? fallback.config.oauth2,
       },
       headersSource: hasBaseHeaders ? base : fallback,
@@ -535,31 +584,37 @@ const resolveConfiguredHeaders = (
         value.slot,
       );
       if (binding?.value.kind === "secret") {
-        const secretId = binding.value.secretId as string;
-        const secret = yield* ctx.secrets.get(secretId).pipe(
-          Effect.mapError((err) =>
-            "_tag" in err && err._tag === "SecretOwnedByConnectionError"
-              ? new OpenApiOAuthError({
-                  message: `Missing secret "${secretId}" for header "${name}"`,
-                })
-              : err,
-          ),
-        );
+        const secret = yield* ctx.secrets
+          .get(binding.value.secretId as string)
+          .pipe(
+            Effect.mapError((err) =>
+              "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+                ? new OpenApiOAuthError({
+                    message: `Secret not found for header "${name}"`,
+                  })
+                : err,
+            ),
+          );
         if (secret === null) {
           return yield* new OpenApiOAuthError({
-            message: `Missing secret "${secretId}" for header "${name}"`,
+            message: `Missing secret "${binding.value.secretId}" for header "${name}"`,
           });
         }
         resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
         continue;
       }
       if (binding?.value.kind === "text") {
-        resolved[name] = value.prefix ? `${value.prefix}${binding.value.text}` : binding.value.text;
+        resolved[name] = value.prefix
+          ? `${value.prefix}${binding.value.text}`
+          : binding.value.text;
         continue;
       }
       const legacy = params.legacyHeaders?.[name];
       if (legacy) {
-        const fallback = yield* resolveHeaders({ [name]: legacy }, ctx.secrets).pipe(
+        const fallback = yield* resolveHeaders(
+          { [name]: legacy },
+          ctx.secrets,
+        ).pipe(
           Effect.map((headers) => headers[name]!),
           Effect.mapError((err) =>
             err instanceof OpenApiOAuthError
@@ -577,6 +632,43 @@ const resolveConfiguredHeaders = (
     return resolved;
   });
 
+const resolveHeaderValue = (
+  ctx: PluginCtx<OpenapiStore>,
+  name: string,
+  value: HeaderValue,
+): Effect.Effect<string, OpenApiOAuthError | StorageFailure> => {
+  if (typeof value === "string") return Effect.succeed(value);
+  return ctx.secrets.get(value.secretId).pipe(
+    Effect.mapError((err) =>
+      "_tag" in err && err._tag === "SecretOwnedByConnectionError"
+        ? new OpenApiOAuthError({
+            message: `Secret not found for "${name}"`,
+          })
+        : err,
+    ),
+    Effect.flatMap((secret) =>
+      secret === null
+        ? Effect.fail(
+            new OpenApiOAuthError({
+              message: `Secret not found for "${name}"`,
+            }),
+          )
+        : Effect.succeed(value.prefix ? `${value.prefix}${secret}` : secret),
+    ),
+  );
+};
+
+const resolveHeaderValues = (
+  ctx: PluginCtx<OpenapiStore>,
+  values: Record<string, HeaderValue> | undefined,
+): Effect.Effect<Record<string, string>, OpenApiOAuthError | StorageFailure> =>
+  Effect.forEach(Object.entries(values ?? {}), ([name, value]) =>
+    Effect.map(
+      resolveHeaderValue(ctx, name, value),
+      (resolved) => [name, resolved] as const,
+    ),
+  ).pipe(Effect.map((entries) => Object.fromEntries(entries)));
+
 const resolveOAuthConnectionId = (
   ctx: PluginCtx<OpenapiStore>,
   params: {
@@ -593,39 +685,35 @@ const resolveOAuthConnectionId = (
       params.oauth2.connectionSlot,
     );
     if (binding?.value.kind === "connection") {
-      return binding.value.connectionId as string;
+      const connectionId = binding.value.connectionId as string;
+      const connection = yield* ctx.connections.get(connectionId);
+      return connection ? connectionId : null;
     }
-    return params.legacyOAuth2?.connectionId ?? null;
+    if (!params.legacyOAuth2?.connectionId) return null;
+    const legacyConnection = yield* ctx.connections.get(
+      params.legacyOAuth2.connectionId,
+    );
+    return legacyConnection ? params.legacyOAuth2.connectionId : null;
+  });
+
+const resolveSpecFetchCredentials = (
+  ctx: PluginCtx<OpenapiStore>,
+  credentials: OpenApiSpecFetchCredentials | undefined,
+) =>
+  Effect.gen(function* () {
+    if (!credentials) return undefined;
+    return {
+      headers: yield* resolveHeaderValues(ctx, credentials.headers),
+      queryParams: yield* resolveHeaderValues(ctx, credentials.queryParams),
+    };
   });
 
 // ---------------------------------------------------------------------------
-// Connection `provider_state` shape for openapi-oauth2.
-//
-// Every field needed to re-hit the token endpoint on refresh lives here,
-// so the SDK's `ctx.connections.accessToken(id)` can drive both grant
-// types without the plugin keeping its own refresh state. The flow
-// literal chooses between `refresh_token` (authorizationCode) and
-// re-`exchange client_credentials` at refresh time. NONE of this is
-// sensitive — client credentials themselves still live in secrets and
-// are resolved via `ctx.secrets.get` inside the refresh handler.
+// OAuth2 token exchange / refresh is owned by `ctx.oauth`, which registers
+// the canonical core `"oauth2"` ConnectionProvider. OpenAPI owns only the
+// source-specific semantics: slots for client credentials and the connection
+// binding that invocation resolves before calling `ctx.connections.accessToken`.
 // ---------------------------------------------------------------------------
-
-const OPENAPI_OAUTH2_PROVIDER_KEY = "openapi:oauth2" as const;
-
-const OAuth2ProviderState = Schema.Struct({
-  flow: Schema.Literal("authorizationCode", "clientCredentials"),
-  tokenUrl: Schema.String,
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.NullOr(Schema.String),
-  scopes: Schema.Array(Schema.String),
-});
-type OAuth2ProviderState = typeof OAuth2ProviderState.Type;
-
-const encodeProviderState = Schema.encodeSync(OAuth2ProviderState);
-const decodeProviderState = Schema.decodeUnknownSync(OAuth2ProviderState);
-
-const toProviderStateRecord = (state: OAuth2ProviderState): Record<string, unknown> =>
-  encodeProviderState(state) as unknown as Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
 // Plugin factory
@@ -659,7 +747,8 @@ const toOpenApiSourceConfig = (
   };
 };
 
-const isHttpUrl = (s: string): boolean => s.startsWith("http://") || s.startsWith("https://");
+const isHttpUrl = (s: string): boolean =>
+  s.startsWith("http://") || s.startsWith("https://");
 
 export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
   const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
@@ -669,11 +758,12 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
     readonly scope: string;
     readonly sourceUrl?: string;
     readonly name?: string;
-      readonly baseUrl?: string;
-      readonly namespace?: string;
-      readonly headers?: Record<string, OpenApiHeaderInput>;
-      readonly queryParams?: Record<string, HeaderValue>;
-      readonly oauth2?: OpenApiOAuthInput;
+    readonly baseUrl?: string;
+    readonly namespace?: string;
+    readonly headers?: Record<string, OpenApiHeaderInput>;
+    readonly queryParams?: Record<string, HeaderValue>;
+    readonly specFetchCredentials?: OpenApiSpecFetchCredentials;
+    readonly oauth2?: OpenApiOAuthInput;
   };
 
   // ctx comes from the plugin runtime — the same instance is passed to
@@ -702,16 +792,18 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
       const canonicalOAuth2 = canonicalizeOAuth2(input.oauth2);
 
       const definitions = compileToolDefinitions(result.operations);
-      const sourceName = input.name ?? Option.getOrElse(result.title, () => namespace);
+      const sourceName =
+        input.name ?? Option.getOrElse(result.title, () => namespace);
 
       const sourceConfig: SourceConfig = {
         spec: input.specText,
         sourceUrl: input.sourceUrl,
         baseUrl,
-          namespace: input.namespace,
-          headers: canonicalHeaders.headers,
-          queryParams: input.queryParams,
-          oauth2: canonicalOAuth2.oauth2,
+        namespace: input.namespace,
+        headers: canonicalHeaders.headers,
+        queryParams: input.queryParams,
+        specFetchCredentials: input.specFetchCredentials,
+        oauth2: canonicalOAuth2.oauth2,
       };
 
       const storedSource: StoredSource = {
@@ -745,12 +837,19 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
             tools: definitions.map((def) => ({
               name: def.toolPath,
               description: descriptionFor(def),
-              inputSchema: normalizeOpenApiRefs(Option.getOrUndefined(def.operation.inputSchema)),
-              outputSchema: normalizeOpenApiRefs(Option.getOrUndefined(def.operation.outputSchema)),
+              inputSchema: normalizeOpenApiRefs(
+                Option.getOrUndefined(def.operation.inputSchema),
+              ),
+              outputSchema: normalizeOpenApiRefs(
+                Option.getOrUndefined(def.operation.outputSchema),
+              ),
             })),
           });
 
-          for (const binding of [...canonicalHeaders.bindings, ...canonicalOAuth2.bindings]) {
+          for (const binding of [
+            ...canonicalHeaders.bindings,
+            ...canonicalOAuth2.bindings,
+          ]) {
             yield* ctx.storage.setSourceBinding(
               new OpenApiSourceBindingInput({
                 sourceId: namespace,
@@ -780,7 +879,11 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
   // `canRefresh` on the source row; reaching here without a URL
   // means the caller bypassed that gate, so we stay quiet rather
   // than surface a 500 through the unwhitelisted error channel.
-  const refreshSourceInternal = (ctx: PluginCtx<OpenapiStore>, sourceId: string, scope: string) =>
+  const refreshSourceInternal = (
+    ctx: PluginCtx<OpenapiStore>,
+    sourceId: string,
+    scope: string,
+  ) =>
     Effect.gen(function* () {
       const existing = yield* ctx.storage.getSource(sourceId, scope);
       if (!existing) return;
@@ -788,7 +891,13 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
       const resolvedConfig = effective.config;
       const sourceUrl = resolvedConfig.sourceUrl;
       if (!sourceUrl) return;
-      const specText = yield* resolveSpecText(sourceUrl).pipe(Effect.provide(httpClientLayer));
+      const credentials = yield* resolveSpecFetchCredentials(
+        ctx,
+        resolvedConfig.specFetchCredentials,
+      );
+      const specText = yield* resolveSpecText(sourceUrl, credentials).pipe(
+        Effect.provide(httpClientLayer),
+      );
       yield* rebuildSource(ctx, {
         specText,
         scope,
@@ -797,6 +906,8 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         baseUrl: resolvedConfig.baseUrl,
         namespace: existing.namespace,
         headers: existing.legacy?.headers ?? existing.config.headers,
+        queryParams: existing.config.queryParams,
+        specFetchCredentials: resolvedConfig.specFetchCredentials,
         oauth2: existing.legacy?.oauth2 ?? existing.config.oauth2,
       });
     });
@@ -807,28 +918,19 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
     storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
     extension: (ctx) => {
-      const resolveSpecFetchCredentials = (credentials: OpenApiSpecFetchCredentials | undefined) =>
-        Effect.gen(function* () {
-          if (!credentials) return undefined;
-          return {
-            headers: yield* resolveHeaders(credentials.headers ?? {}, ctx.secrets).pipe(
-              Effect.catchAll(() => Effect.succeed({})),
-            ),
-            queryParams: yield* resolveHeaders(credentials.queryParams ?? {}, ctx.secrets).pipe(
-              Effect.catchAll(() => Effect.succeed({})),
-            ),
-          };
-        });
-
       const addSpecInternal = (config: OpenApiSpecConfig) =>
         Effect.gen(function* () {
           // Resolve URL → text and parse BEFORE opening a transaction.
           // Holding `BEGIN` on the pool=1 Postgres connection across a
           // network fetch is the Hyperdrive deadlock path in production.
-          const credentials = yield* resolveSpecFetchCredentials(config.specFetchCredentials);
-          const specText = yield* resolveSpecText(config.spec, credentials).pipe(
-            Effect.provide(httpClientLayer),
+          const credentials = yield* resolveSpecFetchCredentials(
+            ctx,
+            config.specFetchCredentials,
           );
+          const specText = yield* resolveSpecText(
+            config.spec,
+            credentials,
+          ).pipe(Effect.provide(httpClientLayer));
           return yield* rebuildSource(ctx, {
             specText,
             scope: config.scope,
@@ -838,6 +940,7 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
             namespace: config.namespace,
             headers: config.headers,
             queryParams: config.queryParams,
+            specFetchCredentials: config.specFetchCredentials,
             oauth2: config.oauth2,
           });
         });
@@ -847,21 +950,28 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
       return {
         previewSpec: (input) =>
           Effect.gen(function* () {
-            const previewInput = typeof input === "string" ? { spec: input } : input;
+            const previewInput =
+              typeof input === "string" ? { spec: input } : input;
             const credentials = yield* resolveSpecFetchCredentials(
+              ctx,
               previewInput.specFetchCredentials,
             );
-            const specText = yield* resolveSpecText(previewInput.spec, credentials).pipe(
+            const specText = yield* resolveSpecText(
+              previewInput.spec,
+              credentials,
+            ).pipe(Effect.provide(httpClientLayer));
+            return yield* previewSpec(specText).pipe(
               Effect.provide(httpClientLayer),
             );
-            return yield* previewSpec(specText).pipe(Effect.provide(httpClientLayer));
           }),
 
         addSpec: (config) =>
           Effect.gen(function* () {
             const result = yield* addSpecInternal(config);
             if (configFile) {
-              yield* configFile.upsertSource(toOpenApiSourceConfig(result.sourceId, config));
+              yield* configFile.upsertSource(
+                toOpenApiSourceConfig(result.sourceId, config),
+              );
             }
             return result;
           }),
@@ -913,7 +1023,10 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
               queryParams: input.queryParams,
               oauth2: canonicalOAuth2?.oauth2,
             });
-            for (const set of [canonicalHeaders?.bindings, canonicalOAuth2?.bindings]) {
+            for (const set of [
+              canonicalHeaders?.bindings,
+              canonicalOAuth2?.bindings,
+            ]) {
               for (const binding of set ?? []) {
                 yield* ctx.storage.setSourceBinding(
                   new OpenApiSourceBindingInput({
@@ -939,103 +1052,45 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         startOAuth: (input) =>
           Effect.gen(function* () {
             const scopesArray = [...input.scopes];
-            // Innermost = user scope in a stacked [user, org] executor.
-            // Both flows write at the innermost scope so per-user
-            // credentials (secrets shadowed at user scope) and per-user
-            // authorization codes each produce a per-user connection
-            // row. `source.oauth2.connectionId` is a single *name* —
-            // `findInnermostConnectionRow` walks each caller's stack
-            // to resolve the right physical row.
             const innermostScope = ctx.scopes[0]!.id as string;
-
-            const clientId = yield* ctx.secrets
-              .get(input.clientIdSecretId)
-              .pipe(Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })));
-            if (clientId === null) {
-              return yield* new OpenApiOAuthError({
-                message: `Missing client ID secret: ${input.clientIdSecretId}`,
-              });
-            }
+            const tokenScope = input.tokenScope ?? innermostScope;
 
             if (input.flow === "clientCredentials") {
-              // RFC 6749 §4.4: no user consent, no session, no PKCE. The
-              // client_secret is mandatory — the spec defines the grant
-              // as client authentication + a token request.
-              const clientSecret = yield* ctx.secrets
-                .get(input.clientSecretSecretId)
-                .pipe(Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })));
-              if (clientSecret === null) {
-                return yield* new OpenApiOAuthError({
-                  message: `Missing client secret: ${input.clientSecretSecretId}`,
-                });
-              }
-
-              const tokenResponse = yield* exchangeClientCredentials({
-                tokenUrl: input.tokenUrl,
-                clientId,
-                clientSecret,
-                scopes: scopesArray,
-              }).pipe(Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })));
-
-              // Stable id, per-user scope. The id is a *name* — the
-              // same string across every user — and each user's stack
-              // resolves it to their own physical row via
-              // `findInnermostConnectionRow`. That's what lets the
-              // shared org-scoped source carry a single
-              // `oauth2.connectionId` string while still supporting
-              // per-user credentials (via scope-stacked secret
-              // shadowing) and per-user tokens. `connections.create`
-              // is delete-then-insert on `(id, scope_id)`, so each
-              // user's repeat sign-ins refresh a single row rather
-              // than accumulate UUIDs.
               const connectionId =
-                input.connectionId ?? defaultOAuthConnectionId("clientCredentials", input.sourceId);
-              const connectionScope = input.tokenScope ?? innermostScope;
-              const expiresAt =
-                typeof tokenResponse.expires_in === "number"
-                  ? Date.now() + tokenResponse.expires_in * 1000
-                  : null;
-
-              const providerState: OAuth2ProviderState = {
-                flow: "clientCredentials",
-                tokenUrl: input.tokenUrl,
-                clientIdSecretId: input.clientIdSecretId,
-                clientSecretSecretId: input.clientSecretSecretId,
-                scopes: scopesArray,
-              };
-
-              yield* ctx.connections
-                .create(
-                  new CreateConnectionInput({
-                    id: ConnectionId.make(connectionId),
-                    scope: ScopeId.make(connectionScope),
-                    provider: OPENAPI_OAUTH2_PROVIDER_KEY,
-                    identityLabel: input.displayName,
-                    accessToken: new TokenMaterial({
-                      secretId: SecretId.make(`${connectionId}.access_token`),
-                      name: `${input.displayName} Access Token`,
-                      value: tokenResponse.access_token,
-                    }),
-                    // RFC 6749 §4.4.3: no refresh tokens for this grant.
-                    refreshToken: null,
-                    expiresAt,
-                    oauthScope: tokenResponse.scope ?? null,
-                    providerState: toProviderStateRecord(providerState),
-                  }),
-                )
+                input.connectionId ??
+                defaultOAuthConnectionId("clientCredentials", input.sourceId);
+              const started = yield* ctx.oauth
+                .start({
+                  endpoint: input.tokenUrl,
+                  redirectUrl: input.tokenUrl,
+                  connectionId,
+                  tokenScope,
+                  pluginId: "openapi",
+                  identityLabel: `${input.displayName} OAuth`,
+                  strategy: {
+                    kind: "client-credentials",
+                    tokenEndpoint: input.tokenUrl,
+                    clientIdSecretId: input.clientIdSecretId,
+                    clientSecretSecretId: input.clientSecretSecretId,
+                    scopes: scopesArray,
+                  },
+                })
                 .pipe(
                   Effect.mapError(
-                    (err) =>
-                      new OpenApiOAuthError({
-                        message:
-                          "message" in err ? (err as { message: string }).message : String(err),
-                      }),
+                    (err) => new OpenApiOAuthError({ message: err.message }),
                   ),
                 );
 
+              const completed = started.completedConnection;
+              if (!completed) {
+                return yield* new OpenApiOAuthError({
+                  message: "client_credentials flow did not mint a connection",
+                });
+              }
+
               const auth = new OAuth2Auth({
                 kind: "oauth2",
-                connectionId,
+                connectionId: completed.connectionId,
                 securitySchemeName: input.securitySchemeName,
                 flow: "clientCredentials",
                 tokenUrl: input.tokenUrl,
@@ -1057,169 +1112,59 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
             // row per target scope instead of creating UUID churn. By
             // default this grant writes per-user because it carries user
             // identity.
-            const tokenScope = input.tokenScope ?? innermostScope;
-            const sessionId = randomUUID();
-            const codeVerifier = createPkceCodeVerifier();
             const connectionId =
-              input.connectionId ?? defaultOAuthConnectionId("authorizationCode", input.sourceId);
-
-            yield* ctx.storage
-              .putOAuthSession(
-                sessionId,
-                new OpenApiOAuthSession({
-                  displayName: input.displayName,
-                  securitySchemeName: input.securitySchemeName,
-                  flow: input.flow,
-                  tokenUrl: input.tokenUrl,
-                  authorizationUrl: input.authorizationUrl,
-                  redirectUrl: input.redirectUrl,
+              input.connectionId ??
+              defaultOAuthConnectionId("authorizationCode", input.sourceId);
+            const started = yield* ctx.oauth
+              .start({
+                endpoint: input.authorizationUrl,
+                redirectUrl: input.redirectUrl,
+                connectionId,
+                tokenScope,
+                pluginId: "openapi",
+                identityLabel: `${input.displayName} OAuth`,
+                strategy: {
+                  kind: "authorization-code",
+                  authorizationEndpoint: input.authorizationUrl,
+                  tokenEndpoint: input.tokenUrl,
+                  issuerUrl: input.issuerUrl ?? null,
                   clientIdSecretId: input.clientIdSecretId,
                   clientSecretSecretId: input.clientSecretSecretId ?? null,
-                  tokenScope,
-                  connectionId,
-                  accessTokenSecretId: `${connectionId}.access_token`,
-                  refreshTokenSecretId: `${connectionId}.refresh_token`,
                   scopes: scopesArray,
-                  codeVerifier,
-                }),
-              )
-              .pipe(Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })));
-
-            const authorizationUrl = buildAuthorizationUrl({
-              authorizationUrl: input.authorizationUrl,
-              clientId,
-              redirectUrl: input.redirectUrl,
-              scopes: scopesArray,
-              state: sessionId,
-              codeVerifier,
-            });
+                },
+              })
+              .pipe(
+                Effect.mapError(
+                  (err) => new OpenApiOAuthError({ message: err.message }),
+                ),
+              );
+            if (started.authorizationUrl === null) {
+              return yield* new OpenApiOAuthError({
+                message:
+                  "authorizationCode flow did not produce an authorization URL",
+              });
+            }
 
             return {
               flow: "authorizationCode" as const,
-              sessionId,
-              authorizationUrl,
+              sessionId: started.sessionId,
+              authorizationUrl: started.authorizationUrl,
               scopes: scopesArray,
             };
           }),
 
         completeOAuth: (input) =>
-          ctx
-            .transaction(
-              Effect.gen(function* () {
-                const session = yield* ctx.storage
-                  .getOAuthSession(input.state)
-                  .pipe(Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })));
-                if (!session) {
-                  return yield* new OpenApiOAuthError({
-                    message: "OAuth session not found or has expired",
-                  });
-                }
-                yield* ctx.storage
-                  .deleteOAuthSession(input.state)
-                  .pipe(Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })));
-
-                if (input.error) {
-                  return yield* new OpenApiOAuthError({ message: input.error });
-                }
-                if (!input.code) {
-                  return yield* new OpenApiOAuthError({
-                    message: "OAuth callback did not include an authorization code",
-                  });
-                }
-
-                const clientId = yield* ctx.secrets
-                  .get(session.clientIdSecretId)
-                  .pipe(Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })));
-                if (clientId === null) {
-                  return yield* new OpenApiOAuthError({
-                    message: `Missing client ID secret: ${session.clientIdSecretId}`,
-                  });
-                }
-
-                const clientSecret = session.clientSecretSecretId
-                  ? yield* ctx.secrets
-                      .get(session.clientSecretSecretId)
-                      .pipe(
-                        Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
-                      )
-                  : null;
-
-                const tokenResponse: OAuth2TokenResponse = yield* exchangeAuthorizationCode({
-                  tokenUrl: session.tokenUrl,
-                  clientId,
-                  clientSecret,
-                  redirectUrl: session.redirectUrl,
-                  codeVerifier: session.codeVerifier,
-                  code: input.code,
-                }).pipe(Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })));
-
-                const expiresAt =
-                  typeof tokenResponse.expires_in === "number"
-                    ? Date.now() + tokenResponse.expires_in * 1000
-                    : null;
-
-                const providerState: OAuth2ProviderState = {
-                  flow: "authorizationCode",
-                  tokenUrl: session.tokenUrl,
-                  clientIdSecretId: session.clientIdSecretId,
-                  clientSecretSecretId: session.clientSecretSecretId,
-                  scopes: [...session.scopes],
-                };
-
-                yield* ctx.connections
-                  .create(
-                    new CreateConnectionInput({
-                      id: ConnectionId.make(session.connectionId),
-                      scope: ScopeId.make(session.tokenScope),
-                      provider: OPENAPI_OAUTH2_PROVIDER_KEY,
-                      identityLabel: session.displayName,
-                      accessToken: new TokenMaterial({
-                        secretId: SecretId.make(session.accessTokenSecretId),
-                        name: `${session.displayName} Access Token`,
-                        value: tokenResponse.access_token,
-                      }),
-                      refreshToken: tokenResponse.refresh_token
-                        ? new TokenMaterial({
-                            secretId: SecretId.make(session.refreshTokenSecretId),
-                            name: `${session.displayName} Refresh Token`,
-                            value: tokenResponse.refresh_token,
-                          })
-                        : null,
-                      expiresAt,
-                      oauthScope: tokenResponse.scope ?? null,
-                      providerState: toProviderStateRecord(providerState),
-                    }),
-                  )
-                  .pipe(
-                    Effect.mapError(
-                      (err) =>
-                        new OpenApiOAuthError({
-                          message:
-                            "message" in err ? (err as { message: string }).message : String(err),
-                        }),
-                    ),
-                  );
-
-                return new OAuth2Auth({
-                  kind: "oauth2",
-                  connectionId: session.connectionId,
-                  securitySchemeName: session.securitySchemeName,
-                  flow: "authorizationCode",
-                  tokenUrl: session.tokenUrl,
-                  authorizationUrl: session.authorizationUrl,
-                  clientIdSecretId: session.clientIdSecretId,
-                  clientSecretSecretId: session.clientSecretSecretId,
-                  scopes: [...session.scopes],
-                });
-              }),
-            )
-            .pipe(
-              Effect.mapError((err) =>
-                err instanceof OpenApiOAuthError
-                  ? err
-                  : new OpenApiOAuthError({ message: err.message }),
-              ),
+          ctx.oauth.complete(input).pipe(
+            Effect.mapError(
+              (err) =>
+                new OpenApiOAuthError({
+                  message:
+                    "message" in err
+                      ? (err as { message: string }).message
+                      : "OAuth completion failed",
+                }),
             ),
+          ),
       } satisfies OpenApiPluginExtension;
     },
 
@@ -1231,24 +1176,33 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         tools: [
           {
             name: "previewSpec",
-            description: "Preview an OpenAPI document before adding it as a source",
-            inputSchema: {
-              type: "object",
-              properties: { spec: { type: "string" } },
-              required: ["spec"],
-            },
-            handler: ({ args }) => self.previewSpec((args as PreviewSpecInput).spec),
-          },
-          {
-            name: "addSource",
-            description: "Add an OpenAPI source and register its operations as tools",
+            description:
+              "Preview an OpenAPI document before adding it as a source",
             inputSchema: {
               type: "object",
               properties: {
                 spec: { type: "string" },
+                specFetchCredentials: { type: "object" },
+              },
+              required: ["spec"],
+            },
+            handler: ({ args }) => self.previewSpec(args as PreviewSpecInput),
+          },
+          {
+            name: "addSource",
+            description:
+              "Add an OpenAPI source and register its operations as tools",
+            inputSchema: {
+              type: "object",
+              properties: {
+                spec: { type: "string" },
+                name: { type: "string" },
                 baseUrl: { type: "string" },
                 namespace: { type: "string" },
                 headers: { type: "object" },
+                queryParams: { type: "object" },
+                oauth2: { type: "object" },
+                specFetchCredentials: { type: "object" },
               },
               required: ["spec"],
             },
@@ -1283,7 +1237,10 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         // scope, so pin every store lookup to it instead of relying
         // on the scoped adapter's stack-wide fall-through.
         const toolScope = toolRow.scope_id as string;
-        const op = yield* ctx.storage.getOperationByToolId(toolRow.id, toolScope);
+        const op = yield* ctx.storage.getOperationByToolId(
+          toolRow.id,
+          toolScope,
+        );
         if (!op) {
           return yield* Effect.fail(
             new Error(`No OpenAPI operation found for tool "${toolRow.id}"`),
@@ -1291,7 +1248,9 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         }
         const source = yield* ctx.storage.getSource(op.sourceId, toolScope);
         if (!source) {
-          return yield* Effect.fail(new Error(`No OpenAPI source found for "${op.sourceId}"`));
+          return yield* Effect.fail(
+            new Error(`No OpenAPI source found for "${op.sourceId}"`),
+          );
         }
 
         const effective = yield* resolveEffectiveSourceConfig(ctx, source);
@@ -1302,9 +1261,9 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           headers: config.headers ?? {},
           legacyHeaders: effective.headersSource.legacy?.headers,
         }).pipe(Effect.mapError((err) => new Error(err.message)));
-        const resolvedQueryParams = yield* resolveHeaders(
-          config.queryParams ?? {},
-          ctx.secrets,
+        const resolvedQueryParams = yield* resolveHeaderValues(
+          ctx,
+          config.queryParams,
         ).pipe(Effect.mapError((err) => new Error(err.message)));
 
         // If the source has OAuth2 auth, resolve a guaranteed-fresh
@@ -1320,7 +1279,9 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           });
           if (!connectionId) {
             return yield* Effect.fail(
-              new Error(`OAuth configuration for "${op.sourceId}" is missing a connection binding`),
+              new Error(
+                `OAuth configuration for "${op.sourceId}" is missing a connection binding`,
+              ),
             );
           }
           const accessToken = yield* ctx.connections
@@ -1330,7 +1291,9 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
                 (err) =>
                   new Error(
                     `OAuth connection resolution failed: ${
-                      "message" in err ? (err as { message: string }).message : String(err)
+                      "message" in err
+                        ? (err as { message: string }).message
+                        : String(err)
                     }`,
                   ),
               ),
@@ -1370,7 +1333,10 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           [...scopes],
           (scope) =>
             Effect.gen(function* () {
-              const ops = yield* ctx.storage.listOperationsBySource(sourceId, scope);
+              const ops = yield* ctx.storage.listOperationsBySource(
+                sourceId,
+                scope,
+              );
               const byId = new Map<string, OperationBinding>();
               for (const op of ops) byId.set(op.toolId, op.binding);
               return [scope, byId] as const;
@@ -1383,13 +1349,17 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
         for (const row of toolRows as readonly ToolRow[]) {
           const binding = byScope.get(row.scope_id as string)?.get(row.id);
           if (binding) {
-            out[row.id] = annotationsForOperation(binding.method, binding.pathTemplate);
+            out[row.id] = annotationsForOperation(
+              binding.method,
+              binding.pathTemplate,
+            );
           }
         }
         return out;
       }),
 
-    removeSource: ({ ctx, sourceId, scope }) => ctx.storage.removeSource(sourceId, scope),
+    removeSource: ({ ctx, sourceId, scope }) =>
+      ctx.storage.removeSource(sourceId, scope),
 
     // Re-fetch the spec from its origin URL (captured at addSpec time)
     // and replay the same parse → extract → upsertSource → register
@@ -1397,22 +1367,29 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
     // typed `OpenApiParseError` — the executor only dispatches refresh
     // when `canRefresh: true`, so a raw-text source reaching here
     // means stale UI state, which is worth surfacing to the caller.
-    refreshSource: ({ ctx, sourceId, scope }) => refreshSourceInternal(ctx, sourceId, scope),
+    refreshSource: ({ ctx, sourceId, scope }) =>
+      refreshSourceInternal(ctx, sourceId, scope),
 
     detect: ({ url }) =>
       Effect.gen(function* () {
         const trimmed = url.trim();
         if (!trimmed) return null;
-        const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
+        const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(
+          Effect.option,
+        );
         if (parsed._tag === "None") return null;
         const specText = yield* resolveSpecText(trimmed).pipe(
           Effect.provide(httpClientLayer),
           Effect.catchAll(() => Effect.succeed(null)),
         );
         if (specText === null) return null;
-        const doc = yield* parse(specText).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const doc = yield* parse(specText).pipe(
+          Effect.catchAll(() => Effect.succeed(null)),
+        );
         if (!doc) return null;
-        const result = yield* extract(doc).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const result = yield* extract(doc).pipe(
+          Effect.catchAll(() => Effect.succeed(null)),
+        );
         if (!result) return null;
         const namespace = Option.getOrElse(result.title, () => "api")
           .toLowerCase()
@@ -1426,131 +1403,5 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
           namespace,
         });
       }),
-
-    // The SDK's `ctx.connections.accessToken(id)` dispatches here when a
-    // token is near expiry. Both flows share one provider key — the
-    // concrete refresh strategy is selected from `providerState.flow`
-    // because the caller already persisted all the knobs we need.
-    connectionProviders: (ctx): readonly ConnectionProvider[] => [
-      {
-        key: OPENAPI_OAUTH2_PROVIDER_KEY,
-        refresh: (input: ConnectionRefreshInput) =>
-          Effect.gen(function* () {
-            if (!input.providerState) {
-              return yield* new ConnectionRefreshError({
-                connectionId: input.connectionId,
-                message: "openapi:oauth2 connection is missing providerState",
-              });
-            }
-            const state = yield* Effect.try({
-              try: () => decodeProviderState(input.providerState),
-              catch: (cause) =>
-                new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message: `openapi:oauth2 providerState is malformed: ${
-                    cause instanceof Error ? cause.message : String(cause)
-                  }`,
-                  cause,
-                }),
-            });
-
-            const clientId = yield* ctx.secrets.get(state.clientIdSecretId).pipe(
-              Effect.mapError(
-                (err) =>
-                  new ConnectionRefreshError({
-                    connectionId: input.connectionId,
-                    message: `Failed to resolve client id secret: ${err.message}`,
-                    cause: err,
-                  }),
-              ),
-            );
-            if (clientId === null) {
-              return yield* new ConnectionRefreshError({
-                connectionId: input.connectionId,
-                message: `Missing client id secret: ${state.clientIdSecretId}`,
-              });
-            }
-
-            const clientSecret = state.clientSecretSecretId
-              ? yield* ctx.secrets.get(state.clientSecretSecretId).pipe(
-                  Effect.mapError(
-                    (err) =>
-                      new ConnectionRefreshError({
-                        connectionId: input.connectionId,
-                        message: `Failed to resolve client secret: ${err.message}`,
-                        cause: err,
-                      }),
-                  ),
-                )
-              : null;
-
-            // RFC 6749 §5.2 terminal error codes — the AS has told us
-            // the stored grant is unusable, so no amount of retries
-            // will recover. Surface these as `reauthRequired: true`
-            // so the SDK translates to `ConnectionReauthRequiredError`
-            // at the caller and the UI prompts sign-in.
-            const REAUTH_REQUIRED_ERRORS = new Set([
-              "invalid_grant",
-              "invalid_client",
-              "unauthorized_client",
-            ]);
-
-            const toRefreshError = (err: OAuth2Error) =>
-              new ConnectionRefreshError({
-                connectionId: input.connectionId,
-                message: err.message,
-                reauthRequired: err.error ? REAUTH_REQUIRED_ERRORS.has(err.error) : false,
-                cause: err,
-              });
-
-            const tokenResponse = yield* (
-              state.flow === "clientCredentials"
-                ? exchangeClientCredentials({
-                    tokenUrl: state.tokenUrl,
-                    clientId,
-                    clientSecret: clientSecret ?? "",
-                    scopes: state.scopes,
-                  })
-                : (() => {
-                    if (input.refreshToken === null) {
-                      // No refresh token stored — we cannot call the
-                      // token endpoint at all. This is the RFC 6749
-                      // §4.1 "must re-consent" case, modelled as a
-                      // reauth-required refresh failure so callers
-                      // hit the same UI path as an `invalid_grant`.
-                      return Effect.fail(
-                        new OAuth2Error({
-                          message: "authorizationCode connection has no refresh token",
-                          error: "invalid_grant",
-                        }),
-                      );
-                    }
-                    return refreshAccessToken({
-                      tokenUrl: state.tokenUrl,
-                      clientId,
-                      clientSecret,
-                      refreshToken: input.refreshToken,
-                      scopes: state.scopes,
-                    });
-                  })()
-            ).pipe(Effect.mapError(toRefreshError));
-
-            const expiresAt =
-              typeof tokenResponse.expires_in === "number"
-                ? Date.now() + tokenResponse.expires_in * 1000
-                : null;
-
-            const result: ConnectionRefreshResult = {
-              accessToken: tokenResponse.access_token,
-              // Rotated refresh token (RFC 6749 §6) — undefined means
-              // "keep the stored one"; null means "AS didn't issue one".
-              refreshToken: tokenResponse.refresh_token ?? undefined,
-              expiresAt,
-              oauthScope: tokenResponse.scope ?? input.oauthScope,
-            };
-            return result;
-          }),
-      },
-    ],
   };
 });

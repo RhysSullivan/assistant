@@ -5,10 +5,6 @@ export {
   type McpSourceConfig,
   type McpRemoteSourceConfig,
   type McpStdioSourceConfig,
-  type McpOAuthStartInput,
-  type McpOAuthStartResponse,
-  type McpOAuthCompleteInput,
-  type McpOAuthCompleteResponse,
   type McpProbeResult,
   type McpUpdateSourceInput,
 } from "./plugin";

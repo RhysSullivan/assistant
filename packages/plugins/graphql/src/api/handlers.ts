@@ -2,7 +2,11 @@ import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor/api";
-import type { GraphqlPluginExtension, HeaderValue, GraphqlUpdateSourceInput } from "../sdk/plugin";
+import type {
+  GraphqlPluginExtension,
+  HeaderValue,
+  GraphqlUpdateSourceInput,
+} from "../sdk/plugin";
 import { GraphqlGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -16,10 +20,9 @@ import { GraphqlGroup } from "./group";
 // `.addError(InternalError)` on the group — no per-handler translation.
 // ---------------------------------------------------------------------------
 
-export class GraphqlExtensionService extends Context.Tag("GraphqlExtensionService")<
-  GraphqlExtensionService,
-  GraphqlPluginExtension
->() {}
+export class GraphqlExtensionService extends Context.Tag(
+  "GraphqlExtensionService",
+)<GraphqlExtensionService, GraphqlPluginExtension>() {}
 
 // ---------------------------------------------------------------------------
 // Composed API — core + graphql group
@@ -37,48 +40,61 @@ const ExecutorApiWithGraphql = addGroup(GraphqlGroup);
 // by the API-level observability middleware.
 // ---------------------------------------------------------------------------
 
-export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "graphql", (handlers) =>
-  handlers
-    .handle("addSource", ({ path, payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* GraphqlExtensionService;
-          const result = yield* ext.addSource({
-            endpoint: payload.endpoint,
-            scope: path.scopeId,
-            name: payload.name,
-            introspectionJson: payload.introspectionJson,
-            namespace: payload.namespace,
-            headers: payload.headers as Record<string, HeaderValue> | undefined,
-            queryParams: payload.queryParams as Record<string, HeaderValue> | undefined,
-          });
-          return {
-            toolCount: result.toolCount,
-            namespace: result.namespace,
-          };
-        }),
+export const GraphqlHandlers = HttpApiBuilder.group(
+  ExecutorApiWithGraphql,
+  "graphql",
+  (handlers) =>
+    handlers
+      .handle("addSource", ({ path, payload }) =>
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GraphqlExtensionService;
+            const result = yield* ext.addSource({
+              endpoint: payload.endpoint,
+              scope: path.scopeId,
+              name: payload.name,
+              introspectionJson: payload.introspectionJson,
+              namespace: payload.namespace,
+              headers: payload.headers as
+                | Record<string, HeaderValue>
+                | undefined,
+              queryParams: payload.queryParams as
+                | Record<string, HeaderValue>
+                | undefined,
+              auth: payload.auth,
+            });
+            return {
+              toolCount: result.toolCount,
+              namespace: result.namespace,
+            };
+          }),
+        ),
+      )
+      .handle("getSource", ({ path }) =>
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GraphqlExtensionService;
+            return yield* ext.getSource(path.namespace, path.scopeId);
+          }),
+        ),
+      )
+      .handle("updateSource", ({ path, payload }) =>
+        capture(
+          Effect.gen(function* () {
+            const ext = yield* GraphqlExtensionService;
+            yield* ext.updateSource(path.namespace, path.scopeId, {
+              name: payload.name,
+              endpoint: payload.endpoint,
+              headers: payload.headers as
+                | Record<string, HeaderValue>
+                | undefined,
+              queryParams: payload.queryParams as
+                | Record<string, HeaderValue>
+                | undefined,
+              auth: payload.auth,
+            } as GraphqlUpdateSourceInput);
+            return { updated: true };
+          }),
+        ),
       ),
-    )
-    .handle("getSource", ({ path }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* GraphqlExtensionService;
-          return yield* ext.getSource(path.namespace, path.scopeId);
-        }),
-      ),
-    )
-    .handle("updateSource", ({ path, payload }) =>
-      capture(
-        Effect.gen(function* () {
-          const ext = yield* GraphqlExtensionService;
-          yield* ext.updateSource(path.namespace, path.scopeId, {
-            name: payload.name,
-            endpoint: payload.endpoint,
-            headers: payload.headers as Record<string, HeaderValue> | undefined,
-            queryParams: payload.queryParams as Record<string, HeaderValue> | undefined,
-          } as GraphqlUpdateSourceInput);
-          return { updated: true };
-        }),
-      ),
-    ),
 );

@@ -193,7 +193,12 @@ describe("Google Discovery plugin", () => {
     }),
   );
 
-  it.effect("starts oauth using discovery scopes", () =>
+  // OAuth start/complete are driven via ctx.oauth now — the UI stitches
+  // the strategy config (Google endpoints + extras) and calls the shared
+  // /scopes/:scopeId/oauth/{start,complete} surface. The connection id
+  // is chosen client-side and stamped onto the source's auth config.
+
+  it.effect("starts oauth using caller-supplied discovery scopes", () =>
     Effect.gen(function* () {
       const handle = yield* Effect.promise(() => startServer());
       try {
@@ -212,18 +217,38 @@ describe("Google Discovery plugin", () => {
           }),
         );
 
-        const result = yield* executor.googleDiscovery.startOAuth({
-          name: "Google Drive",
-          discoveryUrl: handle.discoveryUrl,
-          clientIdSecretId: "google-client-id",
+        const connectionId = "google-discovery-oauth2-test-start";
+        const result = yield* executor.oauth.start({
+          endpoint: handle.discoveryUrl,
           redirectUrl: "http://localhost/callback",
+          connectionId,
+          tokenScope: "test-scope",
+          strategy: {
+            kind: "authorization-code",
+            authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+            tokenEndpoint: "https://oauth2.googleapis.com/token",
+            clientIdSecretId: "google-client-id",
+            clientSecretSecretId: null,
+            scopes: ["https://www.googleapis.com/auth/drive"],
+            extraAuthorizationParams: {
+              access_type: "offline",
+              include_granted_scopes: "true",
+              prompt: "consent",
+            },
+          },
+          pluginId: "google-discovery",
         });
 
+        if (result.authorizationUrl === null) {
+          throw new Error("expected an authorization URL for authorization-code");
+        }
         const authorizationUrl = new URL(result.authorizationUrl);
-        expect(result.scopes).toContain("https://www.googleapis.com/auth/drive");
         expect(authorizationUrl.searchParams.get("client_id")).toBe("client-123");
         expect(authorizationUrl.searchParams.get("access_type")).toBe("offline");
         expect(authorizationUrl.searchParams.get("prompt")).toBe("consent");
+        expect(authorizationUrl.searchParams.get("scope")).toBe(
+          "https://www.googleapis.com/auth/drive",
+        );
 
         yield* executor.close();
       } finally {
@@ -232,7 +257,7 @@ describe("Google Discovery plugin", () => {
     }),
   );
 
-  it.effect("completes oauth and stores token secrets", () =>
+  it.effect("completes oauth and stores token secrets on a connection", () =>
     Effect.gen(function* () {
       const handle = yield* Effect.promise(() => startServer());
       try {
@@ -289,26 +314,39 @@ describe("Google Discovery plugin", () => {
         }) as typeof fetch);
 
         try {
-          const started = yield* executor.googleDiscovery.startOAuth({
-            name: "Google Drive",
-            discoveryUrl: handle.discoveryUrl,
-            clientIdSecretId: "google-client-id",
-            clientSecretSecretId: "google-client-secret",
+          const connectionId = "google-discovery-oauth2-test-complete";
+          const started = yield* executor.oauth.start({
+            endpoint: handle.discoveryUrl,
             redirectUrl: "http://localhost/callback",
+            connectionId,
+            tokenScope: "test-scope",
+            strategy: {
+              kind: "authorization-code",
+              authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+              tokenEndpoint: "https://oauth2.googleapis.com/token",
+              clientIdSecretId: "google-client-id",
+              clientSecretSecretId: "google-client-secret",
+              scopes: ["https://www.googleapis.com/auth/drive"],
+              extraAuthorizationParams: {
+                access_type: "offline",
+                include_granted_scopes: "true",
+                prompt: "consent",
+              },
+            },
+            pluginId: "google-discovery",
           });
 
-          const auth = yield* executor.googleDiscovery.completeOAuth({
+          const completed = yield* executor.oauth.complete({
             state: started.sessionId,
             code: "code-123",
           });
 
-          expect(auth.kind).toBe("oauth2");
-          expect(auth.connectionId).toMatch(/^google-discovery-oauth2-/);
+          expect(completed.connectionId).toBe(connectionId);
 
           // Tokens live on the SDK connection — resolving via
           // ctx.connections.accessToken returns the minted value.
           const accessToken = yield* executor.connections.accessToken(
-            auth.connectionId as Parameters<typeof executor.connections.accessToken>[0],
+            completed.connectionId as Parameters<typeof executor.connections.accessToken>[0],
           );
           expect(accessToken).toBe("access-token-value");
 
@@ -317,8 +355,8 @@ describe("Google Discovery plugin", () => {
           const secretIds = new Set(
             (yield* executor.secrets.list()).map((s) => s.id as unknown as string),
           );
-          expect(secretIds).not.toContain(`${auth.connectionId}.access_token`);
-          expect(secretIds).not.toContain(`${auth.connectionId}.refresh_token`);
+          expect(secretIds).not.toContain(`${completed.connectionId}.access_token`);
+          expect(secretIds).not.toContain(`${completed.connectionId}.refresh_token`);
         } finally {
           fetchMock.mockRestore();
           yield* executor.close();
@@ -349,7 +387,7 @@ describe("Google Discovery plugin", () => {
             new CreateConnectionInput({
               id: connectionId,
               scope: ScopeId.make("test-scope"),
-              provider: "google-discovery:oauth2",
+              provider: "oauth2",
               identityLabel: "Drive Test",
               accessToken: new TokenMaterial({
                 secretId: SecretId.make(`${connectionId}.access_token`),

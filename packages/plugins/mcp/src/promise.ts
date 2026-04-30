@@ -7,8 +7,4 @@ export type {
   McpStdioSourceConfig,
   McpProbeResult,
   McpUpdateSourceInput,
-  McpOAuthStartInput,
-  McpOAuthStartResponse,
-  McpOAuthCompleteInput,
-  McpOAuthCompleteResponse,
 } from "./sdk/plugin";

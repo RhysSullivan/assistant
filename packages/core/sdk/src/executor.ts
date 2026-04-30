@@ -56,6 +56,8 @@ import {
   ToolNotFoundError,
 } from "./errors";
 import { ConnectionId, ScopeId, SecretId, ToolId } from "./ids";
+import { makeOAuth2Service } from "./oauth-service";
+import type { OAuthService } from "./oauth";
 import {
   comparePolicyRow,
   isValidPattern,
@@ -243,6 +245,10 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
     readonly providers: () => Effect.Effect<readonly string[]>;
   };
+
+  /** Shared OAuth service. Hosts use this through the core HTTP OAuth group;
+   *  plugins see the same service as `ctx.oauth`. */
+  readonly oauth: OAuthService;
 
   readonly policies: {
     /** All policies visible across the executor's scope stack, sorted
@@ -646,6 +652,20 @@ export const createExecutor = <
     // Connection providers keyed by `provider.key` — drive the refresh
     // lifecycle for connection-owned tokens.
     const connectionProviders = new Map<string, ConnectionProvider>();
+    const connectionProviderAliases = new Map<string, string>([
+      ["mcp:oauth2", "oauth2"],
+      ["openapi:oauth2", "oauth2"],
+      ["google-discovery:google", "oauth2"],
+      ["google-discovery:oauth2", "oauth2"],
+    ]);
+    const resolveConnectionProvider = (
+      key: string,
+    ): ConnectionProvider | undefined => {
+      const direct = connectionProviders.get(key);
+      if (direct) return direct;
+      const canonical = connectionProviderAliases.get(key);
+      return canonical ? connectionProviders.get(canonical) : undefined;
+    };
     // In-flight refresh dedup. `connectionsAccessToken` stamps a
     // `Deferred` here before calling the provider's `refresh`; parallel
     // callers that walk in while a refresh is still running observe
@@ -1257,7 +1277,7 @@ export const createExecutor = <
             }),
           );
         }
-        if (!connectionProviders.has(input.provider)) {
+        if (!resolveConnectionProvider(input.provider)) {
           return yield* Effect.fail(
             new ConnectionProviderNotRegisteredError({
               provider: input.provider,
@@ -1471,7 +1491,16 @@ export const createExecutor = <
             );
             for (const secret of owned) {
               yield* Effect.all(
-                deleters.map((p) => p.delete(secret.id as string, scope)),
+                deleters.map((p) =>
+                  p.delete(secret.id as string, scope).pipe(
+                    Effect.catchAllCause((cause) =>
+                      Effect.logWarning(
+                        `Failed to delete connection-owned secret from provider ${p.key}`,
+                        cause,
+                      ).pipe(Effect.as(false)),
+                    ),
+                  ),
+                ),
                 { concurrency: "unbounded" },
               );
             }
@@ -1513,7 +1542,7 @@ export const createExecutor = <
       ref: ConnectionRef,
     ): Effect.Effect<string, AccessTokenError> =>
       Effect.gen(function* () {
-        const provider = connectionProviders.get(ref.provider);
+        const provider = resolveConnectionProvider(ref.provider);
         if (!provider) {
           return yield* Effect.fail(
             new ConnectionProviderNotRegisteredError({
@@ -1660,6 +1689,23 @@ export const createExecutor = <
 
     const connectionsListForCtx = () => connectionsList();
 
+    const oauthBundle = makeOAuth2Service({
+      adapter: core,
+      rawAdapter: adapter,
+      secretsGet: (id) =>
+        secretsGet(id).pipe(
+          Effect.catchTag("SecretOwnedByConnectionError", () =>
+            Effect.succeed(null),
+          ),
+        ),
+      secretsSet: (input) => secretsSet(input),
+      connectionsCreate: (input) => connectionsCreate(input),
+    });
+    connectionProviders.set(
+      oauthBundle.connectionProvider.key,
+      oauthBundle.connectionProvider,
+    );
+
     // ------------------------------------------------------------------
     // Plugin wiring — build ctx, run extension, populate static pools,
     // register secret providers. No adapter reads here.
@@ -1792,6 +1838,7 @@ export const createExecutor = <
           accessToken: (id) => connectionsAccessToken(id),
           remove: (id) => connectionsRemove(id),
         },
+        oauth: oauthBundle.service,
         // Open one real tx boundary and route every nested write inside
         // `effect` through that same handle via the activeAdapterRef —
         // see buildAdapterRouter above. Caller-typed errors (`E`)
@@ -2736,6 +2783,7 @@ export const createExecutor = <
               Array.from(connectionProviders.keys()) as readonly string[],
           ),
       },
+      oauth: oauthBundle.service,
       policies: {
         list: policiesList,
         create: policiesCreate,

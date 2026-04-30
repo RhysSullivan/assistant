@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest";
-import { Cause, Chunk, Effect, Exit } from "effect";
+import { Effect, Exit } from "effect";
 
 import {
   OAUTH2_DEFAULT_TIMEOUT_MS,
@@ -15,20 +15,16 @@ import {
   buildAuthorizationUrl,
   createPkceCodeChallenge,
   createPkceCodeVerifier,
-  decodeTokenResponse,
   exchangeAuthorizationCode,
   refreshAccessToken,
   shouldRefreshToken,
-} from "./index";
+} from "./oauth-helpers";
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
   });
-
-const textResponse = (status: number, body: string): Response =>
-  new Response(body, { status, headers: { "content-type": "text/html" } });
 
 // ---------------------------------------------------------------------------
 // PKCE
@@ -44,11 +40,11 @@ describe("PKCE", () => {
     }
   });
 
-  it("createPkceCodeChallenge matches the RFC 7636 Appendix A test vector", () => {
+  it("createPkceCodeChallenge matches the RFC 7636 Appendix A test vector", async () => {
     // RFC 7636 §4.2 test vector
     const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
     const expected = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
-    expect(createPkceCodeChallenge(verifier)).toBe(expected);
+    expect(await createPkceCodeChallenge(verifier)).toBe(expected);
   });
 
   it("createPkceCodeVerifier produces unique values", () => {
@@ -63,13 +59,15 @@ describe("PKCE", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildAuthorizationUrl", () => {
+  // RFC 7636 §4.2 test-vector pair — verifier+challenge precomputed so
+  // the URL builder stays a pure sync function.
   const baseInput = {
     authorizationUrl: "https://example.com/authorize",
     clientId: "client-123",
     redirectUrl: "https://app.example.com/callback",
     scopes: ["read", "write"] as const,
     state: "state-abc",
-    codeVerifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+    codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
   };
 
   it("emits all RFC 6749 + PKCE params", () => {
@@ -119,140 +117,6 @@ describe("buildAuthorizationUrl", () => {
 });
 
 // ---------------------------------------------------------------------------
-// decodeTokenResponse
-// ---------------------------------------------------------------------------
-
-describe("decodeTokenResponse", () => {
-  /** Assert the decode effect fails with an OAuth2Error whose message matches `pattern`. */
-  const expectOAuth2ErrorMatching = (
-    exit: Exit.Exit<unknown, OAuth2Error>,
-    pattern: RegExp | string,
-  ) => {
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    const failures = Chunk.toReadonlyArray(Cause.failures(exit.cause));
-    expect(failures.length).toBeGreaterThan(0);
-    const error = failures[0]!;
-    expect(error).toBeInstanceOf(OAuth2Error);
-    if (typeof pattern === "string") {
-      expect(error.message).toContain(pattern);
-    } else {
-      expect(error.message).toMatch(pattern);
-    }
-  };
-
-  it.effect("parses a minimal successful response", () =>
-    Effect.gen(function* () {
-      const result = yield* decodeTokenResponse(
-        jsonResponse(200, { access_token: "tok" }),
-      );
-      expect(result.access_token).toBe("tok");
-      expect(result.token_type).toBeUndefined();
-      expect(result.expires_in).toBeUndefined();
-    }),
-  );
-
-  it.effect("parses a fully populated successful response", () =>
-    Effect.gen(function* () {
-      const result = yield* decodeTokenResponse(
-        jsonResponse(200, {
-          access_token: "tok",
-          token_type: "Bearer",
-          refresh_token: "rtok",
-          expires_in: 3600,
-          scope: "read write",
-        }),
-      );
-      expect(result).toEqual({
-        access_token: "tok",
-        token_type: "Bearer",
-        refresh_token: "rtok",
-        expires_in: 3600,
-        scope: "read write",
-      });
-    }),
-  );
-
-  it.effect("accepts expires_in as a string (Azure / older providers)", () =>
-    Effect.gen(function* () {
-      const result = yield* decodeTokenResponse(
-        jsonResponse(200, { access_token: "tok", expires_in: "3600" }),
-      );
-      expect(result.expires_in).toBe(3600);
-    }),
-  );
-
-  it.effect("fails with OAuth2Error on non-JSON bodies (HTML error pages from proxies / 5xx)", () =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        decodeTokenResponse(textResponse(502, "<html>bad gateway</html>")),
-      );
-      expectOAuth2ErrorMatching(exit, /non-JSON response \(502\)/);
-    }),
-  );
-
-  it.effect("fails with OAuth2Error on JSON arrays / non-object payloads", () =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        decodeTokenResponse(jsonResponse(200, ["not", "an", "object"])),
-      );
-      expectOAuth2ErrorMatching(exit, /invalid JSON payload \(200\)/);
-    }),
-  );
-
-  it.effect("uses error_description from RFC 6749 error responses", () =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        decodeTokenResponse(
-          jsonResponse(400, {
-            error: "invalid_grant",
-            error_description: "The provided authorization grant is invalid",
-          }),
-        ),
-      );
-      expectOAuth2ErrorMatching(
-        exit,
-        "OAuth token exchange failed: The provided authorization grant is invalid",
-      );
-    }),
-  );
-
-  it.effect("falls back to error code when error_description is absent", () =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        decodeTokenResponse(jsonResponse(400, { error: "invalid_grant" })),
-      );
-      expectOAuth2ErrorMatching(exit, "OAuth token exchange failed: invalid_grant");
-    }),
-  );
-
-  it.effect("falls back to status N when no error fields are present", () =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(decodeTokenResponse(jsonResponse(500, {})));
-      expectOAuth2ErrorMatching(exit, "OAuth token exchange failed: status 500");
-    }),
-  );
-
-  it.effect("fails with OAuth2Error on 200 responses with an empty access_token", () =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        decodeTokenResponse(jsonResponse(200, { access_token: "" })),
-      );
-      expectOAuth2ErrorMatching(exit, /did not return an access_token/);
-    }),
-  );
-
-  it.effect("fails with OAuth2Error on 200 responses with no access_token field", () =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        decodeTokenResponse(jsonResponse(200, { token_type: "Bearer" })),
-      );
-      expectOAuth2ErrorMatching(exit, /did not return an access_token/);
-    }),
-  );
-});
-
-// ---------------------------------------------------------------------------
 // exchangeAuthorizationCode / refreshAccessToken — request shape
 // ---------------------------------------------------------------------------
 
@@ -270,6 +134,14 @@ const captureFetch = (response: Response): { calls: FetchArgs[] } => {
 };
 
 const originalFetch = globalThis.fetch;
+
+const jwtPart = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+
+const unsignedJwt = (
+  claims: Record<string, unknown>,
+  alg = "RS256",
+): string => `${jwtPart({ alg, typ: "JWT" })}.${jwtPart(claims)}.sig`;
 
 describe("exchangeAuthorizationCode", () => {
   afterEach(() => {
@@ -302,8 +174,8 @@ describe("exchangeAuthorizationCode", () => {
     expect(call.url).toBe("https://example.com/token");
     expect(call.init.method).toBe("POST");
     const headers = call.init.headers as Record<string, string>;
-    expect(headers["content-type"]).toBe("application/x-www-form-urlencoded");
-    expect(headers["accept"]).toBe("application/json");
+    expect(headers["content-type"]).toMatch(/^application\/x-www-form-urlencoded/);
+    expect(headers["accept"]).toContain("application/json");
     const body = call.init.body as URLSearchParams;
     expect(body.get("grant_type")).toBe("authorization_code");
     expect(body.get("client_id")).toBe("cid");
@@ -327,6 +199,96 @@ describe("exchangeAuthorizationCode", () => {
     const body = calls[0]!.init.body as URLSearchParams;
     expect(body.get("client_id")).toBe("cid");
     expect(body.has("client_secret")).toBe(false);
+  });
+
+  it("validates ID tokens against an explicit issuer when token host differs", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt({
+          iss: "https://accounts.google.com",
+          aud: "cid",
+          sub: "user-1",
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          iat: Math.floor(Date.now() / 1000),
+        }),
+      }),
+    );
+    const result = await Effect.runPromise(
+      exchangeAuthorizationCode({
+        tokenUrl: "https://oauth2.googleapis.com/token",
+        issuerUrl: "https://accounts.google.com",
+        clientId: "cid",
+        redirectUrl: "https://app.example.com/cb",
+        codeVerifier: "verifier",
+        code: "abc",
+      }),
+    );
+    expect(result.access_token).toBe("tok");
+  });
+
+  it("accepts ID token signing algorithms advertised by authorization server metadata", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt(
+          {
+            iss: "https://railway.com",
+            aud: "cid",
+            sub: "user-1",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            iat: Math.floor(Date.now() / 1000),
+          },
+          "ES256",
+        ),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      exchangeAuthorizationCode({
+        tokenUrl: "https://backboard.railway.com/oauth/token",
+        issuerUrl: "https://railway.com",
+        clientId: "cid",
+        redirectUrl: "https://app.example.com/cb",
+        codeVerifier: "verifier",
+        code: "abc",
+        idTokenSigningAlgValuesSupported: ["ES256"],
+      }),
+    );
+
+    expect(result.access_token).toBe("tok");
+  });
+
+  it("ignores unusable ID tokens when the access-token response is otherwise valid", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt(
+          {
+            iss: "https://backboard.railway.com",
+            aud: "cid",
+            sub: "user-1",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            iat: Math.floor(Date.now() / 1000),
+          },
+          "ES256",
+        ),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      exchangeAuthorizationCode({
+        tokenUrl: "https://backboard.railway.com/oauth/token",
+        issuerUrl: "https://backboard.railway.com",
+        clientId: "cid",
+        redirectUrl: "https://app.example.com/cb",
+        codeVerifier: "verifier",
+        code: "abc",
+      }),
+    );
+
+    expect(result.access_token).toBe("tok");
+    expect(result.refresh_token).toBe("rtok");
   });
 
   it("uses HTTP Basic auth when clientAuth=basic (Stripe-style)", async () => {
@@ -458,6 +420,89 @@ describe("refreshAccessToken", () => {
     );
     const body = calls[0]!.init.body as URLSearchParams;
     expect(body.has("scope")).toBe(false);
+  });
+
+  it("validates refreshed ID tokens against an explicit issuer", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt({
+          iss: "https://accounts.google.com",
+          aud: "cid",
+          sub: "user-1",
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          iat: Math.floor(Date.now() / 1000),
+        }),
+      }),
+    );
+    const result = await Effect.runPromise(
+      refreshAccessToken({
+        tokenUrl: "https://oauth2.googleapis.com/token",
+        issuerUrl: "https://accounts.google.com",
+        clientId: "cid",
+        refreshToken: "old",
+      }),
+    );
+    expect(result.access_token).toBe("tok2");
+  });
+
+  it("accepts refreshed ID token signing algorithms advertised by authorization server metadata", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt(
+          {
+            iss: "https://railway.com",
+            aud: "cid",
+            sub: "user-1",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            iat: Math.floor(Date.now() / 1000),
+          },
+          "ES256",
+        ),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      refreshAccessToken({
+        tokenUrl: "https://backboard.railway.com/oauth/token",
+        issuerUrl: "https://railway.com",
+        clientId: "cid",
+        refreshToken: "old",
+        idTokenSigningAlgValuesSupported: ["ES256"],
+      }),
+    );
+
+    expect(result.access_token).toBe("tok2");
+  });
+
+  it("ignores unusable refreshed ID tokens when the access-token response is otherwise valid", async () => {
+    captureFetch(
+      jsonResponse(200, {
+        ...validBody,
+        id_token: unsignedJwt(
+          {
+            iss: "https://backboard.railway.com",
+            aud: "cid",
+            sub: "user-1",
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            iat: Math.floor(Date.now() / 1000),
+          },
+          "ES256",
+        ),
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      refreshAccessToken({
+        tokenUrl: "https://backboard.railway.com/oauth/token",
+        issuerUrl: "https://backboard.railway.com",
+        clientId: "cid",
+        refreshToken: "old",
+      }),
+    );
+
+    expect(result.access_token).toBe("tok2");
   });
 });
 

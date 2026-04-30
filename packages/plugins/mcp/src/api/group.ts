@@ -3,7 +3,10 @@ import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
-import { McpConnectionError, McpOAuthError, McpToolDiscoveryError } from "../sdk/errors";
+import {
+  McpConnectionError,
+  McpToolDiscoveryError,
+} from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
 
 // Re-export for handler use
@@ -19,8 +22,6 @@ const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 // ---------------------------------------------------------------------------
 // Auth payload (only for remote)
 // ---------------------------------------------------------------------------
-
-const JsonObject = Schema.Record({ key: Schema.String, value: Schema.Unknown });
 
 const AuthPayload = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("none") }),
@@ -113,41 +114,6 @@ const NamespacePayload = Schema.Struct({
   namespace: Schema.String,
 });
 
-const StartOAuthPayload = Schema.Struct({
-  endpoint: Schema.String,
-  redirectUrl: Schema.String,
-  queryParams: Schema.optional(Schema.NullOr(SecretBackedMap)),
-  /** Pre-decided SDK connection id the exchange will mint. Caller
-   *  passes a stable value (`mcp-oauth2-${namespace}`) so every user
-   *  signing in against the same source writes to the same id at their
-   *  own scope — the source's stored `{kind: "oauth2", connectionId}`
-   *  then resolves per-user via shadowing. */
-  connectionId: Schema.String,
-  /** Source-level OAuth state captured by a previous user's flow. When
-   *  passed, DCR is skipped — the same client_id is re-used so the
-   *  source's auth config stays stable across users. */
-  clientInformation: Schema.optional(Schema.NullOr(JsonObject)),
-  authorizationServerUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  resourceMetadataUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  clientIdSecretId: Schema.optional(Schema.String),
-  clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
-});
-
-const CompleteOAuthPayload = Schema.Struct({
-  state: Schema.String,
-  code: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-});
-
-const OAuthCallbackParams = Schema.Struct({
-  state: Schema.String,
-  code: Schema.optional(Schema.String),
-  error: Schema.optional(Schema.String),
-  error_description: Schema.optional(Schema.String),
-});
-
-const HtmlResponse = HttpApiSchema.Text({ contentType: "text/html" });
-
 // ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------
@@ -163,26 +129,6 @@ const RefreshSourceResponse = Schema.Struct({
 
 const RemoveSourceResponse = Schema.Struct({
   removed: Schema.Boolean,
-});
-
-const StartOAuthResponse = Schema.Struct({
-  sessionId: Schema.String,
-  authorizationUrl: Schema.String,
-});
-
-const CompleteOAuthResponse = Schema.Struct({
-  /** Id of the SDK Connection minted by the exchange. The UI stores it
-   *  on the source's auth config as `{kind: "oauth2", connectionId}`. */
-  connectionId: Schema.String,
-  tokenType: Schema.String,
-  expiresAt: Schema.NullOr(Schema.Number),
-  scope: Schema.NullOr(Schema.String),
-  /** DCR client + discovery URLs captured during the flow. Persisted
-   *  on the source's auth config so subsequent users skip DCR + re-
-   *  discovery. */
-  clientInformation: Schema.NullOr(JsonObject),
-  authorizationServerUrl: Schema.NullOr(Schema.String),
-  resourceMetadataUrl: Schema.NullOr(Schema.String),
 });
 
 // ---------------------------------------------------------------------------
@@ -223,26 +169,8 @@ export class McpGroup extends HttpApiGroup.make("mcp")
       .addSuccess(RefreshSourceResponse),
   )
   .add(
-    HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/mcp/oauth/start`
-      .setPayload(StartOAuthPayload)
-      .addSuccess(StartOAuthResponse),
-  )
-  .add(
-    HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/mcp/oauth/complete`
-      .setPayload(CompleteOAuthPayload)
-      .addSuccess(CompleteOAuthResponse),
-  )
-  .add(
-    HttpApiEndpoint.get("oauthCallback")`/mcp/oauth/callback`
-      .setUrlParams(OAuthCallbackParams)
-      .addSuccess(HtmlResponse),
-  )
-  .add(
-    HttpApiEndpoint.get(
-      "getSource",
-    )`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`.addSuccess(
-      Schema.NullOr(McpStoredSourceSchema),
-    ),
+    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
+      .addSuccess(Schema.NullOr(McpStoredSourceSchema)),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
@@ -256,7 +184,8 @@ export class McpGroup extends HttpApiGroup.make("mcp")
   // endpoint can surface: `McpInvocationError` is thrown inside
   // `invokeTool` which is reached via the core `tools.invoke`
   // endpoint, not any MCP-group endpoint, so it doesn't belong here.
+  // OAuth errors live on the shared `/oauth/*` group in `@executor/api`
+  // now — the MCP group only declares its own plugin-domain errors.
   .addError(InternalError)
-  .addError(McpOAuthError)
   .addError(McpConnectionError)
   .addError(McpToolDiscoveryError) {}

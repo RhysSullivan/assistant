@@ -43,6 +43,13 @@
       "when": 1777850000000,
       "tag": "0005_repair_mcp_oauth_session",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777850000001,
+      "tag": "0006_neat_terror",
+      "breakpoints": true
     }
   ]
 }

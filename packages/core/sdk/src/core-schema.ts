@@ -137,8 +137,9 @@ export const coreSchema = {
        *  don't mint a refresh token (client_credentials, etc.). */
       refresh_token_secret_id: { type: "string", required: false },
       /** Epoch ms when the access token expires. Null if the provider
-       *  didn't declare an expiry. Used as the refresh trigger. */
-      expires_at: { type: "number", required: false },
+       *  didn't declare an expiry. Used as the refresh trigger. Stored as
+       *  `bigint` because `Date.now()` overflows int32. */
+      expires_at: { type: "number", required: false, bigint: true },
       /** Scope string as returned by the token endpoint. */
       scope: { type: "string", required: false },
       /** Opaque plugin-owned JSON — token endpoint URL, scopes list,
@@ -146,6 +147,23 @@ export const coreSchema = {
       provider_state: { type: "json", required: false },
       created_at: { type: "date", required: true },
       updated_at: { type: "date", required: true },
+    },
+  },
+  // Pending OAuth authorization rows shared by every OAuth-capable plugin.
+  // Rows are short-lived and deleted after completion/cancel; the resulting
+  // `connection` row is the durable sign-in state.
+  oauth2_session: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      plugin_id: { type: "string", required: true, index: true },
+      strategy: { type: "string", required: true },
+      connection_id: { type: "string", required: true, index: true },
+      token_scope: { type: "string", required: true },
+      redirect_url: { type: "string", required: true },
+      payload: { type: "json", required: true },
+      expires_at: { type: "number", required: true, bigint: true },
+      created_at: { type: "date", required: true },
     },
   },
   // User-authored overrides for tool permissions. Each row is one rule:

@@ -10,8 +10,12 @@ import {
   serializeHttpCredentials,
   type HttpCredentialsState,
 } from "@executor/react/plugins/http-credentials";
-import { SourceIdentityFields, useSourceIdentity } from "@executor/react/plugins/source-identity";
+import {
+  SourceIdentityFields,
+  useSourceIdentity,
+} from "@executor/react/plugins/source-identity";
 import { Button } from "@executor/react/components/button";
+import { FilterTabs } from "@executor/react/components/filter-tabs";
 import {
   CardStack,
   CardStackContent,
@@ -25,12 +29,20 @@ import type { StoredGraphqlSource } from "../sdk/store";
 // UI only needs the fields the API exposes; `scope` on the SDK interface
 // isn't part of the HTTP response.
 type EditableSource = Omit<StoredGraphqlSource, "scope">;
+type AuthMode = "none" | "oauth2";
+
+const graphqlOAuthConnectionId = (namespaceSlug: string): string =>
+  `graphql-oauth2-${namespaceSlug || "default"}`;
 
 // ---------------------------------------------------------------------------
 // Edit form
 // ---------------------------------------------------------------------------
 
-function EditForm(props: { sourceId: string; initial: EditableSource; onSave: () => void }) {
+function EditForm(props: {
+  sourceId: string;
+  initial: EditableSource;
+  onSave: () => void;
+}) {
   const scopeId = useScope();
   const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
@@ -46,6 +58,7 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
       queryParams: props.initial.queryParams,
     }),
   );
+  const [authMode, setAuthMode] = useState<AuthMode>(props.initial.auth.kind);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -69,6 +82,16 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
           endpoint: endpoint.trim() || undefined,
           headers,
           queryParams: queryParams as Record<string, HeaderValue>,
+          auth:
+            authMode === "oauth2"
+              ? {
+                  kind: "oauth2",
+                  connectionId:
+                    props.initial.auth.kind === "oauth2"
+                      ? props.initial.auth.connectionId
+                      : graphqlOAuthConnectionId(props.initial.namespace),
+                }
+              : { kind: "none" },
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -84,7 +107,9 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
+        <h1 className="text-xl font-semibold text-foreground">
+          Edit GraphQL Source
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Update the endpoint and authentication headers for this source.
         </p>
@@ -92,7 +117,9 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
 
       <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-card-foreground">{props.sourceId}</p>
+          <p className="truncate text-sm font-semibold text-card-foreground">
+            {props.sourceId}
+          </p>
         </div>
         <Badge variant="secondary" className="text-xs">
           GraphQL
@@ -122,7 +149,32 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
         onChange={handleCredentialsChange}
         existingSecrets={secretList}
         sourceName={identity.name}
+        targetScope={scopeId}
       />
+
+      <section className="space-y-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium text-foreground">
+            Authentication
+          </span>
+          <FilterTabs<AuthMode>
+            tabs={[
+              { value: "none", label: "None" },
+              { value: "oauth2", label: "OAuth" },
+            ]}
+            value={authMode}
+            onChange={(value) => {
+              setAuthMode(value);
+              setDirty(true);
+            }}
+          />
+        </div>
+        {authMode === "oauth2" && (
+          <p className="text-xs text-muted-foreground">
+            OAuth sign-in is available from the source header after saving.
+          </p>
+        )}
+      </section>
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
@@ -134,7 +186,10 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
         <Button variant="ghost" onClick={props.onSave}>
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
+        <Button
+          onClick={handleSave}
+          disabled={(!dirty && !identityDirty) || saving}
+        >
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
@@ -146,7 +201,10 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function EditGraphqlSource(props: { sourceId: string; onSave: () => void }) {
+export default function EditGraphqlSource(props: {
+  sourceId: string;
+  onSave: () => void;
+}) {
   const scopeId = useScope();
   const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId));
 
@@ -154,12 +212,22 @@ export default function EditGraphqlSource(props: { sourceId: string; onSave: () 
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Loading configuration…</p>
+          <h1 className="text-xl font-semibold text-foreground">
+            Edit GraphQL Source
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Loading configuration…
+          </p>
         </div>
       </div>
     );
   }
 
-  return <EditForm sourceId={props.sourceId} initial={sourceResult.value} onSave={props.onSave} />;
+  return (
+    <EditForm
+      sourceId={props.sourceId}
+      initial={sourceResult.value}
+      onSave={props.onSave}
+    />
+  );
 }

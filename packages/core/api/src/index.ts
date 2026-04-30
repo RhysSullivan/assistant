@@ -5,6 +5,16 @@ export { SecretsApi } from "./secrets/api";
 export { ConnectionsApi } from "./connections/api";
 export { ExecutionsApi } from "./executions/api";
 export { ScopeApi } from "./scope/api";
+export { OAuthApi } from "./oauth/api";
+export {
+  OAUTH_POPUP_MESSAGE_TYPE,
+  isOAuthPopupResult,
+  popupDocument,
+  runOAuthCallback,
+  type OAuthCallbackUrlParams,
+  type OAuthPopupResult,
+  type RunOAuthCallbackInput,
+} from "./oauth-popup";
 export { PoliciesApi } from "./policies/api";
 export {
   InternalError,

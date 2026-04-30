@@ -37,6 +37,7 @@ import {
 import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
+import { OAuth2Auth } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -261,6 +262,28 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         // below that `adminConnectionIds` doesn't include either one
         // proves admin's stack can't reach either user's row.
         expect(aliceAuth.connectionId).toBe(bobAuth.connectionId);
+        const aliceOAuth2Auth = new OAuth2Auth({
+          kind: "oauth2",
+          connectionId: aliceAuth.connectionId,
+          securitySchemeName: "oauth2",
+          flow: "authorizationCode",
+          tokenUrl: "https://token.example.com/token",
+          authorizationUrl: "https://auth.example.com/authorize",
+          clientIdSecretId: "petstore_client_id",
+          clientSecretSecretId: "petstore_client_secret",
+          scopes: ["read"],
+        });
+        const bobOAuth2Auth = new OAuth2Auth({
+          kind: "oauth2",
+          connectionId: bobAuth.connectionId,
+          securitySchemeName: "oauth2",
+          flow: "authorizationCode",
+          tokenUrl: "https://token.example.com/token",
+          authorizationUrl: "https://auth.example.com/authorize",
+          clientIdSecretId: "petstore_client_id",
+          clientSecretSecretId: "petstore_client_secret",
+          scopes: ["read"],
+        });
 
         // -------------------------------------------------------------
         // 3. Each user adds the spec with the auth they just minted.
@@ -270,14 +293,14 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
           scope: aliceScope.id as string,
           namespace: "petstore",
           baseUrl: "",
-          oauth2: aliceAuth,
+          oauth2: aliceOAuth2Auth,
         });
         yield* bobExec.openapi.addSpec({
           spec: specJson,
           scope: bobScope.id as string,
           namespace: "petstore",
           baseUrl: "",
-          oauth2: bobAuth,
+          oauth2: bobOAuth2Auth,
         });
 
         // -------------------------------------------------------------

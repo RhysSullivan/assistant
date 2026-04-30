@@ -403,32 +403,32 @@ describe("local mcp oauth (real OAuth + MCP server)", () => {
 
     const started = await Effect.runPromise(
       run((client) =>
-        client.mcp.startOAuth({
+        client.oauth.start({
           path: { scopeId },
           payload: {
             endpoint: `${fake.url}/mcp`,
             redirectUrl,
             connectionId,
+            strategy: { kind: "dynamic-dcr" },
+            pluginId: "mcp",
           },
         }),
       ),
     );
-    expect(started.sessionId).toMatch(/^mcp_oauth_/);
+    expect(started.sessionId).toMatch(/^oauth2_session_/);
+    expect(started.authorizationUrl).not.toBeNull();
 
-    const { code, state } = await followAuthorize(started.authorizationUrl);
+    const { code, state } = await followAuthorize(started.authorizationUrl!);
     expect(state).toBe(started.sessionId);
 
     const completed = await Effect.runPromise(
       run((client) =>
-        client.mcp.completeOAuth({
+        client.oauth.complete({
           path: { scopeId },
           payload: { state, code },
         }),
       ),
     );
     expect(completed.connectionId).toBe(connectionId);
-    expect(completed.tokenType).toBe("Bearer");
-    expect(completed.clientInformation).not.toBeNull();
-    expect(completed.authorizationServerUrl).not.toBeNull();
   }, 30_000);
 });

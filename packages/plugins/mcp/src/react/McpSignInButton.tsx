@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { connectionsAtom } from "@executor/react/api/atoms";
+import {
+  cancelOAuth,
+  connectionsAtom,
+  startOAuth,
+} from "@executor/react/api/atoms";
+import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/react/api/oauth-popup";
+import { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
 import { Button } from "@executor/react/components/button";
 import { slugifyNamespace } from "@executor/react/plugins/source-identity";
 
-import { mcpSourceAtom, startMcpOAuth, updateMcpSource } from "./atoms";
+import { mcpSourceAtom, updateMcpSource } from "./atoms";
 
 // ---------------------------------------------------------------------------
 // McpSignInButton — top-bar action on the source detail page.
@@ -20,18 +28,14 @@ import { mcpSourceAtom, startMcpOAuth, updateMcpSource } from "./atoms";
 // Connection still exists — source-owned config is the source of truth.
 // ---------------------------------------------------------------------------
 
-const CALLBACK_PATH = "/api/mcp/oauth/callback";
+const CALLBACK_PATH = "/api/oauth/callback";
 const POPUP_NAME = "mcp-oauth";
-const CHANNEL_NAME = "executor:mcp-oauth-result";
+const CHANNEL_NAME = OAUTH_POPUP_MESSAGE_TYPE;
 
 type McpOAuthPopupPayload = {
   connectionId: string;
-  tokenType: string;
   expiresAt: number | null;
   scope: string | null;
-  clientInformation: Record<string, unknown> | null;
-  authorizationServerUrl: string | null;
-  resourceMetadataUrl: string | null;
 };
 
 const mcpOAuthConnectionId = (namespaceSlug: string): string =>
@@ -41,18 +45,36 @@ export default function McpSignInButton(props: { sourceId: string }) {
   const scopeId = useScope();
   const sourceResult = useAtomValue(mcpSourceAtom(scopeId, props.sourceId));
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
-  const doStartOAuth = useAtomSet(startMcpOAuth, { mode: "promise" });
+  const doStartOAuth = useAtomSet(startOAuth, { mode: "promise" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
   const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const sessionRef = useRef<string | null>(null);
 
-  useEffect(() => () => cleanupRef.current?.(), []);
+  const cancelActiveOAuth = useCallback(() => {
+    const sessionId = sessionRef.current;
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    sessionRef.current = null;
+    if (sessionId) {
+      void doCancelOAuth({
+        path: { scopeId },
+        payload: { sessionId },
+      }).catch(() => undefined);
+    }
+  }, [doCancelOAuth, scopeId]);
+
+  useEffect(() => () => cancelActiveOAuth(), [cancelActiveOAuth]);
 
   const source =
-    Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
-  const remote = source && source.config.transport === "remote" ? source.config : null;
+    Result.isSuccess(sourceResult) && sourceResult.value
+      ? sourceResult.value
+      : null;
+  const remote =
+    source && source.config.transport === "remote" ? source.config : null;
   const oauth2 = remote && remote.auth.kind === "oauth2" ? remote.auth : null;
   const connections = Result.isSuccess(connectionsResult)
     ? connectionsResult.value
@@ -69,8 +91,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
 
   const handleSignIn = useCallback(async () => {
     if (!remote || !oauth2 || !source) return;
-    cleanupRef.current?.();
-    cleanupRef.current = null;
+    cancelActiveOAuth();
     setBusy(true);
     setError(null);
     try {
@@ -80,22 +101,30 @@ export default function McpSignInButton(props: { sourceId: string }) {
         path: { scopeId },
         payload: {
           endpoint: remote.endpoint,
+          ...(remote.headers ? { headers: remote.headers } : {}),
+          ...(remote.queryParams ? { queryParams: remote.queryParams } : {}),
           redirectUrl,
           connectionId,
-          ...(remote.queryParams ? { queryParams: remote.queryParams } : {}),
-          ...(oauth2.clientIdSecretId ? { clientIdSecretId: oauth2.clientIdSecretId } : {}),
-          ...(oauth2.clientSecretSecretId
-            ? { clientSecretSecretId: oauth2.clientSecretSecretId }
-            : {}),
+          strategy: { kind: "dynamic-dcr" },
+          pluginId: "mcp",
+          identityLabel: `${source.name.trim() || source.namespace || "MCP"} OAuth`,
         },
       });
+      if (response.authorizationUrl === null) {
+        setBusy(false);
+        setError("OAuth start did not produce an authorization URL");
+        return;
+      }
 
+      sessionRef.current = response.sessionId;
       cleanupRef.current = openOAuthPopup<McpOAuthPopupPayload>({
         url: response.authorizationUrl,
         popupName: POPUP_NAME,
         channelName: CHANNEL_NAME,
+        expectedSessionId: response.sessionId,
         onResult: async (result: OAuthPopupResult<McpOAuthPopupPayload>) => {
           cleanupRef.current = null;
+          sessionRef.current = null;
           if (!result.ok) {
             setBusy(false);
             setError(result.error);
@@ -113,17 +142,31 @@ export default function McpSignInButton(props: { sourceId: string }) {
           } catch (e) {
             setBusy(false);
             setError(
-              e instanceof Error ? e.message : "Failed to persist new connection",
+              e instanceof Error
+                ? e.message
+                : "Failed to persist new connection",
             );
           }
         },
         onClosed: () => {
           cleanupRef.current = null;
+          sessionRef.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setBusy(false);
-          setError("Sign-in cancelled — popup was closed before completing the flow.");
+          setError(
+            "Sign-in cancelled — popup was closed before completing the flow.",
+          );
         },
         onOpenFailed: () => {
           cleanupRef.current = null;
+          sessionRef.current = null;
+          void doCancelOAuth({
+            path: { scopeId },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setBusy(false);
           setError("Sign-in popup was blocked by the browser");
         },
@@ -132,7 +175,18 @@ export default function McpSignInButton(props: { sourceId: string }) {
       setBusy(false);
       setError(e instanceof Error ? e.message : "Failed to start sign-in");
     }
-  }, [remote, oauth2, source, scopeId, props.sourceId, redirectUrl, doStartOAuth, doUpdate]);
+  }, [
+    remote,
+    oauth2,
+    source,
+    scopeId,
+    props.sourceId,
+    redirectUrl,
+    doStartOAuth,
+    doCancelOAuth,
+    doUpdate,
+    cancelActiveOAuth,
+  ]);
 
   if (!oauth2) return null;
 

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/plugin-oauth2/react — browser popup opener for OAuth flows.
+// openOAuthPopup — browser popup opener for OAuth flows.
 //
 // Opens a centered popup window pointed at an authorization URL, listens
 // for the result via `postMessage` and `BroadcastChannel` (Safari fallback),
@@ -11,10 +11,10 @@
 import {
   isOAuthPopupResult as sharedIsOAuthPopupResult,
   type OAuthPopupResult,
-} from "./popup-types";
+} from "@executor/sdk";
 
-export { OAUTH_POPUP_MESSAGE_TYPE } from "./popup-types";
-export type { OAuthPopupResult } from "./popup-types";
+export { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
+export type { OAuthPopupResult } from "@executor/sdk";
 
 export const isOAuthPopupResult = sharedIsOAuthPopupResult;
 
@@ -25,6 +25,8 @@ export const isOAuthPopupResult = sharedIsOAuthPopupResult;
 export type OpenOAuthPopupInput<TAuth> = {
   readonly url: string;
   readonly onResult: (data: OAuthPopupResult<TAuth>) => void;
+  /** Ignore popup messages for any other in-flight OAuth session. */
+  readonly expectedSessionId?: string;
   /** `window.open` target name — also used to focus an existing popup. */
   readonly popupName: string;
   /** BroadcastChannel name, must match the server-side `popupDocument` channel. */
@@ -100,6 +102,7 @@ export const openOAuthPopup = <TAuth>(input: OpenOAuthPopupInput<TAuth>): (() =>
 
   const handleResult = (data: unknown) => {
     if (!isOAuthPopupResult<TAuth>(data) || settled) return;
+    if (input.expectedSessionId && data.sessionId !== input.expectedSessionId) return;
     settle();
     input.onResult(data);
   };

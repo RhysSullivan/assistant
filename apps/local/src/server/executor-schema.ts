@@ -83,22 +83,34 @@ export const connection = sqliteTable("connection", {
   index("connection_provider_idx").on(table.provider),
 ]);
 
+export const oauth2_session = sqliteTable("oauth2_session", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  plugin_id: text('plugin_id').notNull(),
+  strategy: text('strategy').notNull(),
+  connection_id: text('connection_id').notNull(),
+  token_scope: text('token_scope').notNull(),
+  redirect_url: text('redirect_url').notNull(),
+  payload: text('payload', { mode: "json" }).notNull(),
+  expires_at: integer('expires_at').notNull(),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("oauth2_session_scope_id_idx").on(table.scope_id),
+  index("oauth2_session_plugin_id_idx").on(table.plugin_id),
+  index("oauth2_session_connection_id_idx").on(table.connection_id),
+]);
+
 export const tool_policy = sqliteTable("tool_policy", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
   pattern: text('pattern').notNull(),
   action: text('action').notNull(),
-  // Fractional-indexing key (Jira lexorank style). Lex-ordered text;
-  // always subdivisible by lengthening, so reorders never run out of
-  // room.
   position: text('position').notNull(),
   created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
-  // List queries are always WHERE scope_id = ? ORDER BY position, so
-  // the composite index serves both the filter and the sort from one
-  // btree.
   index("tool_policy_scope_id_position_idx").on(table.scope_id, table.position),
 ]);
 
@@ -110,6 +122,7 @@ export const openapi_source = sqliteTable("openapi_source", {
   source_url: text('source_url'),
   base_url: text('base_url'),
   headers: text('headers', { mode: "json" }),
+  query_params: text('query_params', { mode: "json" }),
   oauth2: text('oauth2', { mode: "json" }),
   invocation_config: text('invocation_config', { mode: "json" }).notNull()
 }, (table) => [
@@ -144,16 +157,6 @@ export const openapi_source_binding = sqliteTable("openapi_source_binding", {
   index("openapi_source_binding_slot_idx").on(table.slot),
 ]);
 
-export const openapi_oauth_session = sqliteTable("openapi_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: text('session', { mode: "json" }).notNull(),
-  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("openapi_oauth_session_scope_id_idx").on(table.scope_id),
-]);
-
 export const mcp_source = sqliteTable("mcp_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
@@ -175,17 +178,6 @@ export const mcp_binding = sqliteTable("mcp_binding", {
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("mcp_binding_scope_id_idx").on(table.scope_id),
   index("mcp_binding_source_id_idx").on(table.source_id),
-]);
-
-export const mcp_oauth_session = sqliteTable("mcp_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: text('session', { mode: "json" }).notNull(),
-  expires_at: integer('expires_at').notNull(),
-  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("mcp_oauth_session_scope_id_idx").on(table.scope_id),
 ]);
 
 export const google_discovery_source = sqliteTable("google_discovery_source", {
@@ -212,22 +204,14 @@ export const google_discovery_binding = sqliteTable("google_discovery_binding", 
   index("google_discovery_binding_source_id_idx").on(table.source_id),
 ]);
 
-export const google_discovery_oauth_session = sqliteTable("google_discovery_oauth_session", {
-  id: text('id').notNull(),
-  scope_id: text('scope_id').notNull(),
-  session: text('session', { mode: "json" }).notNull(),
-  expires_at: integer('expires_at', { mode: 'timestamp_ms' }).notNull()
-}, (table) => [
-  primaryKey({ columns: [table.scope_id, table.id] }),
-  index("google_discovery_oauth_session_scope_id_idx").on(table.scope_id),
-]);
-
 export const graphql_source = sqliteTable("graphql_source", {
   id: text('id').notNull(),
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   endpoint: text('endpoint').notNull(),
-  headers: text('headers', { mode: "json" })
+  headers: text('headers', { mode: "json" }),
+  query_params: text('query_params', { mode: "json" }),
+  auth: text('auth', { mode: "json" })
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("graphql_source_scope_id_idx").on(table.scope_id),
@@ -244,3 +228,10 @@ export const graphql_operation = sqliteTable("graphql_operation", {
   index("graphql_operation_source_id_idx").on(table.source_id),
 ]);
 
+export const blob = sqliteTable("blob", {
+  namespace: text('namespace').notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.namespace, table.key] }),
+]);

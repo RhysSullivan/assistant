@@ -47,6 +47,7 @@
     "@effect/platform": "catalog:",
     "@executor/storage-core": "workspace:*",
     "effect": "catalog:",
+    "oauth4webapi": "^3.8.5",
     "fractional-indexing": "^3.2.0"
   },
   "devDependencies": {

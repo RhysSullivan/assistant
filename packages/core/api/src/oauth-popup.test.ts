@@ -13,7 +13,7 @@ import {
   popupDocument,
   runOAuthCallback,
   type OAuthPopupResult,
-} from "./http";
+} from "./oauth-popup";
 
 type GoogleAuth = {
   kind: "oauth2";

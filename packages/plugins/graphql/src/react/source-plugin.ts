@@ -8,5 +8,6 @@ export const graphqlSourcePlugin: SourcePlugin = {
   add: lazy(() => import("./AddGraphqlSource")),
   edit: lazy(() => import("./EditGraphqlSource")),
   summary: lazy(() => import("./GraphqlSourceSummary")),
+  signIn: lazy(() => import("./GraphqlSignInButton")),
   presets: graphqlPresets,
 };

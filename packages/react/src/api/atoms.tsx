@@ -105,6 +105,22 @@ export const refreshSource = ExecutorApiClient.mutation("sources", "refresh");
 
 export const detectSource = ExecutorApiClient.mutation("sources", "detect");
 
+// ---------------------------------------------------------------------------
+// OAuth — one atom pair drives sign-in for every plugin. The plugin's
+// `Add*Source` / `*SignInButton` component passes the `strategy` descriptor
+// (dynamic-dcr for MCP/GraphQL, authorization-code for OpenAPI/Google,
+// client-credentials for server-to-server openapi) in the start payload;
+// the server looks the plugin_id up on the session row at callback time.
+// ---------------------------------------------------------------------------
+
+export const probeOAuth = ExecutorApiClient.mutation("oauth", "probe");
+
+export const startOAuth = ExecutorApiClient.mutation("oauth", "start");
+
+export const completeOAuth = ExecutorApiClient.mutation("oauth", "complete");
+
+export const cancelOAuth = ExecutorApiClient.mutation("oauth", "cancel");
+
 export const createPolicy = ExecutorApiClient.mutation("policies", "create");
 
 export const updatePolicy = ExecutorApiClient.mutation("policies", "update");

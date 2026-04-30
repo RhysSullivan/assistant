@@ -18,7 +18,7 @@ export type OAuthPopupResult<TAuth> =
   | {
       readonly type: typeof OAUTH_POPUP_MESSAGE_TYPE;
       readonly ok: false;
-      readonly sessionId: null;
+      readonly sessionId: string | null;
       readonly error: string;
     };
 

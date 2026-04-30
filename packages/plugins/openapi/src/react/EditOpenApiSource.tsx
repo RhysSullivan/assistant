@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 
-import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/react/api/oauth-popup";
+import {
+  cancelOAuth,
   connectionsAtom,
   sourceAtom,
 } from "@executor/react/api/atoms";
@@ -41,7 +45,7 @@ import {
   OPENAPI_OAUTH_CALLBACK_PATH,
   OPENAPI_OAUTH_CHANNEL,
   OPENAPI_OAUTH_POPUP_NAME,
-  openApiOAuthConnectionId,
+  inferOAuthIssuerUrl,
   resolveOAuthUrl,
 } from "./AddOpenApiSource";
 import { oauth2ClientSecretSlot } from "../sdk/store";
@@ -66,6 +70,24 @@ const slugify = (value: string): string =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "default";
+
+const shortHash = (value: string): string => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).slice(0, 6);
+};
+
+const openApiOAuthConnectionId = (
+  sourceId: string,
+  securitySchemeName: string,
+  targetScope: ScopeId,
+): ConnectionId =>
+  ConnectionId.make(
+    `openapi-oauth-${slugify(sourceId)}-${slugify(securitySchemeName)}-${shortHash(targetScope as string)}`,
+  );
 
 const bindingSecretId = (sourceId: string, slot: string, scopeId: string): string =>
   `source-binding-${slugify(sourceId)}-${slugify(slot)}-${slugify(scopeId)}`;
@@ -98,17 +120,11 @@ const effectiveBindingForScope = (
   targetScope: ScopeId,
   ranks: ReadonlyMap<string, number>,
 ) =>
-  rows
-    .filter(
-      (row) =>
-        row.slot === slot &&
-        scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
-    )
-    .sort(
-      (a, b) =>
-        scopeRank(ranks, a.scopeId) -
-        scopeRank(ranks, b.scopeId),
-    )[0] ?? null;
+  rows.find(
+    (row) =>
+      row.slot === slot &&
+      scopeRank(ranks, row.scopeId) >= scopeRank(ranks, targetScope),
+  ) ?? null;
 
 const isSecretBindingValue = (
   value: unknown,
@@ -158,6 +174,7 @@ export default function EditOpenApiSource(props: {
   const doSetBinding = useAtomSet(setOpenApiSourceBinding, { mode: "promise" });
   const doRemoveBinding = useAtomSet(removeOpenApiSourceBinding, { mode: "promise" });
   const doStartOAuth = useAtomSet(startOpenApiOAuth, { mode: "promise" });
+  const doCancelOAuth = useAtomSet(cancelOAuth, { mode: "promise" });
 
   const source =
     Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
@@ -175,11 +192,19 @@ export default function EditOpenApiSource(props: {
   const [sourceSaveState, setSourceSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [pendingOAuthConnection, setPendingOAuthConnection] = useState<{
+    readonly scopeId: ScopeId;
+    readonly slot: string;
+    readonly connectionId: string;
+  } | null>(null);
   const [loadedSourceKey, setLoadedSourceKey] = useState<string | null>(null);
   const [selectedCredentialScope, setSelectedCredentialScope] = useState<string>(
     userScope !== sourceScopeId ? userScope : sourceScopeId,
   );
   const sourceSaveSeq = useRef(0);
+  const oauthCleanup = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => oauthCleanup.current?.(), []);
 
   useEffect(() => {
     if (!source) return;
@@ -400,9 +425,14 @@ export default function EditOpenApiSource(props: {
     const connectionId =
       existingConnection && isConnectionBindingValue(existingConnection.value)
         ? existingConnection.value.connectionId
-        : ConnectionId.make(openApiOAuthConnectionId(props.sourceId, oauth2.flow));
+        : openApiOAuthConnectionId(props.sourceId, oauth2.securitySchemeName, targetScope);
 
     setBusyKey(`${targetScope}:${oauth2.connectionSlot}:connect`);
+    setPendingOAuthConnection({
+      scopeId: targetScope,
+      slot: oauth2.connectionSlot,
+      connectionId: connectionId as string,
+    });
     setError(null);
     try {
       const displayName = source.name;
@@ -440,6 +470,7 @@ export default function EditOpenApiSource(props: {
           },
           reactivityKeys: [...sourceWriteKeys, ...connectionWriteKeys],
         });
+        setPendingOAuthConnection(null);
         setBusyKey(null);
         return;
       }
@@ -448,6 +479,7 @@ export default function EditOpenApiSource(props: {
         oauth2.authorizationUrl ?? "",
         source.config.baseUrl ?? "",
       );
+      const issuerUrl = oauth2.issuerUrl ?? inferOAuthIssuerUrl(authorizationUrl);
       const redirectUrl =
         typeof window !== "undefined"
           ? `${window.location.origin}${OPENAPI_OAUTH_CALLBACK_PATH}`
@@ -462,6 +494,7 @@ export default function EditOpenApiSource(props: {
           securitySchemeName: oauth2.securitySchemeName,
           flow: "authorizationCode",
           authorizationUrl,
+          issuerUrl,
           tokenUrl,
           redirectUrl,
           clientIdSecretId: clientIdBinding.value.secretId,
@@ -475,13 +508,16 @@ export default function EditOpenApiSource(props: {
       if (response.flow !== "authorizationCode") {
         throw new Error("Unexpected OAuth response");
       }
-      openOAuthPopup({
+      oauthCleanup.current = openOAuthPopup({
         url: response.authorizationUrl,
         popupName: OPENAPI_OAUTH_POPUP_NAME,
         channelName: OPENAPI_OAUTH_CHANNEL,
+        expectedSessionId: response.sessionId,
         onResult: async (result: OAuthPopupResult<{ connectionId: string }>) => {
+          oauthCleanup.current = null;
           if (!result.ok) {
             setError(result.error);
+            setPendingOAuthConnection(null);
             setBusyKey(null);
             return;
           }
@@ -503,19 +539,33 @@ export default function EditOpenApiSource(props: {
           } catch (e) {
             setError(e instanceof Error ? e.message : "Failed to save OAuth binding");
           } finally {
+            setPendingOAuthConnection(null);
             setBusyKey(null);
           }
         },
         onClosed: () => {
+          oauthCleanup.current = null;
+          void doCancelOAuth({
+            path: { scopeId: targetScope },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
+          setPendingOAuthConnection(null);
           setBusyKey(null);
         },
         onOpenFailed: () => {
+          oauthCleanup.current = null;
+          void doCancelOAuth({
+            path: { scopeId: targetScope },
+            payload: { sessionId: response.sessionId },
+          }).catch(() => undefined);
           setError("OAuth popup was blocked by the browser");
+          setPendingOAuthConnection(null);
           setBusyKey(null);
         },
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to connect OAuth");
+      setPendingOAuthConnection(null);
       setBusyKey(null);
     }
   };
@@ -717,9 +767,13 @@ export default function EditOpenApiSource(props: {
                   const isConnecting =
                     busyKey ===
                     `${activeCredentialScopeId}:${source.config.oauth2.connectionSlot}:connect`;
+                  const isPendingOAuthConnection =
+                    pendingOAuthConnection?.scopeId === activeCredentialScopeId &&
+                    pendingOAuthConnection.slot === source.config.oauth2.connectionSlot;
                   const isConnected = connection !== null && connection !== undefined;
-                  const statusText =
-                    connectionBinding && bindingScopeId
+                  const statusText = isConnecting || isPendingOAuthConnection
+                    ? "Saving OAuth connection..."
+                    : connectionBinding && bindingScopeId
                       ? connection
                         ? bindingScopeId === activeCredentialScopeId
                           ? `Connected in ${activeCredentialScopeLabel.toLowerCase()} as ${
@@ -729,8 +783,8 @@ export default function EditOpenApiSource(props: {
                               connection.identityLabel ?? connection.id
                             }`
                         : bindingScopeId === activeCredentialScopeId
-                          ? `Connection saved in ${activeCredentialScopeLabel.toLowerCase()}`
-                          : "Using organization connection"
+                          ? `Saved connection is missing in ${activeCredentialScopeLabel.toLowerCase()}`
+                          : "Organization connection is missing"
                       : `No ${activeCredentialScopeLabel.toLowerCase()} connection`;
 
                   return (
