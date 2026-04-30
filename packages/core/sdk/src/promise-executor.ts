@@ -12,7 +12,7 @@
 // your own `@executor-js/plugin-*` from the Effect side.
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
+import { Brand, Effect } from "effect";
 
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
@@ -52,12 +52,37 @@ const assertInvokeOptionsAtPromiseLayer = (
 
 // ---------------------------------------------------------------------------
 // Types
+//
+// Promise consumers shouldn't need to construct Effect `Brand`s to call into
+// the executor — branded ids (`SecretId`, `ScopeId`, `ToolId`, `PolicyId`,
+// `ConnectionId`) are typed as `string & Brand<...>` on the Effect side, but
+// at runtime they're plain strings. `Unbrand` strips brand tags from
+// parameter types (recursively, so it walks into object fields like
+// `secrets.set({ id, scope })`) so consumers can pass plain strings. Return
+// types are passed through unchanged — caller code that reads `.id` etc.
+// off a returned ref still gets the branded type for use as an opaque token.
 // ---------------------------------------------------------------------------
+
+type Unbrand<T> = T extends Brand.Brand<string>
+  ? string
+  : T extends readonly (infer U)[]
+    ? readonly Unbrand<U>[]
+    : T extends ReadonlyMap<infer K, infer V>
+      ? ReadonlyMap<Unbrand<K>, Unbrand<V>>
+      : T extends ReadonlySet<infer U>
+        ? ReadonlySet<Unbrand<U>>
+        : T extends Date
+          ? T
+          : T extends (...args: infer A) => infer R
+            ? (...args: { [I in keyof A]: Unbrand<A[I]> }) => Unbrand<R>
+            : T extends object
+              ? { readonly [K in keyof T]: Unbrand<T[K]> }
+              : T;
 
 export type Promisified<T> = T extends (
   ...args: infer A
 ) => Effect.Effect<infer R, infer _E>
-  ? (...args: A) => Promise<R>
+  ? (...args: { [I in keyof A]: Unbrand<A[I]> }) => Promise<R>
   : T extends readonly unknown[]
     ? T
     : T extends object
