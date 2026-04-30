@@ -48,28 +48,7 @@
       "idx": 6,
       "version": "6",
       "when": 1777850000001,
-      "tag": "0006_next_chameleon",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1777850000002,
-      "tag": "0007_clean_viper",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1777850000003,
-      "tag": "0008_purple_thundra",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1777850000004,
-      "tag": "0009_serious_omega_sentinel",
+      "tag": "0006_neat_terror",
       "breakpoints": true
     }
   ]
