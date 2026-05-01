@@ -21,6 +21,7 @@
     "zod": "^4.3.0"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "bun-types": "catalog:",
     "vitest": "catalog:"

@@ -2,11 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileSystem } from "@effect/platform";
-import * as PlatformError from "@effect/platform/Error";
-import * as PlatformPath from "@effect/platform/Path";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer, Path, PlatformError } from "effect";
 
 import {
   acquireDaemonStartLock,
@@ -23,10 +20,10 @@ import {
 } from "../apps/cli/src/daemon-state";
 
 const fileSystemError = (method: string, cause: unknown) =>
-  new PlatformError.SystemError({
+  PlatformError.systemError({
+    _tag: "Unknown",
     module: "FileSystem",
     method,
-    reason: "Unknown",
     description: cause instanceof Error ? cause.message : String(cause),
     cause,
   });
@@ -54,9 +51,9 @@ const fileSystemLayer = FileSystem.layerNoop({
     }),
 });
 
-const daemonStateLayer = Layer.merge(fileSystemLayer, PlatformPath.layer);
+const daemonStateLayer = Layer.merge(fileSystemLayer, Path.layer);
 
-const withDaemonDataDir = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | PlatformPath.Path>) =>
+const withDaemonDataDir = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>) =>
   Effect.gen(function* () {
     const prev = process.env.EXECUTOR_DATA_DIR;
     const dir = mkdtempSync(join(tmpdir(), "executor-daemon-state-test-"));

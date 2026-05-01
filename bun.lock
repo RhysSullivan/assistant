@@ -54,7 +54,6 @@
         "@effect/atom-react": "catalog:",
         "@effect/opentelemetry": "catalog:",
         "@executor-js/api": "workspace:*",
-        "@executor-js/env": "workspace:*",
         "@executor-js/execution": "workspace:*",
         "@executor-js/host-mcp": "workspace:*",
         "@executor-js/plugin-graphql": "workspace:*",
@@ -279,18 +278,6 @@
         "vitest": "catalog:",
       },
     },
-    "packages/core/env": {
-      "name": "@executor-js/env",
-      "version": "1.4.0",
-      "dependencies": {
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
     "packages/core/execution": {
       "name": "@executor-js/execution",
       "version": "0.0.1",
@@ -414,6 +401,7 @@
         "zod": "^4.3.0",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
         "vitest": "catalog:",
@@ -1200,8 +1188,6 @@
     "@executor-js/config": ["@executor-js/config@workspace:packages/core/config"],
 
     "@executor-js/desktop": ["@executor-js/desktop@workspace:apps/desktop"],
-
-    "@executor-js/env": ["@executor-js/env@workspace:packages/core/env"],
 
     "@executor-js/example-all-plugins": ["@executor-js/example-all-plugins@workspace:examples/all-plugins"],
 
