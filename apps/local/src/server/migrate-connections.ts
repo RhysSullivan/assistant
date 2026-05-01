@@ -14,8 +14,8 @@
 
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { Effect, Option, Schema } from "effect";
-import { FetchHttpClient } from "@effect/platform";
+import { Effect, Option, Result, Schema } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import {
   parse as parseOpenApi,
   resolveSpecText,
@@ -31,7 +31,12 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === "string";
 
-const JsonObject = Schema.Record({ key: Schema.String, value: Schema.Unknown });
+const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
+
+const decodeUnknownOptionAs =
+  <A>(schema: Schema.Decoder<A>) =>
+  (input: unknown): Option.Option<A> =>
+    Schema.decodeUnknownOption(schema)(input);
 
 /** Pre-flight: bail unless the drizzle migration that added the Connection
  *  table + `secret.owned_by_connection_id` has completed. */
@@ -180,7 +185,7 @@ const insertConnectionRow = (
 // OpenAPI — legacy shape
 // ---------------------------------------------------------------------------
 
-const OAuth2Flow = Schema.Literal("authorizationCode", "clientCredentials");
+const OAuth2Flow = Schema.Literals(["authorizationCode", "clientCredentials"]);
 
 class LegacyOpenApiOAuth2 extends Schema.Class<LegacyOpenApiOAuth2>("LegacyOpenApiOAuth2")({
   kind: Schema.Literal("oauth2"),
@@ -198,7 +203,9 @@ class LegacyOpenApiOAuth2 extends Schema.Class<LegacyOpenApiOAuth2>("LegacyOpenA
 }) {}
 
 const decodeOpenApiCurrent = Schema.decodeUnknownOption(OAuth2Auth);
-const decodeOpenApiLegacy = Schema.decodeUnknownOption(LegacyOpenApiOAuth2);
+const decodeOpenApiLegacy = decodeUnknownOptionAs<LegacyOpenApiOAuth2>(
+  LegacyOpenApiOAuth2,
+);
 
 const extractAuthorizationUrl = async (
   rawSpec: string,
@@ -210,11 +217,11 @@ const extractAuthorizationUrl = async (
     resolveSpecText(rawSpec).pipe(
       Effect.flatMap((text) => parseOpenApi(text)),
       Effect.provide(FetchHttpClient.layer),
-      Effect.either,
+      Effect.result,
     ),
   );
-  if (parsed._tag === "Left") return null;
-  const spec = parsed.right as unknown;
+  if (Result.isFailure(parsed)) return null;
+  const spec = parsed.success as unknown;
   if (!isRecord(spec)) return null;
   const components = isRecord(spec.components) ? spec.components : null;
   const schemes = components && isRecord(components.securitySchemes)
@@ -362,22 +369,29 @@ const LegacyMcpOAuth2 = Schema.Struct({
   kind: Schema.Literal("oauth2"),
   accessTokenSecretId: Schema.String,
   refreshTokenSecretId: Schema.NullOr(Schema.String),
-  tokenType: Schema.optionalWith(Schema.String, { default: () => "Bearer" }),
+  tokenType: Schema.String.pipe(
+    Schema.optional,
+    Schema.withDecodingDefaultType(Effect.succeed("Bearer")),
+  ),
   expiresAt: Schema.NullOr(Schema.Number),
   scope: Schema.NullOr(Schema.String),
-  clientInformation: Schema.optionalWith(Schema.NullOr(JsonObject), {
-    default: () => null,
-  }),
-  authorizationServerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
-    default: () => null,
-  }),
-  resourceMetadataUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
-    default: () => null,
-  }),
+  clientInformation: Schema.NullOr(JsonObject).pipe(
+    Schema.optional,
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
+  authorizationServerUrl: Schema.NullOr(Schema.String).pipe(
+    Schema.optional,
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
+  resourceMetadataUrl: Schema.NullOr(Schema.String).pipe(
+    Schema.optional,
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
 });
 
 const decodeMcpCurrent = Schema.decodeUnknownOption(McpConnectionAuth);
-const decodeMcpLegacy = Schema.decodeUnknownOption(LegacyMcpOAuth2);
+type LegacyMcpOAuth2Type = typeof LegacyMcpOAuth2.Type;
+const decodeMcpLegacy = decodeUnknownOptionAs<LegacyMcpOAuth2Type>(LegacyMcpOAuth2);
 
 type McpRow = {
   scope_id: string;
@@ -482,7 +496,10 @@ const LegacyGoogleDiscoveryOAuth2 = Schema.Struct({
   clientSecretSecretId: Schema.NullOr(Schema.String),
   accessTokenSecretId: Schema.String,
   refreshTokenSecretId: Schema.NullOr(Schema.String),
-  tokenType: Schema.optionalWith(Schema.String, { default: () => "Bearer" }),
+  tokenType: Schema.String.pipe(
+    Schema.optional,
+    Schema.withDecodingDefaultType(Effect.succeed("Bearer")),
+  ),
   expiresAt: Schema.NullOr(Schema.Number),
   scope: Schema.NullOr(Schema.String),
   scopes: Schema.Array(Schema.String),
@@ -497,7 +514,10 @@ const CurrentGoogleDiscoveryOAuth2 = Schema.Struct({
 });
 
 const decodeGoogleCurrent = Schema.decodeUnknownOption(CurrentGoogleDiscoveryOAuth2);
-const decodeGoogleLegacy = Schema.decodeUnknownOption(LegacyGoogleDiscoveryOAuth2);
+type LegacyGoogleDiscoveryOAuth2Type = typeof LegacyGoogleDiscoveryOAuth2.Type;
+const decodeGoogleLegacy = decodeUnknownOptionAs<LegacyGoogleDiscoveryOAuth2Type>(
+  LegacyGoogleDiscoveryOAuth2,
+);
 
 type GoogleRow = {
   scope_id: string;

@@ -18,8 +18,8 @@ import { Effect, Schema } from "effect";
 import {
   defineSchema,
   type StorageDeps,
-  type StorageFailure,
-} from "@executor-js/sdk";
+} from "../../../../core/sdk/src/plugin";
+import type { StorageFailure } from "../../../../core/storage-core/src/adapter";
 
 import {
   GoogleDiscoveryMethodBinding,
@@ -83,6 +83,9 @@ const decodeStoredSourceData = Schema.decodeUnknownSync(GoogleDiscoveryStoredSou
 
 const encodeBinding = Schema.encodeSync(GoogleDiscoveryMethodBinding);
 const decodeBinding = Schema.decodeUnknownSync(GoogleDiscoveryMethodBinding);
+
+const toJsonRecord = (value: unknown): Record<string, unknown> =>
+  value as Record<string, unknown>;
 
 const decodeJson = (value: unknown): unknown => {
   if (value === null || value === undefined) return value;
@@ -208,7 +211,7 @@ export const makeGoogleDiscoveryStore = (
             id: toolId,
             scope_id: scope,
             source_id: sourceId,
-            binding: encodeBinding(binding) as unknown as Record<string, unknown>,
+            binding: toJsonRecord(encodeBinding(binding)),
             created_at: new Date(),
           },
           forceAllowId: true,
@@ -267,7 +270,7 @@ export const makeGoogleDiscoveryStore = (
             id: source.namespace,
             scope_id: source.scope,
             name: source.name,
-            config: encodeStoredSourceData(source.config) as unknown as Record<string, unknown>,
+            config: toJsonRecord(encodeStoredSourceData(source.config)),
             created_at: now,
             updated_at: now,
           },
@@ -299,7 +302,7 @@ export const makeGoogleDiscoveryStore = (
           ],
           update: {
             name: update.name ?? (row.name as string),
-            config: encodeStoredSourceData(nextConfig) as unknown as Record<string, unknown>,
+            config: toJsonRecord(encodeStoredSourceData(nextConfig)),
             updated_at: new Date(),
           },
         });

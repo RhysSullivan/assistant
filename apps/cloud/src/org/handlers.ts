@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect } from "effect";
 
 import { UserStoreService } from "../auth/context";
@@ -34,7 +34,7 @@ const assertMembershipInSessionOrg = (membershipId: string) =>
     const workos = yield* WorkOSAuth;
     const membership = yield* workos
       .getOrgMembership(membershipId)
-      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+      .pipe(Effect.catchCause(() => Effect.succeed(null)));
     if (!membership || membership.organizationId !== auth.organizationId) {
       return yield* new Forbidden();
     }
@@ -46,7 +46,7 @@ const assertDomainInSessionOrg = (domainId: string) =>
     const workos = yield* WorkOSAuth;
     const domain = yield* workos
       .getOrganizationDomain(domainId)
-      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+      .pipe(Effect.catchCause(() => Effect.succeed(null)));
     if (!domain || domain.organizationId !== auth.organizationId) {
       return yield* new Forbidden();
     }
@@ -114,21 +114,21 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         return { id: invitation.id, email: invitation.email };
       }),
     )
-    .handle("removeMember", ({ path }) =>
+    .handle("removeMember", ({ params }) =>
       Effect.gen(function* () {
         yield* requireAdmin;
-        yield* assertMembershipInSessionOrg(path.membershipId);
+        yield* assertMembershipInSessionOrg(params.membershipId);
         const workos = yield* WorkOSAuth;
-        yield* workos.deleteOrgMembership(path.membershipId);
+        yield* workos.deleteOrgMembership(params.membershipId);
         return { success: true };
       }),
     )
-    .handle("updateMemberRole", ({ path, payload }) =>
+    .handle("updateMemberRole", ({ params, payload }) =>
       Effect.gen(function* () {
         yield* requireAdmin;
-        yield* assertMembershipInSessionOrg(path.membershipId);
+        yield* assertMembershipInSessionOrg(params.membershipId);
         const workos = yield* WorkOSAuth;
-        yield* workos.updateOrgMembershipRole(path.membershipId, payload.roleSlug);
+        yield* workos.updateOrgMembershipRole(params.membershipId, payload.roleSlug);
         return { success: true };
       }),
     )
@@ -184,12 +184,12 @@ export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
         return { link };
       }),
     )
-    .handle("deleteDomain", ({ path }) =>
+    .handle("deleteDomain", ({ params }) =>
       Effect.gen(function* () {
         yield* requireAdmin;
-        yield* assertDomainInSessionOrg(path.domainId);
+        yield* assertDomainInSessionOrg(params.domainId);
         const workos = yield* WorkOSAuth;
-        yield* workos.deleteOrganizationDomain(path.domainId);
+        yield* workos.deleteOrganizationDomain(params.domainId);
         return { success: true };
       }),
     )

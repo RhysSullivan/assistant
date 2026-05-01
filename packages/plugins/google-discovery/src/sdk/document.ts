@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option, Schema, SchemaGetter } from "effect";
 
 import { GoogleDiscoveryParseError } from "./errors";
 import {
@@ -12,45 +12,43 @@ import {
 
 type JsonObject = Record<string, unknown>;
 
-const TrimmedString = Schema.String.pipe(Schema.compose(Schema.Trim));
-const Text = TrimmedString.pipe(Schema.compose(Schema.NonEmptyTrimmedString));
-const TextOption = Schema.optionalWith(Schema.OptionFromNonEmptyTrimmedString, {
-  default: () => Option.none(),
-});
-const TextArray = Schema.optionalWith(Schema.Array(Text), {
-  default: () => [] as string[],
-});
-const UnknownRecord = Schema.Record({ key: Schema.String, value: Schema.Unknown });
-const UnknownRecordWithDefault = Schema.optionalWith(UnknownRecord, {
-  default: () => ({}),
-});
+const TrimmedString = Schema.Trim;
+const Text = Schema.Trim.pipe(Schema.decodeTo(Schema.NonEmptyString));
+const LowercaseText = Schema.String.pipe(
+  Schema.decode({
+    decode: SchemaGetter.transform((value) => value.trim().toLowerCase()),
+    encode: SchemaGetter.transform((value) => value.trim().toLowerCase()),
+  }),
+);
+const TextOption = Schema.OptionFromOptional(Text).pipe(
+  Schema.withDecodingDefaultType(Effect.succeed(Option.none())),
+);
+const TextArray = Schema.optional(Schema.Array(Text)).pipe(
+  Schema.withDecodingDefaultType(Effect.succeed([] as string[])),
+);
+const UnknownRecord = Schema.Record(Schema.String, Schema.Unknown);
+const UnknownRecordWithDefault = Schema.optional(UnknownRecord).pipe(
+  Schema.withDecodingDefaultType(Effect.succeed({})),
+);
 
 const DiscoveryHttpMethodInput = Schema.optional(
-  Schema.String.pipe(
-    Schema.compose(Schema.Trim),
-    Schema.compose(Schema.Lowercase),
-    Schema.compose(GoogleDiscoveryHttpMethod),
-  ),
+  LowercaseText.pipe(Schema.decodeTo(GoogleDiscoveryHttpMethod)),
 );
 
 const DiscoveryParameterLocationInput = Schema.optional(
-  Schema.String.pipe(
-    Schema.compose(Schema.Trim),
-    Schema.compose(Schema.Lowercase),
-    Schema.compose(GoogleDiscoveryParameterLocation),
-  ),
+  LowercaseText.pipe(Schema.decodeTo(GoogleDiscoveryParameterLocation)),
 );
 
-const DiscoveryDefaultValue = Schema.Union(Schema.String, Schema.Number, Schema.Boolean);
+const DiscoveryDefaultValue = Schema.Union([Schema.String, Schema.Number, Schema.Boolean]);
 
 const DiscoverySchemaModel = Schema.Struct({
   type: Schema.optional(
-    Schema.String.pipe(Schema.compose(Schema.Trim), Schema.compose(Schema.Lowercase)),
+    LowercaseText,
   ),
   description: TextOption,
   properties: UnknownRecordWithDefault,
   items: Schema.optional(Schema.Unknown),
-  additionalProperties: Schema.optional(Schema.Union(Schema.Boolean, Schema.Unknown)),
+  additionalProperties: Schema.optional(Schema.Union([Schema.Boolean, Schema.Unknown])),
   enum: TextArray,
   format: Schema.optional(Text),
   readOnly: Schema.optional(Schema.Boolean),
@@ -62,12 +60,12 @@ type DiscoverySchema = typeof DiscoverySchemaModel.Type;
 
 const DiscoveryParameterModel = Schema.Struct({
   type: Schema.optional(
-    Schema.String.pipe(Schema.compose(Schema.Trim), Schema.compose(Schema.Lowercase)),
+    LowercaseText,
   ),
   description: TextOption,
   properties: UnknownRecordWithDefault,
   items: Schema.optional(Schema.Unknown),
-  additionalProperties: Schema.optional(Schema.Union(Schema.Boolean, Schema.Unknown)),
+  additionalProperties: Schema.optional(Schema.Union([Schema.Boolean, Schema.Unknown])),
   enum: TextArray,
   format: Schema.optional(Text),
   readOnly: Schema.optional(Schema.Boolean),
@@ -105,7 +103,9 @@ const DiscoveryDocumentModel = Schema.Struct({
   version: TextOption,
   title: TextOption,
   rootUrl: TextOption,
-  servicePath: Schema.optionalWith(TrimmedString, { default: () => "" }),
+  servicePath: Schema.optional(TrimmedString).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed("")),
+  ),
   parameters: UnknownRecordWithDefault,
   methods: UnknownRecordWithDefault,
   resources: UnknownRecordWithDefault,
@@ -114,15 +114,14 @@ const DiscoveryDocumentModel = Schema.Struct({
     Schema.Struct({
       oauth2: Schema.optional(
         Schema.Struct({
-          scopes: Schema.optionalWith(
-            Schema.Record({
-              key: Schema.String,
-              value: Schema.Struct({
+          scopes: Schema.optional(
+            Schema.Record(
+              Schema.String,
+              Schema.Struct({
                 description: TextOption,
               }),
-            }),
-            { default: () => ({}) },
-          ),
+            ),
+          ).pipe(Schema.withDecodingDefaultType(Effect.succeed({}))),
         }),
       ),
     }),
@@ -155,7 +154,7 @@ const decodeDiscoveryDocument = decodeUnknownWith(
 
 const decodeDiscoveryDocumentJson = decodeUnknownWith(
   "Failed to parse Google Discovery document",
-  Schema.decodeUnknownSync(Schema.parseJson(DiscoveryDocumentModel)),
+  Schema.decodeUnknownSync(Schema.fromJsonString(DiscoveryDocumentModel)),
 );
 
 const decodeDiscoverySchema = decodeUnknownWith(
@@ -195,15 +194,15 @@ const toJsonSchemaSeed = (input: {
 }): DiscoverySchema => ({
   type: input.type,
   description: input.description,
-  properties: input.properties,
+  properties: input.properties ?? {},
   items: input.items,
   additionalProperties: input.additionalProperties,
-  enum: input.enum,
+  enum: input.enum ?? [],
   format: input.format,
   readOnly: input.readOnly,
   default: input.default,
   $ref: input.$ref,
-  required: input.required,
+  required: input.required ?? [],
 });
 
 const discoverySchemaToJsonSchema = (
@@ -216,10 +215,12 @@ const discoverySchemaToJsonSchema = (
     }
 
     const description = Option.getOrUndefined(schema.description);
+    const enumValues = schema.enum ?? [];
+    const required = schema.required ?? [];
     const base: Record<string, unknown> = {
       ...(description ? { description } : {}),
       ...(schema.format ? { format: schema.format } : {}),
-      ...(schema.enum.length > 0 ? { enum: schema.enum } : {}),
+      ...(enumValues.length > 0 ? { enum: enumValues } : {}),
       ...(schema.readOnly === true ? { readOnly: true } : {}),
       ...(schema.default !== undefined ? { default: schema.default } : {}),
     };
@@ -232,7 +233,7 @@ const discoverySchemaToJsonSchema = (
       };
     }
 
-    const properties = schema.properties;
+    const properties = schema.properties ?? {};
     const additionalProperties = schema.additionalProperties;
     if (
       schema.type === "object" ||
@@ -258,7 +259,7 @@ const discoverySchemaToJsonSchema = (
         ...base,
         type: "object",
         ...(Object.keys(convertedProperties).length > 0 ? { properties: convertedProperties } : {}),
-        ...(schema.required.length > 0 ? { required: schema.required } : {}),
+        ...(required.length > 0 ? { required } : {}),
         ...(convertedAdditionalProperties !== undefined
           ? { additionalProperties: convertedAdditionalProperties }
           : {}),
@@ -363,7 +364,7 @@ const mergeParameters = (input: {
       if (converted) merged.set(name, converted);
     }
 
-    for (const [name, parameter] of Object.entries(input.method.parameters)) {
+    for (const [name, parameter] of Object.entries(input.method.parameters ?? {})) {
       const converted = yield* toParameter(name, parameter);
       if (converted) merged.set(name, converted);
     }
@@ -442,9 +443,9 @@ const manifestMethodFromMethod = (input: {
         parameters,
         hasBody: requestRef !== undefined,
       }),
-      inputSchema: Option.fromNullable(buildInputSchema({ parameters, requestRef })),
-      outputSchema: Option.fromNullable(responseRef ? { $ref: schemaRef(responseRef) } : undefined),
-      scopes: method.scopes,
+      inputSchema: Option.fromNullishOr(buildInputSchema({ parameters, requestRef })),
+      outputSchema: Option.fromNullishOr(responseRef ? { $ref: schemaRef(responseRef) } : undefined),
+      scopes: method.scopes ?? [],
     });
   });
 
@@ -455,14 +456,14 @@ const collectMethods = (input: {
 }): Effect.Effect<GoogleDiscoveryManifestMethod[], GoogleDiscoveryParseError> =>
   Effect.gen(function* () {
     const resource = yield* decodeDiscoveryResource(input.rawResource);
-    const methods = yield* Effect.forEach(Object.values(resource.methods), (rawMethod) =>
+    const methods = yield* Effect.forEach(Object.values(resource.methods ?? {}), (rawMethod) =>
       manifestMethodFromMethod({
         service: input.service,
         rawMethod,
         globalParameters: input.globalParameters,
       }),
     );
-    const nested = yield* Effect.forEach(Object.values(resource.resources), (rawResource) =>
+    const nested = yield* Effect.forEach(Object.values(resource.resources ?? {}), (rawResource) =>
       collectMethods({
         ...input,
         rawResource,
@@ -489,24 +490,24 @@ export const extractGoogleDiscoveryManifest = Effect.fn("GoogleDiscovery.extract
     }
 
     const schemaDefinitions = Object.fromEntries(
-      yield* Effect.forEach(Object.entries(document.schemas), ([name, rawSchema]) =>
+      yield* Effect.forEach(Object.entries(document.schemas ?? {}), ([name, rawSchema]) =>
         googleSchemaToJsonSchema(rawSchema).pipe(Effect.map((schema) => [name, schema] as const)),
       ),
     );
 
-    const topLevelMethods = yield* Effect.forEach(Object.values(document.methods), (rawMethod) =>
+    const topLevelMethods = yield* Effect.forEach(Object.values(document.methods ?? {}), (rawMethod) =>
       manifestMethodFromMethod({
         service,
         rawMethod,
-        globalParameters: document.parameters,
+        globalParameters: document.parameters ?? {},
       }),
     );
 
-    const nestedMethods = yield* Effect.forEach(Object.values(document.resources), (rawResource) =>
+    const nestedMethods = yield* Effect.forEach(Object.values(document.resources ?? {}), (rawResource) =>
       collectMethods({
         service,
         rawResource,
-        globalParameters: document.parameters,
+        globalParameters: document.parameters ?? {},
       }),
     );
 
@@ -515,8 +516,8 @@ export const extractGoogleDiscoveryManifest = Effect.fn("GoogleDiscovery.extract
       service,
       version,
       rootUrl,
-      servicePath: document.servicePath,
-      oauthScopes: Option.fromNullable(extractScopes(document)),
+      servicePath: document.servicePath ?? "",
+      oauthScopes: Option.fromNullishOr(extractScopes(document)),
       schemaDefinitions,
       methods: [
         ...topLevelMethods.flatMap((method) => (method ? [method] : [])),

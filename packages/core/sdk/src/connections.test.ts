@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
-import { Deferred, Effect } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
@@ -245,7 +245,7 @@ describe("connections", () => {
         );
 
         const list = yield* executor.secrets.list();
-        const ids = list.map((s) => s.id as unknown as string);
+        const ids = list.map((s) => String(s.id));
         expect(ids).toContain("bare-api");
         expect(ids).not.toContain("conn-1.access");
         expect(ids).not.toContain("conn-1.refresh");
@@ -485,7 +485,7 @@ describe("connections", () => {
               // releases the gate. Any other fiber that concurrently
               // calls `accessToken` must observe the in-flight
               // Deferred instead of entering this handler.
-              yield* gate;
+              yield* Deferred.await(gate);
               return {
                 accessToken: `rotated-${n}`,
                 refreshToken: `refresh-${n}`,
@@ -528,14 +528,14 @@ describe("connections", () => {
         // Kick off the leader first and wait for it to park inside
         // `refresh`. Any subsequent caller is guaranteed to see the
         // in-flight Deferred the leader just registered.
-        const leaderFiber = yield* Effect.fork(
+        const leaderFiber = yield* Effect.forkScoped(
           executor.connections.accessToken("conn-1"),
         );
-        yield* entered;
+        yield* Deferred.await(entered);
 
         const followerFibers = yield* Effect.forEach(
           [1, 2, 3, 4],
-          () => Effect.fork(executor.connections.accessToken("conn-1")),
+          () => Effect.forkScoped(executor.connections.accessToken("conn-1")),
           { concurrency: "unbounded" },
         );
 
@@ -544,15 +544,14 @@ describe("connections", () => {
         // same token, no extra `refresh` is invoked.
         yield* Deferred.succeed(gate, undefined as void);
 
-        const leaderResult = yield* leaderFiber;
+        const leaderResult = yield* Fiber.join(leaderFiber);
         const followerResults = yield* Effect.all(
-          followerFibers.map((f) => f.await),
+          followerFibers.map((f) => Fiber.join(f)),
           { concurrency: "unbounded" },
         );
         expect(leaderResult).toBe("rotated-1");
         for (const r of followerResults) {
-          expect(r._tag).toBe("Success");
-          if (r._tag === "Success") expect(r.value).toBe("rotated-1");
+          expect(r).toBe("rotated-1");
         }
         expect(calls).toHaveLength(1);
       }),

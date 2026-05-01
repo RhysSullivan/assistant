@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit } from "effect";
 
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 import { StorageError, typedAdapter } from "@executor-js/storage-core";
@@ -42,7 +42,8 @@ describe("scopeAdapter — write rejection on scoped tables", () => {
       );
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isFailure(result)) {
-        const err = result.cause._tag === "Fail" ? result.cause.error : null;
+        const reason = result.cause.reasons.find(Cause.isFailReason);
+        const err = reason?.error ?? null;
         expect(err).toBeInstanceOf(StorageError);
         expect((err as StorageError).message).toContain("not in the executor");
       }
@@ -57,7 +58,7 @@ describe("scopeAdapter — write rejection on scoped tables", () => {
           // Cast because the schema typing requires scope_id — we're
           // testing the runtime guard against programmatic omission.
           model: "thing",
-          data: { id: "t1", value: "v" } as unknown as {
+          data: { id: "t1", value: "v" } as {
             id: string;
             scope_id: string;
             value: string;
@@ -67,7 +68,8 @@ describe("scopeAdapter — write rejection on scoped tables", () => {
       );
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isFailure(result)) {
-        const err = result.cause._tag === "Fail" ? result.cause.error : null;
+        const reason = result.cause.reasons.find(Cause.isFailReason);
+        const err = reason?.error ?? null;
         expect(err).toBeInstanceOf(StorageError);
         expect((err as StorageError).message).toContain("missing required");
       }

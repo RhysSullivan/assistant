@@ -40,10 +40,10 @@ const authFilePath = (overrideDir?: string): string =>
 //   { "web-a1b2c3d4": { "github-token": "ghp_xxx" } }
 // ---------------------------------------------------------------------------
 
-const ScopedAuthFile = Schema.Record({
-  key: Schema.String,
-  value: Schema.Record({ key: Schema.String, value: Schema.String }),
-});
+const ScopedAuthFile = Schema.Record(
+  Schema.String,
+  Schema.Record(Schema.String, Schema.String),
+);
 const decodeScopedAuthFile = Schema.decodeUnknownSync(ScopedAuthFile);
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import { GraphqlIntrospectionError } from "./errors";
 
@@ -148,7 +148,7 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
 
   let request = HttpClientRequest.post(requestEndpoint).pipe(
     HttpClientRequest.setHeader("Content-Type", "application/json"),
-    HttpClientRequest.bodyUnsafeJson({
+    HttpClientRequest.bodyJsonUnsafe({
       query: INTROSPECTION_QUERY,
     }),
   );
@@ -160,7 +160,7 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
   }
 
   const response = yield* client.execute(request).pipe(
-    Effect.tapErrorCause((cause) => Effect.logError("graphql introspection request failed", cause)),
+    Effect.tapCause((cause) => Effect.logError("graphql introspection request failed", cause)),
     Effect.mapError(
       (err) =>
         new GraphqlIntrospectionError({
@@ -176,7 +176,7 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
   }
 
   const raw = yield* response.json.pipe(
-    Effect.tapErrorCause((cause) =>
+    Effect.tapCause((cause) =>
       Effect.logError("graphql introspection JSON parse failed", cause),
     ),
     Effect.mapError(

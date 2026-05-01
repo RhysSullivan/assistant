@@ -26,7 +26,7 @@
 
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { Effect } from "effect";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
 
 import { makeTestBearer } from "./test-bearer";
 
@@ -44,6 +44,14 @@ const HEARTBEAT_MS = 30 * 1000;
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 const SESSION_META_KEY = "session-meta";
 const LAST_ACTIVITY_KEY = "last-activity-ms";
+
+const doRuntimeControls = (instance: unknown): {
+  closeRuntime: () => Effect.Effect<void>;
+} =>
+  instance as { closeRuntime: () => Effect.Effect<void> };
+
+const doActivityState = (instance: unknown): { lastActivityMs: number } =>
+  instance as { lastActivityMs: number };
 
 const INITIALIZE_REQUEST = {
   jsonrpc: "2.0" as const,
@@ -333,7 +341,7 @@ describe("/mcp session restore", () => {
     const stub = ns.get(ns.idFromString(sessionId!));
     await runInDurableObject(stub, async (instance) => {
       await Effect.runPromise(
-        (instance as unknown as { closeRuntime: () => Effect.Effect<void> }).closeRuntime(),
+        doRuntimeControls(instance).closeRuntime(),
       );
     });
 
@@ -369,7 +377,7 @@ describe("/mcp session restore", () => {
     const stub = ns.get(ns.idFromString(sessionId!));
     await runInDurableObject(stub, async (instance) => {
       await Effect.runPromise(
-        (instance as unknown as { closeRuntime: () => Effect.Effect<void> }).closeRuntime(),
+        doRuntimeControls(instance).closeRuntime(),
       );
     });
 
@@ -417,7 +425,7 @@ describe("/mcp session restore", () => {
     const stub = ns.get(ns.idFromString(sessionId!));
     await runInDurableObject(stub, async (instance) => {
       await Effect.runPromise(
-        (instance as unknown as { closeRuntime: () => Effect.Effect<void> }).closeRuntime(),
+        doRuntimeControls(instance).closeRuntime(),
       );
     });
 
@@ -494,7 +502,7 @@ describe("McpSessionDO alarm lifecycle", () => {
       await state.storage.setAlarm(now - 1);
     });
     await runInDurableObject(stub, (instance) => {
-      (instance as unknown as { lastActivityMs: number }).lastActivityMs = 0;
+      doActivityState(instance).lastActivityMs = 0;
     });
 
     await expect(runDurableObjectAlarm(stub)).resolves.toBe(true);
@@ -525,7 +533,7 @@ describe("McpSessionDO alarm lifecycle", () => {
       await state.storage.setAlarm(now - 1);
     });
     await runInDurableObject(stub, (instance) => {
-      (instance as unknown as { lastActivityMs: number }).lastActivityMs = 0;
+      doActivityState(instance).lastActivityMs = 0;
     });
 
     await runDurableObjectAlarm(stub);

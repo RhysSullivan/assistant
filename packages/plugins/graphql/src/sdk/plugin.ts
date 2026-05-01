@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect";
-import { FetchHttpClient, HttpClient } from "@effect/platform";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import type { Layer } from "effect";
 
 import {
@@ -632,15 +632,18 @@ export const graphqlPlugin = definePlugin((options?: GraphqlPluginOptions) => {
       Effect.gen(function* () {
         const trimmed = url.trim();
         if (!trimmed) return null;
-        const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(
+        const parsed = yield* Effect.try({
+          try: () => new URL(trimmed),
+          catch: (cause) => cause,
+        }).pipe(
           Effect.option,
         );
-        if (parsed._tag === "None") return null;
+        if (Option.isNone(parsed)) return null;
 
         const ok = yield* introspect(trimmed).pipe(
           Effect.provide(httpClientLayer),
           Effect.map(() => true),
-          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.catch(() => Effect.succeed(false)),
         );
 
         if (!ok) return null;

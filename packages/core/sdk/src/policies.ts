@@ -245,8 +245,8 @@ export const rowToToolPolicy = (row: ToolPolicyRow): ToolPolicy => ({
 // inputs with effect/Schema.
 // ---------------------------------------------------------------------------
 
-export const ToolPolicyActionSchema = Schema.Literal(
+export const ToolPolicyActionSchema = Schema.Literals([
   "approve",
   "require_approval",
   "block",
-);
+]);

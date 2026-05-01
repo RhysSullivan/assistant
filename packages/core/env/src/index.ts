@@ -1,4 +1,6 @@
-import { Config, ConfigError, ConfigProvider, Context, Effect, Either, Layer } from "effect";
+import { Config, ConfigProvider, Context, Effect, Layer, Option, Result, Schema } from "effect";
+import type * as ConfigModule from "effect/Config";
+import * as SchemaIssue from "effect/SchemaIssue";
 
 export const Env = {
   string: (name: string) => Config.string(name),
@@ -21,8 +23,8 @@ export const Env = {
     Config.string(name).pipe(
       Config.mapOrFail((value) =>
         values.includes(value as T)
-          ? Either.right(value as T)
-          : Either.left(ConfigError.InvalidData([], `Expected one of: ${values.join(", ")}`)),
+          ? Effect.succeed(value as T)
+          : Effect.fail(configError(`Expected one of: ${values.join(", ")}`)),
       ),
     ),
 
@@ -35,8 +37,8 @@ export const Env = {
       Config.withDefault(defaultValue),
       Config.mapOrFail((value) =>
         values.includes(value as T)
-          ? Either.right(value as T)
-          : Either.left(ConfigError.InvalidData([], `Expected one of: ${values.join(", ")}`)),
+          ? Effect.succeed(value as T)
+          : Effect.fail(configError(`Expected one of: ${values.join(", ")}`)),
       ),
     ),
 
@@ -45,9 +47,9 @@ export const Env = {
       Config.mapOrFail((value) => {
         try {
           new URL(value);
-          return Either.right(value);
+          return Effect.succeed(value);
         } catch {
-          return Either.left(ConfigError.InvalidData([], "Invalid URL"));
+          return Effect.fail(configError("Invalid URL"));
         }
       }),
     ),
@@ -58,39 +60,48 @@ export const Env = {
       Config.mapOrFail((value) => {
         try {
           new URL(value);
-          return Either.right(value);
+          return Effect.succeed(value);
         } catch {
-          return Either.left(ConfigError.InvalidData([], "Invalid URL"));
+          return Effect.fail(configError("Invalid URL"));
         }
       }),
     ),
 };
 
-type ConfigShape = Record<string, Config.Config<unknown>>;
+const configError = (message: string): ConfigModule.ConfigError =>
+  new Config.ConfigError(
+    new Schema.SchemaError(
+      new SchemaIssue.InvalidValue(Option.none(), { message }),
+    ),
+  );
+
+type ConfigShape = Record<string, ConfigModule.Config<unknown>>;
 
 type InferConfigShape<Shape extends ConfigShape> = {
-  readonly [K in keyof Shape]: Config.Config.Success<Shape[K]>;
+  readonly [K in keyof Shape]: Shape[K] extends ConfigModule.Config<infer A> ? A : never;
 };
 
 export interface EnvService<
   Id extends string,
-  Shape extends Record<string, Config.Config<unknown>>,
-> extends Context.Tag<EnvService<Id, Shape>, InferConfigShape<Shape>> {
-  readonly config: Config.Config<InferConfigShape<Shape>>;
-  readonly Default: Layer.Layer<EnvService<Id, Shape>, ConfigError.ConfigError>;
+  Shape extends Record<string, ConfigModule.Config<unknown>>,
+> extends Context.Service<EnvService<Id, Shape>, InferConfigShape<Shape>> {
+  readonly config: ConfigModule.Config<InferConfigShape<Shape>>;
+  readonly Default: Layer.Layer<EnvService<Id, Shape>, ConfigModule.ConfigError>;
 }
 
 export const makeEnv = <
   const Id extends string,
-  const Shape extends Record<string, Config.Config<unknown>>,
+  const Shape extends Record<string, ConfigModule.Config<unknown>>,
 >(
   id: Id,
   shape: Shape,
 ): EnvService<Id, Shape> => {
-  const config = Config.all(shape) as Config.Config<InferConfigShape<Shape>>;
+  const config = Config.all(shape) as ConfigModule.Config<InferConfigShape<Shape>>;
 
-  const tag = Context.GenericTag<EnvService<Id, Shape>, InferConfigShape<Shape>>(id);
-  const Default = Layer.effect(tag, config);
+  const tag = Context.Service<EnvService<Id, Shape>, InferConfigShape<Shape>>(id);
+  const Default = Layer.effect(tag, Effect.gen(function* () {
+    return yield* config;
+  }));
 
   return Object.assign(tag, { config, Default });
 };
@@ -131,33 +142,15 @@ export interface ValidationIssue {
 }
 
 export const flattenConfigError = (
-  error: ConfigError.ConfigError,
+  error: ConfigModule.ConfigError,
 ): ReadonlyArray<ValidationIssue> => {
-  const issues: ValidationIssue[] = [];
-
-  const visit = (next: ConfigError.ConfigError): void => {
-    switch (next._op) {
-      case "And":
-      case "Or": {
-        visit(next.left);
-        visit(next.right);
-        return;
-      }
-      case "InvalidData":
-      case "MissingData":
-      case "SourceUnavailable":
-      case "Unsupported": {
-        issues.push({
-          type: next._op,
-          path: next.path,
-          message: next.message,
-        });
-      }
-    }
-  };
-
-  visit(error);
-  return issues;
+  return [
+    {
+      type: error.cause._tag === "SourceError" ? "SourceUnavailable" : "InvalidData",
+      path: [],
+      message: error.message,
+    },
+  ];
 };
 
 type EnforcePrefixedKeys<TPrefix extends string | undefined, TShape extends ConfigShape> = {
@@ -174,7 +167,7 @@ export interface CreateEnvOptions<
   TPrefix extends string | undefined,
   TShape extends ConfigShape,
   TExtends extends readonly Record<string, unknown>[],
-  TFinalConfig extends Config.Config<Record<string, unknown>>,
+  TFinalConfig extends ConfigModule.Config<Record<string, unknown>>,
 > {
   prefix?: TPrefix;
   isServer?: boolean;
@@ -182,7 +175,7 @@ export interface CreateEnvOptions<
   extends?: TExtends;
   onValidationError?: (
     issues: ReadonlyArray<ValidationIssue>,
-    error: ConfigError.ConfigError,
+    error: ConfigModule.ConfigError,
   ) => never;
   onInvalidAccess?: (variable: string) => never;
   skipValidation?: boolean;
@@ -190,17 +183,21 @@ export interface CreateEnvOptions<
   createFinalConfig?: (shape: TShape, isServer: boolean) => TFinalConfig;
 }
 
-export type DefaultCombinedConfig<TShape extends ConfigShape> = Config.Config<
+export type DefaultCombinedConfig<TShape extends ConfigShape> = ConfigModule.Config<
   UndefinedOptional<InferConfigShape<TShape>>
 >;
 
-type InferEnvOutput<TConfig extends Config.Config<unknown>> =
-  Config.Config.Success<TConfig> extends Record<string, unknown>
-    ? Config.Config.Success<TConfig>
+type InferEnvOutput<TConfig extends ConfigModule.Config<unknown>> =
+  TConfig extends ConfigModule.Config<infer A>
+    ? A extends Record<string, unknown>
+      ? A
+      : never
     : never;
 
+
+
 export type CreateEnv<
-  TFinalConfig extends Config.Config<Record<string, unknown>>,
+  TFinalConfig extends ConfigModule.Config<Record<string, unknown>>,
   TExtends extends readonly Record<string, unknown>[],
 > = Readonly<Simplify<Reduce<[InferEnvOutput<TFinalConfig>, ...TExtends]>>>;
 
@@ -250,7 +247,7 @@ export function createEnv<
   TPrefix extends string | undefined = undefined,
   const TShape extends ConfigShape = Record<string, never>,
   const TExtends extends readonly Record<string, unknown>[] = [],
-  TFinalConfig extends Config.Config<Record<string, unknown>> = DefaultCombinedConfig<TShape>,
+  TFinalConfig extends ConfigModule.Config<Record<string, unknown>> = DefaultCombinedConfig<TShape>,
 >(
   shape: Partial<EnforcePrefixedKeys<TPrefix, TShape>>,
   options?: CreateEnvOptions<TPrefix, TShape, TExtends, TFinalConfig>,
@@ -274,15 +271,22 @@ export function createEnv<
 
   const hasKeys = Object.keys(normalizedShape).length > 0;
 
+  const toFinalConfig = (config: Config.Config<unknown>): TFinalConfig =>
+    config as TFinalConfig;
+
   const finalConfig =
     opts.createFinalConfig?.(normalizedShape, isServer) ??
     (hasKeys
-      ? (Config.all(normalizedShape) as unknown as TFinalConfig)
-      : (Config.succeed({}) as unknown as TFinalConfig));
+      ? toFinalConfig(Config.all(normalizedShape))
+      : toFinalConfig(Config.succeed({})));
 
   const parsed = Effect.runSync(
-    Effect.withConfigProvider(ConfigProvider.fromMap(toRuntimeMap(normalizedRuntimeEnv)))(
-      Effect.either(finalConfig),
+    Effect.result(
+      finalConfig.parse(
+        ConfigProvider.fromEnv({
+          env: Object.fromEntries(toRuntimeMap(normalizedRuntimeEnv)),
+        }),
+      ),
     ),
   );
 
@@ -299,15 +303,15 @@ export function createEnv<
       throw new Error("❌ Attempted to access a server-side environment variable on the client");
     });
 
-  if (Either.isLeft(parsed)) {
-    const issues = flattenConfigError(parsed.left);
-    return onValidationError(issues, parsed.left);
+  if (Result.isFailure(parsed)) {
+    const issues = flattenConfigError(parsed.failure);
+    return onValidationError(issues, parsed.failure);
   }
 
   const prefix = opts.prefix;
   const ignoreProp = (prop: string) => prop === "__esModule" || prop === "$$typeof";
 
-  const fullEnv = Object.assign(extendedEnv, parsed.right);
+  const fullEnv = Object.assign(extendedEnv, parsed.success);
 
   return new Proxy(fullEnv, {
     get(target, prop) {

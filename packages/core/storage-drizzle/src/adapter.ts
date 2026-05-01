@@ -11,7 +11,7 @@
 //     generation, encode/decode all happen in storage-core
 // ---------------------------------------------------------------------------
 
-import { Effect, Schedule } from "effect";
+import { Effect, Result, Schedule } from "effect";
 import {
   and,
   asc,
@@ -755,14 +755,9 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
                   db: tx as any,
                   supportsTransaction: false,
                 }) as TxShape;
-                const exit = await Effect.runPromise(
-                  Effect.either(cb(nested)) as Effect.Effect<
-                    { readonly _tag: "Right"; readonly right: R } | { readonly _tag: "Left"; readonly left: E },
-                    never
-                  >,
-                );
-                if (exit._tag === "Left") throw new TxFailure(exit.left);
-                return exit.right;
+                const exit = await Effect.runPromise(Effect.result(cb(nested)));
+                if (Result.isFailure(exit)) throw new TxFailure(exit.failure);
+                return exit.success;
               }),
             catch: (e) => e,
           }).pipe(
@@ -814,9 +809,9 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
             supportsTransaction: false,
           }) as Parameters<DBAdapter["transaction"]>[0] extends (t: infer T) => unknown ? T : never;
           const result = yield* cb(nested).pipe(
-            Effect.catchAll((e) =>
+            Effect.catch((e) =>
               Effect.gen(function* () {
-                yield* runStmt("ROLLBACK").pipe(Effect.orElse(() => Effect.void));
+                yield* runStmt("ROLLBACK").pipe(Effect.catch(() => Effect.void));
                 return yield* Effect.fail(e);
               }),
             ),

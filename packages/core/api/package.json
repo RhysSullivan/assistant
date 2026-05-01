@@ -13,7 +13,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@effect/platform": "catalog:",
     "@executor-js/execution": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "@executor-js/storage-core": "workspace:*",

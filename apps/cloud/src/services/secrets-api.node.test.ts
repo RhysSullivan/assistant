@@ -16,7 +16,7 @@ describe("secrets api (HTTP)", () => {
 
       const setRef = yield* asOrg(org, (client) =>
         client.secrets.set({
-          path: { scopeId: ScopeId.make(org) },
+          params: { scopeId: ScopeId.make(org) },
           payload: { id: SecretId.make(id), name: "My API Token", value: "sk-test-abc" },
         }),
       );
@@ -24,13 +24,13 @@ describe("secrets api (HTTP)", () => {
       expect(setRef.scopeId).toBe(org);
 
       const list = yield* asOrg(org, (client) =>
-        client.secrets.list({ path: { scopeId: ScopeId.make(org) } }),
+        client.secrets.list({ params: { scopeId: ScopeId.make(org) } }),
       );
       expect(list.find((s) => s.id === id)?.name).toBe("My API Token");
 
       const status = yield* asOrg(org, (client) =>
         client.secrets.status({
-          path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
         }),
       );
       expect(status.status).toBe("resolved");
@@ -44,7 +44,7 @@ describe("secrets api (HTTP)", () => {
 
       yield* asOrg(org, (client) =>
         client.secrets.set({
-          path: { scopeId: ScopeId.make(org) },
+          params: { scopeId: ScopeId.make(org) },
           payload: { id: SecretId.make(id), name: "n", value: "v" },
         }),
       );
@@ -63,21 +63,21 @@ describe("secrets api (HTTP)", () => {
 
       yield* asOrg(org, (client) =>
         client.secrets.set({
-          path: { scopeId: ScopeId.make(org) },
+          params: { scopeId: ScopeId.make(org) },
           payload: { id: SecretId.make(id), name: "n", value: "v" },
         }),
       );
 
       const resolvedStatus = yield* asOrg(org, (client) =>
         client.secrets.status({
-          path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
         }),
       );
       expect(resolvedStatus.status).toBe("resolved");
 
       const missingStatus = yield* asOrg(org, (client) =>
         client.secrets.status({
-          path: {
+          params: {
             scopeId: ScopeId.make(org),
             secretId: SecretId.make(`missing_${crypto.randomUUID().slice(0, 8)}`),
           },
@@ -95,23 +95,23 @@ describe("secrets api (HTTP)", () => {
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           yield* client.secrets.set({
-            path: { scopeId: ScopeId.make(org) },
+            params: { scopeId: ScopeId.make(org) },
             payload: { id: SecretId.make(id), name: "n", value: "v" },
           });
           yield* client.secrets.remove({
-            path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+            params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
           });
         }),
       );
 
       const list = yield* asOrg(org, (client) =>
-        client.secrets.list({ path: { scopeId: ScopeId.make(org) } }),
+        client.secrets.list({ params: { scopeId: ScopeId.make(org) } }),
       );
       expect(list.map((s) => s.id)).not.toContain(id);
 
       const afterStatus = yield* asOrg(org, (client) =>
         client.secrets.status({
-          path: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
+          params: { scopeId: ScopeId.make(org), secretId: SecretId.make(id) },
         }),
       );
       expect(afterStatus.status).toBe("missing");
@@ -125,8 +125,8 @@ describe("secrets api (HTTP)", () => {
 
       const result = yield* asOrg(org, (client) =>
         client.secrets
-          .remove({ path: { scopeId: ScopeId.make(org), secretId: SecretId.make(missing) } })
-          .pipe(Effect.either),
+          .remove({ params: { scopeId: ScopeId.make(org), secretId: SecretId.make(missing) } })
+          .pipe(Effect.result),
       );
       expect(result._tag).toBe("Right");
     }),
@@ -140,10 +140,10 @@ describe("secrets api (HTTP)", () => {
       const first = yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           yield* client.secrets.set({
-            path: { scopeId: ScopeId.make(org) },
+            params: { scopeId: ScopeId.make(org) },
             payload: { id: SecretId.make(id), name: "first", value: "first-value" },
           });
-          return yield* client.secrets.list({ path: { scopeId: ScopeId.make(org) } });
+          return yield* client.secrets.list({ params: { scopeId: ScopeId.make(org) } });
         }),
       );
       expect(first.find((s) => s.id === id)?.name).toBe("first");
@@ -151,10 +151,10 @@ describe("secrets api (HTTP)", () => {
       const second = yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           yield* client.secrets.set({
-            path: { scopeId: ScopeId.make(org) },
+            params: { scopeId: ScopeId.make(org) },
             payload: { id: SecretId.make(id), name: "updated", value: "second-value" },
           });
-          return yield* client.secrets.list({ path: { scopeId: ScopeId.make(org) } });
+          return yield* client.secrets.list({ params: { scopeId: ScopeId.make(org) } });
         }),
       );
       expect(second.find((s) => s.id === id)?.name).toBe("updated");

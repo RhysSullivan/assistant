@@ -18,7 +18,7 @@
 // them back through the same provider (file-secrets in a tmpdir).
 // ---------------------------------------------------------------------------
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
@@ -29,22 +29,11 @@ import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
-import {
-  FetchHttpClient,
-  HttpApi,
-  HttpApiBuilder,
-  HttpApiClient,
-  HttpMiddleware,
-  HttpRouter,
-  HttpServer,
-} from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpApiClient } from "effect/unstable/httpapi";
+import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { Effect, Layer } from "effect";
 
-import {
-  addGroup,
-  InternalError,
-  observabilityMiddleware,
-} from "@executor-js/api";
+import { addGroup, observabilityMiddleware } from "@executor-js/api";
 import {
   CoreHandlers,
   ExecutionEngineService,
@@ -76,14 +65,9 @@ import { ErrorCaptureLive } from "./observability";
 // Shape of the test API: core + mcp group, with InternalError surfaced at
 // the top level so `observabilityMiddleware` can land its typed-error
 // bridge on every endpoint.
-const TestApi = addGroup(McpGroup).addError(InternalError);
-type TestApiShape = typeof TestApi extends HttpApi.HttpApi<
-  infer _Id,
-  infer Groups,
-  infer ApiError,
-  infer _ApiR
->
-  ? HttpApiClient.Client<Groups, ApiError, never>
+const TestApi = addGroup(McpGroup);
+type TestApiShape = typeof TestApi extends HttpApi.HttpApi<infer _Id, infer Groups>
+  ? HttpApiClient.Client<Groups, never>
   : never;
 
 // ---------------------------------------------------------------------------
@@ -302,26 +286,24 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
 
   const TestObservability = observabilityMiddleware(TestApi);
 
-  const TestApiBase = HttpApiBuilder.api(TestApi).pipe(
+  const TestApiBase = HttpApiBuilder.layer(TestApi).pipe(
     Layer.provide(CoreHandlers),
     Layer.provide(McpHandlers),
     Layer.provide(TestObservability),
     Layer.provide(ErrorCaptureLive),
   );
 
-  const pluginExtensions = Layer.succeed(McpExtensionService, executor.mcp);
+  const pluginExtensions = Layer.succeed(McpExtensionService)(executor.mcp);
 
-  const { handler: webHandler, dispose: disposeHandler } =
-    HttpApiBuilder.toWebHandler(
-      TestApiBase.pipe(
-        Layer.provideMerge(pluginExtensions),
-        Layer.provideMerge(Layer.succeed(ExecutorService, executor)),
-        Layer.provideMerge(Layer.succeed(ExecutionEngineService, engine)),
-        Layer.provideMerge(HttpServer.layerContext),
-        Layer.provideMerge(HttpRouter.setRouterConfig({ maxParamLength: 1000 })),
-      ),
-      { middleware: HttpMiddleware.logger },
-    );
+  const { handler: webHandler, dispose: disposeHandler } = HttpRouter.toWebHandler(
+    (TestApiBase.pipe(
+      Layer.provideMerge(pluginExtensions),
+      Layer.provideMerge(Layer.succeed(ExecutorService)(executor)),
+      Layer.provideMerge(Layer.succeed(ExecutionEngineService)(engine)),
+      Layer.provideMerge(HttpServer.layerServices),
+      Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
+    ) as never),
+  );
 
   return {
     fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
@@ -383,7 +365,7 @@ const followAuthorize = async (
 describe("local mcp oauth (real OAuth + MCP server)", () => {
   it("startOAuth → authorize → completeOAuth mints a Connection at the scope", async () => {
     const clientLayer = FetchHttpClient.layer.pipe(
-      Layer.provide(Layer.succeed(FetchHttpClient.Fetch, harness.fetch)),
+      Layer.provide(Layer.succeed(FetchHttpClient.Fetch)(harness.fetch)),
     );
 
     const namespace = `ns_${randomBytes(4).toString("hex")}`;
@@ -404,7 +386,7 @@ describe("local mcp oauth (real OAuth + MCP server)", () => {
     const started = await Effect.runPromise(
       run((client) =>
         client.oauth.start({
-          path: { scopeId },
+          params: { scopeId },
           payload: {
             endpoint: `${fake.url}/mcp`,
             redirectUrl,
@@ -424,7 +406,7 @@ describe("local mcp oauth (real OAuth + MCP server)", () => {
     const completed = await Effect.runPromise(
       run((client) =>
         client.oauth.complete({
-          path: { scopeId },
+          params: { scopeId },
           payload: { state, code },
         }),
       ),

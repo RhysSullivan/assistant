@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import {
   ScopeId,
@@ -12,8 +12,8 @@ import { InternalError } from "../observability";
 // Params
 // ---------------------------------------------------------------------------
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
-const sourceIdParam = HttpApiSchema.param("sourceId", Schema.String);
+const ScopeParams = { scopeId: ScopeId };
+const SourceParams = { scopeId: ScopeId, sourceId: Schema.String };
 
 // ---------------------------------------------------------------------------
 // Response schemas
@@ -58,7 +58,7 @@ const DetectRequest = Schema.Struct({
 
 const DetectResultResponse = Schema.Struct({
   kind: Schema.String,
-  confidence: Schema.Literal("high", "medium", "low"),
+  confidence: Schema.Literals(["high", "medium", "low"]),
   endpoint: Schema.String,
   name: Schema.String,
   namespace: Schema.String,
@@ -68,38 +68,48 @@ const DetectResultResponse = Schema.Struct({
 // Error schemas with HTTP status annotations
 // ---------------------------------------------------------------------------
 
-const SourceRemovalNotAllowed = SourceRemovalNotAllowedError.annotations(
-  HttpApiSchema.annotations({ status: 409 }),
+const SourceRemovalNotAllowed = SourceRemovalNotAllowedError.annotate(
+  { httpApiStatus: 409 },
 );
 
 // ---------------------------------------------------------------------------
 // Group
 // ---------------------------------------------------------------------------
 
-export class SourcesApi extends HttpApiGroup.make("sources")
+export const SourcesApi = HttpApiGroup.make("sources")
   .add(
-    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/sources`.addSuccess(
-      Schema.Array(SourceResponse),
-    ),
+    HttpApiEndpoint.get("list", "/scopes/:scopeId/sources", {
+      params: ScopeParams,
+      success: Schema.Array(SourceResponse),
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/sources/${sourceIdParam}`
-      .addSuccess(SourceRemoveResponse)
-      .addError(SourceRemovalNotAllowed),
+    HttpApiEndpoint.delete("remove", "/scopes/:scopeId/sources/:sourceId", {
+      params: SourceParams,
+      success: SourceRemoveResponse,
+      error: [InternalError, SourceRemovalNotAllowed],
+    }),
   )
   .add(
-    HttpApiEndpoint.post(
-      "refresh",
-    )`/scopes/${scopeIdParam}/sources/${sourceIdParam}/refresh`.addSuccess(SourceRefreshResponse),
+    HttpApiEndpoint.post("refresh", "/scopes/:scopeId/sources/:sourceId/refresh", {
+      params: SourceParams,
+      success: SourceRefreshResponse,
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.get("tools")`/scopes/${scopeIdParam}/sources/${sourceIdParam}/tools`.addSuccess(
-      Schema.Array(ToolMetadataResponse),
-    ),
+    HttpApiEndpoint.get("tools", "/scopes/:scopeId/sources/:sourceId/tools", {
+      params: SourceParams,
+      success: Schema.Array(ToolMetadataResponse),
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("detect")`/scopes/${scopeIdParam}/sources/detect`
-      .setPayload(DetectRequest)
-      .addSuccess(Schema.Array(DetectResultResponse)),
-  )
-  .addError(InternalError) {}
+    HttpApiEndpoint.post("detect", "/scopes/:scopeId/sources/detect", {
+      params: ScopeParams,
+      payload: DetectRequest,
+      success: Schema.Array(DetectResultResponse),
+      error: InternalError,
+    }),
+  );

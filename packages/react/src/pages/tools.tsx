@@ -47,7 +47,7 @@ export function ToolsPage() {
               </div>
             ) : (
               <div className="grid gap-2">
-                {value.map((t) => (
+                {value.map((t: { readonly id: string; readonly name: string; readonly description?: string; readonly sourceId: string }) => (
                   <div
                     key={t.id}
                     className="flex items-start justify-between gap-3 rounded-xl border border-border bg-card px-5 py-3.5 transition-colors hover:border-primary/25 hover:bg-card/90"

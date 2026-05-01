@@ -1,7 +1,8 @@
-import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpMiddleware, HttpRouter, HttpServer } from "effect/unstable/http";
 import { Effect, Layer } from "effect";
 
-import { CoreExecutorApi, InternalError, observabilityMiddleware } from "@executor-js/api";
+import { CoreExecutorApi, observabilityMiddleware } from "@executor-js/api";
 import { CoreHandlers } from "@executor-js/api/server";
 import { OpenApiGroup, OpenApiHandlers } from "@executor-js/plugin-openapi/api";
 import { McpGroup, McpHandlers } from "@executor-js/plugin-mcp/api";
@@ -25,10 +26,9 @@ import { CoreSharedServices } from "./core-shared-services";
 
 export { CoreSharedServices };
 
-const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
+export const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
   .add(McpGroup)
   .add(GraphqlGroup)
-  .addError(InternalError)
   .middleware(OrgAuth);
 
 const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
@@ -40,13 +40,13 @@ export const SharedServices = Layer.mergeAll(
   DbLive,
   UserStoreLive,
   CoreSharedServices,
-  HttpServer.layerContext,
+  HttpServer.layerServices,
   TelemetryLive,
 );
 
-export const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
+export const RouterConfig = Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 });
 
-export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
+export const ProtectedCloudApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
   Layer.provide(
     Layer.mergeAll(
       CoreHandlers,
@@ -60,36 +60,31 @@ export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
   Layer.provide(ErrorCaptureLive),
 );
 
-const NonProtectedApiLive = HttpApiBuilder.api(NonProtectedApi).pipe(
+const NonProtectedApiLive = HttpApiBuilder.layer(NonProtectedApi).pipe(
   Layer.provide(Layer.mergeAll(CloudAuthPublicHandlers, CloudSessionAuthHandlers)),
   Layer.provideMerge(SessionAuthLive),
 );
 
-const OrgApiLive = HttpApiBuilder.api(OrgHttpApi).pipe(
+const OrgApiLive = HttpApiBuilder.layer(OrgHttpApi).pipe(
   Layer.provide(OrgHandlers),
   Layer.provideMerge(OrgAuthLive),
 );
 
 const NonProtectedRequestLayer = NonProtectedApiLive.pipe(
   Layer.provideMerge(RouterConfig),
-  Layer.provideMerge(HttpServer.layerContext),
-  Layer.provideMerge(HttpApiBuilder.Router.Live),
-  Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+  Layer.provideMerge(HttpServer.layerServices),
 );
 
 const OrgRequestLayer = OrgApiLive.pipe(
   Layer.provideMerge(RouterConfig),
-  Layer.provideMerge(HttpServer.layerContext),
-  Layer.provideMerge(HttpApiBuilder.Router.Live),
-  Layer.provideMerge(HttpApiBuilder.Middleware.layer),
 );
 
 export const NonProtectedApiApp = Effect.flatMap(
-  HttpApiBuilder.httpApp.pipe(Effect.provide(NonProtectedRequestLayer)),
+  HttpRouter.toHttpEffect(NonProtectedRequestLayer as never),
   HttpMiddleware.logger,
 ).pipe(Effect.provide(SharedServices));
 
 export const OrgApiApp = Effect.flatMap(
-  HttpApiBuilder.httpApp.pipe(Effect.provide(OrgRequestLayer)),
+  HttpRouter.toHttpEffect(OrgRequestLayer as never),
   HttpMiddleware.logger,
 ).pipe(Effect.provide(SharedServices));

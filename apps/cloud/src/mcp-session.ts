@@ -158,7 +158,7 @@ const makeLongLivedDb = (): DbHandle =>
 const makeEphemeralDb = (): DbHandle => makeDbHandle({ idleTimeout: 0, maxLifetime: 60 });
 
 const makeResolveOrganizationServices = (dbHandle: DbHandle) => {
-  const DbLive = Layer.succeed(DbService, { sql: dbHandle.sql, db: dbHandle.db });
+  const DbLive = Layer.succeed(DbService)({ sql: dbHandle.sql, db: dbHandle.db });
   const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
   return Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
 };
@@ -413,8 +413,9 @@ export class McpSessionDO extends DurableObject {
   }
 
   private validateSessionOwner(request: Request): Effect.Effect<Response | null> {
-    return Effect.gen(this, function* () {
-      const sessionMeta = yield* this.loadSessionMeta();
+    const self = this;
+    return Effect.gen(function* () {
+      const sessionMeta = yield* self.loadSessionMeta();
       if (!sessionMeta) return null;
 
       const accountId = request.headers.get(INTERNAL_ACCOUNT_ID_HEADER);
@@ -462,6 +463,7 @@ export class McpSessionDO extends DurableObject {
         }),
         (eff) => withIncomingParent(incoming, eff),
         Effect.provide(DoTelemetryLive),
+        Effect.orDie,
       ),
     );
   }
@@ -498,12 +500,12 @@ export class McpSessionDO extends DurableObject {
         Effect.withSpan("McpSessionDO.markActivity"),
       );
     }).pipe(
-      Effect.tapErrorCause((cause) =>
+      Effect.tapCause((cause) =>
         Effect.sync(() => {
           console.error("[mcp-session] init failed:", cause);
         }),
       ),
-      Effect.catchAllCause((cause) =>
+      Effect.catchCause((cause) =>
         Effect.gen(function* () {
           yield* Effect.promise(() => self.cleanup());
           return yield* Effect.failCause(cause);
@@ -564,10 +566,11 @@ export class McpSessionDO extends DurableObject {
   }
 
   private dispatchRequest(request: Request): Effect.Effect<Response> {
-    return Effect.gen(this, function* () {
-      const ownerError = yield* this.validateSessionOwner(request);
+    const self = this;
+    return Effect.gen(function* () {
+      const ownerError = yield* self.validateSessionOwner(request);
       if (ownerError) return ownerError;
-      return yield* this.dispatchAuthorizedRequest(request);
+      return yield* self.dispatchAuthorizedRequest(request);
     });
   }
 
@@ -579,10 +582,11 @@ export class McpSessionDO extends DurableObject {
           Effect.withSpan("mcp.session.stale_delete"),
         );
       }
-      return Effect.gen(this, function* () {
-        const restored = yield* this.restoreRuntimeFromStorage(request);
+      const self = this;
+      return Effect.gen(function* () {
+        const restored = yield* self.restoreRuntimeFromStorage(request);
         if (restored === "restored") {
-          return yield* this.dispatchAuthorizedRequest(request);
+          return yield* self.dispatchAuthorizedRequest(request);
         }
         return jsonRpcError(404, -32001, "Session timed out due to inactivity — please reconnect");
       });
@@ -618,7 +622,7 @@ export class McpSessionDO extends DurableObject {
       }
       return response;
     }).pipe(
-      Effect.catchAllCause((cause) =>
+      Effect.catchCause((cause) =>
         Effect.sync(() => {
           console.error("[mcp-session] handleRequest error:", cause);
           Sentry.captureException(cause);

@@ -1,5 +1,5 @@
 import { Effect, Layer, Option } from "effect";
-import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import type { SecretOwnedByConnectionError, StorageFailure } from "@executor-js/sdk";
 
@@ -442,7 +442,7 @@ const applyRequestBody = (
     if (typeof bodyValue === "string") {
       return HttpClientRequest.bodyText(request, bodyValue, contentType);
     }
-    return HttpClientRequest.bodyUnsafeJson(request, bodyValue);
+    return HttpClientRequest.bodyJsonUnsafe(request, bodyValue);
   }
 
   if (isFormUrlEncoded(contentType)) {
@@ -612,7 +612,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
       ? null
       : isJsonContentType(contentType)
         ? yield* response.json.pipe(
-            Effect.catchAll(() => response.text),
+            Effect.catch(() => response.text),
             mapBodyError,
           )
         : yield* response.text.pipe(mapBodyError);
@@ -637,13 +637,13 @@ export const invokeWithLayer = (
   baseUrl: string,
   resolvedHeaders: Record<string, string>,
   sourceQueryParams: Record<string, string>,
-  httpClientLayer: Layer.Layer<HttpClient.HttpClient>,
+  httpClientLayer: Layer.Layer<HttpClient.HttpClient, never, never>,
 ) => {
   const clientWithBaseUrl = baseUrl
     ? Layer.effect(
         HttpClient.HttpClient,
         Effect.map(
-          HttpClient.HttpClient,
+          Effect.service(HttpClient.HttpClient),
           HttpClient.mapRequest(HttpClientRequest.prependUrl(baseUrl)),
         ),
       ).pipe(Layer.provide(httpClientLayer))

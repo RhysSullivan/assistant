@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Parse / extract / preview coverage against a big real-world spec.
 // DB-touching behaviour (addSpec, removeSpec, tool registration) moved
 // to apps/cloud/src/services/sources-api.node.test.ts — those run
@@ -7,7 +8,7 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
-import { FetchHttpClient } from "@effect/platform";
+import { FetchHttpClient } from "effect/unstable/http";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

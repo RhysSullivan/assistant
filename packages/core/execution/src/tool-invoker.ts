@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import * as Cause from "effect/Cause";
 import type {
   Executor,
   ToolId,
@@ -71,14 +72,23 @@ export const makeExecutorToolInvoker = (
     });
 
     const result = yield* executor.tools.invoke(path as ToolId, args, options.invokeOptions).pipe(
-      Effect.catchTag("ElicitationDeclinedError", (err) =>
-        Effect.fail(
+      Effect.catchCause((cause): Effect.Effect<never, ExecutionToolError> => {
+        const err = cause.reasons.find(Cause.isFailReason)?.error;
+        if (!isElicitationDeclinedError(err)) {
+          return Effect.fail(
+            new ExecutionToolError({
+              message: renderToolErrorMessage(err),
+              cause: err ?? cause,
+            }),
+          );
+        }
+        return Effect.fail(
           new ExecutionToolError({
             message: `Tool "${err.toolId}" requires approval but the request was ${err.action === "cancel" ? "cancelled" : "declined"} by the user.`,
             cause: err,
           }),
-        ),
-      ),
+        );
+      }),
     );
     const r = result as { readonly error?: unknown; readonly data?: unknown } | unknown;
     if (
@@ -102,6 +112,18 @@ export const makeExecutorToolInvoker = (
     return r;
   }),
 });
+
+const isElicitationDeclinedError = (
+  value: unknown,
+): value is { readonly _tag: "ElicitationDeclinedError"; readonly toolId: string; readonly action: "cancel" | "decline" } =>
+  value !== null &&
+  typeof value === "object" &&
+  "_tag" in value &&
+  value._tag === "ElicitationDeclinedError" &&
+  "toolId" in value &&
+  typeof value.toolId === "string" &&
+  "action" in value &&
+  (value.action === "cancel" || value.action === "decline");
 
 export type ToolDiscoveryResult = {
   readonly path: string;

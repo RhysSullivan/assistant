@@ -1,4 +1,4 @@
-import { Deferred, Effect, FiberRef, Option, Schema } from "effect";
+import { Context, Deferred, Effect, Option, Result, Schema, Semaphore } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 import {
   StorageError,
@@ -19,6 +19,7 @@ import {
   ConnectionRef,
   ConnectionRefreshError,
   type ConnectionProvider,
+  type ConnectionRefreshResult,
   type CreateConnectionInput,
   type UpdateConnectionTokensInput,
 } from "./connections";
@@ -539,8 +540,9 @@ const toolMatchesFilter = (tool: Tool, filter: ToolListFilter): boolean => {
 // query through the same sql.begin connection. This is what makes nested
 // writes atomic on postgres + Hyperdrive without deadlocking a pool of 1.
 // ---------------------------------------------------------------------------
-const activeAdapterRef = FiberRef.unsafeMake<DBTransactionAdapter | null>(
-  null,
+const activeAdapterRef = Context.Reference<DBTransactionAdapter | null>(
+  "executor/ActiveAdapter",
+  { defaultValue: () => null },
 );
 
 // A `DBAdapter` whose methods dispatch to the active adapter (tx handle or
@@ -551,7 +553,7 @@ const buildAdapterRouter = (root: DBAdapter): DBAdapter => {
   const pick = <A, E>(
     use: (active: DBTransactionAdapter) => Effect.Effect<A, E>,
   ): Effect.Effect<A, E> =>
-    Effect.flatMap(FiberRef.get(activeAdapterRef), (active) =>
+    Effect.flatMap(Effect.service(activeAdapterRef), (active) =>
       use((active ?? (root as DBTransactionAdapter))),
     );
 
@@ -574,10 +576,10 @@ const buildAdapterRouter = (root: DBAdapter): DBAdapter => {
     // sees a FiberRef-substituted adapter so further nested writes thread
     // through.
     transaction: (callback) =>
-      Effect.flatMap(FiberRef.get(activeAdapterRef), (active) => {
+      Effect.flatMap(Effect.service(activeAdapterRef), (active) => {
         if (active) return callback(active);
         return root.transaction((trx) =>
-          Effect.locally(callback(trx), activeAdapterRef, trx),
+          Effect.provideService(callback(trx), activeAdapterRef, trx),
         );
       }),
   } as DBAdapter;
@@ -611,11 +613,15 @@ export const createExecutor = <
   config: ExecutorConfig<TPlugins>,
 ): Effect.Effect<Executor<TPlugins>, Error> =>
   Effect.gen(function* () {
+    const defaultPlugins = (): TPlugins => {
+      const empty: readonly AnyPlugin[] = [];
+      return empty as TPlugins;
+    };
     const {
       scopes,
       adapter: rootAdapter,
       blobs,
-      plugins = [] as unknown as TPlugins,
+      plugins = defaultPlugins(),
     } = config;
 
     if (scopes.length === 0) {
@@ -684,7 +690,7 @@ export const createExecutor = <
         | StorageFailure
       >
     >();
-    const refreshInFlightLock = Effect.unsafeMakeSemaphore(1);
+    const refreshInFlightLock = Semaphore.makeUnsafe(1);
     const extensions: Record<string, object> = {};
 
     // ------------------------------------------------------------------
@@ -781,7 +787,7 @@ export const createExecutor = <
           candidates.map((p) =>
             p
               .get(id, fallbackScope)
-              .pipe(Effect.catchAll(() => Effect.succeed(null))),
+              .pipe(Effect.catch(() => Effect.succeed(null))),
           ),
           { concurrency: "unbounded" },
         );
@@ -825,7 +831,7 @@ export const createExecutor = <
       if (!provider?.has) return Effect.succeed(true);
       return provider
         .has(row.id as string, row.scope_id as string)
-        .pipe(Effect.catchAll(() => Effect.succeed(false)));
+        .pipe(Effect.catch(() => Effect.succeed(false)));
     };
 
     const secretsSet = (
@@ -1057,7 +1063,7 @@ export const createExecutor = <
             p
               .list!()
               .pipe(
-                Effect.catchAll(() => Effect.succeed([] as const)),
+                Effect.catch(() => Effect.succeed([] as const)),
                 Effect.map((entries) => ({ key, entries })),
               ),
           ),
@@ -1089,7 +1095,7 @@ export const createExecutor = <
       Effect.gen(function* () {
         const list = yield* secretsList();
         return list.map((ref) => ({
-          id: ref.id as unknown as string,
+          id: String(ref.id),
           name: ref.name,
           provider: ref.provider,
         }));
@@ -1493,7 +1499,7 @@ export const createExecutor = <
               yield* Effect.all(
                 deleters.map((p) =>
                   p.delete(secret.id as string, scope).pipe(
-                    Effect.catchAllCause((cause) =>
+                    Effect.catchCause((cause) =>
                       Effect.logWarning(
                         `Failed to delete connection-owned secret from provider ${p.key}`,
                         cause,
@@ -1561,7 +1567,7 @@ export const createExecutor = <
         }
 
         const refreshTokenValue = ref.refreshTokenSecretId
-          ? yield* connectionSecretGet(ref.refreshTokenSecretId as unknown as string)
+          ? yield* connectionSecretGet(ref.refreshTokenSecretId)
           : null;
 
         // RFC 6749 §5.2 `invalid_grant` (and anything else the
@@ -1569,7 +1575,10 @@ export const createExecutor = <
         // stored refresh token can't recover. Translate into the
         // caller-visible "re-authenticate" error so the UI can
         // prompt sign-in instead of silently retrying.
-        const rawResult = yield* Effect.either(
+        const rawResult: Result.Result<
+          ConnectionRefreshResult,
+          ConnectionRefreshError
+        > = yield* Effect.result(
           provider.refresh({
             connectionId: ref.id,
             scopeId: ref.scopeId,
@@ -1579,8 +1588,8 @@ export const createExecutor = <
             oauthScope: ref.oauthScope,
           }),
         );
-        if (rawResult._tag === "Left") {
-          const err = rawResult.left;
+        if (Result.isFailure(rawResult)) {
+          const err = rawResult.failure;
           if (err.reauthRequired) {
             return yield* Effect.fail(
               new ConnectionReauthRequiredError({
@@ -1592,7 +1601,7 @@ export const createExecutor = <
           }
           return yield* Effect.fail(err);
         }
-        const result = rawResult.right;
+        const result = rawResult.success;
 
         yield* connectionsUpdateTokens({
           id: ref.id,
@@ -1638,7 +1647,7 @@ export const createExecutor = <
 
         if (!needsRefresh) {
           const current = yield* connectionSecretGet(
-            ref.accessTokenSecretId as unknown as string,
+            ref.accessTokenSecretId,
           );
           if (current !== null) return current;
           // Fall through to refresh if the stored token vanished — a
@@ -1666,7 +1675,7 @@ export const createExecutor = <
         );
 
         if (action.kind === "await") {
-          return yield* action.deferred;
+          return yield* Deferred.await(action.deferred);
         }
 
         // Leader path: run the refresh, pipe the outcome into the
@@ -2540,7 +2549,7 @@ export const createExecutor = <
           if (!runtime.plugin.detect) continue;
           const result = yield* runtime.plugin
             .detect({ ctx: runtime.ctx, url })
-            .pipe(Effect.catchAll(() => Effect.succeed(null)));
+            .pipe(Effect.catch(() => Effect.succeed(null)));
           if (result) results.push(result);
         }
         return results.sort(
@@ -2573,7 +2582,7 @@ export const createExecutor = <
           if (!provider.list) continue;
           const entries = yield* provider
             .list()
-            .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+            .pipe(Effect.catch(() => Effect.succeed([] as const)));
           if (entries.some((e) => e.id === id)) return "resolved";
         }
         return "missing";
@@ -2799,5 +2808,7 @@ export const createExecutor = <
     // those leak via the helper functions and won't be cleaned until
     // every plugin tightens its surface to typed errors. The runtime
     // shape matches `Executor<TPlugins>`.
-    return Object.assign(base, extensions) as unknown as Executor<TPlugins>;
+    const toExecutor = (value: unknown): Executor<TPlugins> =>
+      value as Executor<TPlugins>;
+    return toExecutor(Object.assign(base, extensions));
   });

@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/cloudflare";
 import { Data } from "effect";
-import { HttpServerResponse } from "@effect/platform";
+import { HttpServerResponse } from "effect/unstable/http";
 
 export class HttpResponseError extends Data.TaggedError("HttpResponseError")<{
   readonly status: number;
@@ -31,7 +31,7 @@ export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpSe
     console.error("[api] toErrorServerResponse error:", error instanceof Error ? error.stack : error);
     Sentry.captureException(error);
   }
-  return HttpServerResponse.unsafeJson(
+  return HttpServerResponse.jsonUnsafe(
     { error: mapped.message, code: mapped.code },
     { status: mapped.status },
   );

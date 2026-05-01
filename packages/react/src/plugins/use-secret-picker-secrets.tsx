@@ -12,7 +12,7 @@ export function useSecretPickerSecrets(): readonly SecretPickerSecret[] {
     onInitial: () => [] as SecretPickerSecret[],
     onFailure: () => [] as SecretPickerSecret[],
     onSuccess: ({ value }) =>
-      value.map((secret) => ({
+      value.map((secret: { readonly id: string; readonly name: string; readonly provider?: string }) => ({
         id: secret.id,
         name: secret.name,
         provider: secret.provider ? String(secret.provider) : undefined,

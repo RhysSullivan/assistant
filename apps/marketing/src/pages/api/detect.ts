@@ -120,9 +120,9 @@ export const POST: APIRoute = async ({ request }) => {
 
     const result = await Effect.runPromise(
       program.pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catchCause(() => Effect.succeed(null)),
         Effect.timeout("25 seconds"),
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catchCause(() => Effect.succeed(null)),
       ),
     );
 

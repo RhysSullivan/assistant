@@ -1,9 +1,5 @@
-import {
-  HttpApiBuilder,
-  HttpApp,
-  HttpServer,
-  HttpApi,
-} from "@effect/platform";
+import { HttpApiBuilder, HttpApi } from "effect/unstable/httpapi";
+import { HttpRouter } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
@@ -14,10 +10,10 @@ import { WorkOSAuth } from "./workos";
 
 const TestAuthPublicApi = HttpApi.make("cloudWeb").add(CloudAuthPublicApi);
 
-const makeAuthFetch = (workos: Partial<WorkOSAuth["Type"]>) => {
+const makeAuthFetch = (workos: Partial<WorkOSAuth["Service"]>) => {
   const WorkOSTest = Layer.succeed(
     WorkOSAuth,
-    new Proxy(workos as WorkOSAuth["Type"], {
+    new Proxy(workos as WorkOSAuth["Service"], {
       get: (target, prop) => {
         if (prop in target) return target[prop as keyof typeof target];
         return () => {
@@ -26,25 +22,17 @@ const makeAuthFetch = (workos: Partial<WorkOSAuth["Type"]>) => {
       },
     }),
   );
-  const UserStoreTest = Layer.succeed(UserStoreService, {
+  const UserStoreTest = Layer.succeed(UserStoreService)({
     use: <A>() => Effect.sync(() => undefined as A),
   });
-  const app = Effect.flatMap(
-    HttpApiBuilder.httpApp.pipe(
-      Effect.provide(
-        HttpApiBuilder.api(TestAuthPublicApi).pipe(
-          Layer.provide(CloudAuthPublicHandlers),
-          Layer.provideMerge(WorkOSTest),
-          Layer.provideMerge(UserStoreTest),
-          Layer.provideMerge(HttpServer.layerContext),
-          Layer.provideMerge(HttpApiBuilder.Router.Live),
-          Layer.provideMerge(HttpApiBuilder.Middleware.layer),
-        ),
-      ),
-    ),
-    (app) => app,
-  ).pipe(Effect.provide(HttpServer.layerContext));
-  return HttpApp.toWebHandler(app);
+  const apiLayer = HttpApiBuilder.layer(TestAuthPublicApi).pipe(
+    Layer.provide(CloudAuthPublicHandlers),
+    Layer.provideMerge(WorkOSTest),
+    Layer.provideMerge(UserStoreTest),
+    Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
+  );
+  const web = HttpRouter.toWebHandler(apiLayer as never, { disableLogger: true });
+  return web.handler as (request: Request) => Promise<Response>;
 };
 
 describe("Auth callback handlers", () => {
@@ -52,7 +40,7 @@ describe("Auth callback handlers", () => {
     Effect.gen(function* () {
       let observedState: string | undefined;
       const fetch = makeAuthFetch({
-        getAuthorizationUrl: (_redirectUri, state) => {
+        getAuthorizationUrl: (_redirectUri: string, state?: string) => {
           observedState = state;
           return `https://auth.example.test?state=${state}`;
         },

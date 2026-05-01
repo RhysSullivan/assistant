@@ -31,7 +31,9 @@ function RemoteEditForm(props: {
   onSave: () => void;
 }) {
   const scopeId = useScope();
-  const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
+  const doUpdate = useAtomSet(updateMcpSource as never, { mode: "promise" } as never) as (
+    input: unknown,
+  ) => Promise<unknown>;
   const secretList = useSecretPickerSecrets();
 
   const identity = useSourceIdentity({
@@ -193,7 +195,10 @@ export default function EditMcpSource({
   readonly onSave: () => void;
 }) {
   const scopeId = useScope();
-  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, sourceId));
+  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, sourceId)) as Result.Result<
+    McpStoredSourceSchemaType | null,
+    unknown
+  >;
 
   if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
     return (

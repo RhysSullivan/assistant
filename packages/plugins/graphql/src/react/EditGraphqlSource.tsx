@@ -44,7 +44,7 @@ function EditForm(props: {
   onSave: () => void;
 }) {
   const scopeId = useScope();
-  const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
+  const doUpdate = useAtomSet(updateGraphqlSource as any, { mode: "promise" } as any) as any;
   const secretList = useSecretPickerSecrets();
 
   const identity = useSourceIdentity({
@@ -206,9 +206,9 @@ export default function EditGraphqlSource(props: {
   onSave: () => void;
 }) {
   const scopeId = useScope();
-  const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId));
+  const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId) as any) as any;
 
-  if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
+  if (!Result.isSuccess(sourceResult as any) || !sourceResult.value) {
     return (
       <div className="space-y-6">
         <div>
@@ -226,7 +226,7 @@ export default function EditGraphqlSource(props: {
   return (
     <EditForm
       sourceId={props.sourceId}
-      initial={sourceResult.value}
+      initial={sourceResult.value as EditableSource}
       onSave={props.onSave}
     />
   );

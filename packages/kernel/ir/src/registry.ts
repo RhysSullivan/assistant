@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { JsonSchema7Root } from "effect/JSONSchema";
+import type { JsonSchema } from "effect/JsonSchema";
 
 export class ToolRegistration extends Schema.Class<ToolRegistration>("ToolRegistration")({
   path: Schema.String,
@@ -12,7 +12,7 @@ export class ToolRegistration extends Schema.Class<ToolRegistration>("ToolRegist
 
 export class SerializedCatalog extends Schema.Class<SerializedCatalog>("SerializedCatalog")({
   version: Schema.Literal("v4.1"),
-  types: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  types: Schema.Record(Schema.String, Schema.Unknown),
   tools: Schema.Array(ToolRegistration),
 }) {}
 
@@ -20,13 +20,13 @@ export interface LiveToolRegistration {
   readonly path: string;
   readonly description?: string;
   readonly sourceId: string;
-  readonly input?: Schema.Schema.AnyNoContext;
-  readonly output?: Schema.Schema.AnyNoContext;
-  readonly error?: Schema.Schema.AnyNoContext;
+  readonly input?: Schema.Top;
+  readonly output?: Schema.Top;
+  readonly error?: Schema.Top;
 }
 
 export interface LiveCatalog {
   readonly version: "v4.1";
-  readonly types: Record<string, JsonSchema7Root>;
+  readonly types: Record<string, JsonSchema>;
   readonly tools: readonly LiveToolRegistration[];
 }

@@ -44,7 +44,7 @@ export default function GoogleDiscoverySignInButton(props: { sourceId: string })
   const isConnected =
     oauth2 !== null &&
     connections !== null &&
-    connections.some((c) => c.id === oauth2.connectionId);
+    connections.some((c: { readonly id: string }) => c.id === oauth2.connectionId);
 
   const handleSignIn = useCallback(async () => {
     if (!oauth2 || !source) return;

@@ -2,7 +2,7 @@
 // Cloud MCP handler — Effect-native HTTP app for /mcp + /.well-known/*
 // ---------------------------------------------------------------------------
 //
-// Built on `@effect/platform`'s `HttpApp.toWebHandler`. start.ts's
+// Built on `@effect/platform`'s `HttpEffect.toWebHandler`. start.ts's
 // mcpRequestMiddleware calls `mcpFetch` and falls through to `next()` when it
 // returns `null` (non-MCP path) so TanStack Start keeps routing.
 //
@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
-import { HttpApp, HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import * as Sentry from "@sentry/cloudflare";
 import { Context, Effect, Layer, Option, Schema } from "effect";
 
@@ -111,16 +111,16 @@ const corsPreflight = HttpServerResponse.empty({
 // Auth
 // ---------------------------------------------------------------------------
 
-export class McpAuth extends Context.Tag("@executor-js/cloud/McpAuth")<
+export class McpAuth extends Context.Service<
   McpAuth,
   {
     readonly verifyBearer: (
       request: Request,
     ) => Effect.Effect<McpAuthResult, McpJwtVerificationError>;
   }
->() {}
+>()("@executor-js/cloud/McpAuth") {}
 
-export class McpOrganizationAuth extends Context.Tag("@executor-js/cloud/McpOrganizationAuth")<
+export class McpOrganizationAuth extends Context.Service<
   McpOrganizationAuth,
   {
     readonly authorize: (
@@ -128,7 +128,7 @@ export class McpOrganizationAuth extends Context.Tag("@executor-js/cloud/McpOrga
       organizationId: string,
     ) => Effect.Effect<boolean, unknown>;
   }
->() {}
+>()("@executor-js/cloud/McpOrganizationAuth") {}
 
 const verifyJwt = (token: string) =>
   verifyWorkOSMcpAccessToken(token, jwks, {
@@ -140,7 +140,7 @@ const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 const McpOrganizationAuthServices = Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
 
-export const McpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth, {
+export const McpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth)({
   authorize: (accountId, organizationId) =>
     authorizeOrganization(accountId, organizationId).pipe(
       Effect.map((org) => org !== null),
@@ -148,7 +148,7 @@ export const McpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth, {
     ),
 });
 
-export const McpAuthLive = Layer.succeed(McpAuth, {
+export const McpAuthLive = Layer.succeed(McpAuth)({
   verifyBearer: Effect.fn("mcp.auth.verify_bearer")(function* (request) {
     const authHeader = request.headers.get("authorization");
     if (!authHeader?.startsWith(BEARER_PREFIX)) {
@@ -208,8 +208,11 @@ type CfRequestMetadata = {
   colo?: string;
 };
 
+const requestWithCf = (request: Request): Request & { cf?: CfRequestMetadata } =>
+  request as Request & { cf?: CfRequestMetadata };
+
 const getCfMeta = (request: Request): CfRequestMetadata =>
-  ((request as unknown as { cf?: CfRequestMetadata }).cf ?? {}) as CfRequestMetadata;
+  requestWithCf(request).cf ?? {};
 
 const HEADERS_TO_DUMP = [
   "accept",
@@ -251,11 +254,11 @@ const dumpHeaders = (request: Request): Record<string, string> => {
 // actually send us" as declarative types. Unknown/malformed input decodes
 // to None and contributes no span attrs.
 
-const UnknownRecord = Schema.Record({ key: Schema.String, value: Schema.Unknown });
+const UnknownRecord = Schema.Record(Schema.String, Schema.Unknown);
 
 const JsonRpcEnvelope = Schema.Struct({
   method: Schema.optional(Schema.String),
-  id: Schema.optional(Schema.Union(Schema.String, Schema.Number, Schema.Null)),
+  id: Schema.optional(Schema.Union([Schema.String, Schema.Number, Schema.Null])),
   params: Schema.optional(UnknownRecord),
   // Responses to server-initiated requests arrive as POST bodies too —
   // notably elicitation replies (`result.action = "accept" | "decline" | "cancel"`).
@@ -264,7 +267,7 @@ const JsonRpcEnvelope = Schema.Struct({
 type JsonRpcEnvelope = typeof JsonRpcEnvelope.Type;
 
 const ElicitationReplyResult = Schema.Struct({
-  action: Schema.optional(Schema.Literal("accept", "decline", "cancel")),
+  action: Schema.optional(Schema.Literals(["accept", "decline", "cancel"])),
 });
 
 const InitializeParams = Schema.Struct({
@@ -282,15 +285,18 @@ const InitializeParams = Schema.Struct({
 const NamedParams = Schema.Struct({ name: Schema.optional(Schema.String) });
 const UriParams = Schema.Struct({ uri: Schema.optional(Schema.String) });
 
-const decode = <A, I>(schema: Schema.Schema<A, I>, input: unknown): Option.Option<A> =>
-  Schema.decodeUnknownOption(schema)(input);
+const decodeJsonRpcEnvelope = Schema.decodeUnknownOption(JsonRpcEnvelope);
+const decodeInitializeParams = Schema.decodeUnknownOption(InitializeParams);
+const decodeNamedParams = Schema.decodeUnknownOption(NamedParams);
+const decodeUriParams = Schema.decodeUnknownOption(UriParams);
+const decodeElicitationReplyResult = Schema.decodeUnknownOption(ElicitationReplyResult);
 
 const readJsonRpcEnvelope = (request: Request): Effect.Effect<Option.Option<JsonRpcEnvelope>> =>
   Effect.promise(async () => {
     try {
       const text = await request.clone().text();
       if (!text) return Option.none();
-      return decode(JsonRpcEnvelope, JSON.parse(text));
+      return decodeJsonRpcEnvelope(JSON.parse(text));
     } catch {
       return Option.none();
     }
@@ -300,7 +306,7 @@ const methodAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
   const params = envelope.params ?? {};
   switch (envelope.method) {
     case "initialize":
-      return Option.match(decode(InitializeParams, params), {
+      return Option.match(decodeInitializeParams(params), {
         onNone: () => ({}),
         onSome: (init) => ({
           ...(init.protocolVersion && { "mcp.client.protocol_version": init.protocolVersion }),
@@ -313,18 +319,18 @@ const methodAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
         }),
       });
     case "tools/call":
-      return Option.match(decode(NamedParams, params), {
+      return Option.match(decodeNamedParams(params), {
         onNone: () => ({}),
         onSome: ({ name }) => (name ? { "mcp.tool.name": name } : {}),
       });
     case "resources/read":
     case "resources/subscribe":
-      return Option.match(decode(UriParams, params), {
+      return Option.match(decodeUriParams(params), {
         onNone: () => ({}),
         onSome: ({ uri }) => (uri ? { "mcp.resource.uri": uri } : {}),
       });
     case "prompts/get":
-      return Option.match(decode(NamedParams, params), {
+      return Option.match(decodeNamedParams(params), {
         onNone: () => ({}),
         onSome: ({ name }) => (name ? { "mcp.prompt.name": name } : {}),
       });
@@ -335,7 +341,7 @@ const methodAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
 
 const replyAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
   if (!envelope.result || envelope.method) return {};
-  return Option.match(decode(ElicitationReplyResult, envelope.result), {
+  return Option.match(decodeElicitationReplyResult(envelope.result), {
     onNone: () => ({}),
     onSome: ({ action }) => (action ? { "mcp.elicitation.action": action } : {}),
   });
@@ -480,7 +486,7 @@ const withMcpResponseHeaders = (response: Response): Response => {
 /**
  * Forward a request to an existing session DO. Wrapping the DO's `Response`
  * with `HttpServerResponse.raw` lets streaming bodies (SSE) pass through
- * `HttpApp.toWebHandler`'s conversion unchanged.
+ * `HttpEffect.toWebHandler`'s conversion unchanged.
  */
 const forwardToExistingSession = (
   request: Request,
@@ -516,7 +522,7 @@ const clearExistingSession = (request: Request, sessionId: string) =>
     const stub = ns.get(ns.idFromString(sessionId));
     const propagation = yield* currentPropagationHeaders(request);
     yield* Effect.promise(() => stub.clearSession(propagation) as Promise<void>).pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catchCause(() => Effect.void),
       Effect.withSpan("mcp.do.clear_session", {
         attributes: { "mcp.request.session_id_present": true },
       }),
@@ -536,7 +542,7 @@ const authorizeMcpOrganization = (
 
     const auth = yield* McpOrganizationAuth;
     const allowed = yield* auth.authorize(token.accountId, organizationId).pipe(
-      Effect.catchAll((error) =>
+      Effect.catchCause((error) =>
         Effect.gen(function* () {
           yield* Effect.annotateCurrentSpan({
             "mcp.auth.organization_authorize_error": String(error),
@@ -654,16 +660,16 @@ export const mcpApp: Effect.Effect<
   if (route === "oauth-authorization-server") return yield* authorizationServerMetadata;
 
   const auth = yield* McpAuth;
-  const authResult = yield* auth.verifyBearer(request).pipe(Effect.either);
+  const authResult = yield* auth.verifyBearer(request).pipe(Effect.result);
 
-  if (authResult._tag === "Left") {
+  if (authResult._tag === "Failure") {
     yield* annotateMcpRequest(request, {
       token: null,
       parseBody: request.method === "POST",
     });
-    return yield* authTemporarilyUnavailable(authResult.left);
+    return yield* authTemporarilyUnavailable(authResult.failure);
   }
-  const authValue = authResult.right;
+  const authValue = authResult.success;
 
   // Annotate before dispatch so even 401s show up with what we know. Only
   // POST bodies are JSON-RPC payloads worth parsing; GET (SSE) and DELETE
@@ -689,7 +695,7 @@ export const mcpApp: Effect.Effect<
   }
 }).pipe(
   Effect.withSpan("mcp.request"),
-  Effect.catchAllCause((cause) =>
+  Effect.catchCause((cause) =>
     Effect.sync(() => {
       console.error("[mcp] request failed:", cause);
       Sentry.captureException(cause);
@@ -698,7 +704,7 @@ export const mcpApp: Effect.Effect<
   ),
 );
 
-const rawMcpFetch = HttpApp.toWebHandler(
+const rawMcpFetch = HttpEffect.toWebHandler(
   mcpApp.pipe(Effect.provide(Layer.mergeAll(McpAuthLive, McpOrganizationAuthLive, TelemetryLive))),
 );
 

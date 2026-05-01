@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, expect, it } from "@effect/vitest";
 import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk";
 

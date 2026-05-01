@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { ScopeId, SecretBackedValue } from "@executor-js/sdk";
 import { InternalError } from "@executor-js/api";
@@ -17,13 +17,31 @@ import {
 // Params
 // ---------------------------------------------------------------------------
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
-const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
-const sourceScopeIdParam = HttpApiSchema.param("sourceScopeId", ScopeId);
+const DomainErrors = [
+  InternalError,
+  OpenApiParseError,
+  OpenApiExtractionError,
+  OpenApiOAuthError,
+] as const;
+
+const ScopeIdParam = {
+  scopeId: ScopeId,
+};
+
+const SourceParams = {
+  scopeId: ScopeId,
+  namespace: Schema.String,
+};
+
+const SourceBindingParams = {
+  scopeId: ScopeId,
+  namespace: Schema.String,
+  sourceScopeId: ScopeId,
+};
 
 const SpecFetchCredentialsPayload = Schema.Struct({
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
-  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
+  headers: Schema.optional(Schema.Record(Schema.String, SecretBackedValue)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, SecretBackedValue)),
 });
 
 // ---------------------------------------------------------------------------
@@ -36,9 +54,9 @@ const AddSpecPayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
-  oauth2: Schema.optional(Schema.Union(OAuth2Auth, OAuth2SourceConfig)),
+  headers: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, SecretBackedValue)),
+  oauth2: Schema.optional(Schema.Union([OAuth2Auth, OAuth2SourceConfig])),
 });
 
 const PreviewSpecPayload = Schema.Struct({
@@ -49,11 +67,11 @@ const PreviewSpecPayload = Schema.Struct({
 const UpdateSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: SecretBackedValue })),
+  headers: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, SecretBackedValue)),
   // Set after a successful re-authenticate to refresh the source's
   // stored OAuth2 metadata.
-  oauth2: Schema.optional(Schema.Union(OAuth2Auth, OAuth2SourceConfig)),
+  oauth2: Schema.optional(Schema.Union([OAuth2Auth, OAuth2SourceConfig])),
 });
 
 const UpdateSourceResponse = Schema.Struct({
@@ -96,53 +114,67 @@ const AddSpecResponse = Schema.Struct({
 // time via `withCapture(executor)`.
 // ---------------------------------------------------------------------------
 
-export class OpenApiGroup extends HttpApiGroup.make("openapi")
+export const OpenApiGroup = HttpApiGroup.make("openapi")
   .add(
-    HttpApiEndpoint.post("previewSpec")`/scopes/${scopeIdParam}/openapi/preview`
-      .setPayload(PreviewSpecPayload)
-      .addSuccess(SpecPreview),
+    HttpApiEndpoint.post("previewSpec", "/scopes/:scopeId/openapi/preview", {
+      params: ScopeIdParam,
+      payload: PreviewSpecPayload,
+      success: SpecPreview,
+      error: DomainErrors,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("addSpec")`/scopes/${scopeIdParam}/openapi/specs`
-      .setPayload(AddSpecPayload)
-      .addSuccess(AddSpecResponse),
+    HttpApiEndpoint.post("addSpec", "/scopes/:scopeId/openapi/specs", {
+      params: ScopeIdParam,
+      payload: AddSpecPayload,
+      success: AddSpecResponse,
+      error: DomainErrors,
+    }),
   )
   .add(
-    HttpApiEndpoint.get(
-      "getSource",
-    )`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`.addSuccess(
-      Schema.NullOr(StoredSourceSchema),
-    ),
+    HttpApiEndpoint.get("getSource", "/scopes/:scopeId/openapi/sources/:namespace", {
+      params: SourceParams,
+      success: Schema.NullOr(StoredSourceSchema),
+      error: DomainErrors,
+    }),
   )
   .add(
-    HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
-      .setPayload(UpdateSourcePayload)
-      .addSuccess(UpdateSourceResponse),
+    HttpApiEndpoint.patch("updateSource", "/scopes/:scopeId/openapi/sources/:namespace", {
+      params: SourceParams,
+      payload: UpdateSourcePayload,
+      success: UpdateSourceResponse,
+      error: DomainErrors,
+    }),
   )
   .add(
     HttpApiEndpoint.get(
       "listSourceBindings",
-    )`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}/base/${sourceScopeIdParam}/bindings`.addSuccess(
-      Schema.Array(OpenApiSourceBindingRef),
+      "/scopes/:scopeId/openapi/sources/:namespace/base/:sourceScopeId/bindings",
+      {
+        params: SourceBindingParams,
+        success: Schema.Array(OpenApiSourceBindingRef),
+        error: DomainErrors,
+      },
     ),
   )
   .add(
-    HttpApiEndpoint.post("setSourceBinding")`/scopes/${scopeIdParam}/openapi/source-bindings`
-      .setPayload(OpenApiSourceBindingInput)
-      .addSuccess(OpenApiSourceBindingRef),
+    HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/openapi/source-bindings", {
+      params: ScopeIdParam,
+      payload: OpenApiSourceBindingInput,
+      success: OpenApiSourceBindingRef,
+      error: DomainErrors,
+    }),
   )
   .add(
     HttpApiEndpoint.post(
       "removeSourceBinding",
-    )`/scopes/${scopeIdParam}/openapi/source-bindings/remove`
-      .setPayload(RemoveBindingPayload)
-      .addSuccess(Schema.Struct({ removed: Schema.Boolean })),
+      "/scopes/:scopeId/openapi/source-bindings/remove",
+      {
+        params: ScopeIdParam,
+        payload: RemoveBindingPayload,
+        success: Schema.Struct({ removed: Schema.Boolean }),
+        error: DomainErrors,
+      },
+    ),
   )
-  // Errors declared once at the group level — every endpoint inherits.
-  // Plugin domain errors carry their own HttpApiSchema status (4xx);
-  // `InternalError` is the shared opaque 500 translated at the HTTP
-  // edge by `withCapture`.
-  .addError(InternalError)
-  .addError(OpenApiParseError)
-  .addError(OpenApiExtractionError)
-  .addError(OpenApiOAuthError) {}
+;

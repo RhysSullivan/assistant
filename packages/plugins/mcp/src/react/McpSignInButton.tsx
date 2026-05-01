@@ -14,6 +14,7 @@ import {
 import { slugifyNamespace } from "@executor-js/react/plugins/source-identity";
 
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
+import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
 // McpSignInButton — top-bar action on the source detail page.
@@ -27,9 +28,14 @@ import { mcpSourceAtom, updateMcpSource } from "./atoms";
 
 export default function McpSignInButton(props: { sourceId: string }) {
   const scopeId = useScope();
-  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, props.sourceId));
+  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, props.sourceId)) as Result.Result<
+    McpStoredSourceSchemaType | null,
+    unknown
+  >;
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
-  const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
+  const doUpdate = useAtomSet(updateMcpSource as never, { mode: "promise" } as never) as (
+    input: unknown,
+  ) => Promise<unknown>;
   const oauth = useOAuthPopupFlow({
     popupName: "mcp-oauth",
   });
@@ -37,7 +43,9 @@ export default function McpSignInButton(props: { sourceId: string }) {
   const source = Result.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
   const remote = source && source.config.transport === "remote" ? source.config : null;
   const oauth2 = remote && remote.auth.kind === "oauth2" ? remote.auth : null;
-  const connections = Result.isSuccess(connectionsResult) ? connectionsResult.value : null;
+  const connections = Result.isSuccess(connectionsResult)
+    ? (connectionsResult.value as readonly { readonly id: string }[])
+    : null;
   const isConnected =
     oauth2 !== null &&
     connections !== null &&

@@ -2,7 +2,7 @@ import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
 import { AuthContext } from "../auth/middleware";
-import { WorkOSAuth } from "../auth/workos";
+import { WorkOSAuth, type WorkOSAuthService } from "../auth/workos";
 import { Forbidden } from "./api";
 
 // ---------------------------------------------------------------------------
@@ -24,7 +24,7 @@ type StubOverrides = {
 const stubWorkOS = (overrides: StubOverrides = {}) =>
   Layer.succeed(
     WorkOSAuth,
-    new Proxy({} as WorkOSAuth["Type"], {
+    new Proxy({} as WorkOSAuthService, {
       get: (_target, prop) => {
         if (prop in overrides) return (overrides as Record<string, unknown>)[prop as string];
         return () => {
@@ -121,7 +121,7 @@ const requireAdmin = Effect.gen(function* () {
 });
 
 const provide = (auth: typeof adminAuth, workosOverrides: StubOverrides = {}) =>
-  Layer.mergeAll(Layer.succeed(AuthContext, auth), stubWorkOS(workosOverrides));
+  Layer.mergeAll(Layer.succeed(AuthContext)(auth), stubWorkOS(workosOverrides));
 
 const withMembers: StubOverrides = {
   listOrgMembers: () => Effect.succeed({ data: fakeMemberships }),

@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect } from "effect";
 
 import { capture } from "@executor-js/api";
@@ -32,7 +32,7 @@ export const ConnectionsHandlers = HttpApiBuilder.group(
           }),
         ),
       )
-      .handle("remove", ({ path }) =>
+      .handle("remove", ({ params: path }) =>
         capture(
           Effect.gen(function* () {
             const executor = yield* ExecutorService;

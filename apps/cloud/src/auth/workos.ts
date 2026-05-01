@@ -217,13 +217,15 @@ const make = Effect.gen(function* () {
   };
 });
 
-export type WorkOSAuthService = Effect.Effect.Success<typeof make>;
+export type WorkOSAuthService = Effect.Success<typeof make>;
 
-export class WorkOSAuth extends Context.Tag("@executor-js/cloud/WorkOSAuth")<
+export class WorkOSAuth extends Context.Service<
   WorkOSAuth,
   WorkOSAuthService
->() {
-  static Default = Layer.effect(this, make).pipe(Layer.annotateSpans({ module: "WorkOSAuth" }));
+>()("@executor-js/cloud/WorkOSAuth") {
+  static Default = Layer.effect(this)(make).pipe(
+    Layer.withSpan("WorkOSAuth", { attributes: { module: "WorkOSAuth" } }),
+  );
 }
 
 const parseCookie = (cookieHeader: string | null, name: string): string | null => {

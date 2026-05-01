@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { Effect } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { autumnHandler } from "autumn-js/backend";
 
 import { WorkOSAuth } from "../auth/workos";
@@ -76,10 +76,10 @@ export const AutumnApiApp = Effect.gen(function* () {
     );
   }
 
-  return HttpServerResponse.unsafeJson(response, { status: statusCode });
+  return HttpServerResponse.jsonUnsafe(response, { status: statusCode });
 }).pipe(
   Effect.provide(SharedServices),
-  Effect.catchAll((err) => {
+  Effect.catchCause((err) => {
     if (isServerError(err)) {
       console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
     }

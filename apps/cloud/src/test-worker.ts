@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 //
 // Re-exports the real McpSessionDO and drives /mcp + /.well-known/* through
-// the same Effect HttpApp the prod worker uses. Only the `McpAuth` service
+// the same Effect HttpEffect the prod worker uses. Only the `McpAuth` service
 // is swapped: the real impl calls WorkOS's JWKS endpoint, which can't be
 // reached from the test isolate.
 //
@@ -13,7 +13,7 @@
 // load — that was SIGSEGV-ing workerd during test instantiation.
 // ---------------------------------------------------------------------------
 
-import { HttpApp } from "@effect/platform";
+import { HttpEffect } from "effect/unstable/http";
 import { Effect, Layer } from "effect";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
@@ -35,7 +35,7 @@ import { DoTelemetryLive } from "./services/telemetry";
 
 export { McpSessionDO } from "./mcp-session";
 
-const TestMcpAuthLive = Layer.succeed(McpAuth, {
+const TestMcpAuthLive = Layer.succeed(McpAuth)({
   verifyBearer: (request) =>
     Effect.gen(function* () {
       const header = request.headers.get("authorization");
@@ -52,7 +52,7 @@ const TestMcpAuthLive = Layer.succeed(McpAuth, {
     }),
 });
 
-const TestMcpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth, {
+const TestMcpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth)({
   authorize: (_accountId, organizationId) =>
     Effect.succeed(!organizationId.startsWith("revoked_")),
 });
@@ -108,7 +108,7 @@ const handleSeedOrg = async (
 // installed by `otel-cf-workers.instrument()`; the test worker has no such
 // instrumentation, so we reuse DoTelemetryLive (it's a plain WebSdk +
 // OTLPTraceExporter — not Durable-Object-specific) to stand in.
-const testMcpFetch = HttpApp.toWebHandler(
+const testMcpFetch = HttpEffect.toWebHandler(
   mcpApp.pipe(
     Effect.provide(
       Layer.mergeAll(TestMcpAuthLive, TestMcpOrganizationAuthLive, DoTelemetryLive),
@@ -116,7 +116,7 @@ const testMcpFetch = HttpApp.toWebHandler(
   ),
 );
 
-const realAuthMcpFetch = HttpApp.toWebHandler(
+const realAuthMcpFetch = HttpEffect.toWebHandler(
   mcpApp.pipe(Effect.provide(Layer.mergeAll(McpAuthLive, McpOrganizationAuthLive, DoTelemetryLive))),
 );
 

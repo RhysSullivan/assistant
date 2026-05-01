@@ -15,7 +15,7 @@ const sourcePlugins = [
   graphqlSourcePlugin,
 ];
 
-const SearchParams = Schema.standardSchemaV1(
+const SearchParams = Schema.toStandardSchemaV1(
   Schema.Struct({
     url: Schema.optional(Schema.String),
     preset: Schema.optional(Schema.String),

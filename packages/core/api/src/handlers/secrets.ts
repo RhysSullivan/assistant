@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect } from "effect";
 import { SetSecretInput, type SecretRef } from "@executor-js/sdk";
 
@@ -23,14 +23,14 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
         return refs.map(refToResponse);
       })),
     )
-    .handle("status", ({ path }) =>
+    .handle("status", ({ params: path }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         const status = yield* executor.secrets.status(path.secretId);
         return { secretId: path.secretId, status };
       })),
     )
-    .handle("set", ({ path, payload }) =>
+    .handle("set", ({ params: path, payload }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         const ref = yield* executor.secrets.set(
@@ -45,7 +45,7 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
         return refToResponse(ref);
       })),
     )
-    .handle("remove", ({ path }) =>
+    .handle("remove", ({ params: path }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         yield* executor.secrets.remove(path.secretId);

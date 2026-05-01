@@ -384,7 +384,7 @@ export function SecretsPage(props: {
                     </CardStackEntryActions>
                   </CardStackEntry>
                 ) : (
-                  value.map((s) => (
+                  value.map((s: { readonly id: string; readonly name: string; readonly provider: string }) => (
                     <SecretRow
                       key={s.id}
                       showProvider={showProviderInfo}

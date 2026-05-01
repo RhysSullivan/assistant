@@ -1,9 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as FiberId from "effect/FiberId";
 import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import {
   ToolDispatcher,
@@ -20,7 +19,11 @@ class TestToolError extends Data.TaggedError("TestToolError")<{
 const makeInvoker = (
   fn: (input: { path: string; args: unknown }) => unknown,
 ): SandboxToolInvoker => ({
-  invoke: (input) => Effect.try(() => fn(input)),
+  invoke: (input) =>
+    Effect.try({
+      try: () => fn(input),
+      catch: (error) => error,
+    }),
 });
 
 const failingInvoker = (message: string): SandboxToolInvoker => ({
@@ -117,7 +120,7 @@ describe("serializeWorkerCause", () => {
   });
 
   it("captures interruptions", () => {
-    const serialized = serializeWorkerCause(Cause.interrupt(FiberId.none));
+    const serialized = serializeWorkerCause(Cause.interrupt());
     expect(serialized.kind).toBe("interrupt");
     expect(serialized.interrupted).toBe(true);
     expect(renderWorkerError(serialized)).toBe("Interrupted");

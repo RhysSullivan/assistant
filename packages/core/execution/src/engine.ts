@@ -380,7 +380,7 @@ export const createExecutionEngine = <
       });
 
     const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
-    fiber = yield* Effect.forkDaemon(
+    fiber = yield* Effect.forkDetach(
       codeExecutor.execute(code, invoker).pipe(Effect.withSpan("executor.code.exec")),
     );
 
@@ -411,7 +411,7 @@ export const createExecutionEngine = <
     yield* Ref.set(paused.pauseSignalRef, nextSignal);
 
     yield* Deferred.succeed(paused.response, {
-      action: response.action,
+      action: response.action as typeof ElicitationResponse.Type.action,
       content: response.content,
     });
 

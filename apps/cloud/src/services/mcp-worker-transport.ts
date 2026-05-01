@@ -13,11 +13,6 @@ export type McpWorkerTransport = Readonly<{
   close: () => Effect.Effect<void>;
 }>;
 
-type WorkerTransportInternals = {
-  readonly standaloneSseStreamId?: string;
-  readonly streamMapping?: Map<string, { readonly cleanup?: () => void }>;
-};
-
 type JsonRpcLike = {
   readonly id?: unknown;
   readonly method?: unknown;
@@ -29,13 +24,24 @@ type HandleRequestResult = {
 };
 
 const closeExistingStandaloneSse = (transport: WorkerTransport): boolean => {
-  const internals = transport as unknown as WorkerTransportInternals;
-  const streamId = internals.standaloneSseStreamId ?? "_GET_stream";
-  const stream = internals.streamMapping?.get(streamId);
+  const streamId =
+    typeof Reflect.get(transport, "standaloneSseStreamId") === "string"
+      ? Reflect.get(transport, "standaloneSseStreamId")
+      : "_GET_stream";
+  const streamMapping = Reflect.get(transport, "streamMapping");
+  if (!(streamMapping instanceof Map)) return false;
+
+  const stream = streamMapping.get(streamId);
   if (!stream) return false;
 
-  stream.cleanup?.();
-  internals.streamMapping?.delete(streamId);
+  if (
+    typeof stream === "object" &&
+    stream !== null &&
+    typeof Reflect.get(stream, "cleanup") === "function"
+  ) {
+    Reflect.get(stream, "cleanup")();
+  }
+  streamMapping.delete(streamId);
   return true;
 };
 

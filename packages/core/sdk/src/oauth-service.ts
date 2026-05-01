@@ -98,14 +98,8 @@ import {
 // `OAuthStrategy["kind"]` so completion picks the right exchange path.
 // ---------------------------------------------------------------------------
 
-const OAuthAuthorizationServerMetadataJson = Schema.Record({
-  key: Schema.String,
-  value: Schema.Unknown,
-});
-const OAuthClientInformationJson = Schema.Record({
-  key: Schema.String,
-  value: Schema.Unknown,
-});
+const OAuthAuthorizationServerMetadataJson = Schema.Record(Schema.String, Schema.Unknown);
+const OAuthClientInformationJson = Schema.Record(Schema.String, Schema.Unknown);
 
 const DynamicDcrSessionPayload = Schema.Struct({
   kind: Schema.Literal("dynamic-dcr"),
@@ -117,7 +111,7 @@ const DynamicDcrSessionPayload = Schema.Struct({
   clientInformation: OAuthClientInformationJson,
   resourceMetadataUrl: Schema.NullOr(Schema.String),
   resourceMetadata: Schema.NullOr(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+    Schema.Record(Schema.String, Schema.Unknown),
   ),
   scopes: Schema.Array(Schema.String),
 });
@@ -128,23 +122,21 @@ const AuthorizationCodeSessionPayload = Schema.Struct({
   codeVerifier: Schema.String,
   authorizationEndpoint: Schema.String,
   tokenEndpoint: Schema.String,
-  issuerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
-    default: () => null,
-  }),
+  issuerUrl: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
   scopes: Schema.Array(Schema.String),
   scopeSeparator: Schema.optional(Schema.String),
-  clientAuth: Schema.Literal("body", "basic"),
+  clientAuth: Schema.Literals(["body", "basic"]),
 });
 
 /** `client-credentials` doesn't produce a session row — it mints the
  *  Connection inline during `start`. The shape is included here for
  *  completeness / future device-code use. */
-const OAuthSessionPayload = Schema.Union(
+const OAuthSessionPayload = Schema.Union([
   DynamicDcrSessionPayload,
   AuthorizationCodeSessionPayload,
-);
+]);
 type OAuthSessionPayload = typeof OAuthSessionPayload.Type;
 
 const decodeSessionPayload = Schema.decodeUnknownSync(OAuthSessionPayload);
@@ -444,7 +436,7 @@ export const makeOAuth2Service = (
           }
         },
         catch: () => null,
-      }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      }).pipe(Effect.catch(() => Effect.succeed(false)));
 
       return {
         resourceMetadata:
@@ -517,8 +509,10 @@ export const makeOAuth2Service = (
           started.state.authorizationServerMetadataUrl,
         authorizationServerMetadata:
           started.state.authorizationServerMetadata as Record<string, unknown>,
-        clientInformation:
-          started.state.clientInformation as unknown as Record<string, unknown>,
+        clientInformation: (() => {
+          const value: unknown = started.state.clientInformation;
+          return value as Record<string, unknown>;
+        })(),
         resourceMetadataUrl: started.state.resourceMetadataUrl,
         resourceMetadata:
           (started.state.resourceMetadata as Record<string, unknown> | null) ??

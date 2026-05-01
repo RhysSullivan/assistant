@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect } from "effect";
 import { ToolId, ToolNotFoundError } from "@executor-js/sdk";
 
@@ -22,7 +22,7 @@ export const ToolsHandlers = HttpApiBuilder.group(ExecutorApi, "tools", (handler
         }));
       })),
     )
-    .handle("schema", ({ path }) =>
+    .handle("schema", ({ params: path }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         const schema = yield* executor.tools.schema(path.toolId);

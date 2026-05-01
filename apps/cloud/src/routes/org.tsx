@@ -133,7 +133,7 @@ function OrgPage() {
   });
 
   const handleRemove = async (membershipId: string, name: string) => {
-    const exit = await doRemove({ path: { membershipId }, reactivityKeys: orgMemberWriteKeys });
+    const exit = await doRemove({ params: { membershipId }, reactivityKeys: orgMemberWriteKeys });
     if (Exit.isSuccess(exit)) {
       toast.success(`Removed ${name}`);
     } else {
@@ -143,7 +143,7 @@ function OrgPage() {
 
   const handleChangeRole = async (membershipId: string, roleSlug: string, roleName: string) => {
     const exit = await doUpdateRole({
-      path: { membershipId },
+      params: { membershipId },
       payload: { roleSlug },
       reactivityKeys: orgMemberWriteKeys,
     });
@@ -176,7 +176,7 @@ function OrgPage() {
 
   const handleDeleteDomain = async (domainId: string, domain: string) => {
     const exit = await doDeleteDomain({
-      path: { domainId },
+      params: { domainId },
       reactivityKeys: orgDomainWriteKeys,
     });
     if (Exit.isSuccess(exit)) {
@@ -289,7 +289,7 @@ function OrgPage() {
 
               return (
                 <div className="space-y-2">
-                  {value.domains.map((d) => (
+                  {value.domains.map((d: DomainData) => (
                     <DomainCard
                       key={d.id}
                       domain={d}
@@ -335,7 +335,7 @@ function OrgPage() {
             const members = value.members;
             const filtered = search
               ? members.filter(
-                  (m) =>
+                  (m: MemberData) =>
                     m.email.toLowerCase().includes(search.toLowerCase()) ||
                     (m.name?.toLowerCase().includes(search.toLowerCase()) ?? false),
                 )
@@ -351,7 +351,7 @@ function OrgPage() {
 
             return (
               <div className="space-y-px">
-                {filtered.map((member) => (
+                {filtered.map((member: MemberData) => (
                   <div
                     key={member.id}
                     className="group relative grid grid-cols-[2rem_1fr_6rem_5rem_2rem] items-center gap-3 rounded-lg border border-transparent px-4 py-3 transition-all hover:bg-muted/30"
@@ -364,7 +364,7 @@ function OrgPage() {
                         {member.name
                           ? member.name
                               .split(" ")
-                              .map((n) => n[0])
+                              .map((n: string) => n[0])
                               .join("")
                               .slice(0, 2)
                               .toUpperCase()
@@ -428,7 +428,7 @@ function OrgPage() {
                                   Change role
                                 </DropdownMenuSubTrigger>
                                 <DropdownMenuSubContent>
-                                  {roles.map((role) => (
+                                  {roles.map((role: RoleData) => (
                                     <DropdownMenuItem
                                       key={role.slug}
                                       className="text-xs"
@@ -493,6 +493,22 @@ type DomainData = {
   state: string;
   verificationToken?: string;
   verificationPrefix?: string;
+};
+
+type MemberData = {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: string;
+  status: string;
+  lastActiveAt: string | null;
+  isCurrentUser: boolean;
+};
+
+type RoleData = {
+  slug: string;
+  name: string;
 };
 
 function DomainCard({
@@ -702,4 +718,3 @@ function InviteDialog(props: {
     </Dialog>
   );
 }
-

@@ -273,7 +273,7 @@ describe("graphqlPlugin", () => {
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify({ data: { hello: "Hello Ada" } }));
       });
-      yield* Effect.async<void, Error>((resume) => {
+      yield* Effect.callback<void, Error>((resume) => {
         server.listen(0, "127.0.0.1", () => resume(Effect.void));
         server.once("error", (error) => resume(Effect.fail(error)));
       });

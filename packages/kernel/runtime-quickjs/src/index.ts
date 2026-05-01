@@ -6,7 +6,6 @@ import {
 } from "@executor-js/codemode-core";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Runtime from "effect/Runtime";
 import {
   getQuickJS,
   shouldInterruptAfterDeadline,
@@ -394,8 +393,8 @@ const runInQuickJs = (
   toolInvoker: SandboxToolInvoker,
 ): Effect.Effect<ExecuteResult, QuickJsExecutionError> =>
   Effect.gen(function* () {
-    const runtime = yield* Effect.runtime<never>();
-    const runPromise = Runtime.runPromise(runtime);
+    const context = yield* Effect.context<never>();
+    const runPromise = Effect.runPromiseWith(context);
     return yield* Effect.tryPromise({
       try: () => evaluateInQuickJs(options, code, toolInvoker, runPromise),
       catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),

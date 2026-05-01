@@ -69,7 +69,7 @@ type TestServer = {
 };
 
 const serveMcpServer = Effect.acquireRelease(
-  Effect.async<TestServer, Error>((resume) => {
+  Effect.callback<TestServer, Error>((resume) => {
     const transports = new Map<string, StreamableHTTPServerTransport>();
     let sessions = 0;
 
@@ -144,7 +144,7 @@ const makeTestExecutor = (serverUrl: string) =>
 // ---------------------------------------------------------------------------
 
 describe("MCP connection pooling (regression)", () => {
-  it.scoped(
+  it.effect(
     "five sequential invokes against the same source perform exactly one transport handshake",
     () =>
       Effect.gen(function* () {
@@ -185,7 +185,7 @@ describe("MCP connection pooling (regression)", () => {
       }),
   );
 
-  it.scoped(
+  it.effect(
     "different tools on the same source share the cached connection",
     () =>
       Effect.gen(function* () {

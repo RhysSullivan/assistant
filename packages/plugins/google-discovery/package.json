@@ -47,7 +47,6 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@effect/platform": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "effect": "catalog:"

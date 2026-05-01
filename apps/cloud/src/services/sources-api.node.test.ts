@@ -51,7 +51,7 @@ describe("sources api (HTTP)", () => {
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           const result = yield* client.openapi.addSpec({
-            path: { scopeId: ScopeId.make(org) },
+            params: { scopeId: ScopeId.make(org) },
             payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
           });
           expect(result.namespace).toBe(namespace);
@@ -60,7 +60,7 @@ describe("sources api (HTTP)", () => {
       );
 
       const sources = yield* asOrg(org, (client) =>
-        client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+        client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
       );
       expect(sources.map((s) => s.id)).toContain(namespace);
     }),
@@ -73,13 +73,13 @@ describe("sources api (HTTP)", () => {
 
       yield* asOrg(org, (client) =>
         client.openapi.addSpec({
-          path: { scopeId: ScopeId.make(org) },
+          params: { scopeId: ScopeId.make(org) },
           payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
         }),
       );
 
       const fetched = yield* asOrg(org, (client) =>
-        client.openapi.getSource({ path: { scopeId: ScopeId.make(org), namespace } }),
+        client.openapi.getSource({ params: { scopeId: ScopeId.make(org), namespace } }),
       );
       expect(fetched).not.toBeNull();
       expect(fetched?.namespace).toBe(namespace);
@@ -94,17 +94,17 @@ describe("sources api (HTTP)", () => {
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           yield* client.openapi.addSpec({
-            path: { scopeId: ScopeId.make(org) },
+            params: { scopeId: ScopeId.make(org) },
             payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
           });
           yield* client.sources.remove({
-            path: { scopeId: ScopeId.make(org), sourceId: namespace },
+            params: { scopeId: ScopeId.make(org), sourceId: namespace },
           });
         }),
       );
 
       const after = yield* asOrg(org, (client) =>
-        client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+        client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
       );
       expect(after.map((s) => s.id)).not.toContain(namespace);
     }),
@@ -117,8 +117,8 @@ describe("sources api (HTTP)", () => {
 
       const result = yield* asOrg(org, (client) =>
         client.sources
-          .remove({ path: { scopeId: ScopeId.make(org), sourceId: ghost } })
-          .pipe(Effect.either),
+          .remove({ params: { scopeId: ScopeId.make(org), sourceId: ghost } })
+          .pipe(Effect.result),
       );
       expect(result._tag).toBe("Right");
     }),
@@ -133,8 +133,8 @@ describe("sources api (HTTP)", () => {
 
       const result = yield* asOrg(org, (client) =>
         client.sources
-          .remove({ path: { scopeId: ScopeId.make(org), sourceId: "openapi" } })
-          .pipe(Effect.either),
+          .remove({ params: { scopeId: ScopeId.make(org), sourceId: "openapi" } })
+          .pipe(Effect.result),
       );
       expect(result._tag).toBe("Left");
     }),
@@ -148,18 +148,18 @@ describe("sources api (HTTP)", () => {
       yield* asOrg(org, (client) =>
         Effect.gen(function* () {
           yield* client.openapi.addSpec({
-            path: { scopeId: ScopeId.make(org) },
+            params: { scopeId: ScopeId.make(org) },
             payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
           });
           yield* client.openapi.updateSource({
-            path: { scopeId: ScopeId.make(org), namespace },
+            params: { scopeId: ScopeId.make(org), namespace },
             payload: { name: "Renamed API", baseUrl: "https://override.example.com" },
           });
         }),
       );
 
       const fetched = yield* asOrg(org, (client) =>
-        client.openapi.getSource({ path: { scopeId: ScopeId.make(org), namespace } }),
+        client.openapi.getSource({ params: { scopeId: ScopeId.make(org), namespace } }),
       );
       expect(fetched?.name).toBe("Renamed API");
       expect(fetched?.config.baseUrl).toBe("https://override.example.com");
@@ -177,7 +177,7 @@ describe("sources api (HTTP)", () => {
 
       yield* asOrg(orgId, (client) =>
         client.openapi.addSpec({
-          path: { scopeId: ScopeId.make(orgId) },
+          params: { scopeId: ScopeId.make(orgId) },
           payload: {
             spec: MINIMAL_OPENAPI_SPEC,
             namespace,
@@ -195,7 +195,7 @@ describe("sources api (HTTP)", () => {
       yield* asUser(aliceId, orgId, (client) =>
         Effect.gen(function* () {
           yield* client.secrets.set({
-            path: { scopeId: ScopeId.make(aliceScope) },
+            params: { scopeId: ScopeId.make(aliceScope) },
             payload: {
               id: SecretId.make("alice_pat"),
               name: "Alice PAT",
@@ -203,7 +203,7 @@ describe("sources api (HTTP)", () => {
             },
           });
           yield* client.openapi.setSourceBinding({
-            path: { scopeId: ScopeId.make(aliceScope) },
+            params: { scopeId: ScopeId.make(aliceScope) },
             payload: {
               sourceId: namespace,
               sourceScope: ScopeId.make(orgId),
@@ -221,7 +221,7 @@ describe("sources api (HTTP)", () => {
       yield* asUser(bobId, orgId, (client) =>
         Effect.gen(function* () {
           yield* client.secrets.set({
-            path: { scopeId: ScopeId.make(bobScope) },
+            params: { scopeId: ScopeId.make(bobScope) },
             payload: {
               id: SecretId.make("bob_pat"),
               name: "Bob PAT",
@@ -229,7 +229,7 @@ describe("sources api (HTTP)", () => {
             },
           });
           yield* client.openapi.setSourceBinding({
-            path: { scopeId: ScopeId.make(bobScope) },
+            params: { scopeId: ScopeId.make(bobScope) },
             payload: {
               sourceId: namespace,
               sourceScope: ScopeId.make(orgId),
@@ -246,7 +246,7 @@ describe("sources api (HTTP)", () => {
 
       const aliceBindings = yield* asUser(aliceId, orgId, (client) =>
         client.openapi.listSourceBindings({
-          path: {
+          params: {
             scopeId: ScopeId.make(aliceScope),
             namespace,
             sourceScopeId: ScopeId.make(orgId),
@@ -274,7 +274,7 @@ describe("sources api (HTTP)", () => {
 
       const bobBindings = yield* asUser(bobId, orgId, (client) =>
         client.openapi.listSourceBindings({
-          path: {
+          params: {
             scopeId: ScopeId.make(bobScope),
             namespace,
             sourceScopeId: ScopeId.make(orgId),
@@ -301,7 +301,7 @@ describe("sources api (HTTP)", () => {
       ).toBe(false);
 
       const sources = yield* asOrg(orgId, (client) =>
-        client.sources.list({ path: { scopeId: ScopeId.make(orgId) } }),
+        client.sources.list({ params: { scopeId: ScopeId.make(orgId) } }),
       );
       expect(sources.find((source) => source.id === namespace)?.scopeId).toBe(
         ScopeId.make(orgId),
@@ -318,7 +318,7 @@ describe("sources api (HTTP)", () => {
 
         const result = yield* asOrg(org, (client) =>
           client.openapi.addSpec({
-            path: { scopeId: ScopeId.make(org) },
+            params: { scopeId: ScopeId.make(org) },
             payload: { spec: CLOUDFLARE_SPEC, namespace },
           }),
         );
@@ -326,7 +326,7 @@ describe("sources api (HTTP)", () => {
         expect(result.toolCount).toBeGreaterThan(1000);
 
         const sources = yield* asOrg(org, (client) =>
-          client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+          client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
         );
         expect(sources.map((s) => s.id)).toContain(namespace);
 
@@ -335,11 +335,11 @@ describe("sources api (HTTP)", () => {
         // fanning out to per-row deletes).
         yield* asOrg(org, (client) =>
           client.sources.remove({
-            path: { scopeId: ScopeId.make(org), sourceId: namespace },
+            params: { scopeId: ScopeId.make(org), sourceId: namespace },
           }),
         );
         const after = yield* asOrg(org, (client) =>
-          client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+          client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
         );
         expect(after.map((s) => s.id)).not.toContain(namespace);
       }),

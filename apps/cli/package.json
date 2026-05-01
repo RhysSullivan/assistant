@@ -22,8 +22,6 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/cli": "catalog:",
-    "@effect/platform": "catalog:",
     "@effect/platform-bun": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/local": "workspace:*",

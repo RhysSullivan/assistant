@@ -1,6 +1,6 @@
 import type { OpenAPI, OpenAPIV3, OpenAPIV3_1 } from "openapi-types";
 import { Duration, Effect } from "effect";
-import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import YAML from "yaml";
 
 import { OpenApiExtractionError, OpenApiParseError } from "./errors";

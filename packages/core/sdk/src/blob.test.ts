@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit } from "effect";
 
 import { StorageError } from "@executor-js/storage-core";
 
@@ -80,7 +80,8 @@ describe("pluginBlobStore", () => {
       );
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isFailure(result)) {
-        const err = result.cause._tag === "Fail" ? result.cause.error : null;
+        const reason = result.cause.reasons.find(Cause.isFailReason);
+        const err = reason?.error ?? null;
         expect(err).toBeInstanceOf(StorageError);
         expect((err as StorageError).message).toContain("not in the");
       }

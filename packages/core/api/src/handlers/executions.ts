@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect } from "effect";
 
 import { ExecutorApi } from "../api";
@@ -31,7 +31,7 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
         };
       })),
     )
-    .handle("resume", ({ path, payload }) =>
+    .handle("resume", ({ params: path, payload }) =>
       capture(Effect.gen(function* () {
         const engine = yield* ExecutionEngineService;
         const result = yield* captureEngineError(

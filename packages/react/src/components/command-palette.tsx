@@ -64,7 +64,8 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
             url?: string;
             runtime?: boolean;
           }>,
-        onSuccess: ({ value }) => value.filter((s) => !s.runtime),
+        onSuccess: ({ value }) =>
+          value.filter((s: { readonly runtime?: boolean }) => !s.runtime),
       }),
     [sourcesResult],
   );
@@ -138,7 +139,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
 
         {connectedSources.length > 0 && (
           <CommandGroup heading="Connected">
-            {connectedSources.map((s) => (
+            {connectedSources.map((s: { readonly id: string; readonly name: string; readonly kind: string; readonly url?: string }) => (
               <CommandItem
                 key={`source-${s.id}`}
                 value={`connected ${s.name} ${s.id} ${s.kind}`}

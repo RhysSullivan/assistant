@@ -157,7 +157,7 @@ export const syncFromConfig = (
       (source) =>
         addSourceFromConfig(executor, source).pipe(
           Effect.map(() => true as const),
-          Effect.catchAll((e) => {
+          Effect.catchCause((e) => {
             const ns = "namespace" in source ? source.namespace : ("name" in source ? source.name : "unknown");
             console.warn(
               `[config-sync] Failed to load source "${ns}":`,

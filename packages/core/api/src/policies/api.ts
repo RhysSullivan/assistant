@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { PolicyId, ScopeId, ToolPolicyActionSchema } from "@executor-js/sdk";
 
@@ -8,8 +8,8 @@ import { InternalError } from "../observability";
 // Params
 // ---------------------------------------------------------------------------
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
-const policyIdParam = HttpApiSchema.param("policyId", PolicyId);
+const ScopeParams = { scopeId: ScopeId };
+const PolicyParams = { scopeId: ScopeId, policyId: PolicyId };
 
 // ---------------------------------------------------------------------------
 // Response / payload schemas
@@ -41,25 +41,34 @@ const UpdateToolPolicyPayload = Schema.Struct({
 // Group
 // ---------------------------------------------------------------------------
 
-export class PoliciesApi extends HttpApiGroup.make("policies")
+export const PoliciesApi = HttpApiGroup.make("policies")
   .add(
-    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/policies`.addSuccess(
-      Schema.Array(ToolPolicyResponse),
-    ),
+    HttpApiEndpoint.get("list", "/scopes/:scopeId/policies", {
+      params: ScopeParams,
+      success: Schema.Array(ToolPolicyResponse),
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("create")`/scopes/${scopeIdParam}/policies`
-      .setPayload(CreateToolPolicyPayload)
-      .addSuccess(ToolPolicyResponse),
+    HttpApiEndpoint.post("create", "/scopes/:scopeId/policies", {
+      params: ScopeParams,
+      payload: CreateToolPolicyPayload,
+      success: ToolPolicyResponse,
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.patch("update")`/scopes/${scopeIdParam}/policies/${policyIdParam}`
-      .setPayload(UpdateToolPolicyPayload)
-      .addSuccess(ToolPolicyResponse),
+    HttpApiEndpoint.patch("update", "/scopes/:scopeId/policies/:policyId", {
+      params: PolicyParams,
+      payload: UpdateToolPolicyPayload,
+      success: ToolPolicyResponse,
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/policies/${policyIdParam}`.addSuccess(
-      Schema.Struct({ removed: Schema.Boolean }),
-    ),
-  )
-  .addError(InternalError) {}
+    HttpApiEndpoint.delete("remove", "/scopes/:scopeId/policies/:policyId", {
+      params: PolicyParams,
+      success: Schema.Struct({ removed: Schema.Boolean }),
+      error: InternalError,
+    }),
+  );

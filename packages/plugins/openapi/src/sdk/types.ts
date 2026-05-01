@@ -12,7 +12,7 @@ export type OperationId = typeof OperationId.Type;
 // HTTP
 // ---------------------------------------------------------------------------
 
-export const HttpMethod = Schema.Literal(
+export const HttpMethod = Schema.Literals([
   "get",
   "put",
   "post",
@@ -21,10 +21,10 @@ export const HttpMethod = Schema.Literal(
   "head",
   "options",
   "trace",
-);
+]);
 export type HttpMethod = typeof HttpMethod.Type;
 
-export const ParameterLocation = Schema.Literal("path", "query", "header", "cookie");
+export const ParameterLocation = Schema.Literals(["path", "query", "header", "cookie"]);
 export type ParameterLocation = typeof ParameterLocation.Type;
 
 // ---------------------------------------------------------------------------
@@ -35,11 +35,11 @@ export class OperationParameter extends Schema.Class<OperationParameter>("Operat
   name: Schema.String,
   location: ParameterLocation,
   required: Schema.Boolean,
-  schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
-  style: Schema.optionalWith(Schema.String, { as: "Option" }),
-  explode: Schema.optionalWith(Schema.Boolean, { as: "Option" }),
-  allowReserved: Schema.optionalWith(Schema.Boolean, { as: "Option" }),
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  schema: Schema.OptionFromOptional(Schema.Unknown),
+  style: Schema.OptionFromOptional(Schema.String),
+  explode: Schema.OptionFromOptional(Schema.Boolean),
+  allowReserved: Schema.OptionFromOptional(Schema.Boolean),
+  description: Schema.OptionFromOptional(Schema.String),
 }) {}
 
 /**
@@ -52,18 +52,16 @@ export class OperationParameter extends Schema.Class<OperationParameter>("Operat
  *   array / object serialization the same way parameter-level style does.
  */
 export class EncodingObject extends Schema.Class<EncodingObject>("EncodingObject")({
-  contentType: Schema.optionalWith(Schema.String, { as: "Option" }),
-  style: Schema.optionalWith(Schema.String, { as: "Option" }),
-  explode: Schema.optionalWith(Schema.Boolean, { as: "Option" }),
-  allowReserved: Schema.optionalWith(Schema.Boolean, { as: "Option" }),
+  contentType: Schema.OptionFromOptional(Schema.String),
+  style: Schema.OptionFromOptional(Schema.String),
+  explode: Schema.OptionFromOptional(Schema.Boolean),
+  allowReserved: Schema.OptionFromOptional(Schema.Boolean),
 }) {}
 
 export class MediaBinding extends Schema.Class<MediaBinding>("MediaBinding")({
   contentType: Schema.String,
-  schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
-  encoding: Schema.optionalWith(Schema.Record({ key: Schema.String, value: EncodingObject }), {
-    as: "Option",
-  }),
+  schema: Schema.OptionFromOptional(Schema.Unknown),
+  encoding: Schema.OptionFromOptional(Schema.Record(Schema.String, EncodingObject)),
 }) {}
 
 export class OperationRequestBody extends Schema.Class<OperationRequestBody>(
@@ -75,44 +73,42 @@ export class OperationRequestBody extends Schema.Class<OperationRequestBody>(
   contentType: Schema.String,
   /** Schema of the default media type. Kept for backward compat with stored
    *  bindings from before `contents` was added. */
-  schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  schema: Schema.OptionFromOptional(Schema.Unknown),
   /** All declared media types in spec order. Populated by `extract.ts`
    *  going forward; older persisted bindings may have this unset and will
    *  fall back to `{contentType, schema}`. */
-  contents: Schema.optionalWith(Schema.Array(MediaBinding), { as: "Option" }),
+  contents: Schema.OptionFromOptional(Schema.Array(MediaBinding)),
 }) {}
 
 export class ExtractedOperation extends Schema.Class<ExtractedOperation>("ExtractedOperation")({
   operationId: OperationId,
   method: HttpMethod,
   pathTemplate: Schema.String,
-  summary: Schema.optionalWith(Schema.String, { as: "Option" }),
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  summary: Schema.OptionFromOptional(Schema.String),
+  description: Schema.OptionFromOptional(Schema.String),
   tags: Schema.Array(Schema.String),
   parameters: Schema.Array(OperationParameter),
-  requestBody: Schema.optionalWith(OperationRequestBody, { as: "Option" }),
-  inputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
-  outputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
-  deprecated: Schema.optionalWith(Schema.Boolean, { default: () => false }),
+  requestBody: Schema.OptionFromOptional(OperationRequestBody),
+  inputSchema: Schema.OptionFromOptional(Schema.Unknown),
+  outputSchema: Schema.OptionFromOptional(Schema.Unknown),
+  deprecated: Schema.Boolean,
 }) {}
 
 export class ServerVariable extends Schema.Class<ServerVariable>("ServerVariable")({
   default: Schema.String,
-  enum: Schema.optionalWith(Schema.Array(Schema.String), { as: "Option" }),
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  enum: Schema.OptionFromOptional(Schema.Array(Schema.String)),
+  description: Schema.OptionFromOptional(Schema.String),
 }) {}
 
 export class ServerInfo extends Schema.Class<ServerInfo>("ServerInfo")({
   url: Schema.String,
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
-  variables: Schema.optionalWith(Schema.Record({ key: Schema.String, value: ServerVariable }), {
-    as: "Option",
-  }),
+  description: Schema.OptionFromOptional(Schema.String),
+  variables: Schema.OptionFromOptional(Schema.Record(Schema.String, ServerVariable)),
 }) {}
 
 export class ExtractionResult extends Schema.Class<ExtractionResult>("ExtractionResult")({
-  title: Schema.optionalWith(Schema.String, { as: "Option" }),
-  version: Schema.optionalWith(Schema.String, { as: "Option" }),
+  title: Schema.OptionFromOptional(Schema.String),
+  version: Schema.OptionFromOptional(Schema.String),
   servers: Schema.Array(ServerInfo),
   operations: Schema.Array(ExtractedOperation),
 }) {}
@@ -125,7 +121,7 @@ export class OperationBinding extends Schema.Class<OperationBinding>("OperationB
   method: HttpMethod,
   pathTemplate: Schema.String,
   parameters: Schema.Array(OperationParameter),
-  requestBody: Schema.optionalWith(OperationRequestBody, { as: "Option" }),
+  requestBody: Schema.OptionFromOptional(OperationRequestBody),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -147,10 +143,10 @@ export class ConfiguredHeaderBinding extends Schema.Class<ConfiguredHeaderBindin
   prefix: Schema.optional(Schema.String),
 }) {}
 
-export const ConfiguredHeaderValue = Schema.Union(Schema.String, ConfiguredHeaderBinding);
+export const ConfiguredHeaderValue = Schema.Union([Schema.String, ConfiguredHeaderBinding]);
 export type ConfiguredHeaderValue = typeof ConfiguredHeaderValue.Type;
 
-export const OpenApiSourceBindingValue = Schema.Union(
+export const OpenApiSourceBindingValue = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("secret"),
     secretId: SecretId,
@@ -163,7 +159,7 @@ export const OpenApiSourceBindingValue = Schema.Union(
     kind: Schema.Literal("text"),
     text: Schema.String,
   }),
-);
+]);
 export type OpenApiSourceBindingValue = typeof OpenApiSourceBindingValue.Type;
 
 export class OpenApiSourceBindingInput extends Schema.Class<OpenApiSourceBindingInput>(
@@ -184,8 +180,8 @@ export class OpenApiSourceBindingRef extends Schema.Class<OpenApiSourceBindingRe
   scopeId: ScopeId,
   slot: Schema.String,
   value: OpenApiSourceBindingValue,
-  createdAt: Schema.DateFromNumber,
-  updatedAt: Schema.DateFromNumber,
+  createdAt: Schema.Date,
+  updatedAt: Schema.Date,
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -209,7 +205,7 @@ export class OpenApiSourceBindingRef extends Schema.Class<OpenApiSourceBindingRe
 // are static per source so the two copies can't drift.
 // ---------------------------------------------------------------------------
 
-export const OAuth2Flow = Schema.Literal("authorizationCode", "clientCredentials");
+export const OAuth2Flow = Schema.Literals(["authorizationCode", "clientCredentials"]);
 export type OAuth2Flow = typeof OAuth2Flow.Type;
 
 export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
@@ -234,9 +230,7 @@ export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
    *  flows; clientCredentials has no user consent step. */
   authorizationUrl: Schema.NullOr(Schema.String),
   /** Expected issuer for ID token validation. Defaults to authorization origin. */
-  issuerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
-    default: () => null,
-  }),
+  issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
   /** Secret id holding the OAuth client_id. */
   clientIdSecretId: Schema.String,
   /** Secret id holding the OAuth client_secret. Optional for public
@@ -256,9 +250,7 @@ export class OAuth2SourceConfig extends Schema.Class<OAuth2SourceConfig>(
   flow: OAuth2Flow,
   tokenUrl: Schema.String,
   authorizationUrl: Schema.NullOr(Schema.String),
-  issuerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
-    default: () => null,
-  }),
+  issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
   clientIdSlot: Schema.String,
   clientSecretSlot: Schema.NullOr(Schema.String),
   connectionSlot: Schema.String,
@@ -268,20 +260,18 @@ export class OAuth2SourceConfig extends Schema.Class<OAuth2SourceConfig>(
 export class InvocationConfig extends Schema.Class<InvocationConfig>("InvocationConfig")({
   baseUrl: Schema.String,
   /** Headers applied to every request. Values can reference secrets. */
-  headers: Schema.optionalWith(Schema.Record({ key: Schema.String, value: HeaderValue }), {
-    default: () => ({}),
-  }),
+  headers: Schema.optional(Schema.Record(Schema.String, HeaderValue)),
   /**
    * Optional OAuth2 auth — if set, the invoker resolves/refreshes the
    * access token and injects `Authorization: Bearer <token>` on every
    * request. Coexists with `headers` but wins for the Authorization header.
    */
-  oauth2: Schema.optionalWith(OAuth2Auth, { as: "Option" }),
+  oauth2: Schema.OptionFromOptional(OAuth2Auth),
 }) {}
 
 export class InvocationResult extends Schema.Class<InvocationResult>("InvocationResult")({
   status: Schema.Number,
-  headers: Schema.Record({ key: Schema.String, value: Schema.String }),
+  headers: Schema.Record(Schema.String, Schema.String),
   data: Schema.NullOr(Schema.Unknown),
   error: Schema.NullOr(Schema.Unknown),
 }) {}

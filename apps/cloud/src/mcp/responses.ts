@@ -1,4 +1,4 @@
-import { HttpServerResponse } from "@effect/platform";
+import { HttpServerResponse } from "effect/unstable/http";
 import { Effect } from "effect";
 
 import type { McpJwtVerificationError } from "../mcp-auth";
@@ -29,10 +29,10 @@ const bearerChallenge = (auth: UnauthorizedAuth, protectedResourceMetadataUrl: s
 };
 
 export const jsonResponse = (body: unknown, status = 200) =>
-  HttpServerResponse.unsafeJson(body, { status, headers: CORS_ALLOW_ORIGIN });
+  HttpServerResponse.jsonUnsafe(body, { status, headers: CORS_ALLOW_ORIGIN });
 
 export const jsonRpcError = (status: number, code: number, message: string) =>
-  HttpServerResponse.unsafeJson(
+  HttpServerResponse.jsonUnsafe(
     { jsonrpc: "2.0", error: { code, message }, id: null },
     { status, headers: CORS_ALLOW_ORIGIN },
   );
@@ -44,7 +44,7 @@ export const jsonRpcWebResponse = (status: number, code: number, message: string
   });
 
 export const unauthorized = (auth: UnauthorizedAuth, protectedResourceMetadataUrl: string) =>
-  HttpServerResponse.unsafeJson(
+  HttpServerResponse.jsonUnsafe(
     { error: "unauthorized" },
     {
       status: 401,

@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 
 import {
@@ -12,8 +12,8 @@ import { InternalError } from "../observability";
 // Params
 // ---------------------------------------------------------------------------
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
-const connectionIdParam = HttpApiSchema.param("connectionId", ConnectionId);
+const ScopeParams = { scopeId: ScopeId };
+const ConnectionParams = { scopeId: ScopeId, connectionId: ConnectionId };
 
 // ---------------------------------------------------------------------------
 // Response schemas
@@ -34,19 +34,18 @@ const ConnectionRefResponse = Schema.Struct({
 // Group
 // ---------------------------------------------------------------------------
 
-export class ConnectionsApi extends HttpApiGroup.make("connections")
+export const ConnectionsApi = HttpApiGroup.make("connections")
   .add(
-    HttpApiEndpoint.get(
-      "list",
-    )`/scopes/${scopeIdParam}/connections`.addSuccess(
-      Schema.Array(ConnectionRefResponse),
-    ),
+    HttpApiEndpoint.get("list", "/scopes/:scopeId/connections", {
+      params: ScopeParams,
+      success: Schema.Array(ConnectionRefResponse),
+      error: InternalError,
+    }),
   )
   .add(
-    HttpApiEndpoint.del(
-      "remove",
-    )`/scopes/${scopeIdParam}/connections/${connectionIdParam}`.addSuccess(
-      Schema.Struct({ removed: Schema.Boolean }),
-    ),
-  )
-  .addError(InternalError) {}
+    HttpApiEndpoint.delete("remove", "/scopes/:scopeId/connections/:connectionId", {
+      params: ConnectionParams,
+      success: Schema.Struct({ removed: Schema.Boolean }),
+      error: InternalError,
+    }),
+  );

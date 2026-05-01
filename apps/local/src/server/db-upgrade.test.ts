@@ -6,7 +6,7 @@
 //   2. The move-aside helper renames the file (plus WAL/SHM siblings)
 //      so a subsequent fresh `migrate()` can create the new shape.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

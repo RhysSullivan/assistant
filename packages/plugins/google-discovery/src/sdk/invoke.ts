@@ -1,7 +1,8 @@
 import { Effect, Layer, Option } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import type { PluginCtx, StorageFailure } from "@executor-js/sdk";
+import type { StorageFailure } from "../../../../core/storage-core/src/adapter";
+import type { PluginCtx } from "../../../../core/sdk/src/plugin";
 
 import {
   GoogleDiscoveryInvocationError,
@@ -134,7 +135,7 @@ const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
   }
 
   if (input.hasBody && input.args.body !== undefined) {
-    request = HttpClientRequest.bodyUnsafeJson(request, input.args.body);
+    request = HttpClientRequest.bodyJsonUnsafe(request, input.args.body);
   }
 
   const response = yield* client.execute(request).pipe(
@@ -162,7 +163,7 @@ const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
       ? null
       : isJsonContentType(contentType)
         ? yield* response.json.pipe(
-            Effect.catchAll(() => response.text),
+            Effect.catch(() => response.text),
             mapBodyError,
           )
         : yield* response.text.pipe(mapBodyError);
@@ -241,5 +242,9 @@ export const invokeGoogleDiscoveryTool = (input: {
       source,
       args: (input.args ?? {}) as Record<string, unknown>,
       authorizationHeader: authHeader,
-    }).pipe(Effect.provide(layer));
+    }).pipe(Effect.provide(layer)) as Effect.Effect<
+      GoogleDiscoveryInvocationResult,
+      GoogleDiscoveryInvocationError,
+      never
+    >;
   });

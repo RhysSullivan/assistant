@@ -12,7 +12,6 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/platform": "catalog:",
     "@executor-js/sdk": "workspace:*",
     "effect": "catalog:",
     "jsonc-parser": "^3.3.1"

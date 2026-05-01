@@ -100,6 +100,7 @@ export const createAdapter = (
   options: CreateAdapterOptions,
 ): DBAdapter => {
   const { schema, adapter: inner } = options;
+  const typedOutput = <T>(value: unknown): T => value as T;
   const config: Required<
     Pick<
       DBAdapterFactoryConfig,
@@ -637,7 +638,7 @@ export const createAdapter = (
           res as Record<string, unknown>,
           data.select,
         );
-        return out as unknown as R;
+        return typedOutput<R>(out);
       }).pipe(
         Effect.withSpan("executor.storage.create", {
           attributes: {
@@ -677,14 +678,16 @@ export const createAdapter = (
         const out: R[] = [];
         for (const row of res) {
           out.push(
-            (yield* maybeTransformOutput(
-              data.model,
-              row as Record<string, unknown>,
-              undefined,
-            )) as unknown as R,
+            typedOutput<R>(
+              yield* maybeTransformOutput(
+                data.model,
+                row as Record<string, unknown>,
+                undefined,
+              ),
+            ),
           );
         }
-        return out as unknown as readonly R[];
+        return typedOutput<readonly R[]>(out);
       }).pipe(
         Effect.withSpan("executor.storage.create_many", {
           attributes: {
@@ -712,7 +715,7 @@ export const createAdapter = (
         });
         const out = yield* maybeTransformOutput(data.model, res, data.select);
         const merged = yield* attachJoinedRows(out, res, data.join);
-        return merged as unknown as T | null;
+        return typedOutput<T | null>(merged);
       }).pipe(
         Effect.withSpan("executor.storage.find_one", {
           attributes: {
@@ -800,7 +803,7 @@ export const createAdapter = (
           update,
         });
         const out = yield* maybeTransformOutput(data.model, res);
-        return out as unknown as T | null;
+        return typedOutput<T | null>(out);
       }).pipe(
         Effect.withSpan("executor.storage.update", {
           attributes: {

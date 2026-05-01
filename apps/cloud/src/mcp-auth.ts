@@ -1,4 +1,4 @@
-import { Data, Effect, Either } from "effect";
+import { Data, Effect, Result } from "effect";
 import { jwtVerify, type JWTVerifyGetKey } from "jose";
 import { JOSEError, JWKSInvalid, JWKSTimeout, JWTExpired } from "jose/errors";
 
@@ -34,26 +34,26 @@ const withJwtVerificationSpan = <A>(
   effect: Effect.Effect<A, McpJwtVerificationError>,
 ): Effect.Effect<A, McpJwtVerificationError> =>
   effect.pipe(
-    Effect.either,
+    Effect.result,
     Effect.flatMap((outcome) =>
       Effect.gen(function* () {
-        if (Either.isRight(outcome)) {
+        if (Result.isSuccess(outcome)) {
           yield* Effect.annotateCurrentSpan({ "mcp.auth.jwt_verify.outcome": "verified" });
           return outcome;
         }
 
         yield* Effect.annotateCurrentSpan({
-          "mcp.auth.jwt_verify.outcome": outcome.left.reason,
+          "mcp.auth.jwt_verify.outcome": outcome.failure.reason,
         });
 
-        return isExpectedJwtVerificationError(outcome.left)
+        return isExpectedJwtVerificationError(outcome.failure)
           ? outcome
-          : yield* Effect.fail(outcome.left);
+          : yield* Effect.fail(outcome.failure);
       }),
     ),
     Effect.withSpan("mcp.auth.jwt_verify"),
     Effect.flatMap((outcome) =>
-      Either.isRight(outcome) ? Effect.succeed(outcome.right) : Effect.fail(outcome.left),
+      Result.isSuccess(outcome) ? Effect.succeed(outcome.success) : Effect.fail(outcome.failure),
     ),
   );
 

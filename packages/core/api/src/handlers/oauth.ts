@@ -4,7 +4,8 @@
 // each had its own start / complete / callback handler).
 // ---------------------------------------------------------------------------
 
-import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpServerResponse } from "effect/unstable/http";
 import { Effect } from "effect";
 
 import { runOAuthCallback } from "../oauth-popup";
@@ -26,10 +27,10 @@ import { ExecutorService } from "../services";
 
 const OAUTH_POPUP_CHANNEL = OAUTH_POPUP_MESSAGE_TYPE;
 
-const resolveOAuthSecretBackedMap = (
+const resolveOAuthSecretBackedMap = <E extends OAuthProbeError | OAuthStartError>(
   executor: Executor,
   values: Record<string, SecretBackedValue> | undefined,
-  makeError: (message: string) => OAuthProbeError | OAuthStartError,
+  makeError: (message: string) => E,
 ) =>
   resolveSecretBackedMap({
     values,
@@ -39,7 +40,7 @@ const resolveOAuthSecretBackedMap = (
   }).pipe(
     Effect.mapError((error) =>
       error instanceof OAuthProbeError || error instanceof OAuthStartError
-        ? error
+        ? (error as E)
         : makeError("Secret resolution failed"),
     ),
   );
@@ -82,7 +83,7 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
       capture(
         Effect.gen(function* () {
           const executor = yield* ExecutorService;
-          const tokenScope = payload.tokenScope ?? (executor.scopes[0]!.id as unknown as string);
+          const tokenScope = payload.tokenScope ?? String(executor.scopes[0]!.id);
           const headers = yield* resolveOAuthSecretBackedMap(
             executor,
             payload.headers,
@@ -128,7 +129,7 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
         }),
       ),
     )
-    .handle("callback", ({ urlParams }) =>
+    .handle("callback", ({ query: urlParams }) =>
       // The callback always renders HTML, even on failure — the popup
       // shows the error + messages it back to the opener.
       capture(
@@ -143,16 +144,16 @@ export const OAuthHandlers = HttpApiBuilder.group(ExecutorApi, "oauth", (handler
                   error: error ?? undefined,
                 })
                 .pipe(
-                  Effect.tapErrorCause((cause) =>
+                  Effect.tapError((cause) =>
                     Effect.logError("OAuth callback completion failed", cause),
                   ),
-                  Effect.catchAllCause(() => Effect.fail(new Error("Authentication failed"))),
+                  Effect.catchCause(() => Effect.fail(new Error("Authentication failed"))),
                 ),
             urlParams,
             toErrorMessage: toPopupErrorMessage,
             channelName: OAUTH_POPUP_CHANNEL,
           });
-          return yield* HttpServerResponse.html(html);
+          return HttpServerResponse.html(html);
         }),
       ),
     ),

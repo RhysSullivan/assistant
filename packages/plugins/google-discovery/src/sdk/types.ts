@@ -1,7 +1,7 @@
 import { Schema } from "effect";
-import { SecretBackedValue } from "@executor-js/sdk";
+import { SecretBackedValue } from "../../../../core/sdk/src/secret-backed-value";
 
-export const GoogleDiscoveryHttpMethod = Schema.Literal(
+export const GoogleDiscoveryHttpMethod = Schema.Literals([
   "get",
   "put",
   "post",
@@ -9,10 +9,10 @@ export const GoogleDiscoveryHttpMethod = Schema.Literal(
   "patch",
   "head",
   "options",
-);
+]);
 export type GoogleDiscoveryHttpMethod = typeof GoogleDiscoveryHttpMethod.Type;
 
-export const GoogleDiscoveryParameterLocation = Schema.Literal("path", "query", "header");
+export const GoogleDiscoveryParameterLocation = Schema.Literals(["path", "query", "header"]);
 export type GoogleDiscoveryParameterLocation = typeof GoogleDiscoveryParameterLocation.Type;
 
 export class GoogleDiscoveryParameter extends Schema.Class<GoogleDiscoveryParameter>(
@@ -22,8 +22,8 @@ export class GoogleDiscoveryParameter extends Schema.Class<GoogleDiscoveryParame
   location: GoogleDiscoveryParameterLocation,
   required: Schema.Boolean,
   repeated: Schema.Boolean,
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
-  schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  description: Schema.Option(Schema.String),
+  schema: Schema.Option(Schema.Unknown),
 }) {}
 
 export class GoogleDiscoveryMethodBinding extends Schema.Class<GoogleDiscoveryMethodBinding>(
@@ -39,25 +39,23 @@ export class GoogleDiscoveryManifestMethod extends Schema.Class<GoogleDiscoveryM
   "GoogleDiscoveryManifestMethod",
 )({
   toolPath: Schema.String,
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  description: Schema.Option(Schema.String),
   binding: GoogleDiscoveryMethodBinding,
-  inputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
-  outputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  inputSchema: Schema.Option(Schema.Unknown),
+  outputSchema: Schema.Option(Schema.Unknown),
   scopes: Schema.Array(Schema.String),
 }) {}
 
 export class GoogleDiscoveryManifest extends Schema.Class<GoogleDiscoveryManifest>(
   "GoogleDiscoveryManifest",
 )({
-  title: Schema.optionalWith(Schema.String, { as: "Option" }),
+  title: Schema.Option(Schema.String),
   service: Schema.String,
   version: Schema.String,
   rootUrl: Schema.String,
   servicePath: Schema.String,
-  oauthScopes: Schema.optionalWith(Schema.Record({ key: Schema.String, value: Schema.String }), {
-    as: "Option",
-  }),
-  schemaDefinitions: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  oauthScopes: Schema.Option(Schema.Record(Schema.String, Schema.String)),
+  schemaDefinitions: Schema.Record(Schema.String, Schema.Unknown),
   methods: Schema.Array(GoogleDiscoveryManifestMethod),
 }) {}
 
@@ -72,7 +70,7 @@ export class GoogleDiscoveryManifest extends Schema.Class<GoogleDiscoveryManifes
 // duplication keeps reconnect fully source-driven.
 // ---------------------------------------------------------------------------
 
-export const GoogleDiscoveryAuth = Schema.Union(
+export const GoogleDiscoveryAuth = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("none"),
   }),
@@ -88,7 +86,7 @@ export const GoogleDiscoveryAuth = Schema.Union(
     /** Scopes requested on sign-in. */
     scopes: Schema.Array(Schema.String),
   }),
-);
+]);
 export type GoogleDiscoveryAuth = typeof GoogleDiscoveryAuth.Type;
 
 export const GoogleDiscoveryCredentialValue = SecretBackedValue;
@@ -96,10 +94,10 @@ export type GoogleDiscoveryCredentialValue = typeof GoogleDiscoveryCredentialVal
 
 export const GoogleDiscoveryFetchCredentials = Schema.Struct({
   headers: Schema.optional(
-    Schema.Record({ key: Schema.String, value: GoogleDiscoveryCredentialValue }),
+    Schema.Record(Schema.String, GoogleDiscoveryCredentialValue),
   ),
   queryParams: Schema.optional(
-    Schema.Record({ key: Schema.String, value: GoogleDiscoveryCredentialValue }),
+    Schema.Record(Schema.String, GoogleDiscoveryCredentialValue),
   ),
 });
 export type GoogleDiscoveryFetchCredentials = typeof GoogleDiscoveryFetchCredentials.Type;
@@ -121,7 +119,7 @@ export class GoogleDiscoveryInvocationResult extends Schema.Class<GoogleDiscover
   "GoogleDiscoveryInvocationResult",
 )({
   status: Schema.Number,
-  headers: Schema.Record({ key: Schema.String, value: Schema.String }),
+  headers: Schema.Record(Schema.String, Schema.String),
   data: Schema.NullOr(Schema.Unknown),
   error: Schema.NullOr(Schema.Unknown),
 }) {}

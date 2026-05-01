@@ -1,4 +1,5 @@
-import { HttpApiBuilder, HttpApiSwagger, HttpServerRequest } from "@effect/platform";
+import { HttpApiBuilder, HttpApiSwagger } from "effect/unstable/httpapi";
+import { HttpMiddleware, HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import { Effect, Layer } from "effect";
 
 import { ExecutorService, ExecutionEngineService } from "@executor-js/api/server";
@@ -10,7 +11,7 @@ import { authorizeOrganization } from "../auth/authorize-organization";
 import { WorkOSAuth } from "../auth/workos";
 import { makeExecutionStack } from "../services/execution-stack";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
-import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
+import { ProtectedCloudApi, ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
 
 const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
   Effect.gen(function* () {
@@ -41,24 +42,21 @@ const createProtectedApp = (userId: string, organizationId: string, organization
     );
 
     const requestServices = Layer.mergeAll(
-      Layer.succeed(ExecutorService, executor),
-      Layer.succeed(ExecutionEngineService, engine),
-      Layer.succeed(OpenApiExtensionService, executor.openapi),
-      Layer.succeed(McpExtensionService, executor.mcp),
-      Layer.succeed(GraphqlExtensionService, executor.graphql),
+      Layer.succeed(ExecutorService)(executor),
+      Layer.succeed(ExecutionEngineService)(engine),
+      Layer.succeed(OpenApiExtensionService)(executor.openapi),
+      Layer.succeed(McpExtensionService)(executor.mcp),
+      Layer.succeed(GraphqlExtensionService)(executor.graphql),
     );
 
-    return yield* HttpApiBuilder.httpApp.pipe(
-      Effect.provide(
-        HttpApiSwagger.layer({ path: "/docs" }).pipe(
-          Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
-          Layer.provideMerge(ProtectedCloudApiLive),
-          Layer.provideMerge(requestServices),
-          Layer.provideMerge(RouterConfig),
-          Layer.provideMerge(HttpApiBuilder.Router.Live),
-          Layer.provideMerge(HttpApiBuilder.Middleware.layer),
-        ),
-      ),
+    return yield* HttpRouter.toHttpEffect(
+      (ProtectedCloudApiLive.pipe(
+        Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
+        Layer.provideMerge(requestServices),
+        Layer.provideMerge(RouterConfig),
+      ) as never),
+    ).pipe(
+      Effect.flatMap(HttpMiddleware.logger),
     );
   });
 
@@ -75,11 +73,10 @@ export const ProtectedApiApp = Effect.gen(function* () {
     );
   }
 
-  const app = yield* createProtectedApp(session.userId, session.org.id, session.org.name);
-  return yield* app;
+  return yield* createProtectedApp(session.userId, session.org.id, session.org.name);
 }).pipe(
   Effect.provide(SharedServices),
-  Effect.catchAll((err) => {
+  Effect.catchCause((err) => {
     if (isServerError(err)) {
       console.error("[api] request failed:", err instanceof Error ? err.stack : err);
     }

@@ -60,13 +60,11 @@ const makeSql = (): Sql =>
     onnotice: () => undefined,
   });
 
-export class DbService extends Context.Tag("@executor-js/cloud/DbService")<
+export class DbService extends Context.Service<
   DbService,
   DbServiceShape
->() {
-  static Live = Layer.scoped(
-    this,
-    Effect.acquireRelease(
+>()("@executor-js/cloud/DbService") {
+  static Live = Layer.effect(this)(Effect.acquireRelease(
       Effect.sync((): DbServiceShape => {
         const sql = makeSql();
         return { sql, db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb };

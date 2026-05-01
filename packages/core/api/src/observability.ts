@@ -30,24 +30,19 @@
 // Sentry sense.
 // ---------------------------------------------------------------------------
 
-import { Cause, Context, Effect, Layer, Option, Schema } from "effect";
-import {
-  HttpApiBuilder,
-  HttpApiSchema,
-  HttpServerResponse,
-  type HttpApi,
-  type HttpApiGroup,
-} from "@effect/platform";
+import { Cause, Context, Effect, Layer, Option, Result, Schema } from "effect";
+import { HttpServerResponse } from "effect/unstable/http";
+import { HttpApiMiddleware, type HttpApi, type HttpApiGroup } from "effect/unstable/httpapi";
 import type { StorageFailure } from "@executor-js/storage-core";
 
 /** Public 500 surface. Opaque by schema. */
-export class InternalError extends Schema.TaggedError<InternalError>()(
+export class InternalError extends Schema.TaggedErrorClass<InternalError>()(
   "InternalError",
   {
     /** Opaque correlation id for backend lookup (Sentry event id, log line, etc.). */
     traceId: Schema.String,
   },
-  HttpApiSchema.annotations({ status: 500 }),
+  { httpApiStatus: 500 },
 ) {}
 
 export interface ErrorCaptureShape {
@@ -61,14 +56,13 @@ export interface ErrorCaptureShape {
   ) => Effect.Effect<string>;
 }
 
-export class ErrorCapture extends Context.Tag("@executor-js/api/ErrorCapture")<
-  ErrorCapture,
-  ErrorCaptureShape
->() {
+export class ErrorCapture extends Context.Service<ErrorCapture, ErrorCaptureShape>()(
+  "@executor-js/api/ErrorCapture",
+) {
   /** No-op — used where capture isn't wired. Traces back as empty string. */
   static readonly NoOp: Layer.Layer<ErrorCapture> = Layer.succeed(
     ErrorCapture,
-    ErrorCapture.of({ captureException: () => Effect.succeed("") }),
+    { captureException: () => Effect.succeed("") },
   );
 }
 
@@ -131,7 +125,7 @@ export const captureEngineError = <A, R>(
   eff: Effect.Effect<A, Cause.YieldableError, R>,
 ): Effect.Effect<A, InternalError, R> =>
   eff.pipe(
-    Effect.catchAll((err) =>
+    Effect.catch((err) =>
       err instanceof InternalError
         ? Effect.fail(err)
         : resolveCapture.pipe(
@@ -157,32 +151,28 @@ export const captureEngineError = <A, R>(
  * plugin-domain errors flow through their schemas. This is the net
  * for anything that slipped through.
  */
-export const observabilityMiddleware = <
-  Id extends string,
-  Groups extends HttpApiGroup.HttpApiGroup.Any,
-  E,
-  R,
->(
-  api: HttpApi.HttpApi<Id, Groups, E, R>,
-): Layer.Layer<never> =>
-  HttpApiBuilder.middleware(
-    api,
-    Effect.gen(function* () {
-      const c = yield* resolveCapture;
-      return (httpApp) =>
-        Effect.catchAllCause(httpApp, (cause) =>
-          Effect.gen(function* () {
-            const defects = Cause.defects(cause);
-            if (defects.length === 0) {
-              return yield* Effect.failCause(cause);
-            }
-            const traceId = yield* c.captureException(cause);
-            return HttpServerResponse.unsafeJson(
-              new InternalError({ traceId }),
-              { status: 500 },
-            );
-          }),
-        );
-    }),
-    { withContext: true },
+export class ObservabilityMiddleware extends HttpApiMiddleware.Service<ObservabilityMiddleware>()(
+  "@executor-js/api/ObservabilityMiddleware",
+  { error: InternalError },
+) {}
+
+export const observabilityMiddleware = <Id extends string, Groups extends HttpApiGroup.Any>(
+  _api: HttpApi.HttpApi<Id, Groups>,
+): Layer.Layer<ObservabilityMiddleware> =>
+  Layer.succeed(
+    ObservabilityMiddleware,
+    (httpApp) =>
+      Effect.catchCause(httpApp, (cause) =>
+        Effect.gen(function* () {
+          const defect = Cause.findDefect(cause);
+          if (Result.isFailure(defect)) {
+            return yield* Effect.failCause(cause);
+          }
+          const c = yield* resolveCapture;
+          const traceId = yield* c.captureException(cause);
+          return HttpServerResponse.jsonUnsafe(new InternalError({ traceId }), {
+            status: 500,
+          });
+        }),
+      ),
   );

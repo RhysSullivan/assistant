@@ -20,7 +20,7 @@
 // postgres.js the test passes: each scope acquires its own socket and
 // releases it cleanly.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
 import { DbService } from "./db";

@@ -13,7 +13,7 @@
 // `./db`) actually contains every executor-schema export AND that drizzle
 // surfaces them all under `db._.fullSchema`.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
@@ -50,7 +50,9 @@ describe("combinedSchema", () => {
     const sql = postgres("postgres://u:p@127.0.0.1:1/x", { max: 1 });
     try {
       const db = drizzle(sql, { schema: combinedSchema });
-      const fullSchema = (db as unknown as { _: { fullSchema: Record<string, unknown> } })._.fullSchema;
+      const drizzleInternals = (value: unknown): { _: { fullSchema: Record<string, unknown> } } =>
+        value as { _: { fullSchema: Record<string, unknown> } };
+      const fullSchema = drizzleInternals(db)._.fullSchema;
       for (const key of Object.keys(executorSchema)) {
         expect(fullSchema, `fullSchema missing "${key}"`).toHaveProperty(key);
       }

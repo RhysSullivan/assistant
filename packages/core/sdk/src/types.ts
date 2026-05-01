@@ -66,7 +66,7 @@ export class ToolSchema extends Schema.Class<ToolSchema>("ToolSchema")({
   inputTypeScript: Schema.optional(Schema.String),
   outputTypeScript: Schema.optional(Schema.String),
   typeScriptDefinitions: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
+    Schema.Record(Schema.String, Schema.String),
   ),
 }) {}
 
@@ -85,7 +85,7 @@ export class SourceDetectionResult extends Schema.Class<SourceDetectionResult>(
   kind: Schema.String,
   /** Confidence tier — UI uses this to pick a winner when multiple
    *  plugins claim a URL. */
-  confidence: Schema.Literal("high", "medium", "low"),
+  confidence: Schema.Literals(["high", "medium", "low"]),
   /** The (possibly normalized) endpoint the plugin will use. */
   endpoint: Schema.String,
   /** Human-readable name suggestion, typically derived from spec title

@@ -213,7 +213,7 @@ const startFakeServer = async (): Promise<FakeServer> => {
         );
       }
 
-      send(404, { error: "not_found", path: url.pathname });
+      send(404, { error: "not_found", params: url.pathname });
     } catch (e) {
       send(500, { error: "server_error", message: String(e) });
     }
@@ -282,7 +282,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
 
         const started = yield* asUser(userId, orgId, (client) =>
           client.oauth.start({
-            path: { scopeId: userScope },
+            params: { scopeId: userScope },
             payload: {
               endpoint: `${fake.url}/mcp`,
               redirectUrl,
@@ -302,7 +302,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
 
         const completed = yield* asUser(userId, orgId, (client) =>
           client.oauth.complete({
-            path: { scopeId: userScope },
+            params: { scopeId: userScope },
             payload: { state, code },
           }),
         );
@@ -330,7 +330,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
         // --- User A: full OAuth round-trip, fresh DCR. ---
         const startedA = yield* asUser(userA, orgId, (client) =>
           client.oauth.start({
-            path: { scopeId: scopeA },
+            params: { scopeId: scopeA },
             payload: {
               endpoint,
               redirectUrl,
@@ -345,7 +345,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
         );
         const completedA = yield* asUser(userA, orgId, (client) =>
           client.oauth.complete({
-            path: { scopeId: scopeA },
+            params: { scopeId: scopeA },
             payload: { state: redirA.state, code: redirA.code },
           }),
         );
@@ -355,7 +355,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
         // --- User B: gets the same logical connection id in a different scope. ---
         const startedB = yield* asUser(userB, orgId, (client) =>
           client.oauth.start({
-            path: { scopeId: scopeB },
+            params: { scopeId: scopeB },
             payload: {
               endpoint,
               redirectUrl,
@@ -370,7 +370,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
         );
         const completedB = yield* asUser(userB, orgId, (client) =>
           client.oauth.complete({
-            path: { scopeId: scopeB },
+            params: { scopeId: scopeB },
             payload: { state: redirB.state, code: redirB.code },
           }),
         );

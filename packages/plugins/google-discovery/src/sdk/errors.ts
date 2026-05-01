@@ -10,15 +10,14 @@
 // group — so it doesn't need an HTTP annotation.
 
 import { Data, Schema } from "effect";
-import { HttpApiSchema } from "@effect/platform";
 import type { Option } from "effect";
 
-export class GoogleDiscoveryParseError extends Schema.TaggedError<GoogleDiscoveryParseError>()(
+export class GoogleDiscoveryParseError extends Schema.TaggedErrorClass<GoogleDiscoveryParseError>()(
   "GoogleDiscoveryParseError",
   {
     message: Schema.String,
   },
-  HttpApiSchema.annotations({ status: 400 }),
+  { httpApiStatus: 400 },
 ) {}
 
 export class GoogleDiscoveryInvocationError extends Data.TaggedError(
@@ -29,18 +28,18 @@ export class GoogleDiscoveryInvocationError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-export class GoogleDiscoveryOAuthError extends Schema.TaggedError<GoogleDiscoveryOAuthError>()(
+export class GoogleDiscoveryOAuthError extends Schema.TaggedErrorClass<GoogleDiscoveryOAuthError>()(
   "GoogleDiscoveryOAuthError",
   {
     message: Schema.String,
   },
-  HttpApiSchema.annotations({ status: 400 }),
+  { httpApiStatus: 400 },
 ) {}
 
-export class GoogleDiscoverySourceError extends Schema.TaggedError<GoogleDiscoverySourceError>()(
+export class GoogleDiscoverySourceError extends Schema.TaggedErrorClass<GoogleDiscoverySourceError>()(
   "GoogleDiscoverySourceError",
   {
     message: Schema.String,
   },
-  HttpApiSchema.annotations({ status: 400 }),
+  { httpApiStatus: 400 },
 ) {}

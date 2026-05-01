@@ -44,7 +44,6 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/platform": "catalog:",
     "@executor-js/storage-core": "workspace:*",
     "effect": "catalog:",
     "oauth4webapi": "^3.8.5",

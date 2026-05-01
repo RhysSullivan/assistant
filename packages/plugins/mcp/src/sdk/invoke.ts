@@ -10,7 +10,7 @@
 //   4. Retrying once on connection failure (invalidate + reconnect).
 // ---------------------------------------------------------------------------
 
-import { Cause, Effect, Exit, Schema, type ScopedCache } from "effect";
+import { Cause, Effect, Exit, Schema, ScopedCache } from "effect";
 
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
@@ -53,7 +53,7 @@ const connectionCacheKey = (
 // the host's elicit function, marshal the response back to MCP shape.
 // ---------------------------------------------------------------------------
 
-const McpElicitParams = Schema.Union(
+const McpElicitParams = Schema.Union([
   Schema.Struct({
     mode: Schema.Literal("url"),
     message: Schema.String,
@@ -64,12 +64,9 @@ const McpElicitParams = Schema.Union(
   Schema.Struct({
     mode: Schema.optional(Schema.Literal("form")),
     message: Schema.String,
-    requestedSchema: Schema.Record({
-      key: Schema.String,
-      value: Schema.Unknown,
-    }),
+    requestedSchema: Schema.Record(Schema.String, Schema.Unknown),
   }),
-);
+]);
 type McpElicitParams = typeof McpElicitParams.Type;
 
 const decodeElicitParams = Schema.decodeUnknownSync(McpElicitParams);
@@ -109,9 +106,9 @@ const installElicitationHandler = (
             : {}),
         };
       }
-      const failure = Cause.failureOption(exit.cause);
-      if (failure._tag === "Some") {
-        const err = failure.value as {
+      const failure = exit.cause.reasons.find(Cause.isFailReason);
+      if (failure) {
+        const err = failure.error as {
           readonly _tag?: string;
           readonly action?: "decline" | "cancel";
         };
@@ -199,9 +196,9 @@ export const invokeMcpTool = (
     // Without this every `plugin.mcp.connection.acquire` span looks the
     // same in Axiom and you have to cross-reference the
     // `plugin.mcp.connection.handshake` count to back out the hit rate.
-    const cacheHit = yield* input.connectionCache.contains(cacheKey);
+    const cacheHit = yield* ScopedCache.has(input.connectionCache, cacheKey);
 
-    const firstConnection = yield* input.connectionCache.get(cacheKey).pipe(
+    const firstConnection = yield* ScopedCache.get(input.connectionCache, cacheKey).pipe(
       Effect.withSpan("plugin.mcp.connection.acquire", {
         attributes: {
           "plugin.mcp.transport": transport,
@@ -220,11 +217,11 @@ export const invokeMcpTool = (
     ).pipe(
       // On failure, invalidate the cache and retry once with a fresh
       // connection. Matches the old invoker's retry-once semantics.
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         Effect.gen(function* () {
-          yield* input.connectionCache.invalidate(cacheKey);
+          yield* ScopedCache.invalidate(input.connectionCache, cacheKey);
           input.pendingConnectors.set(cacheKey, connector);
-          const fresh = yield* input.connectionCache.get(cacheKey);
+          const fresh = yield* ScopedCache.get(input.connectionCache, cacheKey);
           return yield* useConnection(
             fresh,
             input.toolName,

@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { UserStoreError, WorkOSError } from "./errors";
 import { SessionAuth } from "./middleware";
@@ -55,40 +55,44 @@ export const AUTH_PATHS = {
   switchOrganization: "/api/auth/switch-organization",
 } as const;
 
+const AuthErrors = [UserStoreError, WorkOSError] as const;
+
 /** Public auth endpoints — no authentication required */
 export class CloudAuthPublicApi extends HttpApiGroup.make("cloudAuthPublic")
-  .add(HttpApiEndpoint.get("login")`/auth/login`)
+  .add(HttpApiEndpoint.get("login", "/auth/login"))
   .add(
-    HttpApiEndpoint.get("callback")`/auth/callback`
-      .setUrlParams(AuthCallbackSearch)
-      .addError(UserStoreError)
-      .addError(WorkOSError),
+    HttpApiEndpoint.get("callback", "/auth/callback", {
+      query: AuthCallbackSearch,
+      error: AuthErrors,
+    }),
   ) {}
 
 /** Session auth endpoints — require a logged-in user, may not have an org */
 export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
   .add(
-    HttpApiEndpoint.get("me")`/auth/me`
-      .addSuccess(AuthMeResponse)
-      .addError(UserStoreError)
-      .addError(WorkOSError),
+    HttpApiEndpoint.get("me", "/auth/me", {
+      success: AuthMeResponse,
+      error: AuthErrors,
+    }),
   )
-  .add(HttpApiEndpoint.post("logout")`/auth/logout`)
+  .add(HttpApiEndpoint.post("logout", "/auth/logout"))
   .add(
-    HttpApiEndpoint.get("organizations")`/auth/organizations`
-      .addSuccess(AuthOrganizationsResponse)
-      .addError(WorkOSError),
-  )
-  .add(
-    HttpApiEndpoint.post("switchOrganization")`/auth/switch-organization`
-      .setPayload(SwitchOrganizationBody)
-      .addError(WorkOSError),
+    HttpApiEndpoint.get("organizations", "/auth/organizations", {
+      success: AuthOrganizationsResponse,
+      error: WorkOSError,
+    }),
   )
   .add(
-    HttpApiEndpoint.post("createOrganization")`/auth/create-organization`
-      .setPayload(CreateOrganizationBody)
-      .addSuccess(CreateOrganizationResponse)
-      .addError(UserStoreError)
-      .addError(WorkOSError),
+    HttpApiEndpoint.post("switchOrganization", "/auth/switch-organization", {
+      payload: SwitchOrganizationBody,
+      error: WorkOSError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("createOrganization", "/auth/create-organization", {
+      payload: CreateOrganizationBody,
+      success: CreateOrganizationResponse,
+      error: AuthErrors,
+    }),
   )
   .middleware(SessionAuth) {}

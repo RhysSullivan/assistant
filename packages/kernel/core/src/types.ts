@@ -23,7 +23,7 @@ export interface Tool {
 
 /** Invoke a tool by path from inside a sandbox */
 export interface SandboxToolInvoker {
-  invoke(input: { path: string; args: unknown }): Effect.Effect<unknown, unknown>;
+  invoke(input: { path: string; args: unknown }): Effect.Effect<unknown, unknown, never>;
 }
 
 /** Result of executing code in a sandbox */

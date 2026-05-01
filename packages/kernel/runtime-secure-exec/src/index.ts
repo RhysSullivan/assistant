@@ -8,7 +8,6 @@ import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Runtime from "effect/Runtime";
 import { allowAll, createInMemoryFileSystem, createKernel, createNodeRuntime } from "secure-exec";
 
 export type SecureExecExecutorOptions = {
@@ -58,10 +57,6 @@ class SecureExecExecutionError extends Data.TaggedError("SecureExecExecutionErro
     return `${this.operation}: ${formatUnknownMessage(this.cause)}`;
   }
 }
-
-class SecureExecTimeoutError extends Data.TaggedError("SecureExecTimeoutError")<{
-  readonly timeoutMs: number;
-}> {}
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_MEMORY_LIMIT_MB = 128;
@@ -179,7 +174,7 @@ const invokeToolBinding = (
           value: serializeJson(value),
         })),
       ),
-      Effect.catchAllCause((cause) =>
+      Effect.catchCause((cause) =>
         Effect.succeed<ToolErrorEnvelope>({
           ok: false,
           error: formatCauseMessage(cause),
@@ -189,7 +184,7 @@ const invokeToolBinding = (
 
     return encodeToolEnvelope(envelope);
   }).pipe(
-    Effect.catchAllCause((cause) =>
+    Effect.catchCause((cause) =>
       Effect.succeed(
         encodeToolEnvelope({
           ok: false,
@@ -308,16 +303,14 @@ const waitForProcess = (
         exitCode,
       }),
     ),
-    Effect.timeoutFail({
+    Effect.timeoutOrElse({
       duration: Duration.millis(timeoutMs),
-      onTimeout: () => new SecureExecTimeoutError({ timeoutMs }),
+      orElse: () =>
+        useSync("process.kill_on_timeout", proc, (p) => {
+          p.kill(9);
+          return { _tag: "TimedOut" as const };
+        }),
     }),
-    Effect.catchTag("SecureExecTimeoutError", () =>
-      useSync("process.kill_on_timeout", proc, (p) => {
-        p.kill(9);
-        return { _tag: "TimedOut" as const };
-      }),
-    ),
   );
 
 const runEntryProcess = (
@@ -384,8 +377,8 @@ const evaluateInSecureExec = (
   const logs: string[] = [];
 
   return Effect.gen(function* () {
-    const runtime = yield* Effect.runtime<never>();
-    const runPromise: RuntimePromiseRunner = Runtime.runPromise(runtime);
+    const context = yield* Effect.context<never>();
+    const runPromise: RuntimePromiseRunner = Effect.runPromiseWith(context);
     const source = buildExecutionSource(code);
 
     const processOutput = yield* Effect.scoped(
@@ -431,7 +424,7 @@ const evaluateInSecureExec = (
         logs,
       }),
     ),
-    Effect.catchAllCause((cause) =>
+    Effect.catchCause((cause) =>
       Effect.succeed<ExecuteResult>({
         result: null,
         error: formatCauseMessage(cause),

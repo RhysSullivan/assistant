@@ -166,7 +166,7 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
         <DropdownMenuItem disabled>No organizations</DropdownMenuItem>
       ) : (
         <>
-          {value.organizations.map((organization) => {
+          {value.organizations.map((organization: { id: string; name: string }) => {
             const isActive = organization.id === props.activeOrganizationId;
             return (
               <DropdownMenuItem

@@ -14,7 +14,7 @@
 // subsequent generator changes that would alter the output fail
 // loudly until the snapshot is reviewed.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 
 import type { DBSchema } from "@executor-js/storage-core";
 

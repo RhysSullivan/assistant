@@ -1,6 +1,6 @@
 import type { WorkOS } from "@workos-inc/node/worker";
 import { WorkOS as WorkOSClient } from "@workos-inc/node/worker";
-import { Data, Effect, Either } from "effect";
+import { Data, Effect, Result } from "effect";
 
 export interface WorkOSVaultObjectMetadata {
   readonly context: Record<string, unknown>;
@@ -108,16 +108,16 @@ export const makeWorkOSVaultClient = (workos: Pick<WorkOS, "vault">): WorkOSVaul
     });
 
     const observed = attempt.pipe(
-      Effect.either,
+      Effect.result,
       Effect.flatMap((outcome) =>
         Effect.gen(function* () {
-          if (Either.isRight(outcome)) {
+          if (Result.isSuccess(outcome)) {
             yield* Effect.annotateCurrentSpan({ "workos_vault.outcome": "ok" });
             return outcome;
           }
 
-          const status = vaultErrorStatus(outcome.left);
-          if (isExpectedVaultError(outcome.left, options)) {
+          const status = vaultErrorStatus(outcome.failure);
+          if (isExpectedVaultError(outcome.failure, options)) {
             yield* Effect.annotateCurrentSpan({
               "workos_vault.outcome": options?.expectedErrorOutcome ?? "expected_error",
               "workos_vault.status": status ?? "unknown",
@@ -129,7 +129,7 @@ export const makeWorkOSVaultClient = (workos: Pick<WorkOS, "vault">): WorkOSVaul
             "workos_vault.outcome": "error",
             "workos_vault.status": status ?? "unknown",
           });
-          return yield* Effect.fail(outcome.left);
+          return yield* Effect.fail(outcome.failure);
         }),
       ),
       Effect.withSpan(`workos_vault.${operation}`),
@@ -137,7 +137,7 @@ export const makeWorkOSVaultClient = (workos: Pick<WorkOS, "vault">): WorkOSVaul
 
     return observed.pipe(
       Effect.flatMap((outcome) =>
-        Either.isRight(outcome) ? Effect.succeed(outcome.right) : Effect.fail(outcome.left),
+        Result.isSuccess(outcome) ? Effect.succeed(outcome.success) : Effect.fail(outcome.failure),
       ),
     );
   };

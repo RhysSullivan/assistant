@@ -470,7 +470,7 @@ export function definePlugin<
 
     const hasAuthorOptions = Object.keys(rest).length > 0;
     const spec = authorFactory(
-      hasAuthorOptions ? (rest as unknown as TOptions) : undefined,
+      hasAuthorOptions ? (rest as TOptions) : undefined,
     );
 
     return {

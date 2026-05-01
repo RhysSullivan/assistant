@@ -1,11 +1,10 @@
 import { Schema } from "effect";
-import { HttpApiSchema } from "@effect/platform";
 
-export class OnePasswordError extends Schema.TaggedError<OnePasswordError>()(
+export class OnePasswordError extends Schema.TaggedErrorClass<OnePasswordError>()(
   "OnePasswordError",
   {
     operation: Schema.String,
     message: Schema.String,
   },
-  HttpApiSchema.annotations({ status: 502 }),
+  { httpApiStatus: 502 },
 ) {}

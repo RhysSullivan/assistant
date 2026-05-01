@@ -1,7 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { NodeFileSystem } from "@effect/platform-node";
-import { FileSystem } from "@effect/platform";
+import { FileSystem } from "effect";
 import { join } from "node:path";
 
 import { ExecutorFileConfig } from "./schema";

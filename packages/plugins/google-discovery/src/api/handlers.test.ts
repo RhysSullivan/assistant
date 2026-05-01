@@ -7,7 +7,8 @@
 // the opaque `InternalError` schema (no internal leakage).
 // ---------------------------------------------------------------------------
 
-import { HttpApiBuilder, HttpServer } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpServer } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
@@ -17,7 +18,7 @@ import type { GoogleDiscoveryPluginExtension } from "../sdk/plugin";
 import { GoogleDiscoveryExtensionService, GoogleDiscoveryHandlers } from "./handlers";
 import { GoogleDiscoveryGroup } from "./group";
 
-const unused = Effect.dieMessage("unused");
+const unused = Effect.die(new Error("unused"));
 
 const failingExtension: GoogleDiscoveryPluginExtension = {
   probeDiscovery: () => Effect.die(new Error("Not implemented")),
@@ -28,14 +29,16 @@ const failingExtension: GoogleDiscoveryPluginExtension = {
 };
 
 const Api = addGroup(GoogleDiscoveryGroup);
+const HttpApiBuilderCompat = HttpApiBuilder as any;
+const HttpServerCompat = HttpServer as any;
 
 // `acquireRelease` keeps disposal inside the Effect scope — no
 // try/finally, no per-test cleanup plumbing. `it.scoped` closes the
 // scope for us.
 const WebHandler = Effect.acquireRelease(
   Effect.sync(() =>
-    HttpApiBuilder.toWebHandler(
-      HttpApiBuilder.api(Api).pipe(
+    HttpApiBuilderCompat.toWebHandler(
+      HttpApiBuilderCompat.api(Api).pipe(
         Layer.provide(CoreHandlers),
         Layer.provide(GoogleDiscoveryHandlers),
         Layer.provide(observabilityMiddleware(Api)),
@@ -44,9 +47,9 @@ const WebHandler = Effect.acquireRelease(
         Layer.provide(
           Layer.succeed(GoogleDiscoveryExtensionService, failingExtension),
         ),
-        Layer.provideMerge(HttpServer.layerContext),
-        Layer.provideMerge(HttpApiBuilder.Router.Live),
-        Layer.provideMerge(HttpApiBuilder.Middleware.layer),
+        Layer.provideMerge(HttpServerCompat.layerContext),
+        Layer.provideMerge(HttpApiBuilderCompat.Router.Live),
+        Layer.provideMerge(HttpApiBuilderCompat.Middleware.layer),
       ),
     ),
   ),
@@ -54,12 +57,12 @@ const WebHandler = Effect.acquireRelease(
 );
 
 describe("GoogleDiscoveryHandlers", () => {
-  it.scoped(
+  it.effect(
     "defect-returning methods produce an opaque InternalError, no leakage",
     () =>
       Effect.gen(function* () {
         const web = yield* WebHandler;
-        const response = yield* Effect.promise(() =>
+        const response = (yield* Effect.promise(() =>
           web.handler(
             new Request("http://localhost/scopes/scope_1/google-discovery/probe", {
               method: "POST",
@@ -69,7 +72,7 @@ describe("GoogleDiscoveryHandlers", () => {
               }),
             }),
           ),
-        );
+        )) as Response;
 
         expect(response.status).toBe(500);
         const body = (yield* Effect.promise(() => response.json())) as {

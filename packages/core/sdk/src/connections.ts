@@ -15,10 +15,7 @@ import { ConnectionId, ScopeId, SecretId } from "./ids";
  *  blob. The SDK never inspects its shape; plugins encode/decode their
  *  own structure. Never sensitive — that's what the secret rows are
  *  for. */
-export const ConnectionProviderState = Schema.Record({
-  key: Schema.String,
-  value: Schema.Unknown,
-});
+export const ConnectionProviderState = Schema.Record(Schema.String, Schema.Unknown);
 export type ConnectionProviderState = typeof ConnectionProviderState.Type;
 
 // ---------------------------------------------------------------------------
@@ -40,8 +37,8 @@ export class ConnectionRef extends Schema.Class<ConnectionRef>("ConnectionRef")(
    *  `oauthScope` to avoid collision with the executor scope id. */
   oauthScope: Schema.NullOr(Schema.String),
   providerState: Schema.NullOr(ConnectionProviderState),
-  createdAt: Schema.DateFromNumber,
-  updatedAt: Schema.DateFromNumber,
+  createdAt: Schema.Date,
+  updatedAt: Schema.Date,
 }) {}
 
 // ---------------------------------------------------------------------------

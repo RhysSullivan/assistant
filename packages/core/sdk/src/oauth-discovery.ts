@@ -18,7 +18,7 @@
 // callers actually need.
 // ---------------------------------------------------------------------------
 
-import { Data, Effect, ParseResult, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import * as oauth from "oauth4webapi";
 
 import {
@@ -68,7 +68,7 @@ export const OAuthProtectedResourceMetadataSchema = Schema.Struct({
   scopes_supported: Schema.optional(StringArray),
   bearer_methods_supported: Schema.optional(StringArray),
   resource_documentation: Schema.optional(Schema.String),
-}).pipe(Schema.annotations({ identifier: "OAuthProtectedResourceMetadata" }));
+}).annotate({ identifier: "OAuthProtectedResourceMetadata" });
 export type OAuthProtectedResourceMetadata =
   typeof OAuthProtectedResourceMetadataSchema.Type;
 
@@ -86,7 +86,7 @@ export const OAuthAuthorizationServerMetadataSchema = Schema.Struct({
   introspection_endpoint: Schema.optional(Schema.String),
   userinfo_endpoint: Schema.optional(Schema.String),
   id_token_signing_alg_values_supported: Schema.optional(StringArray),
-}).pipe(Schema.annotations({ identifier: "OAuthAuthorizationServerMetadata" }));
+}).annotate({ identifier: "OAuthAuthorizationServerMetadata" });
 export type OAuthAuthorizationServerMetadata =
   typeof OAuthAuthorizationServerMetadataSchema.Type;
 
@@ -124,16 +124,16 @@ export const OAuthClientInformationSchema = Schema.Struct({
   redirect_uris: Schema.optional(StringArray),
   client_name: Schema.optional(Schema.String),
   scope: Schema.optional(Schema.String),
-}).pipe(Schema.annotations({ identifier: "OAuthClientInformation" }));
+}).annotate({ identifier: "OAuthClientInformation" });
 export type OAuthClientInformation = typeof OAuthClientInformationSchema.Type;
 
-const decodeResourceMetadata = Schema.decodeUnknown(
+const decodeResourceMetadata = Schema.decodeUnknownEffect(
   OAuthProtectedResourceMetadataSchema,
 );
-const decodeAuthServerMetadata = Schema.decodeUnknown(
+const decodeAuthServerMetadata = Schema.decodeUnknownEffect(
   OAuthAuthorizationServerMetadataSchema,
 );
-const decodeClientInformation = Schema.decodeUnknown(
+const decodeClientInformation = Schema.decodeUnknownEffect(
   OAuthClientInformationSchema,
 );
 
@@ -282,7 +282,7 @@ export const discoverProtectedResourceMetadata = (
           (err) =>
             new OAuthDiscoveryError({
               message: `Protected resource metadata is malformed: ${
-                err instanceof ParseResult.ParseError ? err.message : String(err)
+                Schema.isSchemaError(err) ? err.message : String(err)
               }`,
               cause: err,
             }),
@@ -360,24 +360,24 @@ export const discoverAuthorizationServerMetadata = (
       }).pipe(
         // If one algorithm fails mid-roundtrip (network, parse, issuer
         // mismatch) we still want to try the other before giving up.
-        Effect.either,
+        Effect.result,
       );
 
-      if (result._tag === "Left") continue;
-      if (result.right === null) continue;
+      if (Result.isFailure(result)) continue;
+      if (result.success === null) continue;
 
-      const metadata = yield* decodeAuthServerMetadata(result.right.raw).pipe(
+      const metadata = yield* decodeAuthServerMetadata(result.success.raw).pipe(
         Effect.mapError(
           (err) =>
             new OAuthDiscoveryError({
               message: `Authorization server metadata is malformed: ${
-                err instanceof ParseResult.ParseError ? err.message : String(err)
+                Schema.isSchemaError(err) ? err.message : String(err)
               }`,
               cause: err,
             }),
         ),
       );
-      return { metadataUrl: result.right.metadataUrl, metadata };
+      return { metadataUrl: result.success.metadataUrl, metadata };
     }
     return null;
   });
@@ -477,7 +477,7 @@ export const registerDynamicClient = (
           (err) =>
             new OAuthDiscoveryError({
               message: `Dynamic Client Registration response is malformed: ${
-                err instanceof ParseResult.ParseError ? err.message : String(err)
+                Schema.isSchemaError(err) ? err.message : String(err)
               }`,
               cause: err,
             }),

@@ -13,7 +13,7 @@
 
 import { Effect } from "effect";
 import type { Layer } from "effect";
-import type { FileSystem } from "@effect/platform";
+import type { FileSystem } from "effect";
 
 import { SECRET_REF_PREFIX, type ConfigHeaderValue, type SourceConfig } from "./schema";
 import { addSourceToConfig, removeSourceFromConfig } from "./write";
@@ -65,13 +65,13 @@ export const makeFileConfigSink = (
     upsertSource: (source) =>
       addSourceToConfig(path, source).pipe(
         Effect.provide(fsLayer),
-        Effect.catchAll((err) => Effect.sync(() => onError("upsert", err))),
+        Effect.catch((err: unknown) => Effect.sync(() => onError("upsert", err))),
       ),
 
     removeSource: (namespace) =>
       removeSourceFromConfig(path, namespace).pipe(
         Effect.provide(fsLayer),
-        Effect.catchAll((err) => Effect.sync(() => onError("remove", err))),
+        Effect.catch((err: unknown) => Effect.sync(() => onError("remove", err))),
       ),
   };
 };

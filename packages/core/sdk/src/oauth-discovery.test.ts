@@ -23,7 +23,7 @@ const installFetchRouter = (
         if (h.match(url)) return h.handle(url, init);
       }
       return new Response(null, { status: 404 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
   return { calls };
 };
 
@@ -96,11 +96,8 @@ describe("discoverProtectedResourceMetadata", () => {
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      const err = Cause.failureOption(exit.cause);
-      expect(err._tag).toBe("Some");
-      if (err._tag === "Some") {
-        expect(err.value).toBeInstanceOf(OAuthDiscoveryError);
-      }
+      const reason = exit.cause.reasons.find(Cause.isFailReason);
+      expect(reason?.error).toBeInstanceOf(OAuthDiscoveryError);
     }
   });
 });
@@ -227,10 +224,10 @@ describe("registerDynamicClient", () => {
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      const err = Cause.failureOption(exit.cause);
-      if (err._tag === "Some" && err.value instanceof OAuthDiscoveryError) {
-        expect(err.value.status).toBe(400);
-        expect(err.value.message).toMatch(/invalid_client_metadata/);
+      const reason = exit.cause.reasons.find(Cause.isFailReason);
+      if (reason?.error instanceof OAuthDiscoveryError) {
+        expect(reason.error.status).toBe(400);
+        expect(reason.error.message).toMatch(/invalid_client_metadata/);
       } else {
         throw new Error("expected OAuthDiscoveryError");
       }

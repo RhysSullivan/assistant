@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 
-import { definePlugin, type PluginCtx } from "@executor-js/sdk";
+import {
+  definePlugin,
+  type PluginCtx,
+  type SecretProvider,
+} from "@executor-js/sdk";
 
 import {
   deletePassword,
@@ -67,7 +71,13 @@ const scopedServiceName = (
 ): string =>
   `${resolveServiceName(options?.serviceName)}/${ctx.scopes[0]!.id as string}`;
 
-export const keychainPlugin = definePlugin(
+export const keychainPlugin = definePlugin<
+  "keychain",
+  KeychainExtension,
+  {},
+  undefined,
+  KeychainPluginConfig
+>(
   (options?: KeychainPluginConfig) => ({
     id: "keychain" as const,
     storage: () => ({}),
@@ -85,7 +95,7 @@ export const keychainPlugin = definePlugin(
       };
     },
 
-    secretProviders: (ctx) =>
+    secretProviders: (ctx): Effect.Effect<readonly SecretProvider[]> =>
       Effect.gen(function* () {
         const serviceName = scopedServiceName(ctx, options);
         const reachable = yield* setPassword(
@@ -95,11 +105,11 @@ export const keychainPlugin = definePlugin(
         ).pipe(
           Effect.andThen(
             deletePassword(serviceName, PROBE_ACCOUNT).pipe(
-              Effect.catchAll(() => Effect.void),
+              Effect.catch(() => Effect.void),
             ),
           ),
           Effect.as(true),
-          Effect.catchAll((cause) =>
+          Effect.catch((cause) =>
             Effect.logWarning(
               `keychain unavailable, skipping provider registration: ${cause.message}`,
             ).pipe(Effect.as(false)),

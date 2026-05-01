@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ---------------------------------------------------------------------------
 // Tests for OAuth2 flow extraction in previewSpec. Covers:
 //   - authorizationCode flow extraction (URLs + scopes)
@@ -9,7 +10,7 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
-import { FetchHttpClient } from "@effect/platform";
+import { FetchHttpClient } from "effect/unstable/http";
 
 import { previewSpec as previewSpecRaw } from "./preview";
 

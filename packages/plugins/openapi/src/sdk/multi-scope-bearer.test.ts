@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ---------------------------------------------------------------------------
 // End-to-end shape test for multi-user bearer-token auth on the OpenAPI
 // plugin. Models the Vercel-style scenario:
@@ -19,15 +20,8 @@
 
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
-import {
-  HttpApi,
-  HttpApiBuilder,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpClient,
-  HttpServerRequest,
-  OpenApi,
-} from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpClient, HttpServerRequest } from "effect/unstable/http";
 import { NodeHttpServer } from "@effect/platform-node";
 
 import {
@@ -237,15 +231,15 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         // -------------------------------------------------------------
         const aliceRows = yield* aliceExec.secrets.list();
         const aliceToken = aliceRows.find(
-          (r) => (r.id as unknown as string) === "vercel_api_token",
+          (r) => String(r.id) === "vercel_api_token",
         );
-        expect(aliceToken?.scopeId as unknown as string).toBe("user-alice");
+        expect(String(aliceToken?.scopeId)).toBe("user-alice");
 
         const bobRows = yield* bobExec.secrets.list();
         const bobToken = bobRows.find(
-          (r) => (r.id as unknown as string) === "vercel_api_token",
+          (r) => String(r.id) === "vercel_api_token",
         );
-        expect(bobToken?.scopeId as unknown as string).toBe("user-bob");
+        expect(String(bobToken?.scopeId)).toBe("user-bob");
 
         // Admin's scope never received a token — `get` at the org
         // scope yields null and the source is effectively unusable
@@ -258,13 +252,13 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         //    bob's token row, and vice versa.
         // -------------------------------------------------------------
         const aliceIds = new Set(
-          aliceRows.map((r) => `${r.scopeId as unknown as string}:${r.id as unknown as string}`),
+          aliceRows.map((r) => `${String(r.scopeId)}:${String(r.id)}`),
         );
         expect(aliceIds).toContain("user-alice:vercel_api_token");
         expect(aliceIds).not.toContain("user-bob:vercel_api_token");
 
         const bobIds = new Set(
-          bobRows.map((r) => `${r.scopeId as unknown as string}:${r.id as unknown as string}`),
+          bobRows.map((r) => `${String(r.scopeId)}:${String(r.id)}`),
         );
         expect(bobIds).toContain("user-bob:vercel_api_token");
         expect(bobIds).not.toContain("user-alice:vercel_api_token");

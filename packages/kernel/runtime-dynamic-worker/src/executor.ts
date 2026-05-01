@@ -12,7 +12,6 @@ import { RpcTarget } from "cloudflare:workers";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Runtime from "effect/Runtime";
 
 import {
   recoverExecutionBody,
@@ -157,9 +156,9 @@ const renderTransportMessage = (value: unknown): string => {
 };
 
 export const serializeWorkerCause = (cause: Cause.Cause<unknown>): SerializedWorkerError => {
-  const failures = Array.from(Cause.failures(cause), serializeWorkerErrorValue);
-  const defects = Array.from(Cause.defects(cause), serializeWorkerErrorValue);
-  const interrupted = Cause.isInterrupted(cause);
+  const failures = cause.reasons.filter(Cause.isFailReason).map((reason) => serializeWorkerErrorValue(reason.error));
+  const defects = cause.reasons.filter(Cause.isDieReason).map((reason) => serializeWorkerErrorValue(reason.defect));
+  const interrupted = cause.reasons.some(Cause.isInterruptReason);
   const primary = failures[0] ?? defects[0] ?? null;
   const kind =
     failures.length > 0 && defects.length > 0
@@ -260,8 +259,7 @@ export class ToolDispatcher extends RpcTarget {
             result: value,
           }),
         ),
-        Effect.sandbox,
-        Effect.catchAll((cause) =>
+        Effect.catchCause((cause) =>
           Effect.succeed<WorkerRpcResponse>({
             ok: false,
             error: serializeWorkerCause(cause),
@@ -291,6 +289,9 @@ type DynamicWorkerEntrypoint = {
   }>;
 };
 
+const asDynamicWorkerEntrypoint = (value: unknown): DynamicWorkerEntrypoint =>
+  value as DynamicWorkerEntrypoint;
+
 /**
  * Assemble the executor module source and ask the `WorkerLoader` for an
  * isolate. Spans the synchronous module-build + RPC-stub acquisition as
@@ -318,7 +319,7 @@ const startDynamicWorker = (
       globalOutbound: options.globalOutbound ?? null,
     }));
 
-    return worker.getEntrypoint() as unknown as DynamicWorkerEntrypoint;
+    return asDynamicWorkerEntrypoint(worker.getEntrypoint());
   }).pipe(
     Effect.withSpan("executor.runtime.startup", {
       attributes: {
@@ -338,8 +339,8 @@ const evaluate = (
   const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
   return Effect.gen(function* () {
-    const runtime = yield* Effect.runtime<never>();
-    const dispatcher = new ToolDispatcher(toolInvoker, Runtime.runPromise(runtime));
+    const context = yield* Effect.context<never>();
+    const dispatcher = new ToolDispatcher(toolInvoker, Effect.runPromiseWith(context));
     const entrypoint = yield* startDynamicWorker(options, code, timeoutMs);
     const response = yield* Effect.tryPromise({
       try: () => entrypoint.evaluate(dispatcher),

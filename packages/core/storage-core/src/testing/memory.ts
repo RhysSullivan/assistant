@@ -261,7 +261,7 @@ export const makeMemoryAdapter = (
     Effect.gen(function* () {
       const snapshot = cloneStore(store);
       const result = yield* cb(adapter).pipe(
-        Effect.catchAll((e) => {
+        Effect.catch((e) => {
           store = snapshot;
           return Effect.fail(e);
         }),

@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { ScopeId } from "@executor-js/sdk";
 
@@ -25,6 +25,9 @@ const ScopeInfoResponse = Schema.Struct({
 // Group
 // ---------------------------------------------------------------------------
 
-export class ScopeApi extends HttpApiGroup.make("scope")
-  .add(HttpApiEndpoint.get("info")`/scope`.addSuccess(ScopeInfoResponse))
-  .addError(InternalError) {}
+export const ScopeApi = HttpApiGroup.make("scope").add(
+  HttpApiEndpoint.get("info", "/scope", {
+    success: ScopeInfoResponse,
+    error: InternalError,
+  }),
+);

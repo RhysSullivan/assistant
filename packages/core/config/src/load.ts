@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
-import { FileSystem } from "@effect/platform";
-import type { PlatformError } from "@effect/platform/Error";
+import { FileSystem } from "effect";
+import type { PlatformError } from "effect/PlatformError";
 import * as jsonc from "jsonc-parser";
 import { ExecutorFileConfig } from "./schema";
 
@@ -41,7 +41,7 @@ export const loadConfig = (
       return yield* Effect.fail(new ConfigParseError(path, msg));
     }
 
-    const decoded = yield* Schema.decodeUnknown(ExecutorFileConfig)(parsed).pipe(
+    const decoded = yield* Schema.decodeUnknownEffect(ExecutorFileConfig)(parsed).pipe(
       Effect.mapError((e) => new ConfigParseError(path, String(e))),
     );
 

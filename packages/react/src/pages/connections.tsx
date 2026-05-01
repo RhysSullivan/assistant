@@ -183,7 +183,12 @@ export function ConnectionsPage() {
                     </CardStackEntryContent>
                   </CardStackEntry>
                 ) : (
-                  value.map((c) => (
+                  value.map((c: {
+                    readonly id: string;
+                    readonly scopeId: string;
+                    readonly provider: string;
+                    readonly identityLabel: string | null;
+                  }) => (
                     <ConnectionRow
                       key={c.id}
                       connection={{

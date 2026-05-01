@@ -7,7 +7,7 @@
 // `/scopes/:scopeId/{mcp,openapi,graphql,google-discovery}/oauth/*`.
 // ---------------------------------------------------------------------------
 
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 
 import {
@@ -22,7 +22,7 @@ import {
 
 import { InternalError } from "../observability";
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
+const ScopeParams = { scopeId: ScopeId };
 // ---------------------------------------------------------------------------
 // Probe — decide between dynamic-DCR and paste-your-credentials flows
 // ---------------------------------------------------------------------------
@@ -34,10 +34,10 @@ const ProbePayload = Schema.Struct({
 });
 
 const ProbeResponse = Schema.Struct({
-  resourceMetadata: Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  resourceMetadata: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
   resourceMetadataUrl: Schema.NullOr(Schema.String),
   authorizationServerMetadata: Schema.NullOr(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+    Schema.Record(Schema.String, Schema.Unknown),
   ),
   authorizationServerMetadataUrl: Schema.NullOr(Schema.String),
   authorizationServerUrl: Schema.NullOr(Schema.String),
@@ -125,42 +125,49 @@ const CallbackUrlParams = Schema.Struct({
   error_description: Schema.optional(Schema.String),
 });
 
-const HtmlResponse = Schema.Unknown.annotations(
-  HttpApiSchema.annotations({ contentType: "text/html" }),
-);
+const HtmlResponse = Schema.String.pipe(HttpApiSchema.asText());
 
 // ---------------------------------------------------------------------------
 // Group
 // ---------------------------------------------------------------------------
 
-export class OAuthApi extends HttpApiGroup.make("oauth")
+export const OAuthApi = HttpApiGroup.make("oauth")
   .add(
-    HttpApiEndpoint.post("probe")`/scopes/${scopeIdParam}/oauth/probe`
-      .setPayload(ProbePayload)
-      .addSuccess(ProbeResponse),
+    HttpApiEndpoint.post("probe", "/scopes/:scopeId/oauth/probe", {
+      params: ScopeParams,
+      payload: ProbePayload,
+      success: ProbeResponse,
+      error: [InternalError, OAuthProbeError],
+    }),
   )
   .add(
-    HttpApiEndpoint.post("start")`/scopes/${scopeIdParam}/oauth/start`
-      .setPayload(StartPayload)
-      .addSuccess(StartResponse),
+    HttpApiEndpoint.post("start", "/scopes/:scopeId/oauth/start", {
+      params: ScopeParams,
+      payload: StartPayload,
+      success: StartResponse,
+      error: [InternalError, OAuthStartError],
+    }),
   )
   .add(
-    HttpApiEndpoint.post("complete")`/scopes/${scopeIdParam}/oauth/complete`
-      .setPayload(CompletePayload)
-      .addSuccess(CompleteResponse),
+    HttpApiEndpoint.post("complete", "/scopes/:scopeId/oauth/complete", {
+      params: ScopeParams,
+      payload: CompletePayload,
+      success: CompleteResponse,
+      error: [InternalError, OAuthCompleteError, OAuthSessionNotFoundError],
+    }),
   )
   .add(
-    HttpApiEndpoint.post("cancel")`/scopes/${scopeIdParam}/oauth/cancel`
-      .setPayload(CancelPayload)
-      .addSuccess(CancelResponse),
+    HttpApiEndpoint.post("cancel", "/scopes/:scopeId/oauth/cancel", {
+      params: ScopeParams,
+      payload: CancelPayload,
+      success: CancelResponse,
+      error: [InternalError, OAuthSessionNotFoundError],
+    }),
   )
   .add(
-    HttpApiEndpoint.get("callback", "/oauth/callback")
-      .setUrlParams(CallbackUrlParams)
-      .addSuccess(HtmlResponse),
-  )
-  .addError(InternalError)
-  .addError(OAuthProbeError)
-  .addError(OAuthStartError)
-  .addError(OAuthCompleteError)
-  .addError(OAuthSessionNotFoundError) {}
+    HttpApiEndpoint.get("callback", "/oauth/callback", {
+      query: CallbackUrlParams,
+      success: HtmlResponse,
+      error: [InternalError, OAuthCompleteError, OAuthSessionNotFoundError],
+    }),
+  );

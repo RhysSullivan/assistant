@@ -1,18 +1,15 @@
 import { Effect, Schema } from "effect";
 
-export const SecretBackedValue = Schema.Union(
+export const SecretBackedValue = Schema.Union([
   Schema.String,
   Schema.Struct({
     secretId: Schema.String,
     prefix: Schema.optional(Schema.String),
   }),
-);
+]);
 export type SecretBackedValue = typeof SecretBackedValue.Type;
 
-export const SecretBackedMap = Schema.Record({
-  key: Schema.String,
-  value: SecretBackedValue,
-});
+export const SecretBackedMap = Schema.Record(Schema.String, SecretBackedValue);
 export type SecretBackedMap = typeof SecretBackedMap.Type;
 
 export const isSecretBackedRef = (

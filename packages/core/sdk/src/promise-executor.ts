@@ -114,7 +114,7 @@ export const createExecutor = async <
 >(
   config?: ExecutorConfig<TPlugins>,
 ): Promise<Executor<TPlugins>> => {
-  const plugins = (config?.plugins ?? []) as unknown as TPlugins;
+  const plugins = (config?.plugins ?? []) as TPlugins;
   const schema = collectSchemas(plugins);
 
   const scopes =

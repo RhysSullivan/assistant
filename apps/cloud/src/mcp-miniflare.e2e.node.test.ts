@@ -24,14 +24,8 @@ import { resolve } from "node:path";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import {
-  HttpApi,
-  HttpApiBuilder,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpServer,
-  OpenApi,
-} from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { NodeHttpServer } from "@effect/platform-node";
 import { Context, Effect, Layer, Schema } from "effect";
 
@@ -52,7 +46,9 @@ class ApprovedResponse extends Schema.Class<ApprovedResponse>("ApprovedResponse"
 }) {}
 
 const ApproveGroup = HttpApiGroup.make("approve").add(
-  HttpApiEndpoint.post("approveThing", "/approve").addSuccess(ApprovedResponse),
+  HttpApiEndpoint.post("approveThing", "/approve", {
+    success: ApprovedResponse,
+  }),
 );
 
 const UpstreamApi = HttpApi.make("approveApi").add(ApproveGroup);
@@ -61,10 +57,11 @@ const ApproveHandlers = HttpApiBuilder.group(UpstreamApi, "approve", (h) =>
   h.handle("approveThing", () => Effect.succeed(new ApprovedResponse({ approved: true }))),
 );
 
-const UpstreamApiLive = HttpApiBuilder.api(UpstreamApi).pipe(Layer.provide(ApproveHandlers));
+const UpstreamApiLive = HttpApiBuilder.layer(UpstreamApi).pipe(Layer.provide(ApproveHandlers));
 
-const UpstreamServeLayer = HttpApiBuilder.serve().pipe(
+const UpstreamServeLayer = HttpRouter.serve(UpstreamApiLive).pipe(
   Layer.provide(UpstreamApiLive),
+  Layer.provideMerge(HttpRouter.layer),
   Layer.provideMerge(NodeHttpServer.layer(() => createServer(), { port: 0, host: "127.0.0.1" })),
 );
 
@@ -72,18 +69,16 @@ const UpstreamServeLayer = HttpApiBuilder.serve().pipe(
 // Services
 // ---------------------------------------------------------------------------
 
-class Upstream extends Context.Tag("MiniflareE2E/Upstream")<
-  Upstream,
-  { readonly specJson: string; readonly url: string }
->() {}
+class Upstream extends Context.Service<Upstream, { readonly specJson: string; readonly url: string }
+>()("MiniflareE2E/Upstream") {}
 
-class Worker extends Context.Tag("MiniflareE2E/Worker")<
+class Worker extends Context.Service<
   Worker,
   {
     readonly baseUrl: URL;
     readonly seedOrg: (id: string, name: string) => Promise<void>;
   }
->() {}
+>()("MiniflareE2E/Worker") {}
 
 type CapturedSpan = {
   readonly name: string;
@@ -93,7 +88,7 @@ type CapturedSpan = {
   readonly attributes: Record<string, unknown>;
 };
 
-class TelemetryReceiver extends Context.Tag("MiniflareE2E/TelemetryReceiver")<
+class TelemetryReceiver extends Context.Service<
   TelemetryReceiver,
   {
     readonly tracesUrl: string;
@@ -103,7 +98,7 @@ class TelemetryReceiver extends Context.Tag("MiniflareE2E/TelemetryReceiver")<
       timeoutMs?: number,
     ) => Promise<CapturedSpan>;
   }
->() {}
+>()("MiniflareE2E/TelemetryReceiver") {}
 
 const UpstreamLive = Layer.effect(
   Upstream,
@@ -161,10 +156,8 @@ const unwrapAttrValue = (v?: OtlpAttributeValue): unknown => {
   return undefined;
 };
 
-const TelemetryReceiverLive = Layer.scoped(
-  TelemetryReceiver,
-  Effect.acquireRelease(
-    Effect.async<
+const TelemetryReceiverLive = Layer.effect(TelemetryReceiver)(Effect.acquireRelease(
+    Effect.callback<
       {
         readonly tracesUrl: string;
         readonly spans: ReadonlyArray<CapturedSpan>;
@@ -245,9 +238,7 @@ const TelemetryReceiverLive = Layer.scoped(
   ),
 );
 
-const WorkerLive = Layer.scoped(
-  Worker,
-  Effect.gen(function* () {
+const WorkerLive = Layer.effect(Worker)(Effect.gen(function* () {
     const receiver = yield* TelemetryReceiver;
     // AXIOM_TOKEN activates DoTelemetryLive inside the worker; AXIOM_TRACES_URL
     // redirects the exporter at our in-process OTLP/JSON receiver so spans

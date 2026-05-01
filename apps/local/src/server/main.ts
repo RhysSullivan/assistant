@@ -1,10 +1,5 @@
-import {
-  HttpApiBuilder,
-  HttpApiSwagger,
-  HttpMiddleware,
-  HttpRouter,
-  HttpServer,
-} from "@effect/platform";
+import { HttpApiBuilder, HttpApiSwagger } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
 import { addGroup, observabilityMiddleware } from "@executor-js/api";
@@ -53,7 +48,7 @@ const LocalApi = addGroup(OpenApiGroup)
 // implementation.
 const LocalObservability = observabilityMiddleware(LocalApi);
 
-const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
+const LocalApiBase = HttpApiBuilder.layer(LocalApi).pipe(
   Layer.provide(CoreHandlers),
   Layer.provide(
     Layer.mergeAll(
@@ -94,39 +89,37 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
   // Handlers wrap their own bodies with `capture(...)` — the edge
   // translation lives per-handler, not at service construction.
   const pluginExtensions = Layer.mergeAll(
-    Layer.succeed(OpenApiExtensionService, executor.openapi),
-    Layer.succeed(McpExtensionService, executor.mcp),
-    Layer.succeed(GoogleDiscoveryExtensionService, executor.googleDiscovery),
-    Layer.succeed(OnePasswordExtensionService, executor.onepassword),
-    Layer.succeed(GraphqlExtensionService, executor.graphql),
+    Layer.succeed(OpenApiExtensionService)(executor.openapi),
+    Layer.succeed(McpExtensionService)(executor.mcp),
+    Layer.succeed(GoogleDiscoveryExtensionService)(executor.googleDiscovery),
+    Layer.succeed(OnePasswordExtensionService)(executor.onepassword),
+    Layer.succeed(GraphqlExtensionService)(executor.graphql),
   );
 
-  const api = HttpApiBuilder.toWebHandler(
-    HttpApiSwagger.layer({ path: "/docs" }).pipe(
-      Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
-      Layer.provideMerge(LocalApiBase),
+  const api = HttpRouter.toWebHandler(
+    (LocalApiBase.pipe(
+      Layer.provideMerge(HttpApiSwagger.layer(LocalApi, { path: "/docs" })),
       Layer.provideMerge(pluginExtensions),
-      Layer.provideMerge(Layer.succeed(ExecutorService, executor)),
-      Layer.provideMerge(Layer.succeed(ExecutionEngineService, engine)),
-      Layer.provideMerge(HttpServer.layerContext),
-      Layer.provideMerge(HttpRouter.setRouterConfig({ maxParamLength: 1000 })),
-    ),
-    { middleware: HttpMiddleware.logger },
+      Layer.provideMerge(Layer.succeed(ExecutorService)(executor)),
+      Layer.provideMerge(Layer.succeed(ExecutionEngineService)(engine)),
+      Layer.provideMerge(HttpServer.layerServices),
+      Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
+    ) as never),
   );
+  const apiHandler: ServerHandlers["api"] = {
+    handler: (request) => api.handler(request),
+    dispose: api.dispose,
+  };
 
   const mcp = createMcpRequestHandler({ engine });
 
-  return { api, mcp };
+  return { api: apiHandler, mcp };
 };
 
-export class ServerHandlersService extends Context.Tag("@executor-js/local/ServerHandlersService")<
-  ServerHandlersService,
-  ServerHandlers
->() {}
+export class ServerHandlersService extends Context.Service<ServerHandlersService, ServerHandlers
+>()("@executor-js/local/ServerHandlersService") {}
 
-const ServerHandlersLive = Layer.scoped(
-  ServerHandlersService,
-  Effect.acquireRelease(
+const ServerHandlersLive = Layer.effect(ServerHandlersService)(Effect.acquireRelease(
     Effect.promise(() => createServerHandlers()),
     (handlers) => Effect.promise(() => closeServerHandlers(handlers)),
   ),
@@ -135,7 +128,7 @@ const ServerHandlersLive = Layer.scoped(
 const serverHandlersRuntime = ManagedRuntime.make(ServerHandlersLive);
 
 export const getServerHandlers = (): Promise<ServerHandlers> =>
-  serverHandlersRuntime.runPromise(ServerHandlersService);
+  serverHandlersRuntime.runPromise(ServerHandlersService.asEffect());
 
 export const disposeServerHandlers = async (): Promise<void> => {
   await serverHandlersRuntime.dispose().catch(() => undefined);

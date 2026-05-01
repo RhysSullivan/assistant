@@ -12,8 +12,8 @@ import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
-import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
 
 import { type DenoPermissions, spawnDenoWorkerProcess } from "./deno-worker-process";
@@ -72,11 +72,12 @@ const WorkerFailedMessage = Schema.Struct({
   logs: Schema.optional(Schema.Array(Schema.String)),
 });
 
-const WorkerMessage = Schema.Union(
+const WorkerMessage = Schema.Union([
   WorkerToolCallMessage,
   WorkerCompletedMessage,
   WorkerFailedMessage,
-);
+] as const);
+const decodeWorkerMessage = Schema.decodeUnknownOption(WorkerMessage);
 
 type WorkerToHostMessage = typeof WorkerMessage.Type;
 
@@ -162,8 +163,7 @@ const executeInDeno = (
   const timeoutMs = Math.max(100, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
   return Effect.gen(function* () {
-    const rt = yield* Effect.runtime<never>();
-    const runSync = Runtime.runSync(rt);
+    const runSync = Effect.runSync;
 
     // Queue bridges Node callbacks → Effect fibers
     const messages = yield* Queue.unbounded<WorkerToHostMessage>();
@@ -191,11 +191,9 @@ const executeInDeno = (
               const line = rawLine.trim();
               if (!line.startsWith(IPC_PREFIX)) return;
 
-              const decoded = Schema.decodeUnknownOption(WorkerMessage)(
-                JSON.parse(line.slice(IPC_PREFIX.length)),
-              );
-              if (decoded._tag === "Some") {
-                runSync(Queue.offer(messages, decoded.value));
+              const decoded = decodeWorkerMessage(JSON.parse(line.slice(IPC_PREFIX.length)));
+              if (Option.isSome(decoded)) {
+                runSync(Queue.offer(messages, decoded.value as WorkerToHostMessage));
               }
             },
             onStderr: () => {},
@@ -241,7 +239,7 @@ const executeInDeno = (
     // Message processing fiber — tool calls happen here, inside Effect
     // -----------------------------------------------------------------------
 
-    const processFiber = yield* Effect.fork(
+    const processFiber = yield* Effect.forkChild(
       Effect.gen(function* () {
         while (true) {
           const msg = yield* Queue.take(messages);
@@ -259,7 +257,7 @@ const executeInDeno = (
                       value,
                     }),
                   ),
-                  Effect.catchAllCause((cause) =>
+                  Effect.catchCause((cause) =>
                     Effect.succeed<HostToWorkerMessage>({
                       type: "tool_result",
                       requestId: msg.requestId,

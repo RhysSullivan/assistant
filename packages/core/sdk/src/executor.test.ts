@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 import type { DBAdapter, Where } from "@executor-js/storage-core";
@@ -598,8 +598,8 @@ describe("createExecutor", () => {
 
       const result = yield* executor.rollback
         .doFailingTx()
-        .pipe(Effect.either);
-      expect(result._tag).toBe("Left");
+        .pipe(Effect.result);
+      expect(Result.isFailure(result)).toBe(true);
 
       // Plugin storage row must not persist.
       expect(yield* executor.rollback.countThings()).toBe(0);
@@ -670,10 +670,10 @@ describe("createExecutor", () => {
 
       const leaked = yield* executor.secrets
         .get("conn-owned.access_token")
-        .pipe(Effect.either);
-      expect(leaked._tag).toBe("Left");
-      if (leaked._tag === "Left") {
-        expect((leaked.left as { _tag?: string })._tag).toBe(
+        .pipe(Effect.result);
+      expect(Result.isFailure(leaked)).toBe(true);
+      if (Result.isFailure(leaked)) {
+        expect((leaked.failure as { _tag?: string })._tag).toBe(
           "SecretOwnedByConnectionError",
         );
       }
@@ -681,7 +681,7 @@ describe("createExecutor", () => {
       const status = yield* executor.secrets.status("conn-owned.access_token");
       expect(status).toBe("missing");
       const visibleIds = (yield* executor.secrets.list()).map(
-        (s) => s.id as unknown as string,
+        (s) => String(s.id),
       );
       expect(visibleIds).not.toContain("conn-owned.access_token");
 

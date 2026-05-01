@@ -76,7 +76,7 @@ export class SecretRef extends Schema.Class<SecretRef>("SecretRef")({
   name: Schema.String,
   /** Which provider holds the value */
   provider: Schema.String,
-  createdAt: Schema.DateFromNumber,
+  createdAt: Schema.Date,
 }) {}
 
 // ---------------------------------------------------------------------------

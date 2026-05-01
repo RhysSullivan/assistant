@@ -165,5 +165,5 @@ export const createMcpConnector = (input: ConnectorInput): McpConnector => {
   if (remoteTransport === "sse") return connectSse;
 
   // auto — try streamable-http first, fall back to SSE
-  return connectStreamableHttp.pipe(Effect.catchAll(() => connectSse));
+  return connectStreamableHttp.pipe(Effect.catch(() => connectSse));
 };

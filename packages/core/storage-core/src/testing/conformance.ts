@@ -12,8 +12,8 @@
 // for any backend that implements `DBAdapter`.
 
 import { describe, it } from "@effect/vitest";
-import { expect } from "vitest";
-import { Effect } from "effect";
+import { expect } from "@effect/vitest";
+import { Effect, Result } from "effect";
 
 import type { DBAdapter } from "../adapter";
 import type { DBSchema } from "../schema";
@@ -84,6 +84,17 @@ export const runAdapterConformance = (
   withAdapter: WithAdapter,
 ): void => {
   describe(`conformance: ${name}`, () => {
+    const withDefaultsInput = (
+      value: unknown,
+    ): {
+      readonly name: string;
+      readonly nickname: string | null;
+    } =>
+      value as {
+        readonly name: string;
+        readonly nickname: string | null;
+      };
+
     it.effect("create + findOne round-trips coerced columns", () =>
       withAdapter((adapter) =>
         Effect.gen(function* () {
@@ -189,7 +200,7 @@ export const runAdapterConformance = (
           yield* adapter.create({
             model: "tag",
             forceAllowId: true,
-            data: { id: "tag-fixed-1", label: "red" } as unknown as {
+            data: { id: "tag-fixed-1", label: "red" } as {
               label: string;
             },
           });
@@ -477,10 +488,7 @@ export const runAdapterConformance = (
             nickname: string | null;
           }>({
             model: "with_defaults",
-            data: { name: "omitted", nickname: undefined } as unknown as {
-              name: string;
-              nickname: string | null;
-            },
+            data: withDefaultsInput({ name: "omitted", nickname: undefined }),
           });
           expect(defaulted.nickname).toBe("anon");
         }),
@@ -541,8 +549,8 @@ export const runAdapterConformance = (
                 return yield* Effect.fail(new Error("boom"));
               }),
             )
-            .pipe(Effect.either);
-          expect(result._tag).toBe("Left");
+            .pipe(Effect.result);
+          expect(Result.isFailure(result)).toBe(true);
           const after = yield* adapter.count({ model: "tag" });
           expect(after).toBe(before);
         }),

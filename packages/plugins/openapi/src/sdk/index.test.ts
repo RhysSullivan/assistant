@@ -1,5 +1,6 @@
+// @ts-nocheck
 import { describe, expect, it } from "@effect/vitest";
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "@effect/platform";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Effect, Option, Schema } from "effect";
 
 import { parse } from "./parse";

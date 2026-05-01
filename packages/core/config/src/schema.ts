@@ -11,19 +11,16 @@ import { Schema } from "effect";
 
 export const SECRET_REF_PREFIX = "secret-public-ref:";
 
-export const ConfigHeaderValue = Schema.Union(
+export const ConfigHeaderValue = Schema.Union([
   Schema.String,
   Schema.Struct({
     value: Schema.String,
     prefix: Schema.optional(Schema.String),
   }),
-);
+]);
 export type ConfigHeaderValue = typeof ConfigHeaderValue.Type;
 
-const ConfigHeaders = Schema.Record({
-  key: Schema.String,
-  value: ConfigHeaderValue,
-});
+const ConfigHeaders = Schema.Record(Schema.String, ConfigHeaderValue);
 
 // ---------------------------------------------------------------------------
 // Source configs — discriminated union on "kind"
@@ -47,9 +44,9 @@ export const GraphqlSourceConfig = Schema.Struct({
 });
 export type GraphqlSourceConfig = typeof GraphqlSourceConfig.Type;
 
-const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
+const StringMap = Schema.Record(Schema.String, Schema.String);
 
-export const McpAuthConfig = Schema.Union(
+export const McpAuthConfig = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("header"),
@@ -64,7 +61,7 @@ export const McpAuthConfig = Schema.Union(
      *  via the executor's innermost-wins lookup. */
     connectionId: Schema.String,
   }),
-);
+]);
 export type McpAuthConfig = typeof McpAuthConfig.Type;
 
 export const McpRemoteSourceConfig = Schema.Struct({
@@ -72,7 +69,7 @@ export const McpRemoteSourceConfig = Schema.Struct({
   transport: Schema.Literal("remote"),
   name: Schema.String,
   endpoint: Schema.String,
-  remoteTransport: Schema.optional(Schema.Literal("streamable-http", "sse", "auto")),
+  remoteTransport: Schema.optional(Schema.Literals(["streamable-http", "sse", "auto"])),
   namespace: Schema.optional(Schema.String),
   queryParams: Schema.optional(StringMap),
   headers: Schema.optional(StringMap),
@@ -92,12 +89,12 @@ export const McpStdioSourceConfig = Schema.Struct({
 });
 export type McpStdioSourceConfig = typeof McpStdioSourceConfig.Type;
 
-export const SourceConfig = Schema.Union(
+export const SourceConfig = Schema.Union([
   OpenApiSourceConfig,
   GraphqlSourceConfig,
   McpRemoteSourceConfig,
   McpStdioSourceConfig,
-);
+]);
 export type SourceConfig = typeof SourceConfig.Type;
 
 // ---------------------------------------------------------------------------
@@ -119,6 +116,6 @@ export const ExecutorFileConfig = Schema.Struct({
   $schema: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   sources: Schema.optional(Schema.Array(SourceConfig)),
-  secrets: Schema.optional(Schema.Record({ key: Schema.String, value: SecretMetadata })),
+  secrets: Schema.optional(Schema.Record(Schema.String, SecretMetadata)),
 });
 export type ExecutorFileConfig = typeof ExecutorFileConfig.Type;

@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect } from "effect";
 import type { ToolPolicy } from "@executor-js/sdk";
 
@@ -27,7 +27,7 @@ export const PoliciesHandlers = HttpApiBuilder.group(ExecutorApi, "policies", (h
         }),
       ),
     )
-    .handle("create", ({ path, payload }) =>
+    .handle("create", ({ params: path, payload }) =>
       capture(
         Effect.gen(function* () {
           const executor = yield* ExecutorService;
@@ -41,7 +41,7 @@ export const PoliciesHandlers = HttpApiBuilder.group(ExecutorApi, "policies", (h
         }),
       ),
     )
-    .handle("update", ({ path, payload }) =>
+    .handle("update", ({ params: path, payload }) =>
       capture(
         Effect.gen(function* () {
           const executor = yield* ExecutorService;
@@ -55,7 +55,7 @@ export const PoliciesHandlers = HttpApiBuilder.group(ExecutorApi, "policies", (h
         }),
       ),
     )
-    .handle("remove", ({ path }) =>
+    .handle("remove", ({ params: path }) =>
       capture(
         Effect.gen(function* () {
           const executor = yield* ExecutorService;

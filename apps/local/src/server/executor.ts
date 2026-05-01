@@ -106,19 +106,17 @@ const createLocalPlugins = (configFile: ConfigFileSink) =>
 
 type LocalPlugins = ReturnType<typeof createLocalPlugins>;
 
-class LocalExecutorTag extends Context.Tag("@executor-js/local/Executor")<
+class LocalExecutorTag extends Context.Service<
   LocalExecutorTag,
-  Effect.Effect.Success<ReturnType<typeof createExecutor<LocalPlugins>>>
->() {}
+  Effect.Success<ReturnType<typeof createExecutor<LocalPlugins>>>
+>()("@executor-js/local/Executor") {}
 
-export type LocalExecutor = Context.Tag.Service<typeof LocalExecutorTag>;
+export type LocalExecutor = Context.Service.Shape<typeof LocalExecutorTag>;
 
 const createLocalExecutorLayer = () => {
   const { path: dbPath, legacySecrets } = resolveDbPath();
 
-  return Layer.scoped(
-    LocalExecutorTag,
-    Effect.gen(function* () {
+  return Layer.effect(LocalExecutorTag)(Effect.gen(function* () {
       const sqlite = yield* Effect.acquireRelease(
         Effect.sync(() => new Database(dbPath)),
         (conn) => Effect.sync(() => conn.close()),
@@ -179,7 +177,7 @@ const createLocalExecutorLayer = () => {
 export const createExecutorHandle = async () => {
   const layer = createLocalExecutorLayer();
   const runtime = ManagedRuntime.make(layer);
-  const executor = await runtime.runPromise(LocalExecutorTag);
+  const executor = await runtime.runPromise(LocalExecutorTag.asEffect());
 
   return {
     executor,

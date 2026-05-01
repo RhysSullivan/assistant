@@ -10,7 +10,7 @@ import { ToolId } from "./ids";
 export class FormElicitation extends Schema.TaggedClass<FormElicitation>()("FormElicitation", {
   message: Schema.String,
   /** JSON Schema describing the fields to collect */
-  requestedSchema: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  requestedSchema: Schema.Record(Schema.String, Schema.Unknown),
 }) {}
 
 /** Tool needs the user to visit a URL (OAuth, approval page, etc.) */
@@ -27,13 +27,13 @@ export type ElicitationRequest = FormElicitation | UrlElicitation;
 // Elicitation response — what the host sends back
 // ---------------------------------------------------------------------------
 
-export const ElicitationAction = Schema.Literal("accept", "decline", "cancel");
+export const ElicitationAction = Schema.Literals(["accept", "decline", "cancel"]);
 export type ElicitationAction = typeof ElicitationAction.Type;
 
 export class ElicitationResponse extends Schema.Class<ElicitationResponse>("ElicitationResponse")({
   action: ElicitationAction,
   /** Present when action is "accept" — the data the user provided */
-  content: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  content: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -57,10 +57,10 @@ export type ElicitationHandler = (ctx: ElicitationContext) => Effect.Effect<Elic
 // Elicitation error — tool was declined or cancelled
 // ---------------------------------------------------------------------------
 
-export class ElicitationDeclinedError extends Schema.TaggedError<ElicitationDeclinedError>()(
+export class ElicitationDeclinedError extends Schema.TaggedErrorClass<ElicitationDeclinedError>()(
   "ElicitationDeclinedError",
   {
     toolId: ToolId,
-    action: Schema.Literal("decline", "cancel"),
+    action: Schema.Literals(["decline", "cancel"]),
   },
 ) {}

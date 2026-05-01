@@ -58,16 +58,16 @@ const make = Effect.sync(() => {
   const trackExecution = (organizationId: string) =>
     Effect.gen(function* () {
       yield* Effect.annotateCurrentSpan({ "autumn.customer.id": organizationId });
-      const outcome = yield* Effect.either(
+      const outcome = yield* Effect.result(
         use((c) =>
           c.track({ customerId: organizationId, featureId: "executions", value: 1 }),
         ),
       );
-      if (outcome._tag === "Left") {
+      if (outcome._tag === "Failure") {
         // Silent billing data loss is worth paging on — autumn.trackExecution
         // is fire-and-forget so the caller doesn't handle it themselves.
-        console.error("[billing] track failed:", outcome.left);
-        Sentry.captureException(outcome.left);
+        console.error("[billing] track failed:", outcome.failure);
+        Sentry.captureException(outcome.failure);
         yield* Effect.annotateCurrentSpan({ "autumn.track.failed": true });
       }
     }).pipe(Effect.withSpan("autumn.trackExecution"));
@@ -75,9 +75,9 @@ const make = Effect.sync(() => {
   return { use, trackExecution } satisfies IAutumnService;
 });
 
-export class AutumnService extends Context.Tag("@executor-js/cloud/AutumnService")<
+export class AutumnService extends Context.Service<
   AutumnService,
   IAutumnService
->() {
-  static Default = Layer.effect(this, make).pipe(Layer.annotateSpans({ module: "AutumnService" }));
+>()("@executor-js/cloud/AutumnService") {
+  static Default = Layer.effect(this)(make);
 }

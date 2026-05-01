@@ -129,7 +129,7 @@ const captureFetch = (response: Response): { calls: FetchArgs[] } => {
     .mockImplementation(async (url: string, init: RequestInit) => {
       calls.push({ url, init });
       return response;
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
   return { calls };
 };
 
@@ -328,7 +328,7 @@ describe("exchangeAuthorizationCode", () => {
   });
 
   it("returns a typed OAuth2Error on transport failure", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("boom")) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("boom")) as typeof fetch;
     const exit = await Effect.runPromiseExit(
       exchangeAuthorizationCode({
         tokenUrl: "https://example.com/token",
@@ -545,7 +545,7 @@ describe("shouldRefreshToken", () => {
 
 describe("OAuth2Error tagging", () => {
   beforeEach(() => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("network down")) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("network down")) as typeof fetch;
   });
   afterEach(() => {
     globalThis.fetch = originalFetch;

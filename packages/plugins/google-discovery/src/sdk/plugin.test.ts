@@ -2,9 +2,8 @@ import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { Effect } from "effect";
-import { vi } from "vitest";
 
 import {
   ConnectionId,
@@ -353,7 +352,7 @@ describe("Google Discovery plugin", () => {
           // Backing access-token secret is owned by the connection, so
           // it's filtered out of the user-facing secret list.
           const secretIds = new Set(
-            (yield* executor.secrets.list()).map((s) => s.id as unknown as string),
+            (yield* executor.secrets.list()).map((s) => String(s.id)),
           );
           expect(secretIds).not.toContain(`${completed.connectionId}.access_token`);
           expect(secretIds).not.toContain(`${completed.connectionId}.refresh_token`);

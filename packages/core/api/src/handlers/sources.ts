@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect } from "effect";
 import { ScopeId, ToolId } from "@executor-js/sdk";
 
@@ -25,21 +25,21 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
         }));
       })),
     )
-    .handle("remove", ({ path }) =>
+    .handle("remove", ({ params: path }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         yield* executor.sources.remove(path.sourceId);
         return { removed: true };
       })),
     )
-    .handle("refresh", ({ path }) =>
+    .handle("refresh", ({ params: path }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         yield* executor.sources.refresh(path.sourceId);
         return { refreshed: true };
       })),
     )
-    .handle("tools", ({ path }) =>
+    .handle("tools", ({ params: path }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
         // Source detail is a management view — include policy-blocked

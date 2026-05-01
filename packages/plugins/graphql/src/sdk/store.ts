@@ -95,6 +95,9 @@ const encodeBinding = (binding: OperationBinding): BindingJson => ({
   variableNames: [...binding.variableNames],
 });
 
+const toJsonRecord = (value: unknown): Record<string, unknown> =>
+  value as Record<string, unknown>;
+
 const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
   if (value == null) return {};
   if (typeof value === "string")
@@ -231,12 +234,9 @@ export const makeDefaultGraphqlStore = ({
             scope_id: input.scope,
             name: input.name,
             endpoint: input.endpoint,
-            headers: input.headers as unknown as Record<string, unknown>,
-            query_params: input.queryParams as unknown as Record<
-              string,
-              unknown
-            >,
-            auth: input.auth as unknown as Record<string, unknown>,
+            headers: input.headers,
+            query_params: input.queryParams,
+            auth: toJsonRecord(input.auth),
           },
           forceAllowId: true,
         });
@@ -247,10 +247,7 @@ export const makeDefaultGraphqlStore = ({
               id: op.toolId,
               scope_id: input.scope,
               source_id: op.sourceId,
-              binding: encodeBinding(op.binding) as unknown as Record<
-                string,
-                unknown
-              >,
+              binding: toJsonRecord(encodeBinding(op.binding)),
             })),
             forceAllowId: true,
           });
@@ -271,16 +268,13 @@ export const makeDefaultGraphqlStore = ({
         if (patch.name !== undefined) update.name = patch.name;
         if (patch.endpoint !== undefined) update.endpoint = patch.endpoint;
         if (patch.headers !== undefined) {
-          update.headers = patch.headers as unknown as Record<string, unknown>;
+          update.headers = patch.headers;
         }
         if (patch.queryParams !== undefined) {
-          update.query_params = patch.queryParams as unknown as Record<
-            string,
-            unknown
-          >;
+          update.query_params = patch.queryParams;
         }
         if (patch.auth !== undefined) {
-          update.auth = patch.auth as unknown as Record<string, unknown>;
+          update.auth = toJsonRecord(patch.auth);
         }
         if (Object.keys(update).length === 0) return;
         yield* db.update({

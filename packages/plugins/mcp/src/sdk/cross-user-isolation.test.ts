@@ -99,7 +99,7 @@ const seedSource = (
     endpoint: `http://127.0.0.1:1/${args.namespace}`,
     remoteTransport: "auto",
     namespace: args.namespace,
-  }).pipe(Effect.either);
+  }).pipe(Effect.result);
 
 describe("MCP cross-user isolation within the same org", () => {
   it.effect("user B does not see user A's inner-scope MCP source", () =>

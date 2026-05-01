@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Layer, Ref } from "effect";
+import { Cause, Effect, Exit, Layer, Ref, Result } from "effect";
 import { StorageError, UniqueViolationError } from "@executor-js/storage-core";
 
 import { capture, ErrorCapture, InternalError } from "./observability";
@@ -62,10 +62,12 @@ describe("capture", () => {
     Effect.gen(function* () {
       const err = new UniqueViolationError({ model: "thing" });
       const exit = yield* Effect.exit(capture(Effect.fail(err)));
-      expect(exit._tag).toBe("Failure");
-      if (exit._tag === "Failure") {
-        const defects = Cause.defects(exit.cause);
-        expect(Array.from(defects)[0]).toBeInstanceOf(UniqueViolationError);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const defect = Cause.findDefect(exit.cause);
+        expect(Result.isSuccess(defect) ? defect.success : undefined).toBeInstanceOf(
+          UniqueViolationError,
+        );
       }
     }),
   );
@@ -84,4 +86,3 @@ describe("capture", () => {
     }),
   );
 });
-

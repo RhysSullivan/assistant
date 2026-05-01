@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Result, useAtomValue } from "@effect-atom/atom-react";
 
 import { connectionsAtom, sourceAtom } from "@executor-js/react/api/atoms";

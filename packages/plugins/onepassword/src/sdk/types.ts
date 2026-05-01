@@ -16,7 +16,7 @@ export class ServiceAccountAuth extends Schema.Class<ServiceAccountAuth>("Servic
   tokenSecretId: Schema.String,
 }) {}
 
-export const OnePasswordAuth = Schema.Union(DesktopAppAuth, ServiceAccountAuth);
+export const OnePasswordAuth = Schema.Union([DesktopAppAuth, ServiceAccountAuth]);
 export type OnePasswordAuth = typeof OnePasswordAuth.Type;
 
 // ---------------------------------------------------------------------------

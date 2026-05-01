@@ -108,11 +108,16 @@ export const useSourcesWithPending = (scopeId: ScopeId) => {
   const { pending } = usePendingResource<PendingSource>(PendingResource.sources);
   return React.useMemo(
     () =>
-      Result.map(result, (sources) => {
+      Result.map(result, (sources: Array<{
+        readonly id: string;
+        readonly name: string;
+        readonly kind: string;
+        readonly url?: string;
+      }>) => {
         const merged = mergePending(
           pending,
           sources,
-          (s) => s.id,
+          (s: { readonly id: string }) => s.id,
           (p) => ({
             id: p.id,
             name: p.value.name,
@@ -168,7 +173,7 @@ export const useConnectionsWithPendingRemovals = (scopeId: ScopeId) => {
     if (!Result.isSuccess(result) || pending.length === 0) return;
 
     const serverIds = new Set(
-      result.value.map((connection) => connection.id as string),
+      result.value.map((connection: { readonly id: string }) => connection.id as string),
     );
     for (const entry of pending) {
       if (!serverIds.has(entry.id)) remove(entry.id);
@@ -177,11 +182,11 @@ export const useConnectionsWithPendingRemovals = (scopeId: ScopeId) => {
 
   return React.useMemo(
     () =>
-      Result.map(result, (connections) => {
+      Result.map(result, (connections: Array<any>) => {
         if (pending.length === 0) return connections;
         const hiddenIds = new Set(pending.map((entry) => entry.id));
         return connections.filter(
-          (connection) => !hiddenIds.has(connection.id as string),
+          (connection: { readonly id: string }) => !hiddenIds.has(connection.id as string),
         );
       }),
     [result, pending],
@@ -203,4 +208,3 @@ export const usePendingConnectionRemovals = () => {
     [add, remove],
   );
 };
-

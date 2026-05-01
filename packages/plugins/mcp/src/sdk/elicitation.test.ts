@@ -78,7 +78,7 @@ type TestServer = {
 };
 
 const serveMcpServer = Effect.acquireRelease(
-  Effect.async<TestServer, Error>((resume) => {
+  Effect.callback<TestServer, Error>((resume) => {
     const transports = new Map<string, StreamableHTTPServerTransport>();
     let sessions = 0;
 
@@ -154,7 +154,7 @@ const makeTestExecutor = (serverUrl: string) =>
 // ---------------------------------------------------------------------------
 
 describe("MCP elicitation (end-to-end)", () => {
-  it.scoped("form elicitation accepted → tool returns approved result", () =>
+  it.effect("form elicitation accepted → tool returns approved result", () =>
     Effect.gen(function* () {
       const server = yield* serveMcpServer;
       const executor = yield* makeTestExecutor(server.url);
@@ -190,7 +190,7 @@ describe("MCP elicitation (end-to-end)", () => {
     }),
   );
 
-  it.scoped("form elicitation declined → tool returns denied result", () =>
+  it.effect("form elicitation declined → tool returns denied result", () =>
     Effect.gen(function* () {
       const server = yield* serveMcpServer;
       const executor = yield* makeTestExecutor(server.url);
@@ -214,7 +214,7 @@ describe("MCP elicitation (end-to-end)", () => {
     }),
   );
 
-  it.scoped("tool without elicitation works normally", () =>
+  it.effect("tool without elicitation works normally", () =>
     Effect.gen(function* () {
       const server = yield* serveMcpServer;
       const executor = yield* makeTestExecutor(server.url);
@@ -233,7 +233,7 @@ describe("MCP elicitation (end-to-end)", () => {
     }),
   );
 
-  it.scoped("addSource preserves the configured display name over server metadata", () =>
+  it.effect("addSource preserves the configured display name over server metadata", () =>
     Effect.gen(function* () {
       const server = yield* serveMcpServer;
       const executor = yield* createExecutor(
@@ -257,7 +257,7 @@ describe("MCP elicitation (end-to-end)", () => {
     }),
   );
 
-  it.scoped("handler receives correct toolId, args, and FormElicitation schema", () =>
+  it.effect("handler receives correct toolId, args, and FormElicitation schema", () =>
     Effect.gen(function* () {
       const server = yield* serveMcpServer;
       const executor = yield* makeTestExecutor(server.url);
@@ -302,7 +302,7 @@ describe("MCP elicitation (end-to-end)", () => {
     }),
   );
 
-  it.scoped("connection is reused across multiple tool calls to the same source", () =>
+  it.effect("connection is reused across multiple tool calls to the same source", () =>
     Effect.gen(function* () {
       const server = yield* serveMcpServer;
       const executor = yield* makeTestExecutor(server.url);

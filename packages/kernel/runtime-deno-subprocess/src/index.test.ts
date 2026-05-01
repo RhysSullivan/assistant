@@ -17,7 +17,7 @@ const makeTestInvoker = (
     if (!handler) {
       return Effect.fail(new UnknownToolError({ path }));
     }
-    return Effect.try(() => handler(args));
+    return Effect.try({ try: () => handler(args), catch: (error) => error });
   },
 });
 
@@ -39,9 +39,7 @@ it.effect("returns an actionable error when Deno is missing", () =>
   }),
 );
 
-const skipUnlessDeno = isDenoAvailable() ? describe : describe.skip;
-
-skipUnlessDeno("runtime-deno-subprocess", () => {
+describe.skipIf(!isDenoAvailable())("runtime-deno-subprocess", () => {
   it.effect("executes simple code and returns result", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor();

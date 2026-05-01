@@ -1,4 +1,5 @@
-import { HttpApi, HttpApiBuilder, HttpServerResponse } from "@effect/platform";
+import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpServerResponse } from "effect/unstable/http";
 import { Duration, Effect } from "effect";
 import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 
@@ -66,12 +67,12 @@ const setResponseCookie = (
   name: string,
   value: string,
   options: typeof RESPONSE_COOKIE_OPTIONS,
-) => HttpServerResponse.unsafeSetCookie(response, name, value, options);
+) => HttpServerResponse.setCookieUnsafe(response, name, value, options);
 
 const deleteResponseCookie = (
   response: HttpServerResponse.HttpServerResponse,
   name: string,
-) => HttpServerResponse.unsafeSetCookie(response, name, "", DELETE_COOKIE_OPTIONS);
+) => HttpServerResponse.setCookieUnsafe(response, name, "", DELETE_COOKIE_OPTIONS);
 
 // ---------------------------------------------------------------------------
 // Single non-protected API surface — public (login/callback) + session
@@ -106,19 +107,19 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           );
         }),
       )
-      .handleRaw("callback", ({ request, urlParams }) =>
+      .handleRaw("callback", ({ request, query }) =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
           const users = yield* UserStoreService;
           const cookieState = request.cookies[STATE_COOKIE] ?? null;
-          if (!cookieState || !timingSafeEqual(cookieState, urlParams.state)) {
+          if (!cookieState || !timingSafeEqual(cookieState, query.state)) {
             return deleteResponseCookie(
               HttpServerResponse.text("Invalid login state", { status: 400 }),
               STATE_COOKIE,
             );
           }
 
-          const result = yield* workos.authenticateWithCode(urlParams.code);
+          const result = yield* workos.authenticateWithCode(query.code);
 
           // Mirror the account locally
           yield* users.use((s) => s.ensureAccount(result.user.id));
@@ -260,7 +261,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
               },
             );
             deleteCookie("wos-session", { path: "/" });
-            return yield* new WorkOSError();
+            return yield* Effect.fail(new WorkOSError());
           }
 
           setCookie("wos-session", refreshed, COOKIE_OPTIONS);

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { SecretBackedMap, SecretBackedValue } from "@executor-js/sdk";
 
 export { SecretBackedMap, SecretBackedValue };
@@ -7,11 +7,11 @@ export { SecretBackedMap, SecretBackedValue };
 // Remote transport type
 // ---------------------------------------------------------------------------
 
-export const McpRemoteTransport = Schema.Literal("streamable-http", "sse", "auto");
+export const McpRemoteTransport = Schema.Literals(["streamable-http", "sse", "auto"]);
 export type McpRemoteTransport = typeof McpRemoteTransport.Type;
 
 /** All transport types (used in the connector layer) */
-export const McpTransport = Schema.Literal("streamable-http", "sse", "stdio", "auto");
+export const McpTransport = Schema.Literals(["streamable-http", "sse", "stdio", "auto"]);
 export type McpTransport = typeof McpTransport.Type;
 
 // ---------------------------------------------------------------------------
@@ -25,10 +25,10 @@ export type McpTransport = typeof McpTransport.Type;
 // ---------------------------------------------------------------------------
 
 /** JSON object loosely typed — used for opaque OAuth state we just round-trip. */
-const JsonObject = Schema.Record({ key: Schema.String, value: Schema.Unknown });
+const JsonObject = Schema.Record(Schema.String, Schema.Unknown);
 export { JsonObject as McpJsonObject };
 
-export const McpConnectionAuth = Schema.Union(
+export const McpConnectionAuth = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("header"),
@@ -42,7 +42,7 @@ export const McpConnectionAuth = Schema.Union(
     clientIdSecretId: Schema.optional(Schema.String),
     clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   }),
-);
+]);
 export type McpConnectionAuth = typeof McpConnectionAuth.Type;
 
 // ---------------------------------------------------------------------------
@@ -50,14 +50,17 @@ export type McpConnectionAuth = typeof McpConnectionAuth.Type;
 // ---------------------------------------------------------------------------
 
 /** Common fields for remote string map schemas */
-const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
+const StringMap = Schema.Record(Schema.String, Schema.String);
 
 export const McpRemoteSourceData = Schema.Struct({
   transport: Schema.Literal("remote"),
   /** The MCP server endpoint URL */
   endpoint: Schema.String,
   /** Transport preference for this remote source */
-  remoteTransport: Schema.optionalWith(McpRemoteTransport, { default: () => "auto" as const }),
+  remoteTransport: McpRemoteTransport.pipe(
+    Schema.optionalKey,
+    Schema.withConstructorDefault(Effect.succeed("auto" as const)),
+  ),
   /** Extra query params appended to the endpoint URL */
   queryParams: Schema.optional(SecretBackedMap),
   /** Extra headers sent on every request */
@@ -80,7 +83,7 @@ export const McpStdioSourceData = Schema.Struct({
 });
 export type McpStdioSourceData = typeof McpStdioSourceData.Type;
 
-export const McpStoredSourceData = Schema.Union(McpRemoteSourceData, McpStdioSourceData);
+export const McpStoredSourceData = Schema.Union([McpRemoteSourceData, McpStdioSourceData]);
 export type McpStoredSourceData = typeof McpStoredSourceData.Type;
 
 // ---------------------------------------------------------------------------

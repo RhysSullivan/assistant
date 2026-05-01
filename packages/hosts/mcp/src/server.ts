@@ -1,4 +1,4 @@
-import { Effect, Match, Option, Runtime } from "effect";
+import { Effect, Match } from "effect";
 import * as Cause from "effect/Cause";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
@@ -57,7 +57,7 @@ type SharedMcpServerConfig = {
   readonly description?: string;
   /**
    * Parent span override for engine calls. The factory captures the
-   * caller's `Runtime` at construction time, but `Runtime.runPromise`
+   * caller's context at construction time, but `Effect.runPromiseWith`
    * starts a fresh fiber per SDK callback — so the `currentSpan`
    * FiberRef resets to root unless explicitly anchored.
    *
@@ -178,7 +178,7 @@ const makeMcpElicitationHandler =
         });
 
         return {
-          action: response.action,
+          action: response.action as typeof ElicitationResponse.Type.action,
           content: response.content,
         };
       } catch (err) {
@@ -198,7 +198,7 @@ const makeMcpElicitationHandler =
             ...capabilitySnapshot(server),
           }),
         );
-        return { action: "cancel" };
+        return { action: "cancel" as const } as ElicitationResponse;
       }
     });
   };
@@ -235,9 +235,9 @@ const formatFailureMessage = (value: unknown): string | null => {
 };
 
 const toMcpFailureResult = (cause: Cause.Cause<unknown>): McpToolResult => {
-  const failure = Cause.failureOption(cause);
-  const text = Option.isSome(failure)
-    ? (formatFailureMessage(failure.value) ?? "Tool execution failed")
+  const failure = cause.reasons.find(Cause.isFailReason);
+  const text = failure
+    ? (formatFailureMessage(failure.error) ?? "Tool execution failed")
     : "Tool execution failed";
   return {
     content: [{ type: "text", text: `Error: ${text}` }],
@@ -277,7 +277,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     // Captured at construction time. SDK callbacks fire later (often
     // deferred past the outer Effect's await), so we use the runtime to
     // re-enter Effect-land at each callback edge.
-    const runtime = yield* Effect.runtime<never>();
+    const context = yield* Effect.context<never>();
     const debugEnabled = config.debug ?? readDebugDefault();
     const debugLog = (event: string, data: Record<string, unknown>) => {
       if (!debugEnabled) return;
@@ -297,9 +297,9 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
       return parent ? Effect.withParentSpan(effect, parent) : effect;
     };
     const runToolEffect = <EffE>(effect: Effect.Effect<McpToolResult, EffE>) =>
-      Runtime.runPromise(runtime)(
+      Effect.runPromiseWith(context)(
         anchor(effect).pipe(
-          Effect.catchAllCause((cause) =>
+          Effect.catchCause((cause) =>
             Effect.succeed(toMcpFailureResult(cause)),
           ),
         ),

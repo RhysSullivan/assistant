@@ -1,11 +1,11 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { SecretBackedValue } from "@executor-js/sdk";
 
 // ---------------------------------------------------------------------------
 // GraphQL operation kind
 // ---------------------------------------------------------------------------
 
-export const GraphqlOperationKind = Schema.Literal("query", "mutation");
+export const GraphqlOperationKind = Schema.Literals(["query", "mutation"]);
 export type GraphqlOperationKind = typeof GraphqlOperationKind.Type;
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ export class GraphqlArgument extends Schema.Class<GraphqlArgument>("GraphqlArgum
   name: Schema.String,
   typeName: Schema.String,
   required: Schema.Boolean,
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  description: Schema.OptionFromOptional(Schema.String),
 }) {}
 
 export class ExtractedField extends Schema.Class<ExtractedField>("ExtractedField")({
@@ -24,17 +24,17 @@ export class ExtractedField extends Schema.Class<ExtractedField>("ExtractedField
   fieldName: Schema.String,
   /** "query" or "mutation" */
   kind: GraphqlOperationKind,
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  description: Schema.OptionFromOptional(Schema.String),
   arguments: Schema.Array(GraphqlArgument),
   /** JSON Schema for the input (built from arguments) */
-  inputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  inputSchema: Schema.OptionFromOptional(Schema.Unknown),
   /** The return type name for documentation */
   returnTypeName: Schema.String,
 }) {}
 
 export class ExtractionResult extends Schema.Class<ExtractionResult>("ExtractionResult")({
   /** Schema name from introspection */
-  schemaName: Schema.optionalWith(Schema.String, { as: "Option" }),
+  schemaName: Schema.OptionFromOptional(Schema.String),
   fields: Schema.Array(ExtractedField),
 }) {}
 
@@ -65,11 +65,13 @@ export type QueryParamValue = typeof QueryParamValue.Type;
 // ---------------------------------------------------------------------------
 
 export const GraphqlSourceAuth = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("none") }),
-  Schema.Struct({
-    kind: Schema.Literal("oauth2"),
-    connectionId: Schema.String,
-  }),
+  [
+    Schema.Struct({ kind: Schema.Literal("none") }),
+    Schema.Struct({
+      kind: Schema.Literal("oauth2"),
+      connectionId: Schema.String,
+    }),
+  ],
 );
 export type GraphqlSourceAuth = typeof GraphqlSourceAuth.Type;
 
@@ -77,13 +79,15 @@ export class InvocationConfig extends Schema.Class<InvocationConfig>("Invocation
   /** The GraphQL endpoint URL */
   endpoint: Schema.String,
   /** Headers applied to every request. Values can reference secrets. */
-  headers: Schema.optionalWith(Schema.Record({ key: Schema.String, value: HeaderValue }), {
-    default: () => ({}),
-  }),
+  headers: Schema.Record(Schema.String, HeaderValue).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+    Schema.withConstructorDefault(Effect.succeed({})),
+  ),
   /** Query parameters applied to every request. Values can reference secrets. */
-  queryParams: Schema.optionalWith(Schema.Record({ key: Schema.String, value: QueryParamValue }), {
-    default: () => ({}),
-  }),
+  queryParams: Schema.Record(Schema.String, QueryParamValue).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+    Schema.withConstructorDefault(Effect.succeed({})),
+  ),
 }) {}
 
 export class InvocationResult extends Schema.Class<InvocationResult>("InvocationResult")({

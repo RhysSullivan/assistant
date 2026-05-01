@@ -1,4 +1,4 @@
-import { Duration, Effect, Exit, Scope, ScopedCache } from "effect";
+import { Duration, Effect, Exit, Result, Scope, ScopedCache } from "effect";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 
@@ -20,7 +20,7 @@ import { createMcpConnector, type ConnectorInput, type McpConnection } from "./c
 import { discoverTools } from "./discover";
 import { McpConnectionError, McpToolDiscoveryError } from "./errors";
 import { invokeMcpTool } from "./invoke";
-import { deriveMcpNamespace, type McpToolManifestEntry } from "./manifest";
+import { deriveMcpNamespace, type McpToolManifest, type McpToolManifestEntry } from "./manifest";
 import { probeMcpEndpointShape } from "./probe-shape";
 import {
   McpToolBinding,
@@ -313,7 +313,7 @@ const resolveConnectorInput = (
 interface McpRuntime {
   readonly connectionCache: ScopedCache.ScopedCache<string, McpConnection, McpConnectionError>;
   readonly pendingConnectors: Map<string, Effect.Effect<McpConnection, McpConnectionError>>;
-  readonly cacheScope: Scope.CloseableScope;
+  readonly cacheScope: Scope.Closeable;
 }
 
 const makeRuntime = (): Effect.Effect<McpRuntime, never> =>
@@ -339,7 +339,7 @@ const makeRuntime = (): Effect.Effect<McpRuntime, never> =>
         ),
       capacity: 64,
       timeToLive: Duration.minutes(5),
-    }).pipe(Scope.extend(cacheScope));
+    }).pipe(Scope.provide(cacheScope));
 
     return { connectionCache, pendingConnectors, cacheScope };
   });
@@ -412,7 +412,13 @@ const toMcpConfigEntry = (
   return entry;
 };
 
-export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
+export const mcpPlugin = definePlugin<
+  "mcp",
+  McpPluginExtension,
+  McpBindingStore,
+  typeof mcpSchema,
+  McpPluginOptions
+>((options?: McpPluginOptions) => {
   const allowStdio = options?.dangerouslyAllowStdioMCP ?? false;
   // Per-plugin-instance runtime holder. Captured by closures in
   // `extension`, `invokeTool`, and `close`, so all three see the same
@@ -444,7 +450,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             return yield* Effect.fail(remoteConnectionError("Endpoint URL is required"));
           }
 
-          const name = yield* Effect.try(() => new URL(trimmed).hostname).pipe(
+          const name = yield* Effect.try({
+            try: () => new URL(trimmed).hostname,
+            catch: () => "mcp",
+          }).pipe(
             Effect.orElseSucceed(() => "mcp"),
           );
           const namespace = deriveMcpNamespace({ endpoint: trimmed });
@@ -467,7 +476,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
 
           const result = yield* discoverTools(connector).pipe(
             Effect.map((m) => ({ ok: true as const, manifest: m })),
-            Effect.catchAll(() => Effect.succeed({ ok: false as const, manifest: null })),
+            Effect.catch(() => Effect.succeed({ ok: false as const, manifest: null })),
             Effect.withSpan("mcp.plugin.discover_tools"),
           );
 
@@ -510,7 +519,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             })
             .pipe(
               Effect.map(() => true),
-              Effect.catchAll(() => Effect.succeed(false)),
+              Effect.catch(() => Effect.succeed(false)),
               Effect.withSpan("mcp.plugin.probe_oauth"),
             );
 
@@ -549,7 +558,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           // awaiting upload) but the source row should still land so
           // it shows up in the list and exposes a Sign-in affordance.
           const resolved = yield* resolveConnectorInput(sd, ctx, allowStdio).pipe(
-            Effect.either,
+            Effect.result,
             Effect.withSpan("mcp.plugin.resolve_connector", {
               attributes: {
                 "mcp.source.namespace": namespace,
@@ -558,29 +567,32 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
             }),
           );
 
-          if (resolved._tag === "Left" && sd.transport === "stdio") {
-            return yield* Effect.fail(resolved.left);
+          if (Result.isFailure(resolved) && sd.transport === "stdio") {
+            return yield* Effect.fail(resolved.failure);
           }
 
           // Try discovery only if we have a live connector input.
           // Otherwise fall straight through to the persist step with
           // an empty manifest and surface the resolver failure to
           // the caller at the end.
-          const discovery =
-            resolved._tag === "Right"
-              ? yield* discoverTools(createMcpConnector(resolved.right)).pipe(
+          const discovery: Result.Result<
+            McpToolManifest,
+            McpToolDiscoveryError | McpConnectionError | StorageFailure
+          > =
+            Result.isSuccess(resolved)
+              ? yield* discoverTools(createMcpConnector(resolved.success)).pipe(
                   Effect.mapError((err) =>
                     mcpDiscoveryError(`MCP discovery failed: ${err.message}`),
                   ),
-                  Effect.either,
+                  Effect.result,
                   Effect.withSpan("mcp.plugin.discover_tools", {
                     attributes: { "mcp.source.namespace": namespace },
                   }),
                 )
-              : ({ _tag: "Left", left: resolved.left } as const);
+              : Result.fail(resolved.failure);
           const manifest =
-            discovery._tag === "Right"
-              ? discovery.right
+            Result.isSuccess(discovery)
+              ? discovery.success
               : { server: undefined, tools: [] as const };
 
           const sourceName = config.name ?? manifest.server?.name ?? namespace;
@@ -643,8 +655,8 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
               .pipe(Effect.withSpan("mcp.plugin.config_file.upsert"));
           }
 
-          if (discovery._tag === "Left") {
-            return yield* Effect.fail(discovery.left);
+          if (Result.isFailure(discovery)) {
+            return yield* Effect.fail(discovery.failure);
           }
           return { toolCount: manifest.tools.length, namespace };
         }).pipe(
@@ -872,7 +884,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         const trimmed = url.trim();
         if (!trimmed) return null;
 
-        const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
+        const parsed = yield* Effect.try({
+          try: () => new URL(trimmed),
+          catch: (cause) => cause,
+        }).pipe(Effect.option);
         if (parsed._tag === "None") return null;
 
         const name = parsed.value.hostname || "mcp";
@@ -885,7 +900,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
 
         const connected = yield* discoverTools(connector).pipe(
           Effect.map(() => true),
-          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.catch(() => Effect.succeed(false)),
           Effect.withSpan("mcp.plugin.discover_tools"),
         );
 
@@ -911,7 +926,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         // discovery.
         const probeOk = yield* ctx.oauth.probe({ endpoint: trimmed }).pipe(
           Effect.map(() => true),
-          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.catch(() => Effect.succeed(false)),
           Effect.withSpan("mcp.plugin.probe_oauth"),
         );
         if (!probeOk) return null;
@@ -924,7 +939,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           namespace,
         });
       }).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
         Effect.withSpan("mcp.plugin.detect", {
           attributes: { "mcp.endpoint": url },
         }),
@@ -958,7 +973,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         const runtime = runtimeRef.current;
         if (runtime) {
           runtime.pendingConnectors.clear();
-          yield* runtime.connectionCache.invalidateAll;
+          yield* ScopedCache.invalidateAll(runtime.connectionCache);
           yield* Scope.close(runtime.cacheScope, Exit.void);
           runtimeRef.current = null;
         }

@@ -17,7 +17,10 @@ const makeTestInvoker = (
     if (!handler) {
       return Effect.fail(new UnknownToolError({ path }));
     }
-    return Effect.try(() => handler(args));
+    return Effect.try({
+      try: () => handler(args),
+      catch: (error) => error,
+    });
   },
 });
 

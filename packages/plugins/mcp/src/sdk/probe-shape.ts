@@ -174,7 +174,7 @@ export const probeMcpEndpointShape = (
       },
       catch: (cause) => cause,
     }).pipe(
-      Effect.catchAll((cause) =>
+      Effect.catch((cause) =>
         Effect.succeed<McpShapeProbeResult>({
           kind: "unreachable",
           reason: cause instanceof Error ? cause.message : String(cause),

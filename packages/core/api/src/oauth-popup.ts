@@ -133,7 +133,7 @@ export const runOAuthCallback = <TAuth, E, R>(
           ...auth,
         }),
       ),
-      Effect.catchAllCause((cause) =>
+      Effect.catchCause((cause) =>
         Effect.succeed<OAuthPopupResult<TAuth>>({
           type: OAUTH_POPUP_MESSAGE_TYPE,
           ok: false,

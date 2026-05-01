@@ -17,9 +17,7 @@
 // lifecycle.
 // ---------------------------------------------------------------------------
 
-import { Schema } from "effect";
-import { HttpApiSchema } from "@effect/platform";
-import type { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import type { StorageFailure } from "@executor-js/storage-core";
 
@@ -72,11 +70,11 @@ export const OAuthAuthorizationCodeStrategy = Schema.Struct({
   /** Provider-specific params injected at authorization URL build time
    *  (Google's `access_type=offline`, `prompt=consent`, ...). */
   extraAuthorizationParams: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
+    Schema.Record(Schema.String, Schema.String),
   ),
   /** `"body"` (default) sends client creds in the form body; `"basic"`
    *  uses HTTP Basic auth. Stripe-style servers require basic. */
-  clientAuth: Schema.optional(Schema.Literal("body", "basic")),
+  clientAuth: Schema.optional(Schema.Literals(["body", "basic"])),
 });
 export type OAuthAuthorizationCodeStrategy =
   typeof OAuthAuthorizationCodeStrategy.Type;
@@ -92,7 +90,7 @@ export const OAuthClientCredentialsStrategy = Schema.Struct({
   clientSecretSecretId: Schema.String,
   scopes: Schema.optional(Schema.Array(Schema.String)),
   scopeSeparator: Schema.optional(Schema.String),
-  clientAuth: Schema.optional(Schema.Literal("body", "basic")),
+  clientAuth: Schema.optional(Schema.Literals(["body", "basic"])),
 });
 export type OAuthClientCredentialsStrategy =
   typeof OAuthClientCredentialsStrategy.Type;
@@ -100,11 +98,11 @@ export type OAuthClientCredentialsStrategy =
 /** Tagged union of every start-time strategy shape. A new strategy (e.g.
  *  device-code) is added here; the service's start/complete routes on
  *  `kind`. */
-export const OAuthStrategy = Schema.Union(
+export const OAuthStrategy = Schema.Union([
   OAuthDynamicDcrStrategy,
   OAuthAuthorizationCodeStrategy,
   OAuthClientCredentialsStrategy,
-);
+]);
 export type OAuthStrategy = typeof OAuthStrategy.Type;
 
 // ---------------------------------------------------------------------------
@@ -116,7 +114,7 @@ export type OAuthStrategy = typeof OAuthStrategy.Type;
 /** Discriminator mirrors `OAuthStrategy["kind"]`. Refresh reads
  *  `tokenEndpoint` + `clientAuth` + client id/secret refs directly and
  *  never re-runs discovery. */
-export const OAuthProviderState = Schema.Union(
+export const OAuthProviderState = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("dynamic-dcr"),
     tokenEndpoint: Schema.String,
@@ -131,10 +129,8 @@ export const OAuthProviderState = Schema.Union(
      *  issued one) is a separate secret row. */
     clientId: Schema.String,
     clientSecretSecretId: Schema.NullOr(Schema.String),
-    clientAuth: Schema.Literal("body", "basic"),
-    scopes: Schema.optionalWith(Schema.Array(Schema.String), {
-      default: () => [],
-    }),
+    clientAuth: Schema.Literals(["body", "basic"]),
+    scopes: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
     scopeSeparator: Schema.optional(Schema.String),
     scope: Schema.NullOr(Schema.String),
   }),
@@ -144,10 +140,8 @@ export const OAuthProviderState = Schema.Union(
     issuerUrl: Schema.optional(Schema.NullOr(Schema.String)),
     clientIdSecretId: Schema.String,
     clientSecretSecretId: Schema.NullOr(Schema.String),
-    clientAuth: Schema.Literal("body", "basic"),
-    scopes: Schema.optionalWith(Schema.Array(Schema.String), {
-      default: () => [],
-    }),
+    clientAuth: Schema.Literals(["body", "basic"]),
+    scopes: Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
     scopeSeparator: Schema.optional(Schema.String),
     scope: Schema.NullOr(Schema.String),
   }),
@@ -158,10 +152,10 @@ export const OAuthProviderState = Schema.Union(
     clientSecretSecretId: Schema.String,
     scopes: Schema.Array(Schema.String),
     scopeSeparator: Schema.optional(Schema.String),
-    clientAuth: Schema.Literal("body", "basic"),
+    clientAuth: Schema.Literals(["body", "basic"]),
     scope: Schema.NullOr(Schema.String),
   }),
-);
+]);
 export type OAuthProviderState = typeof OAuthProviderState.Type;
 
 /** The canonical refresh handler key. Every OAuth2-minted connection
@@ -272,23 +266,25 @@ export interface OAuthCompleteResult {
 // capable plugin group `.addError(OAuthStartError)` etc. and the HTTP
 // edge renders them with the annotated status.
 
-export class OAuthProbeError extends Schema.TaggedError<OAuthProbeError>()(
+export class OAuthProbeError extends Schema.TaggedErrorClass<OAuthProbeError>()(
   "OAuthProbeError",
   {
     message: Schema.String,
   },
-  HttpApiSchema.annotations({ status: 400 }),
-) {}
+) {
+  static annotations = { httpApiStatus: 400 };
+}
 
-export class OAuthStartError extends Schema.TaggedError<OAuthStartError>()(
+export class OAuthStartError extends Schema.TaggedErrorClass<OAuthStartError>()(
   "OAuthStartError",
   {
     message: Schema.String,
   },
-  HttpApiSchema.annotations({ status: 400 }),
-) {}
+) {
+  static annotations = { httpApiStatus: 400 };
+}
 
-export class OAuthCompleteError extends Schema.TaggedError<OAuthCompleteError>()(
+export class OAuthCompleteError extends Schema.TaggedErrorClass<OAuthCompleteError>()(
   "OAuthCompleteError",
   {
     message: Schema.String,
@@ -297,16 +293,18 @@ export class OAuthCompleteError extends Schema.TaggedError<OAuthCompleteError>()
      *  re-auth required) from transient ones. */
     code: Schema.optional(Schema.String),
   },
-  HttpApiSchema.annotations({ status: 400 }),
-) {}
+) {
+  static annotations = { httpApiStatus: 400 };
+}
 
-export class OAuthSessionNotFoundError extends Schema.TaggedError<OAuthSessionNotFoundError>()(
+export class OAuthSessionNotFoundError extends Schema.TaggedErrorClass<OAuthSessionNotFoundError>()(
   "OAuthSessionNotFoundError",
   {
     sessionId: Schema.String,
   },
-  HttpApiSchema.annotations({ status: 404 }),
-) {}
+) {
+  static annotations = { httpApiStatus: 404 };
+}
 
 // ---------------------------------------------------------------------------
 // Contract — what `ctx.oauth` exposes. Implementation lives in

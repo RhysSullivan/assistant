@@ -92,27 +92,27 @@ describe("sources.refresh (HTTP)", () => {
 
         yield* asOrg(org, (client) =>
           client.openapi.addSpec({
-            path: { scopeId: ScopeId.make(org) },
+            params: { scopeId: ScopeId.make(org) },
             payload: { spec: `${server.baseUrl}/spec.json`, namespace },
           }),
         );
 
         const before = yield* asOrg(org, (client) =>
-          client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+          client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
         );
         const beforeSource = before.find((s) => s.id === namespace);
         expect(beforeSource?.canRefresh).toBe(true);
 
         const fetchedBefore = yield* asOrg(org, (client) =>
           client.openapi.getSource({
-            path: { scopeId: ScopeId.make(org), namespace },
+            params: { scopeId: ScopeId.make(org), namespace },
           }),
         );
         expect(fetchedBefore?.config.sourceUrl).toBe(`${server.baseUrl}/spec.json`);
 
         const beforeTools = yield* asOrg(org, (client) =>
           client.sources.tools({
-            path: { scopeId: ScopeId.make(org), sourceId: namespace },
+            params: { scopeId: ScopeId.make(org), sourceId: namespace },
           }),
         );
         expect(beforeTools.length).toBe(1);
@@ -125,7 +125,7 @@ describe("sources.refresh (HTTP)", () => {
 
         const refreshResult = yield* asOrg(org, (client) =>
           client.sources.refresh({
-            path: { scopeId: ScopeId.make(org), sourceId: namespace },
+            params: { scopeId: ScopeId.make(org), sourceId: namespace },
           }),
         );
         expect(refreshResult.refreshed).toBe(true);
@@ -133,7 +133,7 @@ describe("sources.refresh (HTTP)", () => {
 
         const afterTools = yield* asOrg(org, (client) =>
           client.sources.tools({
-            path: { scopeId: ScopeId.make(org), sourceId: namespace },
+            params: { scopeId: ScopeId.make(org), sourceId: namespace },
           }),
         );
         expect(afterTools.length).toBe(2);
@@ -152,13 +152,13 @@ describe("sources.refresh (HTTP)", () => {
 
       yield* asOrg(org, (client) =>
         client.openapi.addSpec({
-          path: { scopeId: ScopeId.make(org) },
+          params: { scopeId: ScopeId.make(org) },
           payload: { spec: specV1, namespace },
         }),
       );
 
       const sources = yield* asOrg(org, (client) =>
-        client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+        client.sources.list({ params: { scopeId: ScopeId.make(org) } }),
       );
       const row = sources.find((s) => s.id === namespace);
       expect(row?.canRefresh).toBe(false);
@@ -168,7 +168,7 @@ describe("sources.refresh (HTTP)", () => {
       // server should not 500 if a caller slips through.
       const result = yield* asOrg(org, (client) =>
         client.sources.refresh({
-          path: { scopeId: ScopeId.make(org), sourceId: namespace },
+          params: { scopeId: ScopeId.make(org), sourceId: namespace },
         }),
       );
       expect(result.refreshed).toBe(true);

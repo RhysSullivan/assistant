@@ -167,7 +167,13 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
           onInitial: () => <SourcesGridSkeleton />,
           onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
           onSuccess: ({ value }) => {
-            const connectedSources = value.filter((source) => !source.runtime);
+            const connectedSources = (value as Array<{
+              readonly id: string;
+              readonly name: string;
+              readonly kind: string;
+              readonly url?: string;
+              readonly runtime?: boolean;
+            }>).filter((source) => !source.runtime);
 
             return value.length === 0 ? (
               <div className="mb-8 flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "@effect/vitest";
 import { join } from "node:path";
 
 import { xdgDataHome } from "./index";

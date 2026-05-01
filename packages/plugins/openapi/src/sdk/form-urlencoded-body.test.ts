@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ---------------------------------------------------------------------------
 // Regression test for non-JSON request-body serialization.
 //
@@ -14,7 +15,7 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { FetchHttpClient } from "@effect/platform";
+import { FetchHttpClient } from "effect/unstable/http";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 

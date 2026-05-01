@@ -411,11 +411,11 @@ describe("pause/resume with multiple elicitations", () => {
 
     // `execution.fiber` is on `InternalPausedExecution`; the exported
     // `PausedExecution` type doesn't carry it. Cast to read.
-    const sandboxFiber = (
-      paused1.execution as unknown as {
-        readonly fiber: Fiber.Fiber<unknown, unknown>;
-      }
-    ).fiber;
+    const pausedWithFiber = (value: unknown): {
+      readonly fiber: Fiber.Fiber<unknown, unknown>;
+    } =>
+      value as { readonly fiber: Fiber.Fiber<unknown, unknown> };
+    const sandboxFiber = pausedWithFiber(paused1.execution).fiber;
     const exitProbe = await Effect.runPromise(
       Effect.race(
         Fiber.await(sandboxFiber),

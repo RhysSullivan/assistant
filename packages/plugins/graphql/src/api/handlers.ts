@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor-js/api";
@@ -20,9 +20,7 @@ import { GraphqlGroup } from "./group";
 // `.addError(InternalError)` on the group — no per-handler translation.
 // ---------------------------------------------------------------------------
 
-export class GraphqlExtensionService extends Context.Tag(
-  "GraphqlExtensionService",
-)<GraphqlExtensionService, GraphqlPluginExtension>() {}
+export class GraphqlExtensionService extends Context.Service<GraphqlExtensionService, GraphqlPluginExtension>()("GraphqlExtensionService") {}
 
 // ---------------------------------------------------------------------------
 // Composed API — core + graphql group
@@ -45,7 +43,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(
   "graphql",
   (handlers) =>
     handlers
-      .handle("addSource", ({ path, payload }) =>
+      .handle("addSource", ({ params: path, payload }) =>
         capture(
           Effect.gen(function* () {
             const ext = yield* GraphqlExtensionService;
@@ -70,7 +68,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(
           }),
         ),
       )
-      .handle("getSource", ({ path }) =>
+      .handle("getSource", ({ params: path }) =>
         capture(
           Effect.gen(function* () {
             const ext = yield* GraphqlExtensionService;
@@ -78,7 +76,7 @@ export const GraphqlHandlers = HttpApiBuilder.group(
           }),
         ),
       )
-      .handle("updateSource", ({ path, payload }) =>
+      .handle("updateSource", ({ params: path, payload }) =>
         capture(
           Effect.gen(function* () {
             const ext = yield* GraphqlExtensionService;

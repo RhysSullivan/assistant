@@ -5,5 +5,5 @@ import { ScopeId } from "./ids";
 export class Scope extends Schema.Class<Scope>("Scope")({
   id: ScopeId,
   name: Schema.String,
-  createdAt: Schema.DateFromNumber,
+  createdAt: Schema.Date,
 }) {}

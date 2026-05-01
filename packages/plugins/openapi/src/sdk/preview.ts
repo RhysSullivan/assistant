@@ -11,14 +11,14 @@ import { HttpMethod, ServerInfo, type ExtractionResult } from "./types";
 // ---------------------------------------------------------------------------
 
 /** Scopes declared by a flow: `{ scopeName: description }` */
-const OAuth2Scopes = Schema.Record({ key: Schema.String, value: Schema.String });
+const OAuth2Scopes = Schema.Record(Schema.String, Schema.String);
 
 export class OAuth2AuthorizationCodeFlow extends Schema.Class<OAuth2AuthorizationCodeFlow>(
   "OAuth2AuthorizationCodeFlow",
 )({
   authorizationUrl: Schema.String,
   tokenUrl: Schema.String,
-  refreshUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  refreshUrl: Schema.OptionFromOptional(Schema.String),
   scopes: OAuth2Scopes,
 }) {}
 
@@ -26,13 +26,13 @@ export class OAuth2ClientCredentialsFlow extends Schema.Class<OAuth2ClientCreden
   "OAuth2ClientCredentialsFlow",
 )({
   tokenUrl: Schema.String,
-  refreshUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  refreshUrl: Schema.OptionFromOptional(Schema.String),
   scopes: OAuth2Scopes,
 }) {}
 
 export class OAuth2Flows extends Schema.Class<OAuth2Flows>("OAuth2Flows")({
-  authorizationCode: Schema.optionalWith(OAuth2AuthorizationCodeFlow, { as: "Option" }),
-  clientCredentials: Schema.optionalWith(OAuth2ClientCredentialsFlow, { as: "Option" }),
+  authorizationCode: Schema.OptionFromOptional(OAuth2AuthorizationCodeFlow),
+  clientCredentials: Schema.OptionFromOptional(OAuth2ClientCredentialsFlow),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -43,20 +43,20 @@ export class SecurityScheme extends Schema.Class<SecurityScheme>("SecurityScheme
   /** Key name in components.securitySchemes (e.g. "api_token") */
   name: Schema.String,
   /** OpenAPI security scheme type */
-  type: Schema.Literal("http", "apiKey", "oauth2", "openIdConnect"),
+  type: Schema.Literals(["http", "apiKey", "oauth2", "openIdConnect"]),
   /** For type: "http" — e.g. "bearer", "basic" */
-  scheme: Schema.optionalWith(Schema.String, { as: "Option" }),
+  scheme: Schema.OptionFromOptional(Schema.String),
   /** For type: "http" with scheme "bearer" — e.g. "JWT" */
-  bearerFormat: Schema.optionalWith(Schema.String, { as: "Option" }),
+  bearerFormat: Schema.OptionFromOptional(Schema.String),
   /** For type: "apiKey" — where the key goes */
-  in: Schema.optionalWith(Schema.Literal("header", "query", "cookie"), { as: "Option" }),
+  in: Schema.OptionFromOptional(Schema.Literals(["header", "query", "cookie"])),
   /** For type: "apiKey" — the header/query/cookie name */
-  headerName: Schema.optionalWith(Schema.String, { as: "Option" }),
-  description: Schema.optionalWith(Schema.String, { as: "Option" }),
+  headerName: Schema.OptionFromOptional(Schema.String),
+  description: Schema.OptionFromOptional(Schema.String),
   /** For type: "oauth2" — declared flows (authorizationCode / clientCredentials only; implicit and password are deprecated). */
-  flows: Schema.optionalWith(OAuth2Flows, { as: "Option" }),
+  flows: Schema.OptionFromOptional(OAuth2Flows),
   /** For type: "openIdConnect" — the discovery URL. */
-  openIdConnectUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  openIdConnectUrl: Schema.OptionFromOptional(Schema.String),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ export class HeaderPreset extends Schema.Class<HeaderPreset>("HeaderPreset")({
   /** Human-readable label for the UI (e.g. "Bearer Token", "API Key + Email") */
   label: Schema.String,
   /** Headers this strategy needs. Value is null when the user must provide it. */
-  headers: Schema.Record({ key: Schema.String, value: Schema.NullOr(Schema.String) }),
+  headers: Schema.Record(Schema.String, Schema.NullOr(Schema.String)),
   /** Which headers should be stored as secrets */
   secretHeaders: Schema.Array(Schema.String),
 }) {}
@@ -91,15 +91,15 @@ export class OAuth2Preset extends Schema.Class<OAuth2Preset>("OAuth2Preset")({
   /** The source security scheme this preset came from (components.securitySchemes key). */
   securitySchemeName: Schema.String,
   /** Which OAuth2 flow this preset uses. */
-  flow: Schema.Literal("authorizationCode", "clientCredentials"),
+  flow: Schema.Literals(["authorizationCode", "clientCredentials"]),
   /** For authorizationCode: user-agent redirect URL (from the spec). */
-  authorizationUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  authorizationUrl: Schema.OptionFromOptional(Schema.String),
   /** Token endpoint to exchange the code / refresh. */
   tokenUrl: Schema.String,
   /** Optional refresh endpoint if the spec declares one separately. */
-  refreshUrl: Schema.optionalWith(Schema.String, { as: "Option" }),
+  refreshUrl: Schema.OptionFromOptional(Schema.String),
   /** Declared scopes for this flow: `{ scope: description }`. */
-  scopes: Schema.Record({ key: Schema.String, value: Schema.String }),
+  scopes: Schema.Record(Schema.String, Schema.String),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ export class PreviewOperation extends Schema.Class<PreviewOperation>("PreviewOpe
   operationId: Schema.String,
   method: HttpMethod,
   path: Schema.String,
-  summary: Schema.optionalWith(Schema.String, { as: "Option" }),
+  summary: Schema.OptionFromOptional(Schema.String),
   tags: Schema.Array(Schema.String),
   deprecated: Schema.Boolean,
 }) {}
@@ -120,8 +120,8 @@ export class PreviewOperation extends Schema.Class<PreviewOperation>("PreviewOpe
 // ---------------------------------------------------------------------------
 
 export class SpecPreview extends Schema.Class<SpecPreview>("SpecPreview")({
-  title: Schema.optionalWith(Schema.String, { as: "Option" }),
-  version: Schema.optionalWith(Schema.String, { as: "Option" }),
+  title: Schema.OptionFromOptional(Schema.String),
+  version: Schema.OptionFromOptional(Schema.String),
   /** Reuses ServerInfo from extraction */
   servers: Schema.Array(ServerInfo),
   operationCount: Schema.Number,
@@ -169,7 +169,7 @@ const extractFlows = (rawFlows: unknown): Option.Option<OAuth2Flows> => {
         new OAuth2AuthorizationCodeFlow({
           authorizationUrl: authUrl,
           tokenUrl,
-          refreshUrl: Option.fromNullable(
+          refreshUrl: Option.fromNullishOr(
             typeof f.refreshUrl === "string" ? f.refreshUrl : undefined,
           ),
           scopes: stringRecord(f.scopes),
@@ -187,7 +187,7 @@ const extractFlows = (rawFlows: unknown): Option.Option<OAuth2Flows> => {
       clientCredentials = Option.some(
         new OAuth2ClientCredentialsFlow({
           tokenUrl,
-          refreshUrl: Option.fromNullable(
+          refreshUrl: Option.fromNullishOr(
             typeof f.refreshUrl === "string" ? f.refreshUrl : undefined,
           ),
           scopes: stringRecord(f.scopes),
@@ -222,13 +222,13 @@ const extractSecuritySchemes = (
       new SecurityScheme({
         name,
         type: type as "http" | "apiKey" | "oauth2" | "openIdConnect",
-        scheme: Option.fromNullable(scheme.scheme as string | undefined),
-        bearerFormat: Option.fromNullable(scheme.bearerFormat as string | undefined),
-        in: Option.fromNullable(scheme.in as "header" | "query" | "cookie" | undefined),
-        headerName: Option.fromNullable(scheme.name as string | undefined),
-        description: Option.fromNullable(scheme.description as string | undefined),
+        scheme: Option.fromNullishOr(scheme.scheme as string | undefined),
+        bearerFormat: Option.fromNullishOr(scheme.bearerFormat as string | undefined),
+        in: Option.fromNullishOr(scheme.in as "header" | "query" | "cookie" | undefined),
+        headerName: Option.fromNullishOr(scheme.name as string | undefined),
+        description: Option.fromNullishOr(scheme.description as string | undefined),
         flows: type === "oauth2" ? extractFlows(scheme.flows) : Option.none(),
-        openIdConnectUrl: Option.fromNullable(
+        openIdConnectUrl: Option.fromNullishOr(
           scheme.openIdConnectUrl as string | undefined,
         ),
       }),

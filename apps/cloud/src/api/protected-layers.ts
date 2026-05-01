@@ -3,12 +3,12 @@
 // non-protected/org handlers (which transitively import
 // `@tanstack/react-start`, unresolvable in the Workers test runtime).
 
-import { HttpApiBuilder, HttpRouter, HttpServer } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { Layer } from "effect";
 
 import {
   CoreExecutorApi,
-  InternalError,
   observabilityMiddleware,
 } from "@executor-js/api";
 import { CoreHandlers } from "@executor-js/api/server";
@@ -27,7 +27,6 @@ import { ErrorCaptureLive } from "../observability";
 export const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
   .add(McpGroup)
   .add(GraphqlGroup)
-  .addError(InternalError)
   .middleware(OrgAuth);
 
 const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
@@ -40,10 +39,10 @@ export const SharedServices = Layer.mergeAll(
   UserStoreLive,
   WorkOSAuth.Default,
   AutumnService.Default,
-  HttpServer.layerContext,
+  HttpServer.layerServices,
 );
 
-export const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
+export const RouterConfig = Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 });
 
 // Every handler the ProtectedCloudApi routes to, minus auth. The test
 // harness builds its own api-live by merging this with a fake OrgAuth
@@ -59,7 +58,7 @@ export const ProtectedCloudApiHandlers = Layer.mergeAll(
 // so the `withCapture` translation path (typed-channel `StorageError →
 // InternalError(traceId)`) AND the observability middleware's defect
 // catchall both see the same Sentry-backed implementation.
-export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
+export const ProtectedCloudApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(
   Layer.provide(
     Layer.mergeAll(ProtectedCloudApiHandlers, OrgAuthLive, ObservabilityLive),
   ),

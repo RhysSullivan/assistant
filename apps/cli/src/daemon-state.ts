@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
-import { FileSystem, Path } from "@effect/platform";
-import type { PlatformError } from "@effect/platform/Error";
+import { FileSystem, Path } from "effect";
+import type { PlatformError } from "effect/PlatformError";
 import * as Effect from "effect/Effect";
 
 // ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ export const readDaemonRecord = (input: {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const raw = yield* fs.readFileString(daemonRecordPath(path, input)).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.catchCause(() => Effect.succeed(null)),
     );
     if (raw === null) return null;
     return parseRecord(raw);
@@ -252,7 +252,7 @@ export const readDaemonPointer = (input: {
     const path = yield* Path.Path;
     const raw = yield* fs
       .readFileString(daemonPointerPath(path, input))
-      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+      .pipe(Effect.catchCause(() => Effect.succeed(null)));
     if (raw === null) return null;
     return parsePointer(raw);
   });
@@ -311,7 +311,7 @@ export const acquireDaemonStartLock = (input: {
     const tryAcquire = () =>
       fs.writeFileString(lockPath, `${lockPayload}\n`, { flag: "wx" }).pipe(
         Effect.as(true),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catchCause(() => Effect.succeed(false)),
       );
 
     if (yield* tryAcquire()) {
@@ -322,7 +322,7 @@ export const acquireDaemonStartLock = (input: {
       };
     }
 
-    const existingRaw = yield* fs.readFileString(lockPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    const existingRaw = yield* fs.readFileString(lockPath).pipe(Effect.catchCause(() => Effect.succeed(null)));
     if (existingRaw !== null) {
       const existingPid = parseLockPid(existingRaw);
       if (existingPid !== null && !isPidAlive(existingPid)) {

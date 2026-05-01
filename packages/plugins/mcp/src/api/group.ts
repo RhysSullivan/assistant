@@ -1,4 +1,4 @@
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { ScopeId, SecretBackedMap } from "@executor-js/sdk";
 import { InternalError } from "@executor-js/api";
@@ -6,21 +6,18 @@ import { InternalError } from "@executor-js/api";
 import { McpConnectionError, McpToolDiscoveryError } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
 
-// Re-export for handler use
-export { HttpApiSchema };
-
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
-const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
-const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
+const ScopeParams = { scopeId: ScopeId };
+const SourceParams = { scopeId: ScopeId, namespace: Schema.String };
 
 // ---------------------------------------------------------------------------
 // Auth payload (only for remote)
 // ---------------------------------------------------------------------------
 
-const AuthPayload = Schema.Union(
+const AuthPayload = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("header"),
@@ -37,9 +34,9 @@ const AuthPayload = Schema.Union(
     clientIdSecretId: Schema.optional(Schema.String),
     clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   }),
-);
+]);
 
-const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
+const StringMap = Schema.Record(Schema.String, Schema.String);
 // ---------------------------------------------------------------------------
 // Add source — discriminated union on transport
 // ---------------------------------------------------------------------------
@@ -48,7 +45,7 @@ const AddRemoteSourcePayload = Schema.Struct({
   transport: Schema.Literal("remote"),
   name: Schema.String,
   endpoint: Schema.String,
-  remoteTransport: Schema.optional(Schema.Literal("streamable-http", "sse", "auto")),
+  remoteTransport: Schema.optional(Schema.Literals(["streamable-http", "sse", "auto"])),
   namespace: Schema.optional(Schema.String),
   queryParams: Schema.optional(SecretBackedMap),
   headers: Schema.optional(SecretBackedMap),
@@ -65,7 +62,7 @@ const AddStdioSourcePayload = Schema.Struct({
   namespace: Schema.optional(Schema.String),
 });
 
-const AddSourcePayload = Schema.Union(AddRemoteSourcePayload, AddStdioSourcePayload);
+const AddSourcePayload = Schema.Union([AddRemoteSourcePayload, AddStdioSourcePayload]);
 
 // ---------------------------------------------------------------------------
 // Other payloads
@@ -135,38 +132,53 @@ const RemoveSourceResponse = Schema.Struct({
 // No per-handler wrapping, no per-plugin InternalError.
 // ---------------------------------------------------------------------------
 
-export class McpGroup extends HttpApiGroup.make("mcp")
+export const McpGroup = HttpApiGroup.make("mcp")
   .add(
-    HttpApiEndpoint.post("probeEndpoint")`/scopes/${scopeIdParam}/mcp/probe`
-      .setPayload(ProbeEndpointPayload)
-      .addSuccess(ProbeEndpointResponse),
+    HttpApiEndpoint.post("probeEndpoint", "/scopes/:scopeId/mcp/probe", {
+      params: ScopeParams,
+      payload: ProbeEndpointPayload,
+      success: ProbeEndpointResponse,
+      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+    }),
   )
   .add(
-    HttpApiEndpoint.post("addSource")`/scopes/${scopeIdParam}/mcp/sources`
-      .setPayload(AddSourcePayload)
-      .addSuccess(AddSourceResponse),
+    HttpApiEndpoint.post("addSource", "/scopes/:scopeId/mcp/sources", {
+      params: ScopeParams,
+      payload: AddSourcePayload,
+      success: AddSourceResponse,
+      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+    }),
   )
   .add(
-    HttpApiEndpoint.post("removeSource")`/scopes/${scopeIdParam}/mcp/sources/remove`
-      .setPayload(NamespacePayload)
-      .addSuccess(RemoveSourceResponse),
+    HttpApiEndpoint.post("removeSource", "/scopes/:scopeId/mcp/sources/remove", {
+      params: ScopeParams,
+      payload: NamespacePayload,
+      success: RemoveSourceResponse,
+      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+    }),
   )
   .add(
-    HttpApiEndpoint.post("refreshSource")`/scopes/${scopeIdParam}/mcp/sources/refresh`
-      .setPayload(NamespacePayload)
-      .addSuccess(RefreshSourceResponse),
+    HttpApiEndpoint.post("refreshSource", "/scopes/:scopeId/mcp/sources/refresh", {
+      params: ScopeParams,
+      payload: NamespacePayload,
+      success: RefreshSourceResponse,
+      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+    }),
   )
   .add(
-    HttpApiEndpoint.get(
-      "getSource",
-    )`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`.addSuccess(
-      Schema.NullOr(McpStoredSourceSchema),
-    ),
+    HttpApiEndpoint.get("getSource", "/scopes/:scopeId/mcp/sources/:namespace", {
+      params: SourceParams,
+      success: Schema.NullOr(McpStoredSourceSchema),
+      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+    }),
   )
   .add(
-    HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
-      .setPayload(UpdateSourcePayload)
-      .addSuccess(UpdateSourceResponse),
+    HttpApiEndpoint.patch("updateSource", "/scopes/:scopeId/mcp/sources/:namespace", {
+      params: SourceParams,
+      payload: UpdateSourcePayload,
+      success: UpdateSourceResponse,
+      error: [InternalError, McpConnectionError, McpToolDiscoveryError],
+    }),
   )
   // Errors declared once at the group level — every endpoint inherits.
   // Plugin domain errors carry their own HttpApiSchema status (4xx);
@@ -177,6 +189,4 @@ export class McpGroup extends HttpApiGroup.make("mcp")
   // endpoint, not any MCP-group endpoint, so it doesn't belong here.
   // OAuth errors live on the shared `/oauth/*` group in `@executor-js/api`
   // now — the MCP group only declares its own plugin-domain errors.
-  .addError(InternalError)
-  .addError(McpConnectionError)
-  .addError(McpToolDiscoveryError) {}
+;

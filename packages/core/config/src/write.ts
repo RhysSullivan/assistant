@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { FileSystem } from "@effect/platform";
-import type { PlatformError } from "@effect/platform/Error";
+import { FileSystem } from "effect";
+import type { PlatformError } from "effect/PlatformError";
 import * as jsonc from "jsonc-parser";
 import type { SourceConfig, ExecutorFileConfig } from "./schema";
 
@@ -121,7 +121,10 @@ export const writeConfig = (
 ): Effect.Effect<void, PlatformError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const text = yield* Effect.try(() => JSON.stringify(config, null, 2) + "\n").pipe(Effect.orDie);
+    const text = yield* Effect.try({
+      try: () => JSON.stringify(config, null, 2) + "\n",
+      catch: (cause) => cause,
+    }).pipe(Effect.orDie);
     yield* fs.writeFileString(path, text);
   });
 

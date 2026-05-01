@@ -1,5 +1,5 @@
 import { Effect, Layer, Option } from "effect";
-import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { resolveSecretBackedMap } from "@executor-js/sdk";
 
 import { GraphqlInvocationError } from "./errors";
@@ -21,7 +21,7 @@ export const resolveHeaders = (
   return resolveSecretBackedMap({
     values: headers,
     getSecret: (secretId) =>
-      secrets.get(secretId).pipe(Effect.catchAll(() => Effect.succeed(null))),
+      secrets.get(secretId).pipe(Effect.catch(() => Effect.succeed(null))),
     missing: "drop",
     onMissing: () => undefined as never,
   }).pipe(
@@ -95,7 +95,7 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
 
   let request = HttpClientRequest.post(requestEndpoint).pipe(
     HttpClientRequest.setHeader("Content-Type", "application/json"),
-    HttpClientRequest.bodyUnsafeJson({
+    HttpClientRequest.bodyJsonUnsafe({
       query: operation.operationString,
       variables: Object.keys(variables).length > 0 ? variables : undefined,
     }),
@@ -120,7 +120,7 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
   const contentType = response.headers["content-type"] ?? null;
 
   const body: unknown = isJsonContentType(contentType)
-    ? yield* response.json.pipe(Effect.catchAll(() => response.text))
+    ? yield* response.json.pipe(Effect.catch(() => response.text))
     : yield* response.text;
 
   // GraphQL responses are always 200 with { data, errors }

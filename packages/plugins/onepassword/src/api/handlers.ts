@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor-js/api";
@@ -16,10 +16,8 @@ import { OnePasswordGroup } from "./group";
 // `.addError(InternalError)` on the group — no per-handler translation.
 // ---------------------------------------------------------------------------
 
-export class OnePasswordExtensionService extends Context.Tag("OnePasswordExtensionService")<
-  OnePasswordExtensionService,
-  OnePasswordExtension
->() {}
+export class OnePasswordExtensionService extends Context.Service<OnePasswordExtensionService, OnePasswordExtension
+>()("OnePasswordExtensionService") {}
 
 // ---------------------------------------------------------------------------
 // Composed API — core + onepassword group
@@ -66,7 +64,7 @@ export const OnePasswordHandlers = HttpApiBuilder.group(
           return yield* ext.status();
         })),
       )
-      .handle("listVaults", ({ urlParams }) =>
+      .handle("listVaults", ({ query: urlParams }) =>
         capture(Effect.gen(function* () {
           const ext = yield* OnePasswordExtensionService;
           const auth =

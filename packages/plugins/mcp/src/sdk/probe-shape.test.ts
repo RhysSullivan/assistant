@@ -3,24 +3,31 @@ import { Effect } from "effect";
 
 import { probeMcpEndpointShape } from "./probe-shape";
 
+type FetchStub = (
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) => Promise<Response>;
+
+const asFetch = (stub: FetchStub): typeof fetch => stub as typeof fetch;
+
 /**
  * Build a `fetch`-compatible stub that returns the given `Response` (or
  * throws the given error) regardless of input. `fetch`'s exact signature
  * is a union; a narrow closure is enough for the probe.
  */
 const stubFetch = (result: Response | Error): typeof fetch =>
-  (async (_input: unknown, _init?: unknown) => {
+  asFetch(async (_input, _init) => {
     if (result instanceof Error) throw result;
     return result;
-  }) as unknown as typeof fetch;
+  });
 
 const stubFetchSequence = (results: readonly Response[]): typeof fetch => {
   let index = 0;
-  return (async (_input: unknown, _init?: unknown) => {
+  return asFetch(async (_input, _init) => {
     const result = results[index++];
     if (!result) throw new Error("unexpected fetch");
     return result;
-  }) as unknown as typeof fetch;
+  });
 };
 
 describe("probeMcpEndpointShape", () => {

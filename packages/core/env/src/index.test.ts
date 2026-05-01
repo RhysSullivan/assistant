@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { assertRight } from "@effect/vitest/utils";
-import { Config, ConfigProvider, Effect } from "effect";
+import { Config, ConfigProvider, Effect, Result } from "effect";
 
 import { createEnv, Env, makeEnv } from "./index";
 
@@ -12,17 +11,20 @@ describe("makeEnv", () => {
     });
 
     const parsed = Effect.runSync(
-      Effect.withConfigProvider(
-        ConfigProvider.fromMap(
-          new Map([
-            ["PORT", "8080"],
-            ["HOST", "0.0.0.0"],
-          ]),
+      Effect.result(
+        AppEnv.config.parse(
+          ConfigProvider.fromEnv({
+            env: {
+              PORT: "8080",
+              HOST: "0.0.0.0",
+            },
+          }),
         ),
-      )(Effect.either(AppEnv.config)),
+      ),
     );
 
-    assertRight(parsed, {
+    expect(Result.isSuccess(parsed)).toBe(true);
+    expect(Result.isSuccess(parsed) ? parsed.success : undefined).toEqual({
       PORT: 8080,
       HOST: "0.0.0.0",
     });

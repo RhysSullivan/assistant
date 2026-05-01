@@ -75,7 +75,13 @@ export function SourceDetailPage(props: {
 
   const sourceTools: ToolSummary[] = useMemo(() => {
     if (!Result.isSuccess(tools)) return [];
-    return tools.value.map((t) => ({
+    return tools.value.map((t: {
+      readonly id: string;
+      readonly name: string;
+      readonly pluginId: string;
+      readonly description?: string;
+      readonly requiresApproval?: boolean;
+    }) => ({
       id: t.id,
       name: t.name,
       pluginKey: t.pluginId,

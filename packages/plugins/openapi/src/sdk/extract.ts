@@ -73,11 +73,11 @@ const extractParameters = (
           name: p.name,
           location: p.in as ParameterLocation,
           required: p.in === "path" ? true : p.required === true,
-          schema: Option.fromNullable(p.schema),
-          style: Option.fromNullable(p.style),
-          explode: Option.fromNullable(p.explode),
-          allowReserved: Option.fromNullable("allowReserved" in p ? p.allowReserved : undefined),
-          description: Option.fromNullable(p.description),
+          schema: Option.fromNullishOr(p.schema),
+          style: Option.fromNullishOr(p.style),
+          explode: Option.fromNullishOr(p.explode),
+          allowReserved: Option.fromNullishOr("allowReserved" in p ? p.allowReserved : undefined),
+          description: Option.fromNullishOr(p.description),
         }),
     );
 };
@@ -100,10 +100,10 @@ const buildEncodingRecord = (
       allowReserved?: boolean;
     };
     out[prop] = new EncodingObject({
-      contentType: Option.fromNullable(e.contentType),
-      style: Option.fromNullable(e.style),
-      explode: Option.fromNullable(e.explode),
-      allowReserved: Option.fromNullable(e.allowReserved),
+      contentType: Option.fromNullishOr(e.contentType),
+      style: Option.fromNullishOr(e.style),
+      explode: Option.fromNullishOr(e.explode),
+      allowReserved: Option.fromNullishOr(e.allowReserved),
     });
   }
   return Object.keys(out).length > 0 ? out : undefined;
@@ -122,8 +122,8 @@ const extractRequestBody = (
     ({ mediaType, media }) =>
       new MediaBinding({
         contentType: mediaType,
-        schema: Option.fromNullable(media.schema),
-        encoding: Option.fromNullable(
+        schema: Option.fromNullishOr(media.schema),
+        encoding: Option.fromNullishOr(
           buildEncodingRecord(
             (media as { encoding?: Record<string, unknown> }).encoding,
           ),
@@ -249,7 +249,7 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
                     enumValues && enumValues.length > 0
                       ? Option.some(enumValues)
                       : Option.none(),
-                  description: Option.fromNullable(v.description),
+                  description: Option.fromNullishOr(v.description),
                 }),
               ],
             ];
@@ -259,7 +259,7 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
     return [
       new ServerInfo({
         url: server.url,
-        description: Option.fromNullable(server.description),
+        description: Option.fromNullishOr(server.description),
         variables: vars && Object.keys(vars).length > 0 ? Option.some(vars) : Option.none(),
       }),
     ];
@@ -301,13 +301,13 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
           operationId: OperationId.make(deriveOperationId(method, pathTemplate, operation)),
           method,
           pathTemplate,
-          summary: Option.fromNullable(operation.summary),
-          description: Option.fromNullable(operation.description),
+          summary: Option.fromNullishOr(operation.summary),
+          description: Option.fromNullishOr(operation.description),
           tags,
           parameters,
-          requestBody: Option.fromNullable(requestBody),
-          inputSchema: Option.fromNullable(inputSchema),
-          outputSchema: Option.fromNullable(outputSchema),
+          requestBody: Option.fromNullishOr(requestBody),
+          inputSchema: Option.fromNullishOr(inputSchema),
+          outputSchema: Option.fromNullishOr(outputSchema),
           deprecated: operation.deprecated === true,
         }),
       );
@@ -315,8 +315,8 @@ export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocume
   }
 
   return new ExtractionResult({
-    title: Option.fromNullable(doc.info?.title),
-    version: Option.fromNullable(doc.info?.version),
+    title: Option.fromNullishOr(doc.info?.title),
+    version: Option.fromNullishOr(doc.info?.version),
     servers: extractServers(doc),
     operations,
   });

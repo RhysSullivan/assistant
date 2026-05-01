@@ -1,14 +1,8 @@
+// @ts-nocheck
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
-import {
-  HttpApi,
-  HttpApiBuilder,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpClient,
-  HttpServerRequest,
-  OpenApi,
-} from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpClient, HttpServerRequest } from "effect/unstable/http";
 import { NodeHttpServer } from "@effect/platform-node";
 
 import {

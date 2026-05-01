@@ -54,7 +54,9 @@ export const sourcesAtom = (scopeId: ScopeId) =>
 
 /** Single source by id — derived from the sources list */
 export const sourceAtom = (sourceId: string, scopeId: ScopeId) =>
-  Atom.mapResult(sourcesAtom(scopeId), (sources) => sources.find((s) => s.id === sourceId) ?? null);
+  Atom.mapResult(sourcesAtom(scopeId), (sources: Array<any>) =>
+    sources.find((s) => s.id === sourceId) ?? null
+  );
 
 export const secretsAtom = (scopeId: ScopeId) =>
   ExecutorApiClient.query("secrets", "list", {
@@ -144,7 +146,12 @@ export const createPolicyOptimistic = Atom.family((scopeId: ScopeId) =>
   policiesOptimisticAtom(scopeId).pipe(
     Atom.optimisticFn({
       reducer: (
-        current,
+        current: Result.Result<Array<{
+          readonly id: PolicyId;
+          readonly action: ToolPolicyAction;
+          readonly pattern: string;
+          readonly position: string;
+        }>, unknown>,
         arg: {
           path: { scopeId: ScopeId };
           payload: {
@@ -181,7 +188,7 @@ export const updatePolicyOptimistic = Atom.family((_scopeId: ScopeId) =>
   policiesOptimisticAtom(_scopeId).pipe(
     Atom.optimisticFn({
       reducer: (
-        current,
+        current: Result.Result<Array<{ readonly id: PolicyId }>, unknown>,
         arg: {
           path: { scopeId: ScopeId; policyId: PolicyId };
           payload: {
@@ -226,7 +233,7 @@ export const removePolicyOptimistic = Atom.family((scopeId: ScopeId) =>
         },
       ) =>
         Result.map(current, (rows) =>
-          rows.filter((r) => r.id !== arg.path.policyId),
+          rows.filter((r: { readonly id: PolicyId }) => r.id !== arg.path.policyId),
         ),
       fn: removePolicy,
     }),

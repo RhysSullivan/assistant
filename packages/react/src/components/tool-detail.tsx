@@ -107,7 +107,7 @@ export function ToolDetail(props: {
     const v = toolContract.value;
     const definitions = Object.entries(v.typeScriptDefinitions ?? {}).map(([name, body]) => ({
       name,
-      code: body,
+      code: String(body),
     }));
 
     return {

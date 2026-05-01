@@ -97,7 +97,7 @@ const ensureGlobalTracerProvider = (): boolean => {
   return true;
 };
 
-export const DoTelemetryLive: Layer.Layer<never> = Layer.unwrapEffect(
+export const DoTelemetryLive: Layer.Layer<never> = Layer.unwrap(
   Effect.sync(() =>
     ensureGlobalTracerProvider()
       ? OtelTracer.layerGlobal.pipe(

@@ -1,13 +1,10 @@
 import { Effect, Option } from "effect";
 
-import {
-  SourceDetectionResult,
-  definePlugin,
-  resolveSecretBackedMap,
-  type PluginCtx,
-  type StorageFailure,
-  type ToolAnnotations,
-} from "@executor-js/sdk";
+import { SourceDetectionResult } from "../../../../core/sdk/src/types";
+import { definePlugin, type PluginCtx } from "../../../../core/sdk/src/plugin";
+import type { ToolAnnotations } from "../../../../core/sdk/src/core-schema";
+import type { StorageFailure } from "../../../../core/storage-core/src/adapter";
+import { resolveSecretBackedMap } from "../../../../core/sdk/src/secret-backed-value";
 
 import {
   googleDiscoverySchema,
@@ -315,20 +312,20 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
           const text = yield* fetchDiscoveryDocument(discoveryUrl, credentials);
           const manifest = yield* extractGoogleDiscoveryManifest(text);
           const scopes = Object.keys(
-            manifest.oauthScopes._tag === "Some" ? manifest.oauthScopes.value : {},
+            Option.isSome(manifest.oauthScopes) ? manifest.oauthScopes.value : {},
           ).sort();
           const operations = manifest.methods.map((method) => ({
             toolPath: method.toolPath,
             method: method.binding.method,
             pathTemplate: method.binding.pathTemplate,
-            description: method.description._tag === "Some" ? method.description.value : null,
+            description: Option.isSome(method.description) ? method.description.value : null,
           }));
           return {
             name:
-              manifest.title._tag === "Some"
+              Option.isSome(manifest.title)
                 ? manifest.title.value
                 : `${manifest.service} ${manifest.version}`,
-            title: manifest.title._tag === "Some" ? manifest.title.value : null,
+            title: Option.isSome(manifest.title) ? manifest.title.value : null,
             service: manifest.service,
             version: manifest.version,
             toolCount: manifest.methods.length,
@@ -433,20 +430,23 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
     Effect.gen(function* () {
       const trimmed = url.trim();
       if (!trimmed) return null;
-      const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
-      if (parsed._tag === "None") return null;
+      const parsed = yield* Effect.try({
+        try: () => new URL(trimmed),
+        catch: (error) => error,
+      }).pipe(Effect.option);
+      if (Option.isNone(parsed)) return null;
 
       const isGoogleUrl = trimmed.includes("googleapis.com");
       const isDiscoveryPath = trimmed.includes("/discovery/") || trimmed.includes("$discovery");
       if (!isGoogleUrl && !isDiscoveryPath) return null;
 
       const discoveryText = yield* fetchDiscoveryDocument(trimmed).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
       if (!discoveryText) return null;
 
       const manifest = yield* extractGoogleDiscoveryManifest(discoveryText).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
       if (!manifest) return null;
 

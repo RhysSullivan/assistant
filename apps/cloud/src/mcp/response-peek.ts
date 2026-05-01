@@ -167,7 +167,7 @@ export const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
 
     const isSseResponse = contentType.includes("text/event-stream");
     const timeoutMs = isSseResponse ? SSE_PEEK_TIMEOUT_MS : null;
-    const textResult = yield* Effect.tryPromise({
+    const textResult = yield* Effect.result(Effect.tryPromise({
       try: () => readResponseText(response, timeoutMs),
       catch: (error) => error,
     }).pipe(
@@ -178,11 +178,10 @@ export const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
           "mcp.peek_response.timeout_ms": timeoutMs ?? 0,
         },
       }),
-      Effect.either,
-    );
-    if (textResult._tag === "Left") return yield* responseReadFailure(textResult.left);
+    ));
+    if (textResult._tag === "Failure") return yield* responseReadFailure(textResult.failure);
 
-    const text = textResult.right;
+    const text = textResult.success;
     const payload = parseFirstJsonRpc(contentType, text);
     yield* Effect.annotateCurrentSpan({
       "mcp.response.status_code": response.status,

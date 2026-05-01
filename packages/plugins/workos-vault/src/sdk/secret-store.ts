@@ -237,7 +237,7 @@ const loadSecretObject = (
   secretId: string,
 ): Effect.Effect<WorkOSVaultObject | null, WorkOSVaultClientError, never> =>
   client.readObjectByName(secretObjectName(prefix, scopeId, secretId)).pipe(
-    Effect.catchAll((error) => {
+    Effect.catch((error: WorkOSVaultClientError) => {
       if (isStatusError(error, 400)) return Effect.succeed(null);
       if (!isStatusError(error, 404)) return Effect.fail(error);
 
@@ -246,7 +246,7 @@ const loadSecretObject = (
       if (legacyName === encodedName) return Effect.succeed(null);
 
       return client.readObjectByName(legacyName).pipe(
-        Effect.catchAll((legacyError) =>
+        Effect.catch((legacyError: WorkOSVaultClientError) =>
           isStatusError(legacyError, 404) || isStatusError(legacyError, 400)
             ? Effect.succeed(null)
             : Effect.fail(legacyError),
@@ -285,7 +285,7 @@ const upsertSecretValue = (
         context: contextForScope(scopeId),
       });
     }).pipe(
-      Effect.catchAll((error) => {
+      Effect.catch((error: WorkOSVaultClientError) => {
         if (remainingConflictAttempts > 1 && isStatusError(error, 409)) {
           return attemptWrite(remainingConflictAttempts - 1, remainingKekAttempts);
         }

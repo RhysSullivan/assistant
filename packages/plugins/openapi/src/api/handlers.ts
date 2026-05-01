@@ -1,4 +1,4 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor-js/api";
@@ -22,10 +22,8 @@ import { OpenApiGroup } from "./group";
 // `.addError(InternalError)` on the group — no per-handler translation.
 // ---------------------------------------------------------------------------
 
-export class OpenApiExtensionService extends Context.Tag("OpenApiExtensionService")<
-  OpenApiExtensionService,
-  OpenApiPluginExtension
->() {}
+export class OpenApiExtensionService extends Context.Service<OpenApiExtensionService, OpenApiPluginExtension
+>()("OpenApiExtensionService") {}
 
 // ---------------------------------------------------------------------------
 // Composed API — core + openapi group
@@ -58,7 +56,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         }),
       ),
     )
-    .handle("addSpec", ({ path, payload }) =>
+    .handle("addSpec", ({ params: path, payload }) =>
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
@@ -84,7 +82,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         }),
       ),
     )
-    .handle("getSource", ({ path }) =>
+    .handle("getSource", ({ params: path }) =>
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
@@ -92,7 +90,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         }),
       ),
     )
-    .handle("updateSource", ({ path, payload }) =>
+    .handle("updateSource", ({ params: path, payload }) =>
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
@@ -109,7 +107,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         }),
       ),
     )
-    .handle("listSourceBindings", ({ path }) =>
+    .handle("listSourceBindings", ({ params: path }) =>
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;

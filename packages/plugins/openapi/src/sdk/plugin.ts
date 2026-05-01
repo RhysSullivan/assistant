@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { FetchHttpClient, HttpClient } from "@effect/platform";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import type { Layer } from "effect";
 
 import {
@@ -158,8 +158,8 @@ const PreviewSpecInputSchema = Schema.Struct({
   spec: Schema.String,
   specFetchCredentials: Schema.optional(
     Schema.Struct({
-      headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
-      queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+      headers: Schema.optional(Schema.Record(Schema.String, HeaderValueSchema)),
+      queryParams: Schema.optional(Schema.Record(Schema.String, HeaderValueSchema)),
     }),
   ),
 });
@@ -169,12 +169,12 @@ const AddSourceInputSchema = Schema.Struct({
   spec: Schema.String,
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
-  queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+  headers: Schema.optional(Schema.Record(Schema.String, HeaderValueSchema)),
+  queryParams: Schema.optional(Schema.Record(Schema.String, HeaderValueSchema)),
   specFetchCredentials: Schema.optional(
     Schema.Struct({
-      headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
-      queryParams: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
+      headers: Schema.optional(Schema.Record(Schema.String, HeaderValueSchema)),
+      queryParams: Schema.optional(Schema.Record(Schema.String, HeaderValueSchema)),
     }),
   ),
 });
@@ -547,7 +547,7 @@ const resolveSpecFetchCredentials = (
 // ---------------------------------------------------------------------------
 
 export interface OpenApiPluginOptions {
-  readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
+  readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient, never, never>;
   /** If provided, source add/remove is mirrored to executor.jsonc
    *  (best-effort — file errors are logged, not raised). */
   readonly configFile?: ConfigFileSink;
@@ -576,7 +576,13 @@ const toOpenApiSourceConfig = (
 
 const isHttpUrl = (s: string): boolean => s.startsWith("http://") || s.startsWith("https://");
 
-export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
+export const openApiPlugin = definePlugin<
+  "openapi",
+  OpenApiPluginExtension,
+  OpenapiStore,
+  typeof openapiSchema,
+  OpenApiPluginOptions
+>((options?: OpenApiPluginOptions) => {
   const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
 
   type RebuildInput = {
@@ -1038,16 +1044,19 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
       Effect.gen(function* () {
         const trimmed = url.trim();
         if (!trimmed) return null;
-        const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
-        if (parsed._tag === "None") return null;
+        const parsed = yield* Effect.try({
+          try: () => new URL(trimmed),
+          catch: (error) => error,
+        }).pipe(Effect.option);
+        if (Option.isNone(parsed)) return null;
         const specText = yield* resolveSpecText(trimmed).pipe(
           Effect.provide(httpClientLayer),
-          Effect.catchAll(() => Effect.succeed(null)),
+          Effect.catch(() => Effect.succeed(null)),
         );
         if (specText === null) return null;
-        const doc = yield* parse(specText).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const doc = yield* parse(specText).pipe(Effect.catch(() => Effect.succeed(null)));
         if (!doc) return null;
-        const result = yield* extract(doc).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const result = yield* extract(doc).pipe(Effect.catch(() => Effect.succeed(null)));
         if (!result) return null;
         const namespace = Option.getOrElse(result.title, () => "api")
           .toLowerCase()

@@ -1,5 +1,5 @@
-import { AtomHttpApi } from "@effect-atom/atom-react";
-import { FetchHttpClient } from "@effect/platform";
+import { Atom, AtomHttpApi, Result } from "@effect-atom/atom-react";
+import { FetchHttpClient } from "effect/unstable/http";
 import { addGroup } from "@executor-js/api";
 import { getBaseUrl } from "@executor-js/react/api/base-url";
 import { CloudAuthApi } from "../auth/api";
@@ -10,11 +10,17 @@ import { OrgApi } from "../org/api";
 // ---------------------------------------------------------------------------
 
 const CloudApi = addGroup(CloudAuthApi).add(OrgApi);
+const LegacyAtomHttpApi = AtomHttpApi as any;
 
-class CloudApiClient extends AtomHttpApi.Tag<CloudApiClient>()("CloudApiClient", {
+type AtomHttpApiClientBoundary = {
+  readonly query: (...args: ReadonlyArray<any>) => Atom.Atom<Result.Result<any, any>>;
+  readonly mutation: (...args: ReadonlyArray<any>) => Atom.AtomResultFn<any, any, any>;
+};
+
+const CloudApiClient = LegacyAtomHttpApi.Tag()("CloudApiClient", {
   api: CloudApi,
   httpClient: FetchHttpClient.layer,
   baseUrl: getBaseUrl(),
-}) {}
+}) as AtomHttpApiClientBoundary;
 
 export { CloudApiClient };

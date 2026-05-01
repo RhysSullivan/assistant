@@ -127,18 +127,18 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
     baseUrl: Schema.optional(Schema.String),
     namespace: Schema.optional(Schema.String),
     headers: Schema.optional(
-      Schema.Record({ key: Schema.String, value: ConfiguredHeaderValue }),
+      Schema.Record(Schema.String, ConfiguredHeaderValue),
     ),
     queryParams: Schema.optional(
-      Schema.Record({ key: Schema.String, value: HeaderValue }),
+      Schema.Record(Schema.String, HeaderValue),
     ),
     specFetchCredentials: Schema.optional(
       Schema.Struct({
         headers: Schema.optional(
-          Schema.Record({ key: Schema.String, value: HeaderValue }),
+          Schema.Record(Schema.String, HeaderValue),
         ),
         queryParams: Schema.optional(
-          Schema.Record({ key: Schema.String, value: HeaderValue }),
+          Schema.Record(Schema.String, HeaderValue),
         ),
       }),
     ),
@@ -177,6 +177,12 @@ const asJsonObject = (value: unknown): Record<string, unknown> => {
     return JSON.parse(value) as Record<string, unknown>;
   return value as Record<string, unknown>;
 };
+
+const toJsonRecord = (value: unknown): Record<string, unknown> =>
+  value as Record<string, unknown>;
+
+const toConfiguredHeaderValue = (value: unknown): ConfiguredHeaderValue =>
+  value as ConfiguredHeaderValue;
 
 const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
   if (value == null) return {};
@@ -225,7 +231,7 @@ const normalizeStoredHeaders = (
       "kind" in header &&
       (header as { kind?: unknown }).kind === "binding"
     ) {
-      headers[name] = header as unknown as ConfiguredHeaderValue;
+      headers[name] = toConfiguredHeaderValue(header);
       continue;
     }
     legacy[name] = header;
@@ -563,14 +569,9 @@ export const makeDefaultOpenapiStore = ({
                 ],
               ),
             ) as Record<string, unknown>,
-            query_params: input.config.queryParams as unknown as Record<
-              string,
-              unknown
-            >,
+            query_params: input.config.queryParams,
             oauth2: input.config.oauth2
-              ? (encodeOAuth2SourceConfig(
-                  input.config.oauth2,
-                ) as unknown as Record<string, unknown>)
+              ? toJsonRecord(encodeOAuth2SourceConfig(input.config.oauth2))
               : undefined,
             invocation_config: {
               ...(input.config.specFetchCredentials
@@ -587,10 +588,7 @@ export const makeDefaultOpenapiStore = ({
               id: op.toolId,
               scope_id: input.scope,
               source_id: op.sourceId,
-              binding: encodeBinding(op.binding) as unknown as Record<
-                string,
-                unknown
-              >,
+              binding: toJsonRecord(encodeBinding(op.binding)),
             })),
             forceAllowId: true,
           });
@@ -644,12 +642,9 @@ export const makeDefaultOpenapiStore = ({
                     },
               ]),
             ) as Record<string, unknown>,
-            query_params: nextQueryParams as unknown as Record<string, unknown>,
+            query_params: nextQueryParams,
             oauth2: nextOAuth2
-              ? (encodeOAuth2SourceConfig(nextOAuth2) as unknown as Record<
-                  string,
-                  unknown
-                >)
+              ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2))
               : undefined,
             invocation_config: asJsonObject(existingRow.invocation_config),
           },
@@ -780,10 +775,7 @@ export const makeDefaultOpenapiStore = ({
             source_scope_id: input.sourceScope as string,
             target_scope_id: input.scope as string,
             slot: input.slot,
-            value: encodeSourceBindingValue(input.value) as unknown as Record<
-              string,
-              unknown
-            >,
+            value: toJsonRecord(encodeSourceBindingValue(input.value)),
             created_at: now,
             updated_at: now,
           },
