@@ -310,19 +310,18 @@ describe("per-user MCP auth isolation", () => {
         // Pin the exact error tag so a future regression that swaps
         // the "connection not found" check for a silent `auth: { kind:
         // "none" }` fallback would fail here, not silently connect.
-        if (userBResult._tag === "Failure") {
-          // tools.invoke wraps plugin failures in ToolInvocationError
-          // with the original error carried on `cause`. Pin the exact
-          // inner tag — a regression that swapped the "no connection
-          // found" check for a silent no-auth fallback would either
-          // succeed outright (leaking) or surface a different tag here.
-          const outer = userBResult.failure as {
-            _tag?: string;
-            cause?: { _tag?: string };
-          };
-          expect(outer._tag).toBe("ToolInvocationError");
-          expect(outer.cause?._tag).toBe("McpConnectionError");
-        }
+        if (userBResult._tag !== "Failure") return;
+        // tools.invoke wraps plugin failures in ToolInvocationError
+        // with the original error carried on `cause`. Pin the exact
+        // inner tag — a regression that swapped the "no connection
+        // found" check for a silent no-auth fallback would either
+        // succeed outright (leaking) or surface a different tag here.
+        const outer = userBResult.failure as {
+          _tag?: string;
+          cause?: { _tag?: string };
+        };
+        expect(outer._tag).toBe("ToolInvocationError");
+        expect(outer.cause?._tag).toBe("McpConnectionError");
 
         // CRITICAL: no outbound MCP request was made on user B's behalf
         // carrying user A's bearer token. Auth resolution must have
@@ -414,19 +413,18 @@ describe("per-user MCP auth isolation", () => {
           .pipe(Effect.result);
 
         expect(userBResult._tag).toBe("Failure");
-        if (userBResult._tag === "Failure") {
-          // tools.invoke wraps plugin failures in ToolInvocationError
-          // with the original error carried on `cause`. Pin the exact
-          // inner tag — a regression that swapped the "no connection
-          // found" check for a silent no-auth fallback would either
-          // succeed outright (leaking) or surface a different tag here.
-          const outer = userBResult.failure as {
-            _tag?: string;
-            cause?: { _tag?: string };
-          };
-          expect(outer._tag).toBe("ToolInvocationError");
-          expect(outer.cause?._tag).toBe("McpConnectionError");
-        }
+        if (userBResult._tag !== "Failure") return;
+        // tools.invoke wraps plugin failures in ToolInvocationError
+        // with the original error carried on `cause`. Pin the exact
+        // inner tag — a regression that swapped the "no connection
+        // found" check for a silent no-auth fallback would either
+        // succeed outright (leaking) or surface a different tag here.
+        const outer = userBResult.failure as {
+          _tag?: string;
+          cause?: { _tag?: string };
+        };
+        expect(outer._tag).toBe("ToolInvocationError");
+        expect(outer.cause?._tag).toBe("McpConnectionError");
 
         const afterUserB = server.recorded().slice(recordedBeforeUserB);
         for (const req of afterUserB) {

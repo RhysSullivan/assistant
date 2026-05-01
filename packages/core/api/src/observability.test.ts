@@ -63,12 +63,11 @@ describe("capture", () => {
       const err = new UniqueViolationError({ model: "thing" });
       const exit = yield* Effect.exit(capture(Effect.fail(err)));
       expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        const defect = Cause.findDefect(exit.cause);
-        expect(Result.isSuccess(defect) ? defect.success : undefined).toBeInstanceOf(
-          UniqueViolationError,
-        );
-      }
+      if (!Exit.isFailure(exit)) return;
+      const defect = Cause.findDefect(exit.cause);
+      expect(Result.isSuccess(defect) ? defect.success : undefined).toBeInstanceOf(
+        UniqueViolationError,
+      );
     }),
   );
 

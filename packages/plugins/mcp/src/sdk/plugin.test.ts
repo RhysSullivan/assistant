@@ -392,14 +392,12 @@ describe("mcpPlugin", () => {
 
       expect(userView?.name).toBe("User Renamed");
       expect(userView?.config.transport).toBe("remote");
-      if (userView?.config.transport === "remote") {
-        expect(userView.config.endpoint).toBe("http://127.0.0.1:1/user-new-mcp");
-      }
+      if (userView?.config.transport !== "remote") return;
+      expect(userView.config.endpoint).toBe("http://127.0.0.1:1/user-new-mcp");
       expect(orgView?.name).toBe("Org Source");
       expect(orgView?.config.transport).toBe("remote");
-      if (orgView?.config.transport === "remote") {
-        expect(orgView.config.endpoint).toBe("http://127.0.0.1:1/org-mcp");
-      }
+      if (orgView?.config.transport !== "remote") return;
+      expect(orgView.config.endpoint).toBe("http://127.0.0.1:1/org-mcp");
     }),
   );
 
@@ -451,14 +449,12 @@ describe("mcpPlugin", () => {
       );
       expect(stored).not.toBeNull();
       expect(stored?.config.transport).toBe("remote");
-      if (stored?.config.transport === "remote") {
-        expect(stored.config.auth.kind).toBe("oauth2");
-        if (stored.config.auth.kind === "oauth2") {
-          expect(stored.config.auth.connectionId).toBe(
-            "mcp-oauth2-deferred_oauth",
-          );
-        }
-      }
+      if (stored?.config.transport !== "remote") return;
+      expect(stored.config.auth.kind).toBe("oauth2");
+      if (stored.config.auth.kind !== "oauth2") return;
+      expect(stored.config.auth.connectionId).toBe(
+        "mcp-oauth2-deferred_oauth",
+      );
 
       // Source is visible in the shell list too.
       const sources = yield* executor.sources.list();
@@ -507,9 +503,8 @@ describe("mcpPlugin", () => {
         "test-scope",
       );
       expect(stored?.config.transport).toBe("remote");
-      if (stored?.config.transport === "remote") {
-        expect(stored.config.auth.kind).toBe("oauth2");
-      }
+      if (stored?.config.transport !== "remote") return;
+      expect(stored.config.auth.kind).toBe("oauth2");
     }),
   );
 
@@ -612,14 +607,13 @@ describe("mcpPlugin", () => {
           "team_mcp",
           ORG_SCOPE_ID as string,
         );
-        if (stored?.config.transport === "remote") {
-          expect(stored.config.auth.kind).toBe("oauth2");
-          if (stored.config.auth.kind === "oauth2") {
-            expect(stored.config.auth.connectionId).toBe(
-              "mcp-oauth2-team_mcp",
-            );
-          }
-        }
+        expect(stored?.config.transport).toBe("remote");
+        if (stored?.config.transport !== "remote") return;
+        expect(stored.config.auth.kind).toBe("oauth2");
+        if (stored.config.auth.kind !== "oauth2") return;
+        expect(stored.config.auth.connectionId).toBe(
+          "mcp-oauth2-team_mcp",
+        );
       }),
   );
 });

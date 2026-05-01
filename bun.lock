@@ -658,6 +658,7 @@
         "effect": "catalog:",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "bun-types": "catalog:",

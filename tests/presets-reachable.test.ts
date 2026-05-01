@@ -59,7 +59,7 @@ describe("graphql presets are reachable endpoints", () => {
           const result = yield* introspect(preset.url).pipe(
             Effect.provide(FetchHttpClient.layer),
             Effect.map((r) => ({ ok: true as const, schema: r })),
-            Effect.catchAll((err) =>
+            Effect.catch((err) =>
               Effect.succeed({
                 ok: false as const,
                 message: String(err),
@@ -67,17 +67,17 @@ describe("graphql presets are reachable endpoints", () => {
             ),
           );
 
-          if (result.ok) {
-            // Public endpoint — introspection succeeded
-            expect(result.schema.__schema).toBeDefined();
-            expect(result.schema.__schema.types.length).toBeGreaterThan(0);
-          } else {
-            // Auth-required — should fail with 401/403, not 404/timeout
-            expect(
-              result.message,
-              `${preset.name} should fail with auth error, not: ${result.message}`,
-            ).toMatch(/401|403|Unauthorized|Forbidden|auth/i);
-          }
+          const authFailureMessage = result.ok ? null : result.message;
+          expect(
+            result.ok ||
+              /401|403|Unauthorized|Forbidden|auth/i.test(
+                authFailureMessage ?? "",
+              ),
+            `${preset.name} should expose introspection or fail with auth error, not: ${authFailureMessage}`,
+          ).toBe(true);
+          if (!result.ok) return;
+          expect(result.schema.__schema).toBeDefined();
+          expect(result.schema.__schema.types.length).toBeGreaterThan(0);
         }),
       { timeout: 15_000 },
     );

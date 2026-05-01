@@ -672,11 +672,10 @@ describe("createExecutor", () => {
         .get("conn-owned.access_token")
         .pipe(Effect.result);
       expect(Result.isFailure(leaked)).toBe(true);
-      if (Result.isFailure(leaked)) {
-        expect((leaked.failure as { _tag?: string })._tag).toBe(
-          "SecretOwnedByConnectionError",
-        );
-      }
+      if (!Result.isFailure(leaked)) return;
+      expect((leaked.failure as { _tag?: string })._tag).toBe(
+        "SecretOwnedByConnectionError",
+      );
 
       const status = yield* executor.secrets.status("conn-owned.access_token");
       expect(status).toBe("missing");

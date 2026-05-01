@@ -82,9 +82,9 @@ describe("tenant isolation (HTTP)", () => {
           .pipe(Effect.result),
       );
 
-      if (result._tag === "Success") {
-        expect(result.success).toBeNull();
-      }
+      expect(result._tag).toBe("Success");
+      if (result._tag !== "Success") return;
+      expect(result.success).toBeNull();
     }),
   );
 
@@ -127,9 +127,9 @@ describe("tenant isolation (HTTP)", () => {
           .pipe(Effect.result),
       );
 
-      if (result._tag === "Success") {
-        expect(result.success.status).toBe("missing");
-      }
+      expect(result._tag).toBe("Success");
+      if (result._tag !== "Success") return;
+      expect(result.success.status).toBe("missing");
     }),
   );
 

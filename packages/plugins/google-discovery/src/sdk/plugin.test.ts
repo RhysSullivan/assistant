@@ -284,6 +284,7 @@ describe("Google Discovery plugin", () => {
         );
 
         const originalFetch = globalThis.fetch;
+        let tokenRequestInit: RequestInit | undefined;
         const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(((
           input: RequestInfo | URL,
           init?: RequestInit,
@@ -295,7 +296,7 @@ describe("Google Discovery plugin", () => {
                 ? input.toString()
                 : input.url;
           if (url === "https://oauth2.googleapis.com/token") {
-            expect(init?.method).toBe("POST");
+            tokenRequestInit = init;
             return Promise.resolve(
               new Response(
                 JSON.stringify({
@@ -341,6 +342,7 @@ describe("Google Discovery plugin", () => {
           });
 
           expect(completed.connectionId).toBe(connectionId);
+          expect(tokenRequestInit?.method).toBe("POST");
 
           // Tokens live on the SDK connection — resolving via
           // ctx.connections.accessToken returns the minted value.

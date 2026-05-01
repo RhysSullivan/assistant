@@ -41,12 +41,11 @@ describe("scopeAdapter — write rejection on scoped tables", () => {
         }),
       );
       expect(Exit.isFailure(result)).toBe(true);
-      if (Exit.isFailure(result)) {
-        const reason = result.cause.reasons.find(Cause.isFailReason);
-        const err = reason?.error ?? null;
-        expect(err).toBeInstanceOf(StorageError);
-        expect((err as StorageError).message).toContain("not in the executor");
-      }
+      if (!Exit.isFailure(result)) return;
+      const reason = result.cause.reasons.find(Cause.isFailReason);
+      const err = reason?.error ?? null;
+      expect(err).toBeInstanceOf(StorageError);
+      expect((err as StorageError).message).toContain("not in the executor");
     }),
   );
 
@@ -67,12 +66,11 @@ describe("scopeAdapter — write rejection on scoped tables", () => {
         }),
       );
       expect(Exit.isFailure(result)).toBe(true);
-      if (Exit.isFailure(result)) {
-        const reason = result.cause.reasons.find(Cause.isFailReason);
-        const err = reason?.error ?? null;
-        expect(err).toBeInstanceOf(StorageError);
-        expect((err as StorageError).message).toContain("missing required");
-      }
+      if (!Exit.isFailure(result)) return;
+      const reason = result.cause.reasons.find(Cause.isFailReason);
+      const err = reason?.error ?? null;
+      expect(err).toBeInstanceOf(StorageError);
+      expect((err as StorageError).message).toContain("missing required");
     }),
   );
 

@@ -959,6 +959,7 @@ describe("connections", () => {
           plugins: [memorySecretsPlugin()] as const,
         }),
       );
+      let refreshBody: URLSearchParams | undefined;
       const fetchMock = vi
         .spyOn(globalThis, "fetch")
         .mockImplementation(async (input, init) => {
@@ -974,10 +975,7 @@ describe("connections", () => {
             );
           }
           if (url === "https://as.example.com/token") {
-            const body = init?.body as URLSearchParams;
-            expect(body.get("grant_type")).toBe("refresh_token");
-            expect(body.get("client_id")).toBe("mcp-client");
-            expect(body.get("refresh_token")).toBe("mcp-refresh-v1");
+            refreshBody = init?.body as URLSearchParams;
             return new Response(
               JSON.stringify({
                 access_token: "mcp-access-v2",
@@ -1022,6 +1020,9 @@ describe("connections", () => {
 
       const token = yield* executor.connections.accessToken("mcp-legacy");
       expect(token).toBe("mcp-access-v2");
+      expect(refreshBody?.get("grant_type")).toBe("refresh_token");
+      expect(refreshBody?.get("client_id")).toBe("mcp-client");
+      expect(refreshBody?.get("refresh_token")).toBe("mcp-refresh-v1");
       expect(fetchMock).toHaveBeenCalled();
     }),
   );

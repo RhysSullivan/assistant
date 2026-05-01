@@ -434,9 +434,8 @@ describe("pause/resume with multiple elicitations", () => {
     expect(outcome2).not.toBeNull();
     const resumed = outcome2 as NonNullable<typeof outcome2>;
     expect(resumed.status).toBe("completed");
-    if (resumed.status === "completed") {
-      expect(resumed.result.error).toBeUndefined();
-      expect(resumed.result.result).toMatchObject({ ok: true });
-    }
+    if (resumed.status !== "completed") return;
+    expect(resumed.result.error).toBeUndefined();
+    expect(resumed.result.result).toMatchObject({ ok: true });
   }, 10000);
 });

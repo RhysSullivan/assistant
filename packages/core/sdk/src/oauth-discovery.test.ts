@@ -95,10 +95,9 @@ describe("discoverProtectedResourceMetadata", () => {
       discoverProtectedResourceMetadata("https://api.example.com"),
     );
     expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const reason = exit.cause.reasons.find(Cause.isFailReason);
-      expect(reason?.error).toBeInstanceOf(OAuthDiscoveryError);
-    }
+    if (!Exit.isFailure(exit)) return;
+    const reason = exit.cause.reasons.find(Cause.isFailReason);
+    expect(reason?.error).toBeInstanceOf(OAuthDiscoveryError);
   });
 });
 
@@ -223,15 +222,13 @@ describe("registerDynamicClient", () => {
       }),
     );
     expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const reason = exit.cause.reasons.find(Cause.isFailReason);
-      if (reason?.error instanceof OAuthDiscoveryError) {
-        expect(reason.error.status).toBe(400);
-        expect(reason.error.message).toMatch(/invalid_client_metadata/);
-      } else {
-        throw new Error("expected OAuthDiscoveryError");
-      }
+    if (!Exit.isFailure(exit)) return;
+    const reason = exit.cause.reasons.find(Cause.isFailReason);
+    if (!(reason?.error instanceof OAuthDiscoveryError)) {
+      throw new Error("expected OAuthDiscoveryError");
     }
+    expect(reason.error.status).toBe(400);
+    expect(reason.error.message).toMatch(/invalid_client_metadata/);
   });
 });
 

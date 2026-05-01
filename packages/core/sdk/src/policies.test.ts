@@ -525,12 +525,11 @@ describe("blocked tools", () => {
         executor.tools.invoke("vercel.delete", {}),
       );
       expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect((result.failure as { _tag?: string })._tag).toBe(
-          "ToolBlockedError",
-        );
-        expect((result.failure as { pattern?: string }).pattern).toBe("vercel.*");
-      }
+      if (!Result.isFailure(result)) return;
+      expect((result.failure as { _tag?: string })._tag).toBe(
+        "ToolBlockedError",
+      );
+      expect((result.failure as { pattern?: string }).pattern).toBe("vercel.*");
     }),
   );
 });
@@ -583,11 +582,10 @@ describe("approve / require_approval interaction with annotations", () => {
         }),
       );
       expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect((result.failure as { _tag?: string })._tag).toBe(
-          "ElicitationDeclinedError",
-        );
-      }
+      if (!Result.isFailure(result)) return;
+      expect((result.failure as { _tag?: string })._tag).toBe(
+        "ElicitationDeclinedError",
+      );
     }),
   );
 

@@ -79,12 +79,11 @@ describe("pluginBlobStore", () => {
         plugin.put("k", "v", { scope: "not-in-stack" }),
       );
       expect(Exit.isFailure(result)).toBe(true);
-      if (Exit.isFailure(result)) {
-        const reason = result.cause.reasons.find(Cause.isFailReason);
-        const err = reason?.error ?? null;
-        expect(err).toBeInstanceOf(StorageError);
-        expect((err as StorageError).message).toContain("not in the");
-      }
+      if (!Exit.isFailure(result)) return;
+      const reason = result.cause.reasons.find(Cause.isFailReason);
+      const err = reason?.error ?? null;
+      expect(err).toBeInstanceOf(StorageError);
+      expect((err as StorageError).message).toContain("not in the");
       // Write must not have reached the store.
       expect(yield* store.get("not-in-stack/my-plugin", "k")).toBeNull();
     }),
