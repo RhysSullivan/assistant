@@ -4,7 +4,7 @@ import {
   definePlugin,
   type PluginCtx,
   type SecretProvider,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
 
 import {
   deletePassword,

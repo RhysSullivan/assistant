@@ -1,8 +1,7 @@
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import type { StorageFailure } from "@executor-js/sdk";
-import type { PluginCtx } from "@executor-js/sdk";
+import type { PluginCtx, StorageFailure } from "@executor-js/sdk/core";
 
 import { GoogleDiscoveryInvocationError, GoogleDiscoveryOAuthError } from "./errors";
 import type { GoogleDiscoveryStore } from "./binding-store";

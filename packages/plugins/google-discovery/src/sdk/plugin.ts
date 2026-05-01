@@ -1,10 +1,13 @@
 import { Effect, Option } from "effect";
 
-import { SourceDetectionResult } from "@executor-js/sdk";
-import { definePlugin, type PluginCtx } from "@executor-js/sdk";
-import type { ToolAnnotations } from "@executor-js/sdk";
-import type { StorageFailure } from "@executor-js/sdk";
-import { resolveSecretBackedMap } from "@executor-js/sdk";
+import {
+  SourceDetectionResult,
+  definePlugin,
+  resolveSecretBackedMap,
+  type PluginCtx,
+  type StorageFailure,
+  type ToolAnnotations,
+} from "@executor-js/sdk/core";
 
 import {
   googleDiscoverySchema,

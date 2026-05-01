@@ -201,6 +201,7 @@ const createTestScopedExecutor = (
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
   });
 

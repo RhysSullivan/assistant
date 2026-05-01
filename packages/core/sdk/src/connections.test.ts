@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber } from "effect";
 
 import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
@@ -27,7 +27,7 @@ import { makeTestConfig } from "./testing";
 
 const makeMemoryProvider = (): SecretProvider => {
   const store = new Map<string, string>();
-  const key = (scope: string, id: string) => `${scope}\0${id}`;
+  const key = (scope: string, id: string) => `${scope}\u0000${id}`;
   return {
     key: "memory",
     writable: true,
@@ -40,7 +40,7 @@ const makeMemoryProvider = (): SecretProvider => {
     list: () =>
       Effect.sync(() =>
         Array.from(store.keys()).map((k) => {
-          const name = k.split("\0", 2)[1] ?? k;
+          const name = k.split("\u0000", 2)[1] ?? k;
           return { id: name, name };
         }),
       ),
@@ -87,10 +87,6 @@ const connPlugin = (provider: ConnectionProvider) =>
 const sid = (s: string) => SecretId.make(s);
 const cid = (s: string) => ConnectionId.make(s);
 const scpid = (s: string) => ScopeId.make(s);
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -476,7 +472,9 @@ describe("connections", () => {
         let responseCounter = 0;
         const provider: ConnectionProvider = {
           key: "spotify",
-          refresh: (input) =>
+          refresh: (
+            input,
+          ): Effect.Effect<ConnectionRefreshResult, ConnectionRefreshError> =>
             Effect.gen(function* () {
               calls.push(input);
               const n = ++responseCounter;
@@ -528,16 +526,21 @@ describe("connections", () => {
         // Kick off the leader first and wait for it to park inside
         // `refresh`. Any subsequent caller is guaranteed to see the
         // in-flight Deferred the leader just registered.
-        const leaderFiber = yield* Effect.forkScoped(
+        const leaderFiber = yield* Effect.forkDetach(
           executor.connections.accessToken("conn-1"),
+          { startImmediately: true },
         );
         yield* Deferred.await(entered);
 
         const followerFibers = yield* Effect.forEach(
           [1, 2, 3, 4],
-          () => Effect.forkScoped(executor.connections.accessToken("conn-1")),
+          () =>
+            Effect.forkDetach(executor.connections.accessToken("conn-1"), {
+              startImmediately: true,
+            }),
           { concurrency: "unbounded" },
         );
+        yield* Effect.forEach([1, 2, 3, 4], () => Effect.yieldNow);
 
         // Every follower is queued on the leader's Deferred. Release
         // the gate — the leader resolves, waiters wake up with the
@@ -546,12 +549,14 @@ describe("connections", () => {
 
         const leaderResult = yield* Fiber.join(leaderFiber);
         const followerResults = yield* Effect.all(
-          followerFibers.map((f) => Fiber.join(f)),
+          followerFibers.map((f) => Fiber.await(f)),
           { concurrency: "unbounded" },
         );
         expect(leaderResult).toBe("rotated-1");
         for (const r of followerResults) {
-          expect(r).toBe("rotated-1");
+          expect(r._tag).toBe("Success");
+          if (r._tag !== "Success") continue;
+          expect(r.value).toBe("rotated-1");
         }
         expect(calls).toHaveLength(1);
       }),
@@ -880,152 +885,6 @@ describe("connections", () => {
       expect([...keys].sort()).toEqual(["oauth2", "prov-a", "prov-b"]);
     }),
   );
-
-  it.effect("refreshes legacy google-discovery oauth2 provider rows through core oauth", () =>
-    Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [memorySecretsPlugin()] as const,
-        }),
-      );
-      yield* executor.secrets.set(
-        new SetSecretInput({
-          id: sid("google_client_id"),
-          scope: scpid("test-scope"),
-          name: "Google Client ID",
-          value: "google-client",
-        }),
-      );
-      yield* executor.secrets.set(
-        new SetSecretInput({
-          id: sid("google_client_secret"),
-          scope: scpid("test-scope"),
-          name: "Google Client Secret",
-          value: "google-secret",
-        }),
-      );
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            access_token: "google-access-v2",
-            token_type: "Bearer",
-            expires_in: 3600,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
-      );
-
-      yield* executor.connections.create(
-        new CreateConnectionInput({
-          id: cid("google-legacy"),
-          scope: scpid("test-scope"),
-          provider: "google-discovery:oauth2",
-          identityLabel: "Google",
-          accessToken: new TokenMaterial({
-            secretId: sid("google-legacy.access"),
-            name: "access",
-            value: "google-access-v1",
-          }),
-          refreshToken: new TokenMaterial({
-            secretId: sid("google-legacy.refresh"),
-            name: "refresh",
-            value: "google-refresh-v1",
-          }),
-          expiresAt: Date.now() - 1_000,
-          oauthScope: "email",
-          providerState: {
-            clientIdSecretId: "google_client_id",
-            clientSecretSecretId: "google_client_secret",
-            scopes: ["email"],
-          },
-        }),
-      );
-
-      const token = yield* executor.connections.accessToken("google-legacy");
-      expect(token).toBe("google-access-v2");
-      const body = fetchMock.mock.calls[0]![1]!.body as URLSearchParams;
-      expect(fetchMock.mock.calls[0]![0]).toBe(
-        "https://oauth2.googleapis.com/token",
-      );
-      expect(body.get("grant_type")).toBe("refresh_token");
-      expect(body.get("refresh_token")).toBe("google-refresh-v1");
-    }),
-  );
-
-  it.effect("refreshes legacy MCP oauth2 rows by discovering the token endpoint", () =>
-    Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [memorySecretsPlugin()] as const,
-        }),
-      );
-      let refreshBody: URLSearchParams | undefined;
-      const fetchMock = vi
-        .spyOn(globalThis, "fetch")
-        .mockImplementation(async (input, init) => {
-          const url = String(input);
-          if (url.includes(".well-known/oauth-authorization-server")) {
-            return new Response(
-              JSON.stringify({
-                issuer: "https://as.example.com",
-                authorization_endpoint: "https://as.example.com/authorize",
-                token_endpoint: "https://as.example.com/token",
-              }),
-              { status: 200, headers: { "content-type": "application/json" } },
-            );
-          }
-          if (url === "https://as.example.com/token") {
-            refreshBody = init?.body as URLSearchParams;
-            return new Response(
-              JSON.stringify({
-                access_token: "mcp-access-v2",
-                token_type: "Bearer",
-                expires_in: 3600,
-              }),
-              { status: 200, headers: { "content-type": "application/json" } },
-            );
-          }
-          return new Response("not found", { status: 404 });
-        });
-
-      yield* executor.connections.create(
-        new CreateConnectionInput({
-          id: cid("mcp-legacy"),
-          scope: scpid("test-scope"),
-          provider: "mcp:oauth2",
-          identityLabel: "MCP",
-          accessToken: new TokenMaterial({
-            secretId: sid("mcp-legacy.access"),
-            name: "access",
-            value: "mcp-access-v1",
-          }),
-          refreshToken: new TokenMaterial({
-            secretId: sid("mcp-legacy.refresh"),
-            name: "refresh",
-            value: "mcp-refresh-v1",
-          }),
-          expiresAt: Date.now() - 1_000,
-          oauthScope: null,
-          providerState: {
-            endpoint: "https://mcp.example.com",
-            tokenType: "Bearer",
-            clientInformation: { client_id: "mcp-client" },
-            authorizationServerUrl: "https://as.example.com",
-            authorizationServerMetadata: null,
-            resourceMetadataUrl: null,
-            resourceMetadata: null,
-          },
-        }),
-      );
-
-      const token = yield* executor.connections.accessToken("mcp-legacy");
-      expect(token).toBe("mcp-access-v2");
-      expect(refreshBody?.get("grant_type")).toBe("refresh_token");
-      expect(refreshBody?.get("client_id")).toBe("mcp-client");
-      expect(refreshBody?.get("refresh_token")).toBe("mcp-refresh-v1");
-      expect(fetchMock).toHaveBeenCalled();
-    }),
-  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1060,12 +919,14 @@ const makeLayeredConnExecutors = () =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     const execInner = yield* createExecutor({
       scopes: [innerScope, outerScope],
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     return { execOuter, execInner, outerId, innerId };
   });

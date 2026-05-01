@@ -19,7 +19,7 @@
 import * as http from "node:http";
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -53,7 +53,7 @@ import { mcpPlugin } from "./plugin";
 
 const scopedMemoryProvider = (): SecretProvider => {
   const store = new Map<string, string>();
-  const key = (scope: string, id: string) => `${scope}${id}`;
+  const key = (scope: string, id: string) => `${scope}\u0000${id}`;
   return {
     key: "scoped-memory",
     writable: true,
@@ -66,7 +66,7 @@ const scopedMemoryProvider = (): SecretProvider => {
     list: () =>
       Effect.sync(() =>
         Array.from(store.keys()).map((k) => {
-          const name = k.split("", 2)[1] ?? k;
+          const name = k.split("\u0000", 2)[1] ?? k;
           return { id: name, name };
         }),
       ),
@@ -198,6 +198,7 @@ const makeLayeredMcpExecutors = () =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
 
     // User-B executor — scope stack = [userB, org]. User B has never
@@ -207,6 +208,7 @@ const makeLayeredMcpExecutors = () =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
 
     return { execUserA, execUserB };
@@ -292,36 +294,39 @@ describe("per-user MCP auth isolation", () => {
 
         // User B has no connection row at their scope. `tools.invoke`
         // must fail before hitting the server. We run it through
-        // `Effect.result` so the assertion is on the Failure payload, not
+        // `Effect.either` so the assertion is on the Left payload, not
         // a thrown test failure.
         const userBTools = yield* execUserB.tools.list();
         const whoamiForB = userBTools.find((t) => t.name === "whoami");
         expect(whoamiForB).toBeDefined();
 
-        const userBResult = yield* execUserB.tools
-          .invoke(
+        const userBResult = yield* Effect.exit(
+          execUserB.tools.invoke(
             whoamiForB!.id,
             { marker: "from-user-b" },
             { onElicitation: "accept-all" },
-          )
-          .pipe(Effect.result);
+          ),
+        );
 
-        expect(userBResult._tag).toBe("Failure");
+        expect(Exit.isFailure(userBResult)).toBe(true);
         // Pin the exact error tag so a future regression that swaps
         // the "connection not found" check for a silent `auth: { kind:
         // "none" }` fallback would fail here, not silently connect.
-        if (userBResult._tag !== "Failure") return;
+        if (!Exit.isFailure(userBResult)) return;
         // tools.invoke wraps plugin failures in ToolInvocationError
         // with the original error carried on `cause`. Pin the exact
         // inner tag — a regression that swapped the "no connection
         // found" check for a silent no-auth fallback would either
         // succeed outright (leaking) or surface a different tag here.
-        const outer = userBResult.failure as {
-          _tag?: string;
-          cause?: { _tag?: string };
-        };
-        expect(outer._tag).toBe("ToolInvocationError");
-        expect(outer.cause?._tag).toBe("McpConnectionError");
+        const failure = userBResult.cause.reasons.find(Cause.isFailReason);
+        const outer = failure?.error as
+          | {
+              _tag?: string;
+              cause?: { _tag?: string };
+            }
+          | undefined;
+        expect(outer?._tag).toBe("ToolInvocationError");
+        expect(outer?.cause?._tag).toBe("McpConnectionError");
 
         // CRITICAL: no outbound MCP request was made on user B's behalf
         // carrying user A's bearer token. Auth resolution must have
@@ -404,27 +409,30 @@ describe("per-user MCP auth isolation", () => {
         const userBTools = yield* execUserB.tools.list();
         const whoamiForB = userBTools.find((t) => t.name === "whoami")!;
 
-        const userBResult = yield* execUserB.tools
-          .invoke(
+        const userBResult = yield* Effect.exit(
+          execUserB.tools.invoke(
             whoamiForB.id,
             { marker: "user-b-header" },
             { onElicitation: "accept-all" },
-          )
-          .pipe(Effect.result);
+          ),
+        );
 
-        expect(userBResult._tag).toBe("Failure");
-        if (userBResult._tag !== "Failure") return;
+        expect(Exit.isFailure(userBResult)).toBe(true);
+        if (!Exit.isFailure(userBResult)) return;
         // tools.invoke wraps plugin failures in ToolInvocationError
         // with the original error carried on `cause`. Pin the exact
         // inner tag — a regression that swapped the "no connection
         // found" check for a silent no-auth fallback would either
         // succeed outright (leaking) or surface a different tag here.
-        const outer = userBResult.failure as {
-          _tag?: string;
-          cause?: { _tag?: string };
-        };
-        expect(outer._tag).toBe("ToolInvocationError");
-        expect(outer.cause?._tag).toBe("McpConnectionError");
+        const failure = userBResult.cause.reasons.find(Cause.isFailReason);
+        const outer = failure?.error as
+          | {
+              _tag?: string;
+              cause?: { _tag?: string };
+            }
+          | undefined;
+        expect(outer?._tag).toBe("ToolInvocationError");
+        expect(outer?.cause?._tag).toBe("McpConnectionError");
 
         const afterUserB = server.recorded().slice(recordedBeforeUserB);
         for (const req of afterUserB) {

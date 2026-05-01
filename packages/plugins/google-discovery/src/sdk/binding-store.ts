@@ -15,8 +15,11 @@
 
 import { Effect, Schema } from "effect";
 
-import { defineSchema, type StorageDeps } from "@executor-js/sdk";
-import type { StorageFailure } from "@executor-js/sdk";
+import {
+  defineSchema,
+  type StorageDeps,
+  type StorageFailure,
+} from "@executor-js/sdk/core";
 
 import { GoogleDiscoveryMethodBinding, GoogleDiscoveryStoredSourceData } from "./types";
 

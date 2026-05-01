@@ -1,7 +1,7 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import type { SecretOwnedByConnectionError, StorageFailure } from "@executor-js/sdk";
+import type { SecretOwnedByConnectionError, StorageFailure } from "@executor-js/sdk/core";
 
 import { OpenApiInvocationError } from "./errors";
 import {

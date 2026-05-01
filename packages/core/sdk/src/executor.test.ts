@@ -241,9 +241,11 @@ describe("createExecutor", () => {
       const executor = yield* createExecutor(
         makeTestConfig({ plugins: [testPlugin()] as const }),
       );
-      const result = yield* executor.tools.invoke("test.control.echo", {
-        text: "hi",
-      });
+      const result = yield* executor.tools.invoke(
+        "test.control.echo",
+        { text: "hi" },
+        { onElicitation: "accept-all" },
+      );
       expect(result).toBe("echo:hi");
     }),
   );
@@ -282,6 +284,7 @@ describe("createExecutor", () => {
       const executor = yield* createExecutor({
         ...config,
         adapter: recordFindMany(config.adapter, findManyCalls),
+        onElicitation: "accept-all",
       });
       yield* executor.test.addThing("thing1", "hello");
       yield* executor.test.addThing("thing2", "goodbye");
@@ -331,7 +334,11 @@ describe("createExecutor", () => {
       );
       yield* executor.test.addThing("thing1", "hello");
 
-      const result = yield* executor.tools.invoke("thing1.read", {});
+      const result = yield* executor.tools.invoke(
+        "thing1.read",
+        {},
+        { onElicitation: "accept-all" },
+      );
       expect(result).toBe("hello");
     }),
   );
@@ -491,6 +498,7 @@ describe("createExecutor", () => {
       const result = (yield* executor.tools.invoke(
         "cloudflare.dns.records.create",
         {},
+        { onElicitation: "accept-all" },
       )) as { id: string; sourceId: string; name: string };
 
       // Structured fields round-trip cleanly: source_id and name are
@@ -550,7 +558,13 @@ describe("createExecutor", () => {
       expect(tools).toContain("thing1.write");
 
       // plugin storage row committed too
-      expect(yield* executor.tools.invoke("thing1.read", {})).toBe("hello");
+      expect(
+        yield* executor.tools.invoke(
+          "thing1.read",
+          {},
+          { onElicitation: "accept-all" },
+        ),
+      ).toBe("hello");
     }),
   );
 
@@ -693,7 +707,7 @@ describe("createExecutor", () => {
     Effect.gen(function* () {
       const executor = yield* createExecutor(makeTestConfig());
       const err = yield* executor.tools
-        .invoke("does.not.exist", {})
+        .invoke("does.not.exist", {}, { onElicitation: "accept-all" })
         .pipe(Effect.flip);
       expect((err as { _tag: string })._tag).toBe("ToolNotFoundError");
     }),
@@ -918,7 +932,11 @@ describe("createExecutor", () => {
         makeTestConfig({ plugins: [elicitOnly()] as const }),
       );
 
-      const action = yield* executor.tools.invoke("elicit.ctl.ask", {});
+      const action = yield* executor.tools.invoke(
+        "elicit.ctl.ask",
+        {},
+        { onElicitation: "accept-all" },
+      );
       expect(action).toBe("accept");
     }),
   );
@@ -1067,6 +1085,7 @@ const makeSharedTenantExecutors = () =>
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
     const execA = yield* makeOne("scope-a");
@@ -1181,6 +1200,7 @@ describe("tenant isolation (SDK)", () => {
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
       yield* exec.secrets.set(
@@ -1307,12 +1327,14 @@ const makeLayeredExecutors = () =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     const execInner = yield* createExecutor({
       scopes: [innerScope, outerScope],
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     return { execOuter, execInner, outerId, innerId };
   });
@@ -1491,12 +1513,14 @@ const makeMarkerExecutors = () =>
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     const execInner = yield* createExecutor({
       scopes: [innerScope, outerScope],
       adapter,
       blobs,
       plugins,
+      onElicitation: "accept-all",
     });
     return { execOuter, execInner, outerId, innerId };
   });
@@ -1587,7 +1611,11 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
         yield* execOuter.marker.register("shared", "outer");
         yield* execInner.marker.register("shared", "inner");
 
-        const result = (yield* execInner.tools.invoke("shared.t", {})) as {
+        const result = (yield* execInner.tools.invoke(
+          "shared.t",
+          {},
+          { onElicitation: "accept-all" },
+        )) as {
           marker: string;
           scope: string;
         };
@@ -1598,6 +1626,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
         const outerResult = (yield* execOuter.tools.invoke(
           "shared.t",
           {},
+          { onElicitation: "accept-all" },
         )) as { marker: string; scope: string };
         expect(outerResult.marker).toBe("outer");
         expect(outerResult.scope).toBe(outerId);
@@ -1723,6 +1752,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
         const execInner = yield* createExecutor({
           scopes: [
@@ -1732,6 +1762,7 @@ describe("cross-scope read precedence + remove isolation (SDK)", () => {
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
 
         yield* execOuter.ref.register("S");

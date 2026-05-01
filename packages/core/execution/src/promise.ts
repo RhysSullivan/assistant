@@ -17,7 +17,8 @@ import type {
   ElicitationContext,
   ElicitationResponse,
   Executor as EffectExecutor,
-} from "@executor-js/sdk";
+} from "@executor-js/sdk/core";
+import { ToolId } from "@executor-js/sdk/core";
 import type { Executor as PromiseExecutor } from "@executor-js/sdk/promise";
 import type { CodeExecutionError, CodeExecutor, ExecuteResult } from "@executor-js/codemode-core";
 
@@ -59,10 +60,30 @@ export type ExecutionEngine = {
 const fromPromise = <A>(try_: () => Promise<A>): Effect.Effect<A> =>
   Effect.tryPromise({ try: try_, catch: (cause) => cause }).pipe(Effect.orDie);
 
+type EffectInvokeOptions = Parameters<EffectExecutor["tools"]["invoke"]>[2];
+type PromiseInvokeOptions = Parameters<PromiseExecutor["tools"]["invoke"]>[2];
+
+const toPromiseInvokeOptions = (
+  options: EffectInvokeOptions,
+): PromiseInvokeOptions => {
+  const onElicitation = options?.onElicitation;
+  if (!onElicitation) return undefined;
+  if (onElicitation === "accept-all") return { onElicitation };
+
+  return {
+    onElicitation: (ctx) =>
+      onElicitation({
+        ...ctx,
+        toolId: ToolId.make(ctx.toolId),
+      }),
+  };
+};
+
 const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
   scopes: pe.scopes,
   tools: {
-    invoke: (id, args, options) => fromPromise(() => pe.tools.invoke(id, args, options)),
+    invoke: (id, args, options) =>
+      fromPromise(() => pe.tools.invoke(id, args, toPromiseInvokeOptions(options))),
     list: (filter) => fromPromise(() => pe.tools.list(filter)),
     schema: (id) => fromPromise(() => pe.tools.schema(id)),
     definitions: () => fromPromise(() => pe.tools.definitions()),

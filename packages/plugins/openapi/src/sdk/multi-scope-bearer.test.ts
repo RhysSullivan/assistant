@@ -145,18 +145,21 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
         const aliceExec = yield* createExecutor({
           scopes: [aliceScope, orgScope],
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
         const bobExec = yield* createExecutor({
           scopes: [bobScope, orgScope],
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
 
         // -------------------------------------------------------------
@@ -322,18 +325,21 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
         const aliceExec = yield* createExecutor({
           scopes: [aliceScope, orgScope],
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
         const bobExec = yield* createExecutor({
           scopes: [bobScope, orgScope],
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
 
         yield* adminExec.openapi.addSpec({
@@ -463,12 +469,14 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
         const aliceExec = yield* createExecutor({
           scopes: [aliceScope, orgScope],
           adapter,
           blobs,
           plugins,
+          onElicitation: "accept-all",
         });
 
         yield* adminExec.openapi.addSpec({
@@ -637,12 +645,14 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
       const aliceExec = yield* createExecutor({
         scopes: [aliceScope, orgScope],
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
       yield* adminExec.openapi.addSpec({
@@ -717,12 +727,14 @@ layer(TestLayer)("OpenAPI multi-scope bearer (Vercel-style)", (it) => {
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
       const aliceExec = yield* createExecutor({
         scopes: [aliceScope, orgScope],
         adapter,
         blobs,
         plugins,
+        onElicitation: "accept-all",
       });
 
       yield* adminExec.openapi.addSpec({
