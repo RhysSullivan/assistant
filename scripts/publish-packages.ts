@@ -82,11 +82,13 @@ const packageAlreadyPublished = async (name: string, version: string): Promise<b
 };
 
 type DependencyBlock = Record<string, string>;
+type PeerDependenciesMeta = Record<string, { optional?: boolean }>;
 type MutablePackageJson = {
   name?: string;
   dependencies?: DependencyBlock;
   devDependencies?: DependencyBlock;
   peerDependencies?: DependencyBlock;
+  peerDependenciesMeta?: PeerDependenciesMeta;
   optionalDependencies?: DependencyBlock;
   [key: string]: unknown;
 };
@@ -94,12 +96,20 @@ type MutablePackageJson = {
 /**
  * Resolves `workspace:*` dependencies between public packages to concrete
  * versions before packing. Returns a restore function that reverts package.json.
+ *
+ * Workspace-only `@executor-js/*` peer deps (e.g. `@executor-js/api`,
+ * `@executor-js/react`) that aren't in `publishable` are stripped from
+ * `peerDependencies` (and `peerDependenciesMeta`) entirely — they don't
+ * exist on npm, so leaving them in the packed manifest would emit
+ * install-time warnings for unresolvable packages.
  */
 const applyWorkspaceVersions = async (
   pkgDir: string,
   publishable: ReadonlySet<string>,
   publishableVersions: ReadonlyMap<string, string>,
 ): Promise<() => Promise<void>> => {
+  const isInternalScope = (key: string): boolean => key.startsWith(`${PACKAGE_SCOPE}/`);
+
   const renameDepBlock = (block: DependencyBlock | undefined): DependencyBlock | undefined => {
     if (!block) return block;
     const next: DependencyBlock = {};
@@ -115,12 +125,70 @@ const applyWorkspaceVersions = async (
     return mutated ? next : block;
   };
 
+  /**
+   * Peer-deps variant of `renameDepBlock`: resolve workspace specifiers for
+   * publishable peers, but DROP non-publishable `@executor-js/*` peers.
+   * They reference workspace-only packages (`@executor-js/api`,
+   * `@executor-js/react`) that don't exist on npm, so leaving them in
+   * the packed manifest emits install-time warnings for unresolvable
+   * packages. Non-`@executor-js` peers (`react`, `@tanstack/*`,
+   * `@effect-atom/*`, etc.) are real npm packages and pass through
+   * unchanged.
+   */
+  const renamePeerDepBlock = (
+    block: DependencyBlock | undefined,
+  ): DependencyBlock | undefined => {
+    if (!block) return block;
+    const next: DependencyBlock = {};
+    let mutated = false;
+    for (const [key, value] of Object.entries(block)) {
+      if (publishable.has(key)) {
+        next[key] = value.startsWith("workspace:")
+          ? (publishableVersions.get(key) ?? value)
+          : value;
+        if (next[key] !== value) mutated = true;
+      } else if (isInternalScope(key)) {
+        // Workspace-only `@executor-js/*` peer that we don't publish —
+        // strip it so the packed tarball doesn't reference an
+        // npm package that doesn't exist.
+        mutated = true;
+      } else {
+        next[key] = value;
+      }
+    }
+    return mutated ? next : block;
+  };
+
+  /**
+   * Strips `peerDependenciesMeta` entries that target an
+   * `@executor-js/*` peer we don't publish, mirroring `renamePeerDepBlock`
+   * so the meta block can't drift out of sync with the deps block.
+   */
+  const renamePeerMetaBlock = (
+    block: PeerDependenciesMeta | undefined,
+  ): PeerDependenciesMeta | undefined => {
+    if (!block) return block;
+    const next: PeerDependenciesMeta = {};
+    let mutated = false;
+    for (const [key, value] of Object.entries(block)) {
+      if (publishable.has(key)) {
+        next[key] = value;
+      } else if (isInternalScope(key)) {
+        mutated = true;
+      } else {
+        next[key] = value;
+      }
+    }
+    return mutated ? next : block;
+  };
+
   const pkgJsonPath = join(pkgDir, "package.json");
   const original = await readFile(pkgJsonPath, "utf8");
   const pkg = JSON.parse(original) as MutablePackageJson;
   pkg.dependencies = renameDepBlock(pkg.dependencies);
   pkg.devDependencies = renameDepBlock(pkg.devDependencies);
-  pkg.peerDependencies = renameDepBlock(pkg.peerDependencies);
+  pkg.peerDependencies = renamePeerDepBlock(pkg.peerDependencies);
+  pkg.peerDependenciesMeta = renamePeerMetaBlock(pkg.peerDependenciesMeta);
   pkg.optionalDependencies = renameDepBlock(pkg.optionalDependencies);
   const pkgNext = `${JSON.stringify(pkg, null, 2)}\n`;
   if (pkgNext !== original) {
