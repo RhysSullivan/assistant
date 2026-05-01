@@ -34,7 +34,28 @@ export {
   ElicitationAction,
   ElicitationResponse,
   type ElicitationRequest,
+  type ElicitationContext,
+  type ElicitationHandler,
 } from "./elicitation";
+
+// Secret-backed values — referenced by every plugin's source-config
+// schemas (headers/queryParams). Re-exported here so plugin packages
+// that target the Promise surface don't need to reach into `/core`.
+export {
+  SecretBackedValue,
+  SecretBackedMap,
+  isSecretBackedRef,
+  resolveSecretBackedMap,
+  type ResolveSecretBackedMapOptions,
+} from "./secret-backed-value";
+
+// File-config helper for the CLI. Plain typed-object factory with no
+// Effect in its signature, so it's safe to live on the Promise surface.
+export {
+  defineExecutorConfig,
+  type ExecutorCliConfig,
+  type ExecutorDialect,
+} from "./config";
 
 // Error tags — Promise callers handle these via .catch().
 export {
