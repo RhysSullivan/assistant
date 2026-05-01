@@ -125,6 +125,13 @@ const applyWorkspaceVersions = async (
       if (publishable.has(key) && value.startsWith("workspace:")) {
         next[key] = publishableVersions.get(key) ?? value;
         mutated = true;
+      } else if (isInternalScope(key) && !publishable.has(key)) {
+        // Workspace-only `@executor-js/*` regular dep that we don't
+        // publish (e.g. `@executor-js/api`). Strip it: it's not in the
+        // shipped runtime entries (those imports live in
+        // `src/api/*` / `src/react/*` which don't make it into the
+        // packed dist), and leaving it in would 404 at install time.
+        mutated = true;
       } else {
         next[key] = value;
       }
