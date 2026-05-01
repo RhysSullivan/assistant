@@ -1,4 +1,4 @@
-import { HttpApiBuilder, HttpApiSwagger } from "effect/unstable/httpapi";
+import { HttpApiSwagger } from "effect/unstable/httpapi";
 import { HttpMiddleware, HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import { Effect, Layer } from "effect";
 
@@ -50,14 +50,12 @@ const createProtectedApp = (userId: string, organizationId: string, organization
     );
 
     return yield* HttpRouter.toHttpEffect(
-      (ProtectedCloudApiLive.pipe(
+      ProtectedCloudApiLive.pipe(
         Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
         Layer.provideMerge(requestServices),
         Layer.provideMerge(RouterConfig),
-      ) as never),
-    ).pipe(
-      Effect.flatMap(HttpMiddleware.logger),
-    );
+      ) as never,
+    ).pipe(Effect.flatMap(HttpMiddleware.logger));
   });
 
 export const ProtectedApiApp = Effect.gen(function* () {

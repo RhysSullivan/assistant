@@ -1,7 +1,12 @@
 {
   "plugins": ["react"],
+  "jsPlugins": [{ "name": "executor", "specifier": "./scripts/oxlint-plugin-executor.js" }],
   "rules": {
     "typescript/no-explicit-any": "error",
+    "executor/no-vitest-import": "error",
+    "executor/no-conditional-tests": "error",
+    "executor/no-double-cast": "error",
+    "executor/no-cross-package-relative-imports": "error",
     "react/forbid-elements": [
       "error",
       {

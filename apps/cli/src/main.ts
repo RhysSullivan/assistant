@@ -108,7 +108,6 @@ import embeddedWebUI from "./embedded-web-ui.gen";
 // Constants
 // ---------------------------------------------------------------------------
 
-const CLI_NAME = "executor";
 const { version: CLI_VERSION } = await import("../package.json");
 const DEFAULT_PORT = 4788;
 const DEFAULT_BASE_URL = `http://localhost:${DEFAULT_PORT}`;
@@ -139,7 +138,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isServerReachable = (baseUrl: string): Effect.Effect<boolean> =>
-  Effect.tryPromise(() => fetch(`${baseUrl}/api/scope`, { signal: AbortSignal.timeout(2000) })).pipe(
+  Effect.tryPromise(() =>
+    fetch(`${baseUrl}/api/scope`, { signal: AbortSignal.timeout(2000) }),
+  ).pipe(
     Effect.flatMap((res) => {
       if (!res.ok) return Effect.succeed(false);
       return Effect.tryPromise(() => res.json()).pipe(
@@ -176,7 +177,9 @@ const daemonBaseUrl = (hostname: string, port: number): string =>
 
 const cleanupPointer = (input: { hostname: string; scopeId: string; port: number }) =>
   Effect.gen(function* () {
-    yield* removeDaemonPointer({ hostname: input.hostname, scopeId: input.scopeId }).pipe(Effect.ignore);
+    yield* removeDaemonPointer({ hostname: input.hostname, scopeId: input.scopeId }).pipe(
+      Effect.ignore,
+    );
     yield* removeDaemonRecord({ hostname: input.hostname, port: input.port }).pipe(Effect.ignore);
   });
 
@@ -363,7 +366,9 @@ const stopDaemon = (
           ),
         );
       }
-      console.log(`No daemon running at ${target.baseUrl} (removed stale record for pid ${record.pid}).`);
+      console.log(
+        `No daemon running at ${target.baseUrl} (removed stale record for pid ${record.pid}).`,
+      );
       return;
     }
 
@@ -457,9 +462,7 @@ const printExecutionOutcome = (input: { baseUrl: string; outcome: ExecuteCodeOut
           }
           const template = buildResumeContentTemplate(requestedSchema);
           console.log("\nResume commands:");
-          console.log(
-            `  ${commandPrefix} --action accept --content '${JSON.stringify(template)}'`,
-          );
+          console.log(`  ${commandPrefix} --action accept --content '${JSON.stringify(template)}'`);
           console.log(`  ${commandPrefix} --action decline`);
           console.log(`  ${commandPrefix} --action cancel`);
         } else {
@@ -675,10 +678,9 @@ const applyScope = (s: Option.Option<string>) => {
   if (dir) process.env.EXECUTOR_SCOPE_DIR = resolve(dir);
 };
 
-const parseOptionalJsonObject = (raw: string | undefined): Effect.Effect<
-  Record<string, unknown> | undefined,
-  Error
-> =>
+const parseOptionalJsonObject = (
+  raw: string | undefined,
+): Effect.Effect<Record<string, unknown> | undefined, Error> =>
   raw === undefined
     ? Effect.succeed(undefined)
     : parseJsonObjectInput(raw).pipe(
@@ -885,13 +887,18 @@ const printCallBrowseHelp = (input: {
     }
     if (input.children.length < input.totalChildren || input.limit) {
       const suffix = input.limit ? ` (limit ${input.limit})` : "";
-      console.log(`Showing ${input.children.length} of ${input.totalChildren} subcommands${suffix}.`);
+      console.log(
+        `Showing ${input.children.length} of ${input.totalChildren} subcommands${suffix}.`,
+      );
     }
 
     const rows = input.children.map((child) => {
       const kind =
         child.invokable && child.hasChildren ? "tool+group" : child.invokable ? "tool" : "group";
-      return { name: child.segment, meta: `${kind}, ${child.toolCount} path${child.toolCount === 1 ? "" : "s"}` };
+      return {
+        name: child.segment,
+        meta: `${kind}, ${child.toolCount} path${child.toolCount === 1 ? "" : "s"}`,
+      };
     });
 
     const width = rows.reduce((max, row) => Math.max(max, row.name.length), 0);
@@ -958,7 +965,9 @@ const applyCallHelpChildFilters = (input: {
   };
 };
 
-const runCallHelp = (args: ParsedCallHelpArgs): Effect.Effect<void, Error, FileSystem.FileSystem | PlatformPath.Path> =>
+const runCallHelp = (
+  args: ParsedCallHelpArgs,
+): Effect.Effect<void, Error, FileSystem.FileSystem | PlatformPath.Path> =>
   Effect.gen(function* () {
     if (args.scopeDir) process.env.EXECUTOR_SCOPE_DIR = resolve(args.scopeDir);
 
@@ -1093,7 +1102,9 @@ const resolveToolInvocation = (input: {
 
     if (pathParts.some((part) => part.trim().startsWith("-"))) {
       return yield* Effect.fail(
-        new Error("Tool invocation no longer accepts flags. Use: executor call <path...> '{...json...}'"),
+        new Error(
+          "Tool invocation no longer accepts flags. Use: executor call <path...> '{...json...}'",
+        ),
       );
     }
 
@@ -1134,7 +1145,7 @@ const callCommand = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Invoke a tool path (e.g. `executor call github issues create '{\"title\":\"Hi\"}'`). Use `--help` to browse by namespace/path (`--match`, `--limit`).",
+    'Invoke a tool path (e.g. `executor call github issues create \'{"title":"Hi"}\'`). Use `--help` to browse by namespace/path (`--match`, `--limit`).',
   ),
 );
 
@@ -1248,9 +1259,7 @@ const toolsDescribeCommand = Command.make(
 ).pipe(Command.withDescription("Describe a tool's TypeScript and JSON schema"));
 
 const toolsCommand = Command.make("tools").pipe(
-  Command.withSubcommands(
-    [toolsSearchCommand, toolsSourcesCommand, toolsDescribeCommand] as const,
-  ),
+  Command.withSubcommands([toolsSearchCommand, toolsSourcesCommand, toolsDescribeCommand] as const),
   Command.withDescription("Discover available tools and sources"),
 );
 
@@ -1338,7 +1347,9 @@ const daemonStatusCommand = Command.make(
       if (!isPidAlive(record.pid)) {
         if (!reachable) {
           yield* removeDaemonRecord({ hostname: host, port: target.port });
-          yield* removeDaemonPointer({ hostname: host, scopeId: target.scopeId }).pipe(Effect.ignore);
+          yield* removeDaemonPointer({ hostname: host, scopeId: target.scopeId }).pipe(
+            Effect.ignore,
+          );
           console.log(
             `Daemon not running at ${target.baseUrl} (removed stale record for pid ${record.pid}).`,
           );
@@ -1385,9 +1396,12 @@ const daemonRestartCommand = Command.make(
 ).pipe(Command.withDescription("Restart the local daemon"));
 
 const daemonCommand = Command.make("daemon").pipe(
-  Command.withSubcommands(
-    [daemonRunCommand, daemonStatusCommand, daemonStopCommand, daemonRestartCommand] as const,
-  ),
+  Command.withSubcommands([
+    daemonRunCommand,
+    daemonStatusCommand,
+    daemonStopCommand,
+    daemonRestartCommand,
+  ] as const),
   Command.withDescription("Manage the local daemon"),
 );
 
@@ -1403,9 +1417,14 @@ const mcpCommand = Command.make("mcp", { scope }, ({ scope }) =>
 // ---------------------------------------------------------------------------
 
 const root = Command.make("executor").pipe(
-  Command.withSubcommands(
-    [callCommand, resumeCommand, toolsCommand, webCommand, daemonCommand, mcpCommand] as const,
-  ),
+  Command.withSubcommands([
+    callCommand,
+    resumeCommand,
+    toolsCommand,
+    webCommand,
+    daemonCommand,
+    mcpCommand,
+  ] as const),
   Command.withDescription("Executor local CLI"),
 );
 
@@ -1425,15 +1444,16 @@ if (process.argv.includes("-v")) {
 const isCallHelpInvocation =
   process.argv[2] === "call" && process.argv.slice(3).some((arg) => isHelpFlag(arg));
 
-const program = (isCallHelpInvocation
-  ? Effect.gen(function* () {
-      const args = yield* Effect.try({
-        try: () => parseCallHelpArgs(process.argv.slice(3)),
-        catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
-      });
-      yield* runCallHelp(args);
-    })
-  : runCli
+const program = (
+  isCallHelpInvocation
+    ? Effect.gen(function* () {
+        const args = yield* Effect.try({
+          try: () => parseCallHelpArgs(process.argv.slice(3)),
+          catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+        });
+        yield* runCallHelp(args);
+      })
+    : runCli
 ).pipe(
   Effect.provide(BunServices.layer),
   Effect.catchCause((cause) =>
