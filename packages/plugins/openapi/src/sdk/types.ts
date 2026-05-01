@@ -162,15 +162,17 @@ export const OpenApiSourceBindingValue = Schema.Union([
 ]);
 export type OpenApiSourceBindingValue = typeof OpenApiSourceBindingValue.Type;
 
-export class OpenApiSourceBindingInput extends Schema.Class<OpenApiSourceBindingInput>(
-  "OpenApiSourceBindingInput",
-)({
+export const OpenApiSourceBindingInputSchema = Schema.Struct({
   sourceId: Schema.String,
   sourceScope: ScopeId,
   scope: ScopeId,
   slot: Schema.String,
   value: OpenApiSourceBindingValue,
-}) {}
+});
+
+export class OpenApiSourceBindingInput extends Schema.Class<OpenApiSourceBindingInput>(
+  "OpenApiSourceBindingInput",
+)(OpenApiSourceBindingInputSchema.fields) {}
 
 export class OpenApiSourceBindingRef extends Schema.Class<OpenApiSourceBindingRef>(
   "OpenApiSourceBindingRef",

@@ -51,6 +51,16 @@ import {
 // local so we don't force a new named export on the public index. Both
 // constructors are already exported, so the union is reconstructible.
 type StorageFailure = StorageError | UniqueViolationError;
+type DrizzleRunnable = {
+  run?: (statement: unknown) => unknown;
+  execute?: (statement: unknown) => unknown;
+};
+type DrizzleTransactionCapable = {
+  transaction: <A>(fn: (tx: unknown) => Promise<A>) => Promise<A>;
+};
+const rowAs = <T>(row: Record<string, unknown>): T => row as T;
+const rowsAs = <T>(rows: readonly Record<string, unknown>[]): T[] =>
+  rows.map(rowAs<T>);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -432,8 +442,14 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
     "executor.storage.table": model,
   });
 
-  const custom: CustomAdapter = {
-    create: ({ model, data }) =>
+  const createOne: CustomAdapter["create"] = <T extends Record<string, unknown>>({
+    model,
+    data,
+  }: {
+    model: string;
+    data: T;
+    select?: string[] | undefined;
+  }) =>
       Effect.gen(function* () {
         const table = getTable(model);
         const builder = db.insert(table).values(data);
@@ -445,12 +461,195 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
           data,
           model,
         );
-        return row as never;
+        return rowAs<typeof data>(row);
       }).pipe(
         Effect.withSpan("executor.storage.backend.create", {
           attributes: backendAttrs(model),
         }),
-      ),
+      );
+
+  const createMany: CustomAdapter["createMany"] = <T extends Record<string, unknown>>({
+    model,
+    data,
+  }: {
+    model: string;
+    data: ReadonlyArray<T>;
+  }) =>
+    Effect.gen(function* () {
+      if (data.length === 0) return [];
+      const table = getTable(model);
+      const CHUNK = 500;
+      const all: Record<string, unknown>[] = [];
+      for (let i = 0; i < data.length; i += CHUNK) {
+        const slice = data.slice(i, i + CHUNK) as Record<string, unknown>[];
+        const rows = (yield* runPromise(
+          "insert many returning",
+          () => db.insert(table).values(slice).returning(),
+          model,
+        )) as Record<string, unknown>[];
+        for (const row of rows) all.push(row);
+      }
+      return rowsAs<T>(all);
+    }).pipe(
+      Effect.withSpan("executor.storage.backend.create_many", {
+        attributes: {
+          ...backendAttrs(model),
+          "executor.storage.row_count": data.length,
+        },
+      }),
+    );
+
+  const findOne: CustomAdapter["findOne"] = <T>({
+    model,
+    where,
+    join,
+  }: {
+    model: string;
+    where: CleanedWhere[];
+    select?: string[] | undefined;
+    join?: JoinConfig | undefined;
+  }) =>
+    Effect.gen(function* () {
+      const table = getTable(model);
+      const clause = compileWhere(table, where, provider);
+      if (join && db.query && db.query[model]) {
+        const includes = buildIncludes(join);
+        const rows = (yield* runPromise(
+          "findOne query.findFirst",
+          () =>
+            Promise.resolve(
+              db.query[model].findFirst({
+                where: clause,
+                with: includes,
+              }),
+            ),
+          model,
+        )) as Record<string, unknown> | undefined;
+        return rows ? rowAs<T>(rows) : null;
+      }
+      let q = db.select().from(table);
+      if (clause) q = q.where(clause);
+      const rows = (yield* runPromise(
+        "findOne select",
+        () => q.limit(1),
+        model,
+      )) as Record<string, unknown>[];
+      return rows[0] ? rowAs<T>(rows[0]) : null;
+    }).pipe(
+      Effect.withSpan("executor.storage.backend.find_one", {
+        attributes: backendAttrs(model),
+      }),
+    );
+
+  const findMany: CustomAdapter["findMany"] = <T>({
+    model,
+    where,
+    limit,
+    sortBy,
+    offset,
+    join,
+  }: {
+    model: string;
+    where?: CleanedWhere[] | undefined;
+    limit?: number | undefined;
+    select?: string[] | undefined;
+    sortBy?: { field: string; direction: "asc" | "desc" } | undefined;
+    offset?: number | undefined;
+    join?: JoinConfig | undefined;
+  }) =>
+    Effect.gen(function* () {
+      const table = getTable(model);
+      const clause = compileWhere(table, where, provider);
+      if (join && db.query && db.query[model]) {
+        const includes = buildIncludes(join);
+        const opts: Record<string, unknown> = {
+          where: clause,
+          with: includes,
+        };
+        if (limit !== undefined) opts.limit = limit;
+        if (offset !== undefined) opts.offset = offset;
+        if (sortBy) {
+          const col = table[sortBy.field];
+          const fn = sortBy.direction === "desc" ? desc : asc;
+          opts.orderBy = [fn(col)];
+        }
+        const rows = (yield* runPromise(
+          "findMany query.findMany",
+          () => Promise.resolve(db.query[model].findMany(opts)),
+          model,
+        )) as Record<string, unknown>[];
+        return rowsAs<T>(rows);
+      }
+      let q = db.select().from(table);
+      if (clause) q = q.where(clause);
+      if (sortBy) {
+        const col = table[sortBy.field];
+        const fn = sortBy.direction === "desc" ? desc : asc;
+        q = q.orderBy(fn(col));
+      }
+      if (limit !== undefined) q = q.limit(limit);
+      else if (offset !== undefined && provider === "sqlite")
+        q = q.limit(Number.MAX_SAFE_INTEGER);
+      if (offset !== undefined) q = q.offset(offset);
+      const rows = (yield* runPromise(
+        "findMany select",
+        () => Promise.resolve(q),
+        model,
+      )) as Record<string, unknown>[];
+      return rowsAs<T>(rows);
+    }).pipe(
+      Effect.withSpan("executor.storage.backend.find_many", {
+        attributes: backendAttrs(model),
+      }),
+    );
+
+  const updateOne: CustomAdapter["update"] = <T>({ model, where, update }: {
+    model: string;
+    where: CleanedWhere[];
+    update: T;
+  }) =>
+    Effect.gen(function* () {
+      const table = getTable(model);
+      const clause = compileWhere(table, where, provider);
+      let findQ = db.select().from(table);
+      if (clause) findQ = findQ.where(clause);
+      const matched = (yield* runPromise(
+        "update pre-select",
+        () => findQ.limit(2),
+        model,
+      )) as Record<string, unknown>[];
+      if (matched.length === 0) return null;
+      if (matched.length > 1) return null;
+      const target = matched[0]!;
+      const identity = rowIdentityClause(table, target);
+      let updQ = db.update(table).set(update).where(identity);
+      if (provider !== "mysql") {
+        const rows = (yield* runPromise(
+          "update returning",
+          () => updQ.returning(),
+          model,
+        )) as Record<string, unknown>[];
+        return rows[0] ? rowAs<T>(rows[0]) : null;
+      }
+      yield* runPromise(
+        "mysql update execute",
+        () => updQ.execute(),
+        model,
+      );
+      const reread = (yield* runPromise(
+        "mysql update reread",
+        () => db.select().from(table).where(identity).limit(1),
+        model,
+      )) as Record<string, unknown>[];
+      return reread[0] ? rowAs<T>(reread[0]) : null;
+    }).pipe(
+      Effect.withSpan("executor.storage.backend.update", {
+        attributes: backendAttrs(model),
+      }),
+    );
+
+  const custom: CustomAdapter = {
+    create: createOne,
 
     // Real multi-row INSERT in fixed-size chunks. One statement per
     // chunk, not one per row — per-row loops blow the Hyperdrive
@@ -460,114 +659,11 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
     // few KB each, so a 2700-row insert becomes a >10MB statement
     // otherwise, which chokes both Hyperdrive ingress and WASM
     // Postgres (PGlite) in the test harness.
-    createMany: ({ model, data }) =>
-      Effect.gen(function* () {
-        if (data.length === 0) return [] as never;
-        const table = getTable(model);
-        const CHUNK = 500;
-        const all: Record<string, unknown>[] = [];
-        for (let i = 0; i < data.length; i += CHUNK) {
-          const slice = data.slice(i, i + CHUNK) as Record<string, unknown>[];
-          const rows = (yield* runPromise(
-            "insert many returning",
-            () => db.insert(table).values(slice).returning(),
-            model,
-          )) as Record<string, unknown>[];
-          for (const row of rows) all.push(row);
-        }
-        return all as never;
-      }).pipe(
-        Effect.withSpan("executor.storage.backend.create_many", {
-          attributes: {
-            ...backendAttrs(model),
-            "executor.storage.row_count": data.length,
-          },
-        }),
-      ),
+    createMany,
 
-    findOne: ({ model, where, join }) =>
-      Effect.gen(function* () {
-        const table = getTable(model);
-        const clause = compileWhere(table, where, provider);
-        if (join && db.query && db.query[model]) {
-          const includes = buildIncludes(join);
-          const rows = (yield* runPromise(
-            "findOne query.findFirst",
-            () =>
-              Promise.resolve(
-                db.query[model].findFirst({
-                  where: clause,
-                  with: includes,
-                }),
-              ),
-            model,
-          )) as Record<string, unknown> | undefined;
-          return (rows ?? null) as never;
-        }
-        let q = db.select().from(table);
-        if (clause) q = q.where(clause);
-        const rows = (yield* runPromise(
-          "findOne select",
-          () => q.limit(1),
-          model,
-        )) as Record<string, unknown>[];
-        return (rows[0] ?? null) as never;
-      }).pipe(
-        Effect.withSpan("executor.storage.backend.find_one", {
-          attributes: backendAttrs(model),
-        }),
-      ),
+    findOne,
 
-    findMany: ({ model, where, limit, sortBy, offset, join }) =>
-      Effect.gen(function* () {
-        const table = getTable(model);
-        const clause = compileWhere(table, where, provider);
-        if (join && db.query && db.query[model]) {
-          const includes = buildIncludes(join);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const opts: Record<string, any> = {
-            where: clause,
-            with: includes,
-          };
-          if (limit !== undefined) opts.limit = limit;
-          if (offset !== undefined) opts.offset = offset;
-          if (sortBy) {
-            const col = table[sortBy.field];
-            const fn = sortBy.direction === "desc" ? desc : asc;
-            opts.orderBy = [fn(col)];
-          }
-          const rows = (yield* runPromise(
-            "findMany query.findMany",
-            () => Promise.resolve(db.query[model].findMany(opts)),
-            model,
-          )) as Record<string, unknown>[];
-          return rows as never[];
-        }
-        let q = db.select().from(table);
-        if (clause) q = q.where(clause);
-        if (sortBy) {
-          const col = table[sortBy.field];
-          const fn = sortBy.direction === "desc" ? desc : asc;
-          q = q.orderBy(fn(col));
-        }
-        // SQLite's SQL grammar requires LIMIT whenever OFFSET is present.
-        // Emit a max-int ceiling for the offset-only case on sqlite; postgres
-        // accepts offset-only natively.
-        if (limit !== undefined) q = q.limit(limit);
-        else if (offset !== undefined && provider === "sqlite")
-          q = q.limit(Number.MAX_SAFE_INTEGER);
-        if (offset !== undefined) q = q.offset(offset);
-        const rows = (yield* runPromise(
-          "findMany select",
-          () => Promise.resolve(q),
-          model,
-        )) as Record<string, unknown>[];
-        return rows as never[];
-      }).pipe(
-        Effect.withSpan("executor.storage.backend.find_many", {
-          attributes: backendAttrs(model),
-        }),
-      ),
+    findMany,
 
     count: ({ model, where }) =>
       Effect.gen(function* () {
@@ -588,47 +684,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         }),
       ),
 
-    update: ({ model, where, update }) =>
-      Effect.gen(function* () {
-        const table = getTable(model);
-        const clause = compileWhere(table, where, provider);
-        // Find matching rows first — if >1, DBAdapter contract says null
-        let findQ = db.select().from(table);
-        if (clause) findQ = findQ.where(clause);
-        const matched = (yield* runPromise(
-          "update pre-select",
-          () => findQ.limit(2),
-          model,
-        )) as Record<string, unknown>[];
-        if (matched.length === 0) return null;
-        if (matched.length > 1) return null;
-        const target = matched[0]!;
-        const identity = rowIdentityClause(table, target);
-        let updQ = db.update(table).set(update).where(identity);
-        if (provider !== "mysql") {
-          const rows = (yield* runPromise(
-            "update returning",
-            () => updQ.returning(),
-            model,
-          )) as Record<string, unknown>[];
-          return (rows[0] ?? null) as never;
-        }
-        yield* runPromise(
-          "mysql update execute",
-          () => updQ.execute(),
-          model,
-        );
-        const reread = (yield* runPromise(
-          "mysql update reread",
-          () => db.select().from(table).where(identity).limit(1),
-          model,
-        )) as Record<string, unknown>[];
-        return (reread[0] ?? null) as never;
-      }).pipe(
-        Effect.withSpan("executor.storage.backend.update", {
-          attributes: backendAttrs(model),
-        }),
-      ),
+    update: updateOne,
 
     updateMany: ({ model, where, update }) =>
       Effect.gen(function* () {
@@ -747,12 +803,10 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
           }
           return Effect.tryPromise({
             try: () =>
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (db as any).transaction(async (tx: unknown) => {
+              (db as DrizzleTransactionCapable).transaction(async (tx: unknown) => {
                 const nested = drizzleAdapter({
                   ...options,
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  db: tx as any,
+                  db: tx,
                   supportsTransaction: false,
                 }) as TxShape;
                 const exit = await Effect.runPromise(Effect.result(cb(nested)));
@@ -776,8 +830,7 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         }
 
         return Effect.gen(function* () {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const dbAny = db as any;
+          const dbAny = db as DrizzleRunnable;
           const runner: ((s: unknown) => unknown) | undefined = dbAny.run
             ? dbAny.run.bind(dbAny)
             : dbAny.execute

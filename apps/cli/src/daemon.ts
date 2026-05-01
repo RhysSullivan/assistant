@@ -17,6 +17,11 @@ export interface DaemonSpawnSpec {
   readonly args: ReadonlyArray<string>;
 }
 
+type ProbeServer = ReturnType<typeof createServer> & {
+  removeAllListeners: () => void;
+  once: (event: "error" | "listening", listener: (...args: unknown[]) => void) => void;
+};
+
 // ---------------------------------------------------------------------------
 // Base URL parsing
 // ---------------------------------------------------------------------------
@@ -166,7 +171,7 @@ const isPortAvailable = (input: { hostname: string; port: number }): Effect.Effe
   Effect.tryPromise({
     try: () =>
       new Promise<boolean>((resolve) => {
-        const server = createServer() as any;
+        const server = createServer() as ProbeServer;
         const cleanup = () => {
           if (typeof server.removeAllListeners === "function") {
             server.removeAllListeners();
@@ -195,7 +200,7 @@ const pickEphemeralPort = (hostname: string): Effect.Effect<number, Error> =>
   Effect.tryPromise({
     try: () =>
       new Promise<number>((resolve, reject) => {
-        const server = createServer() as any;
+        const server = createServer() as ProbeServer;
 
         server.once("error", (error: unknown) => {
           reject(error);

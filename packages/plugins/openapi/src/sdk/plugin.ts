@@ -976,7 +976,7 @@ export const openApiPlugin = definePlugin<
                   ),
               ),
             );
-          resolvedHeaders["Authorization"] = `Bearer ${accessToken}`;
+          resolvedHeaders.authorization = `Bearer ${accessToken}`;
         }
 
         const result = yield* invokeWithLayer(

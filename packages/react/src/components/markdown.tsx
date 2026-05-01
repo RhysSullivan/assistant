@@ -1,5 +1,5 @@
-import { isValidElement, Children, type ReactNode } from "react";
-import { Streamdown } from "streamdown";
+import { isValidElement, Children, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { Streamdown, type Components } from "streamdown";
 import { CodeBlock } from "./code-block";
 
 function extractText(node: ReactNode): string {
@@ -12,7 +12,7 @@ function extractText(node: ReactNode): string {
   return "";
 }
 
-function PreBlock(props: { children?: ReactNode; node?: unknown }) {
+function PreBlock(props: ComponentPropsWithoutRef<"pre"> & { children?: ReactNode; node?: unknown }) {
   const child = Children.toArray(props.children)[0];
   if (
     isValidElement(child) &&
@@ -60,9 +60,10 @@ const PROSE_CLASSES = [
 ].join(" ");
 
 export function Markdown(props: { children: string; className?: string }) {
+  const components = { pre: PreBlock } satisfies Components;
   return (
     <div className={props.className ? `${PROSE_CLASSES} ${props.className}` : PROSE_CLASSES}>
-      <Streamdown linkSafety={{ enabled: false }} components={{ pre: PreBlock as never }}>
+      <Streamdown linkSafety={{ enabled: false }} components={components}>
         {props.children}
       </Streamdown>
     </div>

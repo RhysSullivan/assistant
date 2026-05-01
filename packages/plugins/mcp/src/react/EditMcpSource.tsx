@@ -35,9 +35,7 @@ function RemoteEditForm(props: {
   onSave: () => void;
 }) {
   const scopeId = useScope();
-  const doUpdate = useAtomSet(updateMcpSource as never, { mode: "promise" } as never) as (
-    input: unknown,
-  ) => Promise<unknown>;
+  const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
 
   const identity = useSourceIdentity({

@@ -44,12 +44,14 @@ const ProtectedHandlers = HttpApiBuilder.group(ProtectedApi, "protected", (handl
     .handle("resume", () => Effect.succeed({ source: "protected" })),
 );
 
-const toHttpApp = <A, E, R>(apiLayer: Layer.Layer<A, E, R>) =>
+const toHttpApp = (
+  apiLayer: Parameters<typeof HttpRouter.toWebHandler>[0],
+) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const webRequest = yield* HttpServerRequest.toWeb(request);
-    const web = HttpRouter.toWebHandler(apiLayer as never, { disableLogger: true });
-    const response = yield* Effect.promise(() => web.handler(webRequest));
+    const web = HttpRouter.toWebHandler(apiLayer, { disableLogger: true });
+    const response = yield* Effect.promise(() => web.handler(webRequest, undefined));
     return HttpServerResponse.raw(response, { status: response.status, headers: response.headers });
   });
 
@@ -58,7 +60,7 @@ const OrgTestApp = toHttpApp(
     Layer.provide(OrgTestHandlers),
     Layer.provideMerge(HttpServer.layerServices),
     Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-  ),
+  ) as Parameters<typeof HttpRouter.toWebHandler>[0],
 );
 
 const AuthTestApp = toHttpApp(
@@ -66,7 +68,7 @@ const AuthTestApp = toHttpApp(
     Layer.provide(AuthHandlers),
     Layer.provideMerge(HttpServer.layerServices),
     Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-  ),
+  ) as Parameters<typeof HttpRouter.toWebHandler>[0],
 );
 
 const ProtectedBaseTestApp = toHttpApp(
@@ -74,7 +76,7 @@ const ProtectedBaseTestApp = toHttpApp(
     Layer.provide(ProtectedHandlers),
     Layer.provideMerge(HttpServer.layerServices),
     Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-  ),
+  ) as Parameters<typeof HttpRouter.toWebHandler>[0],
 );
 
 type ProtectedMode = "ok" | "none" | "error" | "bad-status";

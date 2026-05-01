@@ -85,12 +85,16 @@ export interface StartServerOptions {
   hostname?: string;
   /** Extra hostnames permitted in the Host header, on top of localhost/127.0.0.1. */
   allowedHosts?: ReadonlyArray<string>;
+  /** Test hook for supplying API/MCP handlers without loading the local server graph. */
+  handlers?: ServerHandlers;
 }
 
 export interface ServerInstance {
   port: number;
   stop: () => Promise<void>;
 }
+
+type ServerHandlers = Awaited<ReturnType<typeof getServerHandlers>>;
 
 export async function startServer(opts: StartServerOptions = {}): Promise<ServerInstance> {
   const port = opts.port ?? parseInt(process.env.PORT ?? "4788", 10);
@@ -99,7 +103,7 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
   const isAllowedHost = makeIsAllowedHost(allowedHostSet);
   const clientDir = opts.clientDir ?? resolve(import.meta.dirname, "../dist");
 
-  const handlers = await getServerHandlers();
+  const handlers = opts.handlers ?? (await getServerHandlers());
 
   // Build static routes from either embedded assets or disk
   let staticRoutes: Record<string, StaticHandler>;

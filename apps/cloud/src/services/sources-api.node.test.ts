@@ -120,7 +120,7 @@ describe("sources api (HTTP)", () => {
           .remove({ params: { scopeId: ScopeId.make(org), sourceId: ghost } })
           .pipe(Effect.result),
       );
-      expect(result._tag).toBe("Right");
+      expect(result._tag).toBe("Success");
     }),
   );
 
@@ -136,7 +136,7 @@ describe("sources api (HTTP)", () => {
           .remove({ params: { scopeId: ScopeId.make(org), sourceId: "openapi" } })
           .pipe(Effect.result),
       );
-      expect(result._tag).toBe("Left");
+      expect(result._tag).toBe("Failure");
     }),
   );
 

@@ -237,7 +237,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
           })
           .pipe(Effect.result),
       );
-      expect(result._tag).toBe("Left");
+      expect(result._tag).toBe("Failure");
 
       // And nothing landed in the foreign org — a fresh session pointed
       // at that org must not see `wrong-scope`.

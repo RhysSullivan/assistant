@@ -29,6 +29,45 @@ import { createAdapter } from "../factory";
 
 type Row = Record<string, unknown>;
 type Store = Record<string, Row[]>;
+type Comparable = string | number | boolean | Date;
+
+const compare = (
+  a: unknown,
+  b: unknown,
+  op: "gt" | "gte" | "lt" | "lte",
+): boolean => {
+  if (
+    !(
+      typeof a === "string" ||
+      typeof a === "number" ||
+      typeof a === "boolean" ||
+      a instanceof Date
+    ) ||
+    !(
+      typeof b === "string" ||
+      typeof b === "number" ||
+      typeof b === "boolean" ||
+      b instanceof Date
+    )
+  ) {
+    return false;
+  }
+  const lhs = a as Comparable;
+  const rhs = b as Comparable;
+  switch (op) {
+    case "gt":
+      return lhs > rhs;
+    case "gte":
+      return lhs >= rhs;
+    case "lt":
+      return lhs < rhs;
+    case "lte":
+      return lhs <= rhs;
+  }
+};
+
+const rowAs = <T>(row: Row): T => row as T;
+const rowsAs = <T>(rows: readonly Row[]): T[] => rows.map(rowAs<T>);
 
 const evalClause = (record: Row, clause: CleanedWhere): boolean => {
   const { field, value, operator, mode } = clause;
@@ -44,7 +83,6 @@ const evalClause = (record: Row, clause: CleanedWhere): boolean => {
 
   const cmp = (a: unknown, b: unknown): boolean =>
     isInsensitive ? lowerStr(a) === lowerStr(b) : a === b;
-
   switch (operator) {
     case "in":
       if (!Array.isArray(value)) throw new Error("Value must be an array");
@@ -73,13 +111,13 @@ const evalClause = (record: Row, clause: CleanedWhere): boolean => {
     case "ne":
       return !cmp(lhs, value);
     case "gt":
-      return value != null && (lhs as never) > (value as never);
+      return value != null && compare(lhs, value, "gt");
     case "gte":
-      return value != null && (lhs as never) >= (value as never);
+      return value != null && compare(lhs, value, "gte");
     case "lt":
-      return value != null && (lhs as never) < (value as never);
+      return value != null && compare(lhs, value, "lt");
     case "lte":
-      return value != null && (lhs as never) <= (value as never);
+      return value != null && compare(lhs, value, "lte");
     case "eq":
     default:
       return cmp(lhs, value);
@@ -161,6 +199,76 @@ export const makeMemoryAdapter = (
     return out;
   };
 
+  const findOne: CustomAdapter["findOne"] = <T>({
+    model,
+    where,
+    join,
+  }: {
+    model: string;
+    where: CleanedWhere[];
+    select?: string[] | undefined;
+    join?: JoinConfig | undefined;
+  }) =>
+    Effect.sync<T | null>(() => {
+      const rows = filterWhere(tableFor(model), where);
+      const first = rows[0];
+      if (!first) return null;
+      return rowAs<T>(join ? attachJoins(first, join) : first);
+    });
+
+  const findMany: CustomAdapter["findMany"] = <T>({
+    model,
+    where,
+    limit,
+    sortBy,
+    offset,
+    join,
+  }: {
+    model: string;
+    where?: CleanedWhere[] | undefined;
+    limit?: number | undefined;
+    select?: string[] | undefined;
+    sortBy?: { field: string; direction: "asc" | "desc" } | undefined;
+    offset?: number | undefined;
+    join?: JoinConfig | undefined;
+  }) =>
+    Effect.sync<T[]>(() => {
+      let rows = filterWhere(tableFor(model), where ?? []);
+      if (sortBy) {
+        const { field, direction } = sortBy;
+        const sign = direction === "asc" ? 1 : -1;
+        rows = rows.slice().sort((a, b) => {
+          const av = a[field];
+          const bv = b[field];
+          if (av === bv) return 0;
+          return compare(av, bv, "lt") ? -sign : sign;
+        });
+      }
+      if (offset !== undefined) rows = rows.slice(offset);
+      if (limit !== undefined && limit > 0) rows = rows.slice(0, limit);
+      if (join) {
+        return rowsAs<T>(rows.map((r) => attachJoins(r, join)));
+      }
+      return rowsAs<T>(rows);
+    });
+
+  const updateOne: CustomAdapter["update"] = <T>({
+    model,
+    where,
+    update,
+  }: {
+    model: string;
+    where: CleanedWhere[];
+    update: T;
+  }) =>
+    Effect.sync<T | null>(() => {
+      const rows = filterWhere(tableFor(model), where);
+      const first = rows[0];
+      if (!first) return null;
+      Object.assign(first, update as Row);
+      return rowAs<T>(first);
+    });
+
   const custom: CustomAdapter = {
     create: ({ model, data }) =>
       Effect.sync(() => {
@@ -173,49 +281,17 @@ export const makeMemoryAdapter = (
       Effect.sync(() => {
         const table = tableFor(model);
         for (const row of data) table.push(row as Row);
-        return data.slice() as never;
+        return data.slice();
       }),
 
-    findOne: ({ model, where, join }) =>
-      Effect.sync(() => {
-        const rows = filterWhere(tableFor(model), where);
-        const first = rows[0];
-        if (!first) return null as never;
-        return (join ? attachJoins(first, join) : first) as never;
-      }),
+    findOne,
 
-    findMany: ({ model, where, limit, sortBy, offset, join }) =>
-      Effect.sync(() => {
-        let rows = filterWhere(tableFor(model), where ?? []);
-        if (sortBy) {
-          const { field, direction } = sortBy;
-          const sign = direction === "asc" ? 1 : -1;
-          rows = rows.slice().sort((a, b) => {
-            const av = a[field];
-            const bv = b[field];
-            if (av === bv) return 0;
-            return (av as never) < (bv as never) ? -sign : sign;
-          });
-        }
-        if (offset !== undefined) rows = rows.slice(offset);
-        if (limit !== undefined && limit > 0) rows = rows.slice(0, limit);
-        if (join) {
-          return rows.map((r) => attachJoins(r, join)) as never[];
-        }
-        return rows as never[];
-      }),
+    findMany,
 
     count: ({ model, where }) =>
       Effect.sync(() => filterWhere(tableFor(model), where ?? []).length),
 
-    update: ({ model, where, update }) =>
-      Effect.sync(() => {
-        const rows = filterWhere(tableFor(model), where);
-        const first = rows[0];
-        if (!first) return null;
-        Object.assign(first, update as Row);
-        return first as never;
-      }),
+    update: updateOne,
 
     updateMany: ({ model, where, update }) =>
       Effect.sync(() => {

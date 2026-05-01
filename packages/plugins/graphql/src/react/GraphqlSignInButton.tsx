@@ -15,30 +15,17 @@ import {
 import { slugifyNamespace } from "@executor-js/react/plugins/source-identity";
 
 import { graphqlSourceAtom, updateGraphqlSource } from "./atoms";
-import type { HeaderValue } from "../sdk/types";
 
 export default function GraphqlSignInButton(props: { sourceId: string }) {
   const scopeId = useScope();
-  const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId) as any) as any;
+  const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId));
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
-  const doUpdate = useAtomSet(updateGraphqlSource as any, { mode: "promise" } as any) as any;
+  const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
   const oauth = useOAuthPopupFlow({
     popupName: "graphql-oauth",
   });
 
-  const source =
-    AsyncResult.isSuccess(sourceResult as any) && sourceResult.value
-      ? (sourceResult.value as {
-          readonly namespace: string;
-          readonly name: string;
-          readonly endpoint: string;
-          readonly headers: Record<string, HeaderValue>;
-          readonly queryParams: Record<string, HeaderValue>;
-          readonly auth:
-            | { readonly kind: "none" }
-            | { readonly kind: "oauth2"; readonly connectionId: string };
-        })
-      : null;
+  const source = AsyncResult.isSuccess(sourceResult) && sourceResult.value ? sourceResult.value : null;
   const oauth2 = source?.auth.kind === "oauth2" ? source.auth : null;
   const connections = AsyncResult.isSuccess(connectionsResult) ? connectionsResult.value : null;
   const isConnected =

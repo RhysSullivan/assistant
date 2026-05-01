@@ -10,7 +10,7 @@
 import { afterEach, expect, layer } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
-import { HttpClient, HttpServerRequest } from "effect/unstable/http";
+import { FetchHttpClient, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http";
 import { NodeHttpServer } from "@effect/platform-node";
 
 import {
@@ -41,7 +41,7 @@ class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
 }) {}
 
 const ItemsGroup = HttpApiGroup.make("items").add(
-  HttpApiEndpoint.get("echoHeaders", "/echo-headers").addSuccess(EchoHeaders),
+  HttpApiEndpoint.get("echoHeaders", "/echo-headers", { success: EchoHeaders }),
 );
 
 const TestApi = HttpApi.make("testApi").add(ItemsGroup);
@@ -58,10 +58,9 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
   ),
 );
 
-const ApiLive = HttpApiBuilder.api(TestApi).pipe(Layer.provide(ItemsGroupLive));
+const ApiLive = HttpApiBuilder.layer(TestApi).pipe(Layer.provide(ItemsGroupLive));
 
-const TestLayer = HttpApiBuilder.serve().pipe(
-  Layer.provide(ApiLive),
+const TestLayer = HttpRouter.serve(ApiLive, { disableListenLog: true, disableLogger: true }).pipe(
   Layer.provideMerge(NodeHttpServer.layerTest),
 );
 
@@ -87,6 +86,10 @@ const mockClientCredentialsFetch = (args: {
 }) => {
   let callIndex = 0;
   globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof _input === "string" ? _input : _input.toString();
+    if (!url.includes("token.example.com")) {
+      return originalFetch(_input, init);
+    }
     const bodyText =
       init?.body instanceof URLSearchParams
         ? init.body.toString()
@@ -142,9 +145,11 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         storage: () => ({}),
         secretProviders: [memoryProvider],
       }));
-
-      const httpClient = yield* HttpClient.HttpClient;
-      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+      const clientLayer = FetchHttpClient.layer;
+      const server = yield* HttpServer.HttpServer;
+      const address = server.address;
+      if (address._tag !== "TcpAddress") return yield* Effect.die("test server must bind to TCP");
+      const baseUrl = `http://127.0.0.1:${address.port}`;
       const plugins = [
         openApiPlugin({ httpClientLayer: clientLayer }),
         memorySecretsPlugin(),
@@ -253,10 +258,9 @@ layer(TestLayer)("OpenAPI client_credentials OAuth", (it) => {
         spec: specJson,
         scope: userScope.id as string,
         namespace: "petstore",
-        baseUrl: "",
+        baseUrl,
         oauth2: auth,
       });
-
       // Invoking the tool injects the freshly-minted bearer via
       // ctx.connections.accessToken.
       const result = (yield* userExec.tools.invoke(

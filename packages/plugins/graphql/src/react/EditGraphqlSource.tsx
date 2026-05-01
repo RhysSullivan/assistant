@@ -41,7 +41,7 @@ const graphqlOAuthConnectionId = (namespaceSlug: string): string =>
 
 function EditForm(props: { sourceId: string; initial: EditableSource; onSave: () => void }) {
   const scopeId = useScope();
-  const doUpdate = useAtomSet(updateGraphqlSource as any, { mode: "promise" } as any) as any;
+  const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
 
   const identity = useSourceIdentity({
@@ -191,9 +191,9 @@ function EditForm(props: { sourceId: string; initial: EditableSource; onSave: ()
 
 export default function EditGraphqlSource(props: { sourceId: string; onSave: () => void }) {
   const scopeId = useScope();
-  const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId) as any) as any;
+  const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId));
 
-  if (!AsyncResult.isSuccess(sourceResult as any) || !sourceResult.value) {
+  if (!AsyncResult.isSuccess(sourceResult) || !sourceResult.value) {
     return (
       <div className="space-y-6">
         <div>

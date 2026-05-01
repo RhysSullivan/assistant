@@ -80,11 +80,11 @@ const OrgRequestLayer = OrgApiLive.pipe(
 );
 
 export const NonProtectedApiApp = Effect.flatMap(
-  HttpRouter.toHttpEffect(NonProtectedRequestLayer as never),
+  HttpRouter.toHttpEffect(NonProtectedRequestLayer),
   HttpMiddleware.logger,
 ).pipe(Effect.provide(SharedServices));
 
 export const OrgApiApp = Effect.flatMap(
-  HttpRouter.toHttpEffect(OrgRequestLayer as never),
+  HttpRouter.toHttpEffect(OrgRequestLayer),
   HttpMiddleware.logger,
 ).pipe(Effect.provide(SharedServices));

@@ -1,20 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest";
+import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-vi.mock("./server/main", () => ({
-  getServerHandlers: async () => ({
-    api: {
-      handler: async () => new Response("ok"),
-      dispose: async () => {},
-    },
-    mcp: {
-      handleRequest: async () => new Response("ok"),
-      close: async () => {},
-    },
-  }),
-}));
 
 import { startServer, type ServerInstance } from "./serve";
 
@@ -26,6 +13,16 @@ const startTestServer = async (): Promise<string> => {
     port: 0,
     hostname: "127.0.0.1",
     clientDir,
+    handlers: {
+      api: {
+        handler: async () => new Response("ok"),
+        dispose: async () => {},
+      },
+      mcp: {
+        handleRequest: async () => new Response("ok"),
+        close: async () => {},
+      },
+    },
   });
   return `http://127.0.0.1:${server.port}`;
 };

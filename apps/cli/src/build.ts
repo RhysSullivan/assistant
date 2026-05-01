@@ -68,7 +68,38 @@ const platformName = (t: Target) => (t.os === "win32" ? "windows" : t.os);
 const targetPackageName = (t: Target) =>
   ["executor", platformName(t), t.arch, t.abi].filter(Boolean).join("-");
 
-const bunTarget = (t: Target) => ["bun", platformName(t), t.arch, t.abi].filter(Boolean).join("-");
+const bunTargetKeys = [
+  "linux-x64",
+  "linux-arm64",
+  "linux-x64-musl",
+  "linux-arm64-musl",
+  "darwin-x64",
+  "darwin-arm64",
+  "win32-x64",
+  "win32-arm64",
+] as const;
+type BunTargetKey = (typeof bunTargetKeys)[number];
+
+const bunTargets = {
+  "linux-x64": "bun-linux-x64",
+  "linux-arm64": "bun-linux-arm64",
+  "linux-x64-musl": "bun-linux-x64-musl",
+  "linux-arm64-musl": "bun-linux-arm64-musl",
+  "darwin-x64": "bun-darwin-x64",
+  "darwin-arm64": "bun-darwin-arm64",
+  "win32-x64": "bun-windows-x64",
+  "win32-arm64": "bun-windows-arm64",
+} satisfies Record<BunTargetKey, Bun.Build.CompileTarget>;
+
+const isBunTargetKey = (key: string): key is BunTargetKey =>
+  bunTargetKeys.includes(key as BunTargetKey);
+
+const bunTarget = (t: Target): Bun.Build.CompileTarget => {
+  const key = [t.os, t.arch, t.abi].filter(Boolean).join("-");
+  if (!isBunTargetKey(key)) throw new Error(`Unsupported Bun compile target: ${key}`);
+  const target = bunTargets[key];
+  return target;
+};
 
 const binaryName = (t: Target) => (t.os === "win32" ? "executor.exe" : "executor");
 
@@ -380,8 +411,7 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
         entrypoints: [join(cliRoot, "src/main.ts")],
         minify: mode === "production",
         compile: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun compile target string is dynamically constructed
-          target: bunTarget(target) as any,
+          target: bunTarget(target),
           outfile: join(binDir, binaryName(target)),
         },
         plugins: [await secureExecBundlePlugin()],

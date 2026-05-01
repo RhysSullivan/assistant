@@ -96,16 +96,15 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
     Layer.succeed(GraphqlExtensionService)(executor.graphql),
   );
 
-  const api = HttpRouter.toWebHandler(
-    (LocalApiBase.pipe(
-      Layer.provideMerge(HttpApiSwagger.layer(LocalApi, { path: "/docs" })),
-      Layer.provideMerge(pluginExtensions),
-      Layer.provideMerge(Layer.succeed(ExecutorService)(executor)),
-      Layer.provideMerge(Layer.succeed(ExecutionEngineService)(engine)),
-      Layer.provideMerge(HttpServer.layerServices),
-      Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-    ) as never),
+  const localApiLayer = LocalApiBase.pipe(
+    Layer.provideMerge(HttpApiSwagger.layer(LocalApi, { path: "/docs" })),
+    Layer.provideMerge(pluginExtensions),
+    Layer.provideMerge(Layer.succeed(ExecutorService)(executor)),
+    Layer.provideMerge(Layer.succeed(ExecutionEngineService)(engine)),
+    Layer.provideMerge(HttpServer.layerServices),
+    Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
   );
+  const api = HttpRouter.toWebHandler(localApiLayer);
   const apiHandler: ServerHandlers["api"] = {
     handler: (request) => api.handler(request),
     dispose: api.dispose,

@@ -33,9 +33,7 @@ export default function McpSignInButton(props: { sourceId: string }) {
     mcpSourceAtom(scopeId, props.sourceId),
   ) as AsyncResult.AsyncResult<McpStoredSourceSchemaType | null, unknown>;
   const connectionsResult = useAtomValue(connectionsAtom(scopeId));
-  const doUpdate = useAtomSet(updateMcpSource as never, { mode: "promise" } as never) as (
-    input: unknown,
-  ) => Promise<unknown>;
+  const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
   const oauth = useOAuthPopupFlow({
     popupName: "mcp-oauth",
   });

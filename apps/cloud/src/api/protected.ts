@@ -49,13 +49,15 @@ const createProtectedApp = (userId: string, organizationId: string, organization
       Layer.succeed(GraphqlExtensionService)(executor.graphql),
     );
 
-    return yield* HttpRouter.toHttpEffect(
-      ProtectedCloudApiLive.pipe(
-        Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
-        Layer.provideMerge(requestServices),
-        Layer.provideMerge(RouterConfig),
-      ) as never,
-    ).pipe(Effect.flatMap(HttpMiddleware.logger));
+    const protectedApiLayer = ProtectedCloudApiLive.pipe(
+      Layer.provideMerge(HttpApiSwagger.layer(ProtectedCloudApi, { path: "/docs" })),
+      Layer.provideMerge(requestServices),
+      Layer.provideMerge(RouterConfig),
+    );
+
+    return yield* HttpRouter.toHttpEffect(protectedApiLayer).pipe(
+      Effect.flatMap(HttpMiddleware.logger),
+    );
   });
 
 export const ProtectedApiApp = Effect.gen(function* () {

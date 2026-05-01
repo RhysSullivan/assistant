@@ -133,8 +133,9 @@ export const makeFakeVaultClient = (): WorkOSVaultClient => {
             updateObject: async (opts) => update(opts),
             deleteObject: async (opts) => remove(opts),
           }),
-        catch: (cause) => new Error(String(cause)) as never,
-      }) as never,
+        catch: (cause) =>
+          new WorkOSVaultClientError({ cause, operation: _op }),
+      }),
     // The real client wraps SDK rejections in WorkOSVaultClientError so
     // provider-side `isStatusError` checks can introspect `cause.status`.
     // Mirror that here so our 404s flow through the same unwrap path.
@@ -208,32 +209,34 @@ const createTestScopedExecutor = (
 // ---------------------------------------------------------------------------
 
 const FakeOrgAuthLive = Layer.succeed(
-  OrgAuth as never,
-  ((httpApp: Effect.Effect<HttpServerResponse.HttpServerResponse, never, AuthContext>) =>
-    Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const orgId = request.headers[TEST_ORG_HEADER];
-      if (!orgId || typeof orgId !== "string") {
-        return yield* Effect.die(new Error("missing x-test-org-id"));
-      }
-      const userHeader = request.headers[TEST_USER_HEADER];
-      const userId =
-        typeof userHeader === "string" && userHeader.length > 0
-          ? userHeader
-          : defaultUserFor(orgId);
-      return yield* httpApp.pipe(
-        Effect.provideService(
-          AuthContext,
-          AuthContext.of({
-            accountId: userId,
-            organizationId: orgId,
-            email: "test@example.com",
-            name: "Test User",
-            avatarUrl: null,
-          }),
-        ),
-      );
-    })) as never,
+  OrgAuth,
+  {
+    cookie: (httpApp) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const orgId = request.headers[TEST_ORG_HEADER];
+        if (!orgId || typeof orgId !== "string") {
+          return yield* Effect.die(new Error("missing x-test-org-id"));
+        }
+        const userHeader = request.headers[TEST_USER_HEADER];
+        const userId =
+          typeof userHeader === "string" && userHeader.length > 0
+            ? userHeader
+            : defaultUserFor(orgId);
+        return yield* httpApp.pipe(
+          Effect.provideService(
+            AuthContext,
+            AuthContext.of({
+              accountId: userId,
+              organizationId: orgId,
+              email: "test@example.com",
+              name: "Test User",
+              avatarUrl: null,
+            }),
+          ),
+        );
+      }),
+  },
 );
 
 const TestApiLive = HttpApiBuilder.layer(ProtectedCloudApi).pipe(

@@ -9,7 +9,7 @@ import { StoredSourceSchema } from "../sdk/store";
 import {
   OAuth2Auth,
   OAuth2SourceConfig,
-  OpenApiSourceBindingInput,
+  OpenApiSourceBindingInputSchema,
   OpenApiSourceBindingRef,
 } from "../sdk/types";
 
@@ -160,7 +160,7 @@ export const OpenApiGroup = HttpApiGroup.make("openapi")
   .add(
     HttpApiEndpoint.post("setSourceBinding", "/scopes/:scopeId/openapi/source-bindings", {
       params: ScopeIdParam,
-      payload: OpenApiSourceBindingInput,
+      payload: OpenApiSourceBindingInputSchema,
       success: OpenApiSourceBindingRef,
       error: DomainErrors,
     }),

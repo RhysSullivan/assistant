@@ -9,6 +9,8 @@ import type {
   OpenApiSpecFetchCredentials,
   OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
+import { OpenApiSourceBindingInput } from "../sdk/types";
+import { StoredSourceSchema } from "../sdk/store";
 import { OpenApiGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -86,7 +88,14 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
-          return yield* ext.getSource(path.namespace, path.scopeId);
+          const source = yield* ext.getSource(path.namespace, path.scopeId);
+          return source
+            ? new StoredSourceSchema({
+                namespace: source.namespace,
+                name: source.name,
+                config: source.config,
+              })
+            : null;
         }),
       ),
     )
@@ -119,7 +128,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
       capture(
         Effect.gen(function* () {
           const ext = yield* OpenApiExtensionService;
-          return yield* ext.setSourceBinding(payload);
+          return yield* ext.setSourceBinding(new OpenApiSourceBindingInput(payload));
         }),
       ),
     )

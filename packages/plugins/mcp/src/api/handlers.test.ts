@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
@@ -31,20 +31,25 @@ const failingExtension: McpPluginExtension = {
 };
 
 const Api = addGroup(McpGroup);
+const UnusedExecutor = Layer.succeed(ExecutorService)({} as ExecutorService["Service"]);
+const UnusedExecutionEngine = Layer.succeed(ExecutionEngineService)(
+  {} as ExecutionEngineService["Service"],
+);
 
 const webHandlerFor = (extension: McpPluginExtension) =>
   Effect.acquireRelease(
     Effect.sync(() =>
       HttpRouter.toWebHandler(
-        (HttpApiBuilder.layer(Api).pipe(
+        HttpApiBuilder.layer(Api).pipe(
           Layer.provide(CoreHandlers),
           Layer.provide(McpHandlers),
           Layer.provide(observabilityMiddleware(Api)),
-          Layer.provide(Layer.succeed(ExecutorService, {} as never)),
-          Layer.provide(Layer.succeed(ExecutionEngineService, {} as never)),
+          Layer.provide(UnusedExecutor),
+          Layer.provide(UnusedExecutionEngine),
           Layer.provide(Layer.succeed(McpExtensionService, extension)),
+          Layer.provideMerge(HttpServer.layerServices),
           Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-        ) as never),
+        ),
       ),
     ),
     (web) => Effect.promise(() => web.dispose()),

@@ -102,7 +102,7 @@ export type DBAdapter = {
 
   create: <T extends Record<string, unknown>, R = T>(data: {
     model: string;
-    data: Omit<T, "id">;
+    data: Omit<T, "id"> | T;
     select?: string[] | undefined;
     /** Preserve an `id` in `data` instead of discarding it. */
     forceAllowId?: boolean | undefined;

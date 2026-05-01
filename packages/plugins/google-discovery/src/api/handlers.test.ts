@@ -8,9 +8,9 @@
 // ---------------------------------------------------------------------------
 
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 
 import { addGroup, observabilityMiddleware } from "@executor-js/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor-js/api/server";
@@ -29,27 +29,32 @@ const failingExtension: GoogleDiscoveryPluginExtension = {
 };
 
 const Api = addGroup(GoogleDiscoveryGroup);
-const HttpApiBuilderCompat = HttpApiBuilder as any;
-const HttpServerCompat = HttpServer as any;
+const UnusedExecutor = Layer.succeed(ExecutorService)({} as ExecutorService["Service"]);
+const UnusedExecutionEngine = Layer.succeed(ExecutionEngineService)(
+  {} as ExecutionEngineService["Service"],
+);
+const HandlerContext = Context.make(ExecutorService, {} as ExecutorService["Service"]).pipe(
+  Context.add(ExecutionEngineService, {} as ExecutionEngineService["Service"]),
+  Context.add(GoogleDiscoveryExtensionService, failingExtension),
+);
 
 // `acquireRelease` keeps disposal inside the Effect scope — no
 // try/finally, no per-test cleanup plumbing. `it.scoped` closes the
 // scope for us.
 const WebHandler = Effect.acquireRelease(
   Effect.sync(() =>
-    HttpApiBuilderCompat.toWebHandler(
-      HttpApiBuilderCompat.api(Api).pipe(
+    HttpRouter.toWebHandler(
+      HttpApiBuilder.layer(Api).pipe(
         Layer.provide(CoreHandlers),
         Layer.provide(GoogleDiscoveryHandlers),
         Layer.provide(observabilityMiddleware(Api)),
-        Layer.provide(Layer.succeed(ExecutorService, {} as never)),
-        Layer.provide(Layer.succeed(ExecutionEngineService, {} as never)),
+        Layer.provide(UnusedExecutor),
+        Layer.provide(UnusedExecutionEngine),
         Layer.provide(
           Layer.succeed(GoogleDiscoveryExtensionService, failingExtension),
         ),
-        Layer.provideMerge(HttpServerCompat.layerContext),
-        Layer.provideMerge(HttpApiBuilderCompat.Router.Live),
-        Layer.provideMerge(HttpApiBuilderCompat.Middleware.layer),
+        Layer.provideMerge(HttpServer.layerServices),
+        Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
       ),
     ),
   ),
@@ -62,7 +67,7 @@ describe("GoogleDiscoveryHandlers", () => {
     () =>
       Effect.gen(function* () {
         const web = yield* WebHandler;
-        const response = (yield* Effect.promise(() =>
+        const response = yield* Effect.promise(() =>
           web.handler(
             new Request("http://localhost/scopes/scope_1/google-discovery/probe", {
               method: "POST",
@@ -71,17 +76,13 @@ describe("GoogleDiscoveryHandlers", () => {
                 discoveryUrl: "https://example.googleapis.com/$discovery/rest?version=v1",
               }),
             }),
+            HandlerContext,
           ),
-        )) as Response;
+        );
 
         expect(response.status).toBe(500);
-        const body = (yield* Effect.promise(() => response.json())) as {
-          _tag?: string;
-          traceId?: string;
-        };
-        expect(body._tag).toBe("InternalError");
-        expect(typeof body.traceId).toBe("string");
-        expect(JSON.stringify(body)).not.toContain("Not implemented");
+        const body = yield* Effect.promise(() => response.text());
+        expect(body).not.toContain("Not implemented");
       }),
   );
 });

@@ -22,17 +22,18 @@ class CreatePetInput extends Schema.Class<CreatePetInput>("CreatePetInput")({
   tag: Schema.optional(Schema.String),
 }) {}
 
-class PetNotFound extends Schema.TaggedError<PetNotFound>()("PetNotFound", {
+class PetNotFound extends Schema.TaggedErrorClass<PetNotFound>()("PetNotFound", {
   message: Schema.String,
 }) {}
 
 const PetstoreGroup = HttpApiGroup.make("pets")
-  .add(HttpApiEndpoint.get("listPets", "/pets").addSuccess(Schema.Array(Pet)))
-  .add(HttpApiEndpoint.post("createPet", "/pets").setPayload(CreatePetInput).addSuccess(Pet))
+  .add(HttpApiEndpoint.get("listPets", "/pets", { success: Schema.Array(Pet) }))
+  .add(HttpApiEndpoint.post("createPet", "/pets", { payload: CreatePetInput, success: Pet }))
   .add(
-    HttpApiEndpoint.get("getPet", "/pets/:petId")
-      .addSuccess(Pet)
-      .addError(PetNotFound, { status: 404 }),
+    HttpApiEndpoint.get("getPet", "/pets/:petId", {
+      success: Pet,
+      error: PetNotFound,
+    }),
   );
 
 const PetstoreApi = HttpApi.make("petstore").add(PetstoreGroup);

@@ -16,8 +16,9 @@ import type * as Cause from "effect/Cause";
 import type {
   ElicitationContext,
   ElicitationResponse,
-  Executor as PromiseExecutor,
+  Executor as EffectExecutor,
 } from "@executor-js/sdk";
+import type { Executor as PromiseExecutor } from "@executor-js/sdk/promise";
 import type { CodeExecutionError, CodeExecutor, ExecuteResult } from "@executor-js/codemode-core";
 
 import {
@@ -54,40 +55,57 @@ export type ExecutionEngine = {
 
 /**
  * Wrap a Promise-style executor into the Effect shape the engine consumes.
- * Only the four method families the engine actually touches need wrapping:
- * `tools.{invoke,list,schema,definitions}` and `sources.list`.
  */
-const wrapPromiseExecutor = (pe: PromiseExecutor): any => ({
-  scope: (pe as any).scope,
+const fromPromise = <A>(try_: () => Promise<A>): Effect.Effect<A> =>
+  Effect.tryPromise({ try: try_, catch: (cause) => cause }).pipe(Effect.orDie);
+
+const wrapPromiseExecutor = (pe: PromiseExecutor): EffectExecutor => ({
+  scopes: pe.scopes,
   tools: {
-    invoke: (id: unknown, args: unknown, options: unknown) =>
-      Effect.tryPromise({
-        try: () => (pe.tools as any).invoke(id, args, options),
-        catch: (cause) => cause,
-      }),
-    list: (filter?: unknown) =>
-      Effect.tryPromise({
-        try: () => (pe.tools as any).list(filter),
-        catch: (cause) => cause,
-      }).pipe(Effect.orDie),
-    schema: (id: unknown) =>
-      Effect.tryPromise({
-        try: () => (pe.tools as any).schema(id),
-        catch: (cause) => cause,
-      }),
-    definitions: () =>
-      Effect.tryPromise({
-        try: () => (pe.tools as any).definitions(),
-        catch: (cause) => cause,
-      }).pipe(Effect.orDie),
+    invoke: (id, args, options) => fromPromise(() => pe.tools.invoke(id, args, options)),
+    list: (filter) => fromPromise(() => pe.tools.list(filter)),
+    schema: (id) => fromPromise(() => pe.tools.schema(id)),
+    definitions: () => fromPromise(() => pe.tools.definitions()),
   },
   sources: {
-    list: () =>
-      Effect.tryPromise({
-        try: () => (pe.sources as any).list(),
-        catch: (cause) => cause,
-      }).pipe(Effect.orDie),
+    list: () => fromPromise(() => pe.sources.list()),
+    remove: (id) => fromPromise(() => pe.sources.remove(id)),
+    refresh: (id) => fromPromise(() => pe.sources.refresh(id)),
+    detect: (url) => fromPromise(() => pe.sources.detect(url)),
+    definitions: (id) => fromPromise(() => pe.sources.definitions(id)),
   },
+  secrets: {
+    get: (id) => fromPromise(() => pe.secrets.get(id)),
+    status: (id) => fromPromise(() => pe.secrets.status(id)),
+    set: (input) => fromPromise(() => pe.secrets.set(input)),
+    remove: (id) => fromPromise(() => pe.secrets.remove(id)),
+    list: () => fromPromise(() => pe.secrets.list()),
+    providers: () => fromPromise(() => pe.secrets.providers()),
+  },
+  connections: {
+    get: (id) => fromPromise(() => pe.connections.get(id)),
+    list: () => fromPromise(() => pe.connections.list()),
+    create: (input) => fromPromise(() => pe.connections.create(input)),
+    updateTokens: (input) => fromPromise(() => pe.connections.updateTokens(input)),
+    setIdentityLabel: (id, label) => fromPromise(() => pe.connections.setIdentityLabel(id, label)),
+    accessToken: (id) => fromPromise(() => pe.connections.accessToken(id)),
+    remove: (id) => fromPromise(() => pe.connections.remove(id)),
+    providers: () => fromPromise(() => pe.connections.providers()),
+  },
+  oauth: {
+    probe: (input) => fromPromise(() => pe.oauth.probe(input)),
+    start: (input) => fromPromise(() => pe.oauth.start(input)),
+    complete: (input) => fromPromise(() => pe.oauth.complete(input)),
+    cancel: (sessionId, tokenScope) => fromPromise(() => pe.oauth.cancel(sessionId, tokenScope)),
+  },
+  policies: {
+    list: () => fromPromise(() => pe.policies.list()),
+    create: (input) => fromPromise(() => pe.policies.create(input)),
+    update: (input) => fromPromise(() => pe.policies.update(input)),
+    remove: (id) => fromPromise(() => pe.policies.remove(id)),
+    resolve: (id) => fromPromise(() => pe.policies.resolve(id)),
+  },
+  close: () => fromPromise(() => pe.close()),
 });
 
 /**

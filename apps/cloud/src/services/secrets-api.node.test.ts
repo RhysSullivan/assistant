@@ -128,7 +128,7 @@ describe("secrets api (HTTP)", () => {
           .remove({ params: { scopeId: ScopeId.make(org), secretId: SecretId.make(missing) } })
           .pipe(Effect.result),
       );
-      expect(result._tag).toBe("Right");
+      expect(result._tag).toBe("Success");
     }),
   );
 

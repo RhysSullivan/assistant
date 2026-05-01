@@ -268,12 +268,8 @@ export default function AddMcpSource(props: {
   );
 
   const scopeId = useScope();
-  const doProbe = useAtomSet(probeMcpEndpoint as never, { mode: "promise" } as never) as (
-    input: unknown,
-  ) => Promise<ProbeResult>;
-  const doAdd = useAtomSet(addMcpSource as never, { mode: "promise" } as never) as (
-    input: unknown,
-  ) => Promise<unknown>;
+  const doProbe = useAtomSet(probeMcpEndpoint, { mode: "promise" });
+  const doAdd = useAtomSet(addMcpSource, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow<OAuthCompletionPayload>({

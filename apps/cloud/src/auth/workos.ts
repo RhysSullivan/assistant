@@ -4,7 +4,7 @@
 
 import { env } from "cloudflare:workers";
 import { Context, Effect, Layer } from "effect";
-import { WorkOS } from "@workos-inc/node/worker";
+import { GeneratePortalLinkIntent, WorkOS } from "@workos-inc/node/worker";
 import { WorkOSError, tryPromiseService, withServiceLogging } from "./errors";
 
 const COOKIE_NAME = "wos-session";
@@ -201,8 +201,7 @@ const make = Effect.gen(function* () {
       use((wos) =>
         wos.portal.generateLink({
           organization: organizationId,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          intent: "domain_verification" as any,
+          intent: GeneratePortalLinkIntent.DomainVerification,
           returnUrl,
         }),
       ),

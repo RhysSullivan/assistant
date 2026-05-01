@@ -55,7 +55,7 @@ export default function AddGraphqlSource(props: {
   const [tokens, setTokens] = useState<OAuthCompletionPayload | null>(null);
 
   const scopeId = useScope();
-  const doAdd = useAtomSet(addGraphqlSource as any, { mode: "promise" } as any) as any;
+  const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
   const { beginAdd } = usePendingSources();
   const secretList = useSecretPickerSecrets();
   const oauth = useOAuthPopupFlow({

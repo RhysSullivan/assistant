@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -60,7 +61,7 @@ function executorApiPlugin(): Plugin {
           const webRequest = new Request(new URL(url, origin), {
             method: req.method,
             headers,
-            body: hasBody ? (req as unknown as BodyInit) : undefined,
+            body: hasBody ? Readable.toWeb(req) : undefined,
             duplex: hasBody ? "half" : undefined,
           } as RequestInit);
 

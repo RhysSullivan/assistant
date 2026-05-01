@@ -159,8 +159,7 @@ const withAdapter = <A, E>(
 ): Effect.Effect<A, E | Error> =>
   Effect.gen(function* () {
     yield* resetTables;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = drizzle(sql, { schema: conformanceTables as any });
+    const db = drizzle(sql, { schema: conformanceTables });
     const adapter = makePostgresAdapter({
       db,
       schema: conformanceSchema,
@@ -210,12 +209,12 @@ describe("postgres scoped row identity", () => {
       yield* adapter.create({
         model: "scoped_item",
         forceAllowId: true,
-        data: { id: "shared", scope_id: "scope-a", label: "a" } as never,
+        data: { id: "shared", scope_id: "scope-a", label: "a" },
       });
       yield* adapter.create({
         model: "scoped_item",
         forceAllowId: true,
-        data: { id: "shared", scope_id: "scope-b", label: "b" } as never,
+        data: { id: "shared", scope_id: "scope-b", label: "b" },
       });
 
       yield* adapter.update({
@@ -254,12 +253,12 @@ describe("postgres scoped row identity", () => {
       yield* adapter.create({
         model: "scoped_item",
         forceAllowId: true,
-        data: { id: "shared", scope_id: "scope-a", label: "a" } as never,
+        data: { id: "shared", scope_id: "scope-a", label: "a" },
       });
       yield* adapter.create({
         model: "scoped_item",
         forceAllowId: true,
-        data: { id: "shared", scope_id: "scope-b", label: "b" } as never,
+        data: { id: "shared", scope_id: "scope-b", label: "b" },
       });
 
       yield* adapter.delete({

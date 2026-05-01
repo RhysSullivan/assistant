@@ -296,13 +296,13 @@ const startHarness = async (tmpDir: string): Promise<Harness> => {
   const pluginExtensions = Layer.succeed(McpExtensionService)(executor.mcp);
 
   const { handler: webHandler, dispose: disposeHandler } = HttpRouter.toWebHandler(
-    (TestApiBase.pipe(
+    TestApiBase.pipe(
       Layer.provideMerge(pluginExtensions),
       Layer.provideMerge(Layer.succeed(ExecutorService)(executor)),
       Layer.provideMerge(Layer.succeed(ExecutionEngineService)(engine)),
       Layer.provideMerge(HttpServer.layerServices),
       Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
-    ) as never),
+    ),
   );
 
   return {

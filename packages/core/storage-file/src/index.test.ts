@@ -106,8 +106,7 @@ const withAdapter = <A, E>(
 ): Effect.Effect<A, E | Error> =>
   Effect.gen(function* () {
     const sqlite = new Database(":memory:");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = drizzle(sqlite, { schema: conformanceTables as any });
+    const db = drizzle(sqlite, { schema: conformanceTables });
 
     bootstrapTables(db, conformanceTables);
 

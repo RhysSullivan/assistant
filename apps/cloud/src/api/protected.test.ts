@@ -27,7 +27,7 @@ describe("withExecutionUsageTracking", () => {
         tracked.push(orgId);
       });
 
-      yield* engine.execute("1+1", { onElicitation: (() => Effect.die("unused")) as never });
+      yield* engine.execute("1+1", { onElicitation: () => Effect.die("unused") });
       yield* engine.executeWithPause("2+2");
 
       expect(tracked).toEqual(["org_1", "org_1"]);

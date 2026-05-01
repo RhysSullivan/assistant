@@ -1735,7 +1735,7 @@ export const createExecutor = <
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const storageDeps: StorageDeps<any> = {
         scopes,
-        adapter: typedAdapter(adapter) as never,
+        adapter: typedAdapter(adapter),
         // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
         // sharing a backing BlobStore can't collide or leak on the
         // same `(plugin, key)` pair. The store's `get`/`has` walk the

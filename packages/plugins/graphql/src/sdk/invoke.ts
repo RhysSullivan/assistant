@@ -23,8 +23,13 @@ export const resolveHeaders = (
     getSecret: (secretId) =>
       secrets.get(secretId).pipe(Effect.catch(() => Effect.succeed(null))),
     missing: "drop",
-    onMissing: () => undefined as never,
+    onMissing: (name) =>
+      new GraphqlInvocationError({
+        message: `Missing secret for header "${name}"`,
+        statusCode: Option.none(),
+      }),
   }).pipe(
+    Effect.catch(() => Effect.succeed<Record<string, string> | undefined>(undefined)),
     Effect.map((resolved) => resolved ?? {}),
     Effect.withSpan("plugin.graphql.secret.resolve", {
       attributes: {

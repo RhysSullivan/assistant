@@ -29,24 +29,24 @@ const wasmOnDisk = join(execDir, "emscripten-module.wasm");
 if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
   const { setQuickJSModule } = await import("@executor-js/runtime-quickjs");
   const { newQuickJSWASMModule } = await import("quickjs-emscripten");
+  type QuickJSSyncVariant = import("quickjs-emscripten").QuickJSSyncVariant;
   const wasmBinary = await Bun.file(wasmOnDisk).arrayBuffer();
-  const variant = {
-    type: "sync" as const,
-    importFFI: () =>
-      import("@jitl/quickjs-wasmfile-release-sync/ffi").then(
-        (m: Record<string, unknown>) => m.QuickJSFFI,
-      ),
-    importModuleLoader: () =>
-      import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then(
-        (m: Record<string, unknown>) => {
-          const original = m.default as (...args: unknown[]) => unknown;
-          return (moduleArg: Record<string, unknown> = {}) =>
-            original({ ...moduleArg, wasmBinary });
-        },
-      ),
+  const importFFI: QuickJSSyncVariant["importFFI"] = () =>
+    import("@jitl/quickjs-wasmfile-release-sync/ffi").then(
+      (m) => m.QuickJSFFI,
+    );
+  const importModuleLoader: QuickJSSyncVariant["importModuleLoader"] = async () => {
+    const { default: original } = await import(
+      "@jitl/quickjs-wasmfile-release-sync/emscripten-module"
+    );
+    return (moduleArg = {}) => original({ ...moduleArg, wasmBinary });
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- quickjs-emscripten variant type is not publicly exported
-  const mod = await newQuickJSWASMModule(variant as any);
+  const variant: QuickJSSyncVariant = {
+    type: "sync" as const,
+    importFFI,
+    importModuleLoader,
+  };
+  const mod = await newQuickJSWASMModule(variant);
   setQuickJSModule(mod);
 }
 
