@@ -2,6 +2,7 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
 import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
 import { useScope } from "@executor-js/react/api/scope-context";
 import { Button } from "@executor-js/react/components/button";
@@ -157,7 +158,7 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
   const handleSwitch = async (organizationId: string) => {
     if (organizationId === props.activeOrganizationId) return;
     const exit = await doSwitchOrganization({ payload: { organizationId } });
-    if (exit._tag === "Success") window.location.reload();
+    if (Exit.isSuccess(exit)) window.location.reload();
   };
 
   return AsyncResult.match(organizations, {
