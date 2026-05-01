@@ -5,6 +5,35 @@ import { fileURLToPath } from "node:url";
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, "..");
 const testRegistrars = new Set(["describe", "it", "test"]);
+const effectModules = new Set(["Option", "Either", "Result", "Cause", "Exit"]);
+const tagModules = new Map([
+  ["Some", ["Option"]],
+  ["None", ["Option"]],
+  ["Left", ["Either", "Result"]],
+  ["Right", ["Either", "Result"]],
+  ["Success", ["Exit", "Result"]],
+  ["Failure", ["Exit", "Result"]],
+  ["Fail", ["Cause"]],
+  ["Die", ["Cause"]],
+  ["Interrupt", ["Cause"]],
+  ["Sequential", ["Cause"]],
+  ["Parallel", ["Cause"]],
+  ["Then", ["Cause"]],
+  ["Both", ["Cause"]],
+  ["Empty", ["Cause"]],
+]);
+const readOnlyMutations = new Set([
+  "probeMcpEndpoint",
+  "startMcpOAuth",
+  "probeGoogleDiscovery",
+  "startGoogleDiscoveryOAuth",
+  "previewOpenApiSpec",
+  "startOpenApiOAuth",
+  "startOAuth",
+  "resolveSecret",
+  "detectSource",
+  "getDomainVerificationLink",
+]);
 
 const packageRoots = collectPackageRoots().sort((a, b) => b.root.length - a.root.length);
 
@@ -117,6 +146,75 @@ const plugin = {
         };
       },
     },
+    "require-reactivity-keys": {
+      meta: {
+        type: "problem",
+        docs: {
+          description: "Require write mutation calls to pass reactivityKeys.",
+        },
+      },
+      create(context) {
+        return {
+          Program(node) {
+            if (isConfigOrTooling(context.filename) || isDeclarationFile(context.filename)) return;
+            const text = context.sourceCode.getText();
+            if (!text.includes("useAtomSet")) return;
+
+            for (const violation of getReactivityKeyViolations(text)) {
+              context.report({
+                node,
+                loc: { line: violation.line, column: 0 },
+                message: `Mutation ${violation.mutationVar} must pass reactivityKeys at the call site.`,
+              });
+            }
+          },
+        };
+      },
+    },
+    "no-effect-internal-tags": {
+      meta: {
+        type: "problem",
+        docs: {
+          description: "Disallow direct _tag checks for Effect-owned data types.",
+        },
+      },
+      create(context) {
+        const importedEffectModules = new Set();
+        return {
+          ImportDeclaration(node) {
+            const moduleName = node.source.value;
+            if (typeof moduleName !== "string") return;
+            if (moduleName.startsWith("effect/")) {
+              const submodule = moduleName.slice("effect/".length);
+              if (effectModules.has(submodule)) importedEffectModules.add(submodule);
+              return;
+            }
+            if (moduleName !== "effect") return;
+            for (const specifier of node.specifiers ?? []) {
+              const importedName = specifier.imported?.name ?? specifier.imported?.value;
+              if (effectModules.has(importedName)) importedEffectModules.add(importedName);
+            }
+          },
+          BinaryExpression(node) {
+            if (importedEffectModules.size === 0) return;
+            if (!isEqualityOperator(node.operator)) return;
+
+            const leftAccess = getTagAccess(node.left);
+            const rightTag = getStringLiteralValue(node.right);
+            if (leftAccess && isEffectTagForImportedModule(rightTag, importedEffectModules)) {
+              reportEffectTag(context, leftAccess, rightTag);
+              return;
+            }
+
+            const rightAccess = getTagAccess(node.right);
+            const leftTag = getStringLiteralValue(node.left);
+            if (rightAccess && isEffectTagForImportedModule(leftTag, importedEffectModules)) {
+              reportEffectTag(context, rightAccess, leftTag);
+            }
+          },
+        };
+      },
+    },
   },
 };
 
@@ -135,6 +233,10 @@ function isTestLike(filename) {
   return (
     /(\.|\/)(test|spec|e2e|node\.test)\.tsx?$/.test(normalized) || normalized.startsWith("tests/")
   );
+}
+
+function isDeclarationFile(filename) {
+  return toRepoRelative(filename).endsWith(".d.ts");
 }
 
 function isTestRegistrarReference(node) {
@@ -168,6 +270,101 @@ function hasAllowReason(comment) {
   const marker = "lint-allow-double-cast:";
   const index = comment.value.indexOf(marker);
   return index >= 0 && comment.value.slice(index + marker.length).trim().length > 0;
+}
+
+function getReactivityKeyViolations(text) {
+  const violations = [];
+  const lines = text.split("\n");
+  const useAtomSetRegex = /useAtomSet\(\s*([A-Za-z_][\w]*)\s*,\s*\{\s*mode:\s*"promise"\s*\}\s*\)/g;
+
+  for (let cursor = 0; cursor < lines.length; cursor++) {
+    const line = lines[cursor] ?? "";
+    useAtomSetRegex.lastIndex = 0;
+    const match = useAtomSetRegex.exec(line);
+    if (!match) continue;
+
+    const mutationVar = match[1] ?? "<unknown>";
+    if (readOnlyMutations.has(mutationVar)) continue;
+
+    const binding = line.match(/const\s+(\w+)\s*=\s*useAtomSet/)?.[1];
+    if (!binding) continue;
+
+    const callRegex = new RegExp(`await\\s+${binding}\\s*\\(`);
+    let i = cursor + 1;
+    while (i < lines.length) {
+      const currentLine = lines[i] ?? "";
+      if (callRegex.test(currentLine)) {
+        const argText = extractCallArgs(lines, i);
+        if (!argText.includes("reactivityKeys")) {
+          violations.push({ line: i + 1, mutationVar });
+        }
+        break;
+      }
+      i++;
+      if (i - cursor > 80) break;
+    }
+  }
+
+  return violations;
+}
+
+function extractCallArgs(lines, startLine) {
+  let depth = 0;
+  let started = false;
+  let argText = "";
+  let current = startLine;
+
+  while (current < lines.length) {
+    for (const ch of lines[current] ?? "") {
+      if (ch === "(") {
+        depth++;
+        started = true;
+        continue;
+      }
+      if (started && ch === ")") {
+        depth--;
+        if (depth === 0) return argText;
+      }
+      if (started) argText += ch;
+    }
+    current++;
+    if (current - startLine > 60) break;
+  }
+
+  return argText;
+}
+
+function isEqualityOperator(operator) {
+  return operator === "===" || operator === "!==" || operator === "==" || operator === "!=";
+}
+
+function getTagAccess(node) {
+  const expression = unwrapParentheses(node);
+  if (expression?.type !== "MemberExpression") return undefined;
+  const property = expression.property;
+  const name = expression.computed ? getStringLiteralValue(property) : property?.name;
+  return name === "_tag" ? expression : undefined;
+}
+
+function getStringLiteralValue(node) {
+  const expression = unwrapParentheses(node);
+  if (expression?.type === "Literal" && typeof expression.value === "string")
+    return expression.value;
+  if (expression?.type === "StringLiteral") return expression.value;
+  return undefined;
+}
+
+function isEffectTagForImportedModule(tag, importedEffectModules) {
+  if (!tag) return false;
+  const modules = tagModules.get(tag);
+  return modules?.some((moduleName) => importedEffectModules.has(moduleName)) ?? false;
+}
+
+function reportEffectTag(context, node, tag) {
+  context.report({
+    node,
+    message: `Use Effect's public helpers instead of checking internal _tag "${tag}".`,
+  });
 }
 
 function getCrossPackageRelativeImport(filename, specifier) {
@@ -219,6 +416,14 @@ function toRepoRelative(filename) {
 function unwrapChain(node) {
   let current = node;
   while (current?.type === "ChainExpression") current = current.expression;
+  return current;
+}
+
+function unwrapParentheses(node) {
+  let current = unwrapChain(node);
+  while (current?.type === "ParenthesizedExpression" || current?.type === "TSNonNullExpression") {
+    current = unwrapChain(current.expression);
+  }
   return current;
 }
 

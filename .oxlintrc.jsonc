@@ -7,6 +7,8 @@
     "executor/no-conditional-tests": "error",
     "executor/no-double-cast": "error",
     "executor/no-cross-package-relative-imports": "error",
+    "executor/require-reactivity-keys": "error",
+    "executor/no-effect-internal-tags": "error",
     "react/forbid-elements": [
       "error",
       {
