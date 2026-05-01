@@ -37,9 +37,9 @@
         "@effect/cli": "catalog:",
         "@effect/platform": "catalog:",
         "@effect/platform-bun": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/local": "workspace:*",
-        "@executor/runtime-quickjs": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/local": "workspace:*",
+        "@executor-js/runtime-quickjs": "workspace:*",
         "@jitl/quickjs-wasmfile-release-sync": "catalog:",
         "effect": "catalog:",
         "quickjs-emscripten": "catalog:",
@@ -50,7 +50,7 @@
       },
     },
     "apps/cloud": {
-      "name": "@executor/cloud",
+      "name": "@executor-js/cloud",
       "version": "1.4.1",
       "dependencies": {
         "@cloudflare/vite-plugin": "^1.31.1",
@@ -58,20 +58,20 @@
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/opentelemetry": "^0.63.0",
         "@effect/platform": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/env": "workspace:*",
-        "@executor/execution": "workspace:*",
-        "@executor/host-mcp": "workspace:*",
-        "@executor/plugin-graphql": "workspace:*",
-        "@executor/plugin-mcp": "workspace:*",
-        "@executor/plugin-openapi": "workspace:*",
-        "@executor/plugin-workos-vault": "workspace:*",
-        "@executor/react": "workspace:*",
-        "@executor/runtime-dynamic-worker": "workspace:*",
-        "@executor/runtime-quickjs": "workspace:*",
-        "@executor/sdk": "workspace:*",
-        "@executor/storage-core": "workspace:*",
-        "@executor/storage-postgres": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/env": "workspace:*",
+        "@executor-js/execution": "workspace:*",
+        "@executor-js/host-mcp": "workspace:*",
+        "@executor-js/plugin-graphql": "workspace:*",
+        "@executor-js/plugin-mcp": "workspace:*",
+        "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/plugin-workos-vault": "workspace:*",
+        "@executor-js/react": "workspace:*",
+        "@executor-js/runtime-dynamic-worker": "workspace:*",
+        "@executor-js/runtime-quickjs": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
+        "@executor-js/storage-postgres": "workspace:*",
         "@microlabs/otel-cf-workers": "^1.0.0-rc.52",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@opentelemetry/api": "~1.9.0",
@@ -105,7 +105,7 @@
         "@effect/vitest": "^0.29.0",
         "@electric-sql/pglite": "^0.4.3",
         "@electric-sql/pglite-socket": "^0.1.3",
-        "@executor/cli": "workspace:*",
+        "@executor-js/cli": "workspace:*",
         "@tailwindcss/vite": "catalog:",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
@@ -121,7 +121,7 @@
       },
     },
     "apps/desktop": {
-      "name": "@executor/desktop",
+      "name": "@executor-js/desktop",
       "version": "1.4.0",
       "devDependencies": {
         "@types/node": "catalog:",
@@ -131,27 +131,27 @@
       },
     },
     "apps/local": {
-      "name": "@executor/local",
+      "name": "@executor-js/local",
       "version": "1.4.4",
       "dependencies": {
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/config": "workspace:*",
-        "@executor/execution": "workspace:*",
-        "@executor/host-mcp": "workspace:*",
-        "@executor/plugin-file-secrets": "workspace:*",
-        "@executor/plugin-google-discovery": "workspace:*",
-        "@executor/plugin-graphql": "workspace:*",
-        "@executor/plugin-keychain": "workspace:*",
-        "@executor/plugin-mcp": "workspace:*",
-        "@executor/plugin-onepassword": "workspace:*",
-        "@executor/plugin-openapi": "workspace:*",
-        "@executor/react": "workspace:*",
-        "@executor/runtime-quickjs": "workspace:*",
-        "@executor/sdk": "workspace:*",
-        "@executor/storage-file": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/config": "workspace:*",
+        "@executor-js/execution": "workspace:*",
+        "@executor-js/host-mcp": "workspace:*",
+        "@executor-js/plugin-file-secrets": "workspace:*",
+        "@executor-js/plugin-google-discovery": "workspace:*",
+        "@executor-js/plugin-graphql": "workspace:*",
+        "@executor-js/plugin-keychain": "workspace:*",
+        "@executor-js/plugin-mcp": "workspace:*",
+        "@executor-js/plugin-onepassword": "workspace:*",
+        "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/react": "workspace:*",
+        "@executor-js/runtime-quickjs": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "@executor-js/storage-file": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.12.1",
         "@tanstack/react-router": "catalog:",
         "drizzle-orm": "catalog:",
@@ -178,14 +178,14 @@
       },
     },
     "apps/marketing": {
-      "name": "@executor/marketing",
+      "name": "@executor-js/marketing",
       "version": "0.0.5",
       "dependencies": {
         "@astrojs/cloudflare": "^13.0.0",
-        "@executor/plugin-google-discovery": "workspace:*",
-        "@executor/plugin-graphql": "workspace:*",
-        "@executor/plugin-openapi": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/plugin-google-discovery": "workspace:*",
+        "@executor-js/plugin-graphql": "workspace:*",
+        "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "@tailwindcss/vite": "^4.2.2",
         "astro": "^6.1.3",
         "effect": "^3.14.16",
@@ -197,19 +197,19 @@
       },
     },
     "examples/all-plugins": {
-      "name": "@executor/example-all-plugins",
+      "name": "@executor-js/example-all-plugins",
       "version": "0.0.1",
       "dependencies": {
-        "@executor/plugin-file-secrets": "workspace:*",
-        "@executor/plugin-google-discovery": "workspace:*",
-        "@executor/plugin-graphql": "workspace:*",
-        "@executor/plugin-keychain": "workspace:*",
-        "@executor/plugin-mcp": "workspace:*",
-        "@executor/plugin-onepassword": "workspace:*",
-        "@executor/plugin-openapi": "workspace:*",
-        "@executor/plugin-workos-vault": "workspace:*",
-        "@executor/sdk": "workspace:*",
-        "@executor/storage-core": "workspace:*",
+        "@executor-js/plugin-file-secrets": "workspace:*",
+        "@executor-js/plugin-google-discovery": "workspace:*",
+        "@executor-js/plugin-graphql": "workspace:*",
+        "@executor-js/plugin-keychain": "workspace:*",
+        "@executor-js/plugin-mcp": "workspace:*",
+        "@executor-js/plugin-onepassword": "workspace:*",
+        "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/plugin-workos-vault": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -218,13 +218,13 @@
       },
     },
     "examples/promise-sdk": {
-      "name": "@executor/example-promise-sdk",
+      "name": "@executor-js/example-promise-sdk",
       "version": "0.0.2",
       "dependencies": {
-        "@executor/plugin-graphql": "workspace:*",
-        "@executor/plugin-mcp": "workspace:*",
-        "@executor/plugin-openapi": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/plugin-graphql": "workspace:*",
+        "@executor-js/plugin-mcp": "workspace:*",
+        "@executor-js/plugin-openapi": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
       },
       "devDependencies": {
         "@types/node": "catalog:",
@@ -232,13 +232,13 @@
       },
     },
     "packages/core/api": {
-      "name": "@executor/api",
+      "name": "@executor-js/api",
       "version": "1.4.3",
       "dependencies": {
         "@effect/platform": "catalog:",
-        "@executor/execution": "workspace:*",
-        "@executor/sdk": "workspace:*",
-        "@executor/storage-core": "workspace:*",
+        "@executor-js/execution": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -250,7 +250,7 @@
       },
     },
     "packages/core/cli": {
-      "name": "@executor/cli",
+      "name": "@executor-js/cli",
       "version": "0.0.1",
       "bin": {
         "executor": "./dist/index.js",
@@ -261,8 +261,8 @@
         "jiti": "^2.6.1",
       },
       "devDependencies": {
-        "@executor/sdk": "workspace:*",
-        "@executor/storage-core": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
         "@types/node": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
@@ -270,11 +270,11 @@
       },
     },
     "packages/core/config": {
-      "name": "@executor/config",
+      "name": "@executor-js/config",
       "version": "1.4.3",
       "dependencies": {
         "@effect/platform": "catalog:",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
         "jsonc-parser": "^3.3.1",
       },
@@ -286,7 +286,7 @@
       },
     },
     "packages/core/env": {
-      "name": "@executor/env",
+      "name": "@executor-js/env",
       "version": "1.4.0",
       "dependencies": {
         "effect": "catalog:",
@@ -298,16 +298,16 @@
       },
     },
     "packages/core/execution": {
-      "name": "@executor/execution",
+      "name": "@executor-js/execution",
       "version": "0.0.1",
       "dependencies": {
-        "@executor/codemode-core": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/codemode-core": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
-        "@executor/runtime-quickjs": "workspace:*",
+        "@executor-js/runtime-quickjs": "workspace:*",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
         "tsup": "catalog:",
@@ -316,11 +316,11 @@
       },
     },
     "packages/core/sdk": {
-      "name": "@executor/sdk",
+      "name": "@executor-js/sdk",
       "version": "0.0.1",
       "dependencies": {
         "@effect/platform": "catalog:",
-        "@executor/storage-core": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
         "effect": "catalog:",
         "fractional-indexing": "^3.2.0",
         "oauth4webapi": "^3.8.5",
@@ -334,7 +334,7 @@
       },
     },
     "packages/core/storage-core": {
-      "name": "@executor/storage-core",
+      "name": "@executor-js/storage-core",
       "version": "0.0.1",
       "dependencies": {
         "@standard-schema/spec": "^1.0.0",
@@ -356,10 +356,10 @@
       ],
     },
     "packages/core/storage-drizzle": {
-      "name": "@executor/storage-drizzle",
+      "name": "@executor-js/storage-drizzle",
       "version": "0.0.0",
       "dependencies": {
-        "@executor/storage-core": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
       },
@@ -370,12 +370,12 @@
       },
     },
     "packages/core/storage-file": {
-      "name": "@executor/storage-file",
+      "name": "@executor-js/storage-file",
       "version": "1.4.4",
       "dependencies": {
-        "@executor/sdk": "workspace:*",
-        "@executor/storage-core": "workspace:*",
-        "@executor/storage-drizzle": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
+        "@executor-js/storage-drizzle": "workspace:*",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
       },
@@ -390,12 +390,12 @@
       },
     },
     "packages/core/storage-postgres": {
-      "name": "@executor/storage-postgres",
+      "name": "@executor-js/storage-postgres",
       "version": "1.4.2",
       "dependencies": {
-        "@executor/sdk": "workspace:*",
-        "@executor/storage-core": "workspace:*",
-        "@executor/storage-drizzle": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
+        "@executor-js/storage-drizzle": "workspace:*",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
       },
@@ -410,12 +410,12 @@
       },
     },
     "packages/hosts/mcp": {
-      "name": "@executor/host-mcp",
+      "name": "@executor-js/host-mcp",
       "version": "1.4.4",
       "dependencies": {
         "@cfworker/json-schema": "^4.1.1",
-        "@executor/execution": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/execution": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.12.1",
         "effect": "catalog:",
         "zod": "^4.3.0",
@@ -427,7 +427,7 @@
       },
     },
     "packages/kernel/core": {
-      "name": "@executor/codemode-core",
+      "name": "@executor-js/codemode-core",
       "version": "0.0.1",
       "dependencies": {
         "@babel/parser": "^7.29.2",
@@ -445,7 +445,7 @@
       },
     },
     "packages/kernel/ir": {
-      "name": "@executor/ir",
+      "name": "@executor-js/ir",
       "version": "1.4.4",
       "dependencies": {
         "effect": "catalog:",
@@ -457,10 +457,10 @@
       },
     },
     "packages/kernel/runtime-deno-subprocess": {
-      "name": "@executor/runtime-deno-subprocess",
+      "name": "@executor-js/runtime-deno-subprocess",
       "version": "0.0.5",
       "dependencies": {
-        "@executor/codemode-core": "workspace:*",
+        "@executor-js/codemode-core": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -471,10 +471,10 @@
       },
     },
     "packages/kernel/runtime-dynamic-worker": {
-      "name": "@executor/runtime-dynamic-worker",
+      "name": "@executor-js/runtime-dynamic-worker",
       "version": "1.4.4",
       "dependencies": {
-        "@executor/codemode-core": "workspace:*",
+        "@executor-js/codemode-core": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -487,10 +487,10 @@
       },
     },
     "packages/kernel/runtime-quickjs": {
-      "name": "@executor/runtime-quickjs",
+      "name": "@executor-js/runtime-quickjs",
       "version": "0.0.1",
       "dependencies": {
-        "@executor/codemode-core": "workspace:*",
+        "@executor-js/codemode-core": "workspace:*",
         "effect": "catalog:",
         "quickjs-emscripten": "catalog:",
       },
@@ -504,10 +504,10 @@
       },
     },
     "packages/kernel/runtime-secure-exec": {
-      "name": "@executor/runtime-secure-exec",
+      "name": "@executor-js/runtime-secure-exec",
       "version": "0.0.3",
       "dependencies": {
-        "@executor/codemode-core": "workspace:*",
+        "@executor-js/codemode-core": "workspace:*",
         "effect": "catalog:",
         "secure-exec": "^0.2.1",
       },
@@ -519,10 +519,10 @@
       },
     },
     "packages/plugins/file-secrets": {
-      "name": "@executor/plugin-file-secrets",
+      "name": "@executor-js/plugin-file-secrets",
       "version": "0.0.1",
       "dependencies": {
-        "@executor/sdk": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -533,18 +533,18 @@
       },
     },
     "packages/plugins/google-discovery": {
-      "name": "@executor/plugin-google-discovery",
+      "name": "@executor-js/plugin-google-discovery",
       "version": "0.0.1",
       "dependencies": {
         "@effect/platform": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/vitest": "catalog:",
-        "@executor/react": "workspace:*",
+        "@executor-js/react": "workspace:*",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "bun-types": "catalog:",
@@ -554,32 +554,32 @@
       },
       "peerDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
-        "@executor/react": "workspace:*",
+        "@executor-js/react": "workspace:*",
         "@tanstack/react-router": "catalog:",
         "react": "catalog:",
       },
       "optionalPeers": [
         "@effect-atom/atom-react",
-        "@executor/react",
+        "@executor-js/react",
         "@tanstack/react-router",
         "react",
       ],
     },
     "packages/plugins/graphql": {
-      "name": "@executor/plugin-graphql",
+      "name": "@executor-js/plugin-graphql",
       "version": "0.0.1",
       "dependencies": {
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
-        "@executor/config": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/config": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/vitest": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/react": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/react": "workspace:*",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "bun-types": "catalog:",
@@ -589,24 +589,24 @@
       },
       "peerDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
-        "@executor/api": "workspace:*",
-        "@executor/react": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/react": "workspace:*",
         "@tanstack/react-router": "catalog:",
         "react": "catalog:",
       },
       "optionalPeers": [
         "@effect-atom/atom-react",
-        "@executor/api",
-        "@executor/react",
+        "@executor-js/api",
+        "@executor-js/react",
         "@tanstack/react-router",
         "react",
       ],
     },
     "packages/plugins/keychain": {
-      "name": "@executor/plugin-keychain",
+      "name": "@executor-js/plugin-keychain",
       "version": "0.0.1",
       "dependencies": {
-        "@executor/sdk": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "@napi-rs/keyring": "^1.2.0",
         "effect": "catalog:",
       },
@@ -619,22 +619,22 @@
       },
     },
     "packages/plugins/mcp": {
-      "name": "@executor/plugin-mcp",
+      "name": "@executor-js/plugin-mcp",
       "version": "0.0.1",
       "dependencies": {
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
-        "@executor/config": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/config": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/vitest": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/react": "workspace:*",
-        "@executor/storage-core": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/react": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "bun-types": "catalog:",
@@ -645,29 +645,29 @@
       },
       "peerDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
-        "@executor/api": "workspace:*",
-        "@executor/react": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/react": "workspace:*",
         "@tanstack/react-router": "catalog:",
         "react": "catalog:",
       },
       "optionalPeers": [
         "@effect-atom/atom-react",
-        "@executor/api",
-        "@executor/react",
+        "@executor-js/api",
+        "@executor-js/react",
         "@tanstack/react-router",
         "react",
       ],
     },
     "packages/plugins/onepassword": {
-      "name": "@executor/plugin-onepassword",
+      "name": "@executor-js/plugin-onepassword",
       "version": "0.0.1",
       "dependencies": {
         "@1password/op-js": "^0.1.13",
         "@1password/sdk": "^0.4.1-beta.1",
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/platform": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -680,23 +680,23 @@
       },
       "peerDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
-        "@executor/react": "workspace:*",
+        "@executor-js/react": "workspace:*",
         "react": ">=18",
       },
       "optionalPeers": [
         "@effect-atom/atom-react",
-        "@executor/react",
+        "@executor-js/react",
         "react",
       ],
     },
     "packages/plugins/openapi": {
-      "name": "@executor/plugin-openapi",
+      "name": "@executor-js/plugin-openapi",
       "version": "0.0.1",
       "dependencies": {
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
-        "@executor/config": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/config": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
         "openapi-types": "^12.1.3",
         "yaml": "^2.7.1",
@@ -704,9 +704,9 @@
       "devDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/vitest": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/react": "workspace:*",
-        "@executor/storage-core": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/react": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "bun-types": "catalog:",
@@ -716,29 +716,29 @@
       },
       "peerDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
-        "@executor/api": "workspace:*",
-        "@executor/react": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/react": "workspace:*",
         "@tanstack/react-router": "catalog:",
         "react": "catalog:",
       },
       "optionalPeers": [
         "@effect-atom/atom-react",
-        "@executor/api",
-        "@executor/react",
+        "@executor-js/api",
+        "@executor-js/react",
         "@tanstack/react-router",
         "react",
       ],
     },
     "packages/plugins/workos-vault": {
-      "name": "@executor/plugin-workos-vault",
+      "name": "@executor-js/plugin-workos-vault",
       "version": "0.0.2",
       "dependencies": {
-        "@executor/sdk": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "@workos-inc/node": "^8.11.1",
         "effect": "catalog:",
       },
       "devDependencies": {
-        "@executor/storage-core": "workspace:*",
+        "@executor-js/storage-core": "workspace:*",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
         "react": "catalog:",
@@ -746,24 +746,24 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@executor/react": "workspace:*",
+        "@executor-js/react": "workspace:*",
         "react": ">=18",
       },
       "optionalPeers": [
-        "@executor/react",
+        "@executor-js/react",
         "react",
       ],
     },
     "packages/react": {
-      "name": "@executor/react",
+      "name": "@executor-js/react",
       "version": "1.4.3",
       "dependencies": {
         "@base-ui/react": "^1.3.0",
         "@effect-atom/atom": "^0.5.0",
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/platform": "catalog:",
-        "@executor/api": "workspace:*",
-        "@executor/sdk": "workspace:*",
+        "@executor-js/api": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
         "@hookform/resolvers": "^5.2.2",
         "@lobehub/icons": "^5.4.0",
         "@shikijs/langs": "^4.0.2",
@@ -1224,69 +1224,69 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.27.7", "", { "os": "win32", "cpu": "x64" }, "sha512-56hiAJPhwQ1R4i+21FVF7V8kSD5zZTdHcVuRFMW0hn753vVfQN8xlx4uOPT4xoGH0Z/oVATuR82AiqSTDIpaHg=="],
 
-    "@executor/api": ["@executor/api@workspace:packages/core/api"],
+    "@executor-js/api": ["@executor-js/api@workspace:packages/core/api"],
 
-    "@executor/cli": ["@executor/cli@workspace:packages/core/cli"],
+    "@executor-js/cli": ["@executor-js/cli@workspace:packages/core/cli"],
 
-    "@executor/cloud": ["@executor/cloud@workspace:apps/cloud"],
+    "@executor-js/cloud": ["@executor-js/cloud@workspace:apps/cloud"],
 
-    "@executor/codemode-core": ["@executor/codemode-core@workspace:packages/kernel/core"],
+    "@executor-js/codemode-core": ["@executor-js/codemode-core@workspace:packages/kernel/core"],
 
-    "@executor/config": ["@executor/config@workspace:packages/core/config"],
+    "@executor-js/config": ["@executor-js/config@workspace:packages/core/config"],
 
-    "@executor/desktop": ["@executor/desktop@workspace:apps/desktop"],
+    "@executor-js/desktop": ["@executor-js/desktop@workspace:apps/desktop"],
 
-    "@executor/env": ["@executor/env@workspace:packages/core/env"],
+    "@executor-js/env": ["@executor-js/env@workspace:packages/core/env"],
 
-    "@executor/example-all-plugins": ["@executor/example-all-plugins@workspace:examples/all-plugins"],
+    "@executor-js/example-all-plugins": ["@executor-js/example-all-plugins@workspace:examples/all-plugins"],
 
-    "@executor/example-promise-sdk": ["@executor/example-promise-sdk@workspace:examples/promise-sdk"],
+    "@executor-js/example-promise-sdk": ["@executor-js/example-promise-sdk@workspace:examples/promise-sdk"],
 
-    "@executor/execution": ["@executor/execution@workspace:packages/core/execution"],
+    "@executor-js/execution": ["@executor-js/execution@workspace:packages/core/execution"],
 
-    "@executor/host-mcp": ["@executor/host-mcp@workspace:packages/hosts/mcp"],
+    "@executor-js/host-mcp": ["@executor-js/host-mcp@workspace:packages/hosts/mcp"],
 
-    "@executor/ir": ["@executor/ir@workspace:packages/kernel/ir"],
+    "@executor-js/ir": ["@executor-js/ir@workspace:packages/kernel/ir"],
 
-    "@executor/local": ["@executor/local@workspace:apps/local"],
+    "@executor-js/local": ["@executor-js/local@workspace:apps/local"],
 
-    "@executor/marketing": ["@executor/marketing@workspace:apps/marketing"],
+    "@executor-js/marketing": ["@executor-js/marketing@workspace:apps/marketing"],
 
-    "@executor/plugin-file-secrets": ["@executor/plugin-file-secrets@workspace:packages/plugins/file-secrets"],
+    "@executor-js/plugin-file-secrets": ["@executor-js/plugin-file-secrets@workspace:packages/plugins/file-secrets"],
 
-    "@executor/plugin-google-discovery": ["@executor/plugin-google-discovery@workspace:packages/plugins/google-discovery"],
+    "@executor-js/plugin-google-discovery": ["@executor-js/plugin-google-discovery@workspace:packages/plugins/google-discovery"],
 
-    "@executor/plugin-graphql": ["@executor/plugin-graphql@workspace:packages/plugins/graphql"],
+    "@executor-js/plugin-graphql": ["@executor-js/plugin-graphql@workspace:packages/plugins/graphql"],
 
-    "@executor/plugin-keychain": ["@executor/plugin-keychain@workspace:packages/plugins/keychain"],
+    "@executor-js/plugin-keychain": ["@executor-js/plugin-keychain@workspace:packages/plugins/keychain"],
 
-    "@executor/plugin-mcp": ["@executor/plugin-mcp@workspace:packages/plugins/mcp"],
+    "@executor-js/plugin-mcp": ["@executor-js/plugin-mcp@workspace:packages/plugins/mcp"],
 
-    "@executor/plugin-onepassword": ["@executor/plugin-onepassword@workspace:packages/plugins/onepassword"],
+    "@executor-js/plugin-onepassword": ["@executor-js/plugin-onepassword@workspace:packages/plugins/onepassword"],
 
-    "@executor/plugin-openapi": ["@executor/plugin-openapi@workspace:packages/plugins/openapi"],
+    "@executor-js/plugin-openapi": ["@executor-js/plugin-openapi@workspace:packages/plugins/openapi"],
 
-    "@executor/plugin-workos-vault": ["@executor/plugin-workos-vault@workspace:packages/plugins/workos-vault"],
+    "@executor-js/plugin-workos-vault": ["@executor-js/plugin-workos-vault@workspace:packages/plugins/workos-vault"],
 
-    "@executor/react": ["@executor/react@workspace:packages/react"],
+    "@executor-js/react": ["@executor-js/react@workspace:packages/react"],
 
-    "@executor/runtime-deno-subprocess": ["@executor/runtime-deno-subprocess@workspace:packages/kernel/runtime-deno-subprocess"],
+    "@executor-js/runtime-deno-subprocess": ["@executor-js/runtime-deno-subprocess@workspace:packages/kernel/runtime-deno-subprocess"],
 
-    "@executor/runtime-dynamic-worker": ["@executor/runtime-dynamic-worker@workspace:packages/kernel/runtime-dynamic-worker"],
+    "@executor-js/runtime-dynamic-worker": ["@executor-js/runtime-dynamic-worker@workspace:packages/kernel/runtime-dynamic-worker"],
 
-    "@executor/runtime-quickjs": ["@executor/runtime-quickjs@workspace:packages/kernel/runtime-quickjs"],
+    "@executor-js/runtime-quickjs": ["@executor-js/runtime-quickjs@workspace:packages/kernel/runtime-quickjs"],
 
-    "@executor/runtime-secure-exec": ["@executor/runtime-secure-exec@workspace:packages/kernel/runtime-secure-exec"],
+    "@executor-js/runtime-secure-exec": ["@executor-js/runtime-secure-exec@workspace:packages/kernel/runtime-secure-exec"],
 
-    "@executor/sdk": ["@executor/sdk@workspace:packages/core/sdk"],
+    "@executor-js/sdk": ["@executor-js/sdk@workspace:packages/core/sdk"],
 
-    "@executor/storage-core": ["@executor/storage-core@workspace:packages/core/storage-core"],
+    "@executor-js/storage-core": ["@executor-js/storage-core@workspace:packages/core/storage-core"],
 
-    "@executor/storage-drizzle": ["@executor/storage-drizzle@workspace:packages/core/storage-drizzle"],
+    "@executor-js/storage-drizzle": ["@executor-js/storage-drizzle@workspace:packages/core/storage-drizzle"],
 
-    "@executor/storage-file": ["@executor/storage-file@workspace:packages/core/storage-file"],
+    "@executor-js/storage-file": ["@executor-js/storage-file@workspace:packages/core/storage-file"],
 
-    "@executor/storage-postgres": ["@executor/storage-postgres@workspace:packages/core/storage-postgres"],
+    "@executor-js/storage-postgres": ["@executor-js/storage-postgres@workspace:packages/core/storage-postgres"],
 
     "@floating-ui/core": ["@floating-ui/core@1.7.5", "", { "dependencies": { "@floating-ui/utils": "^0.2.11" } }, "sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ=="],
 
@@ -4840,13 +4840,13 @@
 
     "@esbuild-kit/core-utils/esbuild": ["esbuild@0.18.20", "", { "optionalDependencies": { "@esbuild/android-arm": "0.18.20", "@esbuild/android-arm64": "0.18.20", "@esbuild/android-x64": "0.18.20", "@esbuild/darwin-arm64": "0.18.20", "@esbuild/darwin-x64": "0.18.20", "@esbuild/freebsd-arm64": "0.18.20", "@esbuild/freebsd-x64": "0.18.20", "@esbuild/linux-arm": "0.18.20", "@esbuild/linux-arm64": "0.18.20", "@esbuild/linux-ia32": "0.18.20", "@esbuild/linux-loong64": "0.18.20", "@esbuild/linux-mips64el": "0.18.20", "@esbuild/linux-ppc64": "0.18.20", "@esbuild/linux-riscv64": "0.18.20", "@esbuild/linux-s390x": "0.18.20", "@esbuild/linux-x64": "0.18.20", "@esbuild/netbsd-x64": "0.18.20", "@esbuild/openbsd-x64": "0.18.20", "@esbuild/sunos-x64": "0.18.20", "@esbuild/win32-arm64": "0.18.20", "@esbuild/win32-ia32": "0.18.20", "@esbuild/win32-x64": "0.18.20" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA=="],
 
-    "@executor/example-all-plugins/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@executor-js/example-all-plugins/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@executor/example-promise-sdk/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@executor-js/example-promise-sdk/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers": ["@cloudflare/vitest-pool-workers@0.14.7", "", { "dependencies": { "cjs-module-lexer": "^1.2.3", "esbuild": "0.27.3", "miniflare": "4.20260415.0", "wrangler": "4.83.0", "zod": "^3.25.76" }, "peerDependencies": { "@vitest/runner": "^4.1.0", "@vitest/snapshot": "^4.1.0", "vitest": "^4.1.0" } }, "sha512-6LooO25358uPn/7U3LUg5f5pLULncDTShGuOf00TyEn3VIBW2otq92dTNf8ScIR3gV9QDztXNfChc4mqPCSBEA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers": ["@cloudflare/vitest-pool-workers@0.14.7", "", { "dependencies": { "cjs-module-lexer": "^1.2.3", "esbuild": "0.27.3", "miniflare": "4.20260415.0", "wrangler": "4.83.0", "zod": "^3.25.76" }, "peerDependencies": { "@vitest/runner": "^4.1.0", "@vitest/snapshot": "^4.1.0", "vitest": "^4.1.0" } }, "sha512-6LooO25358uPn/7U3LUg5f5pLULncDTShGuOf00TyEn3VIBW2otq92dTNf8ScIR3gV9QDztXNfChc4mqPCSBEA=="],
 
-    "@executor/storage-postgres/@types/node": ["@types/node@25.6.0", "", { "dependencies": { "undici-types": "~7.19.0" } }, "sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ=="],
+    "@executor-js/storage-postgres/@types/node": ["@types/node@25.6.0", "", { "dependencies": { "undici-types": "~7.19.0" } }, "sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ=="],
 
     "@inquirer/core/wrap-ansi": ["wrap-ansi@6.2.0", "", { "dependencies": { "ansi-styles": "^4.0.0", "string-width": "^4.1.0", "strip-ansi": "^6.0.0" } }, "sha512-r6lPcBGxZXlIcymEu7InxDMhdW0KDxpLgoFLcguasxCaJ/SOIZwINatK9KY/tf+ZrlywOKU0UDj3ATXUBfxJXA=="],
 
@@ -5494,15 +5494,15 @@
 
     "@esbuild-kit/core-utils/esbuild/@esbuild/win32-x64": ["@esbuild/win32-x64@0.18.20", "", { "os": "win32", "cpu": "x64" }, "sha512-kTdfRcSiDfQca/y9QIkng02avJ+NCaQvrMejlsB3RRv5sE9rRoeBPISaZpKxHELzRxZyLvNts1P27W3wV+8geQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild": ["esbuild@0.27.3", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.27.3", "@esbuild/android-arm": "0.27.3", "@esbuild/android-arm64": "0.27.3", "@esbuild/android-x64": "0.27.3", "@esbuild/darwin-arm64": "0.27.3", "@esbuild/darwin-x64": "0.27.3", "@esbuild/freebsd-arm64": "0.27.3", "@esbuild/freebsd-x64": "0.27.3", "@esbuild/linux-arm": "0.27.3", "@esbuild/linux-arm64": "0.27.3", "@esbuild/linux-ia32": "0.27.3", "@esbuild/linux-loong64": "0.27.3", "@esbuild/linux-mips64el": "0.27.3", "@esbuild/linux-ppc64": "0.27.3", "@esbuild/linux-riscv64": "0.27.3", "@esbuild/linux-s390x": "0.27.3", "@esbuild/linux-x64": "0.27.3", "@esbuild/netbsd-arm64": "0.27.3", "@esbuild/netbsd-x64": "0.27.3", "@esbuild/openbsd-arm64": "0.27.3", "@esbuild/openbsd-x64": "0.27.3", "@esbuild/openharmony-arm64": "0.27.3", "@esbuild/sunos-x64": "0.27.3", "@esbuild/win32-arm64": "0.27.3", "@esbuild/win32-ia32": "0.27.3", "@esbuild/win32-x64": "0.27.3" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-8VwMnyGCONIs6cWue2IdpHxHnAjzxnw2Zr7MkVxB2vjmQ2ivqGFb4LEG3SMnv0Gb2F/G/2yA8zUaiL1gywDCCg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild": ["esbuild@0.27.3", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.27.3", "@esbuild/android-arm": "0.27.3", "@esbuild/android-arm64": "0.27.3", "@esbuild/android-x64": "0.27.3", "@esbuild/darwin-arm64": "0.27.3", "@esbuild/darwin-x64": "0.27.3", "@esbuild/freebsd-arm64": "0.27.3", "@esbuild/freebsd-x64": "0.27.3", "@esbuild/linux-arm": "0.27.3", "@esbuild/linux-arm64": "0.27.3", "@esbuild/linux-ia32": "0.27.3", "@esbuild/linux-loong64": "0.27.3", "@esbuild/linux-mips64el": "0.27.3", "@esbuild/linux-ppc64": "0.27.3", "@esbuild/linux-riscv64": "0.27.3", "@esbuild/linux-s390x": "0.27.3", "@esbuild/linux-x64": "0.27.3", "@esbuild/netbsd-arm64": "0.27.3", "@esbuild/netbsd-x64": "0.27.3", "@esbuild/openbsd-arm64": "0.27.3", "@esbuild/openbsd-x64": "0.27.3", "@esbuild/openharmony-arm64": "0.27.3", "@esbuild/sunos-x64": "0.27.3", "@esbuild/win32-arm64": "0.27.3", "@esbuild/win32-ia32": "0.27.3", "@esbuild/win32-x64": "0.27.3" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-8VwMnyGCONIs6cWue2IdpHxHnAjzxnw2Zr7MkVxB2vjmQ2ivqGFb4LEG3SMnv0Gb2F/G/2yA8zUaiL1gywDCCg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare": ["miniflare@4.20260415.0", "", { "dependencies": { "@cspotcode/source-map-support": "0.8.1", "sharp": "^0.34.5", "undici": "7.24.8", "workerd": "1.20260415.1", "ws": "8.18.0", "youch": "4.1.0-beta.10" }, "bin": { "miniflare": "bootstrap.js" } }, "sha512-JoExRWN4YBI2luA5BoSMFEgi8rQWXUGzo3mtE+58VXCLV3jj/Xnk5Yeqs/IXWz8Es5GJIaq6BtsixDvAxXSIng=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare": ["miniflare@4.20260415.0", "", { "dependencies": { "@cspotcode/source-map-support": "0.8.1", "sharp": "^0.34.5", "undici": "7.24.8", "workerd": "1.20260415.1", "ws": "8.18.0", "youch": "4.1.0-beta.10" }, "bin": { "miniflare": "bootstrap.js" } }, "sha512-JoExRWN4YBI2luA5BoSMFEgi8rQWXUGzo3mtE+58VXCLV3jj/Xnk5Yeqs/IXWz8Es5GJIaq6BtsixDvAxXSIng=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler": ["wrangler@4.83.0", "", { "dependencies": { "@cloudflare/kv-asset-handler": "0.4.2", "@cloudflare/unenv-preset": "2.16.0", "blake3-wasm": "2.1.5", "esbuild": "0.27.3", "miniflare": "4.20260415.0", "path-to-regexp": "6.3.0", "unenv": "2.0.0-rc.24", "workerd": "1.20260415.1" }, "optionalDependencies": { "fsevents": "~2.3.2" }, "peerDependencies": { "@cloudflare/workers-types": "^4.20260415.1" }, "optionalPeers": ["@cloudflare/workers-types"], "bin": { "wrangler": "bin/wrangler.js", "wrangler2": "bin/wrangler.js" } }, "sha512-gw5g3LCiuAqVWxaoKY6+quE0HzAUEFb/FV3oAlNkE1ttd4XP3FiV91XDkkzUCcdqxS4WjhQvPhIDBNdhEi8P0A=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler": ["wrangler@4.83.0", "", { "dependencies": { "@cloudflare/kv-asset-handler": "0.4.2", "@cloudflare/unenv-preset": "2.16.0", "blake3-wasm": "2.1.5", "esbuild": "0.27.3", "miniflare": "4.20260415.0", "path-to-regexp": "6.3.0", "unenv": "2.0.0-rc.24", "workerd": "1.20260415.1" }, "optionalDependencies": { "fsevents": "~2.3.2" }, "peerDependencies": { "@cloudflare/workers-types": "^4.20260415.1" }, "optionalPeers": ["@cloudflare/workers-types"], "bin": { "wrangler": "bin/wrangler.js", "wrangler2": "bin/wrangler.js" } }, "sha512-gw5g3LCiuAqVWxaoKY6+quE0HzAUEFb/FV3oAlNkE1ttd4XP3FiV91XDkkzUCcdqxS4WjhQvPhIDBNdhEi8P0A=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
-    "@executor/storage-postgres/@types/node/undici-types": ["undici-types@7.19.2", "", {}, "sha512-qYVnV5OEm2AW8cJMCpdV20CDyaN3g0AjDlOGf1OW4iaDEx8MwdtChUp4zu4H0VP3nDRF/8RKWH+IPp9uW0YGZg=="],
+    "@executor-js/storage-postgres/@types/node/undici-types": ["undici-types@7.19.2", "", {}, "sha512-qYVnV5OEm2AW8cJMCpdV20CDyaN3g0AjDlOGf1OW4iaDEx8MwdtChUp4zu4H0VP3nDRF/8RKWH+IPp9uW0YGZg=="],
 
     "@inquirer/core/wrap-ansi/ansi-styles": ["ansi-styles@4.3.0", "", { "dependencies": { "color-convert": "^2.0.1" } }, "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="],
 
@@ -5900,67 +5900,67 @@
 
     "@electron/universal/minimatch/brace-expansion/balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.27.3", "", { "os": "aix", "cpu": "ppc64" }, "sha512-9fJMTNFTWZMh5qwrBItuziu834eOCUcEqymSH7pY+zoMVEZg3gcPuBNxH1EvfVYe9h0x/Ptw8KBzv7qxb7l8dg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.27.3", "", { "os": "aix", "cpu": "ppc64" }, "sha512-9fJMTNFTWZMh5qwrBItuziu834eOCUcEqymSH7pY+zoMVEZg3gcPuBNxH1EvfVYe9h0x/Ptw8KBzv7qxb7l8dg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/android-arm": ["@esbuild/android-arm@0.27.3", "", { "os": "android", "cpu": "arm" }, "sha512-i5D1hPY7GIQmXlXhs2w8AWHhenb00+GxjxRncS2ZM7YNVGNfaMxgzSGuO8o8SJzRc/oZwU2bcScvVERk03QhzA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/android-arm": ["@esbuild/android-arm@0.27.3", "", { "os": "android", "cpu": "arm" }, "sha512-i5D1hPY7GIQmXlXhs2w8AWHhenb00+GxjxRncS2ZM7YNVGNfaMxgzSGuO8o8SJzRc/oZwU2bcScvVERk03QhzA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/android-arm64": ["@esbuild/android-arm64@0.27.3", "", { "os": "android", "cpu": "arm64" }, "sha512-YdghPYUmj/FX2SYKJ0OZxf+iaKgMsKHVPF1MAq/P8WirnSpCStzKJFjOjzsW0QQ7oIAiccHdcqjbHmJxRb/dmg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/android-arm64": ["@esbuild/android-arm64@0.27.3", "", { "os": "android", "cpu": "arm64" }, "sha512-YdghPYUmj/FX2SYKJ0OZxf+iaKgMsKHVPF1MAq/P8WirnSpCStzKJFjOjzsW0QQ7oIAiccHdcqjbHmJxRb/dmg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/android-x64": ["@esbuild/android-x64@0.27.3", "", { "os": "android", "cpu": "x64" }, "sha512-IN/0BNTkHtk8lkOM8JWAYFg4ORxBkZQf9zXiEOfERX/CzxW3Vg1ewAhU7QSWQpVIzTW+b8Xy+lGzdYXV6UZObQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/android-x64": ["@esbuild/android-x64@0.27.3", "", { "os": "android", "cpu": "x64" }, "sha512-IN/0BNTkHtk8lkOM8JWAYFg4ORxBkZQf9zXiEOfERX/CzxW3Vg1ewAhU7QSWQpVIzTW+b8Xy+lGzdYXV6UZObQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/darwin-arm64": ["@esbuild/darwin-arm64@0.27.3", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Re491k7ByTVRy0t3EKWajdLIr0gz2kKKfzafkth4Q8A5n1xTHrkqZgLLjFEHVD+AXdUGgQMq+Godfq45mGpCKg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/darwin-arm64": ["@esbuild/darwin-arm64@0.27.3", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Re491k7ByTVRy0t3EKWajdLIr0gz2kKKfzafkth4Q8A5n1xTHrkqZgLLjFEHVD+AXdUGgQMq+Godfq45mGpCKg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/darwin-x64": ["@esbuild/darwin-x64@0.27.3", "", { "os": "darwin", "cpu": "x64" }, "sha512-vHk/hA7/1AckjGzRqi6wbo+jaShzRowYip6rt6q7VYEDX4LEy1pZfDpdxCBnGtl+A5zq8iXDcyuxwtv3hNtHFg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/darwin-x64": ["@esbuild/darwin-x64@0.27.3", "", { "os": "darwin", "cpu": "x64" }, "sha512-vHk/hA7/1AckjGzRqi6wbo+jaShzRowYip6rt6q7VYEDX4LEy1pZfDpdxCBnGtl+A5zq8iXDcyuxwtv3hNtHFg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/freebsd-arm64": ["@esbuild/freebsd-arm64@0.27.3", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-ipTYM2fjt3kQAYOvo6vcxJx3nBYAzPjgTCk7QEgZG8AUO3ydUhvelmhrbOheMnGOlaSFUoHXB6un+A7q4ygY9w=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/freebsd-arm64": ["@esbuild/freebsd-arm64@0.27.3", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-ipTYM2fjt3kQAYOvo6vcxJx3nBYAzPjgTCk7QEgZG8AUO3ydUhvelmhrbOheMnGOlaSFUoHXB6un+A7q4ygY9w=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/freebsd-x64": ["@esbuild/freebsd-x64@0.27.3", "", { "os": "freebsd", "cpu": "x64" }, "sha512-dDk0X87T7mI6U3K9VjWtHOXqwAMJBNN2r7bejDsc+j03SEjtD9HrOl8gVFByeM0aJksoUuUVU9TBaZa2rgj0oA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/freebsd-x64": ["@esbuild/freebsd-x64@0.27.3", "", { "os": "freebsd", "cpu": "x64" }, "sha512-dDk0X87T7mI6U3K9VjWtHOXqwAMJBNN2r7bejDsc+j03SEjtD9HrOl8gVFByeM0aJksoUuUVU9TBaZa2rgj0oA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-arm": ["@esbuild/linux-arm@0.27.3", "", { "os": "linux", "cpu": "arm" }, "sha512-s6nPv2QkSupJwLYyfS+gwdirm0ukyTFNl3KTgZEAiJDd+iHZcbTPPcWCcRYH+WlNbwChgH2QkE9NSlNrMT8Gfw=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-arm": ["@esbuild/linux-arm@0.27.3", "", { "os": "linux", "cpu": "arm" }, "sha512-s6nPv2QkSupJwLYyfS+gwdirm0ukyTFNl3KTgZEAiJDd+iHZcbTPPcWCcRYH+WlNbwChgH2QkE9NSlNrMT8Gfw=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-arm64": ["@esbuild/linux-arm64@0.27.3", "", { "os": "linux", "cpu": "arm64" }, "sha512-sZOuFz/xWnZ4KH3YfFrKCf1WyPZHakVzTiqji3WDc0BCl2kBwiJLCXpzLzUBLgmp4veFZdvN5ChW4Eq/8Fc2Fg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-arm64": ["@esbuild/linux-arm64@0.27.3", "", { "os": "linux", "cpu": "arm64" }, "sha512-sZOuFz/xWnZ4KH3YfFrKCf1WyPZHakVzTiqji3WDc0BCl2kBwiJLCXpzLzUBLgmp4veFZdvN5ChW4Eq/8Fc2Fg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-ia32": ["@esbuild/linux-ia32@0.27.3", "", { "os": "linux", "cpu": "ia32" }, "sha512-yGlQYjdxtLdh0a3jHjuwOrxQjOZYD/C9PfdbgJJF3TIZWnm/tMd/RcNiLngiu4iwcBAOezdnSLAwQDPqTmtTYg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-ia32": ["@esbuild/linux-ia32@0.27.3", "", { "os": "linux", "cpu": "ia32" }, "sha512-yGlQYjdxtLdh0a3jHjuwOrxQjOZYD/C9PfdbgJJF3TIZWnm/tMd/RcNiLngiu4iwcBAOezdnSLAwQDPqTmtTYg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-loong64": ["@esbuild/linux-loong64@0.27.3", "", { "os": "linux", "cpu": "none" }, "sha512-WO60Sn8ly3gtzhyjATDgieJNet/KqsDlX5nRC5Y3oTFcS1l0KWba+SEa9Ja1GfDqSF1z6hif/SkpQJbL63cgOA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-loong64": ["@esbuild/linux-loong64@0.27.3", "", { "os": "linux", "cpu": "none" }, "sha512-WO60Sn8ly3gtzhyjATDgieJNet/KqsDlX5nRC5Y3oTFcS1l0KWba+SEa9Ja1GfDqSF1z6hif/SkpQJbL63cgOA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-mips64el": ["@esbuild/linux-mips64el@0.27.3", "", { "os": "linux", "cpu": "none" }, "sha512-APsymYA6sGcZ4pD6k+UxbDjOFSvPWyZhjaiPyl/f79xKxwTnrn5QUnXR5prvetuaSMsb4jgeHewIDCIWljrSxw=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-mips64el": ["@esbuild/linux-mips64el@0.27.3", "", { "os": "linux", "cpu": "none" }, "sha512-APsymYA6sGcZ4pD6k+UxbDjOFSvPWyZhjaiPyl/f79xKxwTnrn5QUnXR5prvetuaSMsb4jgeHewIDCIWljrSxw=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-ppc64": ["@esbuild/linux-ppc64@0.27.3", "", { "os": "linux", "cpu": "ppc64" }, "sha512-eizBnTeBefojtDb9nSh4vvVQ3V9Qf9Df01PfawPcRzJH4gFSgrObw+LveUyDoKU3kxi5+9RJTCWlj4FjYXVPEA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-ppc64": ["@esbuild/linux-ppc64@0.27.3", "", { "os": "linux", "cpu": "ppc64" }, "sha512-eizBnTeBefojtDb9nSh4vvVQ3V9Qf9Df01PfawPcRzJH4gFSgrObw+LveUyDoKU3kxi5+9RJTCWlj4FjYXVPEA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-riscv64": ["@esbuild/linux-riscv64@0.27.3", "", { "os": "linux", "cpu": "none" }, "sha512-3Emwh0r5wmfm3ssTWRQSyVhbOHvqegUDRd0WhmXKX2mkHJe1SFCMJhagUleMq+Uci34wLSipf8Lagt4LlpRFWQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-riscv64": ["@esbuild/linux-riscv64@0.27.3", "", { "os": "linux", "cpu": "none" }, "sha512-3Emwh0r5wmfm3ssTWRQSyVhbOHvqegUDRd0WhmXKX2mkHJe1SFCMJhagUleMq+Uci34wLSipf8Lagt4LlpRFWQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-s390x": ["@esbuild/linux-s390x@0.27.3", "", { "os": "linux", "cpu": "s390x" }, "sha512-pBHUx9LzXWBc7MFIEEL0yD/ZVtNgLytvx60gES28GcWMqil8ElCYR4kvbV2BDqsHOvVDRrOxGySBM9Fcv744hw=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-s390x": ["@esbuild/linux-s390x@0.27.3", "", { "os": "linux", "cpu": "s390x" }, "sha512-pBHUx9LzXWBc7MFIEEL0yD/ZVtNgLytvx60gES28GcWMqil8ElCYR4kvbV2BDqsHOvVDRrOxGySBM9Fcv744hw=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-x64": ["@esbuild/linux-x64@0.27.3", "", { "os": "linux", "cpu": "x64" }, "sha512-Czi8yzXUWIQYAtL/2y6vogER8pvcsOsk5cpwL4Gk5nJqH5UZiVByIY8Eorm5R13gq+DQKYg0+JyQoytLQas4dA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/linux-x64": ["@esbuild/linux-x64@0.27.3", "", { "os": "linux", "cpu": "x64" }, "sha512-Czi8yzXUWIQYAtL/2y6vogER8pvcsOsk5cpwL4Gk5nJqH5UZiVByIY8Eorm5R13gq+DQKYg0+JyQoytLQas4dA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/netbsd-arm64": ["@esbuild/netbsd-arm64@0.27.3", "", { "os": "none", "cpu": "arm64" }, "sha512-sDpk0RgmTCR/5HguIZa9n9u+HVKf40fbEUt+iTzSnCaGvY9kFP0YKBWZtJaraonFnqef5SlJ8/TiPAxzyS+UoA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/netbsd-arm64": ["@esbuild/netbsd-arm64@0.27.3", "", { "os": "none", "cpu": "arm64" }, "sha512-sDpk0RgmTCR/5HguIZa9n9u+HVKf40fbEUt+iTzSnCaGvY9kFP0YKBWZtJaraonFnqef5SlJ8/TiPAxzyS+UoA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/netbsd-x64": ["@esbuild/netbsd-x64@0.27.3", "", { "os": "none", "cpu": "x64" }, "sha512-P14lFKJl/DdaE00LItAukUdZO5iqNH7+PjoBm+fLQjtxfcfFE20Xf5CrLsmZdq5LFFZzb5JMZ9grUwvtVYzjiA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/netbsd-x64": ["@esbuild/netbsd-x64@0.27.3", "", { "os": "none", "cpu": "x64" }, "sha512-P14lFKJl/DdaE00LItAukUdZO5iqNH7+PjoBm+fLQjtxfcfFE20Xf5CrLsmZdq5LFFZzb5JMZ9grUwvtVYzjiA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/openbsd-arm64": ["@esbuild/openbsd-arm64@0.27.3", "", { "os": "openbsd", "cpu": "arm64" }, "sha512-AIcMP77AvirGbRl/UZFTq5hjXK+2wC7qFRGoHSDrZ5v5b8DK/GYpXW3CPRL53NkvDqb9D+alBiC/dV0Fb7eJcw=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/openbsd-arm64": ["@esbuild/openbsd-arm64@0.27.3", "", { "os": "openbsd", "cpu": "arm64" }, "sha512-AIcMP77AvirGbRl/UZFTq5hjXK+2wC7qFRGoHSDrZ5v5b8DK/GYpXW3CPRL53NkvDqb9D+alBiC/dV0Fb7eJcw=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/openbsd-x64": ["@esbuild/openbsd-x64@0.27.3", "", { "os": "openbsd", "cpu": "x64" }, "sha512-DnW2sRrBzA+YnE70LKqnM3P+z8vehfJWHXECbwBmH/CU51z6FiqTQTHFenPlHmo3a8UgpLyH3PT+87OViOh1AQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/openbsd-x64": ["@esbuild/openbsd-x64@0.27.3", "", { "os": "openbsd", "cpu": "x64" }, "sha512-DnW2sRrBzA+YnE70LKqnM3P+z8vehfJWHXECbwBmH/CU51z6FiqTQTHFenPlHmo3a8UgpLyH3PT+87OViOh1AQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/openharmony-arm64": ["@esbuild/openharmony-arm64@0.27.3", "", { "os": "none", "cpu": "arm64" }, "sha512-NinAEgr/etERPTsZJ7aEZQvvg/A6IsZG/LgZy+81wON2huV7SrK3e63dU0XhyZP4RKGyTm7aOgmQk0bGp0fy2g=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/openharmony-arm64": ["@esbuild/openharmony-arm64@0.27.3", "", { "os": "none", "cpu": "arm64" }, "sha512-NinAEgr/etERPTsZJ7aEZQvvg/A6IsZG/LgZy+81wON2huV7SrK3e63dU0XhyZP4RKGyTm7aOgmQk0bGp0fy2g=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/sunos-x64": ["@esbuild/sunos-x64@0.27.3", "", { "os": "sunos", "cpu": "x64" }, "sha512-PanZ+nEz+eWoBJ8/f8HKxTTD172SKwdXebZ0ndd953gt1HRBbhMsaNqjTyYLGLPdoWHy4zLU7bDVJztF5f3BHA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/sunos-x64": ["@esbuild/sunos-x64@0.27.3", "", { "os": "sunos", "cpu": "x64" }, "sha512-PanZ+nEz+eWoBJ8/f8HKxTTD172SKwdXebZ0ndd953gt1HRBbhMsaNqjTyYLGLPdoWHy4zLU7bDVJztF5f3BHA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/win32-arm64": ["@esbuild/win32-arm64@0.27.3", "", { "os": "win32", "cpu": "arm64" }, "sha512-B2t59lWWYrbRDw/tjiWOuzSsFh1Y/E95ofKz7rIVYSQkUYBjfSgf6oeYPNWHToFRr2zx52JKApIcAS/D5TUBnA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/win32-arm64": ["@esbuild/win32-arm64@0.27.3", "", { "os": "win32", "cpu": "arm64" }, "sha512-B2t59lWWYrbRDw/tjiWOuzSsFh1Y/E95ofKz7rIVYSQkUYBjfSgf6oeYPNWHToFRr2zx52JKApIcAS/D5TUBnA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.27.3", "", { "os": "win32", "cpu": "ia32" }, "sha512-QLKSFeXNS8+tHW7tZpMtjlNb7HKau0QDpwm49u0vUp9y1WOF+PEzkU84y9GqYaAVW8aH8f3GcBck26jh54cX4Q=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.27.3", "", { "os": "win32", "cpu": "ia32" }, "sha512-QLKSFeXNS8+tHW7tZpMtjlNb7HKau0QDpwm49u0vUp9y1WOF+PEzkU84y9GqYaAVW8aH8f3GcBck26jh54cX4Q=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/win32-x64": ["@esbuild/win32-x64@0.27.3", "", { "os": "win32", "cpu": "x64" }, "sha512-4uJGhsxuptu3OcpVAzli+/gWusVGwZZHTlS63hh++ehExkVT8SgiEf7/uC/PclrPPkLhZqGgCTjd0VWLo6xMqA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/esbuild/@esbuild/win32-x64": ["@esbuild/win32-x64@0.27.3", "", { "os": "win32", "cpu": "x64" }, "sha512-4uJGhsxuptu3OcpVAzli+/gWusVGwZZHTlS63hh++ehExkVT8SgiEf7/uC/PclrPPkLhZqGgCTjd0VWLo6xMqA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/undici": ["undici@7.24.8", "", {}, "sha512-6KQ/+QxK49Z/p3HO6E5ZCZWNnCasyZLa5ExaVYyvPxUwKtbCPMKELJOqh7EqOle0t9cH/7d2TaaTRRa6Nhs4YQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/undici": ["undici@7.24.8", "", {}, "sha512-6KQ/+QxK49Z/p3HO6E5ZCZWNnCasyZLa5ExaVYyvPxUwKtbCPMKELJOqh7EqOle0t9cH/7d2TaaTRRa6Nhs4YQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd": ["workerd@1.20260415.1", "", { "optionalDependencies": { "@cloudflare/workerd-darwin-64": "1.20260415.1", "@cloudflare/workerd-darwin-arm64": "1.20260415.1", "@cloudflare/workerd-linux-64": "1.20260415.1", "@cloudflare/workerd-linux-arm64": "1.20260415.1", "@cloudflare/workerd-windows-64": "1.20260415.1" }, "bin": { "workerd": "bin/workerd" } }, "sha512-phyPjRnx+mQDfkhN9ENPioL1L0SdhYs4S0YmJK/xF9Oga+ykNfdSy1MHnsOj8yqnOV96zcVQMx32dJ0r3pq0jQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd": ["workerd@1.20260415.1", "", { "optionalDependencies": { "@cloudflare/workerd-darwin-64": "1.20260415.1", "@cloudflare/workerd-darwin-arm64": "1.20260415.1", "@cloudflare/workerd-linux-64": "1.20260415.1", "@cloudflare/workerd-linux-arm64": "1.20260415.1", "@cloudflare/workerd-windows-64": "1.20260415.1" }, "bin": { "workerd": "bin/workerd" } }, "sha512-phyPjRnx+mQDfkhN9ENPioL1L0SdhYs4S0YmJK/xF9Oga+ykNfdSy1MHnsOj8yqnOV96zcVQMx32dJ0r3pq0jQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/ws": ["ws@8.18.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-8VbfWfHLbbwu3+N6OKsOMpBdT4kXPDDB9cJk2bJ6mh9ucxdlnNvH1e+roYkKmN9Nxw2yjz7VzeO9oOz2zJ04Pw=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/ws": ["ws@8.18.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-8VbfWfHLbbwu3+N6OKsOMpBdT4kXPDDB9cJk2bJ6mh9ucxdlnNvH1e+roYkKmN9Nxw2yjz7VzeO9oOz2zJ04Pw=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/@cloudflare/unenv-preset": ["@cloudflare/unenv-preset@2.16.0", "", { "peerDependencies": { "unenv": "2.0.0-rc.24", "workerd": "1.20260301.1 || ~1.20260302.1 || ~1.20260303.1 || ~1.20260304.1 || >1.20260305.0 <2.0.0-0" }, "optionalPeers": ["workerd"] }, "sha512-8ovsRpwzPoEqPUzoErAYVv8l3FMZNeBVQfJTvtzP4AgLSRGZISRfuChFxHWUQd3n6cnrwkuTGxT+2cGo8EsyYg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/@cloudflare/unenv-preset": ["@cloudflare/unenv-preset@2.16.0", "", { "peerDependencies": { "unenv": "2.0.0-rc.24", "workerd": "1.20260301.1 || ~1.20260302.1 || ~1.20260303.1 || ~1.20260304.1 || >1.20260305.0 <2.0.0-0" }, "optionalPeers": ["workerd"] }, "sha512-8ovsRpwzPoEqPUzoErAYVv8l3FMZNeBVQfJTvtzP4AgLSRGZISRfuChFxHWUQd3n6cnrwkuTGxT+2cGo8EsyYg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd": ["workerd@1.20260415.1", "", { "optionalDependencies": { "@cloudflare/workerd-darwin-64": "1.20260415.1", "@cloudflare/workerd-darwin-arm64": "1.20260415.1", "@cloudflare/workerd-linux-64": "1.20260415.1", "@cloudflare/workerd-linux-arm64": "1.20260415.1", "@cloudflare/workerd-windows-64": "1.20260415.1" }, "bin": { "workerd": "bin/workerd" } }, "sha512-phyPjRnx+mQDfkhN9ENPioL1L0SdhYs4S0YmJK/xF9Oga+ykNfdSy1MHnsOj8yqnOV96zcVQMx32dJ0r3pq0jQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd": ["workerd@1.20260415.1", "", { "optionalDependencies": { "@cloudflare/workerd-darwin-64": "1.20260415.1", "@cloudflare/workerd-darwin-arm64": "1.20260415.1", "@cloudflare/workerd-linux-64": "1.20260415.1", "@cloudflare/workerd-linux-arm64": "1.20260415.1", "@cloudflare/workerd-windows-64": "1.20260415.1" }, "bin": { "workerd": "bin/workerd" } }, "sha512-phyPjRnx+mQDfkhN9ENPioL1L0SdhYs4S0YmJK/xF9Oga+ykNfdSy1MHnsOj8yqnOV96zcVQMx32dJ0r3pq0jQ=="],
 
     "@inquirer/core/wrap-ansi/string-width/is-fullwidth-code-point": ["is-fullwidth-code-point@3.0.0", "", {}, "sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg=="],
 
@@ -6012,25 +6012,25 @@
 
     "@electron/rebuild/ora/cli-cursor/restore-cursor/signal-exit": ["signal-exit@3.0.7", "", {}, "sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-darwin-64": ["@cloudflare/workerd-darwin-64@1.20260415.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-dsxaKsQm3LnPGNPEdsRv09QN3Y4DqCw7kX5j6noKqbAtro2jTr95sVlYM1jUxZ5FkOl1f7SXgaKKB9t5H5Nkbg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-darwin-64": ["@cloudflare/workerd-darwin-64@1.20260415.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-dsxaKsQm3LnPGNPEdsRv09QN3Y4DqCw7kX5j6noKqbAtro2jTr95sVlYM1jUxZ5FkOl1f7SXgaKKB9t5H5Nkbg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-darwin-arm64": ["@cloudflare/workerd-darwin-arm64@1.20260415.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-+JgSgVA49KyKteHRA1SnonE4Zn5Ei5zdAp5FQMxFmXI8qulZw4Hl7safXxRyK4i9sTO8gl7TFOKO5Q64VPvSDQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-darwin-arm64": ["@cloudflare/workerd-darwin-arm64@1.20260415.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-+JgSgVA49KyKteHRA1SnonE4Zn5Ei5zdAp5FQMxFmXI8qulZw4Hl7safXxRyK4i9sTO8gl7TFOKO5Q64VPvSDQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-linux-64": ["@cloudflare/workerd-linux-64@1.20260415.1", "", { "os": "linux", "cpu": "x64" }, "sha512-tU+9pwsqCy8afOVlGtiWrWQc/fedQK4SRm4KPIAt+zOiQWDxWASm6YGBUJis5c648WN80yz47qnmdDi8DQNOcA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-linux-64": ["@cloudflare/workerd-linux-64@1.20260415.1", "", { "os": "linux", "cpu": "x64" }, "sha512-tU+9pwsqCy8afOVlGtiWrWQc/fedQK4SRm4KPIAt+zOiQWDxWASm6YGBUJis5c648WN80yz47qnmdDi8DQNOcA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-linux-arm64": ["@cloudflare/workerd-linux-arm64@1.20260415.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-bR9uITnV19r5NQ14xnypi2xHXu2iQvfYV8cVgx0JouFUmWwTEEAwFVojDdssGq93VHX9hr/pi2IRUZeegbYBog=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-linux-arm64": ["@cloudflare/workerd-linux-arm64@1.20260415.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-bR9uITnV19r5NQ14xnypi2xHXu2iQvfYV8cVgx0JouFUmWwTEEAwFVojDdssGq93VHX9hr/pi2IRUZeegbYBog=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-windows-64": ["@cloudflare/workerd-windows-64@1.20260415.1", "", { "os": "win32", "cpu": "x64" }, "sha512-4NuMLlerI0Ijua3Ir8HXQ+qyNvCUDEG5gDco5Om+sAiK6rnWiz+aGoSlbB8W16yW9QAgzCstbmXLiVknUBflfQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/miniflare/workerd/@cloudflare/workerd-windows-64": ["@cloudflare/workerd-windows-64@1.20260415.1", "", { "os": "win32", "cpu": "x64" }, "sha512-4NuMLlerI0Ijua3Ir8HXQ+qyNvCUDEG5gDco5Om+sAiK6rnWiz+aGoSlbB8W16yW9QAgzCstbmXLiVknUBflfQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-darwin-64": ["@cloudflare/workerd-darwin-64@1.20260415.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-dsxaKsQm3LnPGNPEdsRv09QN3Y4DqCw7kX5j6noKqbAtro2jTr95sVlYM1jUxZ5FkOl1f7SXgaKKB9t5H5Nkbg=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-darwin-64": ["@cloudflare/workerd-darwin-64@1.20260415.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-dsxaKsQm3LnPGNPEdsRv09QN3Y4DqCw7kX5j6noKqbAtro2jTr95sVlYM1jUxZ5FkOl1f7SXgaKKB9t5H5Nkbg=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-darwin-arm64": ["@cloudflare/workerd-darwin-arm64@1.20260415.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-+JgSgVA49KyKteHRA1SnonE4Zn5Ei5zdAp5FQMxFmXI8qulZw4Hl7safXxRyK4i9sTO8gl7TFOKO5Q64VPvSDQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-darwin-arm64": ["@cloudflare/workerd-darwin-arm64@1.20260415.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-+JgSgVA49KyKteHRA1SnonE4Zn5Ei5zdAp5FQMxFmXI8qulZw4Hl7safXxRyK4i9sTO8gl7TFOKO5Q64VPvSDQ=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-linux-64": ["@cloudflare/workerd-linux-64@1.20260415.1", "", { "os": "linux", "cpu": "x64" }, "sha512-tU+9pwsqCy8afOVlGtiWrWQc/fedQK4SRm4KPIAt+zOiQWDxWASm6YGBUJis5c648WN80yz47qnmdDi8DQNOcA=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-linux-64": ["@cloudflare/workerd-linux-64@1.20260415.1", "", { "os": "linux", "cpu": "x64" }, "sha512-tU+9pwsqCy8afOVlGtiWrWQc/fedQK4SRm4KPIAt+zOiQWDxWASm6YGBUJis5c648WN80yz47qnmdDi8DQNOcA=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-linux-arm64": ["@cloudflare/workerd-linux-arm64@1.20260415.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-bR9uITnV19r5NQ14xnypi2xHXu2iQvfYV8cVgx0JouFUmWwTEEAwFVojDdssGq93VHX9hr/pi2IRUZeegbYBog=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-linux-arm64": ["@cloudflare/workerd-linux-arm64@1.20260415.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-bR9uITnV19r5NQ14xnypi2xHXu2iQvfYV8cVgx0JouFUmWwTEEAwFVojDdssGq93VHX9hr/pi2IRUZeegbYBog=="],
 
-    "@executor/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-windows-64": ["@cloudflare/workerd-windows-64@1.20260415.1", "", { "os": "win32", "cpu": "x64" }, "sha512-4NuMLlerI0Ijua3Ir8HXQ+qyNvCUDEG5gDco5Om+sAiK6rnWiz+aGoSlbB8W16yW9QAgzCstbmXLiVknUBflfQ=="],
+    "@executor-js/runtime-dynamic-worker/@cloudflare/vitest-pool-workers/wrangler/workerd/@cloudflare/workerd-windows-64": ["@cloudflare/workerd-windows-64@1.20260415.1", "", { "os": "win32", "cpu": "x64" }, "sha512-4NuMLlerI0Ijua3Ir8HXQ+qyNvCUDEG5gDco5Om+sAiK6rnWiz+aGoSlbB8W16yW9QAgzCstbmXLiVknUBflfQ=="],
 
     "agents/yargs/cliui/strip-ansi/ansi-regex": ["ansi-regex@6.2.2", "", {}, "sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg=="],
 

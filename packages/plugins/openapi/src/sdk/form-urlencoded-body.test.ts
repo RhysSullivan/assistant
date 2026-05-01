@@ -24,7 +24,7 @@ import {
   makeTestConfig,
   type InvokeOptions,
   type SecretProvider,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import { openApiPlugin } from "./plugin";
 

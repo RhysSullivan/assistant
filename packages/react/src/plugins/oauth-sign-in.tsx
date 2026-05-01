@@ -9,7 +9,7 @@ import {
   OAUTH_POPUP_MESSAGE_TYPE,
   type OAuthStrategy,
   type SecretBackedValue,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 export type OAuthCompletionPayload = {
   readonly connectionId: string;

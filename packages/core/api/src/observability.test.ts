@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Layer, Ref } from "effect";
-import { StorageError, UniqueViolationError } from "@executor/storage-core";
+import { StorageError, UniqueViolationError } from "@executor-js/storage-core";
 
 import { capture, ErrorCapture, InternalError } from "./observability";
 

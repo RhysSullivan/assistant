@@ -1,4 +1,4 @@
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { makeInMemoryBlobStore } from "./blob";
 import type { ExecutorConfig } from "./executor";

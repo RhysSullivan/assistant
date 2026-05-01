@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
-import type { SandboxToolInvoker } from "@executor/codemode-core";
+import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import { isDenoAvailable, makeDenoSubprocessExecutor } from "./index";
 
 class UnknownToolError extends Data.TaggedError("UnknownToolError")<{

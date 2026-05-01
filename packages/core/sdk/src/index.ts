@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// @executor/sdk — public surface
+// @executor-js/sdk — public surface
 // ---------------------------------------------------------------------------
 
-// Storage adapter interface types (re-exported from @executor/storage-core
+// Storage adapter interface types (re-exported from @executor-js/storage-core
 // so plugin authors can write adapters against a single public surface
 // without depending on storage-core directly).
 export type {
@@ -14,13 +14,13 @@ export type {
   TypedAdapter,
   Where,
   WhereOperator,
-} from "@executor/storage-core";
+} from "@executor-js/storage-core";
 
-export { typedAdapter } from "@executor/storage-core";
+export { typedAdapter } from "@executor-js/storage-core";
 
 // Storage-layer typed errors (re-exported so plugin code can catchTag
 // `UniqueViolationError` without importing storage-core directly).
-export { StorageError, UniqueViolationError } from "@executor/storage-core";
+export { StorageError, UniqueViolationError } from "@executor-js/storage-core";
 
 // IDs (branded)
 export { ScopeId, ToolId, SecretId, PolicyId, ConnectionId } from "./ids";

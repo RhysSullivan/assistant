@@ -1,8 +1,8 @@
 import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
-import { useScope } from "@executor/react/api/scope-context";
-import { Button } from "@executor/react/components/button";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { Button } from "@executor-js/react/components/button";
 import {
   CardStack,
   CardStackContent,
@@ -13,43 +13,43 @@ import {
   CardStackEntryField,
   CardStackEntryMedia,
   CardStackEntryTitle,
-} from "@executor/react/components/card-stack";
-import { FieldError, FieldLabel } from "@executor/react/components/field";
-import { FilterTabs } from "@executor/react/components/filter-tabs";
-import { FloatActions } from "@executor/react/components/float-actions";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
-import { Badge } from "@executor/react/components/badge";
-import { Skeleton } from "@executor/react/components/skeleton";
-import { SourceFavicon } from "@executor/react/components/source-favicon";
-import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
-import { Textarea } from "@executor/react/components/textarea";
-import { HeadersList } from "@executor/react/plugins/headers-list";
+} from "@executor-js/react/components/card-stack";
+import { FieldError, FieldLabel } from "@executor-js/react/components/field";
+import { FilterTabs } from "@executor-js/react/components/filter-tabs";
+import { FloatActions } from "@executor-js/react/components/float-actions";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
+import { Badge } from "@executor-js/react/components/badge";
+import { Skeleton } from "@executor-js/react/components/skeleton";
+import { SourceFavicon } from "@executor-js/react/components/source-favicon";
+import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
+import { Textarea } from "@executor-js/react/components/textarea";
+import { HeadersList } from "@executor-js/react/plugins/headers-list";
 import {
   emptyHttpCredentials,
   httpCredentialsValid,
   HttpCredentialsEditor,
   serializeHttpCredentials,
   type SecretBackedValue,
-} from "@executor/react/plugins/http-credentials";
-import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
+} from "@executor-js/react/plugins/http-credentials";
+import { type HeaderState } from "@executor-js/react/plugins/secret-header-auth";
 import {
   displayNameFromUrl,
   slugifyNamespace,
   SourceIdentityFields,
   useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
-import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
+} from "@executor-js/react/plugins/source-identity";
+import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
 import {
   oauthCallbackUrl,
   oauthConnectionId,
   useOAuthPopupFlow,
   type OAuthCompletionPayload,
-} from "@executor/react/plugins/oauth-sign-in";
+} from "@executor-js/react/plugins/oauth-sign-in";
 
 type RemoteAuthMode = "none" | "header" | "oauth2";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { usePendingSources } from "@executor/react/api/optimistic";
+import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { usePendingSources } from "@executor-js/react/api/optimistic";
 import { probeMcpEndpoint, addMcpSource } from "./atoms";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
 

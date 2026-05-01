@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect } from "react";
 import { Atom } from "@effect-atom/atom";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { usePostHog } from "posthog-js/react";
-import { ReactivityKey } from "@executor/react/api/reactivity-keys";
+import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 
 import { CloudApiClient } from "./client";
 

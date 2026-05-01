@@ -23,7 +23,7 @@ const makeService = (store: RawStore) => ({
 
 type UserStoreServiceType = ReturnType<typeof makeService>;
 
-export class UserStoreService extends Context.Tag("@executor/cloud/UserStoreService")<
+export class UserStoreService extends Context.Tag("@executor-js/cloud/UserStoreService")<
   UserStoreService,
   UserStoreServiceType
 >() {

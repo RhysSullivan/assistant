@@ -21,23 +21,23 @@ import {
   ScopeId,
   collectSchemas,
   createExecutor,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 import {
   makeSqliteAdapter,
   makeSqliteBlobStore,
-} from "@executor/storage-file";
+} from "@executor-js/storage-file";
 import { NodeFileSystem } from "@effect/platform-node";
-import { makeFileConfigSink, type ConfigFileSink } from "@executor/config";
+import { makeFileConfigSink, type ConfigFileSink } from "@executor-js/config";
 import * as executorSchema from "./executor-schema";
 
 import { syncFromConfig, resolveConfigPath } from "./config-sync";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { keychainPlugin } from "@executor/plugin-keychain";
-import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
-import { onepasswordPlugin } from "@executor/plugin-onepassword";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { keychainPlugin } from "@executor-js/plugin-keychain";
+import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
+import { onepasswordPlugin } from "@executor-js/plugin-onepassword";
 
 // In dev mode the drizzle folder sits next to the source tree. In a compiled
 // binary the files are inlined via the build-time gen module below, and we
@@ -106,7 +106,7 @@ const createLocalPlugins = (configFile: ConfigFileSink) =>
 
 type LocalPlugins = ReturnType<typeof createLocalPlugins>;
 
-class LocalExecutorTag extends Context.Tag("@executor/local/Executor")<
+class LocalExecutorTag extends Context.Tag("@executor-js/local/Executor")<
   LocalExecutorTag,
   Effect.Effect.Success<ReturnType<typeof createExecutor<LocalPlugins>>>
 >() {}

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import { Deferred, Effect } from "effect";
 
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { makeInMemoryBlobStore } from "./blob";
 import {

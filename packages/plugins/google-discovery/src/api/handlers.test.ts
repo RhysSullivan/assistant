@@ -11,8 +11,8 @@ import { HttpApiBuilder, HttpServer } from "@effect/platform";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
-import { addGroup, observabilityMiddleware } from "@executor/api";
-import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor/api/server";
+import { addGroup, observabilityMiddleware } from "@executor-js/api";
+import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor-js/api/server";
 import type { GoogleDiscoveryPluginExtension } from "../sdk/plugin";
 import { GoogleDiscoveryExtensionService, GoogleDiscoveryHandlers } from "./handlers";
 import { GoogleDiscoveryGroup } from "./group";

@@ -6,7 +6,7 @@ import {
   SecretNotFoundError,
   SecretOwnedByConnectionError,
   SecretResolutionError,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import { InternalError } from "../observability";
 

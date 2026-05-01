@@ -1,10 +1,10 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
-import { ScopeId, ToolId } from "@executor/sdk";
+import { ScopeId, ToolId } from "@executor-js/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
-import { capture } from "@executor/api";
+import { capture } from "@executor-js/api";
 
 export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (handlers) =>
   handlers

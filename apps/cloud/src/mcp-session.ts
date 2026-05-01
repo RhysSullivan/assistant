@@ -13,8 +13,8 @@ import type { TransportState } from "agents/mcp";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
-import { createExecutorMcpServer } from "@executor/host-mcp";
-import { buildExecuteDescription } from "@executor/execution";
+import { createExecutorMcpServer } from "@executor-js/host-mcp";
+import { buildExecuteDescription } from "@executor-js/execution";
 import type { DrizzleDb, DbServiceShape } from "./services/db";
 
 // Import directly from core-shared-services, NOT from ./api/layers.ts.

@@ -1,5 +1,5 @@
 {
-  "name": "@executor/storage-file",
+  "name": "@executor-js/storage-file",
   "version": "1.4.4",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
-    "@executor/storage-core": "workspace:*",
-    "@executor/storage-drizzle": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
+    "@executor-js/storage-drizzle": "workspace:*",
     "drizzle-orm": "catalog:",
     "effect": "catalog:"
   },

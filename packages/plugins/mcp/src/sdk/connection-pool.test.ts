@@ -28,7 +28,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
-import { createExecutor, makeTestConfig } from "@executor/sdk";
+import { createExecutor, makeTestConfig } from "@executor-js/sdk";
 
 import { mcpPlugin } from "./plugin";
 

@@ -22,8 +22,8 @@ import {
   collectSchemas,
   createExecutor,
   makeInMemoryBlobStore,
-} from "@executor/sdk";
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+} from "@executor-js/sdk";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { mcpPlugin } from "./plugin";
 

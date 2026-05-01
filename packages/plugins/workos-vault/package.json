@@ -1,5 +1,5 @@
 {
-  "name": "@executor/plugin-workos-vault",
+  "name": "@executor-js/plugin-workos-vault",
   "version": "0.0.2",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/workos-vault",
   "bugs": {
@@ -45,12 +45,12 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@workos-inc/node": "^8.11.1",
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@executor/storage-core": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "react": "catalog:",
@@ -58,11 +58,11 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@executor/react": "workspace:*",
+    "@executor-js/react": "workspace:*",
     "react": ">=18"
   },
   "peerDependenciesMeta": {
-    "@executor/react": {
+    "@executor-js/react": {
       "optional": true
     },
     "react": {

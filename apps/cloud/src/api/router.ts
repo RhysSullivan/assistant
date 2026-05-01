@@ -6,19 +6,19 @@ type RequestAppService = {
 };
 
 export class OrgRequestHandlerService extends Context.Tag(
-  "@executor/cloud/OrgRequestHandlerService",
+  "@executor-js/cloud/OrgRequestHandlerService",
 )<OrgRequestHandlerService, RequestAppService>() {}
 
 export class NonProtectedRequestHandlerService extends Context.Tag(
-  "@executor/cloud/NonProtectedRequestHandlerService",
+  "@executor-js/cloud/NonProtectedRequestHandlerService",
 )<NonProtectedRequestHandlerService, RequestAppService>() {}
 
 export class AutumnRequestHandlerService extends Context.Tag(
-  "@executor/cloud/AutumnRequestHandlerService",
+  "@executor-js/cloud/AutumnRequestHandlerService",
 )<AutumnRequestHandlerService, RequestAppService>() {}
 
 export class ProtectedRequestHandlerService extends Context.Tag(
-  "@executor/cloud/ProtectedRequestHandlerService",
+  "@executor-js/cloud/ProtectedRequestHandlerService",
 )<ProtectedRequestHandlerService, RequestAppService>() {}
 
 export const ApiRouterApp = Effect.gen(function* () {

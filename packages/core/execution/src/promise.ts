@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/execution/promise — Promise-native surface for the execution
+// @executor-js/execution/promise — Promise-native surface for the execution
 // engine.
 // ---------------------------------------------------------------------------
 //
@@ -7,7 +7,7 @@
 // `Effect.runPromise` at the boundary so hosts that can't compose Effects
 // (the MCP SDK tool handlers, plain async call sites) can still use the
 // engine. Callers already inside an Effect context should import directly
-// from `@executor/execution` to keep trace context intact.
+// from `@executor-js/execution` to keep trace context intact.
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
@@ -17,8 +17,8 @@ import type {
   ElicitationContext,
   ElicitationResponse,
   Executor as PromiseExecutor,
-} from "@executor/sdk";
-import type { CodeExecutionError, CodeExecutor, ExecuteResult } from "@executor/codemode-core";
+} from "@executor-js/sdk";
+import type { CodeExecutionError, CodeExecutor, ExecuteResult } from "@executor-js/codemode-core";
 
 import {
   createExecutionEngine as createEffectExecutionEngine,

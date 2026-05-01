@@ -14,8 +14,8 @@ import type {
   SourceConfig,
   ExecutorFileConfig,
   ConfigHeaderValue,
-} from "@executor/config";
-import { SECRET_REF_PREFIX } from "@executor/config";
+} from "@executor-js/config";
+import { SECRET_REF_PREFIX } from "@executor-js/config";
 
 import type { LocalExecutor } from "./executor";
 

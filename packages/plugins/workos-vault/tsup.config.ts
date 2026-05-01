@@ -9,5 +9,5 @@ export default defineConfig({
   dts: false,
   sourcemap: true,
   clean: true,
-  external: [/^@executor\//, /^effect/, /^@workos-inc\/node/],
+  external: [/^@executor-js\//, /^effect/, /^@workos-inc\/node/],
 });

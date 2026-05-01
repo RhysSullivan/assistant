@@ -8,7 +8,7 @@ import {
   type DBTransactionAdapter,
   type StorageFailure,
   type TypedAdapter,
-} from "@executor/storage-core";
+} from "@executor-js/storage-core";
 
 import {
   pluginBlobStore,
@@ -1720,7 +1720,7 @@ export const createExecutor = <
       // Plugin-facing typed view. `StorageError` and `UniqueViolationError`
       // flow through the typed channel unchanged — plugins can
       // `catchTag("UniqueViolationError", …)` to translate to their own
-      // user-facing errors; the HTTP edge (see @executor/api
+      // user-facing errors; the HTTP edge (see @executor-js/api
       // `withCapture`) is responsible for translating any
       // `StorageError` that still escapes into the opaque InternalError.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

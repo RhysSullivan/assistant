@@ -4,14 +4,14 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import { AutumnProvider } from "autumn-js/react";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
-import { ExecutorProvider } from "@executor/react/api/provider";
-import { Skeleton } from "@executor/react/components/skeleton";
-import { Toaster } from "@executor/react/components/sonner";
+import { ExecutorProvider } from "@executor-js/react/api/provider";
+import { Skeleton } from "@executor-js/react/components/skeleton";
+import { Toaster } from "@executor-js/react/components/sonner";
 import { AuthProvider, useAuth } from "../web/auth";
 import { LoginPage } from "../web/pages/login";
 import { OnboardingPage } from "../web/pages/onboarding";
 import { Shell } from "../web/shell";
-import appCss from "@executor/react/globals.css?url";
+import appCss from "@executor-js/react/globals.css?url";
 
 if (typeof window !== "undefined" && import.meta.env.VITE_PUBLIC_SENTRY_DSN) {
   Sentry.init({

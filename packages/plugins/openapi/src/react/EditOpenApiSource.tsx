@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 
-import { connectionsAtom, sourceAtom, startOAuth } from "@executor/react/api/atoms";
-import { useScope, useScopeStack, useUserScope } from "@executor/react/api/scope-context";
-import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { Button } from "@executor/react/components/button";
-import { CopyButton } from "@executor/react/components/copy-button";
+import { connectionsAtom, sourceAtom, startOAuth } from "@executor-js/react/api/atoms";
+import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
+import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { Button } from "@executor-js/react/components/button";
+import { CopyButton } from "@executor-js/react/components/copy-button";
 import {
   CardStack,
   CardStackContent,
@@ -14,18 +14,18 @@ import {
   CardStackEntryDescription,
   CardStackEntryField,
   CardStackEntryTitle,
-} from "@executor/react/components/card-stack";
-import { FilterTabs } from "@executor/react/components/filter-tabs";
-import { Input } from "@executor/react/components/input";
-import { sourceWriteKeys as openApiWriteKeys } from "@executor/react/api/reactivity-keys";
-import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
-import { CreatableSecretPicker } from "@executor/react/plugins/secret-header-auth";
-import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
+} from "@executor-js/react/components/card-stack";
+import { FilterTabs } from "@executor-js/react/components/filter-tabs";
+import { Input } from "@executor-js/react/components/input";
+import { sourceWriteKeys as openApiWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk";
+import { CreatableSecretPicker } from "@executor-js/react/plugins/secret-header-auth";
+import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
 import {
   oauthCallbackUrl,
   useOAuthPopupFlow,
   type OAuthCompletionPayload,
-} from "@executor/react/plugins/oauth-sign-in";
+} from "@executor-js/react/plugins/oauth-sign-in";
 
 import {
   openApiSourceAtom,

@@ -20,8 +20,8 @@ import {
   parse as parseOpenApi,
   resolveSpecText,
   OAuth2Auth,
-} from "@executor/plugin-openapi";
-import { McpConnectionAuth } from "@executor/plugin-mcp";
+} from "@executor-js/plugin-openapi";
+import { McpConnectionAuth } from "@executor-js/plugin-mcp";
 
 // ---------------------------------------------------------------------------
 // Shared helpers

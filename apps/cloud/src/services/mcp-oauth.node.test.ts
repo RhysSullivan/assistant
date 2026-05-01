@@ -28,7 +28,7 @@ import type { AddressInfo } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
 
 import { Effect } from "effect";
-import { ScopeId } from "@executor/sdk";
+import { ScopeId } from "@executor-js/sdk";
 
 import { asUser, testUserOrgScopeId } from "./__test-harness__/api-harness";
 

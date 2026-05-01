@@ -18,7 +18,7 @@ import {
   OAuthStrategySchema,
   ScopeId,
   SecretBackedMap,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import { InternalError } from "../observability";
 

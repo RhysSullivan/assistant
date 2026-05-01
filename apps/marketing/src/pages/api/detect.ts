@@ -1,9 +1,9 @@
 import type { APIRoute } from "astro";
 import { Effect } from "effect";
-import { createExecutor, makeTestConfig, type Tool } from "@executor/sdk";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
+import { createExecutor, makeTestConfig, type Tool } from "@executor-js/sdk";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
 
 export const prerender = false;
 

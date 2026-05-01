@@ -1,20 +1,20 @@
-# @executor/plugin-google-discovery
+# @executor-js/plugin-google-discovery
 
 Turn any [Google Discovery API](https://developers.google.com/discovery) (Calendar, Gmail, Drive, Sheets, etc.) into a set of executor tools. Handles the discovery document, OAuth flow, and per-request token binding.
 
 ## Install
 
 ```sh
-bun add @executor/sdk @executor/plugin-google-discovery
+bun add @executor-js/sdk @executor-js/plugin-google-discovery
 # or
-npm install @executor/sdk @executor/plugin-google-discovery
+npm install @executor-js/sdk @executor-js/plugin-google-discovery
 ```
 
 ## Usage
 
 ```ts
-import { createExecutor } from "@executor/sdk";
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
+import { createExecutor } from "@executor-js/sdk";
+import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
 
 const executor = await createExecutor({
   scope: { name: "my-app" },
@@ -40,15 +40,15 @@ const tools = await executor.tools.list();
 A curated set of common Google APIs is available from the `/presets` subpath:
 
 ```ts
-import { googleDiscoveryPresets } from "@executor/plugin-google-discovery/presets";
+import { googleDiscoveryPresets } from "@executor-js/plugin-google-discovery/presets";
 ```
 
 ## Using with Effect
 
-If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor-js/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
+import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
 ```
 
 ## Status

@@ -1,5 +1,5 @@
-import type { ScopeId } from "@executor/sdk";
-import { ReactivityKey } from "@executor/react/api/reactivity-keys";
+import type { ScopeId } from "@executor-js/sdk";
+import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { GoogleDiscoveryClient } from "./client";
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,6 @@ export const updateGoogleDiscoverySource = GoogleDiscoveryClient.mutation(
   "googleDiscovery",
   "updateSource",
 );
-// OAuth flow atoms live on `@executor/react/api/atoms` now —
+// OAuth flow atoms live on `@executor-js/react/api/atoms` now —
 // `startOAuth`, `completeOAuth`, `probeOAuth`, `cancelOAuth` — one
 // pair serves every OAuth-capable plugin.

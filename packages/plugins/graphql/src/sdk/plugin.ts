@@ -8,13 +8,13 @@ import {
   type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import {
   headersToConfigValues,
   type ConfigFileSink,
   type GraphqlSourceConfig as GraphqlConfigEntry,
-} from "@executor/config";
+} from "@executor-js/config";
 
 import {
   introspect,
@@ -90,7 +90,7 @@ export interface GraphqlUpdateSourceInput {
  * and `GraphqlExtractionError` are plugin-domain tagged errors that flow
  * directly to clients (4xx, each carrying its own `HttpApiSchema` status).
  * `StorageFailure` covers raw backend failures (`StorageError` plus
- * `UniqueViolationError`); the HTTP edge (`@executor/api`'s `withCapture`)
+ * `UniqueViolationError`); the HTTP edge (`@executor-js/api`'s `withCapture`)
  * translates `StorageError` to the opaque `InternalError({ traceId })` at
  * Layer composition.
  */

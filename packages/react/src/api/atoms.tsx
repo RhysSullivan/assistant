@@ -4,7 +4,7 @@ import {
   type ToolId,
   type SecretId,
   type ToolPolicyAction,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 import { Atom, Result } from "@effect-atom/atom-react";
 
 import { ExecutorApiClient } from "./client";

@@ -7,8 +7,8 @@
 import { env } from "cloudflare:workers";
 import { Effect } from "effect";
 
-import { createExecutionEngine } from "@executor/execution";
-import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
+import { createExecutionEngine } from "@executor-js/execution";
+import { makeDynamicWorkerExecutor } from "@executor-js/runtime-dynamic-worker";
 
 import { withExecutionUsageTracking } from "../api/execution-usage";
 import { AutumnService } from "./autumn";

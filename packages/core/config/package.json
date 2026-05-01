@@ -1,5 +1,5 @@
 {
-  "name": "@executor/config",
+  "name": "@executor-js/config",
   "version": "1.4.3",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@effect/platform": "catalog:",
-    "@executor/sdk": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "effect": "catalog:",
     "jsonc-parser": "^3.3.1"
   },

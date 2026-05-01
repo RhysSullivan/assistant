@@ -27,7 +27,7 @@ if (
 // Pre-load QuickJS WASM for compiled binaries — must run before server imports
 const wasmOnDisk = join(execDir, "emscripten-module.wasm");
 if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
-  const { setQuickJSModule } = await import("@executor/runtime-quickjs");
+  const { setQuickJSModule } = await import("@executor-js/runtime-quickjs");
   const { newQuickJSWASMModule } = await import("quickjs-emscripten");
   const wasmBinary = await Bun.file(wasmOnDisk).arrayBuffer();
   const variant = {
@@ -57,9 +57,9 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
 
-import { ExecutorApi } from "@executor/api";
-import { startServer, runMcpStdioServer, getExecutor } from "@executor/local";
-import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+import { ExecutorApi } from "@executor-js/api";
+import { startServer, runMcpStdioServer, getExecutor } from "@executor-js/local";
+import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import {
   buildDaemonSpawnSpec,
   chooseDaemonPort,

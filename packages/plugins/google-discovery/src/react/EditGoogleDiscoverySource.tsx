@@ -1,7 +1,7 @@
 import { useAtomValue, Result } from "@effect-atom/atom-react";
-import { useScope } from "@executor/react/api/scope-context";
-import { Badge } from "@executor/react/components/badge";
-import { Button } from "@executor/react/components/button";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { Badge } from "@executor-js/react/components/badge";
+import { Button } from "@executor-js/react/components/button";
 
 import { googleDiscoverySourceAtom } from "./atoms";
 

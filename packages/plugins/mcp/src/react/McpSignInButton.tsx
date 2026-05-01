@@ -1,17 +1,17 @@
 import { useCallback } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
-import { useScope } from "@executor/react/api/scope-context";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { connectionsAtom } from "@executor/react/api/atoms";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { connectionsAtom } from "@executor-js/react/api/atoms";
 import {
   OAuthSignInButton,
   oauthCallbackUrl,
   oauthConnectionId,
   useOAuthPopupFlow,
   type OAuthCompletionPayload,
-} from "@executor/react/plugins/oauth-sign-in";
-import { slugifyNamespace } from "@executor/react/plugins/source-identity";
+} from "@executor-js/react/plugins/oauth-sign-in";
+import { slugifyNamespace } from "@executor-js/react/plugins/source-identity";
 
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
 

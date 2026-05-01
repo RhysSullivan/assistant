@@ -1,20 +1,20 @@
-# @executor/plugin-mcp
+# @executor-js/plugin-mcp
 
 Register [Model Context Protocol](https://modelcontextprotocol.io) servers as tool sources for an executor. Supports both stdio-launched servers and remote (HTTP) servers, with optional OAuth.
 
 ## Install
 
 ```sh
-bun add @executor/sdk @executor/plugin-mcp
+bun add @executor-js/sdk @executor-js/plugin-mcp
 # or
-npm install @executor/sdk @executor/plugin-mcp
+npm install @executor-js/sdk @executor-js/plugin-mcp
 ```
 
 ## Usage
 
 ```ts
-import { createExecutor } from "@executor/sdk";
-import { mcpPlugin } from "@executor/plugin-mcp";
+import { createExecutor } from "@executor-js/sdk";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
 
 const executor = await createExecutor({
   scope: { name: "my-app" },
@@ -48,10 +48,10 @@ const result = await executor.tools.invoke(
 
 ## Using with Effect
 
-If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor-js/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { mcpPlugin } from "@executor/plugin-mcp";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
 ```
 
 ## Status

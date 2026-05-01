@@ -1,8 +1,8 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
 
-import { capture } from "@executor/api";
-import type { ConnectionRef } from "@executor/sdk";
+import { capture } from "@executor-js/api";
+import type { ConnectionRef } from "@executor-js/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";

@@ -10,11 +10,11 @@ import {
   CoreExecutorApi,
   InternalError,
   observabilityMiddleware,
-} from "@executor/api";
-import { CoreHandlers } from "@executor/api/server";
-import { OpenApiGroup, OpenApiHandlers } from "@executor/plugin-openapi/api";
-import { McpGroup, McpHandlers } from "@executor/plugin-mcp/api";
-import { GraphqlGroup, GraphqlHandlers } from "@executor/plugin-graphql/api";
+} from "@executor-js/api";
+import { CoreHandlers } from "@executor-js/api/server";
+import { OpenApiGroup, OpenApiHandlers } from "@executor-js/plugin-openapi/api";
+import { McpGroup, McpHandlers } from "@executor-js/plugin-mcp/api";
+import { GraphqlGroup, GraphqlHandlers } from "@executor-js/plugin-graphql/api";
 
 import { OrgAuth } from "../auth/middleware";
 import { OrgAuthLive } from "../auth/middleware-live";

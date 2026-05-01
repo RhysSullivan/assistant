@@ -2,10 +2,10 @@
  * Example: Promise-based executor SDK with MCP, OpenAPI, and GraphQL
  * — no Effect knowledge needed. In-memory stores, runs anywhere.
  */
-import { createExecutor, SecretId, SetSecretInput } from "@executor/sdk/promise";
-import { mcpPlugin } from "@executor/plugin-mcp/promise";
-import { openApiPlugin } from "@executor/plugin-openapi/promise";
-import { graphqlPlugin } from "@executor/plugin-graphql/promise";
+import { createExecutor, SecretId, SetSecretInput } from "@executor-js/sdk/promise";
+import { mcpPlugin } from "@executor-js/plugin-mcp/promise";
+import { openApiPlugin } from "@executor-js/plugin-openapi/promise";
+import { graphqlPlugin } from "@executor-js/plugin-graphql/promise";
 
 // ---------------------------------------------------------------------------
 // 1. Create the executor with all plugins

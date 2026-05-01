@@ -7,7 +7,7 @@ import {
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import {
   googleDiscoverySchema,

@@ -9,7 +9,7 @@ import { Effect } from "effect";
 import http from "node:http";
 import { AddressInfo } from "node:net";
 
-import { ScopeId } from "@executor/sdk";
+import { ScopeId } from "@executor-js/sdk";
 
 import { asOrg } from "./__test-harness__/api-harness";
 

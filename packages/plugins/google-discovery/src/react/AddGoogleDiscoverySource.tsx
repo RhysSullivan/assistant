@@ -1,34 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
-import { usePendingSources } from "@executor/react/api/optimistic";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { useScope } from "@executor/react/api/scope-context";
-import type { SecretPickerSecret } from "@executor/react/plugins/secret-picker";
-import { CreatableSecretPicker } from "@executor/react/plugins/secret-header-auth";
-import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
-import { Badge } from "@executor/react/components/badge";
-import { Button } from "@executor/react/components/button";
+import { usePendingSources } from "@executor-js/react/api/optimistic";
+import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { useScope } from "@executor-js/react/api/scope-context";
+import type { SecretPickerSecret } from "@executor-js/react/plugins/secret-picker";
+import { CreatableSecretPicker } from "@executor-js/react/plugins/secret-header-auth";
+import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
+import { Badge } from "@executor-js/react/components/badge";
+import { Button } from "@executor-js/react/components/button";
 import {
   CardStack,
   CardStackContent,
   CardStackEntryField,
-} from "@executor/react/components/card-stack";
+} from "@executor-js/react/components/card-stack";
 import {
   SourceIdentityFields,
   slugifyNamespace,
   useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
+} from "@executor-js/react/plugins/source-identity";
 import {
   oauthCallbackUrl,
   oauthConnectionId,
   useOAuthPopupFlow,
-} from "@executor/react/plugins/oauth-sign-in";
+} from "@executor-js/react/plugins/oauth-sign-in";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@executor/react/components/collapsible";
+} from "@executor-js/react/components/collapsible";
 import {
   Field,
   FieldContent,
@@ -38,12 +38,12 @@ import {
   FieldLegend,
   FieldSet,
   FieldTitle,
-} from "@executor/react/components/field";
-import { FilterTabs } from "@executor/react/components/filter-tabs";
-import { FloatActions } from "@executor/react/components/float-actions";
-import { Input } from "@executor/react/components/input";
-import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
-import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
+} from "@executor-js/react/components/field";
+import { FilterTabs } from "@executor-js/react/components/filter-tabs";
+import { FloatActions } from "@executor-js/react/components/float-actions";
+import { Input } from "@executor-js/react/components/input";
+import { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
+import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
 import { addGoogleDiscoverySource, probeGoogleDiscovery } from "./atoms";
 import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";
 import { googleDiscoveryPresets, type GoogleDiscoveryPreset } from "../sdk/presets";

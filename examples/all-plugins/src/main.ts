@@ -27,17 +27,17 @@ import {
   collectSchemas,
   createExecutor,
   makeInMemoryBlobStore,
-} from "@executor/sdk";
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+} from "@executor-js/sdk";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
-import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { keychainPlugin } from "@executor/plugin-keychain";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { onepasswordPlugin } from "@executor/plugin-onepassword";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { workosVaultPlugin } from "@executor/plugin-workos-vault";
+import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
+import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { keychainPlugin } from "@executor-js/plugin-keychain";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { onepasswordPlugin } from "@executor-js/plugin-onepassword";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { workosVaultPlugin } from "@executor-js/plugin-workos-vault";
 
 // ---------------------------------------------------------------------------
 // 1. Build the ExecutorConfig.

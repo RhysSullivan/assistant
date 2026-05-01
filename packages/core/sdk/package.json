@@ -1,5 +1,5 @@
 {
-  "name": "@executor/sdk",
+  "name": "@executor-js/sdk",
   "version": "0.0.1",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/sdk",
   "bugs": {
@@ -45,7 +45,7 @@
   },
   "dependencies": {
     "@effect/platform": "catalog:",
-    "@executor/storage-core": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
     "effect": "catalog:",
     "oauth4webapi": "^3.8.5",
     "fractional-indexing": "^3.2.0"

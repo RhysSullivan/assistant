@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
-import { authWriteKeys } from "@executor/react/api/reactivity-keys";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
+import { authWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
 
 import { createOrganization } from "../auth";
 

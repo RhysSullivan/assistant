@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ToolsPage } from "@executor/react/pages/tools";
+import { ToolsPage } from "@executor-js/react/pages/tools";
 
 export const Route = createFileRoute("/tools")({
   component: ToolsPage,

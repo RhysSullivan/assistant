@@ -6,7 +6,7 @@ import {
   ToolId,
   type EffectivePolicy,
   type ToolPolicyAction,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { Markdown } from "./markdown";

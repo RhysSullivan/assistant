@@ -1,38 +1,38 @@
 import { useCallback, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
-import { useScope } from "@executor/react/api/scope-context";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { usePendingSources } from "@executor/react/api/optimistic";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { usePendingSources } from "@executor-js/react/api/optimistic";
 import {
   HttpCredentialsEditor,
   httpCredentialsValid,
   serializeHttpCredentials,
   type HttpCredentialsState,
-} from "@executor/react/plugins/http-credentials";
+} from "@executor-js/react/plugins/http-credentials";
 import {
   displayNameFromUrl,
   slugifyNamespace,
   SourceIdentityFields,
   useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
+} from "@executor-js/react/plugins/source-identity";
 import {
   oauthCallbackUrl,
   oauthConnectionId,
   useOAuthPopupFlow,
   type OAuthCompletionPayload,
-} from "@executor/react/plugins/oauth-sign-in";
-import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
-import { Button } from "@executor/react/components/button";
-import { FilterTabs } from "@executor/react/components/filter-tabs";
+} from "@executor-js/react/plugins/oauth-sign-in";
+import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
+import { Button } from "@executor-js/react/components/button";
+import { FilterTabs } from "@executor-js/react/components/filter-tabs";
 import {
   CardStack,
   CardStackContent,
   CardStackEntryField,
-} from "@executor/react/components/card-stack";
-import { FloatActions } from "@executor/react/components/float-actions";
-import { Input } from "@executor/react/components/input";
-import { Spinner } from "@executor/react/components/spinner";
+} from "@executor-js/react/components/card-stack";
+import { FloatActions } from "@executor-js/react/components/float-actions";
+import { Input } from "@executor-js/react/components/input";
+import { Spinner } from "@executor-js/react/components/spinner";
 import { addGraphqlSource } from "./atoms";
 import { initialGraphqlCredentials } from "./defaults";
 import type { HeaderValue } from "../sdk/types";

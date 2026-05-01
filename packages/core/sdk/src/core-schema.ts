@@ -13,7 +13,7 @@
 import type {
   DBSchema,
   InferDBFieldsOutput,
-} from "@executor/storage-core";
+} from "@executor-js/storage-core";
 
 export const coreSchema = {
   source: {

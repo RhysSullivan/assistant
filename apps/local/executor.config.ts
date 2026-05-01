@@ -1,8 +1,8 @@
-import { defineExecutorConfig } from "@executor/sdk";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
-import { graphqlPlugin } from "@executor/plugin-graphql";
+import { defineExecutorConfig } from "@executor-js/sdk";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { googleDiscoveryPlugin } from "@executor-js/plugin-google-discovery";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
 
 // ---------------------------------------------------------------------------
 // Executor config for CLI schema generation (local / sqlite).

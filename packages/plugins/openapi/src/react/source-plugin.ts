@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import type { SourcePlugin } from "@executor/react/plugins/source-plugin";
+import type { SourcePlugin } from "@executor-js/react/plugins/source-plugin";
 import { openApiPresets } from "../sdk/presets";
 
 export const openApiSourcePlugin: SourcePlugin = {

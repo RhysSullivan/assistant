@@ -75,7 +75,7 @@ const make = Effect.sync(() => {
   return { use, trackExecution } satisfies IAutumnService;
 });
 
-export class AutumnService extends Context.Tag("@executor/cloud/AutumnService")<
+export class AutumnService extends Context.Tag("@executor-js/cloud/AutumnService")<
   AutumnService,
   IAutumnService
 >() {

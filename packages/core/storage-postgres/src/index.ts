@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// @executor/storage-postgres
+// @executor-js/storage-postgres
 //
 // Postgres-backed storage primitives for the executor runtime. Thin
-// wrapper around @executor/storage-drizzle.
+// wrapper around @executor-js/storage-drizzle.
 // ---------------------------------------------------------------------------
 
 export {

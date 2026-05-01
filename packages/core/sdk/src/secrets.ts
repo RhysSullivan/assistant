@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 
-import type { StorageFailure } from "@executor/storage-core";
+import type { StorageFailure } from "@executor-js/storage-core";
 
 import { SecretId, ScopeId } from "./ids";
 

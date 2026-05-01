@@ -31,7 +31,7 @@ export interface OnePasswordService {
 }
 
 export class OnePasswordServiceTag extends Context.Tag(
-  "@executor/plugin-onepassword/OnePasswordService",
+  "@executor-js/plugin-onepassword/OnePasswordService",
 )<OnePasswordServiceTag, OnePasswordService>() {}
 
 // ---------------------------------------------------------------------------

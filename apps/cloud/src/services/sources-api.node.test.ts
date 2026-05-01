@@ -8,7 +8,7 @@ import { Effect } from "effect";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { ScopeId, SecretId } from "@executor/sdk";
+import { ScopeId, SecretId } from "@executor-js/sdk";
 
 import {
   asOrg,

@@ -1,20 +1,20 @@
-# @executor/plugin-openapi
+# @executor-js/plugin-openapi
 
 Load [OpenAPI](https://www.openapis.org/) specifications into an executor. Every operation in the spec becomes an invokable tool with a JSON-Schema input, automatic request building, and optional secret-backed auth.
 
 ## Install
 
 ```sh
-bun add @executor/sdk @executor/plugin-openapi
+bun add @executor-js/sdk @executor-js/plugin-openapi
 # or
-npm install @executor/sdk @executor/plugin-openapi
+npm install @executor-js/sdk @executor-js/plugin-openapi
 ```
 
 ## Usage
 
 ```ts
-import { createExecutor } from "@executor/sdk";
-import { openApiPlugin } from "@executor/plugin-openapi";
+import { createExecutor } from "@executor-js/sdk";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
 
 const executor = await createExecutor({
   scope: { name: "my-app" },
@@ -62,15 +62,15 @@ await executor.openapi.addSpec({
 Common public APIs are available as presets from the `/presets` subpath:
 
 ```ts
-import { openApiPresets } from "@executor/plugin-openapi/presets";
+import { openApiPresets } from "@executor-js/plugin-openapi/presets";
 ```
 
 ## Effect entry point
 
-If you're using `@executor/core` directly, import from the `/core` subpath:
+If you're using `@executor-js/core` directly, import from the `/core` subpath:
 
 ```ts
-import { openApiPlugin } from "@executor/plugin-openapi";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
 ```
 
 ## Status

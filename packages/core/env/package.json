@@ -1,5 +1,5 @@
 {
-  "name": "@executor/env",
+  "name": "@executor-js/env",
   "version": "1.4.0",
   "private": true,
   "type": "module",

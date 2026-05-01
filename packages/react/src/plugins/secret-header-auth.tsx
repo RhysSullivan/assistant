@@ -4,7 +4,7 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { setSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import { useScope } from "../api/scope-context";
-import { SecretId, type ScopeId } from "@executor/sdk";
+import { SecretId, type ScopeId } from "@executor-js/sdk";
 import { Button } from "../components/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "../components/field";
 import { Input } from "../components/input";

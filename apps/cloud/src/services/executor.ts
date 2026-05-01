@@ -15,15 +15,15 @@ import {
   ScopeId,
   collectSchemas,
   createExecutor,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 import {
   makePostgresAdapter,
   makePostgresBlobStore,
-} from "@executor/storage-postgres";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { workosVaultPlugin } from "@executor/plugin-workos-vault";
+} from "@executor-js/storage-postgres";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { workosVaultPlugin } from "@executor-js/plugin-workos-vault";
 
 import { env } from "cloudflare:workers";
 import { DbService } from "./db";

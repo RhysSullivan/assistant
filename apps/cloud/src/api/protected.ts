@@ -1,10 +1,10 @@
 import { HttpApiBuilder, HttpApiSwagger, HttpServerRequest } from "@effect/platform";
 import { Effect, Layer } from "effect";
 
-import { ExecutorService, ExecutionEngineService } from "@executor/api/server";
-import { OpenApiExtensionService } from "@executor/plugin-openapi/api";
-import { McpExtensionService } from "@executor/plugin-mcp/api";
-import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
+import { ExecutorService, ExecutionEngineService } from "@executor-js/api/server";
+import { OpenApiExtensionService } from "@executor-js/plugin-openapi/api";
+import { McpExtensionService } from "@executor-js/plugin-mcp/api";
+import { GraphqlExtensionService } from "@executor-js/plugin-graphql/api";
 
 import { authorizeOrganization } from "../auth/authorize-organization";
 import { WorkOSAuth } from "../auth/workos";

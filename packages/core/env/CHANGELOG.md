@@ -1,4 +1,4 @@
-# @executor/env
+# @executor-js/env
 
 ## 1.4.0
 

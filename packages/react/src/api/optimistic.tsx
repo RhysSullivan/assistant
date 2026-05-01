@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Atom, Result, useAtomSet, useAtomValue } from "@effect-atom/atom-react";
-import type { ScopeId } from "@executor/sdk";
+import type { ScopeId } from "@executor-js/sdk";
 
 import { connectionsAtom, sourcesAtom } from "./atoms";
 

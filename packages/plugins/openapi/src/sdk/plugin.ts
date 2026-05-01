@@ -13,13 +13,13 @@ import {
   type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import {
   headersToConfigValues,
   type ConfigFileSink,
   type OpenApiSourceConfig,
-} from "@executor/config";
+} from "@executor-js/config";
 
 import { OpenApiExtractionError, OpenApiOAuthError, OpenApiParseError } from "./errors";
 import { parse, resolveSpecText } from "./parse";
@@ -101,7 +101,7 @@ export interface OpenApiUpdateSourceInput {
  * plugin-domain tagged errors that flow directly to clients (4xx, each
  * carrying its own `HttpApiSchema` status). `StorageFailure` covers
  * raw backend failures (`StorageError`) plus `UniqueViolationError`;
- * the HTTP edge (`@executor/api`'s `withCapture`) translates
+ * the HTTP edge (`@executor-js/api`'s `withCapture`) translates
  * `StorageError` to the opaque `InternalError({ traceId })` at Layer
  * composition. `UniqueViolationError` passes through — plugins can
  * `Effect.catchTag` it if they want a friendlier user-facing error.

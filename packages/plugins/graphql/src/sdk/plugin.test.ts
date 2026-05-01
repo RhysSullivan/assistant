@@ -12,7 +12,7 @@ import {
   SecretId,
   type SecretProvider,
   TokenMaterial,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import { graphqlPlugin } from "./plugin";
 import type { IntrospectionResult } from "./introspect";

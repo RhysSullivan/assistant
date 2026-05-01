@@ -23,7 +23,7 @@ export type Session = {
   readonly refreshedSession: string | null;
 };
 
-export class SessionContext extends Context.Tag("@executor/cloud/Session")<
+export class SessionContext extends Context.Tag("@executor-js/cloud/Session")<
   SessionContext,
   Session
 >() {}
@@ -60,7 +60,7 @@ export class SessionAuth extends HttpApiMiddleware.Tag<SessionAuth>()("SessionAu
 // OrgAuth — like SessionAuth but rejects sessions with no organization
 // ---------------------------------------------------------------------------
 
-export class AuthContext extends Context.Tag("@executor/cloud/AuthContext")<
+export class AuthContext extends Context.Tag("@executor-js/cloud/AuthContext")<
   AuthContext,
   {
     readonly accountId: string;

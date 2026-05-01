@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { existsSync } from "node:fs";
-import type { DBSchema, DBFieldAttribute } from "@executor/storage-core";
+import type { DBSchema, DBFieldAttribute } from "@executor-js/storage-core";
 import type { SchemaGenerator } from "./types.js";
 
 type Dialect = "pg" | "sqlite" | "mysql";

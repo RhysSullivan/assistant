@@ -15,10 +15,10 @@ import { Cause, Effect } from "effect";
 import {
   OAUTH_POPUP_MESSAGE_TYPE,
   type OAuthPopupResult,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
-export { OAUTH_POPUP_MESSAGE_TYPE, isOAuthPopupResult } from "@executor/sdk";
-export type { OAuthPopupResult } from "@executor/sdk";
+export { OAUTH_POPUP_MESSAGE_TYPE, isOAuthPopupResult } from "@executor-js/sdk";
+export type { OAuthPopupResult } from "@executor-js/sdk";
 
 // ---------------------------------------------------------------------------
 // HTML generation

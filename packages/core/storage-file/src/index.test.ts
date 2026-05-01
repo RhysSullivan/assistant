@@ -10,11 +10,11 @@ import {
   getTableConfig,
 } from "drizzle-orm/sqlite-core";
 
-import type { DBAdapter } from "@executor/storage-core";
+import type { DBAdapter } from "@executor-js/storage-core";
 import {
   conformanceSchema,
   runAdapterConformance,
-} from "@executor/storage-core/testing";
+} from "@executor-js/storage-core/testing";
 
 import { makeSqliteAdapter } from "./index";
 

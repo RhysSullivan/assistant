@@ -48,7 +48,7 @@ const makeSql = (): Sql =>
     // max=1 is correct for Hyperdrive: one request, one connection. The
     // earlier deadlock under ctx.transaction (outer sql.begin holding the
     // only connection while nested writes pulled fresh ones) is fixed in
-    // @executor/sdk — nested writes now thread through the active tx
+    // @executor-js/sdk — nested writes now thread through the active tx
     // handle via a FiberRef in buildAdapterRouter, so they reuse the same
     // connection and never contend with the outer sql.begin.
     max: 1,
@@ -60,7 +60,7 @@ const makeSql = (): Sql =>
     onnotice: () => undefined,
   });
 
-export class DbService extends Context.Tag("@executor/cloud/DbService")<
+export class DbService extends Context.Tag("@executor-js/cloud/DbService")<
   DbService,
   DbServiceShape
 >() {

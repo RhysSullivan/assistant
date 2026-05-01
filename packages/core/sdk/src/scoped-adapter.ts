@@ -27,7 +27,7 @@ import {
   type DBSchema,
   type DBTransactionAdapter,
   type Where,
-} from "@executor/storage-core";
+} from "@executor-js/storage-core";
 
 const SCOPE_FIELD = "scope_id";
 

@@ -6,8 +6,8 @@ import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import type * as Cause from "effect/Cause";
 
-import { FormElicitation, ToolId, UrlElicitation } from "@executor/sdk";
-import type { ExecutionEngine, ExecutionResult } from "@executor/execution";
+import { FormElicitation, ToolId, UrlElicitation } from "@executor-js/sdk";
+import type { ExecutionEngine, ExecutionResult } from "@executor-js/execution";
 
 import { createExecutorMcpServer } from "./server";
 

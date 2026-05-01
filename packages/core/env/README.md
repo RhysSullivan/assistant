@@ -1,4 +1,4 @@
-# @executor/env
+# @executor-js/env
 
 Vendored environment tooling based on [`rayhanadev/effect-env`](https://github.com/rayhanadev/effect-env), with runtime ergonomics inspired by [`t3-oss/t3-env`](https://github.com/t3-oss/t3-env).
 
@@ -18,7 +18,7 @@ Vendored environment tooling based on [`rayhanadev/effect-env`](https://github.c
 ## Example
 
 ```ts
-import { createEnv, Env } from "@executor/env";
+import { createEnv, Env } from "@executor-js/env";
 
 export const shared = createEnv(
   {

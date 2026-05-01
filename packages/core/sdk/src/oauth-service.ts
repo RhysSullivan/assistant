@@ -41,7 +41,7 @@ import type {
   DBAdapter,
   StorageFailure,
   TypedAdapter,
-} from "@executor/storage-core";
+} from "@executor-js/storage-core";
 
 import {
   ConnectionRefreshError,

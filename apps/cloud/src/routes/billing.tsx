@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCustomer, useListPlans } from "autumn-js/react";
-import { Button } from "@executor/react/components/button";
-import { Badge } from "@executor/react/components/badge";
+import { Button } from "@executor-js/react/components/button";
+import { Badge } from "@executor-js/react/components/badge";
 
 type Plan = NonNullable<ReturnType<typeof useListPlans>["data"]>[number];
 

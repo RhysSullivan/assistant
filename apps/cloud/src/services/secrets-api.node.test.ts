@@ -4,7 +4,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { ScopeId, SecretId } from "@executor/sdk";
+import { ScopeId, SecretId } from "@executor-js/sdk";
 
 import { asOrg, fetchForOrg, TEST_BASE_URL } from "./__test-harness__/api-harness";
 

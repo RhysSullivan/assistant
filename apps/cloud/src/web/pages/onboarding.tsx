@@ -1,4 +1,4 @@
-import { Button } from "@executor/react/components/button";
+import { Button } from "@executor-js/react/components/button";
 
 import { AUTH_PATHS } from "../../auth/api";
 import { useAuth } from "../auth";

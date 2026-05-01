@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 import { generateKeyBetween } from "fractional-indexing";
 import { ChevronDownIcon } from "lucide-react";
-import { PolicyId, type ToolPolicyAction } from "@executor/sdk";
+import { PolicyId, type ToolPolicyAction } from "@executor-js/sdk";
 
 import {
   createPolicyOptimistic,
@@ -82,7 +82,7 @@ const actionVariants: Record<
 };
 
 // ---------------------------------------------------------------------------
-// Pattern matcher (mirrors `matchPattern` in @executor/sdk) — used for the
+// Pattern matcher (mirrors `matchPattern` in @executor-js/sdk) — used for the
 // live "this rule matches N tools" preview without a server round-trip.
 // Kept inline so the React package doesn't take a runtime dep on the SDK
 // for one tiny pure function. If they drift, only the preview is stale.

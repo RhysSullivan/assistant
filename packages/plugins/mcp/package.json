@@ -1,5 +1,5 @@
 {
-  "name": "@executor/plugin-mcp",
+  "name": "@executor-js/plugin-mcp",
   "version": "0.0.1",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/mcp",
   "bugs": {
@@ -49,17 +49,17 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
-    "@executor/config": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor-js/config": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/vitest": "catalog:",
-    "@executor/api": "workspace:*",
-    "@executor/react": "workspace:*",
-    "@executor/storage-core": "workspace:*",
+    "@executor-js/api": "workspace:*",
+    "@executor-js/react": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "bun-types": "catalog:",
@@ -70,8 +70,8 @@
   },
   "peerDependencies": {
     "@effect-atom/atom-react": "^0.5.0",
-    "@executor/api": "workspace:*",
-    "@executor/react": "workspace:*",
+    "@executor-js/api": "workspace:*",
+    "@executor-js/react": "workspace:*",
     "@tanstack/react-router": "catalog:",
     "react": "catalog:"
   },
@@ -85,10 +85,10 @@
     "@tanstack/react-router": {
       "optional": true
     },
-    "@executor/api": {
+    "@executor-js/api": {
       "optional": true
     },
-    "@executor/react": {
+    "@executor-js/react": {
       "optional": true
     }
   }

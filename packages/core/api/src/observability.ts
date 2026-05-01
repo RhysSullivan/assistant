@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // HTTP-edge observability — singular translation + capture layer.
 //
-// The SDK (`@executor/sdk`) stays storage-typed: plugin code and
+// The SDK (`@executor-js/sdk`) stays storage-typed: plugin code and
 // executor surface methods return `StorageError` in their typed error
 // channel. Non-HTTP consumers (CLI, Promise SDK, tests) see those raw
 // and can decide what to do. Here, at the HTTP edge, we define:
@@ -38,7 +38,7 @@ import {
   type HttpApi,
   type HttpApiGroup,
 } from "@effect/platform";
-import type { StorageFailure } from "@executor/storage-core";
+import type { StorageFailure } from "@executor-js/storage-core";
 
 /** Public 500 surface. Opaque by schema. */
 export class InternalError extends Schema.TaggedError<InternalError>()(
@@ -61,7 +61,7 @@ export interface ErrorCaptureShape {
   ) => Effect.Effect<string>;
 }
 
-export class ErrorCapture extends Context.Tag("@executor/api/ErrorCapture")<
+export class ErrorCapture extends Context.Tag("@executor-js/api/ErrorCapture")<
   ErrorCapture,
   ErrorCaptureShape
 >() {

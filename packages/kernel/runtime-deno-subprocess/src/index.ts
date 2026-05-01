@@ -6,7 +6,7 @@ import {
   type CodeExecutor,
   type ExecuteResult,
   type SandboxToolInvoker,
-} from "@executor/codemode-core";
+} from "@executor-js/codemode-core";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";

@@ -1,7 +1,7 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId, SecretBackedValue } from "@executor/sdk";
-import { InternalError } from "@executor/api";
+import { ScopeId, SecretBackedValue } from "@executor-js/sdk";
+import { InternalError } from "@executor-js/api";
 
 import { OpenApiParseError, OpenApiExtractionError, OpenApiOAuthError } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";

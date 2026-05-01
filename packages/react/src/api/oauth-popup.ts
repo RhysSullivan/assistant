@@ -11,10 +11,10 @@
 import {
   isOAuthPopupResult as sharedIsOAuthPopupResult,
   type OAuthPopupResult,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
-export { OAUTH_POPUP_MESSAGE_TYPE } from "@executor/sdk";
-export type { OAuthPopupResult } from "@executor/sdk";
+export { OAUTH_POPUP_MESSAGE_TYPE } from "@executor-js/sdk";
+export type { OAuthPopupResult } from "@executor-js/sdk";
 
 export const isOAuthPopupResult = sharedIsOAuthPopupResult;
 

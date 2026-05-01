@@ -3,7 +3,7 @@ import {
   type CodeExecutor,
   type ExecuteResult,
   type SandboxToolInvoker,
-} from "@executor/codemode-core";
+} from "@executor-js/codemode-core";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Runtime from "effect/Runtime";

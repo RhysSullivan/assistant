@@ -1,6 +1,6 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
-import { resolveSecretBackedMap } from "@executor/sdk";
+import { resolveSecretBackedMap } from "@executor-js/sdk";
 
 import { GraphqlInvocationError } from "./errors";
 import { type HeaderValue, type OperationBinding, InvocationResult } from "./types";

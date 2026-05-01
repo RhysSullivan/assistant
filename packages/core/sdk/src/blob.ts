@@ -18,7 +18,7 @@
 
 import { Effect } from "effect";
 
-import { StorageError } from "@executor/storage-core";
+import { StorageError } from "@executor-js/storage-core";
 
 export interface BlobStore {
   readonly get: (

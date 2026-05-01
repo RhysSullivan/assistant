@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, SearchIcon, XIcon } from "lucide-react";
-import type { EffectivePolicy, ToolPolicyAction } from "@executor/sdk";
+import type { EffectivePolicy, ToolPolicyAction } from "@executor-js/sdk";
 import { Button } from "./button";
 import { Input } from "./input";
 import { cn } from "../lib/utils";

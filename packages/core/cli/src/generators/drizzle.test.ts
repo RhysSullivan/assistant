@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DBSchema } from "@executor/storage-core";
+import type { DBSchema } from "@executor-js/storage-core";
 
 import { generateDrizzleSchema } from "./drizzle";
 

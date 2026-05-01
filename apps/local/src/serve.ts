@@ -1,10 +1,10 @@
 /**
- * Production server for @executor/local.
+ * Production server for @executor-js/local.
  *
  * Serves the Vite-built SPA + Effect API + MCP server.
  *
  * Run directly:   bun run apps/local/src/serve.ts
- * Or import:      import { startServer } from "@executor/local/serve"
+ * Or import:      import { startServer } from "@executor-js/local/serve"
  */
 
 import { resolve, join } from "node:path";

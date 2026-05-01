@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
-import { StorageError, typedAdapter } from "@executor/storage-core";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
+import { StorageError, typedAdapter } from "@executor-js/storage-core";
 
 import { defineSchema } from "./plugin";
 import { scopeAdapter } from "./scoped-adapter";

@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { effectivePolicyFromSorted } from "@executor/sdk";
+import { effectivePolicyFromSorted } from "@executor-js/sdk";
 import {
   policiesOptimisticAtom,
   sourceToolsAtom,

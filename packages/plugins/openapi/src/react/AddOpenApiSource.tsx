@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
-import { ConnectionId, ScopeId, SecretId } from "@executor/sdk";
-import { startOAuth } from "@executor/react/api/atoms";
-import { useScope, useUserScope } from "@executor/react/api/scope-context";
-import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import { ConnectionId, ScopeId, SecretId } from "@executor-js/sdk";
+import { startOAuth } from "@executor-js/react/api/atoms";
+import { useScope, useUserScope } from "@executor-js/react/api/scope-context";
+import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 
 // `addSpec` with an oauth2 payload persists a source row AND (for
 // clientCredentials) a freshly-minted Connection + owned secrets,
@@ -14,37 +14,37 @@ import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reacti
 // state without a refresh.
 const addSpecWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
 const bindingWriteKeys = [...sourceWriteKeys, ...connectionWriteKeys] as const;
-import { usePendingSources } from "@executor/react/api/optimistic";
-import { HeadersList } from "@executor/react/plugins/headers-list";
+import { usePendingSources } from "@executor-js/react/api/optimistic";
+import { HeadersList } from "@executor-js/react/plugins/headers-list";
 import {
   HttpCredentialsEditor,
   emptyHttpCredentials,
   serializeHttpCredentials,
   type HttpCredentialsState,
-} from "@executor/react/plugins/http-credentials";
+} from "@executor-js/react/plugins/http-credentials";
 import {
   oauthCallbackUrl,
   useOAuthPopupFlow,
   type OAuthCompletionPayload,
-} from "@executor/react/plugins/oauth-sign-in";
+} from "@executor-js/react/plugins/oauth-sign-in";
 import {
   CreatableSecretPicker,
   matchPresetKey,
   type HeaderState,
-} from "@executor/react/plugins/secret-header-auth";
+} from "@executor-js/react/plugins/secret-header-auth";
 import {
   slugifyNamespace,
   SourceIdentityFields,
   useSourceIdentity,
-} from "@executor/react/plugins/source-identity";
-import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
-import { Button } from "@executor/react/components/button";
-import { CopyButton } from "@executor/react/components/copy-button";
+} from "@executor-js/react/plugins/source-identity";
+import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
+import { Button } from "@executor-js/react/components/button";
+import { CopyButton } from "@executor-js/react/components/copy-button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@executor/react/components/collapsible";
+} from "@executor-js/react/components/collapsible";
 import {
   CardStack,
   CardStackContent,
@@ -53,18 +53,18 @@ import {
   CardStackEntryDescription,
   CardStackEntryField,
   CardStackEntryTitle,
-} from "@executor/react/components/card-stack";
-import { FieldLabel } from "@executor/react/components/field";
-import { FloatActions } from "@executor/react/components/float-actions";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
-import { NativeSelect, NativeSelectOption } from "@executor/react/components/native-select";
-import { Textarea } from "@executor/react/components/textarea";
-import { Checkbox } from "@executor/react/components/checkbox";
-import { SourceFavicon } from "@executor/react/components/source-favicon";
-import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
-import { Skeleton } from "@executor/react/components/skeleton";
-import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
+} from "@executor-js/react/components/card-stack";
+import { FieldLabel } from "@executor-js/react/components/field";
+import { FloatActions } from "@executor-js/react/components/float-actions";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
+import { NativeSelect, NativeSelectOption } from "@executor-js/react/components/native-select";
+import { Textarea } from "@executor-js/react/components/textarea";
+import { Checkbox } from "@executor-js/react/components/checkbox";
+import { SourceFavicon } from "@executor-js/react/components/source-favicon";
+import { RadioGroup, RadioGroupItem } from "@executor-js/react/components/radio-group";
+import { Skeleton } from "@executor-js/react/components/skeleton";
+import { IOSSpinner, Spinner } from "@executor-js/react/components/spinner";
 import { addOpenApiSpec, previewOpenApiSpec, setOpenApiSourceBinding } from "./atoms";
 import type { SpecPreview, HeaderPreset, OAuth2Preset } from "../sdk/preview";
 import {

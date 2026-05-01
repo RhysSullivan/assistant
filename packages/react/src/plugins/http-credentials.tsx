@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { PlusIcon } from "lucide-react";
-import type { ScopeId, SecretBackedValue } from "@executor/sdk";
+import type { ScopeId, SecretBackedValue } from "@executor-js/sdk";
 
 import { Button } from "../components/button";
 import { CardStack, CardStackContent, CardStackEntry } from "../components/card-stack";

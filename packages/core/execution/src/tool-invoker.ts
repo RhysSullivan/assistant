@@ -6,8 +6,8 @@ import type {
   ToolSchema,
   InvokeOptions,
   Source,
-} from "@executor/sdk";
-import type { SandboxToolInvoker } from "@executor/codemode-core";
+} from "@executor-js/sdk";
+import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import { ExecutionToolError } from "./errors";
 
 /**

@@ -1,7 +1,7 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId, SecretBackedValue } from "@executor/sdk";
-import { InternalError } from "@executor/api";
+import { ScopeId, SecretBackedValue } from "@executor-js/sdk";
+import { InternalError } from "@executor-js/api";
 
 import { GoogleDiscoveryParseError, GoogleDiscoverySourceError } from "../sdk/errors";
 import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
@@ -74,7 +74,7 @@ const UpdateSourceResponse = Schema.Struct({
 });
 
 // OAuth start/complete/callback payloads/responses live on the shared
-// `/scopes/:scopeId/oauth/*` group in `@executor/api` now — no
+// `/scopes/:scopeId/oauth/*` group in `@executor-js/api` now — no
 // plugin-specific OAuth schemas needed here.
 
 export class GoogleDiscoveryApiError extends Schema.TaggedError<GoogleDiscoveryApiError>()(

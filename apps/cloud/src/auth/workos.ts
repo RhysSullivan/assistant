@@ -219,7 +219,7 @@ const make = Effect.gen(function* () {
 
 export type WorkOSAuthService = Effect.Effect.Success<typeof make>;
 
-export class WorkOSAuth extends Context.Tag("@executor/cloud/WorkOSAuth")<
+export class WorkOSAuth extends Context.Tag("@executor-js/cloud/WorkOSAuth")<
   WorkOSAuth,
   WorkOSAuthService
 >() {

@@ -1,6 +1,6 @@
 import { AtomHttpApi } from "@effect-atom/atom-react";
 import { FetchHttpClient } from "@effect/platform";
-import { ExecutorApi } from "@executor/api";
+import { ExecutorApi } from "@executor-js/api";
 
 import { getBaseUrl } from "./base-url";
 

@@ -1,18 +1,18 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
-import { useSourcesWithPending } from "@executor/react/api/optimistic";
-import { useScope, useScopeInfo } from "@executor/react/api/scope-context";
-import { Button } from "@executor/react/components/button";
-import { SourceFavicon } from "@executor/react/components/source-favicon";
-import { CommandPalette } from "@executor/react/components/command-palette";
-import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { createMcpSourcePlugin } from "@executor/plugin-mcp/react";
+import { sourcesAtom, toolsAtom } from "@executor-js/react/api/atoms";
+import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
+import { useScope, useScopeInfo } from "@executor-js/react/api/scope-context";
+import { Button } from "@executor-js/react/components/button";
+import { SourceFavicon } from "@executor-js/react/components/source-favicon";
+import { CommandPalette } from "@executor-js/react/components/command-palette";
+import { openApiSourcePlugin } from "@executor-js/plugin-openapi/react";
+import { createMcpSourcePlugin } from "@executor-js/plugin-mcp/react";
 
 const mcpSourcePlugin = createMcpSourcePlugin({ allowStdio: true });
-import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
-import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
+import { googleDiscoverySourcePlugin } from "@executor-js/plugin-google-discovery/react";
+import { graphqlSourcePlugin } from "@executor-js/plugin-graphql/react";
 
 const sourcePlugins = [
   openApiSourcePlugin,

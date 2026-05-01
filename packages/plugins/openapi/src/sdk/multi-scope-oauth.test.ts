@@ -33,8 +33,8 @@ import {
   SetSecretInput,
   type InvokeOptions,
   type SecretProvider,
-} from "@executor/sdk";
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+} from "@executor-js/sdk";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
 import { OAuth2Auth } from "./types";

@@ -1,4 +1,4 @@
-# @executor/plugin-keychain
+# @executor-js/plugin-keychain
 
 OS-keychain-backed secret store for the executor. Reads and writes secrets to:
 
@@ -11,16 +11,16 @@ Secrets are encrypted at rest by the operating system and never touch your proje
 ## Install
 
 ```sh
-bun add @executor/sdk @executor/plugin-keychain
+bun add @executor-js/sdk @executor-js/plugin-keychain
 # or
-npm install @executor/sdk @executor/plugin-keychain
+npm install @executor-js/sdk @executor-js/plugin-keychain
 ```
 
 ## Usage
 
 ```ts
-import { createExecutor } from "@executor/sdk";
-import { keychainPlugin } from "@executor/plugin-keychain";
+import { createExecutor } from "@executor-js/sdk";
+import { keychainPlugin } from "@executor-js/plugin-keychain";
 
 const executor = await createExecutor({
   scope: { name: "my-app" },
@@ -40,14 +40,14 @@ if (executor.keychain.isSupported) {
 }
 ```
 
-Secrets written through this plugin are available to every other plugin that resolves secrets by ID — so you can store a token once and use it across `@executor/plugin-openapi`, `@executor/plugin-graphql`, etc. via `{ secretId, prefix }` headers.
+Secrets written through this plugin are available to every other plugin that resolves secrets by ID — so you can store a token once and use it across `@executor-js/plugin-openapi`, `@executor-js/plugin-graphql`, etc. via `{ secretId, prefix }` headers.
 
 ## Using with Effect
 
-If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor-js/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { keychainPlugin } from "@executor/plugin-keychain";
+import { keychainPlugin } from "@executor-js/plugin-keychain";
 ```
 
 ## Status

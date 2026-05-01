@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 
-import { StorageError } from "@executor/storage-core";
+import { StorageError } from "@executor-js/storage-core";
 
 import { makeInMemoryBlobStore, pluginBlobStore } from "./blob";
 

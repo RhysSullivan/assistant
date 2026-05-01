@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type * as Cause from "effect/Cause";
 
-import type { ExecutionEngine } from "@executor/execution";
+import type { ExecutionEngine } from "@executor-js/execution";
 
 export const withExecutionUsageTracking = <E extends Cause.YieldableError>(
   organizationId: string,

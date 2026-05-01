@@ -4,7 +4,7 @@ import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FiberId from "effect/FiberId";
-import type { SandboxToolInvoker } from "@executor/codemode-core";
+import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import {
   ToolDispatcher,
   decodeWorkerRpcResponse,

@@ -1,13 +1,13 @@
-# @executor/cli
+# @executor-js/cli
 
-Command-line tool for `@executor/sdk` projects. Generates Drizzle schema files from the plugins registered in your `executor.config.ts` so database migrations stay in sync with the executor you actually run.
+Command-line tool for `@executor-js/sdk` projects. Generates Drizzle schema files from the plugins registered in your `executor.config.ts` so database migrations stay in sync with the executor you actually run.
 
 ## Install
 
 ```sh
-bun add -d @executor/cli
+bun add -d @executor-js/cli
 # or
-npm install --save-dev @executor/cli
+npm install --save-dev @executor-js/cli
 ```
 
 The binary is installed as `executor`.
@@ -17,9 +17,9 @@ The binary is installed as `executor`.
 Create an `executor.config.ts` alongside your app code:
 
 ```ts
-import { defineExecutorConfig } from "@executor/sdk";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { openApiPlugin } from "@executor/plugin-openapi";
+import { defineExecutorConfig } from "@executor-js/sdk";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
 
 export default defineExecutorConfig({
   dialect: "postgres",

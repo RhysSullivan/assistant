@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
-import { capture } from "@executor/api";
+import { capture } from "@executor-js/api";
 
 export const ScopeHandlers = HttpApiBuilder.group(ExecutorApi, "scope", (handlers) =>
   handlers.handle("info", () =>

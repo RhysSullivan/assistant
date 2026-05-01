@@ -1,7 +1,7 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { addGroup, capture } from "@executor/api";
+import { addGroup, capture } from "@executor-js/api";
 import type {
   GoogleDiscoveryAddSourceInput,
   GoogleDiscoveryPluginExtension,
@@ -42,7 +42,7 @@ const ExecutorApiWithGoogleDiscovery = addGroup(GoogleDiscoveryGroup);
 // observability middleware.
 //
 // OAuth start/complete/callback live on the shared `/scopes/:scopeId/oauth/*`
-// group in `@executor/api` now — the plugin has no OAuth-specific handlers.
+// group in `@executor-js/api` now — the plugin has no OAuth-specific handlers.
 // ---------------------------------------------------------------------------
 
 export const GoogleDiscoveryHandlers = HttpApiBuilder.group(

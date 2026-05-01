@@ -1,5 +1,5 @@
 {
-  "name": "@executor/plugin-onepassword",
+  "name": "@executor-js/plugin-onepassword",
   "version": "0.0.1",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/onepassword",
   "bugs": {
@@ -50,8 +50,8 @@
     "@1password/sdk": "^0.4.1-beta.1",
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/platform": "catalog:",
-    "@executor/api": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor-js/api": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
@@ -64,7 +64,7 @@
   },
   "peerDependencies": {
     "@effect-atom/atom-react": "^0.5.0",
-    "@executor/react": "workspace:*",
+    "@executor-js/react": "workspace:*",
     "react": ">=18"
   },
   "peerDependenciesMeta": {
@@ -74,7 +74,7 @@
     "@effect-atom/atom-react": {
       "optional": true
     },
-    "@executor/react": {
+    "@executor-js/react": {
       "optional": true
     }
   }

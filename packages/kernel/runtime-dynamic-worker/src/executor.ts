@@ -19,7 +19,7 @@ import {
   type CodeExecutor,
   type ExecuteResult,
   type SandboxToolInvoker,
-} from "@executor/codemode-core";
+} from "@executor-js/codemode-core";
 
 import { buildExecutorModule } from "./module-template";
 

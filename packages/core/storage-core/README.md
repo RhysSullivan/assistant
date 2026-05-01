@@ -1,15 +1,15 @@
-# @executor/storage-core
+# @executor-js/storage-core
 
 Storage adapter interface for the executor. Defines the shared `DBAdapter`, `DBSchema`, and query-operator types every persistence backend implements, plus helpers for typed queries and an in-memory conformance test suite.
 
-Most callers don't depend on this directly — `@executor/sdk` re-exports the public surface. Install this when you're authoring a new storage adapter and want to conform to the contract.
+Most callers don't depend on this directly — `@executor-js/sdk` re-exports the public surface. Install this when you're authoring a new storage adapter and want to conform to the contract.
 
 ## Install
 
 ```sh
-bun add @executor/storage-core
+bun add @executor-js/storage-core
 # or
-npm install @executor/storage-core
+npm install @executor-js/storage-core
 ```
 
 ## Usage
@@ -17,7 +17,7 @@ npm install @executor/storage-core
 Implement an adapter:
 
 ```ts
-import { createAdapter, type DBAdapter } from "@executor/storage-core";
+import { createAdapter, type DBAdapter } from "@executor-js/storage-core";
 
 const myAdapter: DBAdapter = createAdapter({
   // ... your backend's query / mutation hooks
@@ -27,7 +27,7 @@ const myAdapter: DBAdapter = createAdapter({
 Or grab typed query helpers for an existing schema:
 
 ```ts
-import { typedAdapter, type DBSchema } from "@executor/storage-core";
+import { typedAdapter, type DBSchema } from "@executor-js/storage-core";
 
 const schema = {
   secrets: {
@@ -46,7 +46,7 @@ const db = typedAdapter(myAdapter, schema);
 If you're building an adapter, use the shared conformance suite to verify your backend matches the contract:
 
 ```ts
-import { describeDbAdapterConformance } from "@executor/storage-core/testing";
+import { describeDbAdapterConformance } from "@executor-js/storage-core/testing";
 
 describeDbAdapterConformance({
   makeAdapter: async () => myAdapter,

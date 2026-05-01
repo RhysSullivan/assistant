@@ -1,10 +1,10 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
-import { SetSecretInput, type SecretRef } from "@executor/sdk";
+import { SetSecretInput, type SecretRef } from "@executor-js/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
-import { capture } from "@executor/api";
+import { capture } from "@executor-js/api";
 
 const refToResponse = (ref: SecretRef) => ({
   id: ref.id,

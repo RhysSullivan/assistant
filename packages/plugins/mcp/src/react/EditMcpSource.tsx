@@ -1,24 +1,24 @@
 import { useState } from "react";
 import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
-import { useScope } from "@executor/react/api/scope-context";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
-import { SourceIdentityFields, useSourceIdentity } from "@executor/react/plugins/source-identity";
-import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
+import { SourceIdentityFields, useSourceIdentity } from "@executor-js/react/plugins/source-identity";
+import { useSecretPickerSecrets } from "@executor-js/react/plugins/use-secret-picker-secrets";
 import {
   HttpCredentialsEditor,
   httpCredentialsFromValues,
   serializeHttpCredentials,
   type HttpCredentialsState,
-} from "@executor/react/plugins/http-credentials";
-import { Button } from "@executor/react/components/button";
+} from "@executor-js/react/plugins/http-credentials";
+import { Button } from "@executor-js/react/components/button";
 import {
   CardStack,
   CardStackContent,
   CardStackEntryField,
-} from "@executor/react/components/card-stack";
-import { Input } from "@executor/react/components/input";
-import { Badge } from "@executor/react/components/badge";
+} from "@executor-js/react/components/card-stack";
+import { Input } from "@executor-js/react/components/input";
+import { Badge } from "@executor-js/react/components/badge";
 import type { McpStoredSourceSchemaType } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------

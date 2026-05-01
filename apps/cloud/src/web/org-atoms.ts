@@ -1,5 +1,5 @@
 import { Atom } from "@effect-atom/atom";
-import { ReactivityKey } from "@executor/react/api/reactivity-keys";
+import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { CloudApiClient } from "./client";
 
 export const orgMembersAtom = Atom.refreshOnWindowFocus(

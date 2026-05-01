@@ -4,7 +4,7 @@ import { Schema } from "effect";
 import {
   ConnectionId,
   ScopeId,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import { InternalError } from "../observability";
 

@@ -1,10 +1,10 @@
 import { Result, useAtomValue } from "@effect-atom/atom-react";
 
-import { connectionsAtom, sourceAtom } from "@executor/react/api/atoms";
-import { Badge } from "@executor/react/components/badge";
-import { Button } from "@executor/react/components/button";
-import { useScope, useScopeStack, useUserScope } from "@executor/react/api/scope-context";
-import { ScopeId } from "@executor/sdk";
+import { connectionsAtom, sourceAtom } from "@executor-js/react/api/atoms";
+import { Badge } from "@executor-js/react/components/badge";
+import { Button } from "@executor-js/react/components/button";
+import { useScope, useScopeStack, useUserScope } from "@executor-js/react/api/scope-context";
+import { ScopeId } from "@executor-js/sdk";
 
 import { openApiSourceAtom, openApiSourceBindingsAtom } from "./atoms";
 import {

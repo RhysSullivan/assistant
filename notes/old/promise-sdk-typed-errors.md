@@ -2,7 +2,7 @@
 
 ## Today
 
-`@executor/sdk/promise` wraps every Effect-returning method in
+`@executor-js/sdk/promise` wraps every Effect-returning method in
 `Effect.runPromise(...)`. That works but it's lossy at the Promise
 boundary:
 
@@ -49,7 +49,7 @@ or wrap them in a promise-native `Result<A, E>`?
   "Promise" SDK — partly defeats the abstraction.
 
 **Wrap in a `Result<A, E>`:**
-- Pros: `@executor/sdk/promise` consumers don't import `effect` at all,
+- Pros: `@executor-js/sdk/promise` consumers don't import `effect` at all,
   surface stays small.
 - Cons: another type to learn / document; loses some Cause structure
   (parallel/interrupt) unless we replicate it.

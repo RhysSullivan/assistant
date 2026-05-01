@@ -2,9 +2,9 @@ import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
 
 import { ExecutorApi } from "../api";
-import { formatExecuteResult, formatPausedExecution } from "@executor/execution";
+import { formatExecuteResult, formatPausedExecution } from "@executor-js/execution";
 import { ExecutionEngineService } from "../services";
-import { capture, captureEngineError } from "@executor/api";
+import { capture, captureEngineError } from "@executor-js/api";
 
 export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions", (handlers) =>
   handlers

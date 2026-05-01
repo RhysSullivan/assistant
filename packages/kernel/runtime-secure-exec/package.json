@@ -1,5 +1,5 @@
 {
-  "name": "@executor/runtime-secure-exec",
+  "name": "@executor-js/runtime-secure-exec",
   "version": "0.0.3",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/codemode-core": "workspace:*",
+    "@executor-js/codemode-core": "workspace:*",
     "effect": "catalog:",
     "secure-exec": "^0.2.1"
   },

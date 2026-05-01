@@ -21,9 +21,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 
-import { createExecutorMcpServer } from "@executor/host-mcp";
-import { createExecutionEngine } from "@executor/execution";
-import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+import { createExecutorMcpServer } from "@executor-js/host-mcp";
+import { createExecutionEngine } from "@executor-js/execution";
+import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import {
   ElicitationResponse,
   FormElicitation,
@@ -32,15 +32,15 @@ import {
   collectSchemas,
   createExecutor,
   definePlugin,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 import {
   makePostgresAdapter,
   makePostgresBlobStore,
-} from "@executor/storage-postgres";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { workosVaultPlugin } from "@executor/plugin-workos-vault";
+} from "@executor-js/storage-postgres";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { workosVaultPlugin } from "@executor-js/plugin-workos-vault";
 
 import { DbService } from "./services/db";
 import { makeFakeVaultClient } from "./services/__test-harness__/api-harness";

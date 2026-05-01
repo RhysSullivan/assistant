@@ -1,5 +1,5 @@
 {
-  "name": "@executor/example-all-plugins",
+  "name": "@executor-js/example-all-plugins",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -9,16 +9,16 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@executor/plugin-file-secrets": "workspace:*",
-    "@executor/plugin-google-discovery": "workspace:*",
-    "@executor/plugin-graphql": "workspace:*",
-    "@executor/plugin-keychain": "workspace:*",
-    "@executor/plugin-mcp": "workspace:*",
-    "@executor/plugin-onepassword": "workspace:*",
-    "@executor/plugin-openapi": "workspace:*",
-    "@executor/plugin-workos-vault": "workspace:*",
-    "@executor/sdk": "workspace:*",
-    "@executor/storage-core": "workspace:*",
+    "@executor-js/plugin-file-secrets": "workspace:*",
+    "@executor-js/plugin-google-discovery": "workspace:*",
+    "@executor-js/plugin-graphql": "workspace:*",
+    "@executor-js/plugin-keychain": "workspace:*",
+    "@executor-js/plugin-mcp": "workspace:*",
+    "@executor-js/plugin-onepassword": "workspace:*",
+    "@executor-js/plugin-openapi": "workspace:*",
+    "@executor-js/plugin-workos-vault": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

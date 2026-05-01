@@ -17,7 +17,7 @@ import {
   SetSecretInput,
   TokenMaterial,
   type InvokeOptions,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import { googleDiscoveryPlugin } from "./plugin";
 
@@ -112,7 +112,7 @@ const startServer = (): Promise<ServerHandle> =>
 // writable provider registered against the test executor.
 // ---------------------------------------------------------------------------
 
-import { definePlugin, type SecretProvider } from "@executor/sdk";
+import { definePlugin, type SecretProvider } from "@executor-js/sdk";
 
 const makeMemorySecretsPlugin = () => {
   const store = new Map<string, string>();

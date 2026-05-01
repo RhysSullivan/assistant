@@ -1,5 +1,5 @@
 {
-  "name": "@executor/storage-drizzle",
+  "name": "@executor-js/storage-drizzle",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@executor/storage-core": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
     "drizzle-orm": "catalog:",
     "effect": "catalog:"
   },

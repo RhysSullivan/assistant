@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
-import type { DBAdapter, Where } from "@executor/storage-core";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
+import type { DBAdapter, Where } from "@executor-js/storage-core";
 
 import { makeInMemoryBlobStore } from "./blob";
 import { CreateConnectionInput, TokenMaterial } from "./connections";
@@ -526,7 +526,7 @@ describe("createExecutor", () => {
 
       // The collision is treated as an internal/programmer error and
       // surfaces as raw `StorageError` in the typed channel. The HTTP
-      // edge (`@executor/api` `withCapture`) is responsible for
+      // edge (`@executor-js/api` `withCapture`) is responsible for
       // translating it to the opaque `InternalError({ traceId })` when
       // crossing the wire; here, at the SDK layer, we expect the raw tag.
       const err = yield* executor.collide.tryRegister().pipe(Effect.flip);

@@ -1,13 +1,13 @@
-# @executor/runtime-quickjs
+# @executor-js/runtime-quickjs
 
-[QuickJS](https://github.com/justjake/quickjs-emscripten) sandbox runtime for `@executor/execution`. Runs untrusted TypeScript/JavaScript in a WASM-backed interpreter with configurable timeout, memory limit, and stack size — safe enough to execute LLM-generated code that calls your registered tools.
+[QuickJS](https://github.com/justjake/quickjs-emscripten) sandbox runtime for `@executor-js/execution`. Runs untrusted TypeScript/JavaScript in a WASM-backed interpreter with configurable timeout, memory limit, and stack size — safe enough to execute LLM-generated code that calls your registered tools.
 
 ## Install
 
 ```sh
-bun add @executor/execution @executor/runtime-quickjs
+bun add @executor-js/execution @executor-js/runtime-quickjs
 # or
-npm install @executor/execution @executor/runtime-quickjs
+npm install @executor-js/execution @executor-js/runtime-quickjs
 ```
 
 ## Usage
@@ -15,9 +15,9 @@ npm install @executor/execution @executor/runtime-quickjs
 Pass a `makeQuickJsExecutor()` as the `codeExecutor` when building the execution engine:
 
 ```ts
-import { createExecutor } from "@executor/sdk";
-import { createExecutionEngine } from "@executor/execution";
-import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+import { createExecutor } from "@executor-js/sdk";
+import { createExecutionEngine } from "@executor-js/execution";
+import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 
 const executor = await createExecutor({ scope: { name: "my-app" } });
 
@@ -42,7 +42,7 @@ const engine = createExecutionEngine({
 ### Swapping the QuickJS build
 
 ```ts
-import { setQuickJSModule } from "@executor/runtime-quickjs";
+import { setQuickJSModule } from "@executor-js/runtime-quickjs";
 import { newQuickJSAsyncWASMModuleFromVariant } from "quickjs-emscripten";
 import variant from "@jitl/quickjs-ng-wasmfile-release-sync";
 

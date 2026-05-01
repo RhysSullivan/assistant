@@ -9,7 +9,7 @@
 
 import { Cause, Effect, Layer } from "effect";
 
-import { ErrorCapture } from "@executor/api";
+import { ErrorCapture } from "@executor-js/api";
 
 const nextTraceId = () =>
   `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

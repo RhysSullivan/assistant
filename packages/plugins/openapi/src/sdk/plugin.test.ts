@@ -23,7 +23,7 @@ import {
   type InvokeOptions,
   type SecretProvider,
   type Where,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 const TEST_SCOPE = "test-scope";
 import { openApiPlugin } from "./plugin";

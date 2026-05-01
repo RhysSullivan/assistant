@@ -1,5 +1,5 @@
-import type { DBSchema } from "@executor/storage-core";
-import type { ExecutorDialect } from "@executor/sdk/core";
+import type { DBSchema } from "@executor-js/storage-core";
+import type { ExecutorDialect } from "@executor-js/sdk/core";
 
 export interface SchemaGeneratorResult {
   code?: string;

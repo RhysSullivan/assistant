@@ -8,5 +8,5 @@ export default defineConfig({
   dts: false,
   sourcemap: true,
   clean: true,
-  external: [/^@executor\//, /^effect/, /^@effect\//, "quickjs-emscripten"],
+  external: [/^@executor-js\//, /^effect/, /^@effect\//, "quickjs-emscripten"],
 });

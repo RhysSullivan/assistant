@@ -3,7 +3,7 @@ import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
-import { SecretId } from "@executor/sdk";
+import { SecretId } from "@executor-js/sdk";
 import { useScope } from "../hooks/use-scope";
 import {
   Dialog,

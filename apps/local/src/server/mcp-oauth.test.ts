@@ -44,31 +44,31 @@ import {
   addGroup,
   InternalError,
   observabilityMiddleware,
-} from "@executor/api";
+} from "@executor-js/api";
 import {
   CoreHandlers,
   ExecutionEngineService,
   ExecutorService,
-} from "@executor/api/server";
-import { createExecutionEngine } from "@executor/execution";
-import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+} from "@executor-js/api/server";
+import { createExecutionEngine } from "@executor-js/execution";
+import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import {
   Scope,
   ScopeId,
   collectSchemas,
   createExecutor,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 import {
   makeSqliteAdapter,
   makeSqliteBlobStore,
-} from "@executor/storage-file";
-import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
-import { mcpPlugin } from "@executor/plugin-mcp";
+} from "@executor-js/storage-file";
+import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
 import {
   McpExtensionService,
   McpGroup,
   McpHandlers,
-} from "@executor/plugin-mcp/api";
+} from "@executor-js/plugin-mcp/api";
 
 import * as executorSchema from "./executor-schema";
 import { ErrorCaptureLive } from "./observability";

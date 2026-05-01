@@ -40,14 +40,14 @@ import type {
   DBAdapterFactoryConfig,
   DBSchema,
   JoinConfig,
-} from "@executor/storage-core";
+} from "@executor-js/storage-core";
 import {
   StorageError,
   UniqueViolationError,
   createAdapter,
-} from "@executor/storage-core";
+} from "@executor-js/storage-core";
 
-// Mirrors `StorageFailure` from @executor/storage-core/adapter — kept
+// Mirrors `StorageFailure` from @executor-js/storage-core/adapter — kept
 // local so we don't force a new named export on the public index. Both
 // constructors are already exported, so the union is reconstructible.
 type StorageFailure = StorageError | UniqueViolationError;

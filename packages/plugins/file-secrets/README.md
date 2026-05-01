@@ -1,20 +1,20 @@
-# @executor/plugin-file-secrets
+# @executor-js/plugin-file-secrets
 
 File-backed secret store for the executor. Persists secrets to a single JSON file at an XDG-compliant path so they survive between process restarts — useful for local development, CLIs, and scripts where a system keychain isn't available.
 
 ## Install
 
 ```sh
-bun add @executor/sdk @executor/plugin-file-secrets
+bun add @executor-js/sdk @executor-js/plugin-file-secrets
 # or
-npm install @executor/sdk @executor/plugin-file-secrets
+npm install @executor-js/sdk @executor-js/plugin-file-secrets
 ```
 
 ## Usage
 
 ```ts
-import { createExecutor } from "@executor/sdk";
-import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
+import { createExecutor } from "@executor-js/sdk";
+import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 
 const executor = await createExecutor({
   scope: { name: "my-app" },
@@ -36,19 +36,19 @@ const value = await executor.secrets.resolve("api-key");
 console.log("Secret file:", executor.fileSecrets.filePath);
 ```
 
-Secrets written through `executor.secrets.set(...)` become available to every other plugin that resolves them, so you can (for example) store a GitHub token here and have `@executor/plugin-openapi` or `@executor/plugin-graphql` pick it up via `{ secretId, prefix }` headers.
+Secrets written through `executor.secrets.set(...)` become available to every other plugin that resolves them, so you can (for example) store a GitHub token here and have `@executor-js/plugin-openapi` or `@executor-js/plugin-graphql` pick it up via `{ secretId, prefix }` headers.
 
 ## Using with Effect
 
-If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor-js/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
+import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 ```
 
 ## Security note
 
-Secrets are stored unencrypted in a plain JSON file. Use [`@executor/plugin-keychain`](https://www.npmjs.com/package/@executor/plugin-keychain) for OS-keychain-backed storage, or [`@executor/plugin-onepassword`](https://www.npmjs.com/package/@executor/plugin-onepassword) for 1Password-backed storage when you need encryption at rest.
+Secrets are stored unencrypted in a plain JSON file. Use [`@executor-js/plugin-keychain`](https://www.npmjs.com/package/@executor-js/plugin-keychain) for OS-keychain-backed storage, or [`@executor-js/plugin-onepassword`](https://www.npmjs.com/package/@executor-js/plugin-onepassword) for 1Password-backed storage when you need encryption at rest.
 
 ## Status
 

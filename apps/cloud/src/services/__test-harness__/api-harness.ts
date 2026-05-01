@@ -29,32 +29,32 @@ import {
 import {
   ExecutionEngineService,
   ExecutorService,
-} from "@executor/api/server";
-import { createExecutionEngine } from "@executor/execution";
-import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+} from "@executor-js/api/server";
+import { createExecutionEngine } from "@executor-js/execution";
+import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import {
   Scope,
   ScopeId,
   collectSchemas,
   createExecutor,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 import {
   makePostgresAdapter,
   makePostgresBlobStore,
-} from "@executor/storage-postgres";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { graphqlPlugin } from "@executor/plugin-graphql";
+} from "@executor-js/storage-postgres";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
 import {
   workosVaultPlugin,
   WorkOSVaultClientError,
   type WorkOSVaultClient,
   type WorkOSVaultObject,
   type WorkOSVaultObjectMetadata,
-} from "@executor/plugin-workos-vault";
-import { OpenApiExtensionService } from "@executor/plugin-openapi/api";
-import { McpExtensionService } from "@executor/plugin-mcp/api";
-import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
+} from "@executor-js/plugin-workos-vault";
+import { OpenApiExtensionService } from "@executor-js/plugin-openapi/api";
+import { McpExtensionService } from "@executor-js/plugin-mcp/api";
+import { GraphqlExtensionService } from "@executor-js/plugin-graphql/api";
 
 import { AuthContext, OrgAuth } from "../../auth/middleware";
 import {

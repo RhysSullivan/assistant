@@ -1,8 +1,8 @@
-import { defineExecutorConfig } from "@executor/sdk";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { mcpPlugin } from "@executor/plugin-mcp";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { workosVaultPlugin } from "@executor/plugin-workos-vault";
+import { defineExecutorConfig } from "@executor-js/sdk";
+import { openApiPlugin } from "@executor-js/plugin-openapi";
+import { mcpPlugin } from "@executor-js/plugin-mcp";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
+import { workosVaultPlugin } from "@executor-js/plugin-workos-vault";
 
 // ---------------------------------------------------------------------------
 // Executor config for CLI schema generation.

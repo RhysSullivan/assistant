@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import {
   collectSchemas,
@@ -12,7 +12,7 @@ import {
   ScopeId,
   SecretId,
   SetSecretInput,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import {
   WorkOSVaultClientError,

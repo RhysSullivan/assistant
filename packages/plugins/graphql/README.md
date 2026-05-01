@@ -1,20 +1,20 @@
-# @executor/plugin-graphql
+# @executor-js/plugin-graphql
 
 Introspect a GraphQL endpoint and expose its queries and mutations as invokable tools on an executor.
 
 ## Install
 
 ```sh
-bun add @executor/sdk @executor/plugin-graphql
+bun add @executor-js/sdk @executor-js/plugin-graphql
 # or
-npm install @executor/sdk @executor/plugin-graphql
+npm install @executor-js/sdk @executor-js/plugin-graphql
 ```
 
 ## Usage
 
 ```ts
-import { createExecutor } from "@executor/sdk";
-import { graphqlPlugin } from "@executor/plugin-graphql";
+import { createExecutor } from "@executor-js/sdk";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
 
 const executor = await createExecutor({
   scope: { name: "my-app" },
@@ -56,10 +56,10 @@ await executor.graphql.addSource({
 
 ## Using with Effect
 
-If you're building on `@executor/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
+If you're building on `@executor-js/sdk` (the raw Effect entry), import this plugin from its `/core` subpath instead:
 
 ```ts
-import { graphqlPlugin } from "@executor/plugin-graphql";
+import { graphqlPlugin } from "@executor-js/plugin-graphql";
 ```
 
 ## Status

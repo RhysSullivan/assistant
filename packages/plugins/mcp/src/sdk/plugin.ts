@@ -8,7 +8,7 @@ import {
   resolveSecretBackedMap as resolveSharedSecretBackedMap,
   type PluginCtx,
   type StorageFailure,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import {
   makeMcpStore,
@@ -36,7 +36,7 @@ import {
   type McpRemoteSourceConfig as McpRemoteConfigEntry,
   type McpStdioSourceConfig as McpStdioConfigEntry,
   type SourceConfig,
-} from "@executor/config";
+} from "@executor-js/config";
 
 // ---------------------------------------------------------------------------
 // Plugin config — discriminated union on transport
@@ -78,7 +78,7 @@ export type McpSourceConfig = McpRemoteSourceConfig | McpStdioSourceConfig;
 // ---------------------------------------------------------------------------
 
 // OAuth start/complete/callback moved to the shared
-// `/scopes/:scopeId/oauth/*` surface in `@executor/api` — no
+// `/scopes/:scopeId/oauth/*` surface in `@executor-js/api` — no
 // plugin-specific types needed here.
 
 export interface McpProbeResult {
@@ -977,7 +977,7 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
  * plugin-domain tagged errors that flow directly to clients (4xx, each
  * carrying its own `HttpApiSchema` status). `StorageFailure` covers
  * raw backend failures (`StorageError`) plus `UniqueViolationError`;
- * the HTTP edge (`@executor/api`'s `withCapture`) translates
+ * the HTTP edge (`@executor-js/api`'s `withCapture`) translates
  * `StorageError` to the opaque `InternalError({ traceId })` at Layer
  * composition. `UniqueViolationError` passes through — plugins can
  * `Effect.catchTag` it if they want a friendlier user-facing error.

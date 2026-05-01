@@ -1,10 +1,10 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
-import { useSourcesWithPending } from "@executor/react/api/optimistic";
-import { useScope } from "@executor/react/api/scope-context";
-import { Button } from "@executor/react/components/button";
-import { Skeleton } from "@executor/react/components/skeleton";
+import { useSourcesWithPending } from "@executor-js/react/api/optimistic";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { Button } from "@executor-js/react/components/button";
+import { Skeleton } from "@executor-js/react/components/skeleton";
 import {
   Dialog,
   DialogClose,
@@ -13,7 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@executor/react/components/dialog";
+} from "@executor-js/react/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,12 +24,12 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@executor/react/components/dropdown-menu";
-import { SourceFavicon } from "@executor/react/components/source-favicon";
-import { CommandPalette } from "@executor/react/components/command-palette";
-import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
-import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
+} from "@executor-js/react/components/dropdown-menu";
+import { SourceFavicon } from "@executor-js/react/components/source-favicon";
+import { CommandPalette } from "@executor-js/react/components/command-palette";
+import { openApiSourcePlugin } from "@executor-js/plugin-openapi/react";
+import { mcpSourcePlugin } from "@executor-js/plugin-mcp/react";
+import { graphqlSourcePlugin } from "@executor-js/plugin-graphql/react";
 import { AUTH_PATHS } from "../auth/api";
 import { organizationsAtom, switchOrganization, useAuth } from "./auth";
 import {

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/storage-postgres — BlobStore backed by a `blob` table in the
+// @executor-js/storage-postgres — BlobStore backed by a `blob` table in the
 // same postgres database as the adapter. Keeps plugin-owned opaque blobs
 // (onepassword config, workos-vault metadata, etc.) persistent across
 // restarts / Worker invocations without needing a second storage seam.
@@ -14,8 +14,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { pgTable, primaryKey, text } from "drizzle-orm/pg-core";
 
-import type { BlobStore } from "@executor/sdk";
-import { StorageError } from "@executor/storage-core";
+import type { BlobStore } from "@executor-js/sdk";
+import { StorageError } from "@executor-js/storage-core";
 
 export const blobTable = pgTable(
   "blob",

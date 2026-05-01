@@ -7,7 +7,7 @@
 - Made `modelName` optional (falls back to the key), renamed `disableMigrations` → `disableMigration`, dropped `order`
 - Removed explicit `modelName` from all plugin schemas (core-schema, openapi, mcp, graphql, google-discovery, workos-vault) — keys already match table names
 
-### 2. @executor/cli package (packages/core/cli/)
+### 2. @executor-js/cli package (packages/core/cli/)
 - Mirrors better-auth's CLI approach: load config → collect plugin schemas → generate drizzle TS
 - `executor generate --config ./executor.config.ts --output ./src/services/executor-schema.ts`
 - Generator ported from better-auth's drizzle generator, adapted for our DBSchema
@@ -36,7 +36,7 @@
 
 ### The plan: re-derive sources from executor.jsonc
 
-The `@executor/config` package already maintains `executor.jsonc` as a source of truth for source configurations. The `config-store.ts` decorator intercepts `putSource`/`removeSource` on each plugin and mirrors to this file. So for existing users, `executor.jsonc` already has everything.
+The `@executor-js/config` package already maintains `executor.jsonc` as a source of truth for source configurations. The `config-store.ts` decorator intercepts `putSource`/`removeSource` on each plugin and mirrors to this file. So for existing users, `executor.jsonc` already has everything.
 
 ### Local app migration
 1. On first run, `migrate()` creates all tables from the initial migration

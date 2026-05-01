@@ -1,5 +1,5 @@
 {
-  "name": "@executor/host-mcp",
+  "name": "@executor-js/host-mcp",
   "version": "1.4.4",
   "private": true,
   "type": "module",
@@ -14,8 +14,8 @@
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
-    "@executor/execution": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor-js/execution": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "effect": "catalog:",
     "zod": "^4.3.0"

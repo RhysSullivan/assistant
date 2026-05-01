@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Schedule } from "effect";
-import { StorageError, UniqueViolationError } from "@executor/storage-core";
+import { StorageError, UniqueViolationError } from "@executor-js/storage-core";
 
 import { isTransientStorageError } from "./adapter";
 

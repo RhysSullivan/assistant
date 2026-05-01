@@ -1,5 +1,5 @@
 {
-  "name": "@executor/api",
+  "name": "@executor-js/api",
   "version": "1.4.3",
   "private": true,
   "type": "module",
@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@effect/platform": "catalog:",
-    "@executor/execution": "workspace:*",
-    "@executor/sdk": "workspace:*",
-    "@executor/storage-core": "workspace:*",
+    "@executor-js/execution": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
+    "@executor-js/storage-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

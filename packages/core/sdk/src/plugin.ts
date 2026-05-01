@@ -4,7 +4,7 @@ import type {
   DBSchema,
   StorageFailure,
   TypedAdapter,
-} from "@executor/storage-core";
+} from "@executor-js/storage-core";
 
 import type { PluginBlobStore } from "./blob";
 import type {
@@ -63,7 +63,7 @@ export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
    * (`StorageError` | `UniqueViolationError`). Plugins can
    * `catchTag("UniqueViolationError", …)` to translate to their own
    * user-facing errors. `StorageError` bubbles up; the HTTP edge (see
-   * `@executor/api` `withCapture`) is the one place that
+   * `@executor-js/api` `withCapture`) is the one place that
    * translates it to the opaque `InternalError({ traceId })`.
    */
   readonly adapter: TSchema extends DBSchema

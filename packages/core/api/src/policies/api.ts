@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { PolicyId, ScopeId, ToolPolicyActionSchema } from "@executor/sdk";
+import { PolicyId, ScopeId, ToolPolicyActionSchema } from "@executor-js/sdk";
 
 import { InternalError } from "../observability";
 

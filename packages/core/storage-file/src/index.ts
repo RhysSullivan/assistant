@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// @executor/storage-file
+// @executor-js/storage-file
 //
 // SQLite-backed DBAdapter + BlobStore for the executor runtime. Thin
-// wrapper around @executor/storage-drizzle — delegates all queries to
+// wrapper around @executor-js/storage-drizzle — delegates all queries to
 // the shared drizzle adapter.
 //
 // Callers construct the drizzle db with the generated schema and run
@@ -12,7 +12,7 @@
 //   import { drizzle } from "drizzle-orm/bun-sqlite"
 //   import { migrate } from "drizzle-orm/bun-sqlite/migrator"
 //   import * as schema from "./executor-schema"
-//   import { makeSqliteAdapter } from "@executor/storage-file"
+//   import { makeSqliteAdapter } from "@executor-js/storage-file"
 //
 //   const db = drizzle(new Database("data.db"), { schema })
 //   migrate(db, { migrationsFolder: "./drizzle" })

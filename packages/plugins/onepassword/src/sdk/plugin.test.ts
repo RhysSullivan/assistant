@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { createExecutor, makeTestConfig } from "@executor/sdk";
+import { createExecutor, makeTestConfig } from "@executor-js/sdk";
 
 import { onepasswordPlugin } from "./plugin";
 import { OnePasswordConfig, DesktopAppAuth } from "./types";

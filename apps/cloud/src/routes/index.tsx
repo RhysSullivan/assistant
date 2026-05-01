@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SourcesPage } from "@executor/react/pages/sources";
-import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
-import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
-import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
+import { SourcesPage } from "@executor-js/react/pages/sources";
+import { openApiSourcePlugin } from "@executor-js/plugin-openapi/react";
+import { mcpSourcePlugin } from "@executor-js/plugin-mcp/react";
+import { graphqlSourcePlugin } from "@executor-js/plugin-graphql/react";
 
 const sourcePlugins = [openApiSourcePlugin, mcpSourcePlugin, graphqlSourcePlugin];
 

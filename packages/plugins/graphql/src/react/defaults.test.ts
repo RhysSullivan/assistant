@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { httpCredentialsValid } from "@executor/react/plugins/http-credentials";
+import { httpCredentialsValid } from "@executor-js/react/plugins/http-credentials";
 import { initialGraphqlCredentials } from "./defaults";
 
 describe("initialGraphqlCredentials", () => {

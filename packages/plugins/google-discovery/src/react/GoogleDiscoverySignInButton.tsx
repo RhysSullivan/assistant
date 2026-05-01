@@ -1,15 +1,15 @@
 import { useCallback } from "react";
 import { useAtomSet, useAtomValue, Result } from "@effect-atom/atom-react";
 
-import { connectionsAtom } from "@executor/react/api/atoms";
-import { useScope } from "@executor/react/api/scope-context";
-import { connectionWriteKeys, sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import { connectionsAtom } from "@executor-js/react/api/atoms";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { connectionWriteKeys, sourceWriteKeys } from "@executor-js/react/api/reactivity-keys";
 import {
   OAuthSignInButton,
   oauthCallbackUrl,
   useOAuthPopupFlow,
   type OAuthCompletionPayload,
-} from "@executor/react/plugins/oauth-sign-in";
+} from "@executor-js/react/plugins/oauth-sign-in";
 
 import { googleDiscoverySourceAtom, updateGoogleDiscoverySource } from "./atoms";
 import { GOOGLE_DISCOVERY_OAUTH_POPUP_NAME, googleDiscoveryOAuthStrategy } from "./oauth";

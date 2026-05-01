@@ -7,31 +7,31 @@ import {
 } from "@effect/platform";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
-import { addGroup, observabilityMiddleware } from "@executor/api";
-import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
-import { createExecutionEngine } from "@executor/execution";
-import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+import { addGroup, observabilityMiddleware } from "@executor-js/api";
+import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor-js/api/server";
+import { createExecutionEngine } from "@executor-js/execution";
+import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import {
   OpenApiGroup,
   OpenApiHandlers,
   OpenApiExtensionService,
-} from "@executor/plugin-openapi/api";
-import { McpGroup, McpHandlers, McpExtensionService } from "@executor/plugin-mcp/api";
+} from "@executor-js/plugin-openapi/api";
+import { McpGroup, McpHandlers, McpExtensionService } from "@executor-js/plugin-mcp/api";
 import {
   GoogleDiscoveryGroup,
   GoogleDiscoveryHandlers,
   GoogleDiscoveryExtensionService,
-} from "@executor/plugin-google-discovery/api";
+} from "@executor-js/plugin-google-discovery/api";
 import {
   OnePasswordGroup,
   OnePasswordHandlers,
   OnePasswordExtensionService,
-} from "@executor/plugin-onepassword/api";
+} from "@executor-js/plugin-onepassword/api";
 import {
   GraphqlGroup,
   GraphqlHandlers,
   GraphqlExtensionService,
-} from "@executor/plugin-graphql/api";
+} from "@executor-js/plugin-graphql/api";
 import { getExecutor } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 import { ErrorCaptureLive } from "./observability";
@@ -119,7 +119,7 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
   return { api, mcp };
 };
 
-export class ServerHandlersService extends Context.Tag("@executor/local/ServerHandlersService")<
+export class ServerHandlersService extends Context.Tag("@executor-js/local/ServerHandlersService")<
   ServerHandlersService,
   ServerHandlers
 >() {}

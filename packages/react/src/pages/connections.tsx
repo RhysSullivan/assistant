@@ -1,5 +1,5 @@
 import { useAtomSet, Result } from "@effect-atom/atom-react";
-import { ConnectionId } from "@executor/sdk";
+import { ConnectionId } from "@executor-js/sdk";
 import { toast } from "sonner";
 
 import { removeConnection } from "../api/atoms";

@@ -7,9 +7,9 @@ import type {
   ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
-} from "@executor/sdk";
-import { CodeExecutionError } from "@executor/codemode-core";
-import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
+} from "@executor-js/sdk";
+import { CodeExecutionError } from "@executor-js/codemode-core";
+import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor-js/codemode-core";
 
 import {
   makeExecutorToolInvoker,

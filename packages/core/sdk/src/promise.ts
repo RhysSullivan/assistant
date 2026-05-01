@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/sdk/promise — public surface for Promise-based consumers.
+// @executor-js/sdk/promise — public surface for Promise-based consumers.
 // ---------------------------------------------------------------------------
 
 export {

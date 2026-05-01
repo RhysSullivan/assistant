@@ -50,7 +50,7 @@ export interface CodeExecutor<E extends Cause.YieldableError = CodeExecutionErro
 export const unknownInputSchema: StandardSchema = {
   "~standard": {
     version: 1,
-    vendor: "@executor/codemode-core",
+    vendor: "@executor-js/codemode-core",
     validate: (value: unknown) => ({
       value,
     }),

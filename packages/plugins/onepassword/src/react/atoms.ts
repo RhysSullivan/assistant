@@ -1,5 +1,5 @@
-import type { ScopeId } from "@executor/sdk";
-import { ReactivityKey } from "@executor/react/api/reactivity-keys";
+import type { ScopeId } from "@executor-js/sdk";
+import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { OnePasswordClient } from "./client";
 
 export const onepasswordWriteKeys = [ReactivityKey.secrets] as const;

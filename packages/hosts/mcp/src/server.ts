@@ -14,7 +14,7 @@ import type {
   ElicitationHandler,
   ElicitationContext,
   ElicitationRequest,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 import type * as Tracer from "effect/Tracer";
 import {
   createExecutionEngine,
@@ -22,7 +22,7 @@ import {
   formatPausedExecution,
   type ExecutionEngine,
   type ExecutionEngineConfig,
-} from "@executor/execution";
+} from "@executor-js/execution";
 
 // ---------------------------------------------------------------------------
 // Workers-compatible JSON Schema validator (replaces Ajv which uses new Function())

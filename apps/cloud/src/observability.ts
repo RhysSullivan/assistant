@@ -4,7 +4,7 @@
 // capture — handlers, plugin SDKs, and storage code all stay
 // Sentry-agnostic and request the `ErrorCapture` tag instead.
 //
-// `withObservability` (in @executor/api) wraps every handler effect; when
+// `withObservability` (in @executor-js/api) wraps every handler effect; when
 // it sees an unmapped cause it asks `ErrorCapture.captureException` for a
 // trace id and fails with `InternalError({ traceId })`. The client gets
 // the opaque id, we get the full cause + stack in Sentry.
@@ -13,7 +13,7 @@
 import * as Sentry from "@sentry/cloudflare";
 import { Cause, Effect, Layer } from "effect";
 
-import { ErrorCapture } from "@executor/api";
+import { ErrorCapture } from "@executor-js/api";
 
 // Drizzle/postgres-js include the failing SQL (params + bound values) in
 // their error message. For OpenAPI source inserts that's 1MB+ of spec

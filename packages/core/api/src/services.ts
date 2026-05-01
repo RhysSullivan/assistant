@@ -1,7 +1,7 @@
 import { Context } from "effect";
 import type * as Cause from "effect/Cause";
-import type { Executor } from "@executor/sdk";
-import type { ExecutionEngine } from "@executor/execution";
+import type { Executor } from "@executor-js/sdk";
+import type { ExecutionEngine } from "@executor-js/execution";
 
 export class ExecutorService extends Context.Tag("ExecutorService")<
   ExecutorService,

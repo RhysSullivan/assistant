@@ -21,7 +21,7 @@ import { Schema } from "effect";
 import { HttpApiSchema } from "@effect/platform";
 import type { Effect } from "effect";
 
-import type { StorageFailure } from "@executor/storage-core";
+import type { StorageFailure } from "@executor-js/storage-core";
 
 import { ConnectionId } from "./ids";
 

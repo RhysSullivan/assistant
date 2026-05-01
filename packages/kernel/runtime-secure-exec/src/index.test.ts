@@ -3,7 +3,7 @@ import { assertInclude } from "@effect/vitest/utils";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
-import type { SandboxToolInvoker } from "@executor/codemode-core";
+import type { SandboxToolInvoker } from "@executor-js/codemode-core";
 import { makeSecureExecExecutor } from "./index";
 
 class UnknownToolError extends Data.TaggedError("UnknownToolError")<{

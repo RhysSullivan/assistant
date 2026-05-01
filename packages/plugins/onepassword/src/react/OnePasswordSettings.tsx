@@ -1,18 +1,18 @@
 import { useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect-atom/atom-react";
 import { Result } from "@effect-atom/atom-react";
-import { ReactivityKey } from "@executor/react/api/reactivity-keys";
-import { useScope } from "@executor/react/api/scope-context";
-import { Button } from "@executor/react/components/button";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
+import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
+import { useScope } from "@executor-js/react/api/scope-context";
+import { Button } from "@executor-js/react/components/button";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@executor/react/components/select";
+} from "@executor-js/react/components/select";
 import {
   Dialog,
   DialogContent,
@@ -21,13 +21,13 @@ import {
   DialogDescription,
   DialogFooter,
   DialogClose,
-} from "@executor/react/components/dialog";
+} from "@executor-js/react/components/dialog";
 import {
   CardStackEntry,
   CardStackEntryActions,
   CardStackEntryContent,
   CardStackEntryDescription,
-} from "@executor/react/components/card-stack";
+} from "@executor-js/react/components/card-stack";
 
 import {
   onepasswordConfigAtom,

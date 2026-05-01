@@ -8,7 +8,7 @@ import {
   orgMemberWriteKeys,
   orgDomainWriteKeys,
   orgInfoWriteKeys,
-} from "@executor/react/api/reactivity-keys";
+} from "@executor-js/react/api/reactivity-keys";
 import {
   Dialog,
   DialogContent,
@@ -17,19 +17,19 @@ import {
   DialogDescription,
   DialogFooter,
   DialogClose,
-} from "@executor/react/components/dialog";
-import { Button } from "@executor/react/components/button";
-import { Badge } from "@executor/react/components/badge";
-import { CopyButton } from "@executor/react/components/copy-button";
-import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
+} from "@executor-js/react/components/dialog";
+import { Button } from "@executor-js/react/components/button";
+import { Badge } from "@executor-js/react/components/badge";
+import { CopyButton } from "@executor-js/react/components/copy-button";
+import { Input } from "@executor-js/react/components/input";
+import { Label } from "@executor-js/react/components/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@executor/react/components/select";
+} from "@executor-js/react/components/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,7 +39,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-} from "@executor/react/components/dropdown-menu";
+} from "@executor-js/react/components/dropdown-menu";
 import {
   orgMembersAtom,
   orgRolesAtom,

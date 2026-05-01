@@ -1,5 +1,5 @@
 {
-  "name": "@executor/runtime-quickjs",
+  "name": "@executor-js/runtime-quickjs",
   "version": "0.0.1",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/kernel/runtime-quickjs",
   "bugs": {
@@ -37,7 +37,7 @@
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/codemode-core": "workspace:*",
+    "@executor-js/codemode-core": "workspace:*",
     "effect": "catalog:",
     "quickjs-emscripten": "catalog:"
   },

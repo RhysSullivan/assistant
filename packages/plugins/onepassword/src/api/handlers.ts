@@ -1,7 +1,7 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { addGroup, capture } from "@executor/api";
+import { addGroup, capture } from "@executor-js/api";
 import type { OnePasswordExtension } from "../sdk/plugin";
 import { OnePasswordGroup } from "./group";
 

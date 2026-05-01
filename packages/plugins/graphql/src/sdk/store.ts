@@ -4,7 +4,7 @@ import {
   defineSchema,
   type StorageDeps,
   type StorageFailure,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import {
   OperationBinding,

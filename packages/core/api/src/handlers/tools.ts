@@ -1,10 +1,10 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
-import { ToolId, ToolNotFoundError } from "@executor/sdk";
+import { ToolId, ToolNotFoundError } from "@executor-js/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
-import { capture } from "@executor/api";
+import { capture } from "@executor-js/api";
 
 export const ToolsHandlers = HttpApiBuilder.group(ExecutorApi, "tools", (handlers) =>
   handlers

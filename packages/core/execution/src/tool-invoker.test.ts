@@ -7,8 +7,8 @@ import {
   createExecutor,
   definePlugin,
   makeTestConfig,
-} from "@executor/sdk";
-import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+} from "@executor-js/sdk";
+import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { createExecutionEngine } from "./engine";
 import { describeTool, makeExecutorToolInvoker, searchTools } from "./tool-invoker";
 

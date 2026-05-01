@@ -1,1 +1,1 @@
-# @executor/desktop
+# @executor-js/desktop

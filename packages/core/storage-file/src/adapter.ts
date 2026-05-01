@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// makeSqliteAdapter — thin wrapper around @executor/storage-drizzle.
+// makeSqliteAdapter — thin wrapper around @executor-js/storage-drizzle.
 //
 // Takes a drizzle sqlite db (constructed with { schema }) plus a DBSchema
 // and delegates all query work to the drizzle-backed DBAdapter. The db
@@ -10,8 +10,8 @@
 // drizzle-kit migrations before constructing the adapter.
 // ---------------------------------------------------------------------------
 
-import type { DBAdapter, DBSchema } from "@executor/storage-core";
-import { drizzleAdapter } from "@executor/storage-drizzle";
+import type { DBAdapter, DBSchema } from "@executor-js/storage-core";
+import { drizzleAdapter } from "@executor-js/storage-drizzle";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DrizzleSqliteDB = any;

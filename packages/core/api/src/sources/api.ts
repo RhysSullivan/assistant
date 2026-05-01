@@ -4,7 +4,7 @@ import {
   ScopeId,
   SourceRemovalNotAllowedError,
   ToolId,
-} from "@executor/sdk";
+} from "@executor-js/sdk";
 
 import { InternalError } from "../observability";
 

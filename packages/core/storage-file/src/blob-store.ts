@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/storage-file — BlobStore backed by a `blob` table in the same
+// @executor-js/storage-file — BlobStore backed by a `blob` table in the same
 // drizzle sqlite database the adapter uses. Keeps plugin-owned opaque
 // blobs (onepassword config, workos-vault metadata, etc.) persistent
 // across restarts without needing a second storage seam.
@@ -12,8 +12,8 @@ import { Effect } from "effect";
 import { and, eq, inArray, sql as drizzleSql } from "drizzle-orm";
 import { primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import type { BlobStore } from "@executor/sdk";
-import { StorageError } from "@executor/storage-core";
+import type { BlobStore } from "@executor-js/sdk";
+import { StorageError } from "@executor-js/storage-core";
 
 export const blobTable = sqliteTable(
   "blob",

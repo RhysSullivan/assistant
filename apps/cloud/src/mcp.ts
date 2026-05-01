@@ -111,7 +111,7 @@ const corsPreflight = HttpServerResponse.empty({
 // Auth
 // ---------------------------------------------------------------------------
 
-export class McpAuth extends Context.Tag("@executor/cloud/McpAuth")<
+export class McpAuth extends Context.Tag("@executor-js/cloud/McpAuth")<
   McpAuth,
   {
     readonly verifyBearer: (
@@ -120,7 +120,7 @@ export class McpAuth extends Context.Tag("@executor/cloud/McpAuth")<
   }
 >() {}
 
-export class McpOrganizationAuth extends Context.Tag("@executor/cloud/McpOrganizationAuth")<
+export class McpOrganizationAuth extends Context.Tag("@executor-js/cloud/McpOrganizationAuth")<
   McpOrganizationAuth,
   {
     readonly authorize: (

@@ -1,7 +1,7 @@
 import { Suspense, useState, useCallback, useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Result, useAtomSet } from "@effect-atom/atom-react";
-import type { SourceDetectionResult } from "@executor/sdk";
+import type { SourceDetectionResult } from "@executor-js/sdk";
 import { detectSource } from "../api/atoms";
 import { useSourcesWithPending } from "../api/optimistic";
 import { useScope } from "../hooks/use-scope";

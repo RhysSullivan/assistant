@@ -1,5 +1,5 @@
 {
-  "name": "@executor/storage-core",
+  "name": "@executor-js/storage-core",
   "version": "0.0.1",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/storage-core",
   "bugs": {

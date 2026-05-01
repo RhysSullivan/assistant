@@ -1,7 +1,7 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
-import { addGroup, capture } from "@executor/api";
+import { addGroup, capture } from "@executor-js/api";
 import type {
   McpPluginExtension,
   McpProbeEndpointInput,
@@ -14,7 +14,7 @@ import { McpGroup } from "./group";
 // ---------------------------------------------------------------------------
 // Service tag — holds the raw extension shape the executor produces.
 // Handlers wrap their generator bodies with `capture(...)` from
-// `@executor/api`, which translates `StorageError` to `InternalError`
+// `@executor-js/api`, which translates `StorageError` to `InternalError`
 // at the edge; that's why the tag type matches the SDK shape directly
 // (no `Captured<>` inversion).
 // ---------------------------------------------------------------------------

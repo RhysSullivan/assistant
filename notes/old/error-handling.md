@@ -29,7 +29,7 @@ Two error categories:
    (raw)          (raw)             (captured)          (Sentry)
 ```
 
-The SDK stays storage-typed. The HTTP edge (`@executor/api`) is the
+The SDK stays storage-typed. The HTTP edge (`@executor-js/api`) is the
 **only** layer that translates `StorageError → InternalError` and
 captures the cause to telemetry. Non-HTTP consumers (CLI, Promise
 SDK, tests) see raw `StorageError` in the typed channel and can react
@@ -37,7 +37,7 @@ however they want.
 
 ## Plumbing
 
-### Storage layer (`@executor/storage-core`)
+### Storage layer (`@executor-js/storage-core`)
 
 Emits two `Data.TaggedError` classes and nothing else observability-related:
 
@@ -58,7 +58,7 @@ UniqueViolationError`. No `Error`, no telemetry service in R.
 Storage-core has zero observability awareness — it just emits typed
 values and lets consumers decide what to do with them.
 
-### SDK (`@executor/sdk`)
+### SDK (`@executor-js/sdk`)
 
 The SDK is entirely observability-free.
 
@@ -75,7 +75,7 @@ inside the SDK. The value proposition: an SDK consumer can write a CLI,
 a script, a promise-based wrapper, whatever — and the typed channel
 shows them exactly what can go wrong.
 
-### HTTP edge (`@executor/api/observability`)
+### HTTP edge (`@executor-js/api/observability`)
 
 Owns the translation, the opaque wire schema, and the capture service.
 
@@ -192,4 +192,4 @@ its annotated status.
   the handler's `Effect.gen` body with `capture(...)`.
 - SDK code importing `Sentry.captureException` or referencing
   `InternalError` / `ErrorCapture` — translation lives strictly in
-  `@executor/api`. If the SDK imports it, the layering is wrong.
+  `@executor-js/api`. If the SDK imports it, the layering is wrong.

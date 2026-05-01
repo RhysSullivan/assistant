@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/sdk/promise — thin Promise façade over the Effect SDK.
+// @executor-js/sdk/promise — thin Promise façade over the Effect SDK.
 //
 // Consumer goal: use executors + plugins without touching Effect. The
 // façade wraps `createExecutor` so it returns a Promise, and proxies
@@ -9,12 +9,12 @@
 //
 // Not a goal: authoring plugins in Promise style. The plugin model
 // (storage, schema, staticSources, Effect ctx) is Effect-only. Bring
-// your own `@executor/plugin-*` from the Effect side.
+// your own `@executor-js/plugin-*` from the Effect side.
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
 
-import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+import { makeMemoryAdapter } from "@executor-js/storage-core/testing/memory";
 
 import { makeInMemoryBlobStore } from "./blob";
 import {

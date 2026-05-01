@@ -1,7 +1,7 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId, SecretBackedMap } from "@executor/sdk";
-import { InternalError } from "@executor/api";
+import { ScopeId, SecretBackedMap } from "@executor-js/sdk";
+import { InternalError } from "@executor-js/api";
 
 import { McpConnectionError, McpToolDiscoveryError } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
@@ -175,7 +175,7 @@ export class McpGroup extends HttpApiGroup.make("mcp")
   // endpoint can surface: `McpInvocationError` is thrown inside
   // `invokeTool` which is reached via the core `tools.invoke`
   // endpoint, not any MCP-group endpoint, so it doesn't belong here.
-  // OAuth errors live on the shared `/oauth/*` group in `@executor/api`
+  // OAuth errors live on the shared `/oauth/*` group in `@executor-js/api`
   // now — the MCP group only declares its own plugin-domain errors.
   .addError(InternalError)
   .addError(McpConnectionError)

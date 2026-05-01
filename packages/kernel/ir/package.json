@@ -1,5 +1,5 @@
 {
-  "name": "@executor/ir",
+  "name": "@executor-js/ir",
   "version": "1.4.4",
   "private": true,
   "type": "module",

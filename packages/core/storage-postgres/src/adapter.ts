@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// @executor/storage-postgres — DBAdapter backed by drizzle-orm/postgres-js.
+// @executor-js/storage-postgres — DBAdapter backed by drizzle-orm/postgres-js.
 //
-// Thin wrapper: delegates all query work to @executor/storage-drizzle.
+// Thin wrapper: delegates all query work to @executor-js/storage-drizzle.
 // The drizzle db must be constructed with the generated schema so that
 // db._.fullSchema is populated.
 //
@@ -9,8 +9,8 @@
 // generated schema file.
 // ---------------------------------------------------------------------------
 
-import type { DBAdapter, DBSchema } from "@executor/storage-core";
-import { drizzleAdapter } from "@executor/storage-drizzle";
+import type { DBAdapter, DBSchema } from "@executor-js/storage-core";
+import { drizzleAdapter } from "@executor-js/storage-drizzle";
 
 export interface MakePostgresAdapterOptions {
   /**
