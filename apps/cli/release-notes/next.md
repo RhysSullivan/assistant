@@ -3,6 +3,9 @@
 ### MCP sources honor upstream `destructiveHint`
 MCP sources now read `destructiveHint` from upstream tool annotations. Tools marked destructive will require approval before running, surfaced via MCP elicitation. Refresh existing sources (or remove + re-add) to pick up annotations on tools added before this change.
 
+### Set tool policies from the Tools page
+The local UI gains a **Policies** tab for managing approval rules, plus a per-row action menu on the Tools tree. Hover any tool or category and pick **Always run / Require approval / Block / Clear** — leaf rows save a rule for the exact tool id, group rows save a `prefix.*` wildcard. New rules are auto-placed by specificity so a freshly-added group rule never silently shadows an existing leaf rule. The same menu is available from the tool detail header and from any source-detail page.
+
 ### Per-user OAuth for OpenAPI and MCP sources
 OpenAPI and MCP sources now carry first-class **Connections** — a per-user sign-in state decoupled from the source definition itself.
 
