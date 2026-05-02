@@ -181,8 +181,15 @@ const asJsonObject = (value: unknown): Record<string, unknown> => {
 const toJsonRecord = (value: unknown): Record<string, unknown> =>
   value as Record<string, unknown>;
 
-const toConfiguredHeaderValue = (value: unknown): ConfiguredHeaderValue =>
-  value as ConfiguredHeaderValue;
+const toConfiguredHeaderBinding = (value: {
+  readonly slot?: unknown;
+  readonly prefix?: unknown;
+}): ConfiguredHeaderBinding =>
+  new ConfiguredHeaderBinding({
+    kind: "binding",
+    slot: String(value.slot ?? ""),
+    ...(typeof value.prefix === "string" ? { prefix: value.prefix } : {}),
+  });
 
 const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
   if (value == null) return {};
@@ -231,7 +238,7 @@ const normalizeStoredHeaders = (
       "kind" in header &&
       (header as { kind?: unknown }).kind === "binding"
     ) {
-      headers[name] = toConfiguredHeaderValue(header);
+      headers[name] = toConfiguredHeaderBinding(header);
       continue;
     }
     legacy[name] = header;

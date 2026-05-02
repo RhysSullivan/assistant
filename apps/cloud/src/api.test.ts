@@ -32,6 +32,12 @@ const AuthHandlers = HttpApiBuilder.group(AuthApi, "auth", (handlers) =>
 const ProtectedGroup = HttpApiGroup.make("protected")
   .add(HttpApiEndpoint.get("scope", "/scope", { success: SourceResponse }))
   .add(
+    HttpApiEndpoint.get("sources", "/scopes/:scopeId/sources", {
+      params: { scopeId: Schema.String },
+      success: SourceResponse,
+    }),
+  )
+  .add(
     HttpApiEndpoint.post("resume", "/executions/:executionId/resume", {
       params: { executionId: Schema.String },
       success: SourceResponse,
@@ -41,6 +47,7 @@ const ProtectedApi = HttpApi.make("protectedApi").add(ProtectedGroup);
 const ProtectedHandlers = HttpApiBuilder.group(ProtectedApi, "protected", (handlers) =>
   handlers
     .handle("scope", () => Effect.succeed({ source: "protected" }))
+    .handle("sources", ({ params }) => Effect.succeed({ source: params.scopeId }))
     .handle("resume", () => Effect.succeed({ source: "protected" })),
 );
 
@@ -204,6 +211,15 @@ layer(TestClientLayer)("handleApiRequest", (it) => {
       const client = yield* getClient();
       const result = yield* client.protected.resume({ params: { executionId: "exec_1" } });
       expect(result).toEqual({ source: "protected" });
+    }),
+  );
+
+  it.effect("preserves protected path params through the outer router", () =>
+    Effect.gen(function* () {
+      resetState();
+      const client = yield* getClient();
+      const result = yield* client.protected.sources({ params: { scopeId: "org_1" } });
+      expect(result).toEqual({ source: "org_1" });
     }),
   );
 
