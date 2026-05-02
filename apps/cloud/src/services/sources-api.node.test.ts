@@ -9,6 +9,8 @@ import http from "node:http";
 import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 import { ScopeId, SecretId } from "@executor-js/sdk";
 
@@ -115,6 +117,169 @@ const startEchoServer = () => {
         baseUrl: `http://127.0.0.1:${port}`,
         requests: () => requests,
         close: () => new Promise((close) => server.close(() => close())),
+      });
+    });
+  });
+};
+
+const readBody = (req: http.IncomingMessage): Promise<string> =>
+  new Promise((resolveBody, rejectBody) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => resolveBody(body));
+    req.on("error", rejectBody);
+  });
+
+const GRAPHQL_INTROSPECTION_RESPONSE = {
+  data: {
+    __schema: {
+      queryType: { name: "Query" },
+      mutationType: null,
+      types: [
+        {
+          kind: "OBJECT",
+          name: "Query",
+          description: null,
+          fields: [
+            {
+              name: "hello",
+              description: "Say hello",
+              args: [
+                {
+                  name: "name",
+                  description: null,
+                  type: { kind: "SCALAR", name: "String", ofType: null },
+                  defaultValue: null,
+                },
+              ],
+              type: { kind: "SCALAR", name: "String", ofType: null },
+            },
+          ],
+          inputFields: null,
+          enumValues: null,
+        },
+        {
+          kind: "SCALAR",
+          name: "String",
+          description: null,
+          fields: null,
+          inputFields: null,
+          enumValues: null,
+        },
+      ],
+    },
+  },
+};
+
+const startGraphqlServer = () => {
+  const requests: Array<{ readonly query: string; readonly variables: unknown }> = [];
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== "POST" || req.url !== "/graphql") {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ errors: [{ message: "not found" }] }));
+      return;
+    }
+
+    const parsed = JSON.parse(await readBody(req)) as {
+      readonly query?: string;
+      readonly variables?: Record<string, unknown>;
+    };
+    const query = parsed.query ?? "";
+    requests.push({ query, variables: parsed.variables ?? null });
+
+    res.writeHead(200, { "content-type": "application/json" });
+    if (query.includes("__schema")) {
+      res.end(JSON.stringify(GRAPHQL_INTROSPECTION_RESPONSE));
+      return;
+    }
+
+    res.end(
+      JSON.stringify({
+        data: {
+          hello: `Hello ${String(parsed.variables?.name ?? "world")}`,
+        },
+      }),
+    );
+  });
+
+  return new Promise<{
+    readonly endpoint: string;
+    readonly requests: () => ReadonlyArray<{ readonly query: string; readonly variables: unknown }>;
+    readonly close: () => Promise<void>;
+  }>((resolveServer) => {
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as AddressInfo;
+      resolveServer({
+        endpoint: `http://127.0.0.1:${port}/graphql`,
+        requests: () => requests,
+        close: () => new Promise((close) => server.close(() => close())),
+      });
+    });
+  });
+};
+
+const createCloudMcpServer = () => {
+  const server = new McpServer(
+    { name: "cloud-e2e-mcp", version: "1.0.0" },
+    { capabilities: {} },
+  );
+
+  server.registerTool(
+    "simple_echo",
+    { description: "Echoes from the cloud e2e MCP server", inputSchema: {} },
+    async () => ({
+      content: [{ type: "text" as const, text: "cloud-mcp-ok" }],
+    }),
+  );
+
+  return server;
+};
+
+const startMcpServer = () => {
+  const calls: string[] = [];
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+  const server = http.createServer(async (req, res) => {
+    calls.push(`${req.method ?? "GET"} ${req.url ?? "/"}`);
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    if (sessionId) {
+      const transport = transports.get(sessionId);
+      if (!transport) {
+        res.writeHead(404);
+        res.end("Session not found");
+        return;
+      }
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    const mcp = createCloudMcpServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      onsessioninitialized: (id) => {
+        transports.set(id, transport);
+      },
+    });
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res);
+  });
+
+  return new Promise<{
+    readonly endpoint: string;
+    readonly calls: () => readonly string[];
+    readonly close: () => Promise<void>;
+  }>((resolveServer) => {
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as AddressInfo;
+      resolveServer({
+        endpoint: `http://127.0.0.1:${port}`,
+        calls: () => calls,
+        close: () =>
+          new Promise((close) => {
+            server.closeAllConnections();
+            server.close(() => close());
+          }),
       });
     });
   });
@@ -279,6 +444,137 @@ describe("sources api (HTTP)", () => {
         client.sources.tools({ params: { scopeId, sourceId: namespace } }),
       );
       expect(tools).toEqual([]);
+    }),
+  );
+
+  it.effect("added GraphQL source can be inspected and invoked through execution", () =>
+    Effect.gen(function* () {
+      const server = yield* Effect.acquireRelease(
+        Effect.promise(() => startGraphqlServer()),
+        (fixture) => Effect.promise(() => fixture.close()),
+      );
+      const org = `org_${crypto.randomUUID()}`;
+      const namespace = `gql_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const scopeId = ScopeId.make(org);
+
+      const added = yield* asOrg(org, (client) =>
+        client.graphql.addSource({
+          params: { scopeId },
+          payload: {
+            endpoint: server.endpoint,
+            namespace,
+            name: "Cloud GraphQL",
+          },
+        }),
+      );
+      expect(added).toEqual({ namespace, toolCount: 1 });
+
+      const fetched = yield* asOrg(org, (client) =>
+        client.graphql.getSource({ params: { scopeId, namespace } }),
+      );
+      expect(fetched).toMatchObject({
+        namespace,
+        name: "Cloud GraphQL",
+        endpoint: server.endpoint,
+      });
+
+      const tools = yield* asOrg(org, (client) =>
+        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+      );
+      const toolId = `${namespace}.query.hello`;
+      expect(tools.map((tool) => tool.id)).toContain(toolId);
+
+      const execution = yield* asOrg(org, (client) =>
+        client.executions.execute({
+          payload: {
+            code: [
+              `const result = await tools.${namespace}.query.hello({ name: "Ada" });`,
+              "return result;",
+            ].join("\n"),
+          },
+        }),
+      );
+
+      if (execution.status !== "completed") {
+        throw new Error(`Expected completed execution, got ${execution.status}`);
+      }
+      expect(execution.isError).toBe(false);
+      expect(execution.structured).toMatchObject({
+        status: "completed",
+        result: { hello: "Hello Ada" },
+      });
+      expect(server.requests().some((request) => request.query.includes("__schema"))).toBe(true);
+      expect(server.requests()).toContainEqual(
+        expect.objectContaining({ variables: { name: "Ada" } }),
+      );
+    }),
+  );
+
+  it.effect("added MCP source can be inspected and invoked through execution", () =>
+    Effect.gen(function* () {
+      const server = yield* Effect.acquireRelease(
+        Effect.promise(() => startMcpServer()),
+        (fixture) => Effect.promise(() => fixture.close()),
+      );
+      const org = `org_${crypto.randomUUID()}`;
+      const namespace = `mcp_${crypto.randomUUID().replace(/-/g, "_")}`;
+      const scopeId = ScopeId.make(org);
+
+      const added = yield* asOrg(org, (client) =>
+        client.mcp.addSource({
+          params: { scopeId },
+          payload: {
+            transport: "remote",
+            name: "Cloud MCP",
+            endpoint: server.endpoint,
+            remoteTransport: "streamable-http",
+            namespace,
+          },
+        }),
+      );
+      expect(added).toEqual({ namespace, toolCount: 1 });
+
+      const fetched = yield* asOrg(org, (client) =>
+        client.mcp.getSource({ params: { scopeId, namespace } }),
+      );
+      expect(fetched).toMatchObject({
+        namespace,
+        name: "Cloud MCP",
+        config: {
+          transport: "remote",
+          endpoint: server.endpoint,
+          remoteTransport: "streamable-http",
+        },
+      });
+
+      const tools = yield* asOrg(org, (client) =>
+        client.sources.tools({ params: { scopeId, sourceId: namespace } }),
+      );
+      const toolId = `${namespace}.simple_echo`;
+      expect(tools.map((tool) => tool.id)).toContain(toolId);
+
+      const execution = yield* asOrg(org, (client) =>
+        client.executions.execute({
+          payload: {
+            code: [
+              `const result = await tools.${namespace}.simple_echo({});`,
+              "return result;",
+            ].join("\n"),
+          },
+        }),
+      );
+
+      if (execution.status !== "completed") {
+        throw new Error(`Expected completed execution, got ${execution.status}`);
+      }
+      expect(execution.isError).toBe(false);
+      expect(execution.structured).toMatchObject({
+        status: "completed",
+        result: {
+          content: [{ type: "text", text: "cloud-mcp-ok" }],
+        },
+      });
+      expect(server.calls().length).toBeGreaterThanOrEqual(2);
     }),
   );
 
