@@ -9,6 +9,7 @@ import type {
   McpUpdateSourceInput,
 } from "../sdk/plugin";
 import type { SecretBackedValue } from "../sdk/types";
+import { McpStoredSourceSchema } from "../sdk/stored-source";
 import { McpGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -136,7 +137,14 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
       capture(
         Effect.gen(function* () {
           const ext = yield* McpExtensionService;
-          return yield* ext.getSource(path.namespace, path.scopeId);
+          const source = yield* ext.getSource(path.namespace, path.scopeId);
+          return source
+            ? new McpStoredSourceSchema({
+                namespace: source.namespace,
+                name: source.name,
+                config: source.config,
+              })
+            : null;
         }),
       ),
     )
