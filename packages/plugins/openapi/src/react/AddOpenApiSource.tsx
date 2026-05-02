@@ -398,7 +398,11 @@ export default function AddOpenApiSource(props: {
         setStrategy({ kind: "header", presetIndex: 0 });
         setCustomHeaders(entriesFromSpecPreset(firstPreset));
       } else {
-        setStrategy({ kind: "none" });
+        // No header presets — default to "custom" so the headers editor is
+        // visible immediately. Specs with no `security` block (e.g. Microsoft
+        // Graph) would otherwise leave the user staring at just the
+        // Authentication heading with no way to add headers.
+        setStrategy({ kind: "custom" });
         setCustomHeaders([]);
       }
     } catch (e) {
@@ -962,79 +966,81 @@ export default function AddOpenApiSource(props: {
 
           <section className="space-y-2.5">
             <FieldLabel>Authentication</FieldLabel>
-            {(preview.headerPresets.length > 0 || oauth2Presets.length > 0) && (
-              <RadioGroup
-                value={serializeStrategy(strategy)}
-                onValueChange={(value) => selectStrategy(parseStrategy(value))}
-                className="gap-1.5"
-              >
-                {preview.headerPresets.map((preset, i) => {
-                  const selected = strategy.kind === "header" && strategy.presetIndex === i;
-                  return (
-                    <Label
-                      key={`header-${i}`}
-                      className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                        selected
-                          ? "border-primary/50 bg-primary/[0.03]"
-                          : "border-border hover:bg-accent/50"
-                      }`}
-                    >
-                      <RadioGroupItem value={`header:${i}`} className="mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium text-foreground">{preset.label}</div>
-                        {preset.secretHeaders.length > 0 && (
-                          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                            {preset.secretHeaders.join(" · ")}
-                          </div>
-                        )}
-                      </div>
-                    </Label>
-                  );
-                })}
-                {oauth2Presets.map((preset, i) => {
-                  const selected = strategy.kind === "oauth2" && strategy.presetIndex === i;
-                  const scopeCount = Object.keys(preset.scopes).length;
-                  return (
-                    <Label
-                      key={`oauth2-${i}`}
-                      className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                        selected
-                          ? "border-primary/50 bg-primary/[0.03]"
-                          : "border-border hover:bg-accent/50"
-                      }`}
-                    >
-                      <RadioGroupItem value={`oauth2:${i}`} className="mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium text-foreground">{preset.label}</div>
-                        <div className="mt-0.5 text-[10px] text-muted-foreground">
-                          {scopeCount} scope{scopeCount === 1 ? "" : "s"}
+            {/* RadioGroup always renders so the static Custom + None radios
+                stay visible for specs with no security schemes (e.g. MS Graph).
+                The preset .map() blocks below render nothing when their arrays
+                are empty. */}
+            <RadioGroup
+              value={serializeStrategy(strategy)}
+              onValueChange={(value) => selectStrategy(parseStrategy(value))}
+              className="gap-1.5"
+            >
+              {preview.headerPresets.map((preset, i) => {
+                const selected = strategy.kind === "header" && strategy.presetIndex === i;
+                return (
+                  <Label
+                    key={`header-${i}`}
+                    className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                      selected
+                        ? "border-primary/50 bg-primary/[0.03]"
+                        : "border-border hover:bg-accent/50"
+                    }`}
+                  >
+                    <RadioGroupItem value={`header:${i}`} className="mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium text-foreground">{preset.label}</div>
+                      {preset.secretHeaders.length > 0 && (
+                        <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                          {preset.secretHeaders.join(" · ")}
                         </div>
+                      )}
+                    </div>
+                  </Label>
+                );
+              })}
+              {oauth2Presets.map((preset, i) => {
+                const selected = strategy.kind === "oauth2" && strategy.presetIndex === i;
+                const scopeCount = Object.keys(preset.scopes).length;
+                return (
+                  <Label
+                    key={`oauth2-${i}`}
+                    className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                      selected
+                        ? "border-primary/50 bg-primary/[0.03]"
+                        : "border-border hover:bg-accent/50"
+                    }`}
+                  >
+                    <RadioGroupItem value={`oauth2:${i}`} className="mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium text-foreground">{preset.label}</div>
+                      <div className="mt-0.5 text-[10px] text-muted-foreground">
+                        {scopeCount} scope{scopeCount === 1 ? "" : "s"}
                       </div>
-                    </Label>
-                  );
-                })}
-                <Label
-                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                    strategy.kind === "custom"
-                      ? "border-primary/50 bg-primary/[0.03]"
-                      : "border-border hover:bg-accent/50"
-                  }`}
-                >
-                  <RadioGroupItem value="custom" />
-                  <span className="text-xs font-medium text-foreground">Custom</span>
-                </Label>
-                <Label
-                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                    strategy.kind === "none"
-                      ? "border-primary/50 bg-primary/[0.03]"
-                      : "border-border hover:bg-accent/50"
-                  }`}
-                >
-                  <RadioGroupItem value="none" />
-                  <span className="text-xs font-medium text-foreground">None</span>
-                </Label>
-              </RadioGroup>
-            )}
+                    </div>
+                  </Label>
+                );
+              })}
+              <Label
+                className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                  strategy.kind === "custom"
+                    ? "border-primary/50 bg-primary/[0.03]"
+                    : "border-border hover:bg-accent/50"
+                }`}
+              >
+                <RadioGroupItem value="custom" />
+                <span className="text-xs font-medium text-foreground">Custom</span>
+              </Label>
+              <Label
+                className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                  strategy.kind === "none"
+                    ? "border-primary/50 bg-primary/[0.03]"
+                    : "border-border hover:bg-accent/50"
+                }`}
+              >
+                <RadioGroupItem value="none" />
+                <span className="text-xs font-medium text-foreground">None</span>
+              </Label>
+            </RadioGroup>
 
             {/* Header-based auth input */}
             {strategy.kind !== "none" && strategy.kind !== "oauth2" && (
