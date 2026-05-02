@@ -34,10 +34,18 @@ class Counter extends Context.Service<
   { readonly id: number }
 >()("test/Counter") {}
 
-const makeCounterLive = (counts: { acquires: number; releases: number }) =>
+const makeCounterLive = (
+  counts: { acquires: number; releases: number },
+  acquireDelayMs = 0,
+) =>
   Layer.effect(Counter)(
     Effect.acquireRelease(
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        // Yield to the event loop inside acquire to force concurrent
+        // request fibers to overlap on the shared boot MemoMap.
+        if (acquireDelayMs > 0) {
+          yield* Effect.sleep(`${acquireDelayMs} millis`);
+        }
         counts.acquires += 1;
         return { id: counts.acquires };
       }),
@@ -111,6 +119,45 @@ describe("HttpRouter.toWebHandler request scoping", () => {
 
     expect(await a.json()).toEqual({ id: 1 });
     expect(await b.json()).toEqual({ id: 2 });
+    expect(counts.acquires).toBe(2);
+    expect(counts.releases).toBe(2);
+  });
+
+  // Concurrent regression: Cloudflare Workers serves multiple in-flight
+  // requests from the same isolate. `Layer.build(layer)` (used by
+  // `requestScopedMiddleware`) inherits the boot-level `CurrentMemoMap`
+  // installed by `HttpRouter.toWebHandler`, so two requests that race
+  // through the middleware before either's scope closes BOTH reuse the
+  // first request's memoized layer build — sharing one postgres.js socket
+  // across two request handlers, which the runtime forbids:
+  //   "Cannot perform I/O on behalf of a different request"
+  //
+  // The fix must give each request a fresh MemoMap so memoization is
+  // request-local. Without it, this test acquires only once (and would
+  // crash in prod on the second concurrent request's I/O).
+  it("requestScopedMiddleware does NOT share a build across concurrent requests", async () => {
+    const counts = { acquires: 0, releases: 0 };
+    // 5ms async sleep inside acquire forces the two request fibers to
+    // overlap on the layer build, the same shape as Cloudflare Workers
+    // serving multiple in-flight requests from one isolate.
+    const App = Routes.pipe(
+      Layer.provide(requestScopedMiddleware(makeCounterLive(counts, 5)).layer),
+      Layer.provideMerge(HttpServer.layerServices),
+    );
+    const handler = HttpRouter.toWebHandler(App, { disableLogger: true })
+      .handler;
+
+    const [a, b] = await Promise.all([
+      handler(new Request("http://test.local/")),
+      handler(new Request("http://test.local/")),
+    ]);
+
+    const aBody = await a.json();
+    const bBody = await b.json();
+    // Two concurrent requests must see two distinct acquired counters.
+    // Otherwise both fibers share one postgres socket -> Cloudflare
+    // Workers I/O isolation crash in prod.
+    expect(new Set([aBody.id, bBody.id])).toEqual(new Set([1, 2]));
     expect(counts.acquires).toBe(2);
     expect(counts.releases).toBe(2);
   });
