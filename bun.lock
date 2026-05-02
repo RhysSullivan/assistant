@@ -28,7 +28,7 @@
     },
     "apps/cli": {
       "name": "executor",
-      "version": "1.4.10",
+      "version": "1.4.11",
       "bin": {
         "executor": "./bin/executor.ts",
       },
