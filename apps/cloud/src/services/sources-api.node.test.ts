@@ -341,6 +341,29 @@ describe("sources api (HTTP)", () => {
     }),
   );
 
+  it.effect("openapi.previewSpec returns class-backed preview metadata over HTTP", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const preview = yield* asOrg(org, (client) =>
+        client.openapi.previewSpec({
+          params: { scopeId: ScopeId.make(org) },
+          payload: { spec: MINIMAL_OPENAPI_SPEC },
+        }),
+      );
+
+      expect(preview).toMatchObject({
+        operationCount: 1,
+        operations: [
+          expect.objectContaining({
+            operationId: "ping",
+            method: "get",
+            path: "/ping",
+          }),
+        ],
+      });
+    }),
+  );
+
   it.effect("added OpenAPI source can be listed, inspected, and invoked through execution", () =>
     Effect.gen(function* () {
       const server = yield* Effect.acquireRelease(
@@ -694,7 +717,7 @@ describe("sources api (HTTP)", () => {
               value: "alice-secret",
             },
           });
-          yield* client.openapi.setSourceBinding({
+          const binding = yield* client.openapi.setSourceBinding({
             params: { scopeId: ScopeId.make(aliceScope) },
             payload: {
               sourceId: namespace,
@@ -707,6 +730,18 @@ describe("sources api (HTTP)", () => {
               },
             },
           });
+          expect(binding).toMatchObject({
+            sourceId: namespace,
+            sourceScopeId: ScopeId.make(orgId),
+            scopeId: ScopeId.make(aliceScope),
+            slot: "auth:personal-token",
+            value: {
+              kind: "secret",
+              secretId: SecretId.make("alice_pat"),
+            },
+          });
+          expect(binding.createdAt).toBeInstanceOf(Date);
+          expect(binding.updatedAt).toBeInstanceOf(Date);
         }),
       );
 
