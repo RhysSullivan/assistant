@@ -6,6 +6,7 @@ import type {
   GoogleDiscoveryAddSourceInput,
   GoogleDiscoveryPluginExtension,
 } from "../sdk/plugin";
+import { GoogleDiscoveryStoredSourceSchema } from "../sdk/stored-source";
 import { GoogleDiscoveryGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -74,7 +75,14 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
         capture(
           Effect.gen(function* () {
             const ext = yield* GoogleDiscoveryExtensionService;
-            return yield* ext.getSource(path.namespace, path.scopeId);
+            const source = yield* ext.getSource(path.namespace, path.scopeId);
+            return source
+              ? new GoogleDiscoveryStoredSourceSchema({
+                  namespace: source.namespace,
+                  name: source.name,
+                  config: source.config,
+                })
+              : null;
           }),
         ),
       )

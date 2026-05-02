@@ -15,6 +15,7 @@ import { Context, Effect, Layer } from "effect";
 import { addGroup, observabilityMiddleware } from "@executor-js/api";
 import { CoreHandlers, ExecutionEngineService, ExecutorService } from "@executor-js/api/server";
 import type { GoogleDiscoveryPluginExtension } from "../sdk/plugin";
+import { GoogleDiscoveryStoredSourceData } from "../sdk/types";
 import { GoogleDiscoveryExtensionService, GoogleDiscoveryHandlers } from "./handlers";
 import { GoogleDiscoveryGroup } from "./group";
 
@@ -62,6 +63,71 @@ const WebHandler = Effect.acquireRelease(
 );
 
 describe("GoogleDiscoveryHandlers", () => {
+  it.effect("encodes stored source details returned from the SDK store", () =>
+    Effect.gen(function* () {
+      const extension: GoogleDiscoveryPluginExtension = {
+        ...failingExtension,
+        getSource: (namespace, scope) =>
+          Effect.succeed({
+            namespace,
+            scope,
+            name: "Calendar",
+            config: new GoogleDiscoveryStoredSourceData({
+              name: "Calendar",
+              discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
+              service: "calendar",
+              version: "v3",
+              rootUrl: "https://www.googleapis.com/",
+              servicePath: "calendar/v3/",
+              auth: { kind: "none" },
+            }),
+          }),
+      };
+      const context = Context.make(ExecutorService, {} as ExecutorService["Service"]).pipe(
+        Context.add(ExecutionEngineService, {} as ExecutionEngineService["Service"]),
+        Context.add(GoogleDiscoveryExtensionService, extension),
+      );
+      const web = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          HttpRouter.toWebHandler(
+            HttpApiBuilder.layer(Api).pipe(
+              Layer.provide(CoreHandlers),
+              Layer.provide(GoogleDiscoveryHandlers),
+              Layer.provide(observabilityMiddleware(Api)),
+              Layer.provide(UnusedExecutor),
+              Layer.provide(UnusedExecutionEngine),
+              Layer.provide(
+                Layer.succeed(GoogleDiscoveryExtensionService, extension),
+              ),
+              Layer.provideMerge(HttpServer.layerServices),
+              Layer.provideMerge(Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 })),
+            ),
+          ),
+        ),
+        (webHandler) => Effect.promise(() => webHandler.dispose()),
+      );
+
+      const response = yield* Effect.promise(() =>
+        web.handler(
+          new Request("http://localhost/scopes/scope_1/google-discovery/sources/calendar"),
+          context,
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      const body = yield* Effect.promise(() => response.json());
+      expect(body).toMatchObject({
+        namespace: "calendar",
+        name: "Calendar",
+        config: {
+          name: "Calendar",
+          service: "calendar",
+          version: "v3",
+        },
+      });
+    }),
+  );
+
   it.effect(
     "defect-returning methods produce an opaque InternalError, no leakage",
     () =>
