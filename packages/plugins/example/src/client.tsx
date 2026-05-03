@@ -32,6 +32,11 @@ function ExamplePage() {
     <div style={{ maxWidth: 480, margin: "2rem auto", padding: "1rem" }}>
       <h1 style={{ fontSize: "1.25rem", marginBottom: "1rem" }}>Example plugin</h1>
       <div style={{ display: "flex", gap: 8 }}>
+        {/* The example plugin demonstrates the SDK in isolation, so it
+            uses raw HTML controls instead of `@executor-js/react`'s
+            wrapped components — third-party plugin authors don't have
+            to depend on the host's component library. */}
+        {/* oxlint-disable-next-line react/forbid-elements */}
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -42,10 +47,14 @@ function ExamplePage() {
             borderRadius: 6,
           }}
         />
+        {/* oxlint-disable-next-line react/forbid-elements */}
         <button
           type="button"
           onClick={async () => {
-            const g = await doGreet({ payload: { name } });
+            // Mutation has no shared state to invalidate — explicit
+            // empty `reactivityKeys` documents the intent for the
+            // `require-reactivity-keys` rule.
+            const g = await doGreet({ payload: { name }, reactivityKeys: [] });
             setResult(`${g.message} (#${g.count})`);
           }}
           style={{

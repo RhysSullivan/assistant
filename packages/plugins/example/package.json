@@ -62,6 +62,7 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "bun-types": "catalog:",
     "react": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",

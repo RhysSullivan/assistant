@@ -155,6 +155,10 @@ export const composePluginHandlers = <TPlugins extends readonly AnyPlugin[]>(
       ),
     );
   }
+  // `Layer.empty` is `Layer<never, never, never>`; widening to `AnyLayer`
+  // (`Layer<any, any, any>`) needs the unknown step because TS can't see
+  // through Layer's variance markers without it.
+  // oxlint-disable-next-line executor/no-double-cast
   if (layers.length === 0) return Layer.empty as unknown as AnyLayer;
   return Layer.mergeAll(...(layers as [AnyLayer, ...AnyLayer[]]));
 };
@@ -176,9 +180,14 @@ export const composePluginHandlerLayer = <
   plugins: TPlugins,
 ): MergedHandlerLayer<TPlugins> => {
   const layers = plugins.flatMap((p) => (p.handlers ? [p.handlers()] : []));
+  // `MergedHandlerLayer<TPlugins>` is computed from the plugin tuple at
+  // the type level — TS can't witness that `Layer.mergeAll(...layers)` /
+  // `Layer.empty` actually produces it without the unknown bridge.
   if (layers.length === 0) {
+    // oxlint-disable-next-line executor/no-double-cast
     return Layer.empty as unknown as MergedHandlerLayer<TPlugins>;
   }
+  // oxlint-disable-next-line executor/no-double-cast
   return Layer.mergeAll(
     ...(layers as [AnyLayer, ...AnyLayer[]]),
   ) as unknown as MergedHandlerLayer<TPlugins>;
