@@ -7,15 +7,14 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import { Layer } from "effect";
 
+import { observabilityMiddleware } from "@executor-js/api";
 import {
-  CoreExecutorApi,
-  observabilityMiddleware,
-} from "@executor-js/api";
-import { CoreHandlers } from "@executor-js/api/server";
-import { OpenApiGroup, OpenApiHandlers } from "@executor-js/plugin-openapi/api";
-import { McpGroup, McpHandlers } from "@executor-js/plugin-mcp/api";
-import { GraphqlGroup, GraphqlHandlers } from "@executor-js/plugin-graphql/api";
+  CoreHandlers,
+  composePluginApi,
+  composePluginHandlerLayer,
+} from "@executor-js/api/server";
 
+import { cloudPlugins } from "./cloud-plugins";
 import { UserStoreService } from "../auth/context";
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
@@ -30,9 +29,13 @@ import { ErrorCaptureLive } from "../observability";
 // it INSIDE the router middleware (wrong order), and added a second auth
 // pass on top of the existing one in `protected.ts`'s outer effect. The
 // router-middleware approach folds both into one place.
-export const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
-  .add(McpGroup)
-  .add(GraphqlGroup);
+//
+// `composePluginApi(cloudPlugins)` returns a precisely typed `HttpApi`
+// — the group union is derived from `typeof cloudPlugins` via the
+// plugin spec's `TGroup` generic. Test harness clients type via
+// `HttpApiClient.ForApi<typeof ProtectedCloudApi>` directly, with no
+// per-plugin Group imports at the host.
+export const ProtectedCloudApi = composePluginApi(cloudPlugins);
 
 const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
 
@@ -49,14 +52,14 @@ export const SharedServices = Layer.mergeAll(
 
 export const RouterConfig = Layer.succeed(HttpRouter.RouterConfig)({ maxParamLength: 1000 });
 
-// Every handler the ProtectedCloudApi routes to. The test harness builds
-// its own api-live by merging this with its own per-request middleware
-// fakes; prod uses `ProtectedCloudApiLive` below.
+// Every handler the ProtectedCloudApi routes to. Plugin handler layers
+// are late-binding — they require their plugin's `extensionService`
+// Tag, which the per-request `ExecutionStackMiddleware` satisfies via
+// `providePluginExtensions`. The test harness mirrors this; nothing
+// else needs to know which plugins are wired.
 export const ProtectedCloudApiHandlers = Layer.mergeAll(
   CoreHandlers,
-  OpenApiHandlers,
-  McpHandlers,
-  GraphqlHandlers,
+  composePluginHandlerLayer(cloudPlugins),
 );
 
 // `ErrorCaptureLive` is provided above the handler + middleware layers

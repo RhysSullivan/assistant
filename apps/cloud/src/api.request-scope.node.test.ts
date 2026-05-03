@@ -152,8 +152,8 @@ describe("HttpRouter.toWebHandler request scoping", () => {
       handler(new Request("http://test.local/")),
     ]);
 
-    const aBody = await a.json();
-    const bBody = await b.json();
+    const aBody = (await a.json()) as { id: number };
+    const bBody = (await b.json()) as { id: number };
     // Two concurrent requests must see two distinct acquired counters.
     // Otherwise both fibers share one postgres socket -> Cloudflare
     // Workers I/O isolation crash in prod.

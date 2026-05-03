@@ -26,6 +26,8 @@ import {
 import {
   ExecutionEngineService,
   ExecutorService,
+  providePluginExtensions,
+  type PluginExtensionServices,
 } from "@executor-js/api/server";
 import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
@@ -39,20 +41,14 @@ import {
   makePostgresAdapter,
   makePostgresBlobStore,
 } from "@executor-js/storage-postgres";
-import { openApiPlugin } from "@executor-js/plugin-openapi";
-import { mcpPlugin } from "@executor-js/plugin-mcp";
-import { graphqlPlugin } from "@executor-js/plugin-graphql";
 import {
-  workosVaultPlugin,
   WorkOSVaultClientError,
   type WorkOSVaultClient,
   type WorkOSVaultObject,
   type WorkOSVaultObjectMetadata,
 } from "@executor-js/plugin-workos-vault";
-import { OpenApiExtensionService } from "@executor-js/plugin-openapi/api";
-import { McpExtensionService } from "@executor-js/plugin-mcp/api";
-import { GraphqlExtensionService } from "@executor-js/plugin-graphql/api";
 
+import executorConfig from "../../../executor.config";
 import { AuthContext } from "../../auth/middleware";
 import {
   ProtectedCloudApi,
@@ -174,6 +170,7 @@ export const makeFakeVaultClient = (): WorkOSVaultClient => {
 // ---------------------------------------------------------------------------
 
 const fakeVault = makeFakeVaultClient();
+const testPlugins = executorConfig.plugins({ workosVaultClient: fakeVault });
 
 const createTestScopedExecutor = (
   userId: string,
@@ -182,12 +179,7 @@ const createTestScopedExecutor = (
 ) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
-    const plugins = [
-      openApiPlugin(),
-      mcpPlugin({ dangerouslyAllowStdioMCP: false }),
-      graphqlPlugin(),
-      workosVaultPlugin({ client: fakeVault }),
-    ] as const;
+    const plugins = testPlugins;
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
@@ -225,15 +217,14 @@ const TestExecutionStackMiddleware = HttpRouter.middleware<{
     | AuthContext
     | ExecutorService
     | ExecutionEngineService
-    | OpenApiExtensionService
-    | McpExtensionService
-    | GraphqlExtensionService;
+    | PluginExtensionServices<typeof testPlugins>;
 }>()(
   // Layer-time setup — captures `DbService` so the per-request function
   // only depends on `HttpRouter`-Provided context. See `api/protected.ts`
   // for the same pattern.
   Effect.gen(function* () {
     const context = yield* Effect.context<DbService>();
+    const provideExecutorExtensions = providePluginExtensions(testPlugins);
     return (httpEffect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
@@ -265,9 +256,7 @@ const TestExecutionStackMiddleware = HttpRouter.middleware<{
           ),
           Effect.provideService(ExecutorService, executor),
           Effect.provideService(ExecutionEngineService, engine),
-          Effect.provideService(OpenApiExtensionService, executor.openapi),
-          Effect.provideService(McpExtensionService, executor.mcp),
-          Effect.provideService(GraphqlExtensionService, executor.graphql),
+          provideExecutorExtensions(executor),
         );
       }).pipe(Effect.provideContext(context));
   }),

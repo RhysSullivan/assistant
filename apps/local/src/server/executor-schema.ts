@@ -235,3 +235,4 @@ export const blob = sqliteTable("blob", {
 }, (table) => [
   primaryKey({ columns: [table.namespace, table.key] }),
 ]);
+
