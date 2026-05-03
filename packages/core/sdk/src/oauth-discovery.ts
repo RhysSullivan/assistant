@@ -385,8 +385,11 @@ export const discoverAuthorizationServerMetadata = (
 // ---------------------------------------------------------------------------
 // RFC 7591 — Dynamic Client Registration
 //
-// Delegates to `oauth4webapi.dynamicClientRegistrationRequest` +
-// `processDynamicClientRegistrationResponse`.
+// Hand-rolled instead of delegating to oauth4webapi. The library's
+// `processDynamicClientRegistrationResponse` requires the AS return
+// HTTP 201 Created (RFC 7591 §3.2.1), but Todoist (and others) return
+// 200 OK on success. We accept both, and still surface 4xx OAuth error
+// envelopes the same way oauth4webapi would.
 // ---------------------------------------------------------------------------
 
 export interface RegisterDynamicClientInput {
@@ -395,95 +398,167 @@ export interface RegisterDynamicClientInput {
   readonly initialAccessToken?: string | null;
 }
 
-const asForDcr = (
-  registrationEndpoint: string,
-): oauth.AuthorizationServer => {
-  const url = new URL(registrationEndpoint);
-  return {
-    issuer: `${url.protocol}//${url.host}`,
-    registration_endpoint: registrationEndpoint,
-  };
+// Internal failure modes — collapsed into `OAuthDiscoveryError` at the
+// boundary. Tagged so we can match without `instanceof`.
+class DcrErrorBody extends Data.TaggedError("DcrErrorBody")<{
+  readonly status: number;
+  readonly error: string;
+  readonly error_description?: string;
+}> {}
+
+class DcrTransport extends Data.TaggedError("DcrTransport")<{
+  readonly message: string;
+  readonly status?: number;
+  readonly cause?: unknown;
+}> {}
+
+const buildDcrBody = (m: DynamicClientMetadata): Record<string, unknown> => {
+  const body: Record<string, unknown> = { redirect_uris: [...m.redirect_uris] };
+  if (m.client_name !== undefined) body.client_name = m.client_name;
+  if (m.grant_types !== undefined) body.grant_types = [...m.grant_types];
+  if (m.response_types !== undefined) body.response_types = [...m.response_types];
+  if (m.token_endpoint_auth_method !== undefined) {
+    body.token_endpoint_auth_method = m.token_endpoint_auth_method;
+  }
+  if (m.scope !== undefined) body.scope = m.scope;
+  if (m.application_type !== undefined) body.application_type = m.application_type;
+  if (m.client_uri !== undefined) body.client_uri = m.client_uri;
+  if (m.logo_uri !== undefined) body.logo_uri = m.logo_uri;
+  if (m.contacts !== undefined) body.contacts = [...m.contacts];
+  if (m.software_id !== undefined) body.software_id = m.software_id;
+  if (m.software_version !== undefined) body.software_version = m.software_version;
+  if (m.extra) for (const [k, v] of Object.entries(m.extra)) body[k] = v;
+  return body;
+};
+
+const interpretDcrFailure = (
+  status: number,
+  text: string,
+): DcrErrorBody | DcrTransport => {
+  // RFC 6749 error envelope: `{error, error_description?}` with 4xx.
+  if (status >= 400 && status < 500) {
+    const parsed = Result.try({
+      try: () => (text ? (JSON.parse(text) as unknown) : null),
+      catch: () => null,
+    });
+    const body = Result.isSuccess(parsed) ? parsed.success : null;
+    if (
+      body &&
+      typeof body === "object" &&
+      "error" in body &&
+      typeof body.error === "string" &&
+      body.error.length > 0
+    ) {
+      const desc =
+        "error_description" in body && typeof body.error_description === "string"
+          ? body.error_description
+          : undefined;
+      return new DcrErrorBody({ status, error: body.error, error_description: desc });
+    }
+  }
+  return new DcrTransport({
+    message: `Dynamic Client Registration endpoint returned status ${status}${text ? ` — ${text.slice(0, 200)}` : ""}`,
+    status,
+  });
 };
 
 export const registerDynamicClient = (
   input: RegisterDynamicClientInput,
   options: DiscoveryRequestOptions = {},
 ): Effect.Effect<OAuthClientInformation, OAuthDiscoveryError> =>
-  Effect.tryPromise({
-    try: async () => {
-      const as = asForDcr(input.registrationEndpoint);
-      const m = input.metadata;
-      const clientMetadata: Record<string, unknown> = {
-        redirect_uris: [...m.redirect_uris],
-      };
-      if (m.client_name !== undefined) clientMetadata.client_name = m.client_name;
-      if (m.grant_types !== undefined) clientMetadata.grant_types = [...m.grant_types];
-      if (m.response_types !== undefined) clientMetadata.response_types = [...m.response_types];
-      if (m.token_endpoint_auth_method !== undefined) {
-        clientMetadata.token_endpoint_auth_method = m.token_endpoint_auth_method;
-      }
-      if (m.scope !== undefined) clientMetadata.scope = m.scope;
-      if (m.application_type !== undefined) clientMetadata.application_type = m.application_type;
-      if (m.client_uri !== undefined) clientMetadata.client_uri = m.client_uri;
-      if (m.logo_uri !== undefined) clientMetadata.logo_uri = m.logo_uri;
-      if (m.contacts !== undefined) clientMetadata.contacts = [...m.contacts];
-      if (m.software_id !== undefined) clientMetadata.software_id = m.software_id;
-      if (m.software_version !== undefined) clientMetadata.software_version = m.software_version;
-      if (m.extra) for (const [k, v] of Object.entries(m.extra)) clientMetadata[k] = v;
+  Effect.gen(function* () {
+    const url = new URL(input.registrationEndpoint);
+    if (
+      url.protocol !== "https:" &&
+      !isLoopbackHttpUrl(input.registrationEndpoint)
+    ) {
+      return yield* new DcrTransport({
+        message: `registration_endpoint must be HTTPS or a loopback HTTP URL (got ${url.protocol}//${url.host})`,
+      });
+    }
 
-      const reqOptions: Record<string, unknown> = oauth4webapiOptions(options);
-      if (isLoopbackHttpUrl(input.registrationEndpoint)) {
-        (reqOptions as { [oauth.allowInsecureRequests]?: boolean })[
-          oauth.allowInsecureRequests
-        ] = true;
-      }
-      if (input.initialAccessToken) {
-        reqOptions.initialAccessToken = input.initialAccessToken;
-      }
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "application/json",
+    };
+    if (input.initialAccessToken) {
+      headers.authorization = `Bearer ${input.initialAccessToken}`;
+    }
 
-      const response = await oauth.dynamicClientRegistrationRequest(
-        as,
-        clientMetadata as Partial<oauth.Client>,
-        reqOptions,
+    const fetchImpl = options.fetch ?? globalThis.fetch;
+    const timeoutMs = options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS;
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetchImpl(input.registrationEndpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(buildDcrBody(input.metadata)),
+          signal: AbortSignal.timeout(timeoutMs),
+        }),
+      catch: (cause) =>
+        new DcrTransport({
+          message: `Dynamic Client Registration request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          cause,
+        }),
+    });
+
+    // Accept both 200 and 201 as success — RFC 7591 mandates 201, but
+    // Todoist (and others) return 200 OK with the client information body.
+    if (response.status !== 200 && response.status !== 201) {
+      const text = yield* Effect.promise(() =>
+        response.text().catch(() => ""),
       );
-      const client = await oauth.processDynamicClientRegistrationResponse(
-        response,
-      );
-      return client as OAuthClientInformation;
-    },
-    catch: (cause) => {
-      // `oauth4webapi` throws `ResponseBodyError` for RFC 6749 error
-      // envelopes (carrying `.status`, `.error`, `.error_description`).
-      // Preserve the HTTP status + error code so the plugin layer can
-      // surface specific failures (`invalid_client_metadata` →
-      // `client_metadata is wrong`) without regex-ing the message.
-      if (cause instanceof oauth.ResponseBodyError) {
-        return discoveryError(
-          `Dynamic Client Registration failed: ${cause.error}${
-            cause.error_description ? ` — ${cause.error_description}` : ""
-          }`,
-          { status: cause.status, cause },
-        );
-      }
-      return discoveryError(
-        `Dynamic Client Registration failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-        { cause },
-      );
-    },
-  }).pipe(
-    Effect.flatMap((raw) =>
-      decodeClientInformation(raw).pipe(
-        Effect.mapError(
-          (err) =>
-            new OAuthDiscoveryError({
-              message: `Dynamic Client Registration response is malformed: ${
-                Schema.isSchemaError(err) ? err.message : String(err)
-              }`,
-              cause: err,
-            }),
-        ),
+      return yield* interpretDcrFailure(response.status, text);
+    }
+
+    const text = yield* Effect.tryPromise({
+      try: () => response.text(),
+      catch: (cause) =>
+        new DcrTransport({
+          message: "Dynamic Client Registration response could not be read",
+          status: response.status,
+          cause,
+        }),
+    });
+    const json = yield* Effect.try({
+      try: () => JSON.parse(text) as unknown,
+      catch: (cause) =>
+        new DcrTransport({
+          message: "Dynamic Client Registration response was not valid JSON",
+          status: response.status,
+          cause,
+        }),
+    });
+    return yield* decodeClientInformation(json).pipe(
+      Effect.mapError(
+        (err) =>
+          new OAuthDiscoveryError({
+            message: `Dynamic Client Registration response is malformed: ${
+              Schema.isSchemaError(err) ? err.message : String(err)
+            }`,
+            cause: err,
+          }),
       ),
-    ),
+    );
+  }).pipe(
+    Effect.catchTags({
+      DcrErrorBody: (err) =>
+        Effect.fail(
+          discoveryError(
+            `Dynamic Client Registration failed: ${err.error}${
+              err.error_description ? ` — ${err.error_description}` : ""
+            }`,
+            { status: err.status, cause: err },
+          ),
+        ),
+      DcrTransport: (err) =>
+        Effect.fail(
+          discoveryError(`Dynamic Client Registration failed: ${err.message}`, {
+            status: err.status,
+            cause: err.cause ?? err,
+          }),
+        ),
+    }),
   );
 
 // ---------------------------------------------------------------------------

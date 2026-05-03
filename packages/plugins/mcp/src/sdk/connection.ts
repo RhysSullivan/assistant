@@ -2,6 +2,7 @@ import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/cfworker";
 import { Effect } from "effect";
 
 // NOTE: `StdioClientTransport` is NOT imported eagerly. The upstream module
@@ -56,10 +57,19 @@ const buildEndpointUrl = (endpoint: string, queryParams: Record<string, string>)
   return url;
 };
 
+// Use the cfworker JSON Schema validator instead of the SDK's default
+// (Ajv). Ajv compiles schemas via `new Function(...)`, which throws
+// `Code generation from strings disallowed for this context` when the
+// MCP plugin runs inside a Cloudflare Worker (executor.sh). The
+// cfworker validator does not use code generation and works in every
+// runtime we ship to.
 const createClient = (): Client =>
   new Client(
     { name: "executor-mcp", version: "0.1.0" },
-    { capabilities: { elicitation: { form: {}, url: {} } } },
+    {
+      capabilities: { elicitation: { form: {}, url: {} } },
+      jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
+    },
   );
 
 const connectionFromClient = (client: Client): McpConnection => ({

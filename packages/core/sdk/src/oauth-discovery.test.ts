@@ -201,6 +201,33 @@ describe("registerDynamicClient", () => {
     expect(body.token_endpoint_auth_method).toBe("none");
   });
 
+  // Todoist's DCR returns 200 OK with the client information body
+  // instead of the RFC 7591-mandated 201 Created. oauth4webapi's
+  // `processDynamicClientRegistrationResponse` rejects that as
+  // "unexpected HTTP status code"; we accept both.
+  it("treats HTTP 200 as success (Todoist-style non-conformance)", async () => {
+    installFetchRouter([
+      {
+        match: () => true,
+        handle: () =>
+          new Response(
+            JSON.stringify({
+              client_id: "tdd_abc",
+              redirect_uris: ["https://app.example.com/cb"],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      },
+    ]);
+    const info = await Effect.runPromise(
+      registerDynamicClient({
+        registrationEndpoint: "https://todoist.com/oauth/register",
+        metadata: { redirect_uris: ["https://app.example.com/cb"] },
+      }),
+    );
+    expect(info.client_id).toBe("tdd_abc");
+  });
+
   it("surfaces AS error responses with the error body", async () => {
     installFetchRouter([
       {
