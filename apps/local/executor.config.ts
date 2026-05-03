@@ -26,7 +26,7 @@ interface LocalPluginDeps {
 
 export default defineExecutorConfig({
   dialect: "sqlite",
-  plugins: ({ configFile }: LocalPluginDeps) =>
+  plugins: ({ configFile }: LocalPluginDeps = {}) =>
     [
       openApiPlugin({ configFile }),
       mcpPlugin({ dangerouslyAllowStdioMCP: true, configFile }),

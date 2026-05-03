@@ -306,15 +306,27 @@ export interface SourceLifecycleInput<TStore = unknown> {
 // PluginSpec — what a `definePlugin(factory)` call returns.
 // ---------------------------------------------------------------------------
 
+// Defaults are `any` for slots that surface in contravariant positions
+// (storage/extension callbacks consume `TStore`/`TSchema`; `staticSources`
+// closes over `TExtension` via `NoInfer`). `any` is bivariant, so
+// `Plugin<string>` is a structural supertype of every concrete plugin
+// — `AnyPlugin = Plugin<string>` keeps the generic explosion contained
+// to this single declaration. Concrete specs ignore the defaults; TS
+// infers each slot from the literal returned by the author factory.
+//
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface PluginSpec<
   TId extends string = string,
-  TExtension extends object = Record<string, never>,
-  TStore = unknown,
-  TSchema extends DBSchema | undefined = DBSchema | undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TExtensionService extends Context.Service<any, any> | undefined = undefined,
+  TExtension extends object = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
+  TStore = any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TSchema extends DBSchema | undefined = any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TExtensionService extends Context.Service<any, any> | undefined = any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  THandlersLayer extends Layer.Layer<any, any, any> = any,
   TGroup extends HttpApiGroup.Any = HttpApiGroup.Any,
 > {
   readonly id: TId;
@@ -488,13 +500,16 @@ export interface PluginSpec<
 
 export interface Plugin<
   TId extends string = string,
-  TExtension extends object = Record<string, never>,
-  TStore = unknown,
-  TSchema extends DBSchema | undefined = DBSchema | undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TExtensionService extends Context.Service<any, any> | undefined = undefined,
+  TExtension extends object = any,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  THandlersLayer extends Layer.Layer<any, any, any> = Layer.Layer<unknown, never, never>,
+  TStore = any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TSchema extends DBSchema | undefined = any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  TExtensionService extends Context.Service<any, any> | undefined = any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  THandlersLayer extends Layer.Layer<any, any, any> = any,
   TGroup extends HttpApiGroup.Any = HttpApiGroup.Any,
 > extends PluginSpec<
     TId,
@@ -596,23 +611,15 @@ export function definePlugin<
 // AnyPlugin / PluginExtensions — type-level glue for the Executor surface.
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyPlugin = Plugin<string, any, any, any, any, any, any>;
+// `Plugin<string>` (with all subsequent slots taking their wide defaults)
+// is structurally any concrete plugin — the `any` cascade stays inside
+// the spec's defaults instead of leaking into every consumer.
+export type AnyPlugin = Plugin<string>;
 
 export type PluginExtensions<TPlugins extends readonly AnyPlugin[]> = {
   readonly [P in TPlugins[number] as P["id"]]: P extends Plugin<
     string,
-    infer TExt,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    any
+    infer TExt
   >
     ? TExt
     : never;

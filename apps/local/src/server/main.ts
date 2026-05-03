@@ -31,7 +31,7 @@ import { ErrorCaptureLive } from "./observability";
 // invocation. The schema-gen CLI relies on the same property.
 // ---------------------------------------------------------------------------
 
-const LocalApi = composePluginApi(executorConfig.plugins({}));
+const LocalApi = composePluginApi(executorConfig.plugins());
 
 // `ErrorCaptureLive` logs causes to the console and returns a short
 // correlation id. Provided above the handler + middleware layers so

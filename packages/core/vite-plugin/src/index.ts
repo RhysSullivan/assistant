@@ -112,7 +112,7 @@ export default function executorVitePlugin(
       | ExecutorCliConfig;
     const config = ("default" in mod && mod.default ? mod.default : mod) as ExecutorCliConfig;
 
-    const specs = config.plugins({});
+    const specs = config.plugins();
     const fromDir = dirname(configPath);
     const lines: string[] = [];
     const exportNames: string[] = [];

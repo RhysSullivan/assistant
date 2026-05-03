@@ -40,7 +40,7 @@ interface CloudPluginDeps {
 
 export default defineExecutorConfig({
   dialect: "pg",
-  plugins: ({ workosCredentials, workosVaultClient }: CloudPluginDeps) =>
+  plugins: ({ workosCredentials, workosVaultClient }: CloudPluginDeps = {}) =>
     [
       openApiPlugin(),
       mcpPlugin({ dangerouslyAllowStdioMCP: false }),

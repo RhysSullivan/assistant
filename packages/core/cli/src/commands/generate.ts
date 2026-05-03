@@ -26,10 +26,11 @@ async function generateAction(opts: {
     process.exit(1);
   }
 
-  // The CLI never reaches plugin runtime — only `plugin.schema` is read.
-  // Pass an empty deps object; plugins that need host deps must tolerate
-  // missing values for schema-only inspection.
-  const schema = collectSchemas(config.plugins({}));
+  // The CLI never reaches plugin runtime — `plugins()` is called with
+  // no host deps and only `plugin.schema` is read. Each plugin's
+  // factory tolerates missing host deps for this introspection-only
+  // path; runtime callers (apps) pass real deps.
+  const schema = collectSchemas(config.plugins());
 
   const result = await generateDrizzleSchema({
     schema,

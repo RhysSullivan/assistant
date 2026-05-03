@@ -4,17 +4,17 @@
 // plugin list. First-party and third-party plugins go through the same
 // `bun add @executor-js/plugin-foo` + import-and-call flow.
 //
-// `plugins` is always a factory `(deps) => readonly AnyPlugin[]`. Some
+// `plugins` is always a factory `(deps?) => readonly AnyPlugin[]`. Some
 // plugins want runtime values from the host (e.g., the openapi plugin's
 // `configFile` sink, which is keyed to the active scope cwd and so can't
-// be constructed at module-eval time). The CLI calls the factory with an
-// empty `{}` and reads `plugin.schema` only — never invokes the runtime.
-// The host runtime calls the same factory with concrete deps.
+// be constructed at module-eval time). Deps are optional — the
+// schema-gen CLI and Vite plugin call `plugins()` with no args (they
+// read `plugin.schema` / `plugin.packageName` only); runtime callers
+// pass concrete deps.
 //
 // Each app declares its own deps shape inline on the factory parameter
 // — TS infers `TDeps` from there, so apps don't reach into the SDK's
-// types via `declare module`. All deps are conventionally optional so
-// the schema-gen CLI can always call `plugins({})`.
+// types via `declare module`.
 // ---------------------------------------------------------------------------
 
 import type { AnyPlugin } from "./plugin";
@@ -24,7 +24,7 @@ export type ExecutorDialect = "pg" | "sqlite" | "mysql";
 export type ExecutorPluginsFactory<
   TDeps extends object = object,
   TPlugins extends readonly AnyPlugin[] = readonly AnyPlugin[],
-> = (deps: TDeps) => TPlugins;
+> = (deps?: TDeps) => TPlugins;
 
 export interface ExecutorCliConfig<
   TDeps extends object = object,
