@@ -122,9 +122,7 @@ export const openapi_source = sqliteTable("openapi_source", {
   source_url: text('source_url'),
   base_url: text('base_url'),
   headers: text('headers', { mode: "json" }),
-  query_params: text('query_params', { mode: "json" }),
-  oauth2: text('oauth2', { mode: "json" }),
-  invocation_config: text('invocation_config', { mode: "json" }).notNull()
+  oauth2: text('oauth2', { mode: "json" })
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("openapi_source_scope_id_idx").on(table.scope_id),
@@ -147,7 +145,10 @@ export const openapi_source_binding = sqliteTable("openapi_source_binding", {
   source_scope_id: text('source_scope_id').notNull(),
   target_scope_id: text('target_scope_id').notNull(),
   slot: text('slot').notNull(),
-  value: text('value', { mode: "json" }).notNull(),
+  kind: text({ enum: ['secret', 'connection', 'text'] }).notNull(),
+  secret_id: text('secret_id'),
+  connection_id: text('connection_id'),
+  text_value: text('text_value'),
   created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 }, (table) => [
@@ -155,6 +156,56 @@ export const openapi_source_binding = sqliteTable("openapi_source_binding", {
   index("openapi_source_binding_source_scope_id_idx").on(table.source_scope_id),
   index("openapi_source_binding_target_scope_id_idx").on(table.target_scope_id),
   index("openapi_source_binding_slot_idx").on(table.slot),
+  index("openapi_source_binding_secret_id_idx").on(table.secret_id),
+  index("openapi_source_binding_connection_id_idx").on(table.connection_id),
+]);
+
+export const openapi_source_query_param = sqliteTable("openapi_source_query_param", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text({ enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("openapi_source_query_param_scope_id_idx").on(table.scope_id),
+  index("openapi_source_query_param_source_id_idx").on(table.source_id),
+  index("openapi_source_query_param_secret_id_idx").on(table.secret_id),
+]);
+
+export const openapi_source_spec_fetch_header = sqliteTable("openapi_source_spec_fetch_header", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text({ enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("openapi_source_spec_fetch_header_scope_id_idx").on(table.scope_id),
+  index("openapi_source_spec_fetch_header_source_id_idx").on(table.source_id),
+  index("openapi_source_spec_fetch_header_secret_id_idx").on(table.secret_id),
+]);
+
+export const openapi_source_spec_fetch_query_param = sqliteTable("openapi_source_spec_fetch_query_param", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text({ enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("openapi_source_spec_fetch_query_param_scope_id_idx").on(table.scope_id),
+  index("openapi_source_spec_fetch_query_param_source_id_idx").on(table.source_id),
+  index("openapi_source_spec_fetch_query_param_secret_id_idx").on(table.secret_id),
 ]);
 
 export const mcp_source = sqliteTable("mcp_source", {

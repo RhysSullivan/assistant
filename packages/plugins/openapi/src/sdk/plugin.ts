@@ -10,6 +10,7 @@ import {
   ScopeId,
   SecretId,
   SourceDetectionResult,
+  Usage,
   definePlugin,
   resolveSecretBackedMap,
   type PluginCtx,
@@ -1029,6 +1030,82 @@ export const openApiPlugin = definePlugin((options?: OpenApiPluginOptions) => {
       }),
 
     removeSource: ({ ctx, sourceId, scope }) => ctx.storage.removeSource(sourceId, scope),
+
+    // Aggregate usages across the four places openapi can hold a direct
+    // secret ref:
+    //   - openapi_source_binding.secret_id (kind=secret slot bindings)
+    //   - openapi_source_query_param
+    //   - openapi_source_spec_fetch_header / spec_fetch_query_param
+    // Each is one indexed SELECT in the store; the merge plus a single
+    // source-name JOIN happens here.
+    usagesForSecret: ({ ctx, args }) =>
+      Effect.gen(function* () {
+        const bindings = yield* ctx.storage.findBindingsBySecret(args.secretId);
+        const childRows = yield* ctx.storage.findChildRowsBySecret(
+          args.secretId,
+        );
+
+        const sourceKeys = new Set<string>();
+        for (const b of bindings) {
+          sourceKeys.add(`${b.sourceScopeId}:${b.sourceId}`);
+        }
+        for (const r of childRows) {
+          sourceKeys.add(`${r.scope_id}:${r.source_id}`);
+        }
+        const sources = yield* ctx.storage.lookupSourceNames([...sourceKeys]);
+
+        const out: Usage[] = [];
+        for (const b of bindings) {
+          out.push(
+            new Usage({
+              pluginId: "openapi",
+              scopeId: ScopeId.make(b.scopeId),
+              ownerKind: "openapi-source-binding",
+              ownerId: b.sourceId,
+              ownerName:
+                sources.get(`${b.sourceScopeId}:${b.sourceId}`) ?? null,
+              slot: `binding:${b.slot}`,
+            }),
+          );
+        }
+        for (const r of childRows) {
+          out.push(
+            new Usage({
+              pluginId: "openapi",
+              scopeId: ScopeId.make(r.scope_id),
+              ownerKind: `openapi-source-${r.kind.replace(/_/g, "-")}`,
+              ownerId: r.source_id,
+              ownerName: sources.get(`${r.scope_id}:${r.source_id}`) ?? null,
+              slot: `${r.kind}:${r.name}`,
+            }),
+          );
+        }
+        return out;
+      }),
+
+    usagesForConnection: ({ ctx, args }) =>
+      Effect.gen(function* () {
+        const bindings = yield* ctx.storage.findBindingsByConnection(
+          args.connectionId,
+        );
+        const sourceKeys = new Set<string>();
+        for (const b of bindings) {
+          sourceKeys.add(`${b.sourceScopeId}:${b.sourceId}`);
+        }
+        const sources = yield* ctx.storage.lookupSourceNames([...sourceKeys]);
+        return bindings.map(
+          (b) =>
+            new Usage({
+              pluginId: "openapi",
+              scopeId: ScopeId.make(b.scopeId),
+              ownerKind: "openapi-source-binding",
+              ownerId: b.sourceId,
+              ownerName:
+                sources.get(`${b.sourceScopeId}:${b.sourceId}`) ?? null,
+              slot: `binding:${b.slot}`,
+            }),
+        );
+      }),
 
     // Re-fetch the spec from its origin URL (captured at addSpec time)
     // and replay the same parse → extract → upsertSource → register

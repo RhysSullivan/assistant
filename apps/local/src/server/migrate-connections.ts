@@ -250,6 +250,11 @@ type OpenApiRow = {
 
 const migrateOpenApi = async (sqlite: Database): Promise<void> => {
   if (!tableExists(sqlite, "openapi_source")) return;
+  // After 0008 normalized openapi, the legacy `invocation_config` JSON
+  // column is gone (specFetchCredentials moved to child tables).
+  // There's nothing for this legacy backfill to do at that point; skip
+  // cleanly. `oauth2` stays JSON because it holds slot names, not refs.
+  if (!columnExists(sqlite, "openapi_source", "invocation_config")) return;
   const rows = sqlite
     .prepare(
       "SELECT scope_id, id, name, spec, invocation_config, oauth2 FROM openapi_source",

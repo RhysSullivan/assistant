@@ -13,11 +13,12 @@ import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
 const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
-// Minimal pre-migration shape — only the graphql tables we care about,
-// plus the drizzle bookkeeping `__drizzle_migrations` table that the
-// runner uses to skip already-applied migrations. Stamping all
-// migrations 0000..0006 as applied lets us run only 0007 against this
-// hand-crafted DB.
+// Minimal pre-migration shape — the graphql tables we care about,
+// plus the openapi tables that 0008 (which also runs after our stamp)
+// needs to touch, plus the drizzle bookkeeping `__drizzle_migrations`
+// table that the runner uses to skip already-applied migrations. Both
+// 0007 and 0008 will run sequentially against this DB; the test only
+// asserts on the graphql side.
 const PRE_0007_SQL = `
   CREATE TABLE __drizzle_migrations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,18 +44,43 @@ const PRE_0007_SQL = `
     binding TEXT NOT NULL,
     PRIMARY KEY (scope_id, id)
   );
+
+  CREATE TABLE openapi_source (
+    id TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    spec TEXT NOT NULL,
+    source_url TEXT,
+    base_url TEXT,
+    headers TEXT,
+    query_params TEXT,
+    oauth2 TEXT,
+    invocation_config TEXT NOT NULL,
+    PRIMARY KEY (scope_id, id)
+  );
+
+  CREATE TABLE openapi_source_binding (
+    id TEXT PRIMARY KEY NOT NULL,
+    source_id TEXT NOT NULL,
+    source_scope_id TEXT NOT NULL,
+    target_scope_id TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `;
 
+// drizzle's sqlite migrator picks the latest `created_at` from
+// __drizzle_migrations and skips any migration whose folderMillis (from
+// the journal) is <= that timestamp. Stamping a row with 0006's
+// folderMillis lets the runner skip 0000..0006 and only execute 0007.
+const STAMP_BEFORE = 1777850000001; // 0006_neat_terror.when
+
 const stampPriorMigrationsApplied = (db: Database) => {
-  // drizzle's migration runner reads this table and skips any hashes
-  // already present. Insert one fixed-shape row per prior migration so
-  // only 0007 actually runs.
-  const stmt = db.prepare(
+  db.prepare(
     "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-  );
-  for (let i = 0; i <= 6; i += 1) {
-    stmt.run(`stub-${i.toString().padStart(4, "0")}`, Date.now());
-  }
+  ).run("pre-0007-marker", STAMP_BEFORE);
 };
 
 describe("0007_normalize_graphql backfill", () => {

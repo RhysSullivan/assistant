@@ -57,6 +57,13 @@
       "when": 1778100000000,
       "tag": "0007_normalize_graphql",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1778100000001,
+      "tag": "0008_normalize_openapi",
+      "breakpoints": true
     }
   ]
 }

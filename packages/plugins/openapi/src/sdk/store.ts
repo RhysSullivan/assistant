@@ -1,8 +1,10 @@
 import { Effect, Schema } from "effect";
 
 import {
+  ConnectionId,
   defineSchema,
   ScopeId,
+  SecretId,
   StorageError,
   type StorageDeps,
   type StorageFailure,
@@ -27,6 +29,15 @@ import {
 //   - openapi_source_binding: credential bindings for shared sources
 // ---------------------------------------------------------------------------
 
+// Each of the secret-backed child tables (`openapi_source_query_param`,
+// `openapi_source_spec_fetch_header`,
+// `openapi_source_spec_fetch_query_param`) shares the same column shape:
+// id/scope_id/source_id/name plus a `kind` enum that discriminates a
+// literal text value from a secret reference (with optional prefix).
+// The fields are inlined per-table because `defineSchema`'s type
+// narrowing relies on the literal types staying on the original
+// declaration site.
+
 export const openapiSchema = defineSchema({
   openapi_source: {
     fields: {
@@ -40,10 +51,14 @@ export const openapiSchema = defineSchema({
       // is the address re-fetched on `refreshSource`.
       source_url: { type: "string", required: false },
       base_url: { type: "string", required: false },
+      // `headers` and `oauth2` stay JSON: these carry slot names, not
+      // direct secret/connection ids. The secrets/connections that
+      // actually power them live one level of indirection deeper, in
+      // `openapi_source_binding` rows keyed by slot — and those ARE
+      // normalized below. Headers and oauth2 are plugin-private
+      // structural data, not cross-cutting refs.
       headers: { type: "json", required: false },
-      query_params: { type: "json", required: false },
       oauth2: { type: "json", required: false },
-      invocation_config: { type: "json", required: true },
     },
   },
   openapi_operation: {
@@ -66,9 +81,52 @@ export const openapiSchema = defineSchema({
       // bindings when a shared source is removed.
       target_scope_id: { type: "string", required: true, index: true },
       slot: { type: "string", required: true, index: true },
-      value: { type: "json", required: true },
+      // Discriminated union, flattened. Exactly one of secret_id /
+      // connection_id / text_value is populated based on `kind`.
+      // `secret_id` and `connection_id` are indexed so usages queries
+      // are one-hop SELECTs.
+      kind: { type: ["secret", "connection", "text"], required: true },
+      secret_id: { type: "string", required: false, index: true },
+      connection_id: { type: "string", required: false, index: true },
+      text_value: { type: "string", required: false },
       created_at: { type: "date", required: true },
       updated_at: { type: "date", required: true },
+    },
+  },
+  openapi_source_query_param: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      source_id: { type: "string", required: true, index: true },
+      name: { type: "string", required: true },
+      kind: { type: ["text", "secret"], required: true },
+      text_value: { type: "string", required: false },
+      secret_id: { type: "string", required: false, index: true },
+      secret_prefix: { type: "string", required: false },
+    },
+  },
+  openapi_source_spec_fetch_header: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      source_id: { type: "string", required: true, index: true },
+      name: { type: "string", required: true },
+      kind: { type: ["text", "secret"], required: true },
+      text_value: { type: "string", required: false },
+      secret_id: { type: "string", required: false, index: true },
+      secret_prefix: { type: "string", required: false },
+    },
+  },
+  openapi_source_spec_fetch_query_param: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      source_id: { type: "string", required: true, index: true },
+      name: { type: "string", required: true },
+      kind: { type: ["text", "secret"], required: true },
+      text_value: { type: "string", required: false },
+      secret_id: { type: "string", required: false, index: true },
+      secret_prefix: { type: "string", required: false },
     },
   },
 });
@@ -166,16 +224,70 @@ const decodeBinding = Schema.decodeUnknownSync(OperationBinding);
 
 const decodeOAuth2 = Schema.decodeUnknownSync(OAuth2Auth);
 const encodeOAuth2SourceConfig = Schema.encodeSync(OAuth2SourceConfig);
-const encodeSourceBindingValue = Schema.encodeSync(OpenApiSourceBindingValue);
-const decodeSourceBindingValue = Schema.decodeUnknownSync(
-  OpenApiSourceBindingValue,
-);
 
-const asJsonObject = (value: unknown): Record<string, unknown> => {
-  if (value == null) return {};
-  if (typeof value === "string")
-    return JSON.parse(value) as Record<string, unknown>;
-  return value as Record<string, unknown>;
+interface ChildRow {
+  readonly id: string;
+  readonly scope_id: string;
+  readonly source_id: string;
+  readonly name: string;
+  readonly kind: "text" | "secret";
+  readonly text_value?: string;
+  readonly secret_id?: string;
+  readonly secret_prefix?: string;
+  // Index signature to satisfy adapter's `RowInput` shape (the typed
+  // adapter exposes its row shape with one).
+  readonly [k: string]: unknown;
+}
+
+// Collapse a SecretBackedValue map into the flat child-table column
+// shape used by openapi_source_query_param and the two
+// openapi_source_spec_fetch_* tables. Returns one record per entry.
+const valueMapToChildRows = (
+  sourceId: string,
+  scope: string,
+  values: Record<string, HeaderValue> | undefined,
+): readonly ChildRow[] => {
+  if (!values) return [];
+  return Object.entries(values).map(([name, value]) => {
+    const id = JSON.stringify([sourceId, name]);
+    if (typeof value === "string") {
+      return {
+        id,
+        scope_id: scope,
+        source_id: sourceId,
+        name,
+        kind: "text",
+        text_value: value,
+      };
+    }
+    return {
+      id,
+      scope_id: scope,
+      source_id: sourceId,
+      name,
+      kind: "secret",
+      secret_id: value.secretId,
+      secret_prefix: value.prefix,
+    };
+  });
+};
+
+const childRowsToValueMap = (
+  rows: readonly Record<string, unknown>[],
+): Record<string, HeaderValue> => {
+  const out: Record<string, HeaderValue> = {};
+  for (const row of rows) {
+    const name = row.name as string;
+    if (row.kind === "secret" && typeof row.secret_id === "string") {
+      const prefix = row.secret_prefix as string | undefined | null;
+      out[name] = prefix
+        ? { secretId: row.secret_id, prefix }
+        : { secretId: row.secret_id };
+    } else if (row.kind === "text" && typeof row.text_value === "string") {
+      out[name] = row.text_value;
+    }
+  }
+  return out;
 };
 
 const toJsonRecord = (value: unknown): Record<string, unknown> =>
@@ -367,6 +479,44 @@ export interface OpenapiStore {
     slot: string,
     scope: string,
   ) => Effect.Effect<void, StorageFailure>;
+
+  // ---------------------------------------------------------------------
+  // Usage lookups — back `usagesForSecret` / `usagesForConnection`.
+  // Each is one indexed SELECT against the new normalized columns.
+  // ---------------------------------------------------------------------
+
+  /** Source-binding rows that point at the given secret id. */
+  readonly findBindingsBySecret: (
+    secretId: string,
+  ) => Effect.Effect<readonly OpenApiSourceBindingRef[], StorageFailure>;
+
+  /** Source-binding rows that point at the given connection id. */
+  readonly findBindingsByConnection: (
+    connectionId: string,
+  ) => Effect.Effect<readonly OpenApiSourceBindingRef[], StorageFailure>;
+
+  /** Child rows from query_params / specFetch tables that reference the
+   *  given secret id, tagged with the table they came from so the
+   *  caller can produce a readable `slot` like
+   *  `query_param:foo` or `spec_fetch_header:Authorization`. */
+  readonly findChildRowsBySecret: (secretId: string) => Effect.Effect<
+    readonly {
+      readonly kind:
+        | "query_param"
+        | "spec_fetch_header"
+        | "spec_fetch_query_param";
+      readonly source_id: string;
+      readonly scope_id: string;
+      readonly name: string;
+    }[],
+    StorageFailure
+  >;
+
+  /** Resolve display names for one or more `(scope_id, source_id)` pairs
+   *  in a single round trip, keyed by `${scope_id}:${source_id}`. */
+  readonly lookupSourceNames: (
+    keys: readonly string[],
+  ) => Effect.Effect<ReadonlyMap<string, string>, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +550,25 @@ export const makeDefaultOpenapiStore = ({
       encodeSyntheticRowIdPart(scopeId),
     ].join("::");
 
+  const rowToSourceBindingValue = (
+    row: Record<string, unknown>,
+  ): OpenApiSourceBindingValue => {
+    const kind = row.kind as string;
+    if (kind === "secret" && typeof row.secret_id === "string") {
+      return { kind: "secret", secretId: SecretId.make(row.secret_id) };
+    }
+    if (kind === "connection" && typeof row.connection_id === "string") {
+      return {
+        kind: "connection",
+        connectionId: ConnectionId.make(row.connection_id),
+      };
+    }
+    // text fallback covers both well-formed text rows and any
+    // partial/null row that survived a malformed write — `text_value`
+    // defaults to "" so the type stays satisfied without a throw.
+    return { kind: "text", text: (row.text_value as string | null) ?? "" };
+  };
+
   const rowToSourceBinding = (
     row: Record<string, unknown>,
   ): OpenApiSourceBindingRef =>
@@ -408,7 +577,7 @@ export const makeDefaultOpenapiStore = ({
       sourceScopeId: ScopeId.make(row.source_scope_id as string),
       scopeId: ScopeId.make(row.target_scope_id as string),
       slot: row.slot as string,
-      value: decodeSourceBindingValue(asJsonObject(row.value)),
+      value: rowToSourceBindingValue(row),
       createdAt:
         row.created_at instanceof Date
           ? row.created_at
@@ -418,6 +587,18 @@ export const makeDefaultOpenapiStore = ({
           ? row.updated_at
           : new Date(row.updated_at as string),
     });
+
+  const sourceBindingValueColumns = (
+    value: OpenApiSourceBindingValue,
+  ): { kind: string; secret_id?: string; connection_id?: string; text_value?: string } => {
+    if (value.kind === "secret") {
+      return { kind: "secret", secret_id: value.secretId };
+    }
+    if (value.kind === "connection") {
+      return { kind: "connection", connection_id: value.connectionId };
+    }
+    return { kind: "text", text_value: value.text };
+  };
 
   const validateBindingScopes = (params: {
     readonly sourceScope: string;
@@ -485,39 +666,88 @@ export const makeDefaultOpenapiStore = ({
       return source;
     });
 
-  const rowToSource = (row: Record<string, unknown>): StoredSource => {
-    const normalizedHeaders = normalizeStoredHeaders(row.headers);
-    const normalizedOAuth2 = normalizeStoredOAuth2(row.oauth2);
-    const invocationConfig = asJsonObject(row.invocation_config);
-    return {
-      namespace: row.id as string,
-      scope: row.scope_id as string,
-      name: row.name as string,
-      config: {
-        spec: row.spec as string,
-        sourceUrl: (row.source_url as string | null | undefined) ?? undefined,
-        baseUrl: (row.base_url as string | null | undefined) ?? undefined,
-        headers: normalizedHeaders.headers,
-        queryParams: decodeHeaders(row.query_params),
-        specFetchCredentials: invocationConfig.specFetchCredentials as
-          | OpenApiSpecFetchCredentials
-          | undefined,
-        oauth2: normalizedOAuth2.oauth2,
-      },
-      legacy:
-        Object.keys(normalizedHeaders.legacy).length > 0 ||
-        normalizedOAuth2.legacy
-          ? {
-              ...(Object.keys(normalizedHeaders.legacy).length > 0
-                ? { headers: normalizedHeaders.legacy }
+  const loadChildValueMap = (
+    model:
+      | "openapi_source_query_param"
+      | "openapi_source_spec_fetch_header"
+      | "openapi_source_spec_fetch_query_param",
+    sourceId: string,
+    scope: string,
+  ) =>
+    adapter
+      .findMany({
+        model,
+        where: [
+          { field: "source_id", value: sourceId },
+          { field: "scope_id", value: scope },
+        ],
+      })
+      .pipe(Effect.map(childRowsToValueMap));
+
+  const rowToSource = (
+    row: Record<string, unknown>,
+  ): Effect.Effect<StoredSource, StorageFailure> =>
+    Effect.gen(function* () {
+      const sourceId = row.id as string;
+      const scope = row.scope_id as string;
+      const normalizedHeaders = normalizeStoredHeaders(row.headers);
+      const normalizedOAuth2 = normalizeStoredOAuth2(row.oauth2);
+
+      const queryParams = yield* loadChildValueMap(
+        "openapi_source_query_param",
+        sourceId,
+        scope,
+      );
+      const specFetchHeaders = yield* loadChildValueMap(
+        "openapi_source_spec_fetch_header",
+        sourceId,
+        scope,
+      );
+      const specFetchQueryParams = yield* loadChildValueMap(
+        "openapi_source_spec_fetch_query_param",
+        sourceId,
+        scope,
+      );
+      const specFetchCredentials: OpenApiSpecFetchCredentials | undefined =
+        Object.keys(specFetchHeaders).length === 0 &&
+        Object.keys(specFetchQueryParams).length === 0
+          ? undefined
+          : {
+              ...(Object.keys(specFetchHeaders).length > 0
+                ? { headers: specFetchHeaders }
                 : {}),
-              ...(normalizedOAuth2.legacy
-                ? { oauth2: normalizedOAuth2.legacy }
+              ...(Object.keys(specFetchQueryParams).length > 0
+                ? { queryParams: specFetchQueryParams }
                 : {}),
-            }
-          : undefined,
-    };
-  };
+            };
+
+      return {
+        namespace: sourceId,
+        scope,
+        name: row.name as string,
+        config: {
+          spec: row.spec as string,
+          sourceUrl: (row.source_url as string | null | undefined) ?? undefined,
+          baseUrl: (row.base_url as string | null | undefined) ?? undefined,
+          headers: normalizedHeaders.headers,
+          queryParams,
+          specFetchCredentials,
+          oauth2: normalizedOAuth2.oauth2,
+        },
+        legacy:
+          Object.keys(normalizedHeaders.legacy).length > 0 ||
+          normalizedOAuth2.legacy
+            ? {
+                ...(Object.keys(normalizedHeaders.legacy).length > 0
+                  ? { headers: normalizedHeaders.legacy }
+                  : {}),
+                ...(normalizedOAuth2.legacy
+                  ? { oauth2: normalizedOAuth2.legacy }
+                  : {}),
+              }
+            : undefined,
+      };
+    });
 
   const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
     toolId: row.id as string,
@@ -526,6 +756,35 @@ export const makeDefaultOpenapiStore = ({
       typeof row.binding === "string" ? JSON.parse(row.binding) : row.binding,
     ),
   });
+
+  // Replace the rows of one child table for a source: delete then bulk
+  // insert. Single helper so upsertSource and updateSourceMeta both
+  // funnel through the same write path.
+  const replaceChildRows = (
+    model:
+      | "openapi_source_query_param"
+      | "openapi_source_spec_fetch_header"
+      | "openapi_source_spec_fetch_query_param",
+    sourceId: string,
+    scope: string,
+    values: Record<string, HeaderValue> | undefined,
+  ) =>
+    Effect.gen(function* () {
+      yield* adapter.deleteMany({
+        model,
+        where: [
+          { field: "source_id", value: sourceId },
+          { field: "scope_id", value: scope },
+        ],
+      });
+      const rows = valueMapToChildRows(sourceId, scope, values);
+      if (rows.length === 0) return;
+      yield* adapter.createMany({
+        model,
+        data: rows,
+        forceAllowId: true,
+      });
+    });
 
   const deleteSource = (
     namespace: string,
@@ -540,6 +799,20 @@ export const makeDefaultOpenapiStore = ({
           { field: "scope_id", value: scope },
         ],
       });
+      // Drop every child table's rows for this source/scope.
+      for (const model of [
+        "openapi_source_query_param",
+        "openapi_source_spec_fetch_header",
+        "openapi_source_spec_fetch_query_param",
+      ] as const) {
+        yield* adapter.deleteMany({
+          model,
+          where: [
+            { field: "source_id", value: namespace },
+            { field: "scope_id", value: scope },
+          ],
+        });
+      }
       yield* adapter.delete({
         model: "openapi_source",
         where: [
@@ -587,18 +860,30 @@ export const makeDefaultOpenapiStore = ({
                 ],
               ),
             ) as Record<string, unknown>,
-            query_params: input.config.queryParams,
             oauth2: input.config.oauth2
               ? toJsonRecord(encodeOAuth2SourceConfig(input.config.oauth2))
               : undefined,
-            invocation_config: {
-              ...(input.config.specFetchCredentials
-                ? { specFetchCredentials: input.config.specFetchCredentials }
-                : {}),
-            },
           },
           forceAllowId: true,
         });
+        yield* replaceChildRows(
+          "openapi_source_query_param",
+          input.namespace,
+          input.scope,
+          input.config.queryParams,
+        );
+        yield* replaceChildRows(
+          "openapi_source_spec_fetch_header",
+          input.namespace,
+          input.scope,
+          input.config.specFetchCredentials?.headers,
+        );
+        yield* replaceChildRows(
+          "openapi_source_spec_fetch_query_param",
+          input.namespace,
+          input.scope,
+          input.config.specFetchCredentials?.queryParams,
+        );
         if (operations.length > 0) {
           yield* adapter.createMany({
             model: "openapi_operation",
@@ -623,7 +908,7 @@ export const makeDefaultOpenapiStore = ({
           ],
         });
         if (!existingRow) return;
-        const existing = rowToSource(existingRow);
+        const existing = yield* rowToSource(existingRow);
 
         const nextName = patch.name?.trim() || existing.name;
         const nextBaseUrl =
@@ -632,10 +917,6 @@ export const makeDefaultOpenapiStore = ({
           patch.headers !== undefined
             ? patch.headers
             : (existing.config.headers ?? {});
-        const nextQueryParams =
-          patch.queryParams !== undefined
-            ? patch.queryParams
-            : (existing.config.queryParams ?? {});
         const nextOAuth2 =
           patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
 
@@ -660,30 +941,41 @@ export const makeDefaultOpenapiStore = ({
                     },
               ]),
             ) as Record<string, unknown>,
-            query_params: nextQueryParams,
             oauth2: nextOAuth2
               ? toJsonRecord(encodeOAuth2SourceConfig(nextOAuth2))
               : undefined,
-            invocation_config: asJsonObject(existingRow.invocation_config),
           },
         });
+        if (patch.queryParams !== undefined) {
+          yield* replaceChildRows(
+            "openapi_source_query_param",
+            namespace,
+            scope,
+            patch.queryParams,
+          );
+        }
       }),
 
     getSource: (namespace, scope) =>
-      adapter
-        .findOne({
+      Effect.gen(function* () {
+        const row = yield* adapter.findOne({
           model: "openapi_source",
           where: [
             { field: "id", value: namespace },
             { field: "scope_id", value: scope },
           ],
-        })
-        .pipe(Effect.map((row) => (row ? rowToSource(row) : null))),
+        });
+        if (!row) return null;
+        return yield* rowToSource(row);
+      }),
 
     listSources: () =>
-      adapter
-        .findMany({ model: "openapi_source" })
-        .pipe(Effect.map((rows) => rows.map(rowToSource))),
+      Effect.gen(function* () {
+        const rows = yield* adapter.findMany({ model: "openapi_source" });
+        return yield* Effect.forEach(rows, rowToSource, {
+          concurrency: "unbounded",
+        });
+      }),
 
     getOperationByToolId: (toolId, scope) =>
       adapter
@@ -779,6 +1071,7 @@ export const makeDefaultOpenapiStore = ({
           input.scope as string,
         );
         const now = new Date();
+        const valueColumns = sourceBindingValueColumns(input.value);
         yield* adapter.delete({
           model: "openapi_source_binding",
           where: [{ field: "id", value: id }],
@@ -791,7 +1084,7 @@ export const makeDefaultOpenapiStore = ({
             source_scope_id: input.sourceScope as string,
             target_scope_id: input.scope as string,
             slot: input.slot,
-            value: toJsonRecord(encodeSourceBindingValue(input.value)),
+            ...valueColumns,
             created_at: now,
             updated_at: now,
           },
@@ -824,6 +1117,65 @@ export const makeDefaultOpenapiStore = ({
             },
           ],
         });
+      }),
+
+    findBindingsBySecret: (secretId) =>
+      adapter
+        .findMany({
+          model: "openapi_source_binding",
+          where: [{ field: "secret_id", value: secretId }],
+        })
+        .pipe(Effect.map((rows) => rows.map(rowToSourceBinding))),
+
+    findBindingsByConnection: (connectionId) =>
+      adapter
+        .findMany({
+          model: "openapi_source_binding",
+          where: [{ field: "connection_id", value: connectionId }],
+        })
+        .pipe(Effect.map((rows) => rows.map(rowToSourceBinding))),
+
+    findChildRowsBySecret: (secretId) =>
+      Effect.gen(function* () {
+        const tables = [
+          { model: "openapi_source_query_param" as const, kind: "query_param" as const },
+          { model: "openapi_source_spec_fetch_header" as const, kind: "spec_fetch_header" as const },
+          { model: "openapi_source_spec_fetch_query_param" as const, kind: "spec_fetch_query_param" as const },
+        ];
+        const perTable = yield* Effect.forEach(
+          tables,
+          (t) =>
+            adapter
+              .findMany({
+                model: t.model,
+                where: [{ field: "secret_id", value: secretId }],
+              })
+              .pipe(
+                Effect.map((rows) =>
+                  rows.map((r) => ({
+                    kind: t.kind,
+                    source_id: r.source_id as string,
+                    scope_id: r.scope_id as string,
+                    name: r.name as string,
+                  })),
+                ),
+              ),
+          { concurrency: "unbounded" },
+        );
+        return perTable.flat();
+      }),
+
+    lookupSourceNames: (keys) =>
+      Effect.gen(function* () {
+        if (keys.length === 0) return new Map<string, string>();
+        const rows = yield* adapter.findMany({ model: "openapi_source" });
+        const requested = new Set(keys);
+        const out = new Map<string, string>();
+        for (const r of rows) {
+          const key = `${r.scope_id as string}:${r.id as string}`;
+          if (requested.has(key)) out.set(key, r.name as string);
+        }
+        return out;
       }),
   };
 };

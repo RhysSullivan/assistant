@@ -20,7 +20,7 @@ import {
 
 const TEST_SCOPE = "test-scope";
 import { openApiPlugin } from "./plugin";
-import { OAuth2Auth } from "./types";
+import { OAuth2Auth, OpenApiSourceBindingInput } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -846,5 +846,109 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         const tools = yield* executor.tools.list();
         expect(tools.some((t) => t.id.startsWith("deferred."))).toBe(true);
       }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Usage tracking — once openapi normalizes its bindings, query_params,
+  // and specFetchCredentials, `usagesForSecret` and `usagesForConnection`
+  // should surface every reference and `secrets.remove` should RESTRICT.
+  // -------------------------------------------------------------------------
+
+  it.effect("usagesForSecret aggregates bindings and child rows", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [memorySecretsPlugin(), openApiPlugin()] as const,
+        }),
+      );
+
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("api-key"),
+          scope: ScopeId.make(TEST_SCOPE),
+          name: "API Key",
+          value: "abc123",
+          provider: "memory",
+        }),
+      );
+
+      // Add a source whose query_params reference the secret directly.
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: TEST_SCOPE,
+        namespace: "with_secret",
+        baseUrl: "http://example.com",
+        queryParams: { token: { secretId: "api-key" } },
+      });
+
+      // Configure a slot binding pointing at the same secret.
+      yield* executor.openapi.setSourceBinding(
+        new OpenApiSourceBindingInput({
+          sourceId: "with_secret",
+          sourceScope: ScopeId.make(TEST_SCOPE),
+          scope: ScopeId.make(TEST_SCOPE),
+          slot: "header:authorization",
+          value: { kind: "secret", secretId: SecretId.make("api-key") },
+        }),
+      );
+
+      const usages = yield* executor.secrets.usages(SecretId.make("api-key"));
+      expect(usages.length).toBe(2);
+      const slots = usages.map((u) => u.slot).sort();
+      expect(slots).toEqual([
+        "binding:header:authorization",
+        "query_param:token",
+      ]);
+      expect(usages.every((u) => u.pluginId === "openapi")).toBe(true);
+    }),
+  );
+
+  it.effect("secrets.remove refuses while an openapi binding still uses it", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [memorySecretsPlugin(), openApiPlugin()] as const,
+        }),
+      );
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("locked"),
+          scope: ScopeId.make(TEST_SCOPE),
+          name: "Locked",
+          value: "v",
+          provider: "memory",
+        }),
+      );
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: TEST_SCOPE,
+        namespace: "ref",
+        baseUrl: "http://example.com",
+      });
+      yield* executor.openapi.setSourceBinding(
+        new OpenApiSourceBindingInput({
+          sourceId: "ref",
+          sourceScope: ScopeId.make(TEST_SCOPE),
+          scope: ScopeId.make(TEST_SCOPE),
+          slot: "header:authorization",
+          value: { kind: "secret", secretId: SecretId.make("locked") },
+        }),
+      );
+
+      const failure = yield* executor.secrets
+        .remove(SecretId.make("locked"))
+        .pipe(Effect.flip);
+      expect((failure as { _tag: string })._tag).toBe("SecretInUseError");
+
+      // Detach the binding, then remove succeeds.
+      yield* executor.openapi.removeSourceBinding(
+        "ref",
+        ScopeId.make(TEST_SCOPE),
+        "header:authorization",
+        ScopeId.make(TEST_SCOPE),
+      );
+      yield* executor.secrets.remove(SecretId.make("locked"));
+    }),
   );
 });
