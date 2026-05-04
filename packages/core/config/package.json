@@ -38,6 +38,7 @@
   "dependencies": {
     "@executor-js/sdk": "workspace:*",
     "effect": "catalog:",
+    "jiti": "^2.6.1",
     "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {

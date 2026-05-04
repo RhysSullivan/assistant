@@ -135,7 +135,7 @@
         "@executor-js/config": "workspace:*",
         "@executor-js/execution": "workspace:*",
         "@executor-js/host-mcp": "workspace:*",
-        "@executor-js/plugin-example": "npm:@executor-js/plugin-example@0.0.1",
+        "@executor-js/plugin-example": "workspace:*",
         "@executor-js/plugin-file-secrets": "workspace:*",
         "@executor-js/plugin-google-discovery": "workspace:*",
         "@executor-js/plugin-graphql": "workspace:*",
@@ -270,6 +270,7 @@
       "dependencies": {
         "@executor-js/sdk": "workspace:*",
         "effect": "catalog:",
+        "jiti": "^2.6.1",
         "jsonc-parser": "^3.3.1",
       },
       "devDependencies": {
@@ -523,7 +524,7 @@
     },
     "packages/plugins/example": {
       "name": "@executor-js/plugin-example",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@executor-js/sdk": "workspace:*",
       },
