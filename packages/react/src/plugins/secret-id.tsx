@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+// Pure helpers shared by `SecretForm` (compound form for new-secret flows)
+// and the reuse tests. UI state lives in `secret-form.tsx`.
 
 export function slugifyForSecretId(input: string): string {
   return input
@@ -40,32 +41,4 @@ export function getUniqueSecretId(
     suffix += 1;
   }
   return `${baseId}-${suffix}`;
-}
-
-export function useUniqueSecretIdInput(options: {
-  baseName: string;
-  existingSecretIds: readonly string[];
-  fallbackId?: string;
-}) {
-  const { baseName, existingSecretIds, fallbackId = "secret" } = options;
-  const [idOverride, setIdOverride] = useState<string | null>(null);
-
-  const suggestedId = useMemo(
-    () => getUniqueSecretId(baseName, existingSecretIds, fallbackId),
-    [baseName, existingSecretIds, fallbackId],
-  );
-  const secretId = idOverride ?? suggestedId;
-  const duplicateError = useMemo(
-    () => (isSecretIdTaken(secretId, existingSecretIds) ? "Secret ID already exists" : null),
-    [secretId, existingSecretIds],
-  );
-
-  return {
-    secretId,
-    suggestedId,
-    duplicateError,
-    hasManualOverride: idOverride !== null,
-    setSecretIdOverride: (value: string) => setIdOverride(value),
-    resetSecretIdOverride: () => setIdOverride(null),
-  };
 }
