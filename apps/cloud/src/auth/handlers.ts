@@ -1,14 +1,12 @@
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { HttpServerResponse } from "effect/unstable/http";
 import { Duration, Effect } from "effect";
-import { setCookie, deleteCookie } from "@tanstack/react-start/server";
+import { deleteCookie } from "@tanstack/react-start/server";
 
 import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
-import { authorizeOrganization } from "./authorize-organization";
 import { env } from "cloudflare:workers";
-import { WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
 
 const COOKIE_OPTIONS = {
@@ -172,9 +170,39 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
       .handle("me", () =>
         Effect.gen(function* () {
           const session = yield* SessionContext;
-          const org = session.organizationId
-            ? yield* authorizeOrganization(session.accountId, session.organizationId)
-            : null;
+          const users = yield* UserStoreService;
+          const workos = yield* WorkOSAuth;
+
+          const memberships = yield* workos.listUserMemberships(session.accountId);
+          // Mirror each org locally so the local handle exists; ignore mirror
+          // failures (the directory layer already has the canonical name +
+          // membership — a transient db error here shouldn't blank the user's
+          // org list).
+          const orgs = yield* Effect.all(
+            memberships.data.map((m) =>
+              workos.getOrganization(m.organizationId).pipe(
+                Effect.flatMap((org) =>
+                  users
+                    .use((s) =>
+                      s.upsertOrganization({ id: org.id, name: org.name }),
+                    )
+                    .pipe(
+                      Effect.map((mirror) => ({
+                        id: mirror.id,
+                        handle: mirror.handle,
+                        name: org.name,
+                      })),
+                    ),
+                ),
+                Effect.orElseSucceed(() => null),
+              ),
+            ),
+            { concurrency: "unbounded" },
+          );
+
+          const organizations = orgs
+            .filter(<T,>(v: T | null): v is T => v !== null)
+            .sort((a, b) => a.name.localeCompare(b.name));
 
           return {
             user: {
@@ -183,7 +211,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
               name: session.name,
               avatarUrl: session.avatarUrl,
             },
-            organization: org ? { id: org.id, name: org.name } : null,
+            organizations,
           };
         }),
       )
@@ -194,37 +222,37 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
       .handle("organizations", () =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
+          const users = yield* UserStoreService;
           const session = yield* SessionContext;
 
           const memberships = yield* workos.listUserMemberships(session.accountId);
-          const organizations = yield* Effect.all(
+          const orgs = yield* Effect.all(
             memberships.data.map((m) =>
               workos.getOrganization(m.organizationId).pipe(
-                Effect.map((org) => ({ id: org.id, name: org.name })),
+                Effect.flatMap((org) =>
+                  users
+                    .use((s) =>
+                      s.upsertOrganization({ id: org.id, name: org.name }),
+                    )
+                    .pipe(
+                      Effect.map((mirror) => ({
+                        id: mirror.id,
+                        handle: mirror.handle,
+                        name: org.name,
+                      })),
+                    ),
+                ),
                 Effect.orElseSucceed(() => null),
               ),
             ),
             { concurrency: "unbounded" },
           );
 
-          return {
-            organizations: organizations.filter((org): org is NonNullable<typeof org> => org !== null),
-            activeOrganizationId: session.organizationId,
-          };
-        }),
-      )
-      .handle("switchOrganization", ({ payload }) =>
-        Effect.gen(function* () {
-          const workos = yield* WorkOSAuth;
-          const session = yield* SessionContext;
+          const organizations = orgs
+            .filter(<T,>(v: T | null): v is T => v !== null)
+            .sort((a, b) => a.name.localeCompare(b.name));
 
-          const refreshed = yield* workos.refreshSession(
-            session.sealedSession,
-            payload.organizationId,
-          );
-          if (refreshed) {
-            setCookie("wos-session", refreshed, COOKIE_OPTIONS);
-          }
+          return { organizations };
         }),
       )
       .handle("createOrganization", ({ payload }) =>
@@ -236,36 +264,15 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           const name = payload.name.trim();
           const org = yield* workos.createOrganization(name);
           yield* workos.createMembership(org.id, session.accountId, "admin");
-          yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
-
-          // Try to attach the new org to the current session. This can fail
-          // (or silently return a session still scoped to the old org) when
-          // the caller's current session is stale — most commonly after the
-          // user was removed from the org their cookie is pinned to. In that
-          // case we can't repair the session in-place, so we clear the
-          // cookie and fail loudly; the frontend will bounce to login and
-          // the callback's rehydrate path will pick up the new membership.
-          const refreshed = yield* workos.refreshSession(session.sealedSession, org.id);
-          const verified = refreshed
-            ? yield* workos.authenticateSealedSession(refreshed)
-            : null;
-
-          if (!refreshed || !verified || verified.organizationId !== org.id) {
-            yield* Effect.logWarning(
-              "createOrganization: unable to attach new org to current session",
-              {
-                userId: session.accountId,
-                newOrgId: org.id,
-                refreshReturnedSession: refreshed != null,
-                verifiedOrgId: verified?.organizationId ?? null,
-              },
-            );
-            deleteCookie("wos-session", { path: "/" });
-            return yield* Effect.fail(new WorkOSError());
-          }
-
-          setCookie("wos-session", refreshed, COOKIE_OPTIONS);
-          return { id: org.id, name: org.name };
+          const mirrored = yield* users.use((s) =>
+            s.upsertOrganization({ id: org.id, name: org.name }),
+          );
+          // No session refresh — the URL is the source of truth for active
+          // org now, so the client just navigates to /:handle/... after
+          // create. The WorkOS session's `organizationId` only proves login
+          // identity; it doesn't gate per-org access (that goes through the
+          // membership check on the URL-resolved org).
+          return { id: org.id, handle: mirrored.handle, name: org.name };
         }),
       ),
 );

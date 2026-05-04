@@ -18,8 +18,9 @@ type AuthUser = {
   avatarUrl: string | null;
 };
 
-type AuthOrganization = {
+export type AuthOrganization = {
   id: string;
+  handle: string;
   name: string;
 };
 
@@ -39,7 +40,6 @@ export const organizationsAtom = Atom.refreshOnWindowFocus(
   }),
 );
 
-export const switchOrganization = CloudApiClient.mutation("cloudAuth", "switchOrganization");
 export const createOrganization = CloudApiClient.mutation("cloudAuth", "createOrganization");
 
 // ---------------------------------------------------------------------------
@@ -49,7 +49,11 @@ export const createOrganization = CloudApiClient.mutation("cloudAuth", "createOr
 type AuthState =
   | { status: "loading" }
   | { status: "unauthenticated" }
-  | { status: "authenticated"; user: AuthUser; organization: AuthOrganization | null };
+  | {
+      status: "authenticated";
+      user: AuthUser;
+      organizations: ReadonlyArray<AuthOrganization>;
+    };
 
 const AuthContext = createContext<AuthState>({ status: "loading" });
 
@@ -64,7 +68,7 @@ const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
     onSuccess: ({ value }) => ({
       status: "authenticated" as const,
       user: value.user,
-      organization: value.organization,
+      organizations: value.organizations,
     }),
     onFailure: () => ({ status: "unauthenticated" as const }),
   });
@@ -72,21 +76,26 @@ const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
   const userId = state.status === "authenticated" ? state.user.id : null;
   const email = state.status === "authenticated" ? state.user.email : null;
   const name = state.status === "authenticated" ? state.user.name : null;
-  const orgId = state.status === "authenticated" ? (state.organization?.id ?? null) : null;
-  const orgName = state.status === "authenticated" ? (state.organization?.name ?? null) : null;
+  // PostHog org grouping uses the first membership; the user can navigate
+  // between orgs in-session. If we want richer grouping later we can
+  // re-emit on URL change.
+  const firstOrgId =
+    state.status === "authenticated" ? (state.organizations[0]?.id ?? null) : null;
+  const firstOrgName =
+    state.status === "authenticated" ? (state.organizations[0]?.name ?? null) : null;
   const isUnauthenticated = state.status === "unauthenticated";
 
   useEffect(() => {
     if (!posthog) return;
     if (userId) {
       posthog.identify(userId, { email, name });
-      if (orgId) {
-        posthog.group("organization", orgId, { name: orgName });
+      if (firstOrgId) {
+        posthog.group("organization", firstOrgId, { name: firstOrgName });
       }
     } else if (isUnauthenticated) {
       posthog.reset();
     }
-  }, [posthog, userId, email, name, orgId, orgName, isUnauthenticated]);
+  }, [posthog, userId, email, name, firstOrgId, firstOrgName, isUnauthenticated]);
 
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
 };
@@ -96,4 +105,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return <AuthContext.Provider value={{ status: "loading" }}>{children}</AuthContext.Provider>;
   }
   return <AuthProviderClient>{children}</AuthProviderClient>;
+};
+
+/** Find the organization in the auth state matching a given URL handle. */
+export const findOrgByHandle = (
+  state: AuthState,
+  handle: string,
+): AuthOrganization | null => {
+  if (state.status !== "authenticated") return null;
+  return state.organizations.find((o) => o.handle === handle) ?? null;
 };
