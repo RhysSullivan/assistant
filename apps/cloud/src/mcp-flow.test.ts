@@ -121,13 +121,31 @@ const mcpGet = (init: { readonly bearer: string; readonly sessionId: string }): 
     },
   });
 
-const seedOrg = async (id: string, name = "MCP Flow Org"): Promise<void> => {
+const seedOrg = async (
+  id: string,
+  name = "MCP Flow Org",
+): Promise<{ handle: string }> => {
   const response = await SELF.fetch(`${BASE}/__test__/seed-org`, {
     method: "POST",
     headers: { "content-type": CONTENT_TYPE_JSON },
     body: JSON.stringify({ id, name }),
   });
-  expect(response.status).toBe(204);
+  expect(response.status).toBe(200);
+  return (await response.json()) as { handle: string };
+};
+
+const seedWorkspace = async (input: {
+  organizationId: string;
+  name: string;
+  slug?: string;
+}): Promise<{ id: string; slug: string }> => {
+  const response = await SELF.fetch(`${BASE}/__test__/seed-workspace`, {
+    method: "POST",
+    headers: { "content-type": CONTENT_TYPE_JSON },
+    body: JSON.stringify(input),
+  });
+  expect(response.status).toBe(200);
+  return (await response.json()) as { id: string; slug: string };
 };
 
 // ---------------------------------------------------------------------------
@@ -320,7 +338,7 @@ describe("/mcp notification responses", () => {
     expect(notificationResponse.status).toBe(202);
     expect(notificationResponse.headers.get("content-type")).toBeNull();
     expect(await notificationResponse.text()).toBe("");
-  });
+  }, 15_000);
 });
 
 describe("/mcp session restore", () => {
@@ -547,5 +565,181 @@ describe("McpSessionDO alarm lifecycle", () => {
     expect(stored.sessionMeta).toBeUndefined();
     expect(stored.lastActivity).toBeUndefined();
     expect(stored.alarm).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /:org/mcp + /:org/:workspace/mcp — context-addressed MCP routes
+// ---------------------------------------------------------------------------
+//
+// Sister coverage to the legacy `/mcp` fallback above. The plan moves the
+// "active org/workspace" off hidden state and onto the URL — these tests
+// confirm the worker:
+//   1. classifies the new path shapes,
+//   2. resolves URL `:org` (and optional `:workspace`) to org/workspace rows,
+//   3. seeds session-meta from the URL (NOT from the JWT's org_id claim),
+//   4. publishes a per-context `oauth-protected-resource/:org(/:workspace)/mcp`
+//      metadata document.
+
+describe("/:org/mcp context routes", () => {
+  it("publishes per-org protected-resource metadata pointing at /:org/mcp", async () => {
+    const orgId = nextOrgId();
+    const { handle } = await seedOrg(orgId, `MCP Org ${orgId}`);
+
+    const response = await SELF.fetch(
+      `${BASE}/.well-known/oauth-protected-resource/${handle}/mcp`,
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.resource).toBe(`${BASE}/${handle}/mcp`);
+    expect(body.authorization_servers).toEqual(["https://test-authkit.example.com"]);
+  });
+
+  it("creates a session bound to the URL-resolved org (not the JWT claim)", async () => {
+    const urlOrgId = nextOrgId();
+    const jwtOrgId = nextOrgId();
+    const accountId = nextAccountId();
+    const { handle } = await seedOrg(urlOrgId, `URL Org ${urlOrgId}`);
+    // The JWT carries a different org id. The URL is the source of truth,
+    // so the session's stored organizationId should be the URL one.
+    await seedOrg(jwtOrgId, `JWT Org ${jwtOrgId}`);
+
+    const response = await SELF.fetch(`${BASE}/${handle}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        accept: JSON_AND_SSE,
+        authorization: `Bearer ${makeTestBearer(accountId, jwtOrgId)}`,
+      },
+      body: JSON.stringify(INITIALIZE_REQUEST),
+    });
+
+    expect(response.status).toBe(200);
+    const sessionId = response.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    const stub = env.MCP_SESSION.get(env.MCP_SESSION.idFromString(sessionId!));
+    const stored = await runInDurableObject(stub, async (_instance, state) => ({
+      sessionMeta: await state.storage.get<{
+        readonly organizationId: string;
+        readonly userId: string;
+        readonly workspaceId?: string;
+      }>(SESSION_META_KEY),
+    }));
+    expect(stored.sessionMeta?.organizationId).toBe(urlOrgId);
+    expect(stored.sessionMeta?.workspaceId).toBeUndefined();
+    expect(stored.sessionMeta?.userId).toBe(accountId);
+  }, 15_000);
+
+  it("returns 404 for an unknown org handle", async () => {
+    const response = await SELF.fetch(`${BASE}/no-such-org-here/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        accept: JSON_AND_SSE,
+        authorization: `Bearer ${makeTestBearer(nextAccountId(), nextOrgId())}`,
+      },
+      body: JSON.stringify(INITIALIZE_REQUEST),
+    });
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as {
+      error?: { message?: string };
+    };
+    expect(body.error?.message ?? "").toMatch(/not found/i);
+  });
+});
+
+describe("/:org/:workspace/mcp context routes", () => {
+  it("creates a session bound to the URL-resolved workspace", async () => {
+    const orgId = nextOrgId();
+    const accountId = nextAccountId();
+    const { handle } = await seedOrg(orgId, `WS Org ${orgId}`);
+    const workspace = await seedWorkspace({
+      organizationId: orgId,
+      name: "Production",
+    });
+
+    const response = await SELF.fetch(
+      `${BASE}/${handle}/${workspace.slug}/mcp`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": CONTENT_TYPE_JSON,
+          accept: JSON_AND_SSE,
+          authorization: `Bearer ${makeTestBearer(accountId, orgId)}`,
+        },
+        body: JSON.stringify(INITIALIZE_REQUEST),
+      },
+    );
+    expect(response.status).toBe(200);
+    const sessionId = response.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    const stub = env.MCP_SESSION.get(env.MCP_SESSION.idFromString(sessionId!));
+    const stored = await runInDurableObject(stub, async (_instance, state) => ({
+      sessionMeta: await state.storage.get<{
+        readonly organizationId: string;
+        readonly workspaceId?: string;
+        readonly workspaceName?: string;
+      }>(SESSION_META_KEY),
+    }));
+    expect(stored.sessionMeta?.organizationId).toBe(orgId);
+    expect(stored.sessionMeta?.workspaceId).toBe(workspace.id);
+    expect(stored.sessionMeta?.workspaceName).toBe("Production");
+  }, 15_000);
+
+  it("rejects a session-id that was bound to a different workspace", async () => {
+    const orgId = nextOrgId();
+    const accountId = nextAccountId();
+    const { handle } = await seedOrg(orgId, `Cross WS ${orgId}`);
+    const wsA = await seedWorkspace({ organizationId: orgId, name: "Alpha" });
+    const wsB = await seedWorkspace({ organizationId: orgId, name: "Beta" });
+
+    const initA = await SELF.fetch(`${BASE}/${handle}/${wsA.slug}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        accept: JSON_AND_SSE,
+        authorization: `Bearer ${makeTestBearer(accountId, orgId)}`,
+      },
+      body: JSON.stringify(INITIALIZE_REQUEST),
+    });
+    expect(initA.status).toBe(200);
+    const sessionId = initA.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    const stolen = await SELF.fetch(`${BASE}/${handle}/${wsB.slug}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        accept: JSON_AND_SSE,
+        authorization: `Bearer ${makeTestBearer(accountId, orgId)}`,
+        "mcp-session-id": sessionId!,
+      },
+      body: JSON.stringify(TOOLS_LIST_REQUEST),
+    });
+    expect(stolen.status).toBe(403);
+    const body = (await stolen.json()) as {
+      readonly error?: { readonly code: number };
+    };
+    expect(body.error?.code).toBe(-32003);
+  }, 15_000);
+
+  it("returns 404 for an unknown workspace slug", async () => {
+    const orgId = nextOrgId();
+    const { handle } = await seedOrg(orgId, `WS 404 ${orgId}`);
+    const response = await SELF.fetch(
+      `${BASE}/${handle}/nope/mcp`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": CONTENT_TYPE_JSON,
+          accept: JSON_AND_SSE,
+          authorization: `Bearer ${makeTestBearer(nextAccountId(), orgId)}`,
+        },
+        body: JSON.stringify(INITIALIZE_REQUEST),
+      },
+    );
+    expect(response.status).toBe(404);
   });
 });

@@ -38,6 +38,14 @@ import {
   jsonRpcError,
   unauthorized,
 } from "./mcp/responses";
+import {
+  resolveOrgContext,
+  resolveWorkspaceContext,
+  type ResolvedOrgContext,
+  type ResolvedWorkspaceContext,
+} from "./services/url-context";
+import { WorkOSAuth } from "./auth/workos";
+import { resolveOrganization } from "./auth/resolve-organization";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -59,6 +67,7 @@ const jwks = createCachedRemoteJWKSet(new URL(`${AUTHKIT_DOMAIN}/oauth2/jwks`));
 const BEARER_PREFIX = "Bearer ";
 const INTERNAL_ACCOUNT_ID_HEADER = "x-executor-mcp-account-id";
 const INTERNAL_ORGANIZATION_ID_HEADER = "x-executor-mcp-organization-id";
+const INTERNAL_WORKSPACE_ID_HEADER = "x-executor-mcp-workspace-id";
 
 const CORS_PREFLIGHT_HEADERS = {
   ...CORS_ALLOW_ORIGIN,
@@ -68,10 +77,24 @@ const CORS_PREFLIGHT_HEADERS = {
   "access-control-expose-headers": "mcp-session-id",
 } as const;
 
-const MCP_PATH = "/mcp";
-const PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource/mcp";
-const PROTECTED_RESOURCE_METADATA_URL = `${RESOURCE_ORIGIN}${PROTECTED_RESOURCE_METADATA_PATH}`;
-const RESOURCE_URL = `${RESOURCE_ORIGIN}${MCP_PATH}`;
+const LEGACY_MCP_PATH = "/mcp";
+const LEGACY_PROTECTED_RESOURCE_METADATA_PATH =
+  "/.well-known/oauth-protected-resource/mcp";
+
+// ---------------------------------------------------------------------------
+// URL context — `:org` / `:org/:workspace` carved out of the request path.
+// `null` means "no URL context" — the legacy `/mcp` fallback that resolves
+// to the signed-in user's first org membership.
+// ---------------------------------------------------------------------------
+
+type UrlContextSegments =
+  | { readonly kind: "global"; readonly orgHandle: string }
+  | {
+      readonly kind: "workspace";
+      readonly orgHandle: string;
+      readonly workspaceSlug: string;
+    }
+  | { readonly kind: "fallback" };
 
 type McpUnauthorizedReason = "missing_bearer" | "invalid_token";
 
@@ -130,6 +153,100 @@ export class McpOrganizationAuth extends Context.Service<
   }
 >()("@executor-js/cloud/McpOrganizationAuth") {}
 
+// ---------------------------------------------------------------------------
+// URL context resolver — translates URL `:org` (and optional `:workspace`) to
+// the org/workspace records we feed into the session DO. The fallback path
+// (`/mcp`) calls `resolveFirstOrgForUser` to use the signed-in user's first
+// org membership; the plan explicitly forbids "last active workspace".
+// ---------------------------------------------------------------------------
+
+export type ResolvedMcpContext =
+  | { readonly _tag: "global"; readonly resolved: ResolvedOrgContext }
+  | { readonly _tag: "workspace"; readonly resolved: ResolvedWorkspaceContext };
+
+export type McpUrlContextError =
+  | { readonly _tag: "OrgNotFound"; readonly handle: string }
+  | { readonly _tag: "WorkspaceNotFound"; readonly orgHandle: string; readonly slug: string }
+  | { readonly _tag: "NoFallbackOrg"; readonly userId: string };
+
+export class McpUrlContextResolver extends Context.Service<
+  McpUrlContextResolver,
+  {
+    readonly resolve: (
+      segments: UrlContextSegments,
+      token: VerifiedToken,
+    ) => Effect.Effect<ResolvedMcpContext | McpUrlContextError, unknown>;
+  }
+>()("@executor-js/cloud/McpUrlContextResolver") {}
+
+export const McpUrlContextResolverLive = Layer.succeed(McpUrlContextResolver)({
+  resolve: (segments, token) =>
+    Effect.gen(function* () {
+      const userId = token.accountId;
+      if (segments.kind === "global") {
+        const resolved = yield* resolveOrgContext(segments.orgHandle).pipe(
+          Effect.catchTag("OrganizationHandleNotFound", () =>
+            Effect.succeed(null),
+          ),
+        );
+        if (!resolved) {
+          return { _tag: "OrgNotFound", handle: segments.orgHandle } as const;
+        }
+        return { _tag: "global", resolved } as const;
+      }
+      if (segments.kind === "workspace") {
+        const resolved = yield* resolveWorkspaceContext(
+          segments.orgHandle,
+          segments.workspaceSlug,
+        ).pipe(
+          Effect.catchTags({
+            OrganizationHandleNotFound: () => Effect.succeed(null),
+            WorkspaceSlugNotFound: () => Effect.succeed(null),
+          }),
+        );
+        if (!resolved) {
+          // Need to disambiguate which lookup failed for diagnostics.
+          const orgOnly = yield* resolveOrgContext(segments.orgHandle).pipe(
+            Effect.catchTag("OrganizationHandleNotFound", () =>
+              Effect.succeed(null),
+            ),
+          );
+          if (!orgOnly) {
+            return { _tag: "OrgNotFound", handle: segments.orgHandle } as const;
+          }
+          return {
+            _tag: "WorkspaceNotFound",
+            orgHandle: segments.orgHandle,
+            slug: segments.workspaceSlug,
+          } as const;
+        }
+        return { _tag: "workspace", resolved } as const;
+      }
+      // Fallback: pick the user's first org membership (oldest by created_at
+      // — `listUserMemberships` is stable enough for v1; a reorderable
+      // "default org" lives in a later slice).
+      const workos = yield* WorkOSAuth;
+      const memberships = yield* workos.listUserMemberships(userId);
+      const active = memberships.data
+        .filter((m: { readonly status: string }) => m.status === "active")
+        .sort((a: { readonly createdAt?: string }, b: { readonly createdAt?: string }) =>
+          (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
+        );
+      const first = active[0];
+      if (!first) {
+        return { _tag: "NoFallbackOrg", userId } as const;
+      }
+      const org = yield* resolveOrganization(first.organizationId);
+      if (!org) {
+        return { _tag: "NoFallbackOrg", userId } as const;
+      }
+      return {
+        _tag: "global",
+        resolved: { organization: org } satisfies ResolvedOrgContext,
+      } as const;
+    }).pipe(Effect.provide(McpUrlContextServices)),
+});
+
 const verifyJwt = (token: string) =>
   verifyWorkOSMcpAccessToken(token, jwks, {
     issuer: AUTHKIT_DOMAIN,
@@ -139,6 +256,7 @@ const verifyJwt = (token: string) =>
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 const McpOrganizationAuthServices = Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
+const McpUrlContextServices = Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
 
 export const McpOrganizationAuthLive = Layer.succeed(McpOrganizationAuth)({
   authorize: (accountId, organizationId) =>
@@ -400,14 +518,15 @@ const annotateMcpRequest = (
 // OAuth metadata endpoints
 // ---------------------------------------------------------------------------
 
-const protectedResourceMetadata = Effect.sync(() =>
-  jsonResponse({
-    resource: RESOURCE_URL,
-    authorization_servers: [AUTHKIT_DOMAIN],
-    bearer_methods_supported: ["header"],
-    scopes_supported: [],
-  }),
-);
+const protectedResourceMetadataFor = (context: UrlContextSegments) =>
+  Effect.sync(() =>
+    jsonResponse({
+      resource: `${RESOURCE_ORIGIN}${mcpPathForContext(context)}`,
+      authorization_servers: [AUTHKIT_DOMAIN],
+      bearer_methods_supported: ["header"],
+      scopes_supported: [],
+    }),
+  );
 
 const authorizationServerMetadata = Effect.promise(async () => {
   try {
@@ -465,10 +584,23 @@ const withPropagationHeaders = (
   return new Request(request, { headers });
 };
 
-const withVerifiedIdentityHeaders = (request: Request, token: VerifiedToken): Request => {
+const withVerifiedIdentityHeaders = (
+  request: Request,
+  token: VerifiedToken,
+  context: ResolvedMcpContext,
+): Request => {
   const headers = new Headers(request.headers);
   headers.set(INTERNAL_ACCOUNT_ID_HEADER, token.accountId);
-  headers.set(INTERNAL_ORGANIZATION_ID_HEADER, token.organizationId ?? "");
+  // The header carries the URL-resolved org id, NOT the JWT's `org_id`
+  // claim — the URL is the truth (the JWT only proves identity).
+  headers.set(
+    INTERNAL_ORGANIZATION_ID_HEADER,
+    context.resolved.organization.id,
+  );
+  headers.set(
+    INTERNAL_WORKSPACE_ID_HEADER,
+    context._tag === "workspace" ? context.resolved.workspace.id : "",
+  );
   return new Request(request, { headers });
 };
 
@@ -493,13 +625,14 @@ const forwardToExistingSession = (
   sessionId: string,
   peek: boolean,
   token: VerifiedToken,
+  context: ResolvedMcpContext,
 ) =>
   Effect.gen(function* () {
     const ns = env.MCP_SESSION;
     const stub = ns.get(ns.idFromString(sessionId));
     const propagation = yield* currentPropagationHeaders(request);
     const propagated = withPropagationHeaders(
-      withVerifiedIdentityHeaders(request, token),
+      withVerifiedIdentityHeaders(request, token, context),
       propagation,
     );
     const raw = yield* Effect.promise(
@@ -533,12 +666,10 @@ const authorizeMcpOrganization = (
   request: Request,
   token: VerifiedToken,
   sessionId: string | null,
+  context: ResolvedMcpContext,
 ) =>
   Effect.gen(function* () {
-    const organizationId = token.organizationId;
-    if (!organizationId) {
-      return jsonRpcError(403, -32001, "No organization in session — log in via the web app first");
-    }
+    const organizationId = context.resolved.organization.id;
 
     const auth = yield* McpOrganizationAuth;
     const allowed = yield* auth.authorize(token.accountId, organizationId).pipe(
@@ -562,27 +693,48 @@ const authorizeMcpOrganization = (
     return jsonRpcError(403, -32001, "No organization in session — log in via the web app first");
   });
 
-const dispatchPost = (request: Request, token: VerifiedToken) =>
+const dispatchPost = (
+  request: Request,
+  token: VerifiedToken,
+  context: ResolvedMcpContext,
+) =>
   Effect.gen(function* () {
     const sessionId = request.headers.get("mcp-session-id");
-    const authError = yield* authorizeMcpOrganization(request, token, sessionId);
+    const authError = yield* authorizeMcpOrganization(request, token, sessionId, context);
     if (authError) return authError;
-    const organizationId = token.organizationId!;
 
-    if (sessionId) return yield* forwardToExistingSession(request, sessionId, true, token);
+    if (sessionId)
+      return yield* forwardToExistingSession(request, sessionId, true, token, context);
 
     const ns = env.MCP_SESSION;
     const stub = ns.get(ns.newUniqueId());
     const propagation = yield* currentPropagationHeaders(request);
-    yield* Effect.promise(() =>
-      stub.init({ organizationId, userId: token.accountId }, propagation),
-    ).pipe(
+    const init =
+      context._tag === "workspace"
+        ? {
+            organizationId: context.resolved.organization.id,
+            organizationName: context.resolved.organization.name,
+            userId: token.accountId,
+            workspaceId: context.resolved.workspace.id,
+            workspaceName: context.resolved.workspace.name,
+          }
+        : {
+            organizationId: context.resolved.organization.id,
+            organizationName: context.resolved.organization.name,
+            userId: token.accountId,
+          };
+    yield* Effect.promise(() => stub.init(init, propagation)).pipe(
       Effect.withSpan("mcp.do.init", {
-        attributes: { "mcp.request.session_id_present": false },
+        attributes: {
+          "mcp.request.session_id_present": false,
+          "mcp.auth.organization_id": context.resolved.organization.id,
+          "mcp.auth.workspace_id":
+            context._tag === "workspace" ? context.resolved.workspace.id : "",
+        },
       }),
     );
     const propagated = withPropagationHeaders(
-      withVerifiedIdentityHeaders(request, token),
+      withVerifiedIdentityHeaders(request, token, context),
       propagation,
     );
     const raw = yield* Effect.promise(
@@ -599,24 +751,32 @@ const dispatchPost = (request: Request, token: VerifiedToken) =>
     return HttpServerResponse.raw(withMcpResponseHeaders(annotated));
   });
 
-const dispatchGet = (request: Request, token: VerifiedToken) => {
+const dispatchGet = (
+  request: Request,
+  token: VerifiedToken,
+  context: ResolvedMcpContext,
+) => {
   const sessionId = request.headers.get("mcp-session-id");
   if (!sessionId)
     return Effect.succeed(jsonRpcError(400, -32000, "mcp-session-id header required for SSE"));
   return Effect.gen(function* () {
-    const authError = yield* authorizeMcpOrganization(request, token, sessionId);
+    const authError = yield* authorizeMcpOrganization(request, token, sessionId, context);
     if (authError) return authError;
-    return yield* forwardToExistingSession(request, sessionId, false, token);
+    return yield* forwardToExistingSession(request, sessionId, false, token, context);
   });
 };
 
-const dispatchDelete = (request: Request, token: VerifiedToken) => {
+const dispatchDelete = (
+  request: Request,
+  token: VerifiedToken,
+  context: ResolvedMcpContext,
+) => {
   const sessionId = request.headers.get("mcp-session-id");
   if (!sessionId) return Effect.succeed(HttpServerResponse.empty({ status: 204 }));
   return Effect.gen(function* () {
-    const authError = yield* authorizeMcpOrganization(request, token, sessionId);
+    const authError = yield* authorizeMcpOrganization(request, token, sessionId, context);
     if (authError) return authError;
-    return yield* forwardToExistingSession(request, sessionId, true, token);
+    return yield* forwardToExistingSession(request, sessionId, true, token, context);
   });
 };
 
@@ -624,21 +784,109 @@ const dispatchDelete = (request: Request, token: VerifiedToken) => {
 // App
 // ---------------------------------------------------------------------------
 
-type McpRoute = "mcp" | "oauth-protected-resource" | "oauth-authorization-server" | null;
+type McpRouteKind = "mcp" | "oauth-protected-resource" | "oauth-authorization-server";
+
+export type McpRoute = {
+  readonly kind: McpRouteKind;
+  readonly context: UrlContextSegments;
+};
+
+const isReservedHandleSegment = (segment: string): boolean =>
+  segment.length === 0 || segment === "-" || segment === "api" || segment === "ingest";
 
 /**
- * Returns the MCP route type for a pathname, or `null` if the path isn't owned
- * by the MCP handler.
+ * Classify a pathname into one of the MCP routes we own + the URL context
+ * (org / org+workspace / fallback) it carries.
  *
- * Exported so the test worker can share the exact same predicate the middleware
- * uses — we avoid duplicating the "is this an MCP path?" logic across entry
- * points.
+ * Returns `null` if the path isn't an MCP route.
+ *
+ * Supported shapes:
+ *   /mcp                                                   → fallback
+ *   /:org/mcp                                              → global
+ *   /:org/:workspace/mcp                                   → workspace
+ *   /.well-known/oauth-protected-resource/mcp              → fallback
+ *   /.well-known/oauth-protected-resource/:org/mcp         → global
+ *   /.well-known/oauth-protected-resource/:org/:workspace/mcp → workspace
+ *   /.well-known/oauth-authorization-server                → fallback
  */
-export const classifyMcpPath = (pathname: string): McpRoute => {
-  if (pathname === MCP_PATH) return "mcp";
-  if (pathname === PROTECTED_RESOURCE_METADATA_PATH) return "oauth-protected-resource";
-  if (pathname === "/.well-known/oauth-authorization-server") return "oauth-authorization-server";
+export const classifyMcpPath = (pathname: string): McpRoute | null => {
+  if (pathname === LEGACY_MCP_PATH) {
+    return { kind: "mcp", context: { kind: "fallback" } };
+  }
+  if (pathname === LEGACY_PROTECTED_RESOURCE_METADATA_PATH) {
+    return { kind: "oauth-protected-resource", context: { kind: "fallback" } };
+  }
+  if (pathname === "/.well-known/oauth-authorization-server") {
+    return {
+      kind: "oauth-authorization-server",
+      context: { kind: "fallback" },
+    };
+  }
+
+  // /:org/mcp  /:org/:workspace/mcp
+  let mcpMatch = pathname.match(/^\/([^/]+)\/mcp$/);
+  if (mcpMatch) {
+    const orgHandle = mcpMatch[1]!;
+    if (isReservedHandleSegment(orgHandle)) return null;
+    return { kind: "mcp", context: { kind: "global", orgHandle } };
+  }
+  mcpMatch = pathname.match(/^\/([^/]+)\/([^/]+)\/mcp$/);
+  if (mcpMatch) {
+    const orgHandle = mcpMatch[1]!;
+    const workspaceSlug = mcpMatch[2]!;
+    if (isReservedHandleSegment(orgHandle) || isReservedHandleSegment(workspaceSlug)) {
+      return null;
+    }
+    return {
+      kind: "mcp",
+      context: { kind: "workspace", orgHandle, workspaceSlug },
+    };
+  }
+
+  // /.well-known/oauth-protected-resource/:org/mcp and /:org/:workspace/mcp
+  const wellKnownPrefix = "/.well-known/oauth-protected-resource";
+  if (pathname.startsWith(`${wellKnownPrefix}/`)) {
+    const remainder = pathname.slice(wellKnownPrefix.length);
+    let m = remainder.match(/^\/([^/]+)\/mcp$/);
+    if (m) {
+      const orgHandle = m[1]!;
+      if (isReservedHandleSegment(orgHandle)) return null;
+      return {
+        kind: "oauth-protected-resource",
+        context: { kind: "global", orgHandle },
+      };
+    }
+    m = remainder.match(/^\/([^/]+)\/([^/]+)\/mcp$/);
+    if (m) {
+      const orgHandle = m[1]!;
+      const workspaceSlug = m[2]!;
+      if (isReservedHandleSegment(orgHandle) || isReservedHandleSegment(workspaceSlug)) {
+        return null;
+      }
+      return {
+        kind: "oauth-protected-resource",
+        context: { kind: "workspace", orgHandle, workspaceSlug },
+      };
+    }
+  }
+
   return null;
+};
+
+/** Build the `:org/mcp` (or `:org/:workspace/mcp`) public URL for a context. */
+const mcpPathForContext = (context: UrlContextSegments): string => {
+  if (context.kind === "fallback") return LEGACY_MCP_PATH;
+  if (context.kind === "global") return `/${context.orgHandle}/mcp`;
+  return `/${context.orgHandle}/${context.workspaceSlug}/mcp`;
+};
+
+const protectedResourceMetadataPathForContext = (
+  context: UrlContextSegments,
+): string => {
+  if (context.kind === "fallback") return LEGACY_PROTECTED_RESOURCE_METADATA_PATH;
+  if (context.kind === "global")
+    return `/.well-known/oauth-protected-resource/${context.orgHandle}/mcp`;
+  return `/.well-known/oauth-protected-resource/${context.orgHandle}/${context.workspaceSlug}/mcp`;
 };
 
 /**
@@ -649,15 +897,26 @@ export const classifyMcpPath = (pathname: string): McpRoute => {
 export const mcpApp: Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   never,
-  HttpServerRequest.HttpServerRequest | McpAuth | McpOrganizationAuth
+  | HttpServerRequest.HttpServerRequest
+  | McpAuth
+  | McpOrganizationAuth
+  | McpUrlContextResolver
 > = Effect.gen(function* () {
   const httpRequest = yield* HttpServerRequest.HttpServerRequest;
   const request = httpRequest.source as Request;
   const route = classifyMcpPath(new URL(request.url).pathname);
 
   if (request.method === "OPTIONS") return corsPreflight;
-  if (route === "oauth-protected-resource") return yield* protectedResourceMetadata;
-  if (route === "oauth-authorization-server") return yield* authorizationServerMetadata;
+  if (!route) return jsonRpcError(404, -32601, "Not found");
+  if (route.kind === "oauth-protected-resource")
+    return yield* protectedResourceMetadataFor(route.context);
+  if (route.kind === "oauth-authorization-server")
+    return yield* authorizationServerMetadata;
+
+  // The protected-resource metadata URL we hand back in `WWW-Authenticate`
+  // must match the URL context the request came in on, so the client's
+  // metadata fetch lands on the right per-org/workspace document.
+  const resourceMetadataUrl = `${RESOURCE_ORIGIN}${protectedResourceMetadataPathForContext(route.context)}`;
 
   const auth = yield* McpAuth;
   const authResult = yield* auth.verifyBearer(request).pipe(Effect.result);
@@ -680,16 +939,61 @@ export const mcpApp: Effect.Effect<
   });
 
   if (authValue._tag === "Unauthorized") {
-    return unauthorized(authValue, PROTECTED_RESOURCE_METADATA_URL);
+    return unauthorized(authValue, resourceMetadataUrl);
   }
   const token = authValue.token;
+
+  // Resolve the URL `:org` (and optional `:workspace`) — for the legacy
+  // `/mcp` fallback the resolver looks up the user's first org membership.
+  const resolver = yield* McpUrlContextResolver;
+  const resolved = yield* resolver
+    .resolve(route.context, token)
+    .pipe(
+      Effect.catchCause((cause) =>
+        Effect.sync(() => {
+          console.error("[mcp] url context resolution failed:", cause);
+          return null;
+        }),
+      ),
+    );
+  if (!resolved) {
+    return jsonRpcError(500, -32603, "Internal server error");
+  }
+  if ("_tag" in resolved && (resolved._tag === "global" || resolved._tag === "workspace")) {
+    yield* Effect.annotateCurrentSpan({
+      "mcp.url.org_id": resolved.resolved.organization.id,
+      "mcp.url.workspace_id":
+        resolved._tag === "workspace" ? resolved.resolved.workspace.id : "",
+    });
+  } else if (resolved._tag === "OrgNotFound") {
+    return jsonRpcError(
+      404,
+      -32001,
+      `Organization "${resolved.handle}" not found`,
+    );
+  } else if (resolved._tag === "WorkspaceNotFound") {
+    return jsonRpcError(
+      404,
+      -32001,
+      `Workspace "${resolved.slug}" not found in "${resolved.orgHandle}"`,
+    );
+  } else if (resolved._tag === "NoFallbackOrg") {
+    return jsonRpcError(
+      403,
+      -32001,
+      "No organization in session — log in via the web app first",
+    );
+  }
+  // After the discriminator narrow, `resolved` is `ResolvedMcpContext`.
+  const context = resolved as ResolvedMcpContext;
+
   switch (request.method) {
     case "POST":
-      return yield* dispatchPost(request, token);
+      return yield* dispatchPost(request, token, context);
     case "GET":
-      return yield* dispatchGet(request, token);
+      return yield* dispatchGet(request, token, context);
     case "DELETE":
-      return yield* dispatchDelete(request, token);
+      return yield* dispatchDelete(request, token, context);
     default:
       return jsonRpcError(405, -32001, "Method not allowed");
   }
@@ -705,7 +1009,16 @@ export const mcpApp: Effect.Effect<
 );
 
 const rawMcpFetch = HttpEffect.toWebHandler(
-  mcpApp.pipe(Effect.provide(Layer.mergeAll(McpAuthLive, McpOrganizationAuthLive, TelemetryLive))),
+  mcpApp.pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        McpAuthLive,
+        McpOrganizationAuthLive,
+        McpUrlContextResolverLive,
+        TelemetryLive,
+      ),
+    ),
+  ),
 );
 
 /**

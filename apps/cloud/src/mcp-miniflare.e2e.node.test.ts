@@ -266,7 +266,7 @@ const WorkerLive = Layer.effect(Worker)(Effect.gen(function* () {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ id, name }),
           });
-          if (res.status !== 204) {
+          if (res.status !== 200 && res.status !== 204) {
             throw new Error(`seed-org failed: ${res.status} ${await res.text()}`);
           }
         },

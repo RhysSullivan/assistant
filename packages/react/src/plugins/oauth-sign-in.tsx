@@ -48,8 +48,93 @@ export type StartOAuthAuthorizationInput<TPayload extends OAuthCompletionPayload
   readonly onAuthorizationStarted?: (result: OAuthAuthorizationStartResult) => void;
 };
 
-export function oauthCallbackUrl(path = "/api/oauth/callback"): string {
-  return typeof window === "undefined" ? path : `${window.location.origin}${path}`;
+// Reserved web-route segments at the top level — the cloud app reserves
+// these so they can never collide with an org/workspace handle. Anything
+// else is treated as `:org` (and optionally `:workspace`) for the purpose
+// of rebuilding the OAuth callback path.
+const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
+  "api",
+  "ingest",
+  "_astro",
+  "home",
+  "setup",
+  "privacy",
+  "terms",
+  "mcp",
+  "login",
+  "logout",
+  "callback",
+  "_build",
+  "_server",
+  "static",
+  "assets",
+]);
+
+const RESERVED_SECOND_LEVEL_SEGMENTS = new Set([
+  "-",
+  "sources",
+  "secrets",
+  "policies",
+  "connections",
+  "tools",
+  "settings",
+  "billing",
+  "_org",
+]);
+
+/**
+ * Read the URL `:org` (and optional `:workspace`) prefix off the current
+ * `window.location.pathname`. Returns `""` server-side or when the page
+ * isn't under an org context. Used by `oauthCallbackUrl` to round-trip
+ * through the same org/workspace context the source/connection lives in,
+ * so the callback handler builds the matching scope stack.
+ */
+export function currentOrgWorkspacePathPrefix(
+  pathname: string = typeof window === "undefined" ? "" : window.location.pathname,
+): string {
+  const parts = pathname.split("/").filter((p) => p.length > 0);
+  if (parts.length === 0) return "";
+  const first = parts[0]!;
+  if (RESERVED_TOP_LEVEL_SEGMENTS.has(first)) return "";
+  if (parts.length === 1) return `/${first}`;
+  const second = parts[1]!;
+  if (RESERVED_SECOND_LEVEL_SEGMENTS.has(second)) return `/${first}`;
+  return `/${first}/${second}`;
+}
+
+/**
+ * Build the OAuth callback URL the cloud-side handler will receive when
+ * the authorization server bounces the user's browser back. Mirrors the
+ * org/workspace context off the current page path so the callback resolves
+ * the same scope stack as the page that initiated the flow.
+ *
+ * Default `path` mounts the callback under `/api`. Pass a custom `path`
+ * for plugins that own a sub-path (e.g. `/api/oauth/callback` historically;
+ * still supported, see overload below).
+ */
+export function oauthCallbackUrl(
+  path = "/api/oauth/callback",
+  options?: { readonly contextPathPrefix?: string },
+): string {
+  if (typeof window === "undefined") return path;
+  // Give callers an explicit override (used by tests and server-rendered
+  // contexts that already know the prefix). Empty string disables the
+  // prefix, matching the legacy single-arg shape.
+  const prefix =
+    options && "contextPathPrefix" in options
+      ? options.contextPathPrefix ?? ""
+      : currentOrgWorkspacePathPrefix();
+
+  // Inject the org/workspace prefix between `/api` and the rest of the
+  // callback path: /api/oauth/callback → /api/:org/oauth/callback or
+  // /api/:org/:workspace/oauth/callback.
+  let prefixedPath = path;
+  if (prefix && path.startsWith("/api/")) {
+    prefixedPath = `/api${prefix}${path.slice("/api".length)}`;
+  } else if (prefix && path === "/api") {
+    prefixedPath = `/api${prefix}`;
+  }
+  return `${window.location.origin}${prefixedPath}`;
 }
 
 export function oauthConnectionId(input: {

@@ -36,7 +36,10 @@ import { DoTelemetryLive } from "./services/telemetry";
 
 export type McpSessionInit = {
   organizationId: string;
+  organizationName: string;
   userId: string;
+  workspaceId?: string;
+  workspaceName?: string;
 };
 
 export type IncomingTraceHeaders = {
@@ -54,6 +57,7 @@ const SESSION_META_KEY = "session-meta";
 const LAST_ACTIVITY_KEY = "last-activity-ms";
 const INTERNAL_ACCOUNT_ID_HEADER = "x-executor-mcp-account-id";
 const INTERNAL_ORGANIZATION_ID_HEADER = "x-executor-mcp-organization-id";
+const INTERNAL_WORKSPACE_ID_HEADER = "x-executor-mcp-workspace-id";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -119,6 +123,8 @@ type SessionMeta = {
   readonly organizationId: string;
   readonly organizationName: string;
   readonly userId: string;
+  readonly workspaceId?: string;
+  readonly workspaceName?: string;
 };
 
 /**
@@ -170,18 +176,34 @@ const makeResolveOrganizationServices = (dbHandle: DbHandle) => {
 // at the DO method boundary.
 const makeSessionServices = (dbHandle: DbHandle) => makeResolveOrganizationServices(dbHandle);
 
+// The worker resolves the URL `:org` (and optional `:workspace`) before
+// calling `init`, so we get the org row's id+name directly. We still fall
+// back to a local lookup if the caller passed an id without a name —
+// preserves the old single-arg call shape used by older test paths.
 const resolveSessionMeta = Effect.fn("McpSessionDO.resolveSessionMeta")(function* (
-  organizationId: string,
-  userId: string,
+  init: McpSessionInit,
 ) {
-  const org = yield* resolveOrganization(organizationId);
+  if (init.organizationName) {
+    return {
+      organizationId: init.organizationId,
+      organizationName: init.organizationName,
+      userId: init.userId,
+      ...(init.workspaceId
+        ? { workspaceId: init.workspaceId, workspaceName: init.workspaceName ?? "" }
+        : {}),
+    } satisfies SessionMeta;
+  }
+  const org = yield* resolveOrganization(init.organizationId);
   if (!org) {
-    return yield* new OrganizationNotFoundError({ organizationId });
+    return yield* new OrganizationNotFoundError({ organizationId: init.organizationId });
   }
   return {
     organizationId: org.id,
     organizationName: org.name,
-    userId,
+    userId: init.userId,
+    ...(init.workspaceId
+      ? { workspaceId: init.workspaceId, workspaceName: init.workspaceName ?? "" }
+      : {}),
   } satisfies SessionMeta;
 });
 
@@ -282,11 +304,21 @@ export class McpSessionDO extends DurableObject {
   ) {
     const self = this;
     return Effect.gen(function* () {
-      const { executor, engine } = yield* makeExecutionStack({
-        userId: sessionMeta.userId,
-        organizationId: sessionMeta.organizationId,
-        organizationName: sessionMeta.organizationName,
-      });
+      const { executor, engine } = yield* makeExecutionStack(
+        sessionMeta.workspaceId
+          ? {
+              userId: sessionMeta.userId,
+              organizationId: sessionMeta.organizationId,
+              organizationName: sessionMeta.organizationName,
+              workspaceId: sessionMeta.workspaceId,
+              workspaceName: sessionMeta.workspaceName ?? "",
+            }
+          : {
+              userId: sessionMeta.userId,
+              organizationId: sessionMeta.organizationId,
+              organizationName: sessionMeta.organizationName,
+            },
+      );
       // Build the description here so the postgres query it runs
       // (`executor.sources.list`) lands as a child of
       // `McpSessionDO.createRuntime`. host-mcp would otherwise call
@@ -420,11 +452,19 @@ export class McpSessionDO extends DurableObject {
 
       const accountId = request.headers.get(INTERNAL_ACCOUNT_ID_HEADER);
       const organizationId = request.headers.get(INTERNAL_ORGANIZATION_ID_HEADER);
+      // The header carries an empty string when the request is hitting an
+      // org-only context. Treat "" identically to undefined.
+      const headerWorkspaceId =
+        request.headers.get(INTERNAL_WORKSPACE_ID_HEADER) || null;
+      const sessionWorkspaceId = sessionMeta.workspaceId ?? null;
       const matches =
-        accountId === sessionMeta.userId && organizationId === sessionMeta.organizationId;
+        accountId === sessionMeta.userId &&
+        organizationId === sessionMeta.organizationId &&
+        headerWorkspaceId === sessionWorkspaceId;
 
       yield* Effect.annotateCurrentSpan({
         "mcp.session.owner_match": matches,
+        "mcp.session.workspace_id": sessionWorkspaceId ?? "",
       });
 
       return matches ? null : sessionOwnerMismatch();
@@ -436,7 +476,7 @@ export class McpSessionDO extends DurableObject {
     return Effect.gen(function* () {
       const dbHandle = makeEphemeralDb();
       try {
-        const sessionMeta = yield* resolveSessionMeta(token.organizationId, token.userId).pipe(
+        const sessionMeta = yield* resolveSessionMeta(token).pipe(
           Effect.provide(makeResolveOrganizationServices(dbHandle)),
         );
         yield* Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
@@ -459,7 +499,10 @@ export class McpSessionDO extends DurableObject {
         yield* self.doInit(token);
       }).pipe(
         Effect.withSpan("McpSessionDO.init", {
-          attributes: { "mcp.auth.organization_id": token.organizationId },
+          attributes: {
+            "mcp.auth.organization_id": token.organizationId,
+            "mcp.auth.workspace_id": token.workspaceId ?? "",
+          },
         }),
         (eff) => withIncomingParent(incoming, eff),
         Effect.provide(DoTelemetryLive),
