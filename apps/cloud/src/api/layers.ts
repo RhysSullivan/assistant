@@ -66,14 +66,11 @@ export const makeNonProtectedApiLive = (
 //
 // OrgHttpApi mounts under `/api/:org/...` so workspace endpoints are
 // addressable per-org (`POST /api/:org/workspaces`,
-// `GET /api/:org/workspaces/:slug`). The auth middleware still checks
-// the session's `organizationId` for now — the URL `:org` segment is
-// available to handlers if/when we tighten the check to require the
-// URL org to match the session org. v1 is fine: every org member can
-// access every endpoint inside any org they belong to.
+// `GET /api/:org/workspaces/:slug`). `start.ts` strips the leading `/api`
+// before forwarding, so the prefix here is `/:org` (not `/api/:org`).
 const OrgPrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
   Effect.map(HttpRouter.HttpRouter.asEffect(), (router) =>
-    router.prefixed("/api/:org"),
+    router.prefixed("/:org"),
   ),
 );
 

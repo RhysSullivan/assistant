@@ -1,16 +1,16 @@
 import * as AtomHttpApi from "effect/unstable/reactivity/AtomHttpApi";
-import { FetchHttpClient } from "effect/unstable/http";
 import { ExecutorApi } from "@executor-js/api";
 
 import { getBaseUrl } from "./base-url";
+import { ContextAwareHttpClient } from "./http-client";
 
 // ---------------------------------------------------------------------------
-// Core API client — tools + secrets
+// Core executor API client — URL-context aware via `ContextAwareHttpClient`
 // ---------------------------------------------------------------------------
 
 const ExecutorApiClient = AtomHttpApi.Service<"ExecutorApiClient">()("ExecutorApiClient", {
   api: ExecutorApi,
-  httpClient: FetchHttpClient.layer,
+  httpClient: ContextAwareHttpClient,
   baseUrl: getBaseUrl(),
 });
 

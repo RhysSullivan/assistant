@@ -185,13 +185,17 @@ const ExecutionStackMiddleware = HttpRouter.middleware<{
 // middleware builds. `HttpRouter.prefixed` returns a wrapper that delegates
 // to the underlying router state, so non-protected routes (auth, autumn,
 // swagger) keep their unprefixed paths.
+//
+// `start.ts` strips the leading `/api` before handing off to the API handler,
+// so prefixes inside this router omit it. Public URLs are
+// `/api/:org/...` and `/api/:org/:workspace/...` end-to-end.
 const OrgPrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
-  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) => router.prefixed("/api/:org")),
+  Effect.map(HttpRouter.HttpRouter.asEffect(), (router) => router.prefixed("/:org")),
 );
 
 const WorkspacePrefixedRouterLayer = Layer.effect(HttpRouter.HttpRouter)(
   Effect.map(HttpRouter.HttpRouter.asEffect(), (router) =>
-    router.prefixed("/api/:org/:workspace"),
+    router.prefixed("/:org/:workspace"),
   ),
 );
 
