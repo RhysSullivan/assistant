@@ -454,6 +454,7 @@
         "sucrase": "^3.35.1",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
         "tsup": "catalog:",

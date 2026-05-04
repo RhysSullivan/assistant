@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 
 import { JsonRpcRequestIdQueue, PREVIOUS_REQUEST_TIMEOUT_MS } from "./mcp-worker-transport";
 
