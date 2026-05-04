@@ -33,7 +33,6 @@ import { createExecutionEngine } from "@executor-js/execution";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import {
   Scope,
-  ScopeId,
   collectSchemas,
   createExecutor,
 } from "@executor-js/sdk";
@@ -51,16 +50,11 @@ import {
   RouterConfig,
 } from "../../api/protected-layers";
 import { DbService } from "../db";
+import { orgScopeId, userOrgScopeId } from "../ids";
 
 export const TEST_BASE_URL = "http://test.local";
 export const TEST_ORG_HEADER = "x-test-org-id";
 export const TEST_USER_HEADER = "x-test-user-id";
-
-// Mirrors apps/cloud/src/services/executor.ts#createScopedExecutor — the
-// per-user scope id bakes in the org so the same user id in a different
-// org gets a distinct scope row.
-const userOrgScopeId = (userId: string, orgId: string) =>
-  `user-org:${userId}:${orgId}`;
 
 // `asOrg(orgId, …)` callers don't care which specific user they are, only
 // that the executor has a valid user-org scope. We give each org a stable
@@ -89,12 +83,12 @@ const createTestScopedExecutor = (
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
     const orgScope = new Scope({
-      id: ScopeId.make(orgId),
+      id: orgScopeId(orgId),
       name: orgName,
       createdAt: new Date(),
     });
     const userOrgScope = new Scope({
-      id: ScopeId.make(userOrgScopeId(userId, orgId)),
+      id: userOrgScopeId(userId, orgId),
       name: `Personal · ${orgName}`,
       createdAt: new Date(),
     });
@@ -252,3 +246,4 @@ export const testUserOrgScopeId = (userId: string, orgId: string) =>
 
 // Re-exports so call sites don't need a second import.
 export { ProtectedCloudApi };
+export { orgScopeId, userOrgScopeId };

@@ -12,7 +12,6 @@ import { Effect } from "effect";
 
 import {
   Scope,
-  ScopeId,
   collectSchemas,
   createExecutor,
 } from "@executor-js/sdk";
@@ -24,6 +23,7 @@ import {
 import { env } from "cloudflare:workers";
 import executorConfig from "../../executor.config";
 import { DbService } from "./db";
+import { orgScopeId, userOrgScopeId } from "./ids";
 
 // ---------------------------------------------------------------------------
 // Plugin list lives in `executor.config.ts` — that file is the single
@@ -45,11 +45,11 @@ const orgPlugins = (): CloudPlugins =>
 // ---------------------------------------------------------------------------
 // Create a fresh executor for a (user, org) pair (stateless, per-request).
 //
-// Scope stack is `[userOrgScope, orgScope]` — innermost first. The
-// user-within-org scope id (`user-org:${userId}:${orgId}`) intentionally
-// includes the org id so the same WorkOS user in a different org gets a
-// distinct scope row; future workspace scopes can slot in between without
-// conflicting with a hypothetical global user scope.
+// Scope stack is `[userOrgScope, orgScope]` — innermost first. Scope ids are
+// deterministic and prefixed (`org_<orgId>`, `user_org_<userId>_<orgId>`) so
+// the same WorkOS user in a different org gets a distinct scope row, and
+// future workspace scopes can slot in between without colliding with org or
+// user-org rows.
 //
 // OAuth tokens land at `ctx.scopes[0]` (the user-org scope) by default, so
 // a member's access/refresh tokens can't leak to other members via
@@ -71,12 +71,12 @@ export const createScopedExecutor = (
     const blobs = makePostgresBlobStore({ db });
 
     const orgScope = new Scope({
-      id: ScopeId.make(organizationId),
+      id: orgScopeId(organizationId),
       name: organizationName,
       createdAt: new Date(),
     });
     const userOrgScope = new Scope({
-      id: ScopeId.make(`user-org:${userId}:${organizationId}`),
+      id: userOrgScopeId(userId, organizationId),
       name: `Personal · ${organizationName}`,
       createdAt: new Date(),
     });

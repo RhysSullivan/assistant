@@ -64,6 +64,13 @@
       "when": 1777874366489,
       "tag": "0008_stiff_radioactive_man",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777874400000,
+      "tag": "0009_scope_id_prefix",
+      "breakpoints": true
     }
   ]
 }

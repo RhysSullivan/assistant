@@ -29,10 +29,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { ScopeId, SecretId } from "@executor-js/sdk";
+import { SecretId } from "@executor-js/sdk";
 
 import {
   asUser,
+  orgScopeId,
   testUserOrgScopeId,
 } from "./services/__test-harness__/api-harness";
 
@@ -53,7 +54,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
 
         yield* asUser(alice, orgA, (client) =>
           client.secrets.set({
-            params: { scopeId: ScopeId.make(orgA) },
+            params: { scopeId: orgScopeId(orgA) },
             payload: {
               id: SecretId.make(id),
               name: "Shared",
@@ -64,13 +65,13 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
 
         const charlieStatus = yield* asUser(charlie, orgB, (client) =>
           client.secrets.status({
-            params: { scopeId: ScopeId.make(orgB), secretId: SecretId.make(id) },
+            params: { scopeId: orgScopeId(orgB), secretId: SecretId.make(id) },
           }),
         );
         expect(charlieStatus.status).toBe("missing");
 
         const charlieList = yield* asUser(charlie, orgB, (client) =>
-          client.secrets.list({ params: { scopeId: ScopeId.make(orgB) } }),
+          client.secrets.list({ params: { scopeId: orgScopeId(orgB) } }),
         );
         expect(charlieList.map((s) => s.id)).not.toContain(id);
 
@@ -89,7 +90,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         // Alice writes at her per-user scope — where OAuth tokens land.
         yield* asUser(aliceId, orgId, (client) =>
           client.secrets.set({
-            params: { scopeId: ScopeId.make(testUserOrgScopeId(aliceId, orgId)) },
+            params: { scopeId: testUserOrgScopeId(aliceId, orgId) },
             payload: {
               id: SecretId.make(id),
               name: "Alice's token",
@@ -102,7 +103,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         // not see the token in a list.
         const bobList = yield* asUser(bobId, orgId, (client) =>
           client.secrets.list({
-            params: { scopeId: ScopeId.make(testUserOrgScopeId(bobId, orgId)) },
+            params: { scopeId: testUserOrgScopeId(bobId, orgId) },
           }),
         );
         expect(bobList.map((s) => s.id)).not.toContain(id);
@@ -110,7 +111,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         const bobStatus = yield* asUser(bobId, orgId, (client) =>
           client.secrets.status({
             params: {
-              scopeId: ScopeId.make(testUserOrgScopeId(bobId, orgId)),
+              scopeId: testUserOrgScopeId(bobId, orgId),
               secretId: SecretId.make(id),
             },
           }),
@@ -121,7 +122,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         const aliceStatus = yield* asUser(aliceId, orgId, (client) =>
           client.secrets.status({
             params: {
-              scopeId: ScopeId.make(testUserOrgScopeId(aliceId, orgId)),
+              scopeId: testUserOrgScopeId(aliceId, orgId),
               secretId: SecretId.make(id),
             },
           }),
@@ -141,7 +142,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
 
         yield* asUser(adminId, orgId, (client) =>
           client.secrets.set({
-            params: { scopeId: ScopeId.make(orgId) },
+            params: { scopeId: orgScopeId(orgId) },
             payload: {
               id: SecretId.make(id),
               name: "Org API Key",
@@ -152,12 +153,12 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
 
         const adminStatus = yield* asUser(adminId, orgId, (client) =>
           client.secrets.status({
-            params: { scopeId: ScopeId.make(orgId), secretId: SecretId.make(id) },
+            params: { scopeId: orgScopeId(orgId), secretId: SecretId.make(id) },
           }),
         );
         const memberStatus = yield* asUser(memberId, orgId, (client) =>
           client.secrets.status({
-            params: { scopeId: ScopeId.make(orgId), secretId: SecretId.make(id) },
+            params: { scopeId: orgScopeId(orgId), secretId: SecretId.make(id) },
           }),
         );
         expect(adminStatus.status).toBe("resolved");
@@ -176,7 +177,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
 
         yield* asUser(userId, orgA, (client) =>
           client.secrets.set({
-            params: { scopeId: ScopeId.make(testUserOrgScopeId(userId, orgA)) },
+            params: { scopeId: testUserOrgScopeId(userId, orgA) },
             payload: {
               id: SecretId.make(id),
               name: "A token",
@@ -190,7 +191,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         // logs into org B.
         const listInB = yield* asUser(userId, orgB, (client) =>
           client.secrets.list({
-            params: { scopeId: ScopeId.make(testUserOrgScopeId(userId, orgB)) },
+            params: { scopeId: testUserOrgScopeId(userId, orgB) },
           }),
         );
         expect(listInB.map((s) => s.id)).not.toContain(id);
@@ -198,7 +199,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         const statusInB = yield* asUser(userId, orgB, (client) =>
           client.secrets.status({
             params: {
-              scopeId: ScopeId.make(testUserOrgScopeId(userId, orgB)),
+              scopeId: testUserOrgScopeId(userId, orgB),
               secretId: SecretId.make(id),
             },
           }),
@@ -210,7 +211,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
         const statusInA = yield* asUser(userId, orgA, (client) =>
           client.secrets.status({
             params: {
-              scopeId: ScopeId.make(testUserOrgScopeId(userId, orgA)),
+              scopeId: testUserOrgScopeId(userId, orgA),
               secretId: SecretId.make(id),
             },
           }),
@@ -228,7 +229,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
       const result = yield* asUser(userId, orgId, (client) =>
         client.secrets
           .set({
-            params: { scopeId: ScopeId.make(foreignOrg) },
+            params: { scopeId: orgScopeId(foreignOrg) },
             payload: {
               id: SecretId.make("wrong-scope"),
               name: "x",
@@ -245,7 +246,7 @@ describe("cloud secret isolation (HTTP, user-org scope stack)", () => {
       const leaked = yield* asUser(foreignUser, foreignOrg, (client) =>
         client.secrets.status({
           params: {
-            scopeId: ScopeId.make(foreignOrg),
+            scopeId: orgScopeId(foreignOrg),
             secretId: SecretId.make("wrong-scope"),
           },
         }),
