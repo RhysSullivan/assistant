@@ -15,7 +15,7 @@ import { sourceWriteKeys } from "../api/reactivity-keys";
 import { ToolTree } from "../components/tool-tree";
 import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
 import type { ToolSummary } from "../components/tool-tree";
-import { useScope } from "../hooks/use-scope";
+import { useActiveWriteScopeId } from "../hooks/use-scope";
 import { usePolicyActions } from "../hooks/use-policy-actions";
 import { useSourcePlugins } from "@executor-js/sdk/client";
 import { Button } from "../components/button";
@@ -25,7 +25,7 @@ import { Skeleton } from "../components/skeleton";
 export function SourceDetailPage(props: { namespace: string }) {
   const { namespace } = props;
   const sourcePlugins = useSourcePlugins();
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const source = useAtomValue(sourceAtom(namespace, scopeId));
   const tools = useAtomValue(sourceToolsAtom(namespace, scopeId));
   const policies = useAtomValue(policiesOptimisticAtom(scopeId));

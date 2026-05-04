@@ -5,7 +5,7 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { effectivePolicyFromSorted } from "@executor-js/sdk";
 
 import { policiesOptimisticAtom, toolsAtom } from "../api/atoms";
-import { useScope } from "../hooks/use-scope";
+import { useActiveWriteScopeId } from "../hooks/use-scope";
 import { usePolicyActions } from "../hooks/use-policy-actions";
 import { ToolTree, type ToolSummary } from "../components/tool-tree";
 import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
@@ -13,7 +13,7 @@ import { Button } from "../components/button";
 import { Skeleton } from "../components/skeleton";
 
 export function ToolsPage() {
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const tools = useAtomValue(toolsAtom(scopeId));
   const policies = useAtomValue(policiesOptimisticAtom(scopeId));
   const policyActions = usePolicyActions(scopeId);

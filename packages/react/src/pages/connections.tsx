@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { removeConnection } from "../api/atoms";
 import { useConnectionsWithPendingRemovals, usePendingConnectionRemovals } from "../api/optimistic";
 import { connectionWriteKeys } from "../api/reactivity-keys";
-import { useScope, useScopeStack } from "../hooks/use-scope";
+import { useActiveWriteScopeId, useScopeStack } from "../hooks/use-scope";
 import { Badge } from "../components/badge";
 import { Button } from "../components/button";
 import {
@@ -116,7 +116,7 @@ function ConnectionRow(props: {
 // ---------------------------------------------------------------------------
 
 export function ConnectionsPage() {
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const scopeStack = useScopeStack();
   const connections = useConnectionsWithPendingRemovals(scopeId);
   const { beginRemove } = usePendingConnectionRemovals();

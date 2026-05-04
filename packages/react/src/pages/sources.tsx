@@ -11,7 +11,7 @@ import {
 } from "@executor-js/sdk/client";
 import { detectSource } from "../api/atoms";
 import { useSourcesWithPending } from "../api/optimistic";
-import { useScope } from "../hooks/use-scope";
+import { useActiveWriteScopeId } from "../hooks/use-scope";
 import { McpInstallCard } from "../components/mcp-install-card";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
@@ -59,7 +59,7 @@ const bestDetection = (
 // ---------------------------------------------------------------------------
 
 export function SourcesPage() {
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const sources = useSourcesWithPending(scopeId);
   const [connectOpen, setConnectOpen] = useState(false);
 
@@ -137,7 +137,7 @@ const looksLikeUrl = (raw: string): boolean => {
 
 function ConnectDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const sourcePlugins = useSourcePlugins();
-  const scopeId = useScope();
+  const scopeId = useActiveWriteScopeId();
   const doDetect = useAtomSet(detectSource, { mode: "promise" });
   const navigate = useNavigate();
 
