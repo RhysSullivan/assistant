@@ -56,6 +56,24 @@ const PRE_0008_SQL = `
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
+
+  CREATE TABLE mcp_source (
+    id TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    config TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (scope_id, id)
+  );
+
+  CREATE TABLE mcp_binding (
+    id TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    binding TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (scope_id, id)
+  );
 `;
 
 // Stamp 0007's folderMillis from the journal so drizzle's runner skips

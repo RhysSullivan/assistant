@@ -86,13 +86,21 @@ describe("migrateLegacyConnections", () => {
       refresh_token_secret_id: "refresh-token",
     });
 
+    // Post-0009 the canonical auth lives in dedicated columns. The
+    // legacy migrator strips config.auth and writes the new pointer to
+    // auth_kind / auth_connection_id directly.
     const source = db
-      .prepare("SELECT config FROM mcp_source WHERE scope_id = ? AND id = ?")
-      .get("scope-1", "remote-mcp") as { readonly config: string };
-    expect(JSON.parse(source.config).auth).toEqual({
-      kind: "oauth2",
-      connectionId: "mcp-oauth2-remote-mcp",
-    });
+      .prepare(
+        "SELECT config, auth_kind, auth_connection_id FROM mcp_source WHERE scope_id = ? AND id = ?",
+      )
+      .get("scope-1", "remote-mcp") as {
+      readonly config: string;
+      readonly auth_kind: string;
+      readonly auth_connection_id: string;
+    };
+    expect(JSON.parse(source.config).auth).toBeUndefined();
+    expect(source.auth_kind).toBe("oauth2");
+    expect(source.auth_connection_id).toBe("mcp-oauth2-remote-mcp");
 
     const ownedSecrets = db
       .prepare(

@@ -6,7 +6,9 @@ import { McpGroup } from "../api/group";
 import { McpExtensionService, McpHandlers } from "../api/handlers";
 
 import {
+  ScopeId,
   SourceDetectionResult,
+  Usage,
   definePlugin,
   resolveSecretBackedMap as resolveSharedSecretBackedMap,
   type PluginCtx,
@@ -985,6 +987,71 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
       Effect.gen(function* () {
         yield* ctx.storage.removeBindingsByNamespace(sourceId, scope);
         yield* ctx.storage.removeSource(sourceId, scope);
+      }),
+
+    // Aggregate usages across the four places mcp can hold a secret ref:
+    // header-auth secret, oauth2 client_id_secret, oauth2 client_secret,
+    // and the per-entry rows in mcp_source_header / mcp_source_query_param.
+    usagesForSecret: ({ ctx, args }) =>
+      Effect.gen(function* () {
+        const sources = yield* ctx.storage.findSourcesBySecret(args.secretId);
+        const childRows = yield* ctx.storage.findChildRowsBySecret(
+          args.secretId,
+        );
+
+        const sourceKeys = new Set<string>();
+        for (const s of sources) {
+          sourceKeys.add(`${s.scope_id}:${s.namespace}`);
+        }
+        for (const r of childRows) {
+          sourceKeys.add(`${r.scope_id}:${r.source_id}`);
+        }
+        const names = yield* ctx.storage.lookupSourceNames([...sourceKeys]);
+
+        const out: Usage[] = [];
+        for (const s of sources) {
+          out.push(
+            new Usage({
+              pluginId: "mcp",
+              scopeId: ScopeId.make(s.scope_id),
+              ownerKind: "mcp-source",
+              ownerId: s.namespace,
+              ownerName: names.get(`${s.scope_id}:${s.namespace}`) ?? s.name,
+              slot: s.slot,
+            }),
+          );
+        }
+        for (const r of childRows) {
+          out.push(
+            new Usage({
+              pluginId: "mcp",
+              scopeId: ScopeId.make(r.scope_id),
+              ownerKind: `mcp-source-${r.kind.replace(/_/g, "-")}`,
+              ownerId: r.source_id,
+              ownerName: names.get(`${r.scope_id}:${r.source_id}`) ?? null,
+              slot: `${r.kind}:${r.name}`,
+            }),
+          );
+        }
+        return out;
+      }),
+
+    usagesForConnection: ({ ctx, args }) =>
+      Effect.gen(function* () {
+        const sources = yield* ctx.storage.findSourcesByConnection(
+          args.connectionId,
+        );
+        return sources.map(
+          (s) =>
+            new Usage({
+              pluginId: "mcp",
+              scopeId: ScopeId.make(s.scope_id),
+              ownerKind: "mcp-source",
+              ownerId: s.namespace,
+              ownerName: s.name,
+              slot: s.slot,
+            }),
+        );
       }),
 
     refreshSource: () => Effect.void,

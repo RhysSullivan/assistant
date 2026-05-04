@@ -213,10 +213,53 @@ export const mcp_source = sqliteTable("mcp_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   config: text('config', { mode: "json" }).notNull(),
+  auth_kind: text({ enum: ['none', 'header', 'oauth2'] }).default("none").notNull(),
+  auth_header_name: text('auth_header_name'),
+  auth_secret_id: text('auth_secret_id'),
+  auth_secret_prefix: text('auth_secret_prefix'),
+  auth_connection_id: text('auth_connection_id'),
+  auth_client_id_secret_id: text('auth_client_id_secret_id'),
+  auth_client_secret_secret_id: text('auth_client_secret_secret_id'),
   created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("mcp_source_scope_id_idx").on(table.scope_id),
+  index("mcp_source_auth_secret_id_idx").on(table.auth_secret_id),
+  index("mcp_source_auth_connection_id_idx").on(table.auth_connection_id),
+  index("mcp_source_auth_client_id_secret_id_idx").on(table.auth_client_id_secret_id),
+  index("mcp_source_auth_client_secret_secret_id_idx").on(table.auth_client_secret_secret_id),
+]);
+
+export const mcp_source_header = sqliteTable("mcp_source_header", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text({ enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("mcp_source_header_scope_id_idx").on(table.scope_id),
+  index("mcp_source_header_source_id_idx").on(table.source_id),
+  index("mcp_source_header_secret_id_idx").on(table.secret_id),
+]);
+
+export const mcp_source_query_param = sqliteTable("mcp_source_query_param", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text({ enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("mcp_source_query_param_scope_id_idx").on(table.scope_id),
+  index("mcp_source_query_param_source_id_idx").on(table.source_id),
+  index("mcp_source_query_param_secret_id_idx").on(table.secret_id),
 ]);
 
 export const mcp_binding = sqliteTable("mcp_binding", {

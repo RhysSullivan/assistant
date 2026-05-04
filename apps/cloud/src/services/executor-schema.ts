@@ -213,10 +213,53 @@ export const mcp_source = pgTable("mcp_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   config: jsonb('config').notNull(),
+  auth_kind: text('auth_kind', { enum: ['none', 'header', 'oauth2'] }).default("none").notNull(),
+  auth_header_name: text('auth_header_name'),
+  auth_secret_id: text('auth_secret_id'),
+  auth_secret_prefix: text('auth_secret_prefix'),
+  auth_connection_id: text('auth_connection_id'),
+  auth_client_id_secret_id: text('auth_client_id_secret_id'),
+  auth_client_secret_secret_id: text('auth_client_secret_secret_id'),
   created_at: timestamp('created_at').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("mcp_source_scope_id_idx").on(table.scope_id),
+  index("mcp_source_auth_secret_id_idx").on(table.auth_secret_id),
+  index("mcp_source_auth_connection_id_idx").on(table.auth_connection_id),
+  index("mcp_source_auth_client_id_secret_id_idx").on(table.auth_client_id_secret_id),
+  index("mcp_source_auth_client_secret_secret_id_idx").on(table.auth_client_secret_secret_id),
+]);
+
+export const mcp_source_header = pgTable("mcp_source_header", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text('kind', { enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("mcp_source_header_scope_id_idx").on(table.scope_id),
+  index("mcp_source_header_source_id_idx").on(table.source_id),
+  index("mcp_source_header_secret_id_idx").on(table.secret_id),
+]);
+
+export const mcp_source_query_param = pgTable("mcp_source_query_param", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  source_id: text('source_id').notNull(),
+  name: text('name').notNull(),
+  kind: text('kind', { enum: ['text', 'secret'] }).notNull(),
+  text_value: text('text_value'),
+  secret_id: text('secret_id'),
+  secret_prefix: text('secret_prefix')
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("mcp_source_query_param_scope_id_idx").on(table.scope_id),
+  index("mcp_source_query_param_source_id_idx").on(table.source_id),
+  index("mcp_source_query_param_secret_id_idx").on(table.secret_id),
 ]);
 
 export const mcp_binding = pgTable("mcp_binding", {

@@ -71,6 +71,13 @@
       "when": 1778004434001,
       "tag": "0009_normalize_openapi",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1778004547002,
+      "tag": "0010_normalize_mcp",
+      "breakpoints": true
     }
   ]
 }

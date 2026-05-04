@@ -635,6 +635,82 @@ describe("mcpPlugin", () => {
         );
       }),
   );
+
+  // -------------------------------------------------------------------------
+  // Usage tracking — refs land on auth_* columns + child tables and the
+  // plugin's `usagesForSecret` / `usagesForConnection` should surface
+  // every one. addSource against an unreachable endpoint still persists
+  // the source row so the assertion runs without needing a live server.
+  // -------------------------------------------------------------------------
+
+  it.effect("usagesForSecret aggregates header-auth + headers child rows", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [mcpPlugin()] as const }),
+      );
+
+      yield* executor.mcp
+        .addSource({
+          transport: "remote",
+          scope: "test-scope",
+          name: "header-auth",
+          endpoint: "http://127.0.0.1:1/mcp",
+          namespace: "header_auth_source",
+          auth: {
+            kind: "header",
+            headerName: "X-API-Key",
+            secretId: "shared-key",
+          },
+          headers: { "X-Trace": { secretId: "shared-key" } },
+          queryParams: { ping: { secretId: "other-secret" } },
+        })
+        .pipe(Effect.result);
+
+      const usages = yield* executor.secrets.usages(
+        SecretId.make("shared-key"),
+      );
+      expect(usages.length).toBe(2);
+      const slots = usages.map((u) => u.slot).sort();
+      expect(slots).toEqual(["auth.header", "header:X-Trace"]);
+      expect(usages.every((u) => u.pluginId === "mcp")).toBe(true);
+
+      const otherUsages = yield* executor.secrets.usages(
+        SecretId.make("other-secret"),
+      );
+      expect(otherUsages.length).toBe(1);
+      expect(otherUsages[0].slot).toBe("query_param:ping");
+    }),
+  );
+
+  it.effect("usagesForConnection finds oauth2-bound mcp sources", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [mcpPlugin()] as const }),
+      );
+
+      yield* executor.mcp
+        .addSource({
+          transport: "remote",
+          scope: "test-scope",
+          name: "oauth-source",
+          endpoint: "http://127.0.0.1:1/mcp",
+          namespace: "oauth_ref",
+          auth: { kind: "oauth2", connectionId: "conn-xyz" },
+        })
+        .pipe(Effect.result);
+
+      const usages = yield* executor.connections.usages(
+        ConnectionId.make("conn-xyz"),
+      );
+      expect(usages.length).toBe(1);
+      expect(usages[0]).toMatchObject({
+        pluginId: "mcp",
+        ownerKind: "mcp-source",
+        ownerId: "oauth_ref",
+        slot: "auth.oauth2.connection",
+      });
+    }),
+  );
 });
 
 // ---------------------------------------------------------------------------

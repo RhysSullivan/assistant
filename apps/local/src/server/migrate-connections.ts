@@ -412,9 +412,23 @@ const migrateMcp = (sqlite: Database): void => {
     .all() as ReadonlyArray<McpRow>;
   if (rows.length === 0) return;
 
-  const updateSource = sqlite.prepare(
+  // Post-0009 mcp_source has dedicated auth_kind / auth_connection_id
+  // columns. The auth ETL inside drizzle migration 0009 only fires for
+  // rows whose config.auth carries `connectionId` — i.e., already
+  // post-Connection shape. Truly-legacy rows (inline OAuth shape with
+  // accessTokenSecretId) survive unchanged and fall to this script.
+  // Detect them, mint a Connection, rewire owned secrets, then write
+  // the result to the new columns (not back into config.auth, which
+  // 0009 stripped).
+  const hasAuthColumns = columnExists(sqlite, "mcp_source", "auth_kind");
+  const updateConfig = sqlite.prepare(
     "UPDATE mcp_source SET config = ? WHERE scope_id = ? AND id = ?",
   );
+  const updateConfigAndAuth = hasAuthColumns
+    ? sqlite.prepare(
+        "UPDATE mcp_source SET config = ?, auth_kind = 'oauth2', auth_connection_id = ? WHERE scope_id = ? AND id = ?",
+      )
+    : null;
 
   for (const row of rows) {
     let config: Record<string, unknown> = {};
@@ -452,8 +466,14 @@ const migrateMcp = (sqlite: Database): void => {
       resourceMetadataUrl: legacy.resourceMetadataUrl,
       resourceMetadata: null,
     };
-    const authPointer = { kind: "oauth2" as const, connectionId };
-    const nextConfig = { ...config, auth: authPointer };
+    // Strip auth from config — post-0009 the canonical home is the
+    // auth_* columns. Pre-0009 we still write the pointer back into
+    // config.auth so the older code path keeps working.
+    const { auth: _unused, ...configWithoutAuth } = config;
+    void _unused;
+    const nextConfig = hasAuthColumns
+      ? configWithoutAuth
+      : { ...config, auth: { kind: "oauth2" as const, connectionId } };
 
     const secretIds = [legacy.accessTokenSecretId];
     const secretNames = [`Connection ${connectionId} access token`];
@@ -476,7 +496,16 @@ const migrateMcp = (sqlite: Database): void => {
       });
       const err = rewireSecrets(sqlite, row.scope_id, connectionId, secretIds, secretNames);
       if (err) throw new Error(err);
-      updateSource.run(JSON.stringify(nextConfig), row.scope_id, row.id);
+      if (updateConfigAndAuth) {
+        updateConfigAndAuth.run(
+          JSON.stringify(nextConfig),
+          connectionId,
+          row.scope_id,
+          row.id,
+        );
+      } else {
+        updateConfig.run(JSON.stringify(nextConfig), row.scope_id, row.id);
+      }
     });
     try {
       txn();
